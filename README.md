@@ -8,7 +8,7 @@ A FinOps SaaS tool that detects idle and zombie cloud resources still incurring 
 
 ## What It Does
 
-Axia connects to your cloud billing via read-only IAM access and delivers:
+AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 
 - **The Ghost Number** — total monthly spend on idle resources across all connected accounts
 - **The Ghost List** — itemized breakdown by resource with age, cost/day, and remediation suggestion
@@ -74,7 +74,7 @@ Axia connects to your cloud billing via read-only IAM access and delivers:
 
 ## Legal
 
-Axia is developed under a clean room protocol:
+AxiaOps is developed under a clean room protocol:
 - All development on personal hardware only
 - Code owned by the Operating UG via IP assignment agreement
 - No employer resources, data, or infrastructure used
