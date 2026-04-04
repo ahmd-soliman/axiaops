@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dashboard: web",
+      "type": "shell",
+      "command": "npm run web",
+      "options": {
+        "cwd": "${workspaceFolder}/services/dashboard"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Starting",
+          "endsPattern": "Bundled"
+        }
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "label": "Dashboard"
+      }
+    }
+  ]
+}
