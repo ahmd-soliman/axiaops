@@ -13,7 +13,7 @@ import (
 
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
-	"axiaops.io/ingestion/internal/provider/s3fixture"
+	"axiaops.io/ingestion/internal/provider/filefixture"
 )
 
 func main() {
@@ -22,12 +22,12 @@ func main() {
 	var providers []provider.Provider
 
 	if os.Getenv("DEV_MODE") == "true" {
-		// Dev: read fixture data from LocalStack S3
-		s3, err := s3fixture.New(ctx)
-		if err != nil {
-			log.Fatalf("s3fixture: init failed: %v", err)
+		// Dev: read fixture data directly from local JSON file
+		fixturePath := os.Getenv("FIXTURE_PATH")
+		if fixturePath == "" {
+			fixturePath = "fixtures/costs.json"
 		}
-		providers = append(providers, s3)
+		providers = append(providers, filefixture.New(fixturePath))
 	} else {
 		// Production: real AWS Cost Explorer
 		accountID := os.Getenv("AWS_ACCOUNT_ID")
