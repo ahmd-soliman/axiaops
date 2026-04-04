@@ -1,0 +1,48 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"os"
+	"time"
+
+	"axiaops.io/ingestion/internal/provider"
+	"axiaops.io/ingestion/internal/provider/aws"
+)
+
+func main() {
+	ctx := context.Background()
+
+	accountID := os.Getenv("AWS_ACCOUNT_ID")
+	if accountID == "" {
+		log.Fatal("AWS_ACCOUNT_ID is required")
+	}
+
+	awsClient, err := aws.New(ctx, accountID)
+	if err != nil {
+		log.Fatalf("aws: init failed: %v", err)
+	}
+
+	providers := []provider.Provider{
+		awsClient,
+		// gcp.New(...) — add more providers here
+	}
+
+	end := time.Now().UTC().Truncate(24 * time.Hour)
+	start := end.AddDate(0, -1, 0) // last 30 days
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+
+	for _, p := range providers {
+		records, err := p.FetchCosts(ctx, start, end)
+		if err != nil {
+			log.Printf("[%s] fetch failed: %v", p.Name(), err)
+			continue
+		}
+		if err := enc.Encode(records); err != nil {
+			log.Fatalf("encode failed: %v", err)
+		}
+	}
+}
