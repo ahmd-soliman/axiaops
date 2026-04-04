@@ -3,6 +3,7 @@ import {
   View,
   Text,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
@@ -10,13 +11,29 @@ import {
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { fetchSummary, fetchGhosts } from '../api/client';
+import { serviceConfig } from '../components/serviceConfig';
+
+// Design tokens
+const C = {
+  bg: '#F8FAFC',
+  navy: '#0F172A',
+  navyMid: '#1E293B',
+  navyLight: '#334155',
+  accent: '#F97316',   // orange — savings / money
+  accentLight: '#FFF7ED',
+  text: '#0F172A',
+  textMid: '#475569',
+  textMuted: '#94A3B8',
+  white: '#FFFFFF',
+  border: '#E2E8F0',
+};
 
 export default function DashboardScreen({ onSelectGhost }) {
   const summary = useQuery({ queryKey: ['summary'], queryFn: fetchSummary });
-  const ghosts = useQuery({ queryKey: ['ghosts'], queryFn: fetchGhosts });
+  const ghosts  = useQuery({ queryKey: ['ghosts'],  queryFn: fetchGhosts  });
 
-  const isLoading = summary.isLoading || ghosts.isLoading;
-  const isError = summary.isError || ghosts.isError;
+  const isLoading   = summary.isLoading || ghosts.isLoading;
+  const isError     = summary.isError   || ghosts.isError;
   const isRefreshing = summary.isFetching || ghosts.isFetching;
 
   function refresh() {
@@ -27,7 +44,8 @@ export default function DashboardScreen({ onSelectGhost }) {
   if (isLoading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#E53E3E" />
+        <ActivityIndicator size="large" color={C.accent} />
+        <Text style={styles.loadingText}>Analysing resources…</Text>
       </View>
     );
   }
@@ -35,8 +53,9 @@ export default function DashboardScreen({ onSelectGhost }) {
   if (isError) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>Could not connect to the ingestion service.</Text>
-        <Text style={styles.errorHint}>Make sure it is running on localhost:8080</Text>
+        <Text style={styles.errorIcon}>⚠</Text>
+        <Text style={styles.errorTitle}>Service unavailable</Text>
+        <Text style={styles.errorHint}>Make sure the ingestion service is running on localhost:8080</Text>
         <TouchableOpacity style={styles.retryBtn} onPress={refresh}>
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
@@ -44,96 +63,200 @@ export default function DashboardScreen({ onSelectGhost }) {
     );
   }
 
+  const byService = Object.entries(summary.data.by_service ?? {}).sort(
+    (a, b) => b[1].savings - a[1].savings
+  );
+
   return (
     <FlatList
       style={styles.list}
-      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refresh} />}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refresh} tintColor={C.accent} />}
       ListHeaderComponent={
         <View>
+          {/* Navbar */}
+          <View style={styles.navbar}>
+            <Text style={styles.navBrand}>AxiaOps</Text>
+            <View style={styles.navPill}>
+              <Text style={styles.navPillText}>MVP</Text>
+            </View>
+          </View>
+
+          {/* Hero */}
           <View style={styles.hero}>
-            <Text style={styles.heroLabel}>Potential Monthly Savings</Text>
+            <Text style={styles.heroEyebrow}>Potential Monthly Savings</Text>
             <Text style={styles.heroAmount}>
-              {summary.data.currency} {summary.data.potential_monthly_savings.toFixed(2)}
+              {summary.data.currency}{' '}
+              {summary.data.potential_monthly_savings.toFixed(2)}
             </Text>
             <Text style={styles.heroSub}>
-              {summary.data.total_ghosts} zombie resource{summary.data.total_ghosts !== 1 ? 's' : ''} detected
+              {summary.data.total_ghosts} zombie resource{summary.data.total_ghosts !== 1 ? 's' : ''} detected across your account
             </Text>
+
+            {/* By-service pills */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.pillsRow}
+              contentContainerStyle={{ gap: 8, paddingRight: 4 }}
+            >
+              {byService.map(([svc, data]) => {
+                const cfg = serviceConfig(svc);
+                return (
+                  <View key={svc} style={styles.pill}>
+                    <View style={[styles.pillDot, { backgroundColor: cfg.color }]} />
+                    <Text style={styles.pillLabel}>{cfg.label}</Text>
+                    <Text style={styles.pillSavings}>
+                      {summary.data.currency}{data.savings.toFixed(0)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
           </View>
+
           <Text style={styles.sectionTitle}>Ghost Resources</Text>
         </View>
       }
       data={ghosts.data}
       keyExtractor={(item) => item.resource_id}
-      renderItem={({ item }) => (
-        <TouchableOpacity style={styles.card} onPress={() => onSelectGhost(item)}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardService}>{item.service}</Text>
-            <Text style={styles.cardCost}>
-              {item.currency} {item.monthly_cost.toFixed(2)}/mo
-            </Text>
-          </View>
-          <Text style={styles.cardResource} numberOfLines={1}>{item.resource_id}</Text>
-          <View style={styles.cardFooter}>
-            <Text style={styles.cardRegion}>{item.region}</Text>
-            <Text style={styles.cardOwner}>owner: {item.owner}</Text>
-          </View>
-          <Text style={styles.cardReason}>{item.reason}</Text>
-        </TouchableOpacity>
-      )}
-      ItemSeparatorComponent={() => <View style={styles.separator} />}
-      contentContainerStyle={styles.listContent}
+      renderItem={({ item }) => {
+        const cfg = serviceConfig(item.service);
+        const isProd = item.tags?.env === 'production';
+        return (
+          <TouchableOpacity
+            style={[styles.card, { borderLeftColor: cfg.color }]}
+            onPress={() => onSelectGhost(item)}
+            activeOpacity={0.75}
+          >
+            {/* Top row */}
+            <View style={styles.cardTop}>
+              <View style={[styles.badge, { backgroundColor: cfg.bg }]}>
+                <Text style={[styles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+              </View>
+              <Text style={styles.cardService} numberOfLines={1}>{item.service}</Text>
+              <Text style={styles.cardCost}>{item.currency} {item.monthly_cost.toFixed(2)}</Text>
+            </View>
+
+            {/* Resource ID */}
+            <Text style={styles.cardResource} numberOfLines={1}>{item.resource_id}</Text>
+
+            {/* Meta row */}
+            <View style={styles.cardMeta}>
+              <Chip label={item.region} />
+              <Chip label={item.tags?.env ?? 'unknown'} variant={isProd ? 'prod' : 'stag'} />
+              <Text style={styles.cardOwner}>👤 {item.owner}</Text>
+            </View>
+
+            {/* Reason */}
+            <Text style={styles.cardReason}>{item.reason}</Text>
+          </TouchableOpacity>
+        );
+      }}
+      ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+      contentContainerStyle={{ paddingBottom: 40 }}
     />
   );
 }
 
+function Chip({ label, variant }) {
+  return (
+    <View style={[styles.chip, variant === 'prod' && styles.chipProd, variant === 'stag' && styles.chipStag]}>
+      <Text style={[styles.chipText, variant === 'prod' && styles.chipTextProd, variant === 'stag' && styles.chipTextStag]}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  list: { flex: 1, backgroundColor: '#F7FAFC' },
-  listContent: { paddingBottom: 32 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#F7FAFC' },
+  list: { flex: 1, backgroundColor: C.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, backgroundColor: C.bg },
 
-  hero: {
-    backgroundColor: '#E53E3E',
-    padding: 32,
+  loadingText: { marginTop: 14, color: C.textMuted, fontSize: 14 },
+
+  errorIcon: { fontSize: 32, marginBottom: 12 },
+  errorTitle: { fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 6 },
+  errorHint: { fontSize: 13, color: C.textMuted, textAlign: 'center', lineHeight: 20 },
+  retryBtn: { marginTop: 20, backgroundColor: C.accent, paddingHorizontal: 28, paddingVertical: 11, borderRadius: 8 },
+  retryText: { color: C.white, fontWeight: '700', fontSize: 14 },
+
+  // Navbar
+  navbar: {
+    backgroundColor: C.navy,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
   },
-  heroLabel: { color: '#FEB2B2', fontSize: 13, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' },
-  heroAmount: { color: '#FFFFFF', fontSize: 48, fontWeight: '800', marginTop: 8 },
-  heroSub: { color: '#FEB2B2', fontSize: 14, marginTop: 4 },
+  navBrand: { color: C.white, fontSize: 18, fontWeight: '800', letterSpacing: 0.3, flex: 1 },
+  navPill: { backgroundColor: C.navyLight, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 5 },
+  navPillText: { color: C.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1 },
 
+  // Hero
+  hero: {
+    backgroundColor: C.navyMid,
+    paddingHorizontal: 20,
+    paddingTop: 28,
+    paddingBottom: 24,
+  },
+  heroEyebrow: { color: C.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 },
+  heroAmount: { color: C.accent, fontSize: 46, fontWeight: '800', letterSpacing: -1 },
+  heroSub: { color: C.navyLight, fontSize: 13, marginTop: 4, marginBottom: 20, color: '#64748B' },
+
+  pillsRow: { marginTop: 4 },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: C.navyLight,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  pillDot: { width: 6, height: 6, borderRadius: 3 },
+  pillLabel: { color: C.white, fontSize: 12, fontWeight: '700' },
+  pillSavings: { color: C.textMuted, fontSize: 12 },
+
+  // Section title
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#718096',
-    letterSpacing: 1,
+    color: C.textMuted,
+    letterSpacing: 1.5,
     textTransform: 'uppercase',
     paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 8,
+    paddingTop: 20,
+    paddingBottom: 10,
   },
 
+  // Cards
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.white,
     marginHorizontal: 16,
-    borderRadius: 8,
+    borderRadius: 10,
     padding: 16,
+    borderLeftWidth: 4,
     shadowColor: '#000',
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardService: { fontSize: 15, fontWeight: '700', color: '#2D3748' },
-  cardCost: { fontSize: 15, fontWeight: '700', color: '#E53E3E' },
-  cardResource: { fontSize: 12, color: '#718096', marginTop: 4, fontFamily: 'monospace' },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  cardRegion: { fontSize: 12, color: '#A0AEC0' },
-  cardOwner: { fontSize: 12, color: '#A0AEC0' },
-  cardReason: { fontSize: 13, color: '#E53E3E', marginTop: 8, fontStyle: 'italic' },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  badge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 },
+  badgeText: { fontSize: 11, fontWeight: '800' },
+  cardService: { flex: 1, fontSize: 13, fontWeight: '700', color: C.text },
+  cardCost: { fontSize: 14, fontWeight: '800', color: C.accent },
+  cardResource: { fontSize: 11, color: C.textMuted, fontFamily: 'monospace', marginBottom: 10 },
 
-  separator: { height: 8 },
+  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  chip: { backgroundColor: '#F1F5F9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
+  chipProd: { backgroundColor: '#FEF2F2' },
+  chipStag: { backgroundColor: '#FEFCE8' },
+  chipText: { fontSize: 11, color: C.textMid, fontWeight: '500' },
+  chipTextProd: { color: '#B91C1C' },
+  chipTextStag: { color: '#A16207' },
+  cardOwner: { fontSize: 11, color: C.textMuted, marginLeft: 'auto' },
 
-  errorText: { fontSize: 16, fontWeight: '600', color: '#2D3748', textAlign: 'center' },
-  errorHint: { fontSize: 13, color: '#718096', marginTop: 8, textAlign: 'center' },
-  retryBtn: { marginTop: 16, backgroundColor: '#E53E3E', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 6 },
-  retryText: { color: '#FFFFFF', fontWeight: '600' },
+  cardReason: { fontSize: 12, color: C.textMid, fontStyle: 'italic', lineHeight: 18 },
 });
