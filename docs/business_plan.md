@@ -31,6 +31,9 @@ Cloud waste is endemic. Gartner estimates 30% of cloud spend is wasted. The bigg
 
 ## Solution
 
+AxiaOps is the only tool that covers the full cloud cost lifecycle — before, during, and after deployment.
+
+### Reactive (running infrastructure)
 AxiaOps connects to cloud billing via read-only IAM access and delivers:
 
 1. **The Ghost Number** — total monthly spend on idle resources across all connected accounts
@@ -39,7 +42,21 @@ AxiaOps connects to cloud billing via read-only IAM access and delivers:
 4. **The Weekly Digest** — email/Slack alert when new ghosts appear
 5. **Multi-account Dashboard** — single pane for MSPs managing multiple client accounts
 
-Core value proposition: **detect waste, action it, prove the savings — across every cloud, for every client.**
+### Proactive (pre-deployment cost simulation)
+AxiaOps can anticipate costs before infrastructure is deployed:
+
+1. **Cost Simulation** — parse Terraform/CDK/Pulumi plans and estimate monthly cost before `apply`
+2. **What-if Scenarios** — "what if I switch from gp2 to gp3?" or "what if I move to a different region?"
+3. **CI/CD Budget Gate** — block or warn on pull requests that would increase monthly spend beyond a threshold
+4. **Architecture Recommendations** — suggest cheaper equivalent configurations at plan time
+
+```
+Plan → Deploy → Run
+ ↑         ↑       ↑
+Simulate  Gate   Optimize
+```
+
+Core value proposition: **the only FinOps tool that prevents cloud waste before it happens, and eliminates it after.**
 
 ---
 
@@ -125,10 +142,13 @@ This mirrors the approach of Datadog, Grafana, and PagerDuty — desktop-native 
 
 ### Defensible Differentiation
 
-1. **Remediation workflow with audit trail** — detect → assign → approve → act → prove savings
-2. **Multi-cloud ghost detection in one view** — AWS + Azure + GCP aggregated
-3. **MSP-native** — multi-client dashboard, white-label reports, reseller pricing
-4. **Tagging hygiene + ghost correlation** — surfaces both problems together
+1. **Full cost lifecycle** — the only tool covering pre-deployment simulation, CI/CD gating, and runtime optimization
+2. **Remediation workflow with audit trail** — detect → assign → approve → act → prove savings
+3. **Multi-cloud ghost detection in one view** — AWS + Azure + GCP aggregated
+4. **MSP-native** — multi-client dashboard, white-label reports, reseller pricing
+5. **Tagging hygiene + ghost correlation** — surfaces both problems together
+
+**Why Infracost doesn't close this gap:** Infracost estimates costs at plan time but has no runtime optimization, no anomaly detection, no remediation workflow, and no CI/CD budget gate. AxiaOps owns the entire lifecycle.
 
 ---
 
@@ -230,7 +250,8 @@ New users are hesitant to connect a live AWS production account to an unknown st
 
 | Risk | Mitigation |
 |------|-----------|
-| AWS Trusted Advisor is free and good enough | Compete on workflow + multi-cloud, not detection |
+| AWS Trusted Advisor is free and good enough | Compete on workflow + multi-cloud + proactive simulation, not detection |
+| Infracost copies the runtime optimization angle | Move fast, the full lifecycle moat is hard to replicate |
 | Vantage or Unusd copies the MSP angle | Move fast, build MSP brand early, lock in resellers |
 | Employer IP claim | Clean room log, personal hardware, UG IP assignment |
 | Low activation | Show savings number in <5 minutes from signup |

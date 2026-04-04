@@ -97,6 +97,48 @@
 
 ---
 
+## Phase 4 — Proactive Cost Simulation (Q1–Q2 2027)
+
+### Goal: Anticipate costs before deployment — own the full cost lifecycle
+
+This phase transforms AxiaOps from a reactive tool into a proactive one. Instead of only showing what was spent, it predicts what will be spent before infrastructure is deployed.
+
+```
+Plan → Deploy → Run
+ ↑         ↑       ↑
+Simulate  Gate   Optimize   ← AxiaOps owns all three
+```
+
+#### 4.1 IaC Plan Parser
+- Parse `terraform plan -out=plan.json` output
+- Parse AWS CDK `cdk diff` output
+- Extract resource types, sizes, regions, and counts
+- Map each resource to its pricing model (on-demand, reserved, spot)
+
+#### 4.2 Cost Estimation Engine
+- Fetch live pricing from AWS Pricing API, Azure Retail Prices API, GCP Cloud Billing Catalog
+- Compute estimated monthly cost per resource
+- Aggregate into a total estimated monthly delta (how much will this change my bill?)
+- Flag resources with no cost tag — ownership gap surfaced at plan time, not after
+
+#### 4.3 What-if Scenarios
+- "What if I use gp3 instead of gp2?" → show savings
+- "What if I switch region from us-east-1 to eu-west-1?" → show delta
+- "What if I use Spot instead of On-Demand?" → show risk vs savings
+
+#### 4.4 CI/CD Budget Gate
+- GitHub Actions / GitLab CI integration — runs on every pull request
+- Posts estimated cost delta as a PR comment
+- Configurable threshold: warn or block if monthly cost increase exceeds limit
+- Example: block merge if a PR adds >€500/month in new infrastructure
+
+#### 4.5 CLI Tool
+- `axiaops estimate --plan plan.json` — standalone CLI for local use
+- Output: JSON or human-readable table of estimated costs
+- Installable via `brew install axiaops` or single binary download
+
+---
+
 ## Tech Stack Summary
 
 | Layer | Technology |
@@ -125,12 +167,15 @@
 
 | Date | Milestone |
 |------|-----------|
-| April 2026 | Mock data generator + Go worker MVP |
+| April 2026 | Mock data generator + Go ingestion service MVP |
 | May 2026 | React Native dashboard — local demo |
 | June 2026 | Docker Compose full-stack running locally |
-| July 2026 | AWS CUR integration — real data |
+| July 2026 | AWS Cost Explorer integration — real data |
 | August 2026 | Auth + multi-tenancy |
 | September 2026 | Alpha with 3–5 beta users |
 | October 2026 | App Store / Play Store submission |
 | November 2026 | First paying customer |
 | December 2026 | 10 customers, €5K MRR target |
+| Q1 2027 | IaC plan parser + cost estimation engine |
+| Q2 2027 | CI/CD budget gate (GitHub Actions / GitLab CI) |
+| Q3 2027 | CLI tool + what-if scenarios |
