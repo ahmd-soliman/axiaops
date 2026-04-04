@@ -44,8 +44,45 @@
 - Stack: Expo + React Native + React Query
 
 #### 1.4 Infrastructure (local)
-- Docker Compose: Go API + PostgreSQL
+- Docker Compose: Go API + PostgreSQL + LocalStack
 - `.env`-based config (never committed)
+
+#### 1.5 LocalStack — AWS Emulation
+LocalStack replaces the real AWS APIs during local development and CI. No AWS account, no costs, no credentials to manage.
+
+**Why LocalStack over a real account:**
+- Cost Explorer API charges per request — not suitable for frequent dev/test cycles
+- No risk of accidentally touching real infrastructure
+- Instant reset — wipe and recreate state in seconds
+- CI-friendly — runs as a Docker container alongside the app
+
+**Services used:**
+- `ce` (Cost Explorer) — mock cost data responses
+- `s3` — store billing exports (CUR files) locally
+- `sts` — simulate cross-account IAM role assumption
+
+**Setup:**
+```yaml
+# docker-compose.yml
+localstack:
+  image: localstack/localstack
+  ports:
+    - "4566:4566"
+  environment:
+    - SERVICES=ce,s3,sts
+```
+
+**Pointing the AWS SDK at LocalStack:**
+```bash
+AWS_ENDPOINT_URL=http://localhost:4566
+AWS_ACCESS_KEY_ID=test
+AWS_SECRET_ACCESS_KEY=test
+AWS_REGION=us-east-1
+```
+
+The AWS SDK v2 respects `AWS_ENDPOINT_URL` automatically — no code changes needed between LocalStack and real AWS.
+
+**Limitation:** LocalStack free tier has partial Cost Explorer support. If a specific API call is unsupported, fall back to a lightweight Go mock server that returns realistic-looking JSON fixtures.
 
 ---
 
