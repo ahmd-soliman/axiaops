@@ -1,0 +1,109 @@
+// Package analyzer detects zombie cloud resources by joining cost records with
+// usage metrics and applying per-service threshold rules.
+package analyzer
+
+import "axiaops.io/ingestion/internal/model"
+
+// UsageRecord holds the average usage metric for a single resource over a
+// billing period. Sourced from CloudWatch in production; from a fixture file
+// in dev mode.
+type UsageRecord struct {
+	ResourceID  string  `json:"resource_id"`
+	Metric      string  `json:"metric"`
+	Unit        string  `json:"unit"`
+	Avg         float64 `json:"avg"`
+	PeriodDays  int     `json:"period_days"`
+}
+
+// Detect joins cost records with usage metrics and returns any resources that
+// are incurring cost but show no meaningful activity according to the
+// per-service threshold rules in rules.go.
+func Detect(costs []model.CostRecord, usage []UsageRecord) []model.GhostResource {
+	// Index usage by resource_id for O(1) lookup.
+	usageByID := make(map[string]UsageRecord, len(usage))
+	for _, u := range usage {
+		usageByID[u.ResourceID] = u
+	}
+
+	var ghosts []model.GhostResource
+	for _, c := range costs {
+		r, hasRule := serviceRules[c.Service]
+		if !hasRule {
+			continue // no rule for this service in MVP
+		}
+
+		u, hasUsage := usageByID[c.ResourceID]
+		if !hasUsage {
+			continue // no usage data — cannot make a determination
+		}
+
+		if u.Avg <= r.threshold {
+			ghosts = append(ghosts, model.GhostResource{
+				Provider:    c.Provider,
+				AccountID:   c.AccountID,
+				Service:     c.Service,
+				Region:      c.Region,
+				ResourceID:  c.ResourceID,
+				Tags:        c.Tags,
+				MonthlyCost: c.Amount,
+				Currency:    c.Currency,
+				PeriodStart: c.PeriodStart,
+				PeriodEnd:   c.PeriodEnd,
+				UsageMetric: u.Metric,
+				UsageAvg:    u.Avg,
+				UsageUnit:   u.Unit,
+				Reason:      r.reason,
+				Owner:       owner(c.Tags),
+			})
+		}
+	}
+	return ghosts
+}
+
+// Summary holds aggregate savings figures across all detected ghost resources.
+type Summary struct {
+	TotalGhosts          int     `json:"total_ghosts"`
+	PotentialMonthlySave float64 `json:"potential_monthly_savings"`
+	Currency             string  `json:"currency"`
+	ByService            map[string]ServiceSummary `json:"by_service"`
+}
+
+// ServiceSummary groups ghost counts and savings for one AWS service.
+type ServiceSummary struct {
+	Ghosts  int     `json:"ghosts"`
+	Savings float64 `json:"savings"`
+}
+
+// Summarize computes aggregate savings from a slice of ghost resources.
+func Summarize(ghosts []model.GhostResource) Summary {
+	s := Summary{
+		TotalGhosts: len(ghosts),
+		ByService:   make(map[string]ServiceSummary),
+	}
+	for _, g := range ghosts {
+		s.PotentialMonthlySave += g.MonthlyCost
+		if s.Currency == "" {
+			s.Currency = g.Currency
+		}
+		svc := s.ByService[g.Service]
+		svc.Ghosts++
+		svc.Savings += g.MonthlyCost
+		s.ByService[g.Service] = svc
+	}
+	s.PotentialMonthlySave = round2(s.PotentialMonthlySave)
+	return s
+}
+
+// owner derives the responsible team from resource tags.
+// Falls back to "unknown" when no team tag is present.
+func owner(tags map[string]string) string {
+	if t, ok := tags["team"]; ok && t != "" {
+		return t
+	}
+	return "unknown"
+}
+
+// round2 rounds f to 2 decimal places.
+func round2(f float64) float64 {
+	return float64(int(f*100+0.5)) / 100
+}
