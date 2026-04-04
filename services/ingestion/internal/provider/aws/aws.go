@@ -23,7 +23,7 @@ const dateLayout = "2006-01-02"
 // Client fetches costs from the AWS Cost Explorer API.
 type Client struct {
 	accountID string
-	ce        *costexplorer.Client
+	ce        CostExplorerAPI
 }
 
 // New loads AWS credentials from the environment (AWS_ACCESS_KEY_ID,
@@ -37,6 +37,12 @@ func New(ctx context.Context, accountID string) (*Client, error) {
 		accountID: accountID,
 		ce:        costexplorer.NewFromConfig(cfg),
 	}, nil
+}
+
+// NewWithClient creates a Client with a custom CostExplorerAPI implementation.
+// Used in tests to inject a mock.
+func NewWithClient(accountID string, ce CostExplorerAPI) *Client {
+	return &Client{accountID: accountID, ce: ce}
 }
 
 func (c *Client) Name() string { return "aws" }
