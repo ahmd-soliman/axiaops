@@ -47,8 +47,9 @@
 - Docker Compose: Go API + PostgreSQL + LocalStack
 - `.env`-based config (never committed)
 
-#### 1.5 LocalStack — AWS Emulation
-LocalStack replaces the real AWS APIs during local development and CI. No AWS account, no costs, no credentials to manage.
+#### 1.5 LocalStack — AWS Emulation via S3 Fixture
+
+LocalStack replaces real AWS APIs during local development and CI. No AWS account, no costs, no credentials to manage.
 
 **Why LocalStack over a real account:**
 - Cost Explorer API charges per request — not suitable for frequent dev/test cycles
@@ -56,33 +57,47 @@ LocalStack replaces the real AWS APIs during local development and CI. No AWS ac
 - Instant reset — wipe and recreate state in seconds
 - CI-friendly — runs as a Docker container alongside the app
 
-**Services used:**
-- `ce` (Cost Explorer) — mock cost data responses
-- `s3` — store billing exports (CUR files) locally
-- `sts` — simulate cross-account IAM role assumption
+**Why S3 fixture instead of LocalStack Cost Explorer:**
+LocalStack Pro ($35/month) is required for full Cost Explorer support. To avoid this cost during early development, cost data is stored as a JSON fixture in LocalStack S3 (free tier). This still exercises the full AWS SDK code path — credentials, endpoint override, HTTP — without hitting real AWS or paying for Pro.
 
-**Setup:**
-```yaml
-# docker-compose.yml
-localstack:
-  image: localstack/localstack
-  ports:
-    - "4566:4566"
-  environment:
-    - SERVICES=ce,s3,sts
+**Fixture flow:**
 ```
+fixtures/costs.json
+       │
+    seeder (cmd/seed)          — runs once on startup
+       │ CreateBucket + PutObject
+       ▼
+  LocalStack S3
+       │ GetObject
+    s3fixture provider          — DEV_MODE=true
+       │
+    ingestion (main.go)
+       │
+    stdout (JSON)
+```
+
+**Services used:**
+- `s3` — stores the cost fixture file
+- `sts` — simulates cross-account IAM role assumption (future use)
+
+**`DEV_MODE` switch in `main.go`:**
+- `DEV_MODE=true` → reads fixture from LocalStack S3 (local dev)
+- `DEV_MODE=false` → calls real AWS Cost Explorer (production)
+
+No code changes needed when switching environments — only the environment variable changes.
 
 **Pointing the AWS SDK at LocalStack:**
 ```bash
 AWS_ENDPOINT_URL=http://localhost:4566
 AWS_ACCESS_KEY_ID=test
 AWS_SECRET_ACCESS_KEY=test
-AWS_REGION=us-east-1
+AWS_REGION=eu-central-1
 ```
 
-The AWS SDK v2 respects `AWS_ENDPOINT_URL` automatically — no code changes needed between LocalStack and real AWS.
-
-**Limitation:** LocalStack free tier has partial Cost Explorer support. If a specific API call is unsupported, fall back to a lightweight Go mock server that returns realistic-looking JSON fixtures.
+**Docker Compose startup order:**
+1. LocalStack starts and passes healthcheck
+2. Seeder runs — creates bucket, uploads `fixtures/costs.json`, exits
+3. Ingestion runs — reads from S3, outputs cost records as JSON
 
 ---
 
