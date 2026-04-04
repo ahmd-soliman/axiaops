@@ -1,3 +1,6 @@
+// Package provider defines the Provider interface that every cloud adapter must
+// implement. Adding a new cloud provider (GCP, Azure, etc.) means creating a
+// new package that satisfies this interface — no changes needed elsewhere.
 package provider
 
 import (

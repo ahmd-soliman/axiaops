@@ -1,3 +1,7 @@
+// main is the entry point for the ingestion service. It initializes all
+// configured cloud provider clients, fetches cost data for the last 30 days,
+// and writes the normalized records as JSON to stdout. New providers are
+// registered in the providers slice — no other changes are required.
 package main
 
 import (
