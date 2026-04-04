@@ -1,0 +1,7 @@
+### Aggregate savings summary
+GET http://localhost:8080/summary
+
+###
+
+### All detected ghost resources
+GET http://localhost:8080/ghosts
