@@ -5,10 +5,30 @@ services:
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=ce,s3,sts
+      - SERVICES=s3,sts
       - DEFAULT_REGION=eu-central-1
     volumes:
       - localstack-data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  seeder:
+    build:
+      context: .
+      dockerfile: Dockerfile.seed
+    container_name: axiaops-seeder
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=eu-central-1
 
   ingestion:
     build:
@@ -16,13 +36,15 @@ services:
       dockerfile: Dockerfile
     container_name: axiaops-ingestion
     depends_on:
-      - localstack
+      seeder:
+        condition: service_completed_successfully
     environment:
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_REGION=eu-central-1
       - AWS_ACCOUNT_ID=000000000000
+      - DEV_MODE=true
 
 volumes:
   localstack-data:
