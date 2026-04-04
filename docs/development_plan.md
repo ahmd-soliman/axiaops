@@ -42,60 +42,88 @@
 - Stack: Expo + React Native + React Query
 
 #### 1.4 Infrastructure (local)
-- Docker Compose: Go API + PostgreSQL + LocalStack
+- Docker Compose: Go ingestion service + SQLite (file on disk)
 - `.env`-based config (never committed)
 
-#### 1.5 LocalStack — AWS Emulation via S3 Fixture
+#### 1.5 Dev Environment — File Fixture + SQLite
 
-LocalStack replaces real AWS APIs during local development and CI. No AWS account, no costs, no credentials to manage.
+Local development uses a plain JSON fixture file and SQLite — no external services required.
 
-**Why LocalStack over a real account:**
-- Cost Explorer API charges per request — not suitable for frequent dev/test cycles
-- No risk of accidentally touching real infrastructure
-- Instant reset — wipe and recreate state in seconds
-- CI-friendly — runs as a Docker container alongside the app
-
-**Why S3 fixture instead of LocalStack Cost Explorer:**
-LocalStack Pro ($35/month) is required for full Cost Explorer support. To avoid this cost during early development, cost data is stored as a JSON fixture in LocalStack S3 (free tier). This still exercises the full AWS SDK code path — credentials, endpoint override, HTTP — without hitting real AWS or paying for Pro.
+**Why not LocalStack Cost Explorer:**
+LocalStack Pro ($35/month) is required for full Cost Explorer support. The free tier does not include the Cost Explorer (`ce`) service. Rather than paying for Pro or maintaining a LocalStack S3 seeder just for dev, the ingestion service reads cost data directly from a local JSON file.
 
 **Fixture flow:**
 ```
 fixtures/costs.json
        │
-    seeder (cmd/seed)          — runs once on startup
-       │ CreateBucket + PutObject
-       ▼
-  LocalStack S3
-       │ GetObject
-    s3fixture provider          — DEV_MODE=true
+    filefixture provider        — DEV_MODE=true
        │
     ingestion (main.go)
        │
-    stdout (JSON)
+    sqlite.Store (axiaops.db)   — INSERT OR IGNORE
+       │
+    axiaops.db
 ```
-
-**Services used:**
-- `s3` — stores the cost fixture file
-- `sts` — simulates cross-account IAM role assumption (future use)
 
 **`DEV_MODE` switch in `main.go`:**
-- `DEV_MODE=true` → reads fixture from LocalStack S3 (local dev)
+- `DEV_MODE=true` → reads from `fixtures/costs.json` directly (local dev)
 - `DEV_MODE=false` → calls real AWS Cost Explorer (production)
 
-No code changes needed when switching environments — only the environment variable changes.
+No code changes are needed when switching environments — only the environment variable changes.
 
-**Pointing the AWS SDK at LocalStack:**
+**Running locally (VS Code):**
+Use the `ingestion (dev)` launch configuration in `.vscode/launch.json`. It sets `DEV_MODE=true` and `FIXTURE_PATH=fixtures/costs.json` automatically.
+
+**Running with Docker Compose:**
 ```bash
-AWS_ENDPOINT_URL=http://localhost:4566
-AWS_ACCESS_KEY_ID=test
-AWS_SECRET_ACCESS_KEY=test
-AWS_REGION=eu-central-1
+cd services/ingestion
+docker compose up
 ```
 
-**Docker Compose startup order:**
-1. LocalStack starts and passes healthcheck
-2. Seeder runs — creates bucket, uploads `fixtures/costs.json`, exits
-3. Ingestion runs — reads from S3, outputs cost records as JSON
+The container runs the ingestion service with `DEV_MODE=true`. The SQLite database is written inside the container (ephemeral). Mount a volume if persistence across runs is needed.
+
+#### 1.6 Storage Layer — SQLite
+
+**Schema (`cost_records` table):**
+
+```sql
+CREATE TABLE IF NOT EXISTS cost_records (
+    id           INTEGER  PRIMARY KEY AUTOINCREMENT,
+    provider     TEXT     NOT NULL,         -- e.g. "aws"
+    account_id   TEXT     NOT NULL,         -- AWS account ID
+    service      TEXT     NOT NULL,         -- e.g. "Amazon EC2"
+    region       TEXT     NOT NULL,         -- e.g. "eu-central-1"
+    resource_id  TEXT,                      -- optional ARN or resource ID
+    amount       REAL     NOT NULL,         -- cost in `currency`
+    currency     TEXT     NOT NULL,         -- e.g. "USD"
+    period_start DATETIME NOT NULL,         -- billing period start (UTC)
+    period_end   DATETIME NOT NULL,         -- billing period end (UTC)
+    tags         TEXT,                      -- JSON object: {"env":"prod","team":"platform"}
+    fetched_at   DATETIME NOT NULL,         -- when this record was ingested
+    UNIQUE(provider, account_id, service, region, period_start, period_end)
+);
+```
+
+**Duplicate handling:** `INSERT OR IGNORE` skips any row that violates the `UNIQUE` constraint. Running the ingestion service multiple times for the same date range is safe — only new records are written. The log line reports `inserted N, skipped M duplicates`.
+
+**Querying the database (sqlite3 CLI):**
+```bash
+# open the database
+sqlite3 services/ingestion/axiaops.db
+
+# list all records
+SELECT provider, service, region, amount, currency, period_start FROM cost_records;
+
+# total cost by service
+SELECT service, SUM(amount) AS total FROM cost_records GROUP BY service ORDER BY total DESC;
+
+# records for a specific date range
+SELECT * FROM cost_records WHERE period_start >= '2025-09-01' AND period_end <= '2025-09-30';
+```
+
+**GUI option:** Open `axiaops.db` with [DB Browser for SQLite](https://sqlitebrowser.org) for a visual table view.
+
+**Production:** The `Store` interface (`internal/storage/storage.go`) is the only contract the rest of the code depends on. Swapping to PostgreSQL requires only a new implementation of `Store` — no changes to providers, main, or tests.
 
 ---
 
