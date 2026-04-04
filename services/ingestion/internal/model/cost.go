@@ -1,3 +1,6 @@
+// Package model defines the shared data structures used across the ingestion
+// service. CostRecord is the single normalized representation of a cloud cost
+// entry, regardless of which provider it originated from.
 package model
 
 import "time"
