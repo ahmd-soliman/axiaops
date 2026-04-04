@@ -1,3 +1,7 @@
+// Package aws implements the Provider interface for Amazon Web Services.
+// It uses the AWS Cost Explorer API (GetCostAndUsage) to retrieve daily costs
+// grouped by service and region, and normalizes them into model.CostRecord.
+// Credentials are loaded automatically from the environment or ~/.aws/credentials.
 package aws
 
 import (
