@@ -10,21 +10,19 @@
 
 ### Goal: Working AxiaOps Detector (local, no auth, fake data)
 
-#### 1.1 Mock Data Generator
-- Python script that produces a realistic "Fake Large Enterprise" billing CSV + CloudWatch-style JSON metrics
-- Fields: `resource_id`, `resource_type`, `region`, `daily_cost`, `last_usage_date`, `tags`
-- Tags must include `Owner` and `Project` on every row — ownership resolution depends on this
-- Volume: ~10,000 rows to simulate real enterprise scale
-- Seed with realistic patterns (EBS, ELB, RDS snapshots, NAT Gateways)
-- Include a `--seed` flag for deterministic test runs
-- Include scheduled-batch resource patterns (resources active once/month) to test threshold logic
+#### 1.1 Cost Fixture Data
+- JSON file (`fixtures/costs.json`) containing realistic `CostRecord` entries mimicking AWS Cost Explorer responses
+- Fields: `provider`, `account_id`, `service`, `region`, `amount`, `currency`, `period_start`, `period_end`, `tags`
+- Tags must include `env` and `team` on every record — ownership resolution depends on this
+- Cover realistic patterns: EC2, RDS, S3, Lambda, CloudFront, ELB, NAT Gateway across multiple regions
+- Seeded into LocalStack S3 on startup via `cmd/seed` — no real AWS account needed
 
 #### 1.2 Backend — Go Worker
 - **Language:** Go 1.22+
 - **Framework:** Standard library + `net/http` for API
 - **Data Layer:** SQLite (MVP) → PostgreSQL (production)
 - **Core Logic:**
-  - Use **streaming CSV parsing** — never load entire file into memory (AWS CUR files can be multiple GBs)
+  - Use **streaming JSON parsing** — never load entire response into memory (Cost Explorer responses can be large for big accounts)
   - Join billing data with usage metrics (CPU, IOPS, network) — cost alone is not sufficient to flag a ghost
   - Flag resources with `cost > 0` AND activity below configurable threshold for N days
   - **Zombie threshold is configurable per tenant** (default 7 days; enterprise batch jobs may need 30 days)
@@ -32,7 +30,7 @@
   - Categorize by resource type (Idle Load Balancers, unattached EBS, aged snapshots, unused Elastic IPs)
   - Compute `potential_monthly_savings` per resource and in aggregate
 - **API Endpoints:**
-  - `POST /ingest` — upload billing CSV
+  - `POST /ingest` — trigger ingestion from cloud provider API
   - `GET /ghosts` — returns list of zombie resources with cost breakdown
   - `GET /summary` — returns aggregate savings figure
 
