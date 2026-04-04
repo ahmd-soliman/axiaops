@@ -6,7 +6,8 @@
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/cmd/main.go",
+      "program": "${workspaceFolder}/services/ingestion/cmd/main.go",
+      "cwd": "${workspaceFolder}/services/ingestion",
       "env": {
         "DEV_MODE": "true",
         "FIXTURE_PATH": "fixtures/costs.json"
