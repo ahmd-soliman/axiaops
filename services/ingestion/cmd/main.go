@@ -13,23 +13,32 @@ import (
 
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
+	"axiaops.io/ingestion/internal/provider/s3fixture"
 )
 
 func main() {
 	ctx := context.Background()
 
-	accountID := os.Getenv("AWS_ACCOUNT_ID")
-	if accountID == "" {
-		log.Fatal("AWS_ACCOUNT_ID is required")
-	}
+	var providers []provider.Provider
 
-	awsClient, err := aws.New(ctx, accountID)
-	if err != nil {
-		log.Fatalf("aws: init failed: %v", err)
-	}
-
-	providers := []provider.Provider{
-		awsClient,
+	if os.Getenv("DEV_MODE") == "true" {
+		// Dev: read fixture data from LocalStack S3
+		s3, err := s3fixture.New(ctx)
+		if err != nil {
+			log.Fatalf("s3fixture: init failed: %v", err)
+		}
+		providers = append(providers, s3)
+	} else {
+		// Production: real AWS Cost Explorer
+		accountID := os.Getenv("AWS_ACCOUNT_ID")
+		if accountID == "" {
+			log.Fatal("AWS_ACCOUNT_ID is required")
+		}
+		awsClient, err := aws.New(ctx, accountID)
+		if err != nil {
+			log.Fatalf("aws: init failed: %v", err)
+		}
+		providers = append(providers, awsClient)
 		// gcp.New(...) — add more providers here
 	}
 
