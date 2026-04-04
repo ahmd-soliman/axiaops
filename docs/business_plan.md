@@ -206,12 +206,6 @@ Ahmed (Founder / 100% shareholder)
 5. Register with Finanzamt for VAT
 6. Engage a Steuerberater familiar with SaaS/startup structures
 
-### IP Clean Room (Non-Negotiable)
-- All development on personal hardware only
-- Maintain dated work log (device, hours, date)
-- Use only mock/generated billing data — never employer data
-- Separate Git identity from work email
-
 ---
 
 ## Financial Projections
@@ -253,7 +247,7 @@ New users are hesitant to connect a live AWS production account to an unknown st
 | AWS Trusted Advisor is free and good enough | Compete on workflow + multi-cloud + proactive simulation, not detection |
 | Infracost copies the runtime optimization angle | Move fast, the full lifecycle moat is hard to replicate |
 | Vantage or Unusd copies the MSP angle | Move fast, build MSP brand early, lock in resellers |
-| Employer IP claim | Clean room log, personal hardware, UG IP assignment |
+| IP ownership dispute | UG IP assignment agreement from day one |
 | Low activation | Show savings number in <5 minutes from signup |
 | German tax complexity | Holding + UG structure, Steuerberater from day one |
 

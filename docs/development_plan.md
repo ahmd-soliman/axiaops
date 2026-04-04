@@ -203,16 +203,6 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 
 ---
 
-## Clean Room Protocol (Non-Negotiable)
-
-- All development on personal hardware only
-- Maintain a work log: date, hours, device used
-- Use only mock/generated data — never real employer billing data
-- Separate Git identity from work email
-- No [redacted] infrastructure, credentials, or architecture referenced
-
----
-
 ## Milestones
 
 | Date | Milestone |

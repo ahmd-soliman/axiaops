@@ -89,12 +89,11 @@ Compare to your personal income tax rate as an employee: up to **42% (+ Soli)**
 
 This means retaining profits inside the company and reinvesting them is more tax-efficient than paying yourself a large salary.
 
-### Optimal Salary Strategy (Employed + Founder)
-While still at [redacted]:
+### Optimal Salary Strategy
 - Pay yourself a **minimal managing director salary** from the UG (e.g., €1,000–€2,000/month)
 - Keep profits inside the UG
 - This avoids pushing your total income into the 42% bracket
-- Once you leave [redacted], reassess — you'll need a market-rate salary for pension contributions
+- Once fully focused on AxiaOps, reassess — you'll need a market-rate salary for pension contributions
 
 ---
 
@@ -155,6 +154,6 @@ Networks to find one:
 1. **Found the Holding GmbH + Operating UG** — before any public launch or revenue
 2. **Sign the IP assignment agreement** — transfer code to the UG
 3. **Register for VAT** — before the first invoice
-4. **Set a minimal salary** — keep profits in the company while at [redacted]
+4. **Set a minimal salary** — keep profits in the company in the early stage
 5. **Engage a Steuerberater** — do not DIY the annual filings
 6. **Plan the exit structure early** — the holding only saves tax if it owns the shares *before* the exit
