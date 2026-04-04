@@ -151,12 +151,14 @@ LocalStack Pro ($35/month) is required for full Cost Explorer support. The free 
 - Add CloudWatch provider for usage metrics — same `CostExplorerAPI` mock pattern
 - IAM policy required: `ce:GetCostAndUsage`, `cloudwatch:GetMetricStatistics`
 - Never store customer credentials — use cross-account IAM role assumption (`sts:AssumeRole`)
+- See [docs/production.md](production.md) for IAM policy details and multi-tenant role assumption pattern
 
 #### 2.2 Auth & Multi-tenancy
 - Auth: Clerk or Supabase Auth (JWT)
 - Tenant isolation at database row level (`tenant_id` on all tables)
 - Each tenant connects their own AWS account via IAM role ARN
-- PostgreSQL replaces SQLite — implement `Store` interface for PostgreSQL
+- PostgreSQL replaces SQLite — implement `Store` interface for PostgreSQL (no changes to providers, analyzer, or API)
+- See [docs/production.md](production.md) for the full PostgreSQL migration path and hosting options
 
 #### 2.3 Alerting
 - Weekly email digest: "You have $X in ghost spend this week"
