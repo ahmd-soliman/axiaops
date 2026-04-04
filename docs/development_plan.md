@@ -53,18 +53,44 @@ Resources with no rule or no usage record are skipped — no determination is ma
 - `GET /ghosts` — list of detected zombie resources with cost, usage metric, reason, and owner
 - `GET /summary` — aggregate savings figure and per-service breakdown
 
-#### 1.4 Frontend — React Native
+#### 1.4 Testing
+
+All backend packages have unit tests. Run with:
+
+```bash
+cd services/ingestion
+go test ./...           # uses cached results if nothing changed
+go test ./... -count=1  # force full re-run
+```
+
+**Coverage (24 tests across 5 packages):**
+
+| Package | Tests | What is covered |
+|---------|-------|-----------------|
+| `internal/analyzer` | 9 | Flags zero-usage resources, skips active resources, skips services with no rule, skips missing usage data, owner fallback to "unknown", multiple ghosts, empty summary, aggregate savings |
+| `internal/api` | 7 | `GET /ghosts` and `GET /summary` return 200, correct JSON payload, `application/json` content type, CORS header present, OPTIONS preflight returns 204 |
+| `internal/storage/sqlite` | 5 | Inserts records, deduplicates on re-run, empty batch, different region is not a duplicate, tags serialised as JSON |
+| `internal/provider/filefixture` | 5 | Returns all records, handles multiple records, file not found error, invalid JSON error, correct `Name()` |
+| `internal/provider/aws` | 3 | Single-page response, multi-page pagination, API error propagation |
+
+**Test patterns used:**
+- `mockCEClient` — implements `CostExplorerAPI` interface to test the AWS provider without real AWS calls
+- `os.CreateTemp` — creates a throwaway SQLite file per test; cleaned up via `t.Cleanup`
+- `httptest.NewRecorder` — tests HTTP handlers without starting a real server
+- Table-driven helpers (`costRecord`, `usageRecord`, `record`) — reduce boilerplate across test cases
+
+#### 1.5 Frontend — React Native
 - Single "Dashboard" screen
 - Big red number: **"Potential Monthly Savings: $X,XXX"**
 - Scrollable list of ghost resources grouped by type
 - Tap a resource → detail view with remediation suggestion (e.g., "Delete this EBS volume")
 - Stack: Expo + React Native + React Query
 
-#### 1.5 Infrastructure (local)
+#### 1.6 Infrastructure (local)
 - Docker Compose: Go ingestion service + SQLite (file on disk)
 - `.env`-based config (never committed)
 
-#### 1.6 Dev Environment — File Fixture + SQLite
+#### 1.7 Dev Environment — File Fixture + SQLite
 
 Local development uses a plain JSON fixture file and SQLite — no external services required.
 
@@ -101,7 +127,7 @@ docker compose up
 
 The container runs the ingestion service with `DEV_MODE=true`. The SQLite database is written inside the container (ephemeral). Mount a volume if persistence across runs is needed.
 
-#### 1.7 Storage Layer — SQLite
+#### 1.8 Storage Layer — SQLite
 
 **Schema (`cost_records` table):**
 
