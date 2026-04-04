@@ -12,7 +12,8 @@ import (
 // Store persists and retrieves cost records.
 type Store interface {
 	// Save inserts a batch of cost records, skipping duplicates.
-	Save(ctx context.Context, records []model.CostRecord) error
+	// Returns the number of records actually inserted.
+	Save(ctx context.Context, records []model.CostRecord) (int64, error)
 
 	// Close releases any resources held by the store.
 	Close() error

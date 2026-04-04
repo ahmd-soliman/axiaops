@@ -60,9 +60,11 @@ func main() {
 			log.Printf("[%s] fetch failed: %v", p.Name(), err)
 			continue
 		}
-		if err := store.Save(ctx, records); err != nil {
+		inserted, err := store.Save(ctx, records)
+		if err != nil {
 			log.Fatalf("[%s] save failed: %v", p.Name(), err)
 		}
-		log.Printf("[%s] saved %d records", p.Name(), len(records))
+		skipped := int64(len(records)) - inserted
+		log.Printf("[%s] fetched %d records — inserted %d, skipped %d duplicates", p.Name(), len(records), inserted, skipped)
 	}
 }
