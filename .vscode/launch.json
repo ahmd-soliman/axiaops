@@ -10,7 +10,8 @@
       "cwd": "${workspaceFolder}/services/ingestion",
       "env": {
         "DEV_MODE": "true",
-        "FIXTURE_PATH": "fixtures/costs.json"
+        "FIXTURE_PATH": "fixtures/costs.json",
+        "USAGE_PATH": "fixtures/usage.json"
       }
     }
   ],
