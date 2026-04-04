@@ -211,6 +211,7 @@ axiaops/
 | File | Description |
 |------|-------------|
 | [docs/development_plan.md](docs/development_plan.md) | Architecture decisions, data model, DB schema, phase plans |
+| [docs/production.md](docs/production.md) | Production setup — IAM, PostgreSQL migration, TLS, hosting, scheduling |
 | [docs/business_plan.md](docs/business_plan.md) | Business model, pricing, GTM strategy |
 | [docs/tax_strategy.md](docs/tax_strategy.md) | German tax structure, VAT, exit planning |
 
