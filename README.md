@@ -51,19 +51,71 @@ To stop:
 docker compose down
 ```
 
-### Option B — Manual (dev with hot reload)
+> Docker Compose runs in dev mode (`DEV_MODE=true`) using fixture data. To run against real AWS, use Option B below.
+
+### Option B — Manual (dev mode, no AWS)
 
 **Prerequisites:** Go 1.25+, Node.js 20+
 
-**1. Start the ingestion service**
-
-Dev mode (no AWS account needed):
 ```bash
 cd services/ingestion
 DEV_MODE=true go run ./cmd/main.go
 ```
 
-Real AWS mode:
+```bash
+cd services/dashboard
+npm install      # first time only
+npm run web
+```
+
+Opens at `http://localhost:8081`. Press **F5** in VS Code to start both automatically.
+
+---
+
+## Running Against Real AWS
+
+### Prerequisites
+
+1. **Enable Cost Explorer** in your AWS account — Billing and Cost Management → Cost Explorer → Enable. Data takes up to 24 hours to appear after first enabling.
+
+2. **Create an IAM policy** named `AxiaOpsReadOnly`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["ce:GetCostAndUsage"],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+3. **Create an IAM user** (`axiaops-dev`), attach the policy, and generate an access key under Security Credentials → Create access key → "Application running outside AWS".
+
+4. **Find your Account ID** — top-right corner of the AWS Console.
+
+### Option A — AWS CLI credentials (recommended)
+
+```bash
+aws configure
+# AWS Access Key ID: AKIA...
+# AWS Secret Access Key: ...
+# Default region: eu-central-1
+# Default output format: json
+```
+
+Then run — the SDK picks up credentials automatically:
+
+```bash
+cd services/ingestion
+AWS_ACCOUNT_ID=123456789012 go run ./cmd/main.go
+```
+
+### Option B — Environment variables
+
 ```bash
 cd services/ingestion
 AWS_ACCOUNT_ID=123456789012 \
@@ -73,19 +125,32 @@ AWS_REGION=eu-central-1 \
 go run ./cmd/main.go
 ```
 
-> If you have the AWS CLI configured (`aws configure`), you can omit `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` — the SDK picks up credentials from `~/.aws/credentials` automatically.
+### What happens
 
-**2. Start the dashboard**
+1. Fetches the last 30 days of cost data from AWS Cost Explorer
+2. Stores records in `axiaops.db` (created automatically)
+3. Loads usage metrics from `fixtures/usage.json` — **CloudWatch integration is Phase 2**, so zombie detection still uses fixture usage data even against real cost data
+4. Starts the API on `http://localhost:8080`
 
-```bash
-cd services/dashboard
-npm install      # first time only
-npm run web
-```
+### Known limitations (Phase 1)
 
-Opens at `http://localhost:8081`.
+| Limitation | Phase |
+|-----------|-------|
+| Usage metrics come from fixture, not CloudWatch | Phase 2 |
+| Single AWS account only | Phase 2 |
+| No auth — API is open | Phase 2 |
+| Ingestion runs once at startup, not on a schedule | Phase 2 |
 
-**VS Code shortcut:** Press **F5** → selects `ingestion (dev)` automatically, starts both services.
+### Troubleshooting
+
+**`DataUnavailableException: Data is not available`**
+Cost Explorer needs up to 24 hours to ingest data after being enabled for the first time. Wait and retry.
+
+**`AccessDeniedException`**
+The IAM user is missing the `ce:GetCostAndUsage` permission. Check the policy is attached correctly.
+
+**`AWS_ACCOUNT_ID is required`**
+You ran without `DEV_MODE=true` but forgot to set `AWS_ACCOUNT_ID`.
 
 ---
 
