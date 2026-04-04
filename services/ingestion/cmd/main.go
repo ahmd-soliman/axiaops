@@ -1,12 +1,11 @@
 // main is the entry point for the ingestion service. It initializes all
 // configured cloud provider clients, fetches cost data for the last 30 days,
-// and writes the normalized records as JSON to stdout. New providers are
-// registered in the providers slice — no other changes are required.
+// and stores the normalized records in SQLite. New providers are registered
+// in the providers slice — no other changes are required.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"os"
 	"time"
@@ -14,22 +13,33 @@ import (
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/ingestion/internal/provider/filefixture"
+	"axiaops.io/ingestion/internal/storage/sqlite"
 )
 
 func main() {
 	ctx := context.Background()
 
+	// Storage
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "axiaops.db"
+	}
+	store, err := sqlite.New(dbPath)
+	if err != nil {
+		log.Fatalf("storage: init failed: %v", err)
+	}
+	defer store.Close()
+
+	// Providers
 	var providers []provider.Provider
 
 	if os.Getenv("DEV_MODE") == "true" {
-		// Dev: read fixture data directly from local JSON file
 		fixturePath := os.Getenv("FIXTURE_PATH")
 		if fixturePath == "" {
 			fixturePath = "fixtures/costs.json"
 		}
 		providers = append(providers, filefixture.New(fixturePath))
 	} else {
-		// Production: real AWS Cost Explorer
 		accountID := os.Getenv("AWS_ACCOUNT_ID")
 		if accountID == "" {
 			log.Fatal("AWS_ACCOUNT_ID is required")
@@ -39,14 +49,10 @@ func main() {
 			log.Fatalf("aws: init failed: %v", err)
 		}
 		providers = append(providers, awsClient)
-		// gcp.New(...) — add more providers here
 	}
 
 	end := time.Now().UTC().Truncate(24 * time.Hour)
-	start := end.AddDate(0, -1, 0) // last 30 days
-
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
+	start := end.AddDate(0, -1, 0)
 
 	for _, p := range providers {
 		records, err := p.FetchCosts(ctx, start, end)
@@ -54,8 +60,9 @@ func main() {
 			log.Printf("[%s] fetch failed: %v", p.Name(), err)
 			continue
 		}
-		if err := enc.Encode(records); err != nil {
-			log.Fatalf("encode failed: %v", err)
+		if err := store.Save(ctx, records); err != nil {
+			log.Fatalf("[%s] save failed: %v", p.Name(), err)
 		}
+		log.Printf("[%s] saved %d records", p.Name(), len(records))
 	}
 }
