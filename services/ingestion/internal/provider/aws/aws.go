@@ -58,10 +58,9 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 	}
 
 	var records []model.CostRecord
-	paginator := costexplorer.NewGetCostAndUsagePaginator(c.ce, input)
 
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
+	for {
+		page, err := c.ce.GetCostAndUsage(ctx, input)
 		if err != nil {
 			return nil, fmt.Errorf("aws: GetCostAndUsage: %w", err)
 		}
@@ -90,6 +89,11 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 				})
 			}
 		}
+
+		if page.NextPageToken == nil {
+			break
+		}
+		input.NextPageToken = page.NextPageToken
 	}
 
 	return records, nil
