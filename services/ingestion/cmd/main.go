@@ -105,10 +105,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	api.New(ghosts, summary).Register(mux)
+	h := api.New(ghosts, summary)
+	h.Register(mux)
 
 	log.Printf("api: listening on %s  →  GET /ghosts  GET /summary", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, h.Handler(mux)); err != nil {
 		log.Fatalf("api: server error: %v", err)
 	}
 }

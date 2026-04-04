@@ -89,7 +89,7 @@ export default function DashboardScreen({ onSelectGhost }) {
 const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: '#F7FAFC' },
   listContent: { paddingBottom: 32 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#F7FAFC' },
 
   hero: {
     backgroundColor: '#E53E3E',
