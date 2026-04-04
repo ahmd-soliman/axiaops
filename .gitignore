@@ -55,6 +55,7 @@ mock-data/
 .vscode/*
 !.vscode/launch.json
 !.vscode/settings.json
+!.vscode/tasks.json
 
 # ─── macOS ────────────────────────────────────────────────────────────────────
 .DS_Store
@@ -83,3 +84,4 @@ logs/
 *.tfstate.backup
 *.tfvars
 !*.tfvars.example
+.dev-pids
