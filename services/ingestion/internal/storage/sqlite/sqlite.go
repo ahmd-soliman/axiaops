@@ -50,10 +50,11 @@ func New(path string) (*Store, error) {
 }
 
 // Save inserts cost records in a single transaction, skipping duplicates.
-func (s *Store) Save(ctx context.Context, records []model.CostRecord) error {
+// Returns the number of records actually inserted.
+func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("sqlite: begin tx: %w", err)
+		return 0, fmt.Errorf("sqlite: begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -64,27 +65,30 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
-		return fmt.Errorf("sqlite: prepare: %w", err)
+		return 0, fmt.Errorf("sqlite: prepare: %w", err)
 	}
 	defer stmt.Close()
 
+	var inserted int64
 	for _, r := range records {
 		tags, err := json.Marshal(r.Tags)
 		if err != nil {
-			return fmt.Errorf("sqlite: marshal tags: %w", err)
+			return 0, fmt.Errorf("sqlite: marshal tags: %w", err)
 		}
-		_, err = stmt.ExecContext(ctx,
+		res, err := stmt.ExecContext(ctx,
 			r.Provider, r.AccountID, r.Service, r.Region, r.ResourceID,
 			r.Amount, r.Currency,
 			r.PeriodStart, r.PeriodEnd,
 			string(tags), r.FetchedAt,
 		)
 		if err != nil {
-			return fmt.Errorf("sqlite: insert: %w", err)
+			return 0, fmt.Errorf("sqlite: insert: %w", err)
 		}
+		n, _ := res.RowsAffected()
+		inserted += n
 	}
 
-	return tx.Commit()
+	return inserted, tx.Commit()
 }
 
 func (s *Store) Close() error {
