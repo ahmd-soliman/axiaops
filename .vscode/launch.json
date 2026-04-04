@@ -12,7 +12,8 @@
         "DEV_MODE": "true",
         "FIXTURE_PATH": "fixtures/costs.json",
         "USAGE_PATH": "fixtures/usage.json"
-      }
+      },
+      "preLaunchTask": "dashboard: web"
     }
   ],
   "compounds": [
