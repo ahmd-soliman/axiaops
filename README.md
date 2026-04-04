@@ -43,14 +43,29 @@ There are two services to run: the **ingestion + analysis API** (Go) and the **d
 
 ### 1. Start the ingestion service
 
+**Dev mode (file fixture — no AWS account needed):**
+
 ```bash
 cd services/ingestion
 DEV_MODE=true go run ./cmd/main.go
 ```
 
+**Real AWS mode:**
+
+```bash
+cd services/ingestion
+AWS_ACCOUNT_ID=123456789012 \
+AWS_ACCESS_KEY_ID=AKIA... \
+AWS_SECRET_ACCESS_KEY=... \
+AWS_REGION=eu-central-1 \
+go run ./cmd/main.go
+```
+
+> If you have the AWS CLI configured (`aws configure`), you can omit `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` — the SDK picks up credentials from `~/.aws/credentials` automatically.
+
 What it does:
-1. Reads cost records from `fixtures/costs.json`
-2. Reads usage metrics from `fixtures/usage.json`
+1. Reads cost records from AWS Cost Explorer (or `fixtures/costs.json` in dev mode)
+2. Reads usage metrics from `fixtures/usage.json` (CloudWatch integration coming in Phase 2)
 3. Stores records in `axiaops.db` (SQLite, created automatically)
 4. Runs zombie detection — flags resources with cost but no usage
 5. Starts the HTTP API on `http://localhost:8080`
