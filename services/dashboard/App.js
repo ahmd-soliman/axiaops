@@ -13,7 +13,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#E53E3E" />
+        <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
         {selectedGhost ? (
           <DetailScreen ghost={selectedGhost} onBack={() => setSelectedGhost(null)} />
         ) : (
@@ -25,5 +25,5 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#E53E3E' },
+  container: { flex: 1, backgroundColor: '#0F172A' },
 });

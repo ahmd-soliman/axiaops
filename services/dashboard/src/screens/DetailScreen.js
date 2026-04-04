@@ -6,50 +6,98 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
+import { serviceConfig } from '../components/serviceConfig';
+
+const C = {
+  bg: '#F8FAFC',
+  navy: '#0F172A',
+  navyMid: '#1E293B',
+  accent: '#F97316',
+  text: '#0F172A',
+  textMid: '#475569',
+  textMuted: '#94A3B8',
+  white: '#FFFFFF',
+  border: '#E2E8F0',
+};
 
 export default function DetailScreen({ ghost, onBack }) {
-  const rows = [
-    { label: 'Provider',      value: ghost.provider },
-    { label: 'Account ID',    value: ghost.account_id },
-    { label: 'Region',        value: ghost.region },
-    { label: 'Resource ID',   value: ghost.resource_id, mono: true },
-    { label: 'Owner',         value: ghost.owner },
-    { label: 'Environment',   value: ghost.tags?.env ?? '—' },
-    { label: 'Period',        value: `${fmtDate(ghost.period_start)} → ${fmtDate(ghost.period_end)}` },
-    { label: 'Monthly Cost',  value: `${ghost.currency} ${ghost.monthly_cost.toFixed(2)}` },
-    { label: 'Usage Metric',  value: ghost.usage_metric },
-    { label: 'Usage (avg)',   value: `${ghost.usage_avg} ${ghost.usage_unit}` },
+  const cfg = serviceConfig(ghost.service);
+
+  const stats = [
+    { label: 'Monthly Cost', value: `${ghost.currency} ${ghost.monthly_cost.toFixed(2)}`, accent: true },
+    { label: ghost.usage_metric, value: `${ghost.usage_avg} ${ghost.usage_unit}` },
+    { label: 'Region', value: ghost.region },
+    { label: 'Environment', value: ghost.tags?.env ?? '—' },
+  ];
+
+  const details = [
+    { label: 'Provider',    value: ghost.provider },
+    { label: 'Account ID',  value: ghost.account_id },
+    { label: 'Owner',       value: ghost.owner },
+    { label: 'Period',      value: `${fmtDate(ghost.period_start)} → ${fmtDate(ghost.period_end)}` },
+    { label: 'Resource ID', value: ghost.resource_id, mono: true },
   ];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <TouchableOpacity style={styles.back} onPress={onBack}>
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
 
+      {/* Dark header */}
       <View style={styles.header}>
-        <Text style={styles.service}>{ghost.service}</Text>
-        <Text style={styles.cost}>{ghost.currency} {ghost.monthly_cost.toFixed(2)}/mo</Text>
+        <TouchableOpacity onPress={onBack} style={styles.back}>
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+        <View style={styles.headerBody}>
+          <View style={styles.headerTop}>
+            <View style={[styles.badge, { backgroundColor: cfg.color }]}>
+              <Text style={styles.badgeText}>{cfg.label}</Text>
+            </View>
+            <Text style={styles.headerService}>{ghost.service}</Text>
+          </View>
+          <Text style={styles.headerCost}>{ghost.currency} {ghost.monthly_cost.toFixed(2)}</Text>
+          <Text style={styles.headerSub}>wasted per month</Text>
+        </View>
       </View>
 
-      <View style={styles.reasonBox}>
-        <Text style={styles.reasonLabel}>Why it was flagged</Text>
-        <Text style={styles.reasonText}>{ghost.reason}</Text>
-      </View>
-
-      <View style={styles.table}>
-        {rows.map(({ label, value, mono }) => (
-          <View key={label} style={styles.row}>
-            <Text style={styles.rowLabel}>{label}</Text>
-            <Text style={[styles.rowValue, mono && styles.mono]} numberOfLines={2}>{value}</Text>
+      {/* Stats grid */}
+      <View style={styles.statsGrid}>
+        {stats.map(({ label, value, accent }) => (
+          <View key={label} style={[styles.statCard, accent && styles.statCardAccent]}>
+            <Text style={[styles.statValue, accent && styles.statValueAccent]}>{value}</Text>
+            <Text style={styles.statLabel}>{label}</Text>
           </View>
         ))}
       </View>
 
-      <View style={styles.actionBox}>
-        <Text style={styles.actionTitle}>Suggested Action</Text>
-        <Text style={styles.actionText}>{remediationHint(ghost.service)}</Text>
+      {/* Why flagged */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Why it was flagged</Text>
+        <View style={[styles.reasonBox, { borderLeftColor: cfg.color }]}>
+          <Text style={styles.reasonText}>{ghost.reason}</Text>
+        </View>
       </View>
+
+      {/* Resource details */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Resource Details</Text>
+        <View style={styles.table}>
+          {details.map(({ label, value, mono }, i) => (
+            <View key={label} style={[styles.row, i === details.length - 1 && styles.rowLast]}>
+              <Text style={styles.rowLabel}>{label}</Text>
+              <Text style={[styles.rowValue, mono && styles.mono]} numberOfLines={2}>{value}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* Suggested action */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Suggested Action</Text>
+        <View style={styles.actionBox}>
+          <Text style={styles.actionIcon}>⚡</Text>
+          <Text style={styles.actionText}>{remediationHint(ghost.service)}</Text>
+        </View>
+      </View>
+
     </ScrollView>
   );
 }
@@ -70,55 +118,62 @@ function fmtDate(iso) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7FAFC' },
-  content: { padding: 16, paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: C.bg },
+  content: { paddingBottom: 48 },
 
-  back: { marginBottom: 16 },
-  backText: { color: '#E53E3E', fontWeight: '600', fontSize: 15 },
+  header: { backgroundColor: C.navyMid, paddingBottom: 28 },
+  back: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
+  backText: { color: C.textMuted, fontWeight: '600', fontSize: 14 },
+  headerBody: { paddingHorizontal: 20 },
+  headerTop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  badge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
+  badgeText: { color: C.white, fontSize: 12, fontWeight: '800' },
+  headerService: { color: C.textMuted, fontSize: 14, flex: 1 },
+  headerCost: { color: C.accent, fontSize: 42, fontWeight: '800', letterSpacing: -1 },
+  headerSub: { color: '#475569', fontSize: 13, marginTop: 2 },
 
-  header: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 16 },
+  statCard: {
+    backgroundColor: C.white,
+    borderRadius: 10,
+    padding: 14,
+    flex: 1,
+    minWidth: '45%',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
   },
-  service: { fontSize: 17, fontWeight: '700', color: '#2D3748', flex: 1 },
-  cost: { fontSize: 20, fontWeight: '800', color: '#E53E3E' },
+  statCardAccent: { backgroundColor: '#FFF7ED' },
+  statValue: { fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 4 },
+  statValueAccent: { color: C.accent },
+  statLabel: { fontSize: 11, color: C.textMuted, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
 
-  reasonBox: {
-    backgroundColor: '#FFF5F5',
-    borderLeftWidth: 4,
-    borderLeftColor: '#E53E3E',
-    borderRadius: 6,
-    padding: 16,
-    marginBottom: 12,
+  section: { paddingHorizontal: 16, marginBottom: 16 },
+  sectionTitle: {
+    fontSize: 11, fontWeight: '700', color: C.textMuted,
+    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8,
   },
-  reasonLabel: { fontSize: 11, fontWeight: '700', color: '#E53E3E', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
-  reasonText: { fontSize: 14, color: '#742A2A' },
 
-  table: { backgroundColor: '#FFFFFF', borderRadius: 8, overflow: 'hidden', marginBottom: 12 },
+  reasonBox: { backgroundColor: C.white, borderLeftWidth: 4, borderRadius: 8, padding: 16 },
+  reasonText: { fontSize: 14, color: C.textMid, lineHeight: 21 },
+
+  table: { backgroundColor: C.white, borderRadius: 10, overflow: 'hidden' },
   row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#EDF2F7',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 13,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
   },
-  rowLabel: { fontSize: 13, color: '#718096', flex: 1 },
-  rowValue: { fontSize: 13, color: '#2D3748', fontWeight: '500', flex: 2, textAlign: 'right' },
+  rowLast: { borderBottomWidth: 0 },
+  rowLabel: { fontSize: 13, color: C.textMuted },
+  rowValue: { fontSize: 13, color: C.text, fontWeight: '600', textAlign: 'right', flex: 1, marginLeft: 16 },
   mono: { fontFamily: 'monospace', fontSize: 11 },
 
   actionBox: {
-    backgroundColor: '#FFFFF0',
-    borderLeftWidth: 4,
-    borderLeftColor: '#D69E2E',
-    borderRadius: 6,
-    padding: 16,
+    backgroundColor: '#FFFBEB', borderRadius: 10, padding: 16,
+    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+    borderWidth: 1, borderColor: '#FDE68A',
   },
-  actionTitle: { fontSize: 11, fontWeight: '700', color: '#D69E2E', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
-  actionText: { fontSize: 14, color: '#744210' },
+  actionIcon: { fontSize: 18 },
+  actionText: { fontSize: 14, color: '#78350F', lineHeight: 21, flex: 1 },
 });
