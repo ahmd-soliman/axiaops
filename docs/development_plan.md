@@ -11,41 +11,60 @@
 ### Goal: Working AxiaOps Detector (local, no auth, fake data)
 
 #### 1.1 Cost Fixture Data
-- JSON file (`fixtures/costs.json`) containing realistic `CostRecord` entries mimicking AWS Cost Explorer responses
-- Fields: `provider`, `account_id`, `service`, `region`, `amount`, `currency`, `period_start`, `period_end`, `tags`
-- Tags must include `env` and `team` on every record — ownership resolution depends on this
-- Cover realistic patterns: EC2, RDS, S3, Lambda, CloudFront, ELB, NAT Gateway across multiple regions
-- Seeded into LocalStack S3 on startup via `cmd/seed` — no real AWS account needed
+- `fixtures/costs.json` — 13 realistic `CostRecord` entries with ARN-style resource IDs
+- Fields: `provider`, `account_id`, `service`, `region`, `resource_id`, `amount`, `currency`, `period_start`, `period_end`, `tags`
+- Tags include `env` and `team` on every record — ownership resolution depends on this
+- Covers: EC2, RDS, S3, Lambda, CloudFront, ELB, CloudWatch, NAT Gateway across `eu-central-1` and `eu-west-1`
 
-#### 1.2 Backend — Go Worker
-- **Language:** Go 1.22+
-- **Framework:** Standard library + `net/http` for API
+#### 1.2 Usage Fixture Data
+- `fixtures/usage.json` — one CloudWatch-style metric per resource (mirrors what production will fetch from CloudWatch)
+- Fields: `resource_id`, `metric`, `unit`, `avg`, `period_days`
+- Some resources deliberately have zero usage to act as zombies in development and testing
+
+#### 1.3 Backend — Go Service
+- **Language:** Go 1.24+
+- **Framework:** Standard library + `net/http`
 - **Data Layer:** SQLite (MVP) → PostgreSQL (production)
-- **Core Logic:**
-  - Use **streaming JSON parsing** — never load entire response into memory (Cost Explorer responses can be large for big accounts)
-  - Join billing data with usage metrics (CPU, IOPS, network) — cost alone is not sufficient to flag a ghost
-  - Flag resources with `cost > 0` AND activity below configurable threshold for N days
-  - **Zombie threshold is configurable per tenant** (default 7 days; enterprise batch jobs may need 30 days)
-  - **Ownership resolution:** every flagged ghost must include an `Owner` derived from resource tags — without this, the remediation step stalls because no one knows if it's safe to delete
-  - Categorize by resource type (Idle Load Balancers, unattached EBS, aged snapshots, unused Elastic IPs)
-  - Compute `potential_monthly_savings` per resource and in aggregate
-- **API Endpoints:**
-  - `POST /ingest` — trigger ingestion from cloud provider API
-  - `GET /ghosts` — returns list of zombie resources with cost breakdown
-  - `GET /summary` — returns aggregate savings figure
+- **Flow:** ingest → store → analyze → serve
 
-#### 1.3 Frontend — React Native
+**Ingestion (`internal/provider`, `internal/storage`):**
+- Provider interface — swap AWS Cost Explorer for file fixture with one env var (`DEV_MODE=true`)
+- `INSERT OR IGNORE` deduplication — safe to re-run; logs inserted vs skipped counts
+
+**Analysis (`internal/analyzer`):**
+- `Detect()` joins cost records with usage records on `resource_id`
+- Applies per-service threshold rules (see table below)
+- A resource is flagged when `usage.avg <= threshold` for the entire billing period
+- `owner` is derived from the `team` tag — every ghost includes an owner so remediation is actionable
+
+**Detection rules:**
+
+| Service | Metric | Threshold | Reason shown |
+|---------|--------|-----------|--------------|
+| AmazonEC2 | CPUUtilization | ≤ 5% | Instance CPU below 5% — likely idle |
+| AmazonRDS | DatabaseConnections | = 0 | Zero connections — likely abandoned |
+| AWSLambda | Invocations | = 0 | Zero invocations — likely unused |
+| AmazonElasticLoadBalancing | RequestCount | = 0 | Zero requests — likely abandoned |
+| AmazonVPC | BytesOutToDestination | = 0 | NAT Gateway zero bytes — likely unused |
+
+Resources with no rule or no usage record are skipped — no determination is made without data.
+
+**API Endpoints (`internal/api`):**
+- `GET /ghosts` — list of detected zombie resources with cost, usage metric, reason, and owner
+- `GET /summary` — aggregate savings figure and per-service breakdown
+
+#### 1.4 Frontend — React Native
 - Single "Dashboard" screen
 - Big red number: **"Potential Monthly Savings: $X,XXX"**
 - Scrollable list of ghost resources grouped by type
 - Tap a resource → detail view with remediation suggestion (e.g., "Delete this EBS volume")
 - Stack: Expo + React Native + React Query
 
-#### 1.4 Infrastructure (local)
+#### 1.5 Infrastructure (local)
 - Docker Compose: Go ingestion service + SQLite (file on disk)
 - `.env`-based config (never committed)
 
-#### 1.5 Dev Environment — File Fixture + SQLite
+#### 1.6 Dev Environment — File Fixture + SQLite
 
 Local development uses a plain JSON fixture file and SQLite — no external services required.
 
@@ -82,7 +101,7 @@ docker compose up
 
 The container runs the ingestion service with `DEV_MODE=true`. The SQLite database is written inside the container (ephemeral). Mount a volume if persistence across runs is needed.
 
-#### 1.6 Storage Layer — SQLite
+#### 1.7 Storage Layer — SQLite
 
 **Schema (`cost_records` table):**
 
