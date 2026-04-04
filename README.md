@@ -13,8 +13,8 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 - **The Ghost Number** — total monthly spend on idle resources across all connected accounts
 - **The Ghost List** — itemized breakdown by resource with cost, usage metric, and remediation suggestion
 - **Owner Resolution** — every ghost includes the responsible team derived from resource tags
-- **The Weekly Digest** — email/Slack alert when new ghosts appear
-- **Multi-account Dashboard** — single pane for managing multiple cloud accounts
+- **The Weekly Digest** — email/Slack alert when new ghosts appear (Phase 2)
+- **Multi-account Dashboard** — single pane for managing multiple cloud accounts (Phase 2)
 
 ---
 
@@ -22,10 +22,10 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Go 1.24+ |
+| Backend | Go 1.25+ |
 | Database | SQLite (MVP) → PostgreSQL |
 | Frontend | React Native (Expo) — web + mobile |
-| Auth | Clerk or Supabase Auth |
+| Auth | Clerk or Supabase Auth (Phase 2) |
 | Hosting | Fly.io / Railway |
 | CI/CD | GitLab CI |
 | Cloud APIs | AWS Cost Explorer, Azure Cost Mgmt, GCP Billing |
@@ -34,24 +34,36 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 
 ## Running Locally
 
-There are two services to run: the **ingestion + analysis API** (Go) and the **dashboard** (Expo web).
+Two ways to run: **Docker Compose** (recommended, one command) or **manually** (for development with hot reload).
 
-### Prerequisites
+### Option A — Docker Compose
 
-- Go 1.24+
-- Node.js 20+
+```bash
+docker compose up
+```
 
-### 1. Start the ingestion service
+- Dashboard → `http://localhost:8081`
+- API → `http://localhost:8080`
 
-**Dev mode (file fixture — no AWS account needed):**
+To stop:
 
+```bash
+docker compose down
+```
+
+### Option B — Manual (dev with hot reload)
+
+**Prerequisites:** Go 1.25+, Node.js 20+
+
+**1. Start the ingestion service**
+
+Dev mode (no AWS account needed):
 ```bash
 cd services/ingestion
 DEV_MODE=true go run ./cmd/main.go
 ```
 
-**Real AWS mode:**
-
+Real AWS mode:
 ```bash
 cd services/ingestion
 AWS_ACCOUNT_ID=123456789012 \
@@ -63,21 +75,7 @@ go run ./cmd/main.go
 
 > If you have the AWS CLI configured (`aws configure`), you can omit `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` — the SDK picks up credentials from `~/.aws/credentials` automatically.
 
-What it does:
-1. Reads cost records from AWS Cost Explorer (or `fixtures/costs.json` in dev mode)
-2. Reads usage metrics from `fixtures/usage.json` (CloudWatch integration coming in Phase 2)
-3. Stores records in `axiaops.db` (SQLite, created automatically)
-4. Runs zombie detection — flags resources with cost but no usage
-5. Starts the HTTP API on `http://localhost:8080`
-
-Logs on startup:
-```
-[filefixture] fetched 13 records — inserted 13, skipped 0 duplicates
-analysis: 5 ghost resources detected — potential savings 494.40 USD/month
-api: listening on :8080  →  GET /ghosts  GET /summary
-```
-
-### 2. Start the dashboard
+**2. Start the dashboard**
 
 ```bash
 cd services/dashboard
@@ -87,31 +85,19 @@ npm run web
 
 Opens at `http://localhost:8081`.
 
-### 3. Test the API directly
+**VS Code shortcut:** Press **F5** → selects `ingestion (dev)` automatically, starts both services.
 
-Open `services/ingestion/api.http` in VS Code with the **REST Client** extension and click **Send Request**.
+---
 
-Or use curl:
+## Running Tests
 
 ```bash
-curl http://localhost:8080/summary
-curl http://localhost:8080/ghosts
+cd services/ingestion
+go test ./...           # uses cache if nothing changed
+go test ./... -count=1  # force full re-run
 ```
 
-### Environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DEV_MODE` | `false` | `true` → use file fixtures instead of real AWS |
-| `FIXTURE_PATH` | `fixtures/costs.json` | Path to cost fixture file |
-| `USAGE_PATH` | `fixtures/usage.json` | Path to usage fixture file |
-| `DB_PATH` | `axiaops.db` | SQLite database file path |
-| `API_ADDR` | `:8080` | HTTP server listen address |
-| `AWS_ACCOUNT_ID` | — | Required when `DEV_MODE=false` |
-
-### Running with VS Code
-
-Press **F5** and select `ingestion (dev)` — sets `DEV_MODE=true` automatically and starts the API server with Delve attached for debugging.
+24 tests across 5 packages — all pass.
 
 ---
 
@@ -121,6 +107,8 @@ Press **F5** and select `ingestion (dev)` — sets `DEV_MODE=true` automatically
 |--------|------|-------------|
 | `GET` | `/ghosts` | List of all detected zombie resources |
 | `GET` | `/summary` | Aggregate savings and per-service breakdown |
+
+Test with the REST Client extension: open `services/ingestion/api.http` in VS Code and click **Send Request**.
 
 **Example `/summary` response:**
 ```json
@@ -149,29 +137,46 @@ Press **F5** and select `ingestion (dev)` — sets `DEV_MODE=true` automatically
 
 ---
 
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEV_MODE` | `false` | `true` → use file fixtures instead of real AWS |
+| `FIXTURE_PATH` | `fixtures/costs.json` | Path to cost fixture file |
+| `USAGE_PATH` | `fixtures/usage.json` | Path to usage fixture file |
+| `DB_PATH` | `axiaops.db` | SQLite database file path |
+| `API_ADDR` | `:8080` | HTTP server listen address |
+| `AWS_ACCOUNT_ID` | — | Required when `DEV_MODE=false` |
+
+---
+
 ## Project Structure
 
 ```
 axiaops/
+├── docker-compose.yml              # One-command local stack
+├── dev.sh                          # Alternative: shell script start/stop
 ├── services/
-│   ├── ingestion/              # Go — cost ingestion + analysis + API
-│   │   ├── cmd/main.go         # Entry point
+│   ├── ingestion/                  # Go — cost ingestion + analysis + API
+│   │   ├── cmd/main.go             # Entry point
 │   │   ├── fixtures/
-│   │   │   ├── costs.json      # Cost records fixture (dev)
-│   │   │   └── usage.json      # Usage metrics fixture (dev)
+│   │   │   ├── costs.json          # Cost records fixture (dev)
+│   │   │   └── usage.json          # Usage metrics fixture (dev)
 │   │   └── internal/
-│   │       ├── analyzer/       # Zombie detection logic
-│   │       ├── api/            # HTTP handlers
-│   │       ├── model/          # Shared types (CostRecord, GhostResource)
-│   │       ├── provider/       # AWS Cost Explorer + file fixture
-│   │       └── storage/sqlite/ # SQLite store
-│   └── dashboard/              # Expo — React Native web dashboard
+│   │       ├── analyzer/           # Zombie detection logic + tests
+│   │       ├── api/                # HTTP handlers + tests
+│   │       ├── model/              # Shared types (CostRecord, GhostResource)
+│   │       ├── provider/           # AWS Cost Explorer + file fixture + tests
+│   │       └── storage/sqlite/     # SQLite store + tests
+│   └── dashboard/                  # Expo — React Native web dashboard
 │       └── src/
-│           ├── api/client.js   # Fetch wrapper for the Go API
+│           ├── api/client.js       # Fetch wrapper for the Go API
 │           └── screens/
 │               ├── DashboardScreen.js  # Savings banner + ghost list
 │               └── DetailScreen.js    # Resource detail + remediation hint
-└── docs/                       # Development plan, business plan, etc.
+├── scripts/
+│   └── create_user_stories.py      # Creates GitLab issues via API
+└── docs/                           # Architecture, business plan, tax strategy
 ```
 
 ---
@@ -179,22 +184,25 @@ axiaops/
 ## Roadmap
 
 ### Phase 1 — MVP (April – June 2026)
-- [x] Cost fixture data + file-based ingestion
-- [x] SQLite storage with deduplication
+- [x] Cost + usage fixture data
+- [x] Go ingestion service with SQLite storage and deduplication
 - [x] Zombie detection with per-service threshold rules
-- [x] REST API (`/ghosts`, `/summary`)
-- [x] React Native web dashboard
-- [ ] Docker Compose — run both services with one command
+- [x] REST API (`/ghosts`, `/summary`) with CORS
+- [x] React Native web dashboard (dark navy + orange design)
+- [x] Unit tests — 24 tests across 5 packages
+- [x] Docker Compose — single command runs everything
 
 ### Phase 2 — Alpha (July – September 2026)
-- AWS Cost Explorer integration (real data)
-- Auth + multi-tenancy
-- Alerting (email + Slack)
+- [ ] Real AWS Cost Explorer + CloudWatch integration
+- [ ] Auth + multi-tenancy (Clerk or Supabase)
+- [ ] Multi-account support (cross-account IAM role assumption)
+- [ ] Weekly email digest
 
 ### Phase 3 — Beta / Launch (October – December 2026)
-- Mobile app (iOS + Android)
-- Azure and GCP support
-- PDF savings reports
+- [ ] Mobile app (iOS + Android)
+- [ ] Azure and GCP support
+- [ ] Remediation workflow (dismiss, delegate, one-click CLI commands)
+- [ ] PDF savings reports
 
 ---
 
@@ -202,7 +210,7 @@ axiaops/
 
 | File | Description |
 |------|-------------|
-| [docs/development_plan.md](docs/development_plan.md) | Full technical plan, architecture, milestones |
+| [docs/development_plan.md](docs/development_plan.md) | Architecture decisions, data model, DB schema, phase plans |
 | [docs/business_plan.md](docs/business_plan.md) | Business model, pricing, GTM strategy |
 | [docs/tax_strategy.md](docs/tax_strategy.md) | German tax structure, VAT, exit planning |
 
@@ -210,4 +218,4 @@ axiaops/
 
 ## Status
 
-**Incubator phase — April 2026.** MVP in active development.
+**Incubator phase — April 2026.** Phase 1 complete, ahead of schedule.

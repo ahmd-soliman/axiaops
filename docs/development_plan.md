@@ -6,9 +6,9 @@
 
 ---
 
-## Phase 1 — Incubator / MVP (April – June 2026)
+## Phase 1 — Incubator / MVP (April – June 2026) ✅
 
-### Goal: Working AxiaOps Detector (local, no auth, fake data)
+### Goal: Working AxiaOps Detector (local, no auth, fixture data)
 
 #### 1.1 Cost Fixture Data
 - `fixtures/costs.json` — 13 realistic `CostRecord` entries with ARN-style resource IDs
@@ -22,19 +22,20 @@
 - Some resources deliberately have zero usage to act as zombies in development and testing
 
 #### 1.3 Backend — Go Service
-- **Language:** Go 1.24+
+- **Language:** Go 1.25+
 - **Framework:** Standard library + `net/http`
 - **Data Layer:** SQLite (MVP) → PostgreSQL (production)
 - **Flow:** ingest → store → analyze → serve
 
 **Ingestion (`internal/provider`, `internal/storage`):**
-- Provider interface — swap AWS Cost Explorer for file fixture with one env var (`DEV_MODE=true`)
+- `Provider` interface — swap AWS Cost Explorer for file fixture with one env var (`DEV_MODE=true`); no code changes needed when switching environments
 - `INSERT OR IGNORE` deduplication — safe to re-run; logs inserted vs skipped counts
 
 **Analysis (`internal/analyzer`):**
 - `Detect()` joins cost records with usage records on `resource_id`
 - Applies per-service threshold rules (see table below)
 - A resource is flagged when `usage.avg <= threshold` for the entire billing period
+- Resources with no rule or no usage record are skipped — no determination is made without data
 - `owner` is derived from the `team` tag — every ghost includes an owner so remediation is actionable
 
 **Detection rules:**
@@ -47,23 +48,16 @@
 | AmazonElasticLoadBalancing | RequestCount | = 0 | Zero requests — likely abandoned |
 | AmazonVPC | BytesOutToDestination | = 0 | NAT Gateway zero bytes — likely unused |
 
-Resources with no rule or no usage record are skipped — no determination is made without data.
-
-**API Endpoints (`internal/api`):**
+**API (`internal/api`):**
 - `GET /ghosts` — list of detected zombie resources with cost, usage metric, reason, and owner
 - `GET /summary` — aggregate savings figure and per-service breakdown
+- CORS middleware included — permissive in dev, will be locked to domain in production
 
 #### 1.4 Testing
 
-All backend packages have unit tests. Run with:
+All backend packages have unit tests (24 tests across 5 packages).
 
-```bash
-cd services/ingestion
-go test ./...           # uses cached results if nothing changed
-go test ./... -count=1  # force full re-run
-```
-
-**Coverage (24 tests across 5 packages):**
+**Coverage:**
 
 | Package | Tests | What is covered |
 |---------|-------|-----------------|
@@ -77,57 +71,42 @@ go test ./... -count=1  # force full re-run
 - `mockCEClient` — implements `CostExplorerAPI` interface to test the AWS provider without real AWS calls
 - `os.CreateTemp` — creates a throwaway SQLite file per test; cleaned up via `t.Cleanup`
 - `httptest.NewRecorder` — tests HTTP handlers without starting a real server
-- Table-driven helpers (`costRecord`, `usageRecord`, `record`) — reduce boilerplate across test cases
+- Helper functions (`costRecord`, `usageRecord`, `record`) — reduce boilerplate across test cases
 
-#### 1.5 Frontend — React Native
-- Single "Dashboard" screen
-- Big red number: **"Potential Monthly Savings: $X,XXX"**
-- Scrollable list of ghost resources grouped by type
-- Tap a resource → detail view with remediation suggestion (e.g., "Delete this EBS volume")
-- Stack: Expo + React Native + React Query
+#### 1.5 Frontend — React Native (Expo)
+- **Stack:** Expo + React Native + React Query — same codebase runs on web, iOS, and Android
+- **Web first** — Phase 1 targets web only; mobile comes in Phase 3 once real data and auth are in place
+- **Dashboard screen** — dark navy header, orange savings number, scrollable ghost list with per-service colour coding, env and owner chips on each card
+- **Detail screen** — service-coloured header, stats grid, reason, resource details table, remediation hint per service type
+- **API client** — calls `http://localhost:8080` in dev; calls `/api/*` (nginx proxy) in Docker/production — no CORS issues in production
 
-#### 1.6 Infrastructure (local)
-- Docker Compose: Go ingestion service + SQLite (file on disk)
-- `.env`-based config (never committed)
+#### 1.6 Infrastructure — Docker Compose
 
-#### 1.7 Dev Environment — File Fixture + SQLite
+Both services run with `docker compose up`. See README for run instructions.
 
-Local development uses a plain JSON fixture file and SQLite — no external services required.
+**Architecture:**
 
-**Why not LocalStack Cost Explorer:**
-LocalStack Pro ($35/month) is required for full Cost Explorer support. The free tier does not include the Cost Explorer (`ce`) service. Rather than paying for Pro or maintaining a LocalStack S3 seeder just for dev, the ingestion service reads cost data directly from a local JSON file.
-
-**Fixture flow:**
 ```
-fixtures/costs.json
-       │
-    filefixture provider        — DEV_MODE=true
-       │
-    ingestion (main.go)
-       │
-    sqlite.Store (axiaops.db)   — INSERT OR IGNORE
-       │
-    axiaops.db
+browser
+   │
+   ▼
+nginx (dashboard:80)
+   │  serves Expo static build
+   │  proxies /api/* → ingestion:8080
+   ▼
+ingestion (Go binary)
+   │  reads fixtures, runs analysis, serves API
+   ▼
+axiaops.db (SQLite, persisted in named volume db_data)
 ```
 
-**`DEV_MODE` switch in `main.go`:**
-- `DEV_MODE=true` → reads from `fixtures/costs.json` directly (local dev)
-- `DEV_MODE=false` → calls real AWS Cost Explorer (production)
+**Key decisions:**
+- nginx proxy eliminates cross-origin requests — no CORS headers needed in production
+- `depends_on: service_healthy` — dashboard only starts once the ingestion API responds to `/summary`
+- SQLite stored in a named Docker volume — survives container restarts
+- Expo web is built at Docker image build time (`expo export --platform web`) and served as static files — no Node.js runtime needed in production
 
-No code changes are needed when switching environments — only the environment variable changes.
-
-**Running locally (VS Code):**
-Use the `ingestion (dev)` launch configuration in `.vscode/launch.json`. It sets `DEV_MODE=true` and `FIXTURE_PATH=fixtures/costs.json` automatically.
-
-**Running with Docker Compose:**
-```bash
-cd services/ingestion
-docker compose up
-```
-
-The container runs the ingestion service with `DEV_MODE=true`. The SQLite database is written inside the container (ephemeral). Mount a volume if persistence across runs is needed.
-
-#### 1.8 Storage Layer — SQLite
+#### 1.7 Storage Layer — SQLite
 
 **Schema (`cost_records` table):**
 
@@ -149,26 +128,17 @@ CREATE TABLE IF NOT EXISTS cost_records (
 );
 ```
 
-**Duplicate handling:** `INSERT OR IGNORE` skips any row that violates the `UNIQUE` constraint. Running the ingestion service multiple times for the same date range is safe — only new records are written. The log line reports `inserted N, skipped M duplicates`.
+**Duplicate handling:** `INSERT OR IGNORE` skips any row that violates the `UNIQUE` constraint. Running the ingestion service multiple times for the same date range is safe — only new records are written.
 
-**Querying the database (sqlite3 CLI):**
-```bash
-# open the database
-sqlite3 services/ingestion/axiaops.db
+**Production path:** The `Store` interface (`internal/storage/storage.go`) is the only contract the rest of the code depends on. Swapping to PostgreSQL requires only a new implementation of `Store` — no changes to providers, main, or tests.
 
-# list all records
-SELECT provider, service, region, amount, currency, period_start FROM cost_records;
+#### 1.8 Dev Environment Decision — File Fixture over LocalStack
 
-# total cost by service
-SELECT service, SUM(amount) AS total FROM cost_records GROUP BY service ORDER BY total DESC;
+LocalStack Pro ($35/month) is required for full Cost Explorer support. The free tier does not include the `ce` service. Rather than paying for Pro or maintaining a seeder, the ingestion service reads cost data directly from a local JSON file. This removes all external dependencies for local development.
 
-# records for a specific date range
-SELECT * FROM cost_records WHERE period_start >= '2025-09-01' AND period_end <= '2025-09-30';
-```
-
-**GUI option:** Open `axiaops.db` with [DB Browser for SQLite](https://sqlitebrowser.org) for a visual table view.
-
-**Production:** The `Store` interface (`internal/storage/storage.go`) is the only contract the rest of the code depends on. Swapping to PostgreSQL requires only a new implementation of `Store` — no changes to providers, main, or tests.
+**`DEV_MODE` switch:**
+- `DEV_MODE=true` → reads from `fixtures/costs.json` and `fixtures/usage.json` directly
+- `DEV_MODE=false` → calls real AWS Cost Explorer and (Phase 2) CloudWatch
 
 ---
 
@@ -177,22 +147,25 @@ SELECT * FROM cost_records WHERE period_start >= '2025-09-01' AND period_end <= 
 ### Goal: Real cloud connectivity, single-tenant
 
 #### 2.1 AWS Integration
-- Use AWS Cost and Usage Report (CUR) via S3 + Athena **or** AWS Cost Explorer API
-- IAM Role with read-only permissions (`ce:GetCostAndUsage`, `ec2:Describe*`, `rds:Describe*`)
-- Never store customer credentials — use cross-account IAM role assumption
+- AWS Cost Explorer API already wired — `internal/provider/aws` is complete
+- Add CloudWatch provider for usage metrics — same `CostExplorerAPI` mock pattern
+- IAM policy required: `ce:GetCostAndUsage`, `cloudwatch:GetMetricStatistics`
+- Never store customer credentials — use cross-account IAM role assumption (`sts:AssumeRole`)
 
 #### 2.2 Auth & Multi-tenancy
 - Auth: Clerk or Supabase Auth (JWT)
-- Tenant isolation at database row level (tenant_id on all tables)
+- Tenant isolation at database row level (`tenant_id` on all tables)
 - Each tenant connects their own AWS account via IAM role ARN
+- PostgreSQL replaces SQLite — implement `Store` interface for PostgreSQL
 
 #### 2.3 Alerting
 - Weekly email digest: "You have $X in ghost spend this week"
 - In-app notification bell
+- Email provider: Resend or SendGrid
 
 #### 2.4 Deployment
-- Backend: Fly.io or Railway (cheap, no DevOps overhead)
-- Frontend: Expo EAS Build → TestFlight / internal track
+- Backend: Fly.io or Railway
+- Frontend: Expo EAS Build → web deploy; TestFlight for mobile preview
 - Database: Supabase (managed PostgreSQL)
 
 ---
@@ -201,21 +174,27 @@ SELECT * FROM cost_records WHERE period_start >= '2025-09-01' AND period_end <= 
 
 ### Goal: App Store launch, first paying customers
 
-#### 3.1 Remediation Actions (read-only first)
-- "One-click" remediation suggestions with CLI commands pre-generated
-- **Terraform/Pulumi taint scripts** — modern shops manage infrastructure via IaC; a CLI command alone won't work because the next pipeline run will recreate the resource. Provide a `terraform taint` or resource removal snippet alongside the CLI command.
-- Later: actual API calls with customer approval step
+#### 3.1 Remediation Actions
+- Pre-generated AWS CLI commands per resource type
+- Terraform taint snippets for IaC-managed resources
+- Dismiss workflow — mark a ghost as intentional with a reason; hidden from main list
+- Audit trail — all dismiss/delegate/delete actions logged with timestamp and user
 
 #### 3.2 Multi-cloud
 - Azure Cost Management API
 - GCP Billing Export → BigQuery
 
 #### 3.3 Reporting
-- Exportable PDF/CSV savings report (useful for FinOps teams presenting to CFO)
+- Exportable PDF savings report (for FinOps teams presenting to CFO)
 - Savings trend over time (chart)
 
-#### 3.4 App Store Submission
-- Establish Operating UG **before** App Store submission (see Legal section)
+#### 3.4 Mobile App
+- Same Expo codebase — `npm run ios` / `npm run android`
+- Expo EAS Build handles compilation — no Mac build machine needed
+- Apple Developer account ($99/year) required for TestFlight and App Store
+
+#### 3.5 App Store Submission
+- Establish Operating UG before submission
 - Privacy policy, terms of service
 
 ---
@@ -224,8 +203,6 @@ SELECT * FROM cost_records WHERE period_start >= '2025-09-01' AND period_end <= 
 
 ### Goal: Anticipate costs before deployment — own the full cost lifecycle
 
-This phase transforms AxiaOps from a reactive tool into a proactive one. Instead of only showing what was spent, it predicts what will be spent before infrastructure is deployed.
-
 ```
 Plan → Deploy → Run
  ↑         ↑       ↑
@@ -233,16 +210,14 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 ```
 
 #### 4.1 IaC Plan Parser
-- Parse `terraform plan -out=plan.json` output
-- Parse AWS CDK `cdk diff` output
+- Parse `terraform plan -out=plan.json` and AWS CDK `cdk diff` output
 - Extract resource types, sizes, regions, and counts
 - Map each resource to its pricing model (on-demand, reserved, spot)
 
 #### 4.2 Cost Estimation Engine
 - Fetch live pricing from AWS Pricing API, Azure Retail Prices API, GCP Cloud Billing Catalog
-- Compute estimated monthly cost per resource
-- Aggregate into a total estimated monthly delta (how much will this change my bill?)
-- Flag resources with no cost tag — ownership gap surfaced at plan time, not after
+- Compute estimated monthly cost delta per resource
+- Flag resources with no cost tag — ownership gap surfaced at plan time
 
 #### 4.3 What-if Scenarios
 - "What if I use gp3 instead of gp2?" → show savings
@@ -250,14 +225,12 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 - "What if I use Spot instead of On-Demand?" → show risk vs savings
 
 #### 4.4 CI/CD Budget Gate
-- GitHub Actions / GitLab CI integration — runs on every pull request
-- Posts estimated cost delta as a PR comment
+- GitLab CI / GitHub Actions integration — runs on every merge request
+- Posts estimated cost delta as a MR comment
 - Configurable threshold: warn or block if monthly cost increase exceeds limit
-- Example: block merge if a PR adds >€500/month in new infrastructure
 
 #### 4.5 CLI Tool
 - `axiaops estimate --plan plan.json` — standalone CLI for local use
-- Output: JSON or human-readable table of estimated costs
 - Installable via `brew install axiaops` or single binary download
 
 ---
@@ -266,29 +239,29 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Go 1.22+ |
+| Backend | Go 1.25+ |
 | Database | SQLite (MVP) → PostgreSQL |
-| Frontend | React Native (Expo) |
+| Frontend | React Native (Expo) — web + mobile |
 | Auth | Clerk or Supabase Auth |
 | Hosting | Fly.io / Railway |
-| CI/CD | GitHub Actions |
-| Cloud APIs | AWS CUR, Cost Explorer, Azure Cost Mgmt, GCP Billing |
+| CI/CD | GitLab CI |
+| Cloud APIs | AWS Cost Explorer, CloudWatch, Azure Cost Mgmt, GCP Billing |
 
 ---
 
 ## Milestones
 
-| Date | Milestone |
-|------|-----------|
-| April 2026 | Mock data generator + Go ingestion service MVP |
-| May 2026 | React Native dashboard — local demo |
-| June 2026 | Docker Compose full-stack running locally |
-| July 2026 | AWS Cost Explorer integration — real data |
-| August 2026 | Auth + multi-tenancy |
-| September 2026 | Alpha with 3–5 beta users |
-| October 2026 | App Store / Play Store submission |
-| November 2026 | First paying customer |
-| December 2026 | 10 customers, €5K MRR target |
-| Q1 2027 | IaC plan parser + cost estimation engine |
-| Q2 2027 | CI/CD budget gate (GitHub Actions / GitLab CI) |
-| Q3 2027 | CLI tool + what-if scenarios |
+| Date | Milestone | Status |
+|------|-----------|--------|
+| April 2026 | Go ingestion service + fixture data + zombie detection | ✅ Done |
+| April 2026 | React Native web dashboard | ✅ Done (ahead of schedule) |
+| April 2026 | Docker Compose full-stack + unit tests | ✅ Done (ahead of schedule) |
+| July 2026 | AWS Cost Explorer + CloudWatch integration | Planned |
+| August 2026 | Auth + multi-tenancy + PostgreSQL | Planned |
+| September 2026 | Alpha with 3–5 beta users | Planned |
+| October 2026 | App Store / Play Store submission | Planned |
+| November 2026 | First paying customer | Planned |
+| December 2026 | 10 customers, €5K MRR target | Planned |
+| Q1 2027 | IaC plan parser + cost estimation engine | Planned |
+| Q2 2027 | CI/CD budget gate | Planned |
+| Q3 2027 | CLI tool + what-if scenarios | Planned |
