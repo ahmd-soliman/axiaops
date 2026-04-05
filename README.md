@@ -235,6 +235,9 @@ Test with the REST Client extension: open `services/ingestion/api.http` in VS Co
 | `DB_PATH` | `axiaops.db` | SQLite database file path |
 | `API_ADDR` | `:8080` | HTTP server listen address |
 | `AWS_ACCOUNT_ID` | — | Required when `DEV_MODE=false` |
+| `DAYS_BACK` | `30` | How many days back to fetch (overrides default 30-day window) |
+| `START_DATE` | — | Explicit start date `YYYY-MM-DD` (use with `END_DATE`) |
+| `END_DATE` | — | Explicit end date `YYYY-MM-DD` (use with `START_DATE`) |
 
 ---
 
