@@ -99,6 +99,14 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 - [ ] GCP Billing API — implement `Provider` interface for GCP
 - [ ] Add provider selector in dashboard
 
+### FOCUS Specification (FinOps Open Cost and Usage Specification)
+- [ ] Implement a `focusfile` provider — reads FOCUS-formatted billing exports from S3/blob storage
+- [ ] Map FOCUS columns (`BilledCost`, `ResourceId`, `ServiceName`, `RegionName`, `Tags`) to `model.CostRecord`
+- [ ] Use FOCUS as the ingestion path for Azure and GCP — one parser handles all clouds
+- [ ] Keep AWS Cost Explorer API for real-time AWS ingestion — FOCUS exports have a 24-hour delay
+- [ ] Offer FOCUS as an optional ingestion path for customers who already export billing data to S3
+- [ ] See [FinOps Foundation FOCUS spec](https://focus.finops.org) for schema reference
+
 ### Reporting
 - [ ] Savings trend chart — ghost spend over time
 - [ ] PDF export — savings report for FinOps/CFO presentation
