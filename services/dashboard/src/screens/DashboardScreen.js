@@ -28,7 +28,7 @@ const C = {
   border: '#E2E8F0',
 };
 
-export default function DashboardScreen({ onSelectGhost }) {
+export default function DashboardScreen({ onSelectGhost, onLogout }) {
   const summary = useQuery({ queryKey: ['summary'], queryFn: fetchSummary });
   const ghosts  = useQuery({ queryKey: ['ghosts'],  queryFn: fetchGhosts  });
 
@@ -79,6 +79,9 @@ export default function DashboardScreen({ onSelectGhost }) {
             <View style={styles.navPill}>
               <Text style={styles.navPillText}>MVP</Text>
             </View>
+            <TouchableOpacity onPress={onLogout} style={styles.logoutBtn}>
+              <Text style={styles.logoutText}>Sign out</Text>
+            </TouchableOpacity>
           </View>
 
           {/* Hero */}
@@ -192,6 +195,8 @@ const styles = StyleSheet.create({
   navBrand: { color: C.white, fontSize: 18, fontWeight: '800', letterSpacing: 0.3, flex: 1 },
   navPill: { backgroundColor: C.navyLight, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 5 },
   navPillText: { color: C.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1 },
+  logoutBtn: { marginLeft: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: C.navyLight },
+  logoutText: { color: C.textMuted, fontSize: 12, fontWeight: '600' },
 
   // Hero
   hero: {

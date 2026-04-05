@@ -36,6 +36,7 @@ func New(ghosts []model.GhostResource, summary analyzer.Summary, ingest IngestFu
 
 // Register attaches the routes to the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /ghosts", h.listGhosts)
 	mux.HandleFunc("GET /summary", h.getSummary)
 	mux.HandleFunc("POST /ingest", h.triggerIngest)
@@ -46,7 +47,7 @@ func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -85,6 +86,10 @@ func (h *Handler) triggerIngest(w http.ResponseWriter, r *http.Request) {
 	h.summary = summary
 	h.mu.Unlock()
 	writeJSON(w, summary)
+}
+
+func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
