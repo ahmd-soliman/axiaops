@@ -8,7 +8,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 
 	"axiaops.io/ingestion/internal/model"
@@ -29,6 +31,23 @@ CREATE TABLE IF NOT EXISTS cost_records (
     tags         TEXT,
     fetched_at   DATETIME NOT NULL,
     UNIQUE(provider, account_id, service, region, period_start, period_end)
+);
+
+CREATE TABLE IF NOT EXISTS tenants (
+    id         TEXT PRIMARY KEY,
+    org_code   TEXT NOT NULL UNIQUE,
+    name       TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id         TEXT PRIMARY KEY,
+    tenant_id  TEXT NOT NULL REFERENCES tenants(id),
+    kinde_sub  TEXT NOT NULL UNIQUE,
+    email      TEXT NOT NULL DEFAULT '',
+    name       TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL,
+    last_seen  DATETIME NOT NULL
 );`
 
 // Store is a SQLite-backed implementation of storage.Store.
@@ -89,6 +108,57 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 	}
 
 	return inserted, tx.Commit()
+}
+
+// UpsertTenant creates a tenant on first login or returns the existing one.
+func (s *Store) UpsertTenant(ctx context.Context, orgCode, name string) (model.Tenant, error) {
+	now := time.Now().UTC()
+	id := uuid.New().String()
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO tenants (id, org_code, name, created_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(org_code) DO UPDATE SET name = excluded.name
+	`, id, orgCode, name, now)
+	if err != nil {
+		return model.Tenant{}, fmt.Errorf("sqlite: upsert tenant: %w", err)
+	}
+
+	var t model.Tenant
+	err = s.db.QueryRowContext(ctx,
+		`SELECT id, org_code, name, created_at FROM tenants WHERE org_code = ?`, orgCode,
+	).Scan(&t.ID, &t.OrgCode, &t.Name, &t.CreatedAt)
+	if err != nil {
+		return model.Tenant{}, fmt.Errorf("sqlite: fetch tenant: %w", err)
+	}
+	return t, nil
+}
+
+// UpsertUser creates a user on first login or updates last_seen on subsequent logins.
+func (s *Store) UpsertUser(ctx context.Context, tenantID, kindeSub, email, name string) (model.User, error) {
+	now := time.Now().UTC()
+	id := uuid.New().String()
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO users (id, tenant_id, kinde_sub, email, name, created_at, last_seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(kinde_sub) DO UPDATE SET
+			email     = excluded.email,
+			name      = excluded.name,
+			last_seen = excluded.last_seen
+	`, id, tenantID, kindeSub, email, name, now, now)
+	if err != nil {
+		return model.User{}, fmt.Errorf("sqlite: upsert user: %w", err)
+	}
+
+	var u model.User
+	err = s.db.QueryRowContext(ctx,
+		`SELECT id, tenant_id, kinde_sub, email, name, created_at, last_seen FROM users WHERE kinde_sub = ?`, kindeSub,
+	).Scan(&u.ID, &u.TenantID, &u.KindeSub, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
+	if err != nil {
+		return model.User{}, fmt.Errorf("sqlite: fetch user: %w", err)
+	}
+	return u, nil
 }
 
 func (s *Store) Close() error {

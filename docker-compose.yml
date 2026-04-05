@@ -16,7 +16,7 @@ services:
       - db_data:/data
       - ${HOME}/.aws:/root/.aws:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/summary || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -26,6 +26,10 @@ services:
     build:
       context: ./services/dashboard
       dockerfile: Dockerfile
+      args:
+        EXPO_PUBLIC_KINDE_ISSUER: ${EXPO_PUBLIC_KINDE_ISSUER:-https://axiaops.kinde.com}
+        EXPO_PUBLIC_KINDE_CLIENT_ID: ${EXPO_PUBLIC_KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
+        EXPO_PUBLIC_API_URL: /api
     container_name: axiaops-dashboard
     ports:
       - "8081:80"

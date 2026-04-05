@@ -136,7 +136,7 @@ func main() {
 	if kindeIssuer == "" {
 		log.Println("auth: KINDE_ISSUER not set — running without authentication")
 	} else {
-		auth, err := middleware.NewAuth(ctx, kindeIssuer)
+		auth, err := middleware.NewAuth(ctx, kindeIssuer, store)
 		if err != nil {
 			log.Fatalf("auth: init failed: %v", err)
 		}
