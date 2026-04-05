@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"axiaops.io/ingestion/internal/model"
+	"axiaops.io/shared/model"
 )
 
 // Client reads cost data from a local JSON fixture file.

@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"axiaops.io/ingestion/internal/model"
+	"axiaops.io/shared/model"
 )
 
 // Provider is the interface every cloud provider adapter must implement.

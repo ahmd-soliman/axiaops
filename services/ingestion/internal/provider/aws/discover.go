@@ -11,7 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 
-	"axiaops.io/ingestion/internal/model"
+	"axiaops.io/shared/model"
 )
 
 // DiscoveredResource holds a resource ID alongside its service and region,
