@@ -78,18 +78,23 @@ Two read-only permissions, both scoped to read operations only:
     "Action": [
       "ce:GetCostAndUsage",
       "cloudwatch:GetMetricStatistics",
-      "cloudwatch:ListMetrics"
+      "cloudwatch:ListMetrics",
+      "ec2:DescribeInstances",
+      "ec2:DescribeNatGateways",
+      "rds:DescribeDBInstances",
+      "lambda:ListFunctions",
+      "elasticloadbalancing:DescribeLoadBalancers"
     ],
     "Resource": "*"
   }]
 }
 ```
 
-- `ce:GetCostAndUsage` — billing line items, the same data you see in the AWS Console under Cost Explorer
-- `cloudwatch:GetMetricStatistics` — usage metrics (CPU, connections, invocations) to determine if a resource is actually idle
-- `cloudwatch:ListMetrics` — discover which metrics exist for a given resource
+- `ce:GetCostAndUsage` — billing line items, same data as the AWS Console Cost Explorer
+- `cloudwatch:GetMetricStatistics` — usage metrics (CPU, connections, invocations) to determine if a resource is idle
+- `ec2:DescribeInstances`, `rds:DescribeDBInstances`, `lambda:ListFunctions`, `elasticloadbalancing:DescribeLoadBalancers`, `ec2:DescribeNatGateways` — list resources to cross-reference with CloudWatch
 
-No access to compute, storage, networking, or any write operation on any service.
+All actions are read-only Describe/List/Get. No access to create, modify, or delete any resource.
 
 ---
 

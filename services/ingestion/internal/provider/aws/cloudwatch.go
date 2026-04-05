@@ -10,7 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 
 	"axiaops.io/ingestion/internal/analyzer"
-	"axiaops.io/ingestion/internal/model"
 )
 
 // serviceMetric maps an AWS service name to the CloudWatch namespace,
@@ -55,11 +54,9 @@ var serviceMetrics = map[string]serviceMetric{
 	},
 }
 
-// FetchUsage queries CloudWatch for average usage metrics for each resource
-// in the provided cost records. Resources with no matching service metric
-// definition are skipped. Returns one UsageRecord per resource.
-func FetchUsage(ctx context.Context, cw CloudWatchAPI, records []model.CostRecord, start, end time.Time) ([]analyzer.UsageRecord, error) {
-	// period in seconds — covers the entire date range as one data point
+// FetchUsage queries CloudWatch for average usage metrics for each discovered
+// resource. Returns one UsageRecord per resource.
+func FetchUsage(ctx context.Context, cw CloudWatchAPI, resources []DiscoveredResource, start, end time.Time) ([]analyzer.UsageRecord, error) {
 	periodSecs := int32(end.Sub(start).Seconds())
 	if periodSecs < 60 {
 		periodSecs = 60
@@ -67,10 +64,7 @@ func FetchUsage(ctx context.Context, cw CloudWatchAPI, records []model.CostRecor
 
 	var usage []analyzer.UsageRecord
 
-	for _, r := range records {
-		if r.ResourceID == "" {
-			continue
-		}
+	for _, r := range resources {
 		sm, ok := serviceMetrics[r.Service]
 		if !ok {
 			continue
