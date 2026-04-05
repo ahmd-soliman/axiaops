@@ -4,6 +4,51 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 
 ---
 
+## Phase 1 — MVP ✅
+
+### Cost + Usage Data
+- [x] `fixtures/costs.json` — 13 realistic cost records across EC2, RDS, Lambda, ELB, NAT Gateway
+- [x] `fixtures/usage.json` — CloudWatch-style usage metrics per resource
+- [x] Some resources deliberately at zero usage to act as zombies in dev/test
+
+### Go Ingestion Service
+- [x] `Provider` interface — swap AWS for file fixture via `DEV_MODE=true`
+- [x] AWS Cost Explorer integration (`ce:GetCostAndUsage`)
+- [x] CloudWatch integration (`cloudwatch:GetMetricStatistics`)
+- [x] Resource discovery via Describe APIs (EC2, RDS, Lambda, ELB, NAT Gateway)
+- [x] SQLite storage with `INSERT OR IGNORE` deduplication
+- [x] Configurable date range — `DAYS_BACK`, `START_DATE`, `END_DATE` env vars
+
+### Zombie Detection
+- [x] `Detect()` — joins cost records with usage records on `resource_id`
+- [x] Per-service threshold rules (EC2 ≤5% CPU, RDS 0 connections, Lambda 0 invocations, ELB 0 requests, NAT Gateway 0 bytes)
+- [x] Owner resolution from `team` resource tag
+- [x] `Summarize()` — aggregate savings and per-service breakdown
+
+### REST API
+- [x] `GET /ghosts` — list of zombie resources with cost, usage, reason, owner
+- [x] `GET /summary` — aggregate savings and per-service breakdown
+- [x] CORS middleware
+
+### React Native Dashboard
+- [x] Dark navy + orange design
+- [x] Savings banner with total ghost spend
+- [x] Ghost list with per-service colour coding
+- [x] Detail screen with resource info and remediation hint
+- [x] Environment-aware API client (dev vs Docker/production)
+
+### Infrastructure
+- [x] Docker Compose — one command runs ingestion + dashboard
+- [x] nginx reverse proxy — serves dashboard, proxies `/api/*` to ingestion
+- [x] `~/.aws` mounted into container — no credentials in `.env`
+- [x] GitLab CI pipeline — runs `go test ./...` on every push
+
+### Testing
+- [x] 24 unit tests across 5 packages
+- [x] Mock interfaces for AWS Cost Explorer and CloudWatch — no real AWS calls in tests
+
+---
+
 ## Phase 2 Remaining
 
 ### Auth
