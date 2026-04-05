@@ -111,12 +111,21 @@ Opens at `http://localhost:8081`. Press **F5** in VS Code to start both automati
      "Version": "2012-10-17",
      "Statement": [{
        "Effect": "Allow",
-       "Action": ["ce:GetCostAndUsage"],
+       "Action": [
+         "ce:GetCostAndUsage",
+         "cloudwatch:GetMetricStatistics",
+         "cloudwatch:ListMetrics",
+         "ec2:DescribeInstances",
+         "ec2:DescribeNatGateways",
+         "rds:DescribeDBInstances",
+         "lambda:ListFunctions",
+         "elasticloadbalancing:DescribeLoadBalancers"
+       ],
        "Resource": "*"
      }]
    }
    ```
-   Description: `Read-only Cost Explorer access for AxiaOps ingestion service`
+   Description: `Read-only Cost Explorer, CloudWatch and resource discovery access for AxiaOps ingestion service`
 
    **Policy 2 — `AxiaOpsTestResources`** (optional, attach only when generating test data):
 
