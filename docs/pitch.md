@@ -68,20 +68,28 @@ AxiaOps is a tool for your FinOps team, not a replacement. It removes the manual
 
 ## "What does read-only actually mean? What can it access?"
 
-The minimum viable IAM policy for Phase 1:
+Two read-only permissions, both scoped to read operations only:
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
-    "Action": ["ce:GetCostAndUsage"],
+    "Action": [
+      "ce:GetCostAndUsage",
+      "cloudwatch:GetMetricStatistics",
+      "cloudwatch:ListMetrics"
+    ],
     "Resource": "*"
   }]
 }
 ```
 
-That is one API call. It returns billing line items — the same data you see in the AWS Console under Cost Explorer. No access to compute, storage, networking, or any other service.
+- `ce:GetCostAndUsage` — billing line items, the same data you see in the AWS Console under Cost Explorer
+- `cloudwatch:GetMetricStatistics` — usage metrics (CPU, connections, invocations) to determine if a resource is actually idle
+- `cloudwatch:ListMetrics` — discover which metrics exist for a given resource
+
+No access to compute, storage, networking, or any write operation on any service.
 
 ---
 
@@ -93,9 +101,9 @@ Nothing breaks in your infrastructure. AxiaOps is read-only and sits entirely ou
 
 ## "We are a startup, our cloud bill is too small to justify this"
 
-If your monthly cloud bill is under $1,000 this is probably not for you yet — and we will tell you that honestly.
+If your monthly cloud bill is under \$1,000 this is probably not for you yet — and we will tell you that honestly.
 
-The sweet spot is teams spending $5,000/month or more. At that scale even 10% waste is $500–$6,000/month. AxiaOps typically pays for itself in the first month.
+The sweet spot is teams spending \$5,000/month or more. At that scale even 10% waste is \$500–\$6,000/month. AxiaOps typically pays for itself in the first month.
 
 For early-stage startups: bookmark it for when you scale. Ghost resources compound — the longer they run, the harder they are to find.
 
@@ -197,7 +205,7 @@ This is often the most valuable output: a list of untagged resources is itself a
 
 ## "What is the competitive landscape — why not use Cloudability, Apptio, or CloudHealth?"
 
-Those are enterprise FinOps platforms targeting $1M+ cloud spend with 6-month procurement cycles and 6-figure price tags.
+Those are enterprise FinOps platforms targeting \$1M+ cloud spend with 6-month procurement cycles and 6-figure price tags.
 
 AxiaOps is for engineering teams that want to act today, not go through a procurement process. It is narrowly focused on zombie resources — the highest-ROI FinOps action — rather than trying to be a full cost allocation and chargeback platform.
 
