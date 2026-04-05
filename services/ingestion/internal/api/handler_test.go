@@ -40,7 +40,10 @@ func testHandler() *api.Handler {
 			"AmazonRDS": {Ghosts: 1, Savings: 210.00},
 		},
 	}
-	return api.New(ghosts, summary)
+	noopIngest := func() ([]model.GhostResource, analyzer.Summary, error) {
+		return ghosts, summary, nil
+	}
+	return api.New(ghosts, summary, noopIngest)
 }
 
 // ── GET /ghosts ───────────────────────────────────────────────────────────────
