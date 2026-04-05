@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"axiaops.io/ingestion/internal/analyzer"
@@ -59,8 +60,7 @@ func main() {
 	}
 
 	// ── Ingestion ─────────────────────────────────────────────────────────────
-	end := time.Now().UTC().Truncate(24 * time.Hour)
-	start := end.AddDate(0, -1, 0)
+	end, start := dateRange()
 
 	var allRecords []model.CostRecord
 	for _, p := range providers {
@@ -112,4 +112,41 @@ func main() {
 	if err := http.ListenAndServe(addr, h.Handler(mux)); err != nil {
 		log.Fatalf("api: server error: %v", err)
 	}
+}
+
+// dateRange returns the ingestion window.
+//
+// Priority:
+//  1. START_DATE + END_DATE env vars (format: 2006-01-02) — explicit range
+//  2. DAYS_BACK env var — number of days back from today (default 30)
+func dateRange() (end, start time.Time) {
+	const layout = "2006-01-02"
+	end = time.Now().UTC().Truncate(24 * time.Hour)
+
+	if s, e := os.Getenv("START_DATE"), os.Getenv("END_DATE"); s != "" && e != "" {
+		parsed, err := time.Parse(layout, s)
+		if err != nil {
+			log.Fatalf("START_DATE invalid (expected YYYY-MM-DD): %v", err)
+		}
+		start = parsed
+		parsed, err = time.Parse(layout, e)
+		if err != nil {
+			log.Fatalf("END_DATE invalid (expected YYYY-MM-DD): %v", err)
+		}
+		end = parsed
+		log.Printf("date range: %s → %s (explicit)", start.Format(layout), end.Format(layout))
+		return
+	}
+
+	days := 30
+	if d := os.Getenv("DAYS_BACK"); d != "" {
+		n, err := strconv.Atoi(d)
+		if err != nil || n < 1 {
+			log.Fatalf("DAYS_BACK must be a positive integer, got: %s", d)
+		}
+		days = n
+	}
+	start = end.AddDate(0, 0, -days)
+	log.Printf("date range: %s → %s (%d days)", start.Format(layout), end.Format(layout), days)
+	return
 }
