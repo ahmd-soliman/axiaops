@@ -6,14 +6,25 @@
 const BASE_URL =
   process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8080';
 
+let authToken = null;
+
+// setAuthToken is called by App.js after login / on startup token restore.
+export function setAuthToken(token) {
+  authToken = token;
+}
+
+function authHeaders() {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+}
+
 export async function fetchSummary() {
-  const res = await fetch(`${BASE_URL}/summary`);
+  const res = await fetch(`${BASE_URL}/summary`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch summary');
   return res.json();
 }
 
 export async function fetchGhosts() {
-  const res = await fetch(`${BASE_URL}/ghosts`);
+  const res = await fetch(`${BASE_URL}/ghosts`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch ghosts');
   return res.json();
 }
