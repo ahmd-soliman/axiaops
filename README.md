@@ -38,6 +38,15 @@ Two ways to run: **Docker Compose** (recommended, one command) or **manually** (
 
 ### Option A — Docker Compose
 
+**Dev mode (fixture data, no AWS needed):**
+
+Create `services/ingestion/.env` from the example:
+```bash
+cp services/ingestion/.env.example services/ingestion/.env
+```
+
+The default `.env` has `DEV_MODE=true` — no changes needed for dev mode.
+
 ```bash
 docker compose up
 ```
@@ -45,13 +54,27 @@ docker compose up
 - Dashboard → `http://localhost:8081`
 - API → `http://localhost:8080`
 
-To stop:
+**Real AWS mode:**
 
+Edit `services/ingestion/.env`:
+```
+DEV_MODE=false
+AWS_ACCOUNT_ID=123456789012
+AWS_REGION=eu-central-1
+```
+
+Your `~/.aws/credentials` are mounted into the container automatically — no need to put keys in the `.env` file.
+
+```bash
+docker compose up
+```
+
+To stop:
 ```bash
 docker compose down
 ```
 
-> Docker Compose runs in dev mode (`DEV_MODE=true`) using fixture data. To run against real AWS, use Option B below.
+> `.env` is gitignored — it will never be committed. See `services/ingestion/.env.example` for the full list of available variables.
 
 ### Option B — Manual (dev mode, no AWS)
 
