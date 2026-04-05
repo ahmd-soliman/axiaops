@@ -147,11 +147,78 @@ LocalStack Pro ($35/month) is required for full Cost Explorer support. The free 
 ### Goal: Real cloud connectivity, single-tenant
 
 #### 2.1 AWS Integration
-- AWS Cost Explorer API already wired — `internal/provider/aws` is complete
-- Add CloudWatch provider for usage metrics — same `CostExplorerAPI` mock pattern
-- IAM policy required: `ce:GetCostAndUsage`, `cloudwatch:GetMetricStatistics`
-- Never store customer credentials — use cross-account IAM role assumption (`sts:AssumeRole`)
-- See [docs/production.md](production.md) for IAM policy details and multi-tenant role assumption pattern
+
+**Status: Complete (shipped ahead of schedule)**
+
+**Ingestion flow:**
+
+```
+1. Cost Explorer (ce:GetCostAndUsage)
+      │  grouped by SERVICE + REGION
+      │  → tells us which services have spend and in which region
+      ▼
+2. Resource Discovery (Describe APIs)
+      │  for each service+region pair with cost:
+      │    ec2:DescribeInstances        → EC2 instance IDs
+      │    rds:DescribeDBInstances      → RDS DB identifiers
+      │    lambda:ListFunctions         → Lambda function names
+      │    elb:DescribeLoadBalancers    → Load balancer ARNs
+      │    ec2:DescribeNatGateways      → NAT Gateway IDs
+      │
+      │  Why: Cost Explorer groups costs by service+region only.
+      │  It does not expose individual resource IDs. The describe
+      │  APIs bridge this gap — they return the actual resource IDs
+      │  that CloudWatch needs to query metrics.
+      ▼
+3. CloudWatch (cloudwatch:GetMetricStatistics)
+      │  one call per discovered resource
+      │  fetches average metric over the billing period:
+      │    EC2  → CPUUtilization
+      │    RDS  → DatabaseConnections
+      │    Lambda → Invocations
+      │    ELB  → RequestCount
+      │    NAT Gateway → BytesOutToDestination
+      ▼
+4. Analyzer
+      │  joins cost records with usage records on resource_id
+      │  applies per-service threshold rules
+      │  flags resources where usage.avg <= threshold
+      ▼
+5. API
+      GET /ghosts   → list of zombie resources with cost, usage, owner
+      GET /summary  → aggregate savings and per-service breakdown
+```
+
+**IAM policy required (`AxiaOpsReadOnly`):**
+
+```json
+{
+  "Action": [
+    "ce:GetCostAndUsage",
+    "cloudwatch:GetMetricStatistics",
+    "cloudwatch:ListMetrics",
+    "ec2:DescribeInstances",
+    "ec2:DescribeNatGateways",
+    "rds:DescribeDBInstances",
+    "lambda:ListFunctions",
+    "elasticloadbalancing:DescribeLoadBalancers"
+  ]
+}
+```
+
+All actions are read-only. No write access to any resource.
+
+**Key files:**
+- `internal/provider/aws/aws.go` — Cost Explorer client
+- `internal/provider/aws/discover.go` — resource discovery via Describe APIs
+- `internal/provider/aws/cloudwatch.go` — CloudWatch usage fetcher
+- `internal/provider/aws/cwapi.go` — CloudWatch interface for test injection
+
+**DEV_MODE switch:**
+- `DEV_MODE=true` → reads from `fixtures/costs.json` and `fixtures/usage.json`
+- `DEV_MODE=false` → Cost Explorer + Describe APIs + CloudWatch (real AWS)
+
+**Never store customer credentials** — use cross-account IAM role assumption (`sts:AssumeRole`) in production. See [docs/production.md](production.md) for multi-tenant role assumption pattern.
 
 #### 2.2 Auth & Multi-tenancy
 - Auth: Clerk or Supabase Auth (JWT)
@@ -166,9 +233,9 @@ LocalStack Pro ($35/month) is required for full Cost Explorer support. The free 
 - Email provider: Resend or SendGrid
 
 #### 2.4 Deployment
-- Backend: Fly.io or Railway
+- Backend: AWS App Runner (API + ingestion) — see [docs/deployment.md](deployment.md)
 - Frontend: Expo EAS Build → web deploy; TestFlight for mobile preview
-- Database: Supabase (managed PostgreSQL)
+- Database: RDS PostgreSQL (`db.t4g.micro` → `db.t4g.small` as customers grow)
 
 ---
 
