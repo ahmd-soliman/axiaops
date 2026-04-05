@@ -12,13 +12,13 @@ import { setAuthToken } from './src/api/client';
 
 const queryClient = new QueryClient();
 
-function AuthenticatedApp() {
+function AuthenticatedApp({ onLogout }) {
   const [selectedGhost, setSelectedGhost] = useState(null);
 
   return selectedGhost ? (
     <DetailScreen ghost={selectedGhost} onBack={() => setSelectedGhost(null)} />
   ) : (
-    <DashboardScreen onSelectGhost={setSelectedGhost} />
+    <DashboardScreen onSelectGhost={setSelectedGhost} onLogout={onLogout} />
   );
 }
 
@@ -27,7 +27,7 @@ function Root() {
   const [loading, setLoading] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
 
-  const { request, response, promptAsync } = useKindeAuth();
+  const { request, response, promptAsync, discovery } = useKindeAuth();
 
   // Restore token from storage on startup
   useEffect(() => {
@@ -42,48 +42,32 @@ function Root() {
 
   // Handle OAuth callback
   useEffect(() => {
-    if (response?.type === 'success') {
-      const { code } = response.params;
-      exchangeCode(code);
+    if (response?.type === 'success' && request && discovery) {
+      AuthSession.exchangeCodeAsync(
+        {
+          clientId: process.env.EXPO_PUBLIC_KINDE_CLIENT_ID,
+          redirectUri: AuthSession.makeRedirectUri({ useProxy: false }),
+          code: response.params.code,
+          extraParams: { code_verifier: request.codeVerifier },
+        },
+        discovery,
+      )
+        .then(async (tokenResponse) => {
+          const accessToken = tokenResponse.accessToken;
+          await saveToken(accessToken);
+          setAuthToken(accessToken);
+          setToken(accessToken);
+        })
+        .catch((e) => {
+          console.error('Token exchange failed:', e);
+        })
+        .finally(() => {
+          setSigningIn(false);
+        });
     } else if (response?.type === 'error' || response?.type === 'dismiss') {
       setSigningIn(false);
     }
-  }, [response]);
-
-  async function exchangeCode(code) {
-    try {
-      const issuer = process.env.EXPO_PUBLIC_KINDE_ISSUER;
-      const clientId = process.env.EXPO_PUBLIC_KINDE_CLIENT_ID;
-      const redirectUri = AuthSession.makeRedirectUri({ useProxy: false });
-
-      const body = new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        code,
-        code_verifier: request.codeVerifier,
-      });
-
-      const res = await fetch(`${issuer}/oauth2/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-      });
-
-      if (!res.ok) throw new Error('Token exchange failed');
-
-      const data = await res.json();
-      const accessToken = data.access_token;
-
-      await saveToken(accessToken);
-      setAuthToken(accessToken);
-      setToken(accessToken);
-    } catch (e) {
-      console.error('Auth error:', e);
-    } finally {
-      setSigningIn(false);
-    }
-  }
+  }, [response, request, discovery]);
 
   async function handleLogin() {
     setSigningIn(true);
@@ -99,7 +83,7 @@ function Root() {
   if (loading) return null;
 
   return token ? (
-    <AuthenticatedApp onLogout={handleLogout} />
+    <AuthenticatedApp onLogout={handleLogout} key={token} />
   ) : (
     <LoginScreen onLogin={handleLogin} loading={signingIn} />
   );

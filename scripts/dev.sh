@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INGESTION_DIR="$ROOT/services/ingestion"
 DASHBOARD_DIR="$ROOT/services/dashboard"
 PID_FILE="$ROOT/.dev-pids"
@@ -39,6 +39,7 @@ fi
 
 echo "Starting ingestion service  →  http://localhost:8080"
 cd "$INGESTION_DIR"
+set -a; [ -f .env ] && source .env; set +a
 DEV_MODE=true go run ./cmd/main.go &
 echo $! >> "$PID_FILE"
 

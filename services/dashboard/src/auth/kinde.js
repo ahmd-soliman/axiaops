@@ -26,5 +26,5 @@ export function useKindeAuth() {
     discovery,
   );
 
-  return { request, response, promptAsync, redirectUri };
+  return { request, response, promptAsync, redirectUri, discovery };
 }

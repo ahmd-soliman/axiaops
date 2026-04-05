@@ -51,12 +51,19 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 
 ## Phase 2 Remaining
 
+### Service Architecture Split
+- [ ] Split `services/ingestion` into two separate services:
+  - `services/api` — serves `/ghosts`, `/summary`, `/ingest`, handles auth, reads from DB
+  - `services/ingestion` — scheduled job only, fetches AWS data, writes to DB, no HTTP server
+- [ ] Dashboard points at `services/api`, not `services/ingestion`
+- [ ] Ingestion triggered by EventBridge cron or POST `/ingest` on the API service
+- [ ] Required before App Runner deployment
+
 ### Auth
 - [x] Choose auth provider — **Kinde** (see `docs/auth.md`)
-- [ ] Add Kinde Go SDK — verify JWT and extract `tenant_id` in middleware
-- [ ] Add JWT middleware to Go API — reject unauthenticated requests
-- [ ] Add Kinde login screen to React Native dashboard
-- [ ] Protect all API endpoints (`/ghosts`, `/summary`) behind auth
+- [x] Add JWT middleware to Go API — rejects unauthenticated requests
+- [x] Add Kinde login screen to React Native dashboard
+- [ ] Protect all API endpoints (`/ghosts`, `/summary`) behind auth in production (currently optional via `KINDE_ISSUER` env var)
 - [ ] Store `tenant_id` with each ingestion run (map Kinde `org_code` → internal UUID)
 
 ### PostgreSQL Migration
@@ -141,11 +148,12 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 ## Immediate Priority Order
 
 ```
-1. Scheduled ingestion (/ingest endpoint)   ← unblocks everything else
-2. Auth (Clerk or Supabase)                 ← needed before any real customers
+1. Scheduled ingestion (/ingest endpoint)   ✅ Done
+2. Auth (Kinde)                             ✅ Done (middleware + login screen)
 3. PostgreSQL + multi-tenancy               ← needed before second customer
-4. Weekly digest                            ← first retention mechanism
-5. App Runner deployment                    ← move off local dev
-6. Remediation workflow                     ← Phase 3 value-add
-7. Multi-cloud (Azure, GCP)                 ← Phase 3 expansion
+4. Service split (API vs ingestion job)     ← needed before App Runner deployment
+5. Weekly digest                            ← first retention mechanism
+6. App Runner deployment                    ← move off local dev
+7. Remediation workflow                     ← Phase 3 value-add
+8. Multi-cloud (Azure, GCP)                 ← Phase 3 expansion
 ```

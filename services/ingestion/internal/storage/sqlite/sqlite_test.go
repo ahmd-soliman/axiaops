@@ -134,3 +134,100 @@ func TestSave_TagsStoredAsJSON(t *testing.T) {
 		t.Errorf("expected 1 inserted, got %d", inserted)
 	}
 }
+
+// ── Tenant tests ──────────────────────────────────────────────────────────────
+
+func TestUpsertTenant_CreatesOnFirstCall(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	tenant, err := store.UpsertTenant(ctx, "org_abc", "Acme Corp")
+	if err != nil {
+		t.Fatalf("upsert tenant failed: %v", err)
+	}
+	if tenant.ID == "" {
+		t.Error("expected non-empty tenant ID")
+	}
+	if tenant.OrgCode != "org_abc" {
+		t.Errorf("expected org_code org_abc, got %s", tenant.OrgCode)
+	}
+	if tenant.Name != "Acme Corp" {
+		t.Errorf("expected name Acme Corp, got %s", tenant.Name)
+	}
+}
+
+func TestUpsertTenant_ReturnsSameIDOnSecondCall(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	first, err := store.UpsertTenant(ctx, "org_abc", "Acme Corp")
+	if err != nil {
+		t.Fatalf("first upsert failed: %v", err)
+	}
+	second, err := store.UpsertTenant(ctx, "org_abc", "Acme Corp")
+	if err != nil {
+		t.Fatalf("second upsert failed: %v", err)
+	}
+	if first.ID != second.ID {
+		t.Errorf("expected same tenant ID on second call, got %s and %s", first.ID, second.ID)
+	}
+}
+
+func TestUpsertTenant_UpdatesName(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	_, err := store.UpsertTenant(ctx, "org_abc", "Old Name")
+	if err != nil {
+		t.Fatalf("first upsert failed: %v", err)
+	}
+	updated, err := store.UpsertTenant(ctx, "org_abc", "New Name")
+	if err != nil {
+		t.Fatalf("second upsert failed: %v", err)
+	}
+	if updated.Name != "New Name" {
+		t.Errorf("expected name to be updated to New Name, got %s", updated.Name)
+	}
+}
+
+// ── User tests ────────────────────────────────────────────────────────────────
+
+func TestUpsertUser_CreatesOnFirstLogin(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	tenant, _ := store.UpsertTenant(ctx, "org_abc", "Acme Corp")
+
+	user, err := store.UpsertUser(ctx, tenant.ID, "kp_user_123", "alice@acme.com", "Alice")
+	if err != nil {
+		t.Fatalf("upsert user failed: %v", err)
+	}
+	if user.ID == "" {
+		t.Error("expected non-empty user ID")
+	}
+	if user.TenantID != tenant.ID {
+		t.Errorf("expected tenant_id %s, got %s", tenant.ID, user.TenantID)
+	}
+	if user.Email != "alice@acme.com" {
+		t.Errorf("expected email alice@acme.com, got %s", user.Email)
+	}
+}
+
+func TestUpsertUser_ReturnsSameIDOnSecondLogin(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	tenant, _ := store.UpsertTenant(ctx, "org_abc", "Acme Corp")
+
+	first, err := store.UpsertUser(ctx, tenant.ID, "kp_user_123", "alice@acme.com", "Alice")
+	if err != nil {
+		t.Fatalf("first upsert failed: %v", err)
+	}
+	second, err := store.UpsertUser(ctx, tenant.ID, "kp_user_123", "alice@acme.com", "Alice")
+	if err != nil {
+		t.Fatalf("second upsert failed: %v", err)
+	}
+	if first.ID != second.ID {
+		t.Errorf("expected same user ID on second login, got %s and %s", first.ID, second.ID)
+	}
+}
