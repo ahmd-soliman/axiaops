@@ -7,6 +7,7 @@ import (
 	"time"
 
 	ceaws "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 
@@ -32,6 +33,17 @@ func (m *mockCEClient) GetCostAndUsage(
 	page := m.pages[m.call]
 	m.call++
 	return &page, nil
+}
+
+// mockCWClient is a test double for CloudWatchAPI.
+type mockCWClient struct{}
+
+func (m *mockCWClient) GetMetricStatistics(
+	_ context.Context,
+	_ *cloudwatch.GetMetricStatisticsInput,
+	_ ...func(*cloudwatch.Options),
+) (*cloudwatch.GetMetricStatisticsOutput, error) {
+	return &cloudwatch.GetMetricStatisticsOutput{}, nil
 }
 
 func TestFetchCosts_SinglePage(t *testing.T) {
@@ -61,7 +73,7 @@ func TestFetchCosts_SinglePage(t *testing.T) {
 		},
 	}
 
-	client := aws.NewWithClient("123456789012", mock)
+	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
 	records, err := client.FetchCosts(context.Background(), time.Now(), time.Now())
 
 	if err != nil {
@@ -133,7 +145,7 @@ func TestFetchCosts_Pagination(t *testing.T) {
 		},
 	}
 
-	client := aws.NewWithClient("123456789012", mock)
+	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
 	records, err := client.FetchCosts(context.Background(), time.Now(), time.Now())
 
 	if err != nil {
@@ -155,7 +167,7 @@ func TestFetchCosts_APIError(t *testing.T) {
 		err: fmt.Errorf("AccessDeniedException: User is not authorized"),
 	}
 
-	client := aws.NewWithClient("123456789012", mock)
+	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
 	_, err := client.FetchCosts(context.Background(), time.Now(), time.Now())
 
 	if err == nil {
