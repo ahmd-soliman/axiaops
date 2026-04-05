@@ -7,14 +7,15 @@ package aws
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
-	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 
 	"axiaops.io/ingestion/internal/analyzer"
 	"axiaops.io/ingestion/internal/model"
@@ -49,9 +50,12 @@ func NewWithClient(accountID string, ce CostExplorerAPI, cw CloudWatchAPI) *Clie
 	return &Client{accountID: accountID, ce: ce, cw: cw}
 }
 
-// FetchUsage queries CloudWatch for usage metrics for the given cost records.
+// FetchUsage discovers resources via service APIs then queries CloudWatch
+// for usage metrics for each discovered resource.
 func (c *Client) FetchUsage(ctx context.Context, records []model.CostRecord, start, end time.Time) ([]analyzer.UsageRecord, error) {
-	return FetchUsage(ctx, c.cw, records, start, end)
+	discovered := DiscoverResources(ctx, records)
+	log.Printf("discover: found %d resources across %d cost records", len(discovered), len(records))
+	return FetchUsage(ctx, c.cw, discovered, start, end)
 }
 
 func (c *Client) Name() string { return "aws" }
@@ -69,7 +73,6 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 		GroupBy: []types.GroupDefinition{
 			{Type: types.GroupDefinitionTypeDimension, Key: aws.String("SERVICE")},
 			{Type: types.GroupDefinitionTypeDimension, Key: aws.String("REGION")},
-			{Type: types.GroupDefinitionTypeDimension, Key: aws.String("RESOURCE_ID")},
 		},
 	}
 
@@ -88,10 +91,6 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 			for _, group := range result.Groups {
 				service := group.Keys[0]
 				region := group.Keys[1]
-				resourceID := ""
-				if len(group.Keys) > 2 {
-					resourceID = group.Keys[2]
-				}
 
 				metric := group.Metrics["UnblendedCost"]
 				amount, _ := strconv.ParseFloat(aws.ToString(metric.Amount), 64)
@@ -101,7 +100,6 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 					AccountID:   c.accountID,
 					Service:     service,
 					Region:      region,
-					ResourceID:  resourceID,
 					Amount:      amount,
 					Currency:    aws.ToString(metric.Unit),
 					PeriodStart: periodStart,
