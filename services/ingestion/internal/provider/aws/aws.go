@@ -17,8 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 
-	"axiaops.io/ingestion/internal/analyzer"
-	"axiaops.io/ingestion/internal/model"
+	"axiaops.io/shared/analyzer"
+	"axiaops.io/shared/model"
 )
 
 const dateLayout = "2006-01-02"

@@ -2,7 +2,7 @@
 # check_db.sh — inspect the AxiaOps SQLite database after a test login.
 # Usage: ./scripts/check_db.sh [path/to/axiaops.db]
 
-DB=${1:-services/ingestion/axiaops.db}
+DB=${1:-axiaops.db}
 
 if [ ! -f "$DB" ]; then
   echo "Database not found: $DB"

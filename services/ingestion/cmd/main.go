@@ -1,27 +1,25 @@
-// main is the entry point for the ingestion and analysis service.
-// It initialises all configured cloud provider clients, runs an initial
-// ingestion, and then serves the results via a simple HTTP API.
+// main is the entry point for the AxiaOps ingestion job.
+// It fetches costs and usage from configured cloud providers,
+// runs zombie detection, writes results to the database, and exits.
+// Designed to be triggered by a scheduler (cron, EventBridge) or manually.
 //
-// POST /ingest triggers a fresh ingestion run without restarting the service.
+// The API service (services/api) reads results from the database.
 package main
 
 import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
 	"time"
 
-	"axiaops.io/ingestion/internal/analyzer"
-	"axiaops.io/ingestion/internal/api"
-	"axiaops.io/ingestion/internal/middleware"
-	"axiaops.io/ingestion/internal/model"
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/ingestion/internal/provider/filefixture"
-	"axiaops.io/ingestion/internal/storage/sqlite"
+	"axiaops.io/shared/analyzer"
+	"axiaops.io/shared/model"
+	"axiaops.io/shared/storage/sqlite"
 )
 
 func main() {
@@ -60,101 +58,66 @@ func main() {
 		providers = append(providers, awsClient)
 	}
 
-	// ── Ingest function ───────────────────────────────────────────────────────
-	// runIngestion fetches costs, usage, and runs zombie detection.
-	// Called once at startup and again on every POST /ingest request.
-	runIngestion := func() ([]model.GhostResource, analyzer.Summary, error) {
-		end, start := dateRange()
+	// ── Fetch costs ───────────────────────────────────────────────────────────
+	end, start := dateRange()
 
-		var allRecords []model.CostRecord
-		for _, p := range providers {
-			records, err := p.FetchCosts(ctx, start, end)
-			if err != nil {
-				log.Printf("[%s] fetch failed: %v", p.Name(), err)
-				continue
-			}
-			inserted, saveErr := store.Save(ctx, records)
-			if saveErr != nil {
-				return nil, analyzer.Summary{}, fmt.Errorf("[%s] save failed: %w", p.Name(), saveErr)
-			}
-			skipped := int64(len(records)) - inserted
-			log.Printf("[%s] fetched %d records — inserted %d, skipped %d duplicates",
-				p.Name(), len(records), inserted, skipped)
-			allRecords = append(allRecords, records...)
-		}
-
-		var usage []analyzer.UsageRecord
-		if os.Getenv("DEV_MODE") == "true" {
-			usagePath := os.Getenv("USAGE_PATH")
-			if usagePath == "" {
-				usagePath = "fixtures/usage.json"
-			}
-			usage, err = analyzer.LoadUsageFixture(usagePath)
-			if err != nil {
-				return nil, analyzer.Summary{}, fmt.Errorf("analyzer: load usage fixture: %w", err)
-			}
-			log.Printf("analysis: loaded %d usage records from fixture", len(usage))
-		} else {
-			usage, err = awsClient.FetchUsage(ctx, allRecords, start, end)
-			if err != nil {
-				return nil, analyzer.Summary{}, fmt.Errorf("analyzer: fetch usage from cloudwatch: %w", err)
-			}
-			log.Printf("analysis: fetched %d usage records from cloudwatch", len(usage))
-		}
-
-		ghosts := analyzer.Detect(allRecords, usage)
-		summary := analyzer.Summarize(ghosts)
-
-		log.Printf("analysis: %d ghost resources detected — potential savings %.2f %s/month",
-			summary.TotalGhosts, summary.PotentialMonthlySave, summary.Currency)
-		for svc, s := range summary.ByService {
-			log.Printf("  %-35s %d ghost(s), %.2f %s", svc, s.Ghosts, s.Savings, summary.Currency)
-		}
-
-		return ghosts, summary, nil
-	}
-
-	// ── Initial ingestion ─────────────────────────────────────────────────────
-	ghosts, summary, err := runIngestion()
-	if err != nil {
-		log.Fatalf("ingestion: initial run failed: %v", err)
-	}
-
-	// ── HTTP API ──────────────────────────────────────────────────────────────
-	addr := os.Getenv("API_ADDR")
-	if addr == "" {
-		addr = ":8080"
-	}
-
-	mux := http.NewServeMux()
-	h := api.New(ghosts, summary, runIngestion)
-	h.Register(mux)
-
-	// ── Auth ──────────────────────────────────────────────────────────────────
-	var root http.Handler = h.Handler(mux)
-	kindeIssuer := os.Getenv("KINDE_ISSUER")
-	if kindeIssuer == "" {
-		log.Println("auth: KINDE_ISSUER not set — running without authentication")
-	} else {
-		auth, err := middleware.NewAuth(ctx, kindeIssuer, store)
+	var allRecords []model.CostRecord
+	for _, p := range providers {
+		records, err := p.FetchCosts(ctx, start, end)
 		if err != nil {
-			log.Fatalf("auth: init failed: %v", err)
+			log.Printf("[%s] fetch failed: %v", p.Name(), err)
+			continue
 		}
-		log.Printf("auth: JWT verification enabled (issuer: %s)", kindeIssuer)
-		root = auth.Wrap(root)
+		inserted, saveErr := store.Save(ctx, records)
+		if saveErr != nil {
+			log.Fatalf("[%s] save failed: %v", p.Name(), saveErr)
+		}
+		skipped := int64(len(records)) - inserted
+		log.Printf("[%s] fetched %d records — inserted %d, skipped %d duplicates",
+			p.Name(), len(records), inserted, skipped)
+		allRecords = append(allRecords, records...)
 	}
 
-	log.Printf("api: listening on %s  →  GET /ghosts  GET /summary  POST /ingest", addr)
-	if err := http.ListenAndServe(addr, root); err != nil {
-		log.Fatalf("api: server error: %v", err)
+	// ── Fetch usage ───────────────────────────────────────────────────────────
+	var usage []analyzer.UsageRecord
+
+	if os.Getenv("DEV_MODE") == "true" {
+		usagePath := os.Getenv("USAGE_PATH")
+		if usagePath == "" {
+			usagePath = "fixtures/usage.json"
+		}
+		usage, err = analyzer.LoadUsageFixture(usagePath)
+		if err != nil {
+			log.Fatalf("analyzer: load usage fixture: %v", err)
+		}
+		log.Printf("analysis: loaded %d usage records from fixture", len(usage))
+	} else {
+		usage, err = awsClient.FetchUsage(ctx, allRecords, start, end)
+		if err != nil {
+			log.Fatalf("analyzer: fetch usage from cloudwatch: %v", err)
+		}
+		log.Printf("analysis: fetched %d usage records from cloudwatch", len(usage))
 	}
+
+	// ── Detect ghosts ─────────────────────────────────────────────────────────
+	ghosts := analyzer.Detect(allRecords, usage)
+	summary := analyzer.Summarize(ghosts)
+
+	log.Printf("analysis: %d ghost resources detected — potential savings %.2f %s/month",
+		summary.TotalGhosts, summary.PotentialMonthlySave, summary.Currency)
+	for svc, s := range summary.ByService {
+		log.Printf("  %-35s %d ghost(s), %.2f %s", svc, s.Ghosts, s.Savings, summary.Currency)
+	}
+
+	// ── Save ghosts to DB ─────────────────────────────────────────────────────
+	if err := store.SaveGhosts(ctx, ghosts); err != nil {
+		log.Fatalf("storage: save ghosts: %v", err)
+	}
+	log.Printf("storage: saved %d ghost records to database", len(ghosts))
+	log.Printf("ingestion: complete — results available via the API service")
 }
 
 // dateRange returns the ingestion window.
-//
-// Priority:
-//  1. START_DATE + END_DATE env vars (format: 2006-01-02) — explicit range
-//  2. DAYS_BACK env var — number of days back from today (default 30)
 func dateRange() (end, start time.Time) {
 	const layout = "2006-01-02"
 	end = time.Now().UTC().Truncate(24 * time.Hour)
@@ -186,3 +149,6 @@ func dateRange() (end, start time.Time) {
 	log.Printf("date range: %s → %s (%d days)", start.Format(layout), end.Format(layout), days)
 	return
 }
+
+// suppress unused import warning
+var _ = fmt.Sprintf

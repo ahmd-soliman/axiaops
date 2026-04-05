@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"axiaops.io/ingestion/internal/model"
+	"axiaops.io/shared/model"
 	"axiaops.io/ingestion/internal/provider/filefixture"
 )
 

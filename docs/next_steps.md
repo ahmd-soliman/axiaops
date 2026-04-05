@@ -115,6 +115,13 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 - [ ] Offer FOCUS as an optional ingestion path for customers who already export billing data to S3
 - [ ] See [FinOps Foundation FOCUS spec](https://focus.finops.org) for schema reference
 
+### Resource Inventory View
+- [ ] Add `GET /resources` endpoint — all discovered resources with usage, not just zombies
+- [ ] Store all resources in a `resource_records` table (populated by ingestion job)
+- [ ] Dashboard inventory screen — full resource list with zombie badge on flagged ones
+- [ ] Toggle between "Zombies only" (current) and "All resources" view
+- [ ] Useful for engineers wanting full visibility, not just FinOps/CFO summary
+
 ### Reporting
 - [ ] Savings trend chart — ghost spend over time
 - [ ] PDF export — savings report for FinOps/CFO presentation
