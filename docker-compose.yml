@@ -5,15 +5,16 @@ services:
       context: ./services/ingestion
       dockerfile: Dockerfile
     container_name: axiaops-ingestion
+    env_file:
+      - ./services/ingestion/.env
     environment:
-      DEV_MODE: "true"
-      FIXTURE_PATH: fixtures/costs.json
-      USAGE_PATH: fixtures/usage.json
       DB_PATH: /data/axiaops.db
       API_ADDR: ":8080"
+      USAGE_PATH: fixtures/usage.json
     volumes:
       - ./services/ingestion/fixtures:/app/fixtures:ro
       - db_data:/data
+      - ${HOME}/.aws:/root/.aws:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/summary || exit 1"]
       interval: 5s
