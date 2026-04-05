@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 
-	"axiaops.io/ingestion/internal/analyzer"
+	"axiaops.io/shared/analyzer"
 )
 
 // serviceMetric maps an AWS service name to the CloudWatch namespace,

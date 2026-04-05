@@ -1,0 +1,20 @@
+### Health check
+GET http://localhost:8080/health
+
+###
+
+### Aggregate savings summary
+GET http://localhost:8080/summary
+Authorization: Bearer {{token}}
+
+###
+
+### All detected ghost resources
+GET http://localhost:8080/ghosts
+Authorization: Bearer {{token}}
+
+###
+
+### Trigger ingestion (not implemented — handled by ingestion job)
+POST http://localhost:8080/ingest
+Authorization: Bearer {{token}}
