@@ -40,6 +40,7 @@ func main() {
 
 	// ── Providers ─────────────────────────────────────────────────────────────
 	var providers []provider.Provider
+	var awsClient *aws.Client
 
 	if os.Getenv("DEV_MODE") == "true" {
 		fixturePath := os.Getenv("FIXTURE_PATH")
@@ -52,7 +53,8 @@ func main() {
 		if accountID == "" {
 			log.Fatal("AWS_ACCOUNT_ID is required")
 		}
-		awsClient, err := aws.New(ctx, accountID)
+		var err error
+		awsClient, err = aws.New(ctx, accountID)
 		if err != nil {
 			log.Fatalf("aws: init failed: %v", err)
 		}
@@ -80,13 +82,26 @@ func main() {
 	}
 
 	// ── Analysis ──────────────────────────────────────────────────────────────
-	usagePath := os.Getenv("USAGE_PATH")
-	if usagePath == "" {
-		usagePath = "fixtures/usage.json"
-	}
-	usage, err := analyzer.LoadUsageFixture(usagePath)
-	if err != nil {
-		log.Fatalf("analyzer: load usage: %v", err)
+	var usage []analyzer.UsageRecord
+
+	if os.Getenv("DEV_MODE") == "true" {
+		usagePath := os.Getenv("USAGE_PATH")
+		if usagePath == "" {
+			usagePath = "fixtures/usage.json"
+		}
+		var err error
+		usage, err = analyzer.LoadUsageFixture(usagePath)
+		if err != nil {
+			log.Fatalf("analyzer: load usage fixture: %v", err)
+		}
+		log.Printf("analysis: loaded %d usage records from fixture", len(usage))
+	} else {
+		var err error
+		usage, err = awsClient.FetchUsage(ctx, allRecords, start, end)
+		if err != nil {
+			log.Fatalf("analyzer: fetch usage from cloudwatch: %v", err)
+		}
+		log.Printf("analysis: fetched %d usage records from cloudwatch", len(usage))
 	}
 
 	ghosts := analyzer.Detect(allRecords, usage)
