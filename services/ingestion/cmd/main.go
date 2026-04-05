@@ -1,14 +1,13 @@
 // main is the entry point for the ingestion and analysis service.
-// It initialises all configured cloud provider clients, fetches cost data for
-// the last 30 days, stores the normalised records in SQLite, runs zombie
-// detection, and then serves the results via a simple HTTP API.
+// It initialises all configured cloud provider clients, runs an initial
+// ingestion, and then serves the results via a simple HTTP API.
 //
-// New providers are registered in the providers slice — no other changes are
-// required.
+// POST /ingest triggers a fresh ingestion run without restarting the service.
 package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -53,7 +52,6 @@ func main() {
 		if accountID == "" {
 			log.Fatal("AWS_ACCOUNT_ID is required")
 		}
-		var err error
 		awsClient, err = aws.New(ctx, accountID)
 		if err != nil {
 			log.Fatalf("aws: init failed: %v", err)
@@ -61,56 +59,64 @@ func main() {
 		providers = append(providers, awsClient)
 	}
 
-	// ── Ingestion ─────────────────────────────────────────────────────────────
-	end, start := dateRange()
+	// ── Ingest function ───────────────────────────────────────────────────────
+	// runIngestion fetches costs, usage, and runs zombie detection.
+	// Called once at startup and again on every POST /ingest request.
+	runIngestion := func() ([]model.GhostResource, analyzer.Summary, error) {
+		end, start := dateRange()
 
-	var allRecords []model.CostRecord
-	for _, p := range providers {
-		records, err := p.FetchCosts(ctx, start, end)
-		if err != nil {
-			log.Printf("[%s] fetch failed: %v", p.Name(), err)
-			continue
+		var allRecords []model.CostRecord
+		for _, p := range providers {
+			records, err := p.FetchCosts(ctx, start, end)
+			if err != nil {
+				log.Printf("[%s] fetch failed: %v", p.Name(), err)
+				continue
+			}
+			inserted, saveErr := store.Save(ctx, records)
+			if saveErr != nil {
+				return nil, analyzer.Summary{}, fmt.Errorf("[%s] save failed: %w", p.Name(), saveErr)
+			}
+			skipped := int64(len(records)) - inserted
+			log.Printf("[%s] fetched %d records — inserted %d, skipped %d duplicates",
+				p.Name(), len(records), inserted, skipped)
+			allRecords = append(allRecords, records...)
 		}
-		inserted, err := store.Save(ctx, records)
-		if err != nil {
-			log.Fatalf("[%s] save failed: %v", p.Name(), err)
+
+		var usage []analyzer.UsageRecord
+		if os.Getenv("DEV_MODE") == "true" {
+			usagePath := os.Getenv("USAGE_PATH")
+			if usagePath == "" {
+				usagePath = "fixtures/usage.json"
+			}
+			usage, err = analyzer.LoadUsageFixture(usagePath)
+			if err != nil {
+				return nil, analyzer.Summary{}, fmt.Errorf("analyzer: load usage fixture: %w", err)
+			}
+			log.Printf("analysis: loaded %d usage records from fixture", len(usage))
+		} else {
+			usage, err = awsClient.FetchUsage(ctx, allRecords, start, end)
+			if err != nil {
+				return nil, analyzer.Summary{}, fmt.Errorf("analyzer: fetch usage from cloudwatch: %w", err)
+			}
+			log.Printf("analysis: fetched %d usage records from cloudwatch", len(usage))
 		}
-		skipped := int64(len(records)) - inserted
-		log.Printf("[%s] fetched %d records — inserted %d, skipped %d duplicates",
-			p.Name(), len(records), inserted, skipped)
-		allRecords = append(allRecords, records...)
+
+		ghosts := analyzer.Detect(allRecords, usage)
+		summary := analyzer.Summarize(ghosts)
+
+		log.Printf("analysis: %d ghost resources detected — potential savings %.2f %s/month",
+			summary.TotalGhosts, summary.PotentialMonthlySave, summary.Currency)
+		for svc, s := range summary.ByService {
+			log.Printf("  %-35s %d ghost(s), %.2f %s", svc, s.Ghosts, s.Savings, summary.Currency)
+		}
+
+		return ghosts, summary, nil
 	}
 
-	// ── Analysis ──────────────────────────────────────────────────────────────
-	var usage []analyzer.UsageRecord
-
-	if os.Getenv("DEV_MODE") == "true" {
-		usagePath := os.Getenv("USAGE_PATH")
-		if usagePath == "" {
-			usagePath = "fixtures/usage.json"
-		}
-		var err error
-		usage, err = analyzer.LoadUsageFixture(usagePath)
-		if err != nil {
-			log.Fatalf("analyzer: load usage fixture: %v", err)
-		}
-		log.Printf("analysis: loaded %d usage records from fixture", len(usage))
-	} else {
-		var err error
-		usage, err = awsClient.FetchUsage(ctx, allRecords, start, end)
-		if err != nil {
-			log.Fatalf("analyzer: fetch usage from cloudwatch: %v", err)
-		}
-		log.Printf("analysis: fetched %d usage records from cloudwatch", len(usage))
-	}
-
-	ghosts := analyzer.Detect(allRecords, usage)
-	summary := analyzer.Summarize(ghosts)
-
-	log.Printf("analysis: %d ghost resources detected — potential savings %.2f %s/month",
-		summary.TotalGhosts, summary.PotentialMonthlySave, summary.Currency)
-	for svc, s := range summary.ByService {
-		log.Printf("  %-35s %d ghost(s), %.2f %s", svc, s.Ghosts, s.Savings, summary.Currency)
+	// ── Initial ingestion ─────────────────────────────────────────────────────
+	ghosts, summary, err := runIngestion()
+	if err != nil {
+		log.Fatalf("ingestion: initial run failed: %v", err)
 	}
 
 	// ── HTTP API ──────────────────────────────────────────────────────────────
@@ -120,10 +126,10 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	h := api.New(ghosts, summary)
+	h := api.New(ghosts, summary, runIngestion)
 	h.Register(mux)
 
-	log.Printf("api: listening on %s  →  GET /ghosts  GET /summary", addr)
+	log.Printf("api: listening on %s  →  GET /ghosts  GET /summary  POST /ingest", addr)
 	if err := http.ListenAndServe(addr, h.Handler(mux)); err != nil {
 		log.Fatalf("api: server error: %v", err)
 	}
