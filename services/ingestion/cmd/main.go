@@ -16,6 +16,7 @@ import (
 
 	"axiaops.io/ingestion/internal/analyzer"
 	"axiaops.io/ingestion/internal/api"
+	"axiaops.io/ingestion/internal/middleware"
 	"axiaops.io/ingestion/internal/model"
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
@@ -129,8 +130,22 @@ func main() {
 	h := api.New(ghosts, summary, runIngestion)
 	h.Register(mux)
 
+	// ── Auth ──────────────────────────────────────────────────────────────────
+	var root http.Handler = h.Handler(mux)
+	kindeIssuer := os.Getenv("KINDE_ISSUER")
+	if kindeIssuer == "" {
+		log.Println("auth: KINDE_ISSUER not set — running without authentication")
+	} else {
+		auth, err := middleware.NewAuth(ctx, kindeIssuer)
+		if err != nil {
+			log.Fatalf("auth: init failed: %v", err)
+		}
+		log.Printf("auth: JWT verification enabled (issuer: %s)", kindeIssuer)
+		root = auth.Wrap(root)
+	}
+
 	log.Printf("api: listening on %s  →  GET /ghosts  GET /summary  POST /ingest", addr)
-	if err := http.ListenAndServe(addr, h.Handler(mux)); err != nil {
+	if err := http.ListenAndServe(addr, root); err != nil {
 		log.Fatalf("api: server error: %v", err)
 	}
 }
