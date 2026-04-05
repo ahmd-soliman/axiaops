@@ -101,22 +101,46 @@ Opens at `http://localhost:8081`. Press **F5** in VS Code to start both automati
 
 1. **Enable Cost Explorer** in your AWS account — Billing and Cost Management → Cost Explorer → Enable. Data takes up to 24 hours to appear after first enabling.
 
-2. **Create an IAM policy** named `AxiaOpsReadOnly`:
+2. **Create IAM policies** — do this from your root or admin account in the AWS Console.
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["ce:GetCostAndUsage"],
-      "Resource": "*"
-    }
-  ]
-}
-```
+   **Policy 1 — `AxiaOpsReadOnly`** (required, always attached):
 
-3. **Create an IAM user** (`axiaops-dev`), attach the policy, and generate an access key under Security Credentials → Create access key → "Application running outside AWS".
+   IAM → Policies → Create policy → JSON tab:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": ["ce:GetCostAndUsage"],
+       "Resource": "*"
+     }]
+   }
+   ```
+   Description: `Read-only Cost Explorer access for AxiaOps ingestion service`
+
+   **Policy 2 — `AxiaOpsTestResources`** (optional, attach only when generating test data):
+
+   IAM → Policies → Create policy → JSON tab:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": [
+         "ec2:AllocateAddress",
+         "ec2:ReleaseAddress",
+         "ec2:DescribeAddresses"
+       ],
+       "Resource": "*"
+     }]
+   }
+   ```
+   Description: `EC2 test resources - allocate and release Elastic IPs for dev testing only. Detach when not needed.`
+
+3. **Create an IAM user** (`axiaops-dev`):
+   - IAM → Users → Create user → name it `axiaops-dev`
+   - Attach permissions → **Attach policies directly** → attach `AxiaOpsReadOnly`
+   - Generate an access key: Security Credentials → Create access key → "Application running outside AWS"
 
 4. **Find your Account ID** — top-right corner of the AWS Console.
 
@@ -163,6 +187,37 @@ go run ./cmd/main.go
 | Single AWS account only | Phase 2 |
 | No auth — API is open | Phase 2 |
 | Ingestion runs once at startup, not on a schedule | Phase 2 |
+
+### Creating a Test Resource (Elastic IP)
+
+If your AWS account has no recent spend, Cost Explorer returns no data. The cheapest way to generate real cost data is an **Elastic IP** (~$0.12/day when unattached).
+
+**Step 1 — Attach `AxiaOpsTestResources` to `axiaops-dev`**
+
+From your root or admin account (the user cannot modify its own permissions):
+
+IAM → Users → axiaops-dev → Add permissions → Attach policies directly → attach `AxiaOpsTestResources`
+
+> If you haven't created `AxiaOpsTestResources` yet, see the Prerequisites section above.
+
+**Step 2 — Allocate the Elastic IP**
+
+```bash
+aws ec2 allocate-address --domain vpc --region eu-central-1
+```
+
+The IP starts incurring cost immediately. It will appear in Cost Explorer within 24 hours.
+
+**Step 3 — Release when done**
+
+```bash
+# Use the AllocationId from the output above
+aws ec2 release-address --allocation-id eipalloc-xxxxxxxxx --region eu-central-1
+```
+
+> Cost stops the moment you release. Detach `AxiaOpsTestResources` from the user afterward — it is not needed for normal ingestion.
+
+---
 
 ### Troubleshooting
 
