@@ -73,9 +73,9 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 - [ ] Add `cloudwatch:ListMetrics` to IAM policy for auto-discovery
 
 ### Scheduled Ingestion
-- [ ] Add `/ingest` HTTP endpoint — triggers ingestion on demand
+- [x] Add `/ingest` HTTP endpoint — triggers ingestion on demand
+- [x] Move ingestion logic out of `main()` startup into a callable function
 - [ ] Wire EventBridge cron → POST `/ingest/{customer_id}` nightly
-- [ ] Move ingestion logic out of `main()` startup into a callable function
 
 ### Weekly Digest
 - [ ] Choose email provider — Resend or SendGrid
