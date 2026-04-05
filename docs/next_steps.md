@@ -52,11 +52,12 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 ## Phase 2 Remaining
 
 ### Auth
-- [ ] Choose auth provider — Clerk or Supabase Auth
+- [x] Choose auth provider — **Kinde** (see `docs/auth.md`)
+- [ ] Add Kinde Go SDK — verify JWT and extract `tenant_id` in middleware
 - [ ] Add JWT middleware to Go API — reject unauthenticated requests
-- [ ] Add login screen to dashboard
+- [ ] Add Kinde login screen to React Native dashboard
 - [ ] Protect all API endpoints (`/ghosts`, `/summary`) behind auth
-- [ ] Store user identity with each ingestion run
+- [ ] Store `tenant_id` with each ingestion run (map Kinde `org_code` → internal UUID)
 
 ### PostgreSQL Migration
 - [ ] Implement `Store` interface for PostgreSQL (`internal/storage/postgres/`)
