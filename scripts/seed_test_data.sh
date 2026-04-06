@@ -12,8 +12,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INGESTION_DIR="$ROOT/services/ingestion"
 DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops"
 
-# Use axiaops_admin for direct DB access — axiaops (app user) for application connections
-ADMIN="docker exec -i axiaops-postgres psql -U axiaops_admin -d axiaops"
+# Use axiaops_owner for direct DB access — axiaops (app user) for application connections
+ADMIN="docker exec -i axiaops-postgres psql -U axiaops_owner -d axiaops"
 psql_exec()  { $ADMIN --quiet -c "SET search_path TO axiaops" -c "$1"; }
 psql_query() { $ADMIN -t --no-align -c "SET search_path TO axiaops" -c "$1"; }
 

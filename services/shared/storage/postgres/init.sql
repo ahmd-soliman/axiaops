@@ -1,4 +1,4 @@
--- init.sql — runs once on first PostgreSQL startup as axiaops_admin
+-- init.sql — runs once on first PostgreSQL startup as axiaops_owner
 -- Creates the application user, schema, tables, RLS policies, and grants.
 
 -- ── Application user ──────────────────────────────────────────────────────────
