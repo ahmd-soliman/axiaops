@@ -61,7 +61,7 @@ else
   echo "Starting PostgreSQL          →  localhost:5432"
   docker compose -f "$ROOT/docker-compose.yml" up -d postgres
   echo "Waiting for PostgreSQL to be ready..."
-  until docker exec axiaops-postgres pg_isready -U axiaops_admin &>/dev/null; do sleep 1; done
+  until docker exec axiaops-postgres pg_isready -U axiaops_owner &>/dev/null; do sleep 1; done
   DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops"
   echo "PostgreSQL ready."
 fi
