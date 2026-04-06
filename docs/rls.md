@@ -135,7 +135,7 @@ This means queries never need to qualify table names with the schema prefix.
 
 ## Important Notes
 
-- **Table owner bypasses RLS** — the `axiaops` PostgreSQL user who owns the tables can see all rows. In production, use a separate application user with `GRANT SELECT, INSERT, DELETE ON ALL TABLES` but without ownership. The owning user should only be used for migrations.
+- **Table owner bypasses RLS** — by default PostgreSQL skips RLS for the table owner. AxiaOps applies `FORCE ROW LEVEL SECURITY` on all tenant tables so the owning user is also subject to RLS. In production, use a separate application user without ownership for an additional layer of safety.
 - **Superuser bypasses RLS** — never connect as a superuser from the application.
 - **`SET LOCAL` vs `SET`** — the store uses `set_config(..., true)` which is transaction-local (equivalent to `SET LOCAL`). This is intentional — the setting cannot leak outside the transaction.
 - **Missing tenant_id** — if `TENANT_ID` is not in the context, `setTenant()` returns an error before any query runs. No data is ever read or written without a tenant context.
