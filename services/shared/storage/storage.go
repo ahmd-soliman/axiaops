@@ -49,6 +49,21 @@ type Store interface {
 	// Keyed on kinde_sub — the stable Kinde user identifier.
 	UpsertUser(ctx context.Context, tenantID, kindeSub, email, name string) (model.User, error)
 
+	// SaveAccount inserts or replaces a connected cloud account for a tenant.
+	SaveAccount(ctx context.Context, a model.Account) error
+
+	// ListAccounts returns all connected accounts for the tenant in ctx.
+	ListAccounts(ctx context.Context) ([]model.Account, error)
+
+	// GetAccount returns a single account by ID for the tenant in ctx.
+	GetAccount(ctx context.Context, id string) (model.Account, error)
+
+	// DeleteAccount removes an account by ID for the tenant in ctx.
+	DeleteAccount(ctx context.Context, id string) error
+
+	// UpdateAccountStatus sets the status and last_scanned_at for an account.
+	UpdateAccountStatus(ctx context.Context, id, status string) error
+
 	// Close releases any resources held by the store.
 	Close() error
 }

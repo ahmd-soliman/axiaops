@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView, StatusBar, StyleSheet } from 'react-native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import * as AuthSession from 'expo-auth-session';
 
 import DashboardScreen from './src/screens/DashboardScreen';
 import DetailScreen from './src/screens/DetailScreen';
 import LoginScreen from './src/screens/LoginScreen';
+import ConnectScreen from './src/screens/ConnectScreen';
 import { useKindeAuth } from './src/auth/kinde';
 import { saveToken, getToken, clearToken } from './src/auth/storage';
-import { setAuthToken } from './src/api/client';
+import { setAuthToken, fetchAccounts } from './src/api/client';
 
 const queryClient = new QueryClient();
 
@@ -23,24 +24,54 @@ function parseJwt(token) {
 
 function AuthenticatedApp({ token, onLogout }) {
   const [selectedGhost, setSelectedGhost] = useState(null);
-  const claims = parseJwt(token);
+  const [showConnect, setShowConnect]     = useState(false);
+  const claims  = parseJwt(token);
   const orgName = claims.org_name || claims.org_code || '';
 
-  return selectedGhost ? (
-    <DetailScreen ghost={selectedGhost} onBack={() => setSelectedGhost(null)} />
-  ) : (
-    <DashboardScreen onSelectGhost={setSelectedGhost} onLogout={onLogout} orgName={orgName} />
+  const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
+
+  // Show connect screen on first load if no accounts connected.
+  useEffect(() => {
+    if (accounts.data && accounts.data.length === 0) {
+      setShowConnect(true);
+    }
+  }, [accounts.data]);
+
+  if (showConnect) {
+    return (
+      <ConnectScreen
+        onConnected={() => {
+          setShowConnect(false);
+          accounts.refetch();
+          queryClient.invalidateQueries();
+        }}
+        onSkip={() => setShowConnect(false)}
+      />
+    );
+  }
+
+  if (selectedGhost) {
+    return <DetailScreen ghost={selectedGhost} onBack={() => setSelectedGhost(null)} />;
+  }
+
+  return (
+    <DashboardScreen
+      onSelectGhost={setSelectedGhost}
+      onLogout={onLogout}
+      orgName={orgName}
+      accounts={accounts.data ?? []}
+      onConnectAccount={() => setShowConnect(true)}
+    />
   );
 }
 
 function Root() {
-  const [token, setToken] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [token, setToken]       = useState(null);
+  const [loading, setLoading]   = useState(true);
   const [signingIn, setSigningIn] = useState(false);
 
   const { request, response, promptAsync, discovery } = useKindeAuth();
 
-  // Restore token from storage on startup
   useEffect(() => {
     getToken().then((stored) => {
       if (stored) {
@@ -51,7 +82,6 @@ function Root() {
     });
   }, []);
 
-  // Handle OAuth callback
   useEffect(() => {
     if (response?.type === 'success' && request && discovery) {
       AuthSession.exchangeCodeAsync(
@@ -69,12 +99,8 @@ function Root() {
           setAuthToken(accessToken);
           setToken(accessToken);
         })
-        .catch((e) => {
-          console.error('Token exchange failed:', e);
-        })
-        .finally(() => {
-          setSigningIn(false);
-        });
+        .catch((e) => console.error('Token exchange failed:', e))
+        .finally(() => setSigningIn(false));
     } else if (response?.type === 'error' || response?.type === 'dismiss') {
       setSigningIn(false);
     }

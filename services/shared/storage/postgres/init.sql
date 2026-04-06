@@ -74,6 +74,19 @@ CREATE TABLE IF NOT EXISTS ghost_records (
     detected_at  TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS accounts (
+    id                TEXT        PRIMARY KEY,
+    tenant_id         TEXT        NOT NULL REFERENCES tenants(id),
+    provider          TEXT        NOT NULL DEFAULT 'aws',
+    label             TEXT        NOT NULL DEFAULT '',
+    access_key_id     TEXT        NOT NULL DEFAULT '',
+    secret_encrypted  TEXT        NOT NULL DEFAULT '',
+    region            TEXT        NOT NULL DEFAULT 'us-east-1',
+    status            TEXT        NOT NULL DEFAULT 'connected',
+    last_scanned_at   TIMESTAMPTZ,
+    created_at        TIMESTAMPTZ NOT NULL
+);
+
 -- Grant access to existing tables (default privileges cover future ones)
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA axiaops TO axiaops;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA axiaops TO axiaops;
@@ -86,9 +99,13 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA axiaops
 
 ALTER TABLE ghost_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cost_records  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE accounts      ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY ghost_tenant_isolation ON ghost_records
     USING (tenant_id = current_setting('app.tenant_id', true));
 
 CREATE POLICY cost_tenant_isolation ON cost_records
+    USING (tenant_id = current_setting('app.tenant_id', true));
+
+CREATE POLICY accounts_tenant_isolation ON accounts
     USING (tenant_id = current_setting('app.tenant_id', true));

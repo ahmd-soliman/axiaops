@@ -33,6 +33,16 @@ stop() {
     rm -f "$PID_FILE"
   fi
 
+  # Kill any leftover processes still bound to the service ports
+  for port in 8080 8081 3000; do
+    local pids
+    pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+      echo "  Killing stale process(es) on port $port: $pids"
+      echo "$pids" | xargs kill -9 2>/dev/null || true
+    fi
+  done
+
   # Check if postgres container exists and is running
   if docker compose ps postgres --status running | grep -q "postgres"; then
     echo "Stopping PostgreSQL..."
@@ -96,6 +106,9 @@ until curl -sf http://localhost:8081/health &>/dev/null; do sleep 1; done
 # Start API
 echo "Starting API service (8080)..."
 cd "$API_DIR"
+if [[ -f .env ]]; then
+  set -a; source .env; set +a
+fi
 (
   export DB_PATH="$DB_PATH"
   export DATABASE_URL="${DATABASE_URL:-}"
@@ -108,7 +121,9 @@ until curl -sf http://localhost:8080/health &>/dev/null; do sleep 1; done
 # Start Dashboard
 echo "Starting Dashboard (3000)..."
 cd "$DASHBOARD_DIR"
-npx expo start --web --port 3000 --non-interactive >> "$LOG_FILE" 2>&1 &
+export EXPO_PUBLIC_KINDE_ISSUER="${KINDE_ISSUER:-}"
+export EXPO_PUBLIC_KINDE_CLIENT_ID="${KINDE_CLIENT_ID:-}"
+npx expo start --web --port 3000 --non-interactive --clear >> "$LOG_FILE" 2>&1 &
 echo $! >> "$PID_FILE"
 
 echo "---------------------------------------"
