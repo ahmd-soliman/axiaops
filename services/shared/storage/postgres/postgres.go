@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS ghost_records (
     detected_at  TIMESTAMPTZ NOT NULL
 );
 
+-- Add tenant_id to existing tables if missing (idempotent migration)
+ALTER TABLE ghost_records ADD COLUMN IF NOT EXISTS tenant_id TEXT REFERENCES tenants(id);
+ALTER TABLE cost_records  ADD COLUMN IF NOT EXISTS tenant_id TEXT REFERENCES tenants(id);
+
 ALTER TABLE ghost_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cost_records  ENABLE ROW LEVEL SECURITY;
 
