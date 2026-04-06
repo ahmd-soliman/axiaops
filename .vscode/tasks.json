@@ -2,9 +2,41 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Start",
+      "type": "shell",
+      "command": "make start",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Starting",
+          "endsPattern": "All systems go"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Stop",
+      "type": "shell",
+      "command": "make stop",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Seed",
       "type": "shell",
-      "command": "docker compose -f ${workspaceFolder}/docker-compose.yml up -d postgres && until docker exec axiaops-postgres pg_isready -U axiaops_owner &>/dev/null; do sleep 1; done && ./scripts/seed_test_data.sh",
+      "command": "make seed",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -15,26 +47,17 @@
       "problemMatcher": []
     },
     {
-      "label": "Dashboard",
+      "label": "Test",
       "type": "shell",
-      "command": "npx expo start --web --non-interactive",
+      "command": "make test",
       "options": {
-        "cwd": "${workspaceFolder}/services/dashboard"
-      },
-      "isBackground": true,
-      "problemMatcher": {
-        "pattern": {
-          "regexp": "^$"
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": "Starting",
-          "endsPattern": "Bundled"
-        }
+        "cwd": "${workspaceFolder}"
       },
       "presentation": {
+        "reveal": "always",
         "panel": "dedicated"
-      }
+      },
+      "problemMatcher": "$go"
     },
     {
       "label": "Prepare",
