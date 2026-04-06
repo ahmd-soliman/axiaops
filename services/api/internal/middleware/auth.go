@@ -16,8 +16,9 @@ import (
 type contextKey string
 
 const (
-	tenantIDKey contextKey = "tenant_id"
-	userIDKey   contextKey = "user_id"
+	tenantIDKey   contextKey = "tenant_id"
+	tenantNameKey contextKey = "tenant_name"
+	userIDKey     contextKey = "user_id"
 )
 
 // Auth verifies Kinde JWTs on every request.
@@ -97,6 +98,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 			}
 
 			ctx = context.WithValue(ctx, tenantIDKey, tenant.ID)
+			ctx = context.WithValue(ctx, tenantNameKey, tenant.Name)
 			ctx = context.WithValue(ctx, userIDKey, user.ID)
 		} else {
 			ctx = context.WithValue(ctx, tenantIDKey, orgCode)
@@ -110,6 +112,12 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 func TenantID(ctx context.Context) string {
 	id, _ := ctx.Value(tenantIDKey).(string)
 	return id
+}
+
+// TenantName returns the tenant display name from the request context.
+func TenantName(ctx context.Context) string {
+	name, _ := ctx.Value(tenantNameKey).(string)
+	return name
 }
 
 // UserID returns the internal user UUID from the request context.
