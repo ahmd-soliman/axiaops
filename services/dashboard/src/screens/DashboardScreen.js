@@ -30,6 +30,8 @@ const C = {
 };
 
 export default function DashboardScreen({ onSelectGhost, onLogout, orgName }) {
+  const [filterSvc, setFilterSvc] = React.useState(null);
+
   const summary = useQuery({ queryKey: ['summary'], queryFn: fetchSummary });
   const ghosts  = useQuery({ queryKey: ['ghosts'],  queryFn: fetchGhosts  });
 
@@ -77,9 +79,6 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName }) {
           {/* Navbar */}
           <View style={styles.navbar}>
             <Text style={styles.navBrand}>AxiaOps</Text>
-            <View style={styles.navPill}>
-              <Text style={styles.navPillText}>MVP</Text>
-            </View>
             <View style={{ flex: 1 }} />
             {orgName ? (
               <View style={styles.orgPill}>
@@ -111,14 +110,20 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName }) {
             >
               {byService.map(([svc, data]) => {
                 const cfg = serviceConfig(svc);
+                const active = filterSvc === svc;
                 return (
-                  <View key={svc} style={styles.pill}>
+                  <TouchableOpacity
+                    key={svc}
+                    style={[styles.pill, active && styles.pillActive]}
+                    onPress={() => setFilterSvc(active ? null : svc)}
+                    activeOpacity={0.75}
+                  >
                     <View style={[styles.pillDot, { backgroundColor: cfg.color }]} />
                     <Text style={styles.pillLabel}>{cfg.label}</Text>
                     <Text style={styles.pillSavings}>
                       {summary.data.currency}{data.savings.toFixed(0)}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </ScrollView>
@@ -127,7 +132,7 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName }) {
           <Text style={styles.sectionTitle}>Ghost Resources</Text>
         </View>
       }
-      data={ghosts.data}
+      data={filterSvc ? ghosts.data.filter(g => g.service === filterSvc) : ghosts.data}
       keyExtractor={(item) => item.resource_id}
       renderItem={({ item }) => {
         const cfg = serviceConfig(item.service);
@@ -228,6 +233,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
+  pillActive: { backgroundColor: C.accent, borderColor: C.accent },
   pillDot: { width: 6, height: 6, borderRadius: 3 },
   pillLabel: { color: C.white, fontSize: 12, fontWeight: '700' },
   pillSavings: { color: C.textMuted, fontSize: 12 },
