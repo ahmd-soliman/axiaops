@@ -19,16 +19,21 @@ DB_PATH="$ROOT/axiaops.db"
 
 stop() {
   if [[ -f "$PID_FILE" ]]; then
-    echo "Stopping services..."
+    local printed=false
     while IFS= read -r pid; do
-      # Kill children first (compiled binary, node), then the parent (go run, npx)
-      pkill -P "$pid" 2>/dev/null || true
-      kill "$pid" 2>/dev/null || true
-      echo "  stopped $pid"
+      if kill -0 "$pid" 2>/dev/null; then
+        if [[ "$printed" == "false" ]]; then
+          echo "Stopping services..."
+          printed=true
+        fi
+        pkill -P "$pid" 2>/dev/null || true
+        kill "$pid" 2>/dev/null || true
+        echo "  stopped $pid"
+      fi
     done < "$PID_FILE"
     rm -f "$PID_FILE"
   fi
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^axiaops-postgres$"; then
+  if [[ "$USE_SQLITE" == "false" ]] && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^axiaops-postgres$"; then
     echo "Stopping PostgreSQL..."
     docker compose -f "$ROOT/docker-compose.yml" stop postgres
   fi
@@ -54,8 +59,8 @@ done
 [[ -f "$PID_FILE" ]] && stop
 
 # Storage — PostgreSQL by default, SQLite if --sqlite is passed
-DATABASE_URL=""
 if [[ "$USE_SQLITE" == "true" ]]; then
+  unset DATABASE_URL
   echo "Storage: SQLite ($DB_PATH)"
 else
   echo "Starting PostgreSQL          →  localhost:5432"
@@ -74,17 +79,25 @@ echo ""
 
 echo "Starting ingestion job       (one-shot, DEV_MODE=$DEV_MODE)"
 cd "$INGESTION_DIR"
-set -a; [ -f .env ] && source .env; set +a
-DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" DATABASE_URL="$DATABASE_URL" go run ./cmd/main.go >> "$LOG_FILE" 2>&1
+# Only source .env for real AWS — it contains credentials and DEV_MODE=false
+if [[ "$DEV_MODE" == "false" ]]; then
+  if [ -f .env ]; then export $(grep -v '^#' .env | xargs); fi
+fi
+DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" DATABASE_URL="${DATABASE_URL:-}" go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 echo ""
 
 echo "Starting API service        →  http://localhost:8080"
 cd "$API_DIR"
-set -a; [ -f "$ROOT/services/ingestion/.env" ] && source "$ROOT/services/ingestion/.env"; set +a
-DB_PATH="$DB_PATH" DATABASE_URL="$DATABASE_URL" go run ./cmd/main.go >> "$LOG_FILE" 2>&1 &
+if [ -f "$ROOT/services/ingestion/.env" ]; then export $(grep -v '^#' "$ROOT/services/ingestion/.env" | xargs); fi
+DB_PATH="$DB_PATH" DATABASE_URL="${DATABASE_URL:-}" go run ./cmd/main.go >> "$LOG_FILE" 2>&1 &
 API_PID=$!
 echo $API_PID >> "$PID_FILE"
 disown $API_PID
+
+echo "Waiting for API to be ready..."
+until curl -sf http://localhost:8080/health &>/dev/null; do sleep 1; done
+echo "API ready."
+echo ""
 
 echo "Starting dashboard          →  http://localhost:8081"
 cd "$DASHBOARD_DIR"
