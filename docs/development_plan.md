@@ -78,6 +78,10 @@ API service (always running)
 - `GET /ghosts` — list of detected zombie resources with cost, usage metric, reason, and owner
 - `GET /summary` — aggregate savings figure and per-service breakdown
 - `GET /health` — healthcheck, bypasses auth
+- `GET /accounts` — list connected cloud accounts for the current tenant
+- `POST /accounts` — connect a new cloud account (encrypts secret with AES-256-GCM)
+- `DELETE /accounts/{id}` — remove a connected account
+- `POST /accounts/{id}/scan` — trigger an on-demand ingestion scan for an account
 - CORS middleware — permissive in dev, locked to domain in production
 
 #### 1.4 Auth — Kinde (Phase 2, complete)
@@ -112,6 +116,9 @@ API service (always running)
 - **Stack:** Expo + React Native + React Query — same codebase runs on web, iOS, and Android
 - **Web first** — Phase 1 targets web only; mobile comes in Phase 3
 - **Dashboard screen** — dark navy header, orange savings number, ghost list with per-service colour coding
+  - Accounts bar — shows connected accounts with green/red status dot; Scan button triggers on-demand ingestion
+  - Service pill filter — tap a service pill to filter the ghost list; tap again to clear
+- **Connect screen** — credential form (label, Access Key ID, Secret Access Key, region) with IAM permissions hint; auto-shown on first login when no accounts are connected
 - **Detail screen** — service-coloured header, stats grid, reason, remediation hint per service type
 - **Auth:** Kinde PKCE login screen → token stored in `localStorage` (web) / `SecureStore` (native)
 - **API client** — sends `Authorization: Bearer <token>` on every request
@@ -128,11 +135,12 @@ nginx (dashboard:80)
    ▼
 api service (Go binary)
    │  reads ghost_records from DB, serves REST API
+   │  POST /accounts/{id}/scan → triggers ingestion via HTTP
    ▼
 axiaops.db (SQLite, persisted in named Docker volume)
 
-ingestion job (runs once at startup, then exits)
-   │  fetches costs + usage, runs analyzer, writes ghost_records
+ingestion service (long-lived HTTP server on :8081)
+   │  POST /scan  — fetches costs + usage, runs analyzer, writes ghost_records
    ▼
 axiaops.db (same volume)
 ```
@@ -250,7 +258,51 @@ CREATE TABLE IF NOT EXISTS cost_records (
 - `services/ingestion/internal/provider/aws/discover.go` — resource discovery
 - `services/ingestion/internal/provider/aws/cloudwatch.go` — CloudWatch usage fetcher
 
-#### 2.2 Auth — Kinde ✅
+#### 2.2 Account Management ✅
+
+**Status: Complete (shipped ahead of schedule)**
+
+**Design goals:**
+- Provider-agnostic `accounts` table (not `aws_accounts`) — ready for Azure/GCP without schema changes
+- Secrets encrypted at rest with AES-256-GCM — `ENCRYPTION_KEY` env var (32-byte hex)
+- On-demand scan per account — no fixed schedule needed for MVP
+
+**Schema (`accounts` table):**
+
+```sql
+CREATE TABLE IF NOT EXISTS accounts (
+    id                TEXT        PRIMARY KEY,
+    tenant_id         TEXT        NOT NULL REFERENCES tenants(id),
+    provider          TEXT        NOT NULL DEFAULT 'aws',
+    label             TEXT        NOT NULL DEFAULT '',
+    access_key_id     TEXT        NOT NULL DEFAULT '',
+    secret_encrypted  TEXT        NOT NULL DEFAULT '',
+    region            TEXT        NOT NULL DEFAULT 'us-east-1',
+    status            TEXT        NOT NULL DEFAULT 'connected',
+    last_scanned_at   TIMESTAMPTZ,
+    created_at        TIMESTAMPTZ NOT NULL
+);
+ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY accounts_tenant_isolation ON accounts
+    USING (tenant_id = current_setting('app.tenant_id', true));
+```
+
+**Key files:**
+- `services/shared/model/account.go` — Account struct (`SecretEncrypted` omitted from JSON)
+- `services/shared/crypto/crypto.go` — AES-256-GCM encrypt/decrypt (shared between api and ingestion)
+- `services/shared/storage/storage.go` — Store interface extended with 5 account methods
+- `services/shared/storage/postgres/postgres.go` — Full account CRUD implementation
+- `services/shared/storage/sqlite/sqlite.go` — Stub implementations (dev-only, accounts not supported in SQLite)
+- `services/ingestion/cmd/main.go` — Refactored to long-lived HTTP server; `POST /scan` decrypts credentials and runs ingestion
+
+**Ingestion scan flow:**
+1. API receives `POST /accounts/{id}/scan`
+2. API sets account status to `scanning`, fires async goroutine
+3. Goroutine POSTs `{account_id, tenant_id}` to ingestion service at `http://localhost:8081/scan`
+4. Ingestion fetches account from DB, decrypts secret, sets AWS env vars, runs full ingestion
+5. API updates account status to `connected` or `error` on completion
+
+#### 2.3 Auth — Kinde ✅
 
 - Chosen over Supabase Auth, Clerk, Cognito — see `docs/auth.md`
 - JWT middleware in `services/api/internal/middleware/`
@@ -361,6 +413,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | April 2026 | AWS Cost Explorer + CloudWatch integration | ✅ Done |
 | April 2026 | Kinde auth + tenant/user persistence | ✅ Done |
 | April 2026 | API/ingestion service split + ghost_records DB | ✅ Done |
+| April 2026 | Account management — connect AWS, encrypted secrets, on-demand scan | ✅ Done |
 | August 2026 | PostgreSQL + multi-tenancy | Planned |
 | September 2026 | Alpha with 3–5 beta users | Planned |
 | October 2026 | App Store / Play Store submission | Planned |

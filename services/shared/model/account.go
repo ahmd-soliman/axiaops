@@ -1,0 +1,17 @@
+package model
+
+import "time"
+
+// Account represents a connected cloud provider account for a tenant.
+type Account struct {
+	ID              string     `json:"id"`
+	TenantID        string     `json:"tenant_id"`
+	Provider        string     `json:"provider"`         // "aws", "azure", "gcp"
+	Label           string     `json:"label"`            // user-defined name
+	AccessKeyID     string     `json:"access_key_id"`    // visible — not secret
+	SecretEncrypted string     `json:"-"`                // never sent to client
+	Region          string     `json:"region"`
+	Status          string     `json:"status"`           // connected | scanning | error
+	LastScannedAt   *time.Time `json:"last_scanned_at"`  // null until first scan
+	CreatedAt       time.Time  `json:"created_at"`
+}

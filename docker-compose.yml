@@ -41,7 +41,7 @@ services:
       dockerfile: Dockerfile
     container_name: axiaops-api
     env_file:
-      - ./services/ingestion/.env
+      - ./services/api/.env
     environment:
       DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops
       API_ADDR: ":8080"

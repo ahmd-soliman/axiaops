@@ -14,6 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/storage"
 )
 
 const schema = `
@@ -48,6 +49,19 @@ CREATE TABLE IF NOT EXISTS users (
     name       TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL,
     last_seen  DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS accounts (
+    id                TEXT PRIMARY KEY,
+    tenant_id         TEXT NOT NULL REFERENCES tenants(id),
+    provider          TEXT NOT NULL,
+    label             TEXT NOT NULL DEFAULT '',
+    access_key_id     TEXT NOT NULL,
+    secret_encrypted  TEXT NOT NULL,
+    region            TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'connected',
+    last_scanned_at   DATETIME,
+    created_at        DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS ghost_records (
@@ -254,6 +268,92 @@ func (s *Store) UpsertUser(ctx context.Context, tenantID, kindeSub, email, name 
 		return model.User{}, fmt.Errorf("sqlite: fetch user: %w", err)
 	}
 	return u, nil
+}
+
+// SaveAccount inserts or replaces a connected cloud account.
+func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO accounts
+			(id, tenant_id, provider, label, access_key_id, secret_encrypted, region, status, last_scanned_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			provider         = excluded.provider,
+			label            = excluded.label,
+			access_key_id    = excluded.access_key_id,
+			secret_encrypted = excluded.secret_encrypted,
+			region           = excluded.region,
+			status           = excluded.status,
+			last_scanned_at  = excluded.last_scanned_at
+	`, a.ID, a.TenantID, a.Provider, a.Label, a.AccessKeyID, a.SecretEncrypted,
+		a.Region, a.Status, a.LastScannedAt, a.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("sqlite: save account: %w", err)
+	}
+	return nil
+}
+
+// ListAccounts returns all accounts for the tenant in ctx.
+func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, provider, label, access_key_id, region, status, last_scanned_at, created_at
+		FROM accounts WHERE tenant_id = ?
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: list accounts: %w", err)
+	}
+	defer rows.Close()
+
+	var accounts []model.Account
+	for rows.Next() {
+		var a model.Account
+		if err := rows.Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccessKeyID,
+			&a.Region, &a.Status, &a.LastScannedAt, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("sqlite: scan account: %w", err)
+		}
+		accounts = append(accounts, a)
+	}
+	return accounts, rows.Err()
+}
+
+// GetAccount returns a single account by ID for the tenant in ctx.
+func (s *Store) GetAccount(ctx context.Context, id string) (model.Account, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	var a model.Account
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, provider, label, access_key_id, secret_encrypted, region, status, last_scanned_at, created_at
+		FROM accounts WHERE id = ? AND tenant_id = ?
+	`, id, tenantID).Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccessKeyID,
+		&a.SecretEncrypted, &a.Region, &a.Status, &a.LastScannedAt, &a.CreatedAt)
+	if err == sql.ErrNoRows {
+		return model.Account{}, fmt.Errorf("sqlite: account not found")
+	}
+	if err != nil {
+		return model.Account{}, fmt.Errorf("sqlite: get account: %w", err)
+	}
+	return a, nil
+}
+
+// DeleteAccount removes an account by ID for the tenant in ctx.
+func (s *Store) DeleteAccount(ctx context.Context, id string) error {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM accounts WHERE id = ? AND tenant_id = ?`, id, tenantID)
+	if err != nil {
+		return fmt.Errorf("sqlite: delete account: %w", err)
+	}
+	return nil
+}
+
+// UpdateAccountStatus sets the status and last_scanned_at for an account.
+func (s *Store) UpdateAccountStatus(ctx context.Context, id, status string) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE accounts SET status = ?, last_scanned_at = ? WHERE id = ?`,
+		status, now, id)
+	if err != nil {
+		return fmt.Errorf("sqlite: update account status: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) Close() error {

@@ -250,6 +250,139 @@ func (s *Store) UpsertUser(ctx context.Context, tenantID, kindeSub, email, name 
 	return u, nil
 }
 
+// SaveAccount inserts or replaces a connected cloud account.
+func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO accounts
+			(id, tenant_id, provider, label, access_key_id, secret_encrypted, region, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (id) DO UPDATE SET
+			label            = EXCLUDED.label,
+			access_key_id    = EXCLUDED.access_key_id,
+			secret_encrypted = EXCLUDED.secret_encrypted,
+			region           = EXCLUDED.region,
+			status           = EXCLUDED.status`,
+		a.ID, a.TenantID, a.Provider, a.Label,
+		a.AccessKeyID, a.SecretEncrypted, a.Region, a.Status, a.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: save account: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// ListAccounts returns all accounts for the tenant in ctx.
+func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := setTenant(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT id, tenant_id, provider, label, access_key_id, secret_encrypted,
+		       region, status, last_scanned_at, created_at
+		FROM accounts ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var accounts []model.Account
+	for rows.Next() {
+		var a model.Account
+		if err := rows.Scan(
+			&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccessKeyID, &a.SecretEncrypted,
+			&a.Region, &a.Status, &a.LastScannedAt, &a.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return accounts, tx.Commit(ctx)
+}
+
+// GetAccount returns a single account by ID for the tenant in ctx.
+func (s *Store) GetAccount(ctx context.Context, id string) (model.Account, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return model.Account{}, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := setTenant(ctx, tx); err != nil {
+		return model.Account{}, err
+	}
+
+	var a model.Account
+	err = tx.QueryRow(ctx, `
+		SELECT id, tenant_id, provider, label, access_key_id, secret_encrypted,
+		       region, status, last_scanned_at, created_at
+		FROM accounts WHERE id = $1`, id,
+	).Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccessKeyID, &a.SecretEncrypted,
+		&a.Region, &a.Status, &a.LastScannedAt, &a.CreatedAt)
+	if err != nil {
+		return model.Account{}, err
+	}
+	return a, tx.Commit(ctx)
+}
+
+// DeleteAccount removes an account by ID for the tenant in ctx.
+func (s *Store) DeleteAccount(ctx context.Context, id string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("postgres: delete account: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// UpdateAccountStatus sets status and last_scanned_at for an account.
+func (s *Store) UpdateAccountStatus(ctx context.Context, id, status string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE accounts SET status = $1, last_scanned_at = NOW()
+		WHERE id = $2`, status, id)
+	if err != nil {
+		return fmt.Errorf("postgres: update account status: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) Close() error {
 	s.pool.Close()
 	return nil
