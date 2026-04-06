@@ -11,7 +11,6 @@ import (
 
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/middleware"
-	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
 	"axiaops.io/shared/storage/sqlite"
@@ -44,14 +43,6 @@ func main() {
 		log.Println("storage: using SQLite")
 	}
 
-	// ── Load ghosts from DB ───────────────────────────────────────────────────
-	ghosts, err := store.LoadGhosts(ctx)
-	if err != nil {
-		log.Fatalf("storage: load ghosts: %v", err)
-	}
-	summary := analyzer.Summarize(ghosts)
-	log.Printf("api: loaded %d ghost records from database", len(ghosts))
-
 	// ── HTTP API ──────────────────────────────────────────────────────────────
 	addr := os.Getenv("API_ADDR")
 	if addr == "" {
@@ -59,7 +50,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	h := api.New(ghosts, summary, nil)
+	h := api.New(store)
 	h.Register(mux)
 
 	// ── Auth ──────────────────────────────────────────────────────────────────
