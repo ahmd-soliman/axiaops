@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSummary, fetchGhosts } from '../api/client';
+import { fetchSummary, fetchGhosts, fetchMe } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 
 // Design tokens
@@ -29,11 +29,12 @@ const C = {
 };
 
 export default function DashboardScreen({ onSelectGhost, onLogout }) {
+  const me      = useQuery({ queryKey: ['me'],      queryFn: fetchMe      });
   const summary = useQuery({ queryKey: ['summary'], queryFn: fetchSummary });
   const ghosts  = useQuery({ queryKey: ['ghosts'],  queryFn: fetchGhosts  });
 
-  const isLoading   = summary.isLoading || ghosts.isLoading;
-  const isError     = summary.isError   || ghosts.isError;
+  const isLoading   = summary.isLoading || ghosts.isLoading || me.isLoading;
+  const isError     = summary.isError   || ghosts.isError || me.isError;
   const isRefreshing = summary.isFetching || ghosts.isFetching;
 
   function refresh() {
@@ -79,6 +80,12 @@ export default function DashboardScreen({ onSelectGhost, onLogout }) {
             <View style={styles.navPill}>
               <Text style={styles.navPillText}>MVP</Text>
             </View>
+            <View style={{ flex: 1 }} />
+            {me.data?.org_name ? (
+              <View style={styles.orgPill}>
+                <Text style={styles.orgPillText}>{me.data.org_name}</Text>
+              </View>
+            ) : null}
             <TouchableOpacity onPress={onLogout} style={styles.logoutBtn}>
               <Text style={styles.logoutText}>Sign out</Text>
             </TouchableOpacity>
@@ -195,7 +202,9 @@ const styles = StyleSheet.create({
   navBrand: { color: C.white, fontSize: 18, fontWeight: '800', letterSpacing: 0.3, flex: 1 },
   navPill: { backgroundColor: C.navyLight, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 5 },
   navPillText: { color: C.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1 },
-  logoutBtn: { marginLeft: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: C.navyLight },
+  orgPill: { backgroundColor: C.navyLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, marginRight: 8 },
+  orgPillText: { color: C.white, fontSize: 12, fontWeight: '600' },
+  logoutBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: C.navyLight },
   logoutText: { color: C.textMuted, fontSize: 12, fontWeight: '600' },
 
   // Hero
