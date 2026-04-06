@@ -9,6 +9,22 @@ import (
 	"axiaops.io/shared/model"
 )
 
+type ctxKey string
+
+const tenantKey ctxKey = "tenant_id"
+
+// WithTenantID returns a context carrying the given tenant ID.
+// The PostgreSQL store reads this to set app.tenant_id for Row-Level Security.
+func WithTenantID(ctx context.Context, tenantID string) context.Context {
+	return context.WithValue(ctx, tenantKey, tenantID)
+}
+
+// TenantIDFromCtx returns the tenant ID stored in the context, or "".
+func TenantIDFromCtx(ctx context.Context) string {
+	v, _ := ctx.Value(tenantKey).(string)
+	return v
+}
+
 // Store persists and retrieves cost records, tenants, and users.
 type Store interface {
 	// Save inserts a batch of cost records, skipping duplicates.
@@ -17,10 +33,12 @@ type Store interface {
 
 	// SaveGhosts replaces all ghost records with the latest detection results.
 	// Called by the ingestion job after each analysis run.
+	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
 	SaveGhosts(ctx context.Context, ghosts []model.GhostResource) error
 
-	// LoadGhosts returns all ghost records from the last ingestion run.
-	// Called by the API service on startup and on demand.
+	// LoadGhosts returns ghost records for the tenant in ctx.
+	// Called by the API service per request.
+	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
 	LoadGhosts(ctx context.Context) ([]model.GhostResource, error)
 
 	// UpsertTenant creates a tenant on first login or returns the existing one.

@@ -73,6 +73,12 @@ func main() {
 	// ── Fetch costs ───────────────────────────────────────────────────────────
 	end, start := dateRange()
 
+	// Build a context carrying the tenant ID for all DB writes.
+	writeCtx := ctx
+	if tenantID := os.Getenv("TENANT_ID"); tenantID != "" {
+		writeCtx = storage.WithTenantID(ctx, tenantID)
+	}
+
 	var allRecords []model.CostRecord
 	for _, p := range providers {
 		records, err := p.FetchCosts(ctx, start, end)
@@ -80,7 +86,7 @@ func main() {
 			log.Printf("[%s] fetch failed: %v", p.Name(), err)
 			continue
 		}
-		inserted, saveErr := store.Save(ctx, records)
+		inserted, saveErr := store.Save(writeCtx, records)
 		if saveErr != nil {
 			log.Fatalf("[%s] save failed: %v", p.Name(), saveErr)
 		}
@@ -129,7 +135,7 @@ func main() {
 	}
 
 	// ── Save ghosts to DB ─────────────────────────────────────────────────────
-	if err := store.SaveGhosts(ctx, ghosts); err != nil {
+	if err := store.SaveGhosts(writeCtx, ghosts); err != nil {
 		log.Fatalf("storage: save ghosts: %v", err)
 	}
 	log.Printf("storage: saved %d ghost records to database", len(ghosts))

@@ -8,30 +8,22 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"sync"
 
+	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/storage"
 )
 
-// IngestFunc is called by the POST /ingest endpoint to trigger a fresh
-// ingestion and analysis run. It returns the updated ghosts and summary.
-type IngestFunc func() ([]model.GhostResource, analyzer.Summary, error)
-
-// Handler holds analysis results and serves them over HTTP.
-// Results are protected by a mutex so POST /ingest can update them safely
-// while GET /ghosts and GET /summary are being served.
+// Handler serves ghost detection results over HTTP.
+// Ghosts are loaded per-request from the store so RLS filters by tenant.
 type Handler struct {
-	mu      sync.RWMutex
-	ghosts  []model.GhostResource
-	summary analyzer.Summary
-	ingest  IngestFunc
+	store storage.Store
 }
 
-// New creates a Handler from the results of a completed analysis run.
-// ingest is called on POST /ingest to refresh the results.
-func New(ghosts []model.GhostResource, summary analyzer.Summary, ingest IngestFunc) *Handler {
-	return &Handler{ghosts: ghosts, summary: summary, ingest: ingest}
+// New creates a Handler backed by the given store.
+func New(store storage.Store) *Handler {
+	return &Handler{store: store}
 }
 
 // Register attaches the routes to the given mux.
@@ -39,7 +31,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /ghosts", h.listGhosts)
 	mux.HandleFunc("GET /summary", h.getSummary)
-	mux.HandleFunc("POST /ingest", h.triggerIngest)
 }
 
 // cors wraps a handler with permissive CORS headers for local development.
@@ -62,34 +53,26 @@ func (h *Handler) Handler(mux *http.ServeMux) http.Handler {
 }
 
 func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
-	h.mu.RLock()
-	ghosts := h.ghosts
-	h.mu.RUnlock()
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ghosts, err := h.store.LoadGhosts(ctx)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if ghosts == nil {
+		ghosts = []model.GhostResource{}
+	}
 	writeJSON(w, ghosts)
 }
 
 func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
-	h.mu.RLock()
-	summary := h.summary
-	h.mu.RUnlock()
-	writeJSON(w, summary)
-}
-
-func (h *Handler) triggerIngest(w http.ResponseWriter, r *http.Request) {
-	if h.ingest == nil {
-		http.Error(w, "ingestion is handled by a separate service", http.StatusNotImplemented)
-		return
-	}
-	ghosts, summary, err := h.ingest()
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ghosts, err := h.store.LoadGhosts(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	h.mu.Lock()
-	h.ghosts = ghosts
-	h.summary = summary
-	h.mu.Unlock()
-	writeJSON(w, summary)
+	writeJSON(w, analyzer.Summarize(ghosts))
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
