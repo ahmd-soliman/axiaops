@@ -91,7 +91,7 @@ npm install      # first time only
 npm run web
 ```
 
-Opens at `http://localhost:8081`. Press **F5** in VS Code to start both automatically.
+Opens at `http://localhost:3000`. Press **F5** in VS Code to start both automatically.
 
 ---
 
