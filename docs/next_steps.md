@@ -67,12 +67,16 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 - [ ] Store `tenant_id` with each ingestion run (map Kinde `org_code` → internal UUID)
 
 ### PostgreSQL Migration
-- [ ] Implement `Store` interface for PostgreSQL (`internal/storage/postgres/`)
-- [ ] Add `tenant_id` column to `cost_records` table
-- [ ] Enable Row-Level Security — each customer sees only their own data
-- [ ] Add `DB_URL` env var, wire PostgreSQL in `main.go` when set
-- [ ] Write migration script from SQLite schema to PostgreSQL
-- [ ] Test with local PostgreSQL via Docker Compose
+- [x] Implement `Store` interface for PostgreSQL (`storage/postgres/`)
+- [x] Add `tenant_id` column to `cost_records` and `ghost_records` tables
+- [x] Enable Row-Level Security — each customer sees only their own data
+- [x] Add `DATABASE_URL` env var, wire PostgreSQL in `main.go` when set
+- [x] Test with local PostgreSQL via Docker Compose
+- [ ] Replace startup schema apply with versioned migrations (`golang-migrate`)
+  - `001_initial.sql` — baseline schema
+  - `002_add_tenant_id.sql` — tenant_id + RLS policies
+  - Migrations run once, tracked in `schema_migrations` table
+  - Required before onboarding first real customer — current `ALTER TABLE` on startup is not safe for production
 
 ### Multi-account Support
 - [ ] Add IAM role ARN field per customer account
