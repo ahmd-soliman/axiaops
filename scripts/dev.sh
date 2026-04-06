@@ -69,7 +69,7 @@ if [[ "$USE_SQLITE" == "true" ]]; then
 else
   docker compose up -d postgres
   echo -n "Waiting for PostgreSQL..."
-  until docker exec axiaops-postgres pg_isready -U axiaops_owner &>/dev/null; do
+  until docker exec axiaops-postgres pg_isready -U axiaops_owner -d axiaops &>/dev/null; do
     echo -n "."
     sleep 1
   done
@@ -77,19 +77,25 @@ else
   echo " Ready."
 fi
 
-# Run Ingestion (One-shot)
-echo "Running ingestion job..."
+# Start Ingestion service (long-running HTTP server on :8081)
+echo "Starting ingestion service (8081)..."
 cd "$INGESTION_DIR"
 if [[ "$DEV_MODE" == "false" && -f .env ]]; then
     set -a; source .env; set +a
 fi
-# Run in background but wait for it or run foreground if it's fast
-DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" DATABASE_URL="${DATABASE_URL:-}" go run ./cmd/main.go >> "$LOG_FILE" 2>&1
+(
+  export DEV_MODE=$DEV_MODE
+  export DB_PATH="$DB_PATH"
+  export DATABASE_URL="${DATABASE_URL:-}"
+  exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
+) &
+echo $! >> "$PID_FILE"
+
+until curl -sf http://localhost:8081/health &>/dev/null; do sleep 1; done
 
 # Start API
 echo "Starting API service (8080)..."
 cd "$API_DIR"
-# Use a subshell to run and capture PID without disowning immediately
 (
   export DB_PATH="$DB_PATH"
   export DATABASE_URL="${DATABASE_URL:-}"
@@ -100,9 +106,9 @@ echo $! >> "$PID_FILE"
 until curl -sf http://localhost:8080/health &>/dev/null; do sleep 1; done
 
 # Start Dashboard
-echo "Starting Dashboard (8081)..."
+echo "Starting Dashboard (3000)..."
 cd "$DASHBOARD_DIR"
-npx expo start --web --non-interactive >> "$LOG_FILE" 2>&1 &
+npx expo start --web --port 3000 --non-interactive >> "$LOG_FILE" 2>&1 &
 echo $! >> "$PID_FILE"
 
 echo "---------------------------------------"
