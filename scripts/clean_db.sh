@@ -22,7 +22,7 @@ if [[ "${1:-}" == "--hard" ]]; then
 fi
 
 echo "Truncating all tables..."
-docker exec -i axiaops-postgres psql -U axiaops -d axiaops --quiet \
+docker exec -i axiaops-postgres psql -U axiaops_admin -d axiaops --quiet \
   -c "SET search_path TO axiaops" \
   -c "TRUNCATE ghost_records, cost_records, users, tenants RESTART IDENTITY CASCADE;"
 echo "Done. All data removed, schema intact."
