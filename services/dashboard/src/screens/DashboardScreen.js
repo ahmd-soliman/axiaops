@@ -205,8 +205,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   navBrand: { color: C.white, fontSize: 18, fontWeight: '800', letterSpacing: 0.3, flex: 1 },
-  navPill: { backgroundColor: C.navyLight, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 5 },
-  navPillText: { color: C.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1 },
   orgPill: { backgroundColor: C.navyLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, marginRight: 8 },
   orgPillText: { color: C.white, fontSize: 12, fontWeight: '600' },
   logoutBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: C.navyLight },
