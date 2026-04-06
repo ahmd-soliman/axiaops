@@ -47,11 +47,7 @@ func main() {
 		}
 		providers = append(providers, filefixture.New(fixturePath))
 	} else {
-		accountID := os.Getenv("AWS_ACCOUNT_ID")
-		if accountID == "" {
-			log.Fatal("AWS_ACCOUNT_ID is required")
-		}
-		awsClient, err = aws.New(ctx, accountID)
+		awsClient, err = aws.New(ctx)
 		if err != nil {
 			log.Fatalf("aws: init failed: %v", err)
 		}
@@ -101,6 +97,13 @@ func main() {
 
 	// ── Detect ghosts ─────────────────────────────────────────────────────────
 	ghosts := analyzer.Detect(allRecords, usage)
+
+	// EIPs are detected separately — attachment status is the signal, not CloudWatch.
+	if os.Getenv("DEV_MODE") != "true" {
+		eipGhosts := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient.AccountID(), start, end)
+		ghosts = append(ghosts, eipGhosts...)
+	}
+
 	summary := analyzer.Summarize(ghosts)
 
 	log.Printf("analysis: %d ghost resources detected — potential savings %.2f %s/month",

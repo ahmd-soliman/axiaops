@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -173,4 +174,84 @@ func arnSuffix(arn string) string {
 		}
 	}
 	return arn
+}
+
+// eipMonthlyCost is the AWS charge for one unattached Elastic IP per month
+// ($0.005/hour × 24 × 30 = $3.60). Source: AWS EC2 pricing.
+const eipMonthlyCost = 3.60
+
+// DiscoverUnattachedEIPs calls ec2:DescribeAddresses in each region present in
+// the cost records and returns a GhostResource for every Elastic IP that is not
+// attached to a network interface. Unattached EIPs are always zombies — AWS
+// charges for them regardless of usage, with no CloudWatch metric to consult.
+func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, accountID string, start, end time.Time) []model.GhostResource {
+	// Collect unique regions from cost records.
+	regions := make(map[string]struct{})
+	for _, r := range records {
+		if r.Region != "" {
+			regions[r.Region] = struct{}{}
+		}
+	}
+
+	var ghosts []model.GhostResource
+
+	for region := range regions {
+		cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
+		if err != nil {
+			log.Printf("eip: load config for region %s: %v", region, err)
+			continue
+		}
+
+		client := ec2.NewFromConfig(cfg)
+		out, err := client.DescribeAddresses(ctx, &ec2.DescribeAddressesInput{})
+		if err != nil {
+			log.Printf("eip: DescribeAddresses in %s: %v", region, err)
+			continue
+		}
+
+		for _, addr := range out.Addresses {
+			// An EIP is a zombie when it has no attached network interface.
+			if addr.NetworkInterfaceId != nil {
+				continue
+			}
+			allocationID := aws.ToString(addr.AllocationId)
+			if allocationID == "" {
+				continue
+			}
+
+			// Convert EC2 tag list to a plain map.
+			tags := make(map[string]string, len(addr.Tags))
+			for _, t := range addr.Tags {
+				if t.Key != nil && t.Value != nil {
+					tags[aws.ToString(t.Key)] = aws.ToString(t.Value)
+				}
+			}
+
+			ownerTeam := "unknown"
+			if t, ok := tags["team"]; ok && t != "" {
+				ownerTeam = t
+			}
+
+			ghosts = append(ghosts, model.GhostResource{
+				Provider:    "aws",
+				AccountID:   accountID,
+				Service:     "AmazonVPC",
+				Region:      region,
+				ResourceID:  allocationID,
+				Tags:        tags,
+				MonthlyCost: eipMonthlyCost,
+				Currency:    "USD",
+				PeriodStart: start,
+				PeriodEnd:   end,
+				UsageMetric: "NetworkInterfaceAttachment",
+				UsageAvg:    0,
+				UsageUnit:   "Count",
+				Reason:      "Elastic IP not attached to any resource — incurring $0.005/hour idle charge",
+				Owner:       ownerTeam,
+			})
+			log.Printf("eip: unattached EIP %s in %s flagged as zombie", allocationID, region)
+		}
+	}
+
+	return ghosts
 }
