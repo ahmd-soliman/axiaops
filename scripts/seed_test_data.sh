@@ -9,7 +9,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-INGESTION_DIR="$ROOT/services/ingestion"
 DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops"
 
 # Use axiaops_owner for direct DB access — axiaops (app user) for application connections
@@ -50,25 +49,6 @@ psql_exec "INSERT INTO tenants (id, org_code, name, created_at)
   ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name;"
 TENANT_B_ID=$(psql_query "SELECT id FROM tenants WHERE org_code = 'org_globex';" | tr -d '[:space:]')
 echo "  ID: $TENANT_B_ID"
-echo ""
-
-# ── Run ingestion for each tenant ─────────────────────────────────────────────
-
-echo "Running ingestion for dev tenant (AxiaOps)..."
-cd "$INGESTION_DIR"
-TENANT_ID="$DEV_TENANT_ID" DATABASE_URL="$DATABASE_URL" DEV_MODE=true \
-  go run ./cmd/main.go
-echo "  done."
-
-echo "Running ingestion for tenant A (Acme Corp)..."
-TENANT_ID="$TENANT_A_ID" DATABASE_URL="$DATABASE_URL" DEV_MODE=true \
-  go run ./cmd/main.go
-echo "  done."
-
-echo "Running ingestion for tenant B (Globex Inc)..."
-TENANT_ID="$TENANT_B_ID" DATABASE_URL="$DATABASE_URL" DEV_MODE=true \
-  go run ./cmd/main.go
-echo "  done."
 echo ""
 
 # ── Verify RLS isolation ──────────────────────────────────────────────────────

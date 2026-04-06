@@ -55,9 +55,11 @@ func (s *stubStore) GetAccount(_ context.Context, id string) (model.Account, err
 	}
 	return model.Account{}, errors.New("not found")
 }
-func (s *stubStore) DeleteAccount(_ context.Context, _ string) error          { return nil }
-func (s *stubStore) UpdateAccountStatus(_ context.Context, _, _ string) error { return nil }
-func (s *stubStore) Close() error                                              { return nil }
+func (s *stubStore) DeleteAccount(_ context.Context, _ string) error                  { return nil }
+func (s *stubStore) UpdateAccountStatus(_ context.Context, _, _ string) error         { return nil }
+func (s *stubStore) SaveResources(_ context.Context, _ []model.ResourceRecord) error  { return nil }
+func (s *stubStore) LoadResources(_ context.Context) ([]model.ResourceRecord, error)  { return nil, nil }
+func (s *stubStore) Close() error                                                      { return nil }
 
 var testGhost = model.GhostResource{
 	Provider:    "aws",

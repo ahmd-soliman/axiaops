@@ -28,6 +28,12 @@ export async function fetchGhosts() {
   return res.json();
 }
 
+export async function fetchResources() {
+  const res = await fetch(`${BASE_URL}/resources`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch resources');
+  return res.json();
+}
+
 export async function fetchAccounts() {
   const res = await fetch(`${BASE_URL}/accounts`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch accounts');
