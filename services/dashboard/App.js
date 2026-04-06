@@ -11,6 +11,8 @@ import { useKindeAuth } from './src/auth/kinde';
 import { saveToken, getToken, clearToken } from './src/auth/storage';
 import { setAuthToken, fetchAccounts } from './src/api/client';
 
+const DEV_MODE = process.env.EXPO_PUBLIC_DEV_MODE === 'true';
+
 const queryClient = new QueryClient();
 
 function parseJwt(token) {
@@ -73,6 +75,12 @@ function Root() {
   const { request, response, promptAsync, discovery } = useKindeAuth();
 
   useEffect(() => {
+    if (DEV_MODE) {
+      setAuthToken('dev');
+      setToken('dev');
+      setLoading(false);
+      return;
+    }
     getToken().then((stored) => {
       if (stored) {
         setAuthToken(stored);
