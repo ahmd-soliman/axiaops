@@ -75,7 +75,9 @@ CREATE TABLE IF NOT EXISTS ghost_records (
 );
 
 ALTER TABLE ghost_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ghost_records FORCE ROW LEVEL SECURITY;
 ALTER TABLE cost_records  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cost_records  FORCE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS ghost_tenant_isolation ON ghost_records;
 CREATE POLICY ghost_tenant_isolation ON ghost_records
