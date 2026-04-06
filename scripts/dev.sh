@@ -17,35 +17,39 @@ PID_FILE="$ROOT/.dev-pids"
 LOG_FILE="$ROOT/.dev.log"
 DB_PATH="$ROOT/axiaops.db"
 
+# Ensure we are in the root for docker-compose commands
+cd "$ROOT"
+
 stop() {
+  echo "Cleaning up..."
   if [[ -f "$PID_FILE" ]]; then
-    local printed=false
     while IFS= read -r pid; do
       if kill -0 "$pid" 2>/dev/null; then
-        if [[ "$printed" == "false" ]]; then
-          echo "Stopping services..."
-          printed=true
-        fi
-        pkill -P "$pid" 2>/dev/null || true
-        kill "$pid" 2>/dev/null || true
-        echo "  stopped $pid"
+        # Kill process group to catch sub-processes
+        kill -TERM -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null
+        echo "  Stopped process $pid"
       fi
     done < "$PID_FILE"
     rm -f "$PID_FILE"
   fi
-  if [[ "$USE_SQLITE" == "false" ]] && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^axiaops-postgres$"; then
+
+  # Check if postgres container exists and is running
+  if docker compose ps postgres --status running | grep -q "postgres"; then
     echo "Stopping PostgreSQL..."
-    docker compose -f "$ROOT/docker-compose.yml" stop postgres
+    docker compose stop postgres
   fi
   echo "Done."
 }
+
+# Trap unexpected exits (like Ctrl+C during startup)
+trap stop ERR SIGINT SIGTERM
 
 if [[ "${1:-}" == "stop" ]]; then
   stop
   exit 0
 fi
 
-# Parse flags
+# Flags
 DEV_MODE=true
 USE_SQLITE=false
 for arg in "$@"; do
@@ -55,58 +59,52 @@ for arg in "$@"; do
   esac
 done
 
-# Kill any previous session cleanly
-[[ -f "$PID_FILE" ]] && stop
+# Clear logs
+: > "$LOG_FILE"
 
-# Storage — PostgreSQL by default, SQLite if --sqlite is passed
+# Database Setup
 if [[ "$USE_SQLITE" == "true" ]]; then
-  unset DATABASE_URL
+  export DATABASE_URL="sqlite://$DB_PATH"
   echo "Storage: SQLite ($DB_PATH)"
 else
-  echo "Starting PostgreSQL          →  localhost:5432"
-  docker compose -f "$ROOT/docker-compose.yml" up -d postgres
-  echo "Waiting for PostgreSQL to be ready..."
-  until docker exec axiaops-postgres pg_isready -U axiaops_owner &>/dev/null; do sleep 1; done
-  DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops"
-  echo "PostgreSQL ready."
+  docker compose up -d postgres
+  echo -n "Waiting for PostgreSQL..."
+  until docker exec axiaops-postgres pg_isready -U axiaops_owner &>/dev/null; do
+    echo -n "."
+    sleep 1
+  done
+  export DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops"
+  echo " Ready."
 fi
-echo ""
 
-# Fresh log file for this run
-: > "$LOG_FILE"
-echo "Logging to $LOG_FILE"
-echo ""
-
-echo "Starting ingestion job       (one-shot, DEV_MODE=$DEV_MODE)"
+# Run Ingestion (One-shot)
+echo "Running ingestion job..."
 cd "$INGESTION_DIR"
-# Only source .env for real AWS — it contains credentials and DEV_MODE=false
-if [[ "$DEV_MODE" == "false" ]]; then
-  if [ -f .env ]; then export $(grep -v '^#' .env | xargs); fi
+if [[ "$DEV_MODE" == "false" && -f .env ]]; then
+    set -a; source .env; set +a
 fi
-DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" DATABASE_URL="${DATABASE_URL:-}" go run ./cmd/main.go >> "$LOG_FILE" 2>&1
-echo ""
+# Run in background but wait for it or run foreground if it's fast
+DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 
-echo "Starting API service        →  http://localhost:8080"
+# Start API
+echo "Starting API service (8080)..."
 cd "$API_DIR"
-if [ -f "$ROOT/services/ingestion/.env" ]; then export $(grep -v '^#' "$ROOT/services/ingestion/.env" | xargs); fi
-DB_PATH="$DB_PATH" DATABASE_URL="${DATABASE_URL:-}" go run ./cmd/main.go >> "$LOG_FILE" 2>&1 &
-API_PID=$!
-echo $API_PID >> "$PID_FILE"
-disown $API_PID
+# Use a subshell to run and capture PID without disowning immediately
+(
+  export DB_PATH="$DB_PATH"
+  export DATABASE_URL="$DATABASE_URL"
+  exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
+) &
+echo $! >> "$PID_FILE"
 
-echo "Waiting for API to be ready..."
 until curl -sf http://localhost:8080/health &>/dev/null; do sleep 1; done
-echo "API ready."
-echo ""
 
-echo "Starting dashboard          →  http://localhost:8081"
+# Start Dashboard
+echo "Starting Dashboard (8081)..."
 cd "$DASHBOARD_DIR"
 npx expo start --web --non-interactive >> "$LOG_FILE" 2>&1 &
-DASH_PID=$!
-echo $DASH_PID >> "$PID_FILE"
-disown $DASH_PID
+echo $! >> "$PID_FILE"
 
-echo ""
-echo "Services running."
-echo "  Logs:  tail -f $ROOT/.dev.log"
-echo "  Stop:  ./scripts/dev.sh stop"
+echo "---------------------------------------"
+echo "All systems go."
+echo "Logs: tail -f .dev.log"
