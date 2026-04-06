@@ -2,9 +2,22 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "dashboard: web",
+      "label": "Seed",
       "type": "shell",
-      "command": "npm run web",
+      "command": "docker compose -f ${workspaceFolder}/docker-compose.yml up -d postgres && until docker exec axiaops-postgres pg_isready -U axiaops_owner &>/dev/null; do sleep 1; done && ./scripts/seed_test_data.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Dashboard",
+      "type": "shell",
+      "command": "npx expo start --web --non-interactive",
       "options": {
         "cwd": "${workspaceFolder}/services/dashboard"
       },
@@ -20,9 +33,21 @@
         }
       },
       "presentation": {
-        "panel": "dedicated",
-        "label": "Dashboard"
+        "panel": "dedicated"
       }
+    },
+    {
+      "label": "Prepare",
+      "type": "shell",
+      "command": "docker compose -f ${workspaceFolder}/docker-compose.yml up -d postgres && until docker exec axiaops-postgres pg_isready -U axiaops_owner &>/dev/null; do sleep 1; done",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": []
     }
   ]
 }

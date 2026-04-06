@@ -13,9 +13,8 @@ INGESTION_DIR="$ROOT/services/ingestion"
 DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops"
 
 # Use axiaops_owner for direct DB access — axiaops (app user) for application connections
-ADMIN="docker exec -i axiaops-postgres psql -U axiaops_owner -d axiaops"
-psql_exec()  { $ADMIN --quiet -c "SET search_path TO axiaops" -c "$1"; }
-psql_query() { $ADMIN -t --no-align -c "SET search_path TO axiaops" -c "$1"; }
+psql_exec()  { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops --quiet -c "$1"; }
+psql_query() { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops -t --no-align -c "$1"; }
 
 # ── Check postgres is running ─────────────────────────────────────────────────
 
@@ -31,37 +30,44 @@ echo ""
 
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+echo "Creating dev tenant: AxiaOps"
+psql_exec "INSERT INTO tenants (id, org_code, name, created_at)
+  VALUES (gen_random_uuid()::text, 'org_fea50718baf', 'AxiaOps', '$NOW')
+  ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name;"
+DEV_TENANT_ID=$(psql_query "SELECT id FROM tenants WHERE org_code = 'org_fea50718baf';" | tr -d '[:space:]')
+echo "  ID: $DEV_TENANT_ID"
+
 echo "Creating tenant A: Acme Corp"
-TENANT_A_ID=$(psql_query "
-  INSERT INTO tenants (id, org_code, name, created_at)
+psql_exec "INSERT INTO tenants (id, org_code, name, created_at)
   VALUES (gen_random_uuid()::text, 'org_acme', 'Acme Corp', '$NOW')
-  ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name
-  RETURNING id;
-")
+  ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name;"
+TENANT_A_ID=$(psql_query "SELECT id FROM tenants WHERE org_code = 'org_acme';" | tr -d '[:space:]')
 echo "  ID: $TENANT_A_ID"
 
 echo "Creating tenant B: Globex Inc"
-TENANT_B_ID=$(psql_query "
-  INSERT INTO tenants (id, org_code, name, created_at)
+psql_exec "INSERT INTO tenants (id, org_code, name, created_at)
   VALUES (gen_random_uuid()::text, 'org_globex', 'Globex Inc', '$NOW')
-  ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name
-  RETURNING id;
-")
+  ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name;"
+TENANT_B_ID=$(psql_query "SELECT id FROM tenants WHERE org_code = 'org_globex';" | tr -d '[:space:]')
 echo "  ID: $TENANT_B_ID"
 echo ""
 
 # ── Run ingestion for each tenant ─────────────────────────────────────────────
 
-echo "Running ingestion for tenant A (Acme Corp)..."
+echo "Running ingestion for dev tenant (AxiaOps)..."
 cd "$INGESTION_DIR"
-set -a; [ -f .env ] && source .env; set +a
+TENANT_ID="$DEV_TENANT_ID" DATABASE_URL="$DATABASE_URL" DEV_MODE=true \
+  go run ./cmd/main.go
+echo "  done."
+
+echo "Running ingestion for tenant A (Acme Corp)..."
 TENANT_ID="$TENANT_A_ID" DATABASE_URL="$DATABASE_URL" DEV_MODE=true \
-  go run ./cmd/main.go >> "$ROOT/.dev.log" 2>&1
+  go run ./cmd/main.go
 echo "  done."
 
 echo "Running ingestion for tenant B (Globex Inc)..."
 TENANT_ID="$TENANT_B_ID" DATABASE_URL="$DATABASE_URL" DEV_MODE=true \
-  go run ./cmd/main.go >> "$ROOT/.dev.log" 2>&1
+  go run ./cmd/main.go
 echo "  done."
 echo ""
 

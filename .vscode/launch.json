@@ -2,24 +2,17 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "ingestion (dev)",
+      "name": "AxiaOps",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/services/ingestion/cmd/main.go",
-      "cwd": "${workspaceFolder}/services/ingestion",
+      "program": "${workspaceFolder}/services/api/cmd/main.go",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
       "env": {
-        "DEV_MODE": "true",
-        "FIXTURE_PATH": "fixtures/costs.json",
-        "USAGE_PATH": "fixtures/usage.json"
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080"
       },
-      "preLaunchTask": "dashboard: web"
-    }
-  ],
-  "compounds": [
-    {
-      "name": "All services",
-      "configurations": ["ingestion (dev)"]
+      "preLaunchTask": "Prepare"
     }
   ]
 }
