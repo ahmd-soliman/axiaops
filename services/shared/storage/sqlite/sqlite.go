@@ -64,6 +64,27 @@ CREATE TABLE IF NOT EXISTS accounts (
     created_at        DATETIME NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS resource_records (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider     TEXT    NOT NULL,
+    account_id   TEXT    NOT NULL,
+    service      TEXT    NOT NULL,
+    region       TEXT    NOT NULL,
+    resource_id  TEXT    NOT NULL,
+    tags         TEXT,
+    monthly_cost REAL    NOT NULL,
+    currency     TEXT    NOT NULL,
+    period_start DATETIME NOT NULL,
+    period_end   DATETIME NOT NULL,
+    usage_metric TEXT    NOT NULL DEFAULT '',
+    usage_avg    REAL    NOT NULL DEFAULT 0,
+    usage_unit   TEXT    NOT NULL DEFAULT '',
+    is_ghost     INTEGER NOT NULL DEFAULT 0,
+    reason       TEXT    NOT NULL DEFAULT '',
+    owner        TEXT    NOT NULL DEFAULT '',
+    detected_at  DATETIME NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS ghost_records (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     provider     TEXT    NOT NULL,
@@ -354,6 +375,87 @@ func (s *Store) UpdateAccountStatus(ctx context.Context, id, status string) erro
 		return fmt.Errorf("sqlite: update account status: %w", err)
 	}
 	return nil
+}
+
+// SaveResources replaces all resource records with the latest inventory.
+func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRecord) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("sqlite: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM resource_records`); err != nil {
+		return fmt.Errorf("sqlite: clear resource_records: %w", err)
+	}
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO resource_records
+			(provider, account_id, service, region, resource_id, tags,
+			 monthly_cost, currency, period_start, period_end,
+			 usage_metric, usage_avg, usage_unit, is_ghost, reason, owner, detected_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("sqlite: prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	now := time.Now().UTC()
+	for _, r := range resources {
+		tags, err := json.Marshal(r.Tags)
+		if err != nil {
+			return fmt.Errorf("sqlite: marshal tags: %w", err)
+		}
+		isGhost := 0
+		if r.IsGhost {
+			isGhost = 1
+		}
+		_, err = stmt.ExecContext(ctx,
+			r.Provider, r.AccountID, r.Service, r.Region, r.ResourceID, string(tags),
+			r.MonthlyCost, r.Currency, r.PeriodStart, r.PeriodEnd,
+			r.UsageMetric, r.UsageAvg, r.UsageUnit, isGhost, r.Reason, r.Owner, now,
+		)
+		if err != nil {
+			return fmt.Errorf("sqlite: insert resource_record: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// LoadResources returns all resource records from the last ingestion run.
+func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT provider, account_id, service, region, resource_id, tags,
+		       monthly_cost, currency, period_start, period_end,
+		       usage_metric, usage_avg, usage_unit, is_ghost, reason, owner
+		FROM resource_records
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite: query resource_records: %w", err)
+	}
+	defer rows.Close()
+
+	var resources []model.ResourceRecord
+	for rows.Next() {
+		var r model.ResourceRecord
+		var tagsJSON string
+		var isGhost int
+		if err := rows.Scan(
+			&r.Provider, &r.AccountID, &r.Service, &r.Region, &r.ResourceID, &tagsJSON,
+			&r.MonthlyCost, &r.Currency, &r.PeriodStart, &r.PeriodEnd,
+			&r.UsageMetric, &r.UsageAvg, &r.UsageUnit, &isGhost, &r.Reason, &r.Owner,
+		); err != nil {
+			return nil, fmt.Errorf("sqlite: scan resource_record: %w", err)
+		}
+		r.IsGhost = isGhost == 1
+		if err := json.Unmarshal([]byte(tagsJSON), &r.Tags); err != nil {
+			r.Tags = map[string]string{}
+		}
+		resources = append(resources, r)
+	}
+	return resources, rows.Err()
 }
 
 func (s *Store) Close() error {

@@ -103,6 +103,89 @@ func owner(tags map[string]string) string {
 	return "unknown"
 }
 
+// AnnotateAll returns a ResourceRecord for every cost entry that has a
+// non-empty resource ID. It uses the pre-computed ghosts slice (which already
+// includes EIP and other special-case ghosts) to set IsGhost and Reason,
+// so the caller does not need to re-run detection logic here.
+func AnnotateAll(costs []model.CostRecord, usage []UsageRecord, ghosts []model.GhostResource) []model.ResourceRecord {
+	// Index usage by resource_id for O(1) lookup.
+	usageByID := make(map[string]UsageRecord, len(usage))
+	for _, u := range usage {
+		usageByID[u.ResourceID] = u
+	}
+
+	// Index ghost info by resource_id.
+	type ghostInfo struct{ reason, owner string }
+	ghostByID := make(map[string]ghostInfo, len(ghosts))
+	for _, g := range ghosts {
+		ghostByID[g.ResourceID] = ghostInfo{reason: g.Reason, owner: g.Owner}
+	}
+
+	// Track which resource IDs have a cost record so we can add ghost-only entries below.
+	costResourceIDs := make(map[string]struct{}, len(costs))
+
+	var resources []model.ResourceRecord
+	for _, c := range costs {
+		if c.ResourceID == "" {
+			continue
+		}
+		costResourceIDs[c.ResourceID] = struct{}{}
+		u := usageByID[c.ResourceID]
+		gi, isGhost := ghostByID[c.ResourceID]
+		o := gi.owner
+		if o == "" {
+			o = owner(c.Tags)
+		}
+		resources = append(resources, model.ResourceRecord{
+			Provider:    c.Provider,
+			AccountID:   c.AccountID,
+			Service:     c.Service,
+			Region:      c.Region,
+			ResourceID:  c.ResourceID,
+			Tags:        c.Tags,
+			MonthlyCost: c.Amount,
+			Currency:    c.Currency,
+			PeriodStart: c.PeriodStart,
+			PeriodEnd:   c.PeriodEnd,
+			UsageMetric: u.Metric,
+			UsageAvg:    u.Avg,
+			UsageUnit:   u.Unit,
+			IsGhost:     isGhost,
+			Reason:      gi.reason,
+			Owner:       o,
+		})
+	}
+
+	// Some ghosts (e.g. unattached EIPs) are discovered via AWS APIs and never
+	// appear as individual line items in Cost Explorer. Add them here so they
+	// show up in the resource inventory.
+	for _, g := range ghosts {
+		if _, inCosts := costResourceIDs[g.ResourceID]; inCosts {
+			continue
+		}
+		resources = append(resources, model.ResourceRecord{
+			Provider:    g.Provider,
+			AccountID:   g.AccountID,
+			Service:     g.Service,
+			Region:      g.Region,
+			ResourceID:  g.ResourceID,
+			Tags:        g.Tags,
+			MonthlyCost: g.MonthlyCost,
+			Currency:    g.Currency,
+			PeriodStart: g.PeriodStart,
+			PeriodEnd:   g.PeriodEnd,
+			UsageMetric: g.UsageMetric,
+			UsageAvg:    g.UsageAvg,
+			UsageUnit:   g.UsageUnit,
+			IsGhost:     true,
+			Reason:      g.Reason,
+			Owner:       g.Owner,
+		})
+	}
+
+	return resources
+}
+
 // round2 rounds f to 2 decimal places.
 func round2(f float64) float64 {
 	return float64(int(f*100+0.5)) / 100

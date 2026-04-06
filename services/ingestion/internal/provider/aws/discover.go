@@ -31,7 +31,7 @@ func DiscoverResources(ctx context.Context, records []model.CostRecord) []Discov
 	type key struct{ service, region string }
 	pairs := make(map[key]struct{})
 	for _, r := range records {
-		if r.Region != "" {
+		if r.Region != "" && isAWSRegion(r.Region) {
 			pairs[key{r.Service, r.Region}] = struct{}{}
 		}
 	}
@@ -176,6 +176,26 @@ func arnSuffix(arn string) string {
 	return arn
 }
 
+// isAWSRegion reports whether s is a real AWS region identifier (e.g. "us-east-1")
+// rather than a Cost Explorer pseudo-value like "global" or "NoRegion".
+// Real AWS regions always end in a digit and contain at least two hyphens.
+func isAWSRegion(s string) bool {
+	if len(s) < 5 {
+		return false
+	}
+	last := s[len(s)-1]
+	if last < '0' || last > '9' {
+		return false
+	}
+	hyphens := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '-' {
+			hyphens++
+		}
+	}
+	return hyphens >= 2
+}
+
 // eipMonthlyCost is the AWS charge for one unattached Elastic IP per month
 // ($0.005/hour × 24 × 30 = $3.60). Source: AWS EC2 pricing.
 const eipMonthlyCost = 3.60
@@ -185,10 +205,11 @@ const eipMonthlyCost = 3.60
 // attached to a network interface. Unattached EIPs are always zombies — AWS
 // charges for them regardless of usage, with no CloudWatch metric to consult.
 func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, accountID string, start, end time.Time) []model.GhostResource {
-	// Collect unique regions from cost records.
+	// Collect unique real AWS regions from cost records (skipping Cost Explorer
+	// pseudo-values like "global" or "NoRegion").
 	regions := make(map[string]struct{})
 	for _, r := range records {
-		if r.Region != "" {
+		if r.Region != "" && isAWSRegion(r.Region) {
 			regions[r.Region] = struct{}{}
 		}
 	}

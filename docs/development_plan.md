@@ -330,11 +330,17 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 - Dismiss workflow — mark a ghost as intentional with a reason
 - Audit trail — all actions logged with timestamp and user
 
-#### 3.2 Resource Inventory View
-- `GET /resources` — all discovered resources, not just zombies
-- `resource_records` table populated by ingestion job
-- Dashboard toggle: "Zombies only" vs "All resources"
-- Engineer view with zombie badge on flagged resources
+#### 3.2 Resource Inventory View ✅
+
+**Status: Complete (shipped ahead of schedule)**
+
+- `model.ResourceRecord` — all resources with cost + usage + `is_ghost bool`
+- `resource_records` table populated by ingestion job (replace-on-run, like `ghost_records`)
+- `analyzer.AnnotateAll(costs, usage, ghosts)` — marks each cost record as ghost or active using the pre-computed ghost slice (EIP ghosts included automatically)
+- `GET /resources` — full inventory; frontend filters client-side
+- Dashboard "Ghost Resources / All Resources" toggle — ghost-only by default
+- Resource cards show usage metric for active resources; ghost badge + reason for zombies
+- DetailScreen adapts: hides "Why flagged" and "Suggested Action" for non-ghost resources
 
 #### 3.3 Multi-cloud
 - Azure Cost Management API

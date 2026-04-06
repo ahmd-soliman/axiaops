@@ -64,6 +64,16 @@ type Store interface {
 	// UpdateAccountStatus sets the status and last_scanned_at for an account.
 	UpdateAccountStatus(ctx context.Context, id, status string) error
 
+	// SaveResources replaces all resource records with the latest inventory.
+	// Called by the ingestion job after each analysis run.
+	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
+	SaveResources(ctx context.Context, resources []model.ResourceRecord) error
+
+	// LoadResources returns all resource records for the tenant in ctx.
+	// Called by the API service per request.
+	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
+	LoadResources(ctx context.Context) ([]model.ResourceRecord, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 }

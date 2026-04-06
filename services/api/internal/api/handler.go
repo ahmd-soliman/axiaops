@@ -47,6 +47,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /ghosts", h.listGhosts)
 	mux.HandleFunc("GET /summary", h.getSummary)
+	mux.HandleFunc("GET /resources", h.listResources)
 	mux.HandleFunc("GET /accounts", h.listAccounts)
 	mux.HandleFunc("POST /accounts", h.createAccount)
 	mux.HandleFunc("DELETE /accounts/{id}", h.deleteAccount)
@@ -84,6 +85,20 @@ func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
 		ghosts = []model.GhostResource{}
 	}
 	writeJSON(w, ghosts)
+}
+
+func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	resources, err := h.store.LoadResources(ctx)
+	if err != nil {
+		log.Printf("listResources error: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if resources == nil {
+		resources = []model.ResourceRecord{}
+	}
+	writeJSON(w, resources)
 }
 
 func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {

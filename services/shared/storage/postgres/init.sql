@@ -74,6 +74,28 @@ CREATE TABLE IF NOT EXISTS ghost_records (
     detected_at  TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS resource_records (
+    id           BIGSERIAL   PRIMARY KEY,
+    tenant_id    TEXT        NOT NULL REFERENCES tenants(id),
+    provider     TEXT        NOT NULL,
+    account_id   TEXT        NOT NULL,
+    service      TEXT        NOT NULL,
+    region       TEXT        NOT NULL,
+    resource_id  TEXT        NOT NULL,
+    tags         JSONB,
+    monthly_cost NUMERIC     NOT NULL,
+    currency     TEXT        NOT NULL,
+    period_start TIMESTAMPTZ NOT NULL,
+    period_end   TIMESTAMPTZ NOT NULL,
+    usage_metric TEXT        NOT NULL DEFAULT '',
+    usage_avg    NUMERIC     NOT NULL DEFAULT 0,
+    usage_unit   TEXT        NOT NULL DEFAULT '',
+    is_ghost     BOOLEAN     NOT NULL DEFAULT false,
+    reason       TEXT        NOT NULL DEFAULT '',
+    owner        TEXT        NOT NULL DEFAULT '',
+    detected_at  TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS accounts (
     id                TEXT        PRIMARY KEY,
     tenant_id         TEXT        NOT NULL REFERENCES tenants(id),
@@ -97,11 +119,15 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA axiaops
 -- axiaops_app does not own the tables so FORCE ROW LEVEL SECURITY is not needed.
 -- RLS applies naturally to non-owner users.
 
-ALTER TABLE ghost_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cost_records  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE accounts      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ghost_records    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE resource_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cost_records     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE accounts         ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY ghost_tenant_isolation ON ghost_records
+    USING (tenant_id = current_setting('app.tenant_id', true));
+
+CREATE POLICY resource_tenant_isolation ON resource_records
     USING (tenant_id = current_setting('app.tenant_id', true));
 
 CREATE POLICY cost_tenant_isolation ON cost_records

@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSummary, fetchGhosts, scanAccount } from '../api/client';
+import { fetchSummary, fetchResources, scanAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 
 // Design tokens
@@ -30,19 +30,20 @@ const C = {
 };
 
 export default function DashboardScreen({ onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount }) {
-  const [filterSvc, setFilterSvc]   = React.useState(null);
-  const [scanning, setScanning]     = React.useState(null); // account id being scanned
+  const [filterSvc, setFilterSvc]     = React.useState(null);
+  const [ghostOnly, setGhostOnly]     = React.useState(true);
+  const [scanning, setScanning]       = React.useState(null); // account id being scanned
 
-  const summary = useQuery({ queryKey: ['summary'], queryFn: fetchSummary });
-  const ghosts  = useQuery({ queryKey: ['ghosts'],  queryFn: fetchGhosts  });
+  const summary   = useQuery({ queryKey: ['summary'],   queryFn: fetchSummary   });
+  const resources = useQuery({ queryKey: ['resources'], queryFn: fetchResources });
 
-  const isLoading    = summary.isLoading || ghosts.isLoading;
-  const isError      = summary.isError   || ghosts.isError;
-  const isRefreshing = summary.isFetching || ghosts.isFetching;
+  const isLoading    = summary.isLoading    || resources.isLoading;
+  const isError      = summary.isError      || resources.isError;
+  const isRefreshing = summary.isFetching   || resources.isFetching;
 
   function refresh() {
     summary.refetch();
-    ghosts.refetch();
+    resources.refetch();
   }
 
   async function handleScan(accountId) {
@@ -174,10 +175,37 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName, acco
             </ScrollView>
           </View>
 
-          <Text style={styles.sectionTitle}>Ghost Resources</Text>
+          {/* Ghost-only toggle */}
+          <View style={styles.toggleRow}>
+            <TouchableOpacity
+              style={[styles.toggleBtn, ghostOnly && styles.toggleBtnActive]}
+              onPress={() => setGhostOnly(true)}
+            >
+              <Text style={[styles.toggleBtnText, ghostOnly && styles.toggleBtnTextActive]}>
+                Ghost Resources
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toggleBtn, !ghostOnly && styles.toggleBtnActive]}
+              onPress={() => setGhostOnly(false)}
+            >
+              <Text style={[styles.toggleBtnText, !ghostOnly && styles.toggleBtnTextActive]}>
+                All Resources
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.sectionTitle}>
+            {ghostOnly ? 'Ghost Resources' : 'All Resources'}
+          </Text>
         </View>
       }
-      data={filterSvc ? ghosts.data.filter(g => g.service === filterSvc) : ghosts.data}
+      data={(() => {
+        let list = resources.data ?? [];
+        if (ghostOnly) list = list.filter(r => r.is_ghost);
+        if (filterSvc) list = list.filter(r => r.service === filterSvc);
+        return list;
+      })()}
       keyExtractor={(item) => item.resource_id}
       renderItem={({ item }) => {
         const cfg = serviceConfig(item.service);
@@ -193,6 +221,11 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName, acco
               <View style={[styles.badge, { backgroundColor: cfg.bg }]}>
                 <Text style={[styles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
               </View>
+              {item.is_ghost && (
+                <View style={styles.ghostBadge}>
+                  <Text style={styles.ghostBadgeText}>zombie</Text>
+                </View>
+              )}
               <View style={{ flex: 1 }} />
               <Text style={styles.cardCost}>{item.currency} {item.monthly_cost.toFixed(2)}</Text>
             </View>
@@ -207,8 +240,13 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName, acco
               <Text style={styles.cardOwner}>👤 {item.owner}</Text>
             </View>
 
-            {/* Reason */}
-            <Text style={styles.cardReason}>{item.reason}</Text>
+            {/* Reason (ghosts) or usage metric (active resources) */}
+            {item.is_ghost
+              ? <Text style={styles.cardReason}>{item.reason}</Text>
+              : item.usage_metric
+                ? <Text style={styles.cardUsage}>{item.usage_metric}: {item.usage_avg.toFixed(2)} {item.usage_unit}</Text>
+                : null
+            }
           </TouchableOpacity>
         );
       }}
@@ -363,4 +401,31 @@ const styles = StyleSheet.create({
   cardOwner: { fontSize: 11, color: C.textMuted, marginLeft: 'auto' },
 
   cardReason: { fontSize: 12, color: C.textMid, fontStyle: 'italic', lineHeight: 18 },
+  cardUsage: { fontSize: 12, color: C.textMuted, lineHeight: 18 },
+
+  // Ghost-only toggle
+  toggleRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 8,
+  },
+  toggleBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: C.border,
+  },
+  toggleBtnActive: { backgroundColor: C.navy },
+  toggleBtnText: { fontSize: 13, fontWeight: '600', color: C.textMid },
+  toggleBtnTextActive: { color: C.white },
+
+  // Ghost badge on resource cards
+  ghostBadge: {
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  ghostBadgeText: { fontSize: 10, fontWeight: '700', color: '#B91C1C' },
 });
