@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSummary, fetchGhosts, fetchMe } from '../api/client';
+import { fetchSummary, fetchGhosts } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 
 // Design tokens
@@ -28,13 +28,12 @@ const C = {
   border: '#E2E8F0',
 };
 
-export default function DashboardScreen({ onSelectGhost, onLogout }) {
-  const me      = useQuery({ queryKey: ['me'],      queryFn: fetchMe      });
+export default function DashboardScreen({ onSelectGhost, onLogout, orgName }) {
   const summary = useQuery({ queryKey: ['summary'], queryFn: fetchSummary });
   const ghosts  = useQuery({ queryKey: ['ghosts'],  queryFn: fetchGhosts  });
 
-  const isLoading   = summary.isLoading || ghosts.isLoading || me.isLoading;
-  const isError     = summary.isError   || ghosts.isError || me.isError;
+  const isLoading   = summary.isLoading || ghosts.isLoading;
+  const isError     = summary.isError   || ghosts.isError;
   const isRefreshing = summary.isFetching || ghosts.isFetching;
 
   function refresh() {
@@ -81,9 +80,9 @@ export default function DashboardScreen({ onSelectGhost, onLogout }) {
               <Text style={styles.navPillText}>MVP</Text>
             </View>
             <View style={{ flex: 1 }} />
-            {me.data?.org_name ? (
+            {orgName ? (
               <View style={styles.orgPill}>
-                <Text style={styles.orgPillText}>{me.data.org_name}</Text>
+                <Text style={styles.orgPillText}>{orgName}</Text>
               </View>
             ) : null}
             <TouchableOpacity onPress={onLogout} style={styles.logoutBtn}>
