@@ -17,12 +17,6 @@ function authHeaders() {
   return authToken ? { Authorization: `Bearer ${authToken}` } : {};
 }
 
-export async function fetchMe() {
-  const res = await fetch(`${BASE_URL}/me`, { headers: authHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch me');
-  return res.json();
-}
-
 export async function fetchSummary() {
   const res = await fetch(`${BASE_URL}/summary`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch summary');

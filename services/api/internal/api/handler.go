@@ -29,7 +29,6 @@ func New(store storage.Store) *Handler {
 // Register attaches the routes to the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.health)
-	mux.HandleFunc("GET /me", h.getMe)
 	mux.HandleFunc("GET /ghosts", h.listGhosts)
 	mux.HandleFunc("GET /summary", h.getSummary)
 }
@@ -74,12 +73,6 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, analyzer.Summarize(ghosts))
-}
-
-func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, map[string]string{
-		"org_name": middleware.TenantName(r.Context()),
-	})
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
