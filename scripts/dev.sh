@@ -2,9 +2,10 @@
 # dev.sh — start all AxiaOps services for local development
 #
 # Usage:
-#   ./scripts/dev.sh          start with fixture data (DEV_MODE=true)
-#   ./scripts/dev.sh --aws    start with real AWS (DEV_MODE=false)
-#   ./scripts/dev.sh stop     kill all running services
+#   ./scripts/dev.sh           start with fixture data + PostgreSQL (default)
+#   ./scripts/dev.sh --aws     start with real AWS + PostgreSQL
+#   ./scripts/dev.sh --sqlite  use SQLite instead of PostgreSQL (no Docker needed)
+#   ./scripts/dev.sh stop      kill all running services
 
 set -euo pipefail
 
@@ -35,23 +36,41 @@ fi
 
 # Parse flags
 DEV_MODE=true
-if [[ "${1:-}" == "--aws" ]]; then
-  DEV_MODE=false
-fi
+USE_SQLITE=false
+for arg in "$@"; do
+  case "$arg" in
+    --aws)    DEV_MODE=false ;;
+    --sqlite) USE_SQLITE=true ;;
+  esac
+done
 
 # Kill any previous session cleanly
 [[ -f "$PID_FILE" ]] && stop
 
+# Storage — PostgreSQL by default, SQLite if --sqlite is passed
+DATABASE_URL=""
+if [[ "$USE_SQLITE" == "true" ]]; then
+  echo "Storage: SQLite ($DB_PATH)"
+else
+  echo "Starting PostgreSQL          →  localhost:5432"
+  docker compose -f "$ROOT/docker-compose.yml" up -d postgres
+  echo "Waiting for PostgreSQL to be ready..."
+  until docker exec axiaops-postgres pg_isready -U axiaops &>/dev/null; do sleep 1; done
+  DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops"
+  echo "PostgreSQL ready."
+fi
+echo ""
+
 echo "Starting ingestion job       (one-shot, DEV_MODE=$DEV_MODE)"
 cd "$INGESTION_DIR"
 set -a; [ -f .env ] && source .env; set +a
-DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" go run ./cmd/main.go
+DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" DATABASE_URL="$DATABASE_URL" go run ./cmd/main.go
 echo ""
 
 echo "Starting API service        →  http://localhost:8080"
 cd "$API_DIR"
 set -a; [ -f "$ROOT/services/ingestion/.env" ] && source "$ROOT/services/ingestion/.env"; set +a
-DB_PATH="$DB_PATH" go run ./cmd/main.go &
+DB_PATH="$DB_PATH" DATABASE_URL="$DATABASE_URL" go run ./cmd/main.go &
 echo $! >> "$PID_FILE"
 
 echo "Starting dashboard          →  http://localhost:8081"
@@ -60,7 +79,7 @@ npm run web &
 echo $! >> "$PID_FILE"
 
 echo ""
-echo "Both services running. Press Ctrl+C to stop."
+echo "Services running. Press Ctrl+C to stop."
 
 trap stop INT TERM
 wait
