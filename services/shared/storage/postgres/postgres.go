@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/storage"
 )
 
 const schema = `
@@ -34,6 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS cost_records (
     id           BIGSERIAL   PRIMARY KEY,
+    tenant_id    TEXT        NOT NULL REFERENCES tenants(id),
     provider     TEXT        NOT NULL,
     account_id   TEXT        NOT NULL,
     service      TEXT        NOT NULL,
@@ -45,12 +48,12 @@ CREATE TABLE IF NOT EXISTS cost_records (
     period_end   TIMESTAMPTZ NOT NULL,
     tags         JSONB,
     fetched_at   TIMESTAMPTZ NOT NULL,
-    UNIQUE (provider, account_id, service, region, period_start, period_end)
+    UNIQUE (tenant_id, provider, account_id, service, region, period_start, period_end)
 );
 
 CREATE TABLE IF NOT EXISTS ghost_records (
     id           BIGSERIAL   PRIMARY KEY,
-    tenant_id    TEXT        REFERENCES tenants(id),
+    tenant_id    TEXT        NOT NULL REFERENCES tenants(id),
     provider     TEXT        NOT NULL,
     account_id   TEXT        NOT NULL,
     service      TEXT        NOT NULL,
@@ -67,7 +70,17 @@ CREATE TABLE IF NOT EXISTS ghost_records (
     reason       TEXT        NOT NULL,
     owner        TEXT        NOT NULL,
     detected_at  TIMESTAMPTZ NOT NULL
-);`
+);
+
+ALTER TABLE ghost_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cost_records  ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY IF NOT EXISTS ghost_tenant_isolation ON ghost_records
+    USING (tenant_id = current_setting('app.tenant_id', true));
+
+CREATE POLICY IF NOT EXISTS cost_tenant_isolation ON cost_records
+    USING (tenant_id = current_setting('app.tenant_id', true));
+`
 
 // Store is a PostgreSQL-backed implementation of storage.Store.
 type Store struct {
@@ -90,13 +103,33 @@ func New(ctx context.Context, url string) (*Store, error) {
 	return &Store{pool: pool}, nil
 }
 
+// setTenant sets the app.tenant_id session variable for Row-Level Security.
+// Must be called inside a transaction so the setting is scoped to that tx.
+func setTenant(ctx context.Context, tx pgx.Tx) error {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return fmt.Errorf("postgres: tenant_id missing from context")
+	}
+	_, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID)
+	return err
+}
+
 // Save inserts cost records in a single transaction, skipping duplicates.
 func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return 0, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("postgres: begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	if err := setTenant(ctx, tx); err != nil {
+		return 0, err
+	}
 
 	var inserted int64
 	for _, r := range records {
@@ -106,11 +139,12 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 		}
 		res, err := tx.Exec(ctx, `
 			INSERT INTO cost_records
-				(provider, account_id, service, region, resource_id, amount, currency,
+				(tenant_id, provider, account_id, service, region, resource_id, amount, currency,
 				 period_start, period_end, tags, fetched_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-			ON CONFLICT (provider, account_id, service, region, period_start, period_end)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			ON CONFLICT (tenant_id, provider, account_id, service, region, period_start, period_end)
 			DO NOTHING`,
+			tenantID,
 			r.Provider, r.AccountID, r.Service, r.Region, r.ResourceID,
 			r.Amount, r.Currency,
 			r.PeriodStart, r.PeriodEnd,
@@ -125,14 +159,24 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 	return inserted, tx.Commit(ctx)
 }
 
-// SaveGhosts replaces all ghost records with the latest detection results.
+// SaveGhosts replaces the tenant's ghost records with the latest detection results.
 func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) error {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("postgres: begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	// RLS ensures only this tenant's rows are deleted.
 	if _, err := tx.Exec(ctx, `DELETE FROM ghost_records`); err != nil {
 		return fmt.Errorf("postgres: clear ghosts: %w", err)
 	}
@@ -145,10 +189,11 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO ghost_records
-				(provider, account_id, service, region, resource_id, tags,
+				(tenant_id, provider, account_id, service, region, resource_id, tags,
 				 monthly_cost, currency, period_start, period_end,
 				 usage_metric, usage_avg, usage_unit, reason, owner, detected_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+			tenantID,
 			g.Provider, g.AccountID, g.Service, g.Region, g.ResourceID, string(tags),
 			g.MonthlyCost, g.Currency, g.PeriodStart, g.PeriodEnd,
 			g.UsageMetric, g.UsageAvg, g.UsageUnit, g.Reason, g.Owner, now,
@@ -161,9 +206,24 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 	return tx.Commit(ctx)
 }
 
-// LoadGhosts returns all ghost records from the last ingestion run.
+// LoadGhosts returns ghost records for the tenant in ctx.
 func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
-	rows, err := s.pool.Query(ctx, `
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := setTenant(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, `
 		SELECT provider, account_id, service, region, resource_id, tags,
 		       monthly_cost, currency, period_start, period_end,
 		       usage_metric, usage_avg, usage_unit, reason, owner
@@ -190,7 +250,10 @@ func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
 		}
 		ghosts = append(ghosts, g)
 	}
-	return ghosts, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ghosts, tx.Commit(ctx)
 }
 
 // UpsertTenant creates a tenant on first login or returns the existing one.

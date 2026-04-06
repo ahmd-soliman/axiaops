@@ -14,18 +14,21 @@ API_DIR="$ROOT/services/api"
 INGESTION_DIR="$ROOT/services/ingestion"
 DASHBOARD_DIR="$ROOT/services/dashboard"
 PID_FILE="$ROOT/.dev-pids"
+LOG_FILE="$ROOT/.dev.log"
 DB_PATH="$ROOT/axiaops.db"
 
 stop() {
-  if [[ ! -f "$PID_FILE" ]]; then
-    echo "No running dev session found."
-    exit 0
+  if [[ -f "$PID_FILE" ]]; then
+    echo "Stopping services..."
+    while IFS= read -r pid; do
+      kill "$pid" 2>/dev/null && echo "  killed $pid" || true
+    done < "$PID_FILE"
+    rm -f "$PID_FILE"
   fi
-  echo "Stopping services..."
-  while IFS= read -r pid; do
-    kill "$pid" 2>/dev/null && echo "  killed $pid" || true
-  done < "$PID_FILE"
-  rm -f "$PID_FILE"
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^axiaops-postgres$"; then
+    echo "Stopping PostgreSQL..."
+    docker compose -f "$ROOT/docker-compose.yml" stop postgres
+  fi
   echo "Done."
 }
 
@@ -61,21 +64,26 @@ else
 fi
 echo ""
 
+# Fresh log file for this run
+: > "$LOG_FILE"
+echo "Logging to $LOG_FILE"
+echo ""
+
 echo "Starting ingestion job       (one-shot, DEV_MODE=$DEV_MODE)"
 cd "$INGESTION_DIR"
 set -a; [ -f .env ] && source .env; set +a
-DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" DATABASE_URL="$DATABASE_URL" go run ./cmd/main.go
+DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" DATABASE_URL="$DATABASE_URL" go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 echo ""
 
 echo "Starting API service        →  http://localhost:8080"
 cd "$API_DIR"
 set -a; [ -f "$ROOT/services/ingestion/.env" ] && source "$ROOT/services/ingestion/.env"; set +a
-DB_PATH="$DB_PATH" DATABASE_URL="$DATABASE_URL" go run ./cmd/main.go &
+DB_PATH="$DB_PATH" DATABASE_URL="$DATABASE_URL" go run ./cmd/main.go >> "$LOG_FILE" 2>&1 &
 echo $! >> "$PID_FILE"
 
 echo "Starting dashboard          →  http://localhost:8081"
 cd "$DASHBOARD_DIR"
-npm run web &
+npm run web >> "$LOG_FILE" 2>&1 &
 echo $! >> "$PID_FILE"
 
 echo ""
