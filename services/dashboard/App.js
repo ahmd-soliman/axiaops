@@ -12,13 +12,24 @@ import { setAuthToken } from './src/api/client';
 
 const queryClient = new QueryClient();
 
-function AuthenticatedApp({ onLogout }) {
+function parseJwt(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(base64));
+  } catch {
+    return {};
+  }
+}
+
+function AuthenticatedApp({ token, onLogout }) {
   const [selectedGhost, setSelectedGhost] = useState(null);
+  const claims = parseJwt(token);
+  const orgName = claims.org_name || claims.org_code || '';
 
   return selectedGhost ? (
     <DetailScreen ghost={selectedGhost} onBack={() => setSelectedGhost(null)} />
   ) : (
-    <DashboardScreen onSelectGhost={setSelectedGhost} onLogout={onLogout} />
+    <DashboardScreen onSelectGhost={setSelectedGhost} onLogout={onLogout} orgName={orgName} />
   );
 }
 
@@ -83,7 +94,7 @@ function Root() {
   if (loading) return null;
 
   return token ? (
-    <AuthenticatedApp onLogout={handleLogout} key={token} />
+    <AuthenticatedApp token={token} onLogout={handleLogout} key={token} />
   ) : (
     <LoginScreen onLogin={handleLogin} loading={signingIn} />
   );
