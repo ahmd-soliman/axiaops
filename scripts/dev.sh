@@ -82,12 +82,16 @@ echo "Starting API service        →  http://localhost:8080"
 cd "$API_DIR"
 set -a; [ -f "$ROOT/services/ingestion/.env" ] && source "$ROOT/services/ingestion/.env"; set +a
 DB_PATH="$DB_PATH" DATABASE_URL="$DATABASE_URL" go run ./cmd/main.go >> "$LOG_FILE" 2>&1 &
-echo $! >> "$PID_FILE"
+API_PID=$!
+echo $API_PID >> "$PID_FILE"
+disown $API_PID
 
 echo "Starting dashboard          →  http://localhost:8081"
 cd "$DASHBOARD_DIR"
 npx expo start --web --non-interactive >> "$LOG_FILE" 2>&1 &
-echo $! >> "$PID_FILE"
+DASH_PID=$!
+echo $DASH_PID >> "$PID_FILE"
+disown $DASH_PID
 
 echo ""
 echo "Services running."
