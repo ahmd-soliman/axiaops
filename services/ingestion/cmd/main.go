@@ -70,14 +70,28 @@ func main() {
 		providers = append(providers, awsClient)
 	}
 
+	// ── Resolve tenant ────────────────────────────────────────────────────────
+	// In production, TENANT_ID is passed by the scheduler (EventBridge).
+	// Locally, auto-create a tenant from the AWS account ID or a dev placeholder.
+	tenantID := os.Getenv("TENANT_ID")
+	if tenantID == "" {
+		orgCode := "local-dev"
+		if awsClient != nil {
+			orgCode = "aws-" + awsClient.AccountID()
+		}
+		tenant, err := store.UpsertTenant(ctx, orgCode, orgCode)
+		if err != nil {
+			log.Fatalf("storage: upsert dev tenant: %v", err)
+		}
+		tenantID = tenant.ID
+		log.Printf("ingestion: using auto-created tenant %s (%s)", tenantID, orgCode)
+	}
+
 	// ── Fetch costs ───────────────────────────────────────────────────────────
 	end, start := dateRange()
 
 	// Build a context carrying the tenant ID for all DB writes.
-	writeCtx := ctx
-	if tenantID := os.Getenv("TENANT_ID"); tenantID != "" {
-		writeCtx = storage.WithTenantID(ctx, tenantID)
-	}
+	writeCtx := storage.WithTenantID(ctx, tenantID)
 
 	var allRecords []model.CostRecord
 	for _, p := range providers {
