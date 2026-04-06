@@ -83,7 +83,7 @@ echo $! >> "$PID_FILE"
 
 echo "Starting dashboard          →  http://localhost:8081"
 cd "$DASHBOARD_DIR"
-npm run web >> "$LOG_FILE" 2>&1 &
+npx expo start --web --non-interactive >> "$LOG_FILE" 2>&1 &
 echo $! >> "$PID_FILE"
 
 echo ""
