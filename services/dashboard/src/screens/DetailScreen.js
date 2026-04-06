@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
   badgeText: { color: C.white, fontSize: 12, fontWeight: '800' },
   headerService: { color: C.textMuted, fontSize: 14, flex: 1 },
   headerCost: { color: C.accent, fontSize: 42, fontWeight: '800', letterSpacing: -1 },
-  headerSub: { color: '#475569', fontSize: 13, marginTop: 2 },
+  headerSub: { color: C.textMid, fontSize: 13, marginTop: 2 },
 
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 16 },
   statCard: {
