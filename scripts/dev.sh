@@ -21,7 +21,10 @@ stop() {
   if [[ -f "$PID_FILE" ]]; then
     echo "Stopping services..."
     while IFS= read -r pid; do
-      kill "$pid" 2>/dev/null && echo "  killed $pid" || true
+      # Kill children first (compiled binary, node), then the parent (go run, npx)
+      pkill -P "$pid" 2>/dev/null || true
+      kill "$pid" 2>/dev/null || true
+      echo "  stopped $pid"
     done < "$PID_FILE"
     rm -f "$PID_FILE"
   fi
@@ -80,13 +83,11 @@ cd "$API_DIR"
 set -a; [ -f "$ROOT/services/ingestion/.env" ] && source "$ROOT/services/ingestion/.env"; set +a
 DB_PATH="$DB_PATH" DATABASE_URL="$DATABASE_URL" go run ./cmd/main.go >> "$LOG_FILE" 2>&1 &
 echo $! >> "$PID_FILE"
-disown $!
 
 echo "Starting dashboard          →  http://localhost:8081"
 cd "$DASHBOARD_DIR"
 npx expo start --web --non-interactive >> "$LOG_FILE" 2>&1 &
 echo $! >> "$PID_FILE"
-disown $!
 
 echo ""
 echo "Services running."
