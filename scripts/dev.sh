@@ -64,7 +64,7 @@ done
 
 # Database Setup
 if [[ "$USE_SQLITE" == "true" ]]; then
-  export DATABASE_URL="sqlite://$DB_PATH"
+  unset DATABASE_URL
   echo "Storage: SQLite ($DB_PATH)"
 else
   docker compose up -d postgres
@@ -84,7 +84,7 @@ if [[ "$DEV_MODE" == "false" && -f .env ]]; then
     set -a; source .env; set +a
 fi
 # Run in background but wait for it or run foreground if it's fast
-DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" go run ./cmd/main.go >> "$LOG_FILE" 2>&1
+DEV_MODE=$DEV_MODE DB_PATH="$DB_PATH" DATABASE_URL="${DATABASE_URL:-}" go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 
 # Start API
 echo "Starting API service (8080)..."
@@ -92,7 +92,7 @@ cd "$API_DIR"
 # Use a subshell to run and capture PID without disowning immediately
 (
   export DB_PATH="$DB_PATH"
-  export DATABASE_URL="$DATABASE_URL"
+  export DATABASE_URL="${DATABASE_URL:-}"
   exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 ) &
 echo $! >> "$PID_FILE"
