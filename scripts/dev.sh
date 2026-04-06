@@ -99,15 +99,14 @@ echo $! >> "$PID_FILE"
 
 until curl -sf http://localhost:8081/health &>/dev/null; do sleep 1; done
 
-# Start API
+# Start API (dev mode: KINDE_ISSUER unset so DEV_TENANT_ID is used instead)
 echo "Starting API service (8080)..."
 cd "$API_DIR"
-if [[ -f .env ]]; then
-  set -a; source .env; set +a
-fi
 (
   export DB_PATH="$DB_PATH"
   export DATABASE_URL="${DATABASE_URL:-}"
+  export DEV_MODE="true"
+  export DEV_TENANT_ID="dev-tenant-axiaops"
   exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 ) &
 echo $! >> "$PID_FILE"
