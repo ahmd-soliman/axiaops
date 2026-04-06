@@ -62,6 +62,11 @@ func main() {
 			return
 		}
 
+		if account.SecretEncrypted == "" {
+			log.Printf("scan: account %s has no secret configured", req.AccountID)
+			http.Error(w, "no credentials configured", http.StatusUnprocessableEntity)
+			return
+		}
 		secret, err := crypto.Decrypt(account.SecretEncrypted)
 		if err != nil {
 			log.Printf("scan: decrypt failed: %v", err)
