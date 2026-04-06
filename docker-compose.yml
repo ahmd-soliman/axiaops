@@ -26,7 +26,7 @@ services:
     env_file:
       - ./services/ingestion/.env
     environment:
-      DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops
+      DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops
     volumes:
       - ${HOME}/.aws:/root/.aws:ro
     depends_on:
@@ -45,9 +45,9 @@ services:
       dockerfile: Dockerfile
     container_name: axiaops-api
     env_file:
-      - ./services/ingestion/.env
+      - ./services/api/.env
     environment:
-      DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops
+      DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops
       INGESTION_URL: http://ingestion:8081
       API_ADDR: ":8080"
     ports:
@@ -72,6 +72,7 @@ services:
         EXPO_PUBLIC_KINDE_ISSUER: ${EXPO_PUBLIC_KINDE_ISSUER:-https://axiaops.kinde.com}
         EXPO_PUBLIC_KINDE_CLIENT_ID: ${EXPO_PUBLIC_KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
         EXPO_PUBLIC_API_URL: /api
+        EXPO_PUBLIC_DEV_MODE: "false"
     container_name: axiaops-dashboard
     ports:
       - "8081:80"
