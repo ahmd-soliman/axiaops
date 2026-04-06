@@ -1,14 +1,25 @@
 // Package api exposes the analysis results over HTTP.
 // Endpoints:
-//   GET  /ghosts   — list of all detected zombie resources
-//   GET  /summary  — aggregate savings figure and per-service breakdown
-//   POST /ingest   — trigger a fresh ingestion and analysis run
+//   GET    /health
+//   GET    /ghosts
+//   GET    /summary
+//   GET    /accounts
+//   POST   /accounts
+//   DELETE /accounts/{id}
+//   POST   /accounts/{id}/scan
 package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"os"
+	"strings"
+	"time"
 
+	"github.com/google/uuid"
+
+	"axiaops.io/shared/crypto"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/model"
@@ -16,14 +27,19 @@ import (
 )
 
 // Handler serves ghost detection results over HTTP.
-// Ghosts are loaded per-request from the store so RLS filters by tenant.
 type Handler struct {
-	store storage.Store
+	store        storage.Store
+	ingestionURL string // URL of the ingestion service scan endpoint
 }
 
 // New creates a Handler backed by the given store.
+// ingestionURL is the base URL of the ingestion service (e.g. http://localhost:8081).
 func New(store storage.Store) *Handler {
-	return &Handler{store: store}
+	ingestionURL := os.Getenv("INGESTION_URL")
+	if ingestionURL == "" {
+		ingestionURL = "http://localhost:8081"
+	}
+	return &Handler{store: store, ingestionURL: ingestionURL}
 }
 
 // Register attaches the routes to the given mux.
@@ -31,13 +47,17 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /ghosts", h.listGhosts)
 	mux.HandleFunc("GET /summary", h.getSummary)
+	mux.HandleFunc("GET /accounts", h.listAccounts)
+	mux.HandleFunc("POST /accounts", h.createAccount)
+	mux.HandleFunc("DELETE /accounts/{id}", h.deleteAccount)
+	mux.HandleFunc("POST /accounts/{id}/scan", h.scanAccount)
 }
 
 // cors wraps a handler with permissive CORS headers for local development.
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -56,6 +76,7 @@ func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	ghosts, err := h.store.LoadGhosts(ctx)
 	if err != nil {
+		log.Printf("listGhosts error: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -69,6 +90,7 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	ghosts, err := h.store.LoadGhosts(ctx)
 	if err != nil {
+		log.Printf("getSummary error: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -77,6 +99,117 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
+}
+
+// listAccounts returns connected accounts for the tenant (secrets masked).
+func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	accounts, err := h.store.ListAccounts(ctx)
+	if err != nil {
+		log.Printf("listAccounts error: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if accounts == nil {
+		accounts = []model.Account{}
+	}
+	writeJSON(w, accounts)
+}
+
+// createAccount saves a new cloud account with encrypted credentials.
+func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Provider    string `json:"provider"`
+		Label       string `json:"label"`
+		AccessKeyID string `json:"access_key_id"`
+		SecretKey   string `json:"secret_key"`
+		Region      string `json:"region"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.AccessKeyID == "" || req.SecretKey == "" {
+		http.Error(w, "access_key_id and secret_key are required", http.StatusBadRequest)
+		return
+	}
+	if req.Provider == "" {
+		req.Provider = "aws"
+	}
+	if req.Region == "" {
+		req.Region = "us-east-1"
+	}
+
+	secretEncrypted, err := crypto.Encrypt(req.SecretKey)
+	if err != nil {
+		http.Error(w, "encryption failed", http.StatusInternalServerError)
+		return
+	}
+
+	tenantID := middleware.TenantID(r.Context())
+	account := model.Account{
+		ID:              uuid.New().String(),
+		TenantID:        tenantID,
+		Provider:        req.Provider,
+		Label:           req.Label,
+		AccessKeyID:     req.AccessKeyID,
+		SecretEncrypted: secretEncrypted,
+		Region:          req.Region,
+		Status:          "connected",
+		CreatedAt:       time.Now().UTC(),
+	}
+
+	ctx := storage.WithTenantID(r.Context(), tenantID)
+	if err := h.store.SaveAccount(ctx, account); err != nil {
+		log.Printf("createAccount error: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, account)
+}
+
+// deleteAccount removes a connected account.
+func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	if err := h.store.DeleteAccount(ctx, id); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// scanAccount triggers an ingestion run for the given account.
+func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	tenantID := middleware.TenantID(r.Context())
+	ctx := storage.WithTenantID(r.Context(), tenantID)
+
+	account, err := h.store.GetAccount(ctx, id)
+	if err != nil {
+		http.Error(w, "account not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.store.UpdateAccountStatus(ctx, id, "scanning"); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Trigger ingestion asynchronously.
+	go func() {
+		body := strings.NewReader(`{"account_id":"` + account.ID + `","tenant_id":"` + account.TenantID + `"}`)
+		resp, err := http.Post(h.ingestionURL+"/scan", "application/json", body)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			_ = h.store.UpdateAccountStatus(ctx, id, "error")
+			return
+		}
+		_ = h.store.UpdateAccountStatus(ctx, id, "connected")
+	}()
+
+	writeJSON(w, map[string]string{"status": "scanning"})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

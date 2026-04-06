@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSummary, fetchGhosts } from '../api/client';
+import { fetchSummary, fetchGhosts, scanAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 
 // Design tokens
@@ -29,19 +29,31 @@ const C = {
   border: '#E2E8F0',
 };
 
-export default function DashboardScreen({ onSelectGhost, onLogout, orgName }) {
-  const [filterSvc, setFilterSvc] = React.useState(null);
+export default function DashboardScreen({ onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount }) {
+  const [filterSvc, setFilterSvc]   = React.useState(null);
+  const [scanning, setScanning]     = React.useState(null); // account id being scanned
 
   const summary = useQuery({ queryKey: ['summary'], queryFn: fetchSummary });
   const ghosts  = useQuery({ queryKey: ['ghosts'],  queryFn: fetchGhosts  });
 
-  const isLoading   = summary.isLoading || ghosts.isLoading;
-  const isError     = summary.isError   || ghosts.isError;
+  const isLoading    = summary.isLoading || ghosts.isLoading;
+  const isError      = summary.isError   || ghosts.isError;
   const isRefreshing = summary.isFetching || ghosts.isFetching;
 
   function refresh() {
     summary.refetch();
     ghosts.refetch();
+  }
+
+  async function handleScan(accountId) {
+    setScanning(accountId);
+    try {
+      await scanAccount(accountId);
+      // Poll briefly then refresh — ingestion runs async on the server.
+      setTimeout(() => { refresh(); setScanning(null); }, 3000);
+    } catch {
+      setScanning(null);
+    }
   }
 
   if (isLoading) {
@@ -88,6 +100,39 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName }) {
             <TouchableOpacity onPress={onLogout} style={styles.logoutBtn}>
               <Text style={styles.logoutText}>Sign out</Text>
             </TouchableOpacity>
+          </View>
+
+          {/* Accounts bar */}
+          <View style={styles.accountsBar}>
+            {accounts.length === 0 ? (
+              <TouchableOpacity style={styles.connectBtn} onPress={onConnectAccount}>
+                <Text style={styles.connectBtnText}>+ Connect AWS Account</Text>
+              </TouchableOpacity>
+            ) : (
+              accounts.map((acc) => (
+                <View key={acc.id} style={styles.accountChip}>
+                  <View style={[styles.accountDot, acc.status === 'error' && styles.accountDotError]} />
+                  <Text style={styles.accountLabel} numberOfLines={1}>
+                    {acc.label || acc.access_key_id.slice(0, 8) + '…'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => handleScan(acc.id)}
+                    disabled={scanning === acc.id}
+                    style={styles.scanBtn}
+                  >
+                    {scanning === acc.id
+                      ? <ActivityIndicator size="small" color={C.accent} />
+                      : <Text style={styles.scanBtnText}>Scan</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+            {accounts.length > 0 && (
+              <TouchableOpacity onPress={onConnectAccount} style={styles.addAccountBtn}>
+                <Text style={styles.addAccountText}>+</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Hero */}
@@ -209,6 +254,48 @@ const styles = StyleSheet.create({
   orgPillText: { color: C.white, fontSize: 12, fontWeight: '600' },
   logoutBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: C.navyLight },
   logoutText: { color: C.textMuted, fontSize: 12, fontWeight: '600' },
+
+  // Accounts bar
+  accountsBar: {
+    backgroundColor: C.navyMid,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.navyLight,
+  },
+  connectBtn: {
+    borderWidth: 1,
+    borderColor: C.accent,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderStyle: 'dashed',
+  },
+  connectBtnText: { color: C.accent, fontSize: 13, fontWeight: '600' },
+  accountChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.navyLight,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  accountDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#22C55E' },
+  accountDotError: { backgroundColor: '#EF4444' },
+  accountLabel: { color: C.white, fontSize: 12, fontWeight: '600', maxWidth: 120 },
+  scanBtn: { paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.navy, borderRadius: 5, minWidth: 40, alignItems: 'center' },
+  scanBtnText: { color: C.accent, fontSize: 11, fontWeight: '700' },
+  addAccountBtn: {
+    width: 30, height: 30, borderRadius: 8,
+    backgroundColor: C.navyLight,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  addAccountText: { color: C.textMuted, fontSize: 18, lineHeight: 20 },
 
   // Hero
   hero: {

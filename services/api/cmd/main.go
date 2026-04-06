@@ -16,6 +16,17 @@ import (
 	"axiaops.io/shared/storage/sqlite"
 )
 
+// statusWriter captures the HTTP status code written by a handler.
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (sw *statusWriter) WriteHeader(code int) {
+	sw.code = code
+	sw.ResponseWriter.WriteHeader(code)
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -67,8 +78,15 @@ func main() {
 		root = auth.Wrap(root)
 	}
 
-	log.Printf("api: listening on %s  →  GET /ghosts  GET /summary  GET /health", addr)
-	if err := http.ListenAndServe(addr, root); err != nil {
+	// Request logger — outermost layer so every request is visible.
+	logged := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rw := &statusWriter{ResponseWriter: w, code: 200}
+		root.ServeHTTP(rw, r)
+		log.Printf("%s %s → %d", r.Method, r.URL.Path, rw.code)
+	})
+
+	log.Printf("api: listening on %s", addr)
+	if err := http.ListenAndServe(addr, logged); err != nil {
 		log.Fatalf("api: server error: %v", err)
 	}
 }

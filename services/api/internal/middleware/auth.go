@@ -4,6 +4,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -87,12 +88,14 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 		if a.store != nil {
 			tenant, err := a.store.UpsertTenant(ctx, orgCode, orgName)
 			if err != nil {
+				log.Printf("auth: UpsertTenant error: %v", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 
 			user, err := a.store.UpsertUser(ctx, tenant.ID, sub, email, name)
 			if err != nil {
+				log.Printf("auth: UpsertUser error: %v", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}

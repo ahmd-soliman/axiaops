@@ -1,15 +1,19 @@
-// main is the entry point for the AxiaOps ingestion job.
-// It fetches costs and usage from configured cloud providers,
-// runs zombie detection, writes results to the database, and exits.
-// Designed to be triggered by a scheduler (cron, EventBridge) or manually.
+// main is the entry point for the AxiaOps ingestion service.
 //
-// The API service (services/api) reads results from the database.
+// Modes:
+//   1. HTTP server (default) — listens on :8081, accepts POST /scan to run on demand.
+//   2. One-shot CLI          — set RUN_ONCE=true to run a single ingestion and exit.
+//
+// The API service triggers scans via POST /scan with {"account_id","tenant_id"}.
+// Credentials for the account are read from the accounts table in the database.
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -18,6 +22,7 @@ import (
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/ingestion/internal/provider/filefixture"
 	"axiaops.io/shared/analyzer"
+	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
@@ -25,34 +30,70 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
-	var err error
+	store := newStore()
 
-	// ── Storage ──────────────────────────────────────────────────────────────
-	var store storage.Store
-	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
-		s, err := postgres.New(ctx, dbURL)
-		if err != nil {
-			log.Fatalf("storage: postgres init failed: %v", err)
+	if os.Getenv("RUN_ONCE") == "true" {
+		if err := runIngestion(context.Background(), store); err != nil {
+			log.Fatalf("ingestion: %v", err)
 		}
-		defer s.Close()
-		store = s
-		log.Println("storage: using PostgreSQL")
-	} else {
-		dbPath := os.Getenv("DB_PATH")
-		if dbPath == "" {
-			dbPath = "axiaops.db"
-		}
-		s, err := sqlite.New(dbPath)
-		if err != nil {
-			log.Fatalf("storage: sqlite init failed: %v", err)
-		}
-		defer s.Close()
-		store = s
-		log.Println("storage: using SQLite")
+		return
 	}
 
-	// ── Providers ─────────────────────────────────────────────────────────────
+	// HTTP server mode — stays running, accepts scan requests from the API.
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("POST /scan", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			AccountID string `json:"account_id"`
+			TenantID  string `json:"tenant_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		ctx := storage.WithTenantID(context.Background(), req.TenantID)
+
+		account, err := store.GetAccount(ctx, req.AccountID)
+		if err != nil {
+			log.Printf("scan: account %s not found: %v", req.AccountID, err)
+			http.Error(w, "account not found", http.StatusNotFound)
+			return
+		}
+
+		secret, err := crypto.Decrypt(account.SecretEncrypted)
+		if err != nil {
+			log.Printf("scan: decrypt failed: %v", err)
+			http.Error(w, "credential error", http.StatusInternalServerError)
+			return
+		}
+		os.Setenv("AWS_ACCESS_KEY_ID", account.AccessKeyID)
+		os.Setenv("AWS_SECRET_ACCESS_KEY", secret)
+		os.Setenv("AWS_DEFAULT_REGION", account.Region)
+
+		if err := runIngestion(ctx, store); err != nil {
+			log.Printf("scan: ingestion failed: %v", err)
+			http.Error(w, "ingestion failed", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	port := os.Getenv("INGESTION_PORT")
+	if port == "" {
+		port = "8081"
+	}
+	log.Printf("ingestion: listening on :%s", port)
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
+		log.Fatalf("ingestion: server failed: %v", err)
+	}
+}
+
+// runIngestion fetches costs, detects ghosts, and writes results to the store.
+func runIngestion(ctx context.Context, store storage.Store) error {
+	var err error
 	var providers []provider.Provider
 	var awsClient *aws.Client
 
@@ -65,15 +106,12 @@ func main() {
 	} else {
 		awsClient, err = aws.New(ctx)
 		if err != nil {
-			log.Fatalf("aws: init failed: %v", err)
+			return fmt.Errorf("aws init: %w", err)
 		}
 		providers = append(providers, awsClient)
 	}
 
-	// ── Resolve tenant ────────────────────────────────────────────────────────
-	// In production, TENANT_ID is passed by the scheduler (EventBridge).
-	// Locally, auto-create a tenant from the AWS account ID or a dev placeholder.
-	tenantID := os.Getenv("TENANT_ID")
+	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
 		orgCode := "local-dev"
 		if awsClient != nil {
@@ -81,17 +119,14 @@ func main() {
 		}
 		tenant, err := store.UpsertTenant(ctx, orgCode, orgCode)
 		if err != nil {
-			log.Fatalf("storage: upsert dev tenant: %v", err)
+			return fmt.Errorf("upsert dev tenant: %w", err)
 		}
 		tenantID = tenant.ID
+		ctx = storage.WithTenantID(ctx, tenantID)
 		log.Printf("ingestion: using auto-created tenant %s (%s)", tenantID, orgCode)
 	}
 
-	// ── Fetch costs ───────────────────────────────────────────────────────────
 	end, start := dateRange()
-
-	// Build a context carrying the tenant ID for all DB writes.
-	writeCtx := storage.WithTenantID(ctx, tenantID)
 
 	var allRecords []model.CostRecord
 	for _, p := range providers {
@@ -100,9 +135,9 @@ func main() {
 			log.Printf("[%s] fetch failed: %v", p.Name(), err)
 			continue
 		}
-		inserted, saveErr := store.Save(writeCtx, records)
+		inserted, saveErr := store.Save(ctx, records)
 		if saveErr != nil {
-			log.Fatalf("[%s] save failed: %v", p.Name(), saveErr)
+			return fmt.Errorf("[%s] save failed: %w", p.Name(), saveErr)
 		}
 		skipped := int64(len(records)) - inserted
 		log.Printf("[%s] fetched %d records — inserted %d, skipped %d duplicates",
@@ -110,9 +145,7 @@ func main() {
 		allRecords = append(allRecords, records...)
 	}
 
-	// ── Fetch usage ───────────────────────────────────────────────────────────
 	var usage []analyzer.UsageRecord
-
 	if os.Getenv("DEV_MODE") == "true" {
 		usagePath := os.Getenv("USAGE_PATH")
 		if usagePath == "" {
@@ -120,43 +153,57 @@ func main() {
 		}
 		usage, err = analyzer.LoadUsageFixture(usagePath)
 		if err != nil {
-			log.Fatalf("analyzer: load usage fixture: %v", err)
+			return fmt.Errorf("load usage fixture: %w", err)
 		}
 		log.Printf("analysis: loaded %d usage records from fixture", len(usage))
 	} else {
 		usage, err = awsClient.FetchUsage(ctx, allRecords, start, end)
 		if err != nil {
-			log.Fatalf("analyzer: fetch usage from cloudwatch: %v", err)
+			return fmt.Errorf("fetch usage from cloudwatch: %w", err)
 		}
 		log.Printf("analysis: fetched %d usage records from cloudwatch", len(usage))
 	}
 
-	// ── Detect ghosts ─────────────────────────────────────────────────────────
 	ghosts := analyzer.Detect(allRecords, usage)
 
-	// EIPs are detected separately — attachment status is the signal, not CloudWatch.
 	if os.Getenv("DEV_MODE") != "true" {
 		eipGhosts := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient.AccountID(), start, end)
 		ghosts = append(ghosts, eipGhosts...)
 	}
 
 	summary := analyzer.Summarize(ghosts)
-
-	log.Printf("analysis: %d ghost resources detected — potential savings %.2f %s/month",
+	log.Printf("analysis: %d ghost resources — potential savings %.2f %s/month",
 		summary.TotalGhosts, summary.PotentialMonthlySave, summary.Currency)
-	for svc, s := range summary.ByService {
-		log.Printf("  %-35s %d ghost(s), %.2f %s", svc, s.Ghosts, s.Savings, summary.Currency)
-	}
 
-	// ── Save ghosts to DB ─────────────────────────────────────────────────────
-	if err := store.SaveGhosts(writeCtx, ghosts); err != nil {
-		log.Fatalf("storage: save ghosts: %v", err)
+	if err := store.SaveGhosts(ctx, ghosts); err != nil {
+		return fmt.Errorf("save ghosts: %w", err)
 	}
-	log.Printf("storage: saved %d ghost records to database", len(ghosts))
-	log.Printf("ingestion: complete — results available via the API service")
+	log.Printf("storage: saved %d ghost records", len(ghosts))
+	return nil
 }
 
-// dateRange returns the ingestion window.
+func newStore() storage.Store {
+	ctx := context.Background()
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		s, err := postgres.New(ctx, dbURL)
+		if err != nil {
+			log.Fatalf("storage: postgres init failed: %v", err)
+		}
+		log.Println("storage: using PostgreSQL")
+		return s
+	}
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "axiaops.db"
+	}
+	s, err := sqlite.New(dbPath)
+	if err != nil {
+		log.Fatalf("storage: sqlite init failed: %v", err)
+	}
+	log.Println("storage: using SQLite")
+	return s
+}
+
 func dateRange() (end, start time.Time) {
 	const layout = "2006-01-02"
 	end = time.Now().UTC().Truncate(24 * time.Hour)
@@ -164,15 +211,14 @@ func dateRange() (end, start time.Time) {
 	if s, e := os.Getenv("START_DATE"), os.Getenv("END_DATE"); s != "" && e != "" {
 		parsed, err := time.Parse(layout, s)
 		if err != nil {
-			log.Fatalf("START_DATE invalid (expected YYYY-MM-DD): %v", err)
+			log.Fatalf("START_DATE invalid: %v", err)
 		}
 		start = parsed
 		parsed, err = time.Parse(layout, e)
 		if err != nil {
-			log.Fatalf("END_DATE invalid (expected YYYY-MM-DD): %v", err)
+			log.Fatalf("END_DATE invalid: %v", err)
 		}
 		end = parsed
-		log.Printf("date range: %s → %s (explicit)", start.Format(layout), end.Format(layout))
 		return
 	}
 
@@ -185,9 +231,5 @@ func dateRange() (end, start time.Time) {
 		days = n
 	}
 	start = end.AddDate(0, 0, -days)
-	log.Printf("date range: %s → %s (%d days)", start.Format(layout), end.Format(layout), days)
 	return
 }
-
-// suppress unused import warning
-var _ = fmt.Sprintf

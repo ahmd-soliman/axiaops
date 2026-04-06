@@ -33,9 +33,11 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 ### React Native Dashboard
 - [x] Dark navy + orange design
 - [x] Savings banner with total ghost spend
-- [x] Ghost list with per-service colour coding
+- [x] Ghost list with per-service colour coding, service pill filter
 - [x] Detail screen with resource info and remediation hint
 - [x] Environment-aware API client (dev vs Docker/production)
+- [x] Connect screen — credential form with IAM permissions hint, auto-shown on first login
+- [x] Accounts bar in dashboard — status dot, label, per-account Scan button
 
 ### Infrastructure
 - [x] Docker Compose — one command runs ingestion + dashboard
@@ -52,12 +54,10 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 ## Phase 2 Remaining
 
 ### Service Architecture Split
-- [ ] Split `services/ingestion` into two separate services:
-  - `services/api` — serves `/ghosts`, `/summary`, `/ingest`, handles auth, reads from DB
-  - `services/ingestion` — scheduled job only, fetches AWS data, writes to DB, no HTTP server
-- [ ] Dashboard points at `services/api`, not `services/ingestion`
-- [ ] Ingestion triggered by EventBridge cron or POST `/ingest` on the API service
-- [ ] Required before App Runner deployment
+- [x] `services/api` — serves `/ghosts`, `/summary`, `/accounts`, handles auth, reads from DB
+- [x] `services/ingestion` — long-lived HTTP server on `:8081`, triggered by API via `POST /scan`
+- [x] Dashboard points at `services/api`
+- [ ] Wire EventBridge cron → nightly scan per account (required for production)
 
 ### Auth
 - [x] Choose auth provider — **Kinde** (see `docs/auth.md`)
@@ -78,16 +78,22 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
   - Migrations run once, tracked in `schema_migrations` table
   - Required before onboarding first real customer — current `ALTER TABLE` on startup is not safe for production
 
-### Multi-account Support
-- [ ] Add IAM role ARN field per customer account
-- [ ] Implement `sts:AssumeRole` in `internal/provider/aws/aws.go`
-- [ ] Allow multiple AWS accounts per customer — loop providers in `main.go`
+### Account Management
+- [x] `accounts` table with RLS — provider-agnostic (ready for Azure/GCP)
+- [x] AES-256-GCM secret encryption at rest (`services/shared/crypto/crypto.go`)
+- [x] Store interface: `SaveAccount`, `ListAccounts`, `GetAccount`, `DeleteAccount`, `UpdateAccountStatus`
+- [x] PostgreSQL implementation of all account methods
+- [x] SQLite stubs (accounts not supported in SQLite dev mode)
+- [x] API endpoints: `GET/POST /accounts`, `DELETE /accounts/{id}`, `POST /accounts/{id}/scan`
+- [x] Ingestion refactored to long-lived HTTP server (`POST /scan` on `:8081`)
+- [ ] Add IAM role ARN field per account — implement `sts:AssumeRole` as alternative to access keys
+- [ ] Support multiple AWS accounts per tenant — loop providers during ingestion
 - [ ] Add `cloudwatch:ListMetrics` to IAM policy for auto-discovery
 
 ### Scheduled Ingestion
-- [x] Add `/ingest` HTTP endpoint — triggers ingestion on demand
-- [x] Move ingestion logic out of `main()` startup into a callable function
-- [ ] Wire EventBridge cron → POST `/ingest/{customer_id}` nightly
+- [x] Ingestion runs as persistent HTTP server — `POST /scan` triggered by API
+- [x] Move ingestion logic out of `main()` into a callable `runIngestion()` function
+- [ ] Wire EventBridge cron → nightly scan per account
 
 ### Weekly Digest
 - [ ] Choose email provider — Resend or SendGrid
@@ -159,12 +165,14 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 ## Immediate Priority Order
 
 ```
-1. Scheduled ingestion (/ingest endpoint)   ✅ Done
+1. Scheduled ingestion (/scan endpoint)     ✅ Done
 2. Auth (Kinde)                             ✅ Done (middleware + login screen)
-3. PostgreSQL + multi-tenancy               ← needed before second customer
-4. Service split (API vs ingestion job)     ← needed before App Runner deployment
-5. Weekly digest                            ← first retention mechanism
-6. App Runner deployment                    ← move off local dev
-7. Remediation workflow                     ← Phase 3 value-add
-8. Multi-cloud (Azure, GCP)                 ← Phase 3 expansion
+3. Account management (connect AWS)         ✅ Done (access keys + encrypted secrets + on-demand scan)
+4. PostgreSQL + multi-tenancy               ✅ Done (schema + RLS)
+5. Versioned migrations (golang-migrate)    ← needed before onboarding first real customer
+6. Add ENCRYPTION_KEY to API .env           ← needed to encrypt secrets on account creation
+7. Weekly digest                            ← first retention mechanism
+8. App Runner deployment                    ← move off local dev
+9. Remediation workflow                     ← Phase 3 value-add
+10. Multi-cloud (Azure, GCP)                ← Phase 3 expansion
 ```
