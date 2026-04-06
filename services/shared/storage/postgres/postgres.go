@@ -21,10 +21,10 @@ type Store struct {
 	pool *pgxpool.Pool
 }
 
-// New connects to PostgreSQL as the application user (axiaops_app).
+// New connects to PostgreSQL as the application user (axiaops).
 // Schema and tables are created by init.sql on first Docker startup — not here.
 // search_path is set to axiaops on every connection via AfterConnect.
-// URL format: postgres://axiaops_app:axiaops_app@host:5432/dbname
+// URL format: postgres://axiaops:axiaops@host:5432/dbname
 func New(ctx context.Context, url string) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
