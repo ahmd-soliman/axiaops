@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# dev.sh — start all AxiaOps services for local development
+# start.sh — start all AxiaOps services locally
 #
 # Usage:
-#   ./scripts/dev.sh           start with real AWS + PostgreSQL (default)
-#   ./scripts/dev.sh --sqlite  use SQLite instead of PostgreSQL (no Docker needed)
-#   ./scripts/dev.sh stop      kill all running services
+#   ./scripts/start.sh                    start in dev mode (no auth, fixed tenant)
+#   ./scripts/start.sh --sqlite           use SQLite instead of PostgreSQL (no Docker needed)
+#   ./scripts/start.sh stop               kill all running services
+#   DEV_MODE=false ./scripts/start.sh     start in staging mode (real Kinde auth + real AWS)
 
 set -euo pipefail
 
@@ -99,14 +100,20 @@ echo $! >> "$PID_FILE"
 
 until curl -sf http://localhost:8081/health &>/dev/null; do sleep 1; done
 
-# Start API (dev mode: KINDE_ISSUER unset so DEV_TENANT_ID is used instead)
+# Start API — respect DEV_MODE from the caller (default true for local dev).
 echo "Starting API service (8080)..."
 cd "$API_DIR"
 (
   export DB_PATH="$DB_PATH"
   export DATABASE_URL="${DATABASE_URL:-}"
-  export DEV_MODE="true"
-  export DEV_TENANT_ID="dev-tenant-axiaops"
+  export DEV_MODE="${DEV_MODE:-true}"
+  if [[ "$DEV_MODE" == "true" ]]; then
+    export DEV_TENANT_ID="dev-tenant-axiaops"
+  else
+    if [[ -f .env ]]; then
+      set -a; source .env; set +a
+    fi
+  fi
   exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 ) &
 echo $! >> "$PID_FILE"
@@ -118,6 +125,7 @@ echo "Starting Dashboard (3000)..."
 cd "$DASHBOARD_DIR"
 export EXPO_PUBLIC_KINDE_ISSUER="${KINDE_ISSUER:-}"
 export EXPO_PUBLIC_KINDE_CLIENT_ID="${KINDE_CLIENT_ID:-}"
+export EXPO_PUBLIC_DEV_MODE="${DEV_MODE:-true}"
 npx expo start --web --port 3000 --non-interactive --clear >> "$LOG_FILE" 2>&1 &
 echo $! >> "$PID_FILE"
 

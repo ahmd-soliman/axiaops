@@ -190,6 +190,7 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	if err := h.store.DeleteAccount(ctx, id); err != nil {
+		log.Printf("deleteAccount: failed to delete %s: %v", id, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -204,11 +205,13 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 
 	account, err := h.store.GetAccount(ctx, id)
 	if err != nil {
+		log.Printf("scanAccount: account %s not found: %v", id, err)
 		http.Error(w, "account not found", http.StatusNotFound)
 		return
 	}
 
 	if err := h.store.UpdateAccountStatus(ctx, id, "scanning"); err != nil {
+		log.Printf("scanAccount: update status failed for %s: %v", id, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -218,6 +221,7 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 		body := strings.NewReader(`{"account_id":"` + account.ID + `","tenant_id":"` + account.TenantID + `"}`)
 		resp, err := http.Post(h.ingestionURL+"/scan", "application/json", body)
 		if err != nil || resp.StatusCode != http.StatusOK {
+			log.Printf("scanAccount: ingestion request failed for %s: %v", id, err)
 			_ = h.store.UpdateAccountStatus(ctx, id, "error")
 			return
 		}
