@@ -21,6 +21,7 @@ const C = {
   navyLight: '#334155',
   accent: '#F97316',   // orange — savings / money
   accentLight: '#FFF7ED',
+  textSub: '#64748B',  // Slate-500 — subtitles on dark backgrounds
   text: '#0F172A',
   textMid: '#475569',
   textMuted: '#94A3B8',
@@ -142,7 +143,7 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName }) {
               <View style={[styles.badge, { backgroundColor: cfg.bg }]}>
                 <Text style={[styles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
               </View>
-              <Text style={styles.cardService} numberOfLines={1}>{item.service}</Text>
+              <View style={{ flex: 1 }} />
               <Text style={styles.cardCost}>{item.currency} {item.monthly_cost.toFixed(2)}</Text>
             </View>
 
@@ -215,7 +216,7 @@ const styles = StyleSheet.create({
   },
   heroEyebrow: { color: C.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 },
   heroAmount: { color: C.accent, fontSize: 46, fontWeight: '800', letterSpacing: -1 },
-  heroSub: { color: C.navyLight, fontSize: 13, marginTop: 4, marginBottom: 20, color: '#64748B' },
+  heroSub: { color: C.textSub, fontSize: 13, marginTop: 4, marginBottom: 20 },
 
   pillsRow: { marginTop: 4 },
   pill: {
@@ -258,7 +259,6 @@ const styles = StyleSheet.create({
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   badge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 },
   badgeText: { fontSize: 11, fontWeight: '800' },
-  cardService: { flex: 1, fontSize: 13, fontWeight: '700', color: C.text },
   cardCost: { fontSize: 14, fontWeight: '800', color: C.accent },
   cardResource: { fontSize: 11, color: C.textMuted, fontFamily: 'monospace', marginBottom: 10 },
 
