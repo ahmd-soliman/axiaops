@@ -75,10 +75,12 @@ CREATE TABLE IF NOT EXISTS ghost_records (
 ALTER TABLE ghost_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cost_records  ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS ghost_tenant_isolation ON ghost_records
+DROP POLICY IF EXISTS ghost_tenant_isolation ON ghost_records;
+CREATE POLICY ghost_tenant_isolation ON ghost_records
     USING (tenant_id = current_setting('app.tenant_id', true));
 
-CREATE POLICY IF NOT EXISTS cost_tenant_isolation ON cost_records
+DROP POLICY IF EXISTS cost_tenant_isolation ON cost_records;
+CREATE POLICY cost_tenant_isolation ON cost_records
     USING (tenant_id = current_setting('app.tenant_id', true));
 `
 
