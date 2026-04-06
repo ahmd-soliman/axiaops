@@ -10,14 +10,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INGESTION_DIR="$ROOT/services/ingestion"
-DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops"
+DATABASE_URL="postgres://axiaops_app:axiaops_app@localhost:5432/axiaops"
 
-# Always set search_path so queries hit axiaops schema
-PSQL="docker exec -i axiaops-postgres psql -U axiaops -d axiaops --quiet -c SET search_path TO axiaops"
-psql_exec()  { docker exec -i axiaops-postgres psql -U axiaops -d axiaops --quiet \
-                 -c "SET search_path TO axiaops" -c "$1"; }
-psql_query() { docker exec -i axiaops-postgres psql -U axiaops -d axiaops -t --no-align \
-                 -c "SET search_path TO axiaops" -c "$1"; }
+# Use axiaops_admin for direct DB access (DDL/inserts) — axiaops_app for app connections
+ADMIN="docker exec -i axiaops-postgres psql -U axiaops_admin -d axiaops"
+psql_exec()  { $ADMIN --quiet -c "SET search_path TO axiaops" -c "$1"; }
+psql_query() { $ADMIN -t --no-align -c "SET search_path TO axiaops" -c "$1"; }
 
 # ── Check postgres is running ─────────────────────────────────────────────────
 

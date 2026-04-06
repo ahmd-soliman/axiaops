@@ -16,86 +16,15 @@ import (
 	"axiaops.io/shared/storage"
 )
 
-const schema = `
-CREATE SCHEMA IF NOT EXISTS axiaops;
-
-CREATE TABLE IF NOT EXISTS tenants (
-    id         TEXT        PRIMARY KEY,
-    org_code   TEXT        NOT NULL UNIQUE,
-    name       TEXT        NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS users (
-    id         TEXT        PRIMARY KEY,
-    tenant_id  TEXT        NOT NULL REFERENCES tenants(id),
-    kinde_sub  TEXT        NOT NULL UNIQUE,
-    email      TEXT        NOT NULL DEFAULT '',
-    name       TEXT        NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL,
-    last_seen  TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS cost_records (
-    id           BIGSERIAL   PRIMARY KEY,
-    tenant_id    TEXT        NOT NULL REFERENCES tenants(id),
-    provider     TEXT        NOT NULL,
-    account_id   TEXT        NOT NULL,
-    service      TEXT        NOT NULL,
-    region       TEXT        NOT NULL,
-    resource_id  TEXT,
-    amount       NUMERIC     NOT NULL,
-    currency     TEXT        NOT NULL,
-    period_start TIMESTAMPTZ NOT NULL,
-    period_end   TIMESTAMPTZ NOT NULL,
-    tags         JSONB,
-    fetched_at   TIMESTAMPTZ NOT NULL,
-    UNIQUE (tenant_id, provider, account_id, service, region, period_start, period_end)
-);
-
-CREATE TABLE IF NOT EXISTS ghost_records (
-    id           BIGSERIAL   PRIMARY KEY,
-    tenant_id    TEXT        NOT NULL REFERENCES tenants(id),
-    provider     TEXT        NOT NULL,
-    account_id   TEXT        NOT NULL,
-    service      TEXT        NOT NULL,
-    region       TEXT        NOT NULL,
-    resource_id  TEXT        NOT NULL,
-    tags         JSONB,
-    monthly_cost NUMERIC     NOT NULL,
-    currency     TEXT        NOT NULL,
-    period_start TIMESTAMPTZ NOT NULL,
-    period_end   TIMESTAMPTZ NOT NULL,
-    usage_metric TEXT        NOT NULL,
-    usage_avg    NUMERIC     NOT NULL,
-    usage_unit   TEXT        NOT NULL,
-    reason       TEXT        NOT NULL,
-    owner        TEXT        NOT NULL,
-    detected_at  TIMESTAMPTZ NOT NULL
-);
-
-ALTER TABLE ghost_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ghost_records FORCE ROW LEVEL SECURITY;
-ALTER TABLE cost_records  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cost_records  FORCE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS ghost_tenant_isolation ON ghost_records;
-CREATE POLICY ghost_tenant_isolation ON ghost_records
-    USING (tenant_id = current_setting('app.tenant_id', true));
-
-DROP POLICY IF EXISTS cost_tenant_isolation ON cost_records;
-CREATE POLICY cost_tenant_isolation ON cost_records
-    USING (tenant_id = current_setting('app.tenant_id', true));
-`
-
 // Store is a PostgreSQL-backed implementation of storage.Store.
 type Store struct {
 	pool *pgxpool.Pool
 }
 
-// New connects to PostgreSQL using the given connection URL and applies the schema.
-// All tables are created in the axiaops schema — search_path is set on every connection.
-// URL format: postgres://user:password@host:5432/dbname
+// New connects to PostgreSQL as the application user (axiaops_app).
+// Schema and tables are created by init.sql on first Docker startup — not here.
+// search_path is set to axiaops on every connection via AfterConnect.
+// URL format: postgres://axiaops_app:axiaops_app@host:5432/dbname
 func New(ctx context.Context, url string) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
@@ -111,9 +40,6 @@ func New(ctx context.Context, url string) (*Store, error) {
 	}
 	if err := pool.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("postgres: ping: %w", err)
-	}
-	if _, err := pool.Exec(ctx, schema); err != nil {
-		return nil, fmt.Errorf("postgres: apply schema: %w", err)
 	}
 	return &Store{pool: pool}, nil
 }
