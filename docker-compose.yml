@@ -1,5 +1,22 @@
 services:
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: axiaops-postgres
+    environment:
+      POSTGRES_DB: axiaops
+      POSTGRES_USER: axiaops
+      POSTGRES_PASSWORD: axiaops
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U axiaops"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   ingestion:
     build:
       context: ./services/ingestion
@@ -8,13 +25,30 @@ services:
     env_file:
       - ./services/ingestion/.env
     environment:
-      DB_PATH: /data/axiaops.db
-      API_ADDR: ":8080"
+      DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops
       USAGE_PATH: fixtures/usage.json
     volumes:
       - ./services/ingestion/fixtures:/app/fixtures:ro
-      - db_data:/data
       - ${HOME}/.aws:/root/.aws:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: axiaops-api
+    env_file:
+      - ./services/ingestion/.env
+    environment:
+      DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops
+      API_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 5s
@@ -34,8 +68,8 @@ services:
     ports:
       - "8081:80"
     depends_on:
-      ingestion:
+      api:
         condition: service_healthy
 
 volumes:
-  db_data:
+  pg_data:

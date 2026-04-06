@@ -12,6 +12,8 @@ import (
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/analyzer"
+	"axiaops.io/shared/storage"
+	"axiaops.io/shared/storage/postgres"
 	"axiaops.io/shared/storage/sqlite"
 )
 
@@ -19,15 +21,28 @@ func main() {
 	ctx := context.Background()
 
 	// ── Storage ──────────────────────────────────────────────────────────────
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "axiaops.db"
+	var store storage.Store
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		s, err := postgres.New(ctx, dbURL)
+		if err != nil {
+			log.Fatalf("storage: postgres init failed: %v", err)
+		}
+		defer s.Close()
+		store = s
+		log.Println("storage: using PostgreSQL")
+	} else {
+		dbPath := os.Getenv("DB_PATH")
+		if dbPath == "" {
+			dbPath = "axiaops.db"
+		}
+		s, err := sqlite.New(dbPath)
+		if err != nil {
+			log.Fatalf("storage: sqlite init failed: %v", err)
+		}
+		defer s.Close()
+		store = s
+		log.Println("storage: using SQLite")
 	}
-	store, err := sqlite.New(dbPath)
-	if err != nil {
-		log.Fatalf("storage: init failed: %v", err)
-	}
-	defer store.Close()
 
 	// ── Load ghosts from DB ───────────────────────────────────────────────────
 	ghosts, err := store.LoadGhosts(ctx)
