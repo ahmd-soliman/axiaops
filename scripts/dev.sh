@@ -2,8 +2,7 @@
 # dev.sh — start all AxiaOps services for local development
 #
 # Usage:
-#   ./scripts/dev.sh           start with fixture data + PostgreSQL (default)
-#   ./scripts/dev.sh --aws     start with real AWS + PostgreSQL
+#   ./scripts/dev.sh           start with real AWS + PostgreSQL (default)
 #   ./scripts/dev.sh --sqlite  use SQLite instead of PostgreSQL (no Docker needed)
 #   ./scripts/dev.sh stop      kill all running services
 
@@ -60,11 +59,9 @@ if [[ "${1:-}" == "stop" ]]; then
 fi
 
 # Flags
-DEV_MODE=true
 USE_SQLITE=false
 for arg in "$@"; do
   case "$arg" in
-    --aws)    DEV_MODE=false ;;
     --sqlite) USE_SQLITE=true ;;
   esac
 done
@@ -90,11 +87,10 @@ fi
 # Start Ingestion service (long-running HTTP server on :8081)
 echo "Starting ingestion service (8081)..."
 cd "$INGESTION_DIR"
-if [[ "$DEV_MODE" == "false" && -f .env ]]; then
+if [[ -f .env ]]; then
     set -a; source .env; set +a
 fi
 (
-  export DEV_MODE=$DEV_MODE
   export DB_PATH="$DB_PATH"
   export DATABASE_URL="${DATABASE_URL:-}"
   exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1

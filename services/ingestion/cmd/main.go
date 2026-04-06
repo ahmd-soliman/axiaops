@@ -20,7 +20,6 @@ import (
 
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
-	"axiaops.io/ingestion/internal/provider/filefixture"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
@@ -93,33 +92,20 @@ func main() {
 
 // runIngestion fetches costs, detects ghosts, and writes results to the store.
 func runIngestion(ctx context.Context, store storage.Store) error {
-	var err error
 	var providers []provider.Provider
-	var awsClient *aws.Client
 
-	if os.Getenv("DEV_MODE") == "true" {
-		fixturePath := os.Getenv("FIXTURE_PATH")
-		if fixturePath == "" {
-			fixturePath = "fixtures/costs.json"
-		}
-		providers = append(providers, filefixture.New(fixturePath))
-	} else {
-		awsClient, err = aws.New(ctx)
-		if err != nil {
-			return fmt.Errorf("aws init: %w", err)
-		}
-		providers = append(providers, awsClient)
+	awsClient, err := aws.New(ctx)
+	if err != nil {
+		return fmt.Errorf("aws init: %w", err)
 	}
+	providers = append(providers, awsClient)
 
 	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
-		orgCode := "local-dev"
-		if awsClient != nil {
-			orgCode = "aws-" + awsClient.AccountID()
-		}
+		orgCode := "aws-" + awsClient.AccountID()
 		tenant, err := store.UpsertTenant(ctx, orgCode, orgCode)
 		if err != nil {
-			return fmt.Errorf("upsert dev tenant: %w", err)
+			return fmt.Errorf("upsert tenant: %w", err)
 		}
 		tenantID = tenant.ID
 		ctx = storage.WithTenantID(ctx, tenantID)
@@ -145,31 +131,16 @@ func runIngestion(ctx context.Context, store storage.Store) error {
 		allRecords = append(allRecords, records...)
 	}
 
-	var usage []analyzer.UsageRecord
-	if os.Getenv("DEV_MODE") == "true" {
-		usagePath := os.Getenv("USAGE_PATH")
-		if usagePath == "" {
-			usagePath = "fixtures/usage.json"
-		}
-		usage, err = analyzer.LoadUsageFixture(usagePath)
-		if err != nil {
-			return fmt.Errorf("load usage fixture: %w", err)
-		}
-		log.Printf("analysis: loaded %d usage records from fixture", len(usage))
-	} else {
-		usage, err = awsClient.FetchUsage(ctx, allRecords, start, end)
-		if err != nil {
-			return fmt.Errorf("fetch usage from cloudwatch: %w", err)
-		}
-		log.Printf("analysis: fetched %d usage records from cloudwatch", len(usage))
+	usage, err := awsClient.FetchUsage(ctx, allRecords, start, end)
+	if err != nil {
+		return fmt.Errorf("fetch usage from cloudwatch: %w", err)
 	}
+	log.Printf("analysis: fetched %d usage records from cloudwatch", len(usage))
 
 	ghosts := analyzer.Detect(allRecords, usage)
 
-	if os.Getenv("DEV_MODE") != "true" {
-		eipGhosts := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient.AccountID(), start, end)
-		ghosts = append(ghosts, eipGhosts...)
-	}
+	eipGhosts := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient.AccountID(), start, end)
+	ghosts = append(ghosts, eipGhosts...)
 
 	summary := analyzer.Summarize(ghosts)
 	log.Printf("analysis: %d ghost resources — potential savings %.2f %s/month",
@@ -179,6 +150,12 @@ func runIngestion(ctx context.Context, store storage.Store) error {
 		return fmt.Errorf("save ghosts: %w", err)
 	}
 	log.Printf("storage: saved %d ghost records", len(ghosts))
+
+	resources := analyzer.AnnotateAll(allRecords, usage, ghosts)
+	if err := store.SaveResources(ctx, resources); err != nil {
+		return fmt.Errorf("save resources: %w", err)
+	}
+	log.Printf("storage: saved %d resource records (%d ghosts)", len(resources), len(ghosts))
 	return nil
 }
 

@@ -51,10 +51,15 @@ export default function DetailScreen({ ghost, onBack }) {
             <View style={[styles.badge, { backgroundColor: cfg.color }]}>
               <Text style={styles.badgeText}>{cfg.label}</Text>
             </View>
+            {ghost.is_ghost && (
+              <View style={styles.ghostBadge}>
+                <Text style={styles.ghostBadgeText}>zombie</Text>
+              </View>
+            )}
             <Text style={styles.headerService}>{ghost.service}</Text>
           </View>
           <Text style={styles.headerCost}>{ghost.currency} {ghost.monthly_cost.toFixed(2)}</Text>
-          <Text style={styles.headerSub}>wasted per month</Text>
+          <Text style={styles.headerSub}>{ghost.is_ghost ? 'wasted per month' : 'per month'}</Text>
         </View>
       </View>
 
@@ -68,13 +73,15 @@ export default function DetailScreen({ ghost, onBack }) {
         ))}
       </View>
 
-      {/* Why flagged */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Why it was flagged</Text>
-        <View style={[styles.reasonBox, { borderLeftColor: cfg.color }]}>
-          <Text style={styles.reasonText}>{ghost.reason}</Text>
+      {/* Why flagged — only for ghost resources */}
+      {ghost.is_ghost && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Why it was flagged</Text>
+          <View style={[styles.reasonBox, { borderLeftColor: cfg.color }]}>
+            <Text style={styles.reasonText}>{ghost.reason}</Text>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Resource details */}
       <View style={styles.section}>
@@ -89,14 +96,16 @@ export default function DetailScreen({ ghost, onBack }) {
         </View>
       </View>
 
-      {/* Suggested action */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Suggested Action</Text>
-        <View style={styles.actionBox}>
-          <Text style={styles.actionIcon}>⚡</Text>
-          <Text style={styles.actionText}>{remediationHint(ghost.service, ghost.resource_id)}</Text>
+      {/* Suggested action — only for ghost resources */}
+      {ghost.is_ghost && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Suggested Action</Text>
+          <View style={styles.actionBox}>
+            <Text style={styles.actionIcon}>⚡</Text>
+            <Text style={styles.actionText}>{remediationHint(ghost.service, ghost.resource_id)}</Text>
+          </View>
         </View>
-      </View>
+      )}
 
     </ScrollView>
   );
@@ -133,6 +142,8 @@ const styles = StyleSheet.create({
   headerTop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   badge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
   badgeText: { color: C.white, fontSize: 12, fontWeight: '800' },
+  ghostBadge: { backgroundColor: '#FEF2F2', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  ghostBadgeText: { fontSize: 10, fontWeight: '700', color: '#B91C1C' },
   headerService: { color: C.textMuted, fontSize: 14, flex: 1 },
   headerCost: { color: C.accent, fontSize: 42, fontWeight: '800', letterSpacing: -1 },
   headerSub: { color: C.textMid, fontSize: 13, marginTop: 2 },
