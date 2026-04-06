@@ -94,7 +94,7 @@ export default function DetailScreen({ ghost, onBack }) {
         <Text style={styles.sectionTitle}>Suggested Action</Text>
         <View style={styles.actionBox}>
           <Text style={styles.actionIcon}>⚡</Text>
-          <Text style={styles.actionText}>{remediationHint(ghost.service)}</Text>
+          <Text style={styles.actionText}>{remediationHint(ghost.service, ghost.resource_id)}</Text>
         </View>
       </View>
 
@@ -102,13 +102,18 @@ export default function DetailScreen({ ghost, onBack }) {
   );
 }
 
-function remediationHint(service) {
+function remediationHint(service, resourceId = '') {
+  if (service === 'AmazonVPC') {
+    if (resourceId.startsWith('eipalloc-')) {
+      return 'Release this Elastic IP in the EC2 console under Network & Security → Elastic IPs. This stops the $0.005/hour idle charge immediately.';
+    }
+    return 'Delete the NAT Gateway. Once deleted, release any associated Elastic IP to stop charges.';
+  }
   const hints = {
     AmazonEC2: 'Stop or terminate the instance. If it is part of an Auto Scaling group, remove it from the group first.',
     AmazonRDS: 'Create a final snapshot, then delete the DB instance. Confirm with the owner before deleting.',
     AWSLambda: 'Delete the function. Check for any EventBridge rules or triggers pointing to it first.',
     AmazonElasticLoadBalancing: 'Delete the load balancer. Verify no DNS records point to it.',
-    AmazonVPC: 'Delete the NAT Gateway and release the associated Elastic IP to stop charges.',
   };
   return hints[service] ?? 'Review with the resource owner before taking action.';
 }

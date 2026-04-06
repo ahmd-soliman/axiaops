@@ -16,6 +16,7 @@ import (
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/model"
@@ -30,13 +31,19 @@ type Client struct {
 	cw        CloudWatchAPI
 }
 
-// New loads AWS credentials from the environment (AWS_ACCESS_KEY_ID,
-// AWS_SECRET_ACCESS_KEY, AWS_REGION) or from ~/.aws/credentials.
-func New(ctx context.Context, accountID string) (*Client, error) {
+// New loads AWS credentials from the environment or ~/.aws/credentials and
+// resolves the account ID automatically via sts:GetCallerIdentity.
+func New(ctx context.Context) (*Client, error) {
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("aws: load config: %w", err)
 	}
+	out, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return nil, fmt.Errorf("aws: GetCallerIdentity: %w", err)
+	}
+	accountID := aws.ToString(out.Account)
+	log.Printf("aws: resolved account ID %s", accountID)
 	return &Client{
 		accountID: accountID,
 		ce:        costexplorer.NewFromConfig(cfg),
@@ -58,7 +65,8 @@ func (c *Client) FetchUsage(ctx context.Context, records []model.CostRecord, sta
 	return FetchUsage(ctx, c.cw, discovered, start, end)
 }
 
-func (c *Client) Name() string { return "aws" }
+func (c *Client) Name() string      { return "aws" }
+func (c *Client) AccountID() string { return c.accountID }
 
 // FetchCosts calls GetCostAndUsage with daily granularity, grouped by
 // SERVICE and REGION, and normalizes each result into a CostRecord.

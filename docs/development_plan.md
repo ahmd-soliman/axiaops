@@ -72,6 +72,7 @@ API service (always running)
 | AWSLambda | Invocations | = 0 | Zero invocations — likely unused |
 | AmazonElasticLoadBalancing | RequestCount | = 0 | Zero requests — likely abandoned |
 | AmazonVPC | BytesOutToDestination | = 0 | NAT Gateway zero bytes — likely unused |
+| AmazonVPC (EIP) | NetworkInterfaceAttachment | = 0 | Elastic IP not attached — $0.005/hour idle charge |
 
 **API (`services/api/internal/api`):**
 - `GET /ghosts` — list of detected zombie resources with cost, usage metric, reason, and owner
@@ -236,6 +237,7 @@ CREATE TABLE IF NOT EXISTS cost_records (
     "cloudwatch:ListMetrics",
     "ec2:DescribeInstances",
     "ec2:DescribeNatGateways",
+    "ec2:DescribeAddresses",
     "rds:DescribeDBInstances",
     "lambda:ListFunctions",
     "elasticloadbalancing:DescribeLoadBalancers"
