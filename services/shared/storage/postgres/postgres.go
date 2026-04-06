@@ -17,6 +17,8 @@ import (
 )
 
 const schema = `
+CREATE SCHEMA IF NOT EXISTS axiaops;
+
 CREATE TABLE IF NOT EXISTS tenants (
     id         TEXT        PRIMARY KEY,
     org_code   TEXT        NOT NULL UNIQUE,
@@ -94,9 +96,18 @@ type Store struct {
 }
 
 // New connects to PostgreSQL using the given connection URL and applies the schema.
+// All tables are created in the axiaops schema — search_path is set on every connection.
 // URL format: postgres://user:password@host:5432/dbname
 func New(ctx context.Context, url string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: parse config: %w", err)
+	}
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, "SET search_path TO axiaops")
+		return err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: connect: %w", err)
 	}
