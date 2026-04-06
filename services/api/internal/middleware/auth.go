@@ -129,6 +129,19 @@ func UserID(ctx context.Context) string {
 	return id
 }
 
+// DevBypass injects a fixed tenant ID into every request context.
+// Only active when KINDE_ISSUER is unset — local development without auth.
+func DevBypass(tenantID string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions || r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx := context.WithValue(r.Context(), tenantIDKey, tenantID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 // bearerToken extracts the token from the Authorization: Bearer <token> header.
 func bearerToken(r *http.Request) (string, bool) {
 	h := r.Header.Get("Authorization")

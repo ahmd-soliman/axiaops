@@ -66,16 +66,25 @@ func main() {
 
 	// ── Auth ──────────────────────────────────────────────────────────────────
 	var root http.Handler = h.Handler(mux)
-	kindeIssuer := os.Getenv("KINDE_ISSUER")
-	if kindeIssuer == "" {
-		log.Println("auth: KINDE_ISSUER not set — running without authentication")
-	} else {
-		auth, err := middleware.NewAuth(ctx, kindeIssuer, store)
-		if err != nil {
-			log.Fatalf("auth: init failed: %v", err)
+	if os.Getenv("DEV_MODE") == "true" {
+		devTenantID := os.Getenv("DEV_TENANT_ID")
+		if devTenantID == "" {
+			log.Fatal("auth: DEV_MODE=true requires DEV_TENANT_ID to be set")
 		}
-		log.Printf("auth: JWT verification enabled (issuer: %s)", kindeIssuer)
-		root = auth.Wrap(root)
+		log.Printf("auth: DEV_MODE — bypassing auth, tenant=%s", devTenantID)
+		root = middleware.DevBypass(devTenantID, root)
+	} else {
+		kindeIssuer := os.Getenv("KINDE_ISSUER")
+		if kindeIssuer == "" {
+			log.Println("auth: KINDE_ISSUER not set — running without authentication")
+		} else {
+			auth, err := middleware.NewAuth(ctx, kindeIssuer, store)
+			if err != nil {
+				log.Fatalf("auth: init failed: %v", err)
+			}
+			log.Printf("auth: JWT verification enabled (issuer: %s)", kindeIssuer)
+			root = auth.Wrap(root)
+		}
 	}
 
 	// Request logger — outermost layer so every request is visible.
