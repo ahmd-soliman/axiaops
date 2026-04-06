@@ -1,16 +1,16 @@
-.PHONY: start start-prod stop seed check test
+.PHONY: start-dev start-staging stop seed check test
 
 # Start all services in dev mode (DEV_MODE=true, no auth, fixed tenant).
 # Run `make seed` once after first start to populate dummy data.
-start:
-	./scripts/dev.sh
+start-dev:
+	./scripts/start.sh
 
-# Start all services in production mode (Kinde JWT auth enabled).
-start-prod:
-	DEV_MODE=false ./scripts/dev.sh
+# Start all services in staging mode: real Kinde JWT auth + real AWS data (no seed needed).
+start-staging:
+	DEV_MODE=false ./scripts/start.sh
 
 stop:
-	./scripts/dev.sh stop
+	./scripts/start.sh stop
 
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.

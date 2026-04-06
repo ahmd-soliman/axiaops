@@ -58,6 +58,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 
 		raw, ok := bearerToken(r)
 		if !ok {
+			log.Printf("auth: missing or malformed Authorization header: %s %s", r.Method, r.URL.Path)
 			http.Error(w, "missing or malformed Authorization header", http.StatusUnauthorized)
 			return
 		}
@@ -65,6 +66,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 		claims := jwt.MapClaims{}
 		_, err := jwt.ParseWithClaims(raw, claims, a.keyfunc, jwt.WithIssuer(a.issuer))
 		if err != nil {
+			log.Printf("auth: invalid token: %s %s: %v", r.Method, r.URL.Path, err)
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
@@ -72,6 +74,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 		// Extract org_code — Kinde's organisation identifier
 		orgCode, _ := claims["org_code"].(string)
 		if orgCode == "" {
+			log.Printf("auth: token missing org_code claim: %s %s", r.Method, r.URL.Path)
 			http.Error(w, "token missing org_code claim", http.StatusUnauthorized)
 			return
 		}
