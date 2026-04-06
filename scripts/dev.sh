@@ -87,7 +87,6 @@ npm run web >> "$LOG_FILE" 2>&1 &
 echo $! >> "$PID_FILE"
 
 echo ""
-echo "Services running. Press Ctrl+C to stop."
-
-trap stop INT TERM
-wait
+echo "Services running."
+echo "  Logs:  tail -f $ROOT/.dev.log"
+echo "  Stop:  ./scripts/dev.sh stop"
