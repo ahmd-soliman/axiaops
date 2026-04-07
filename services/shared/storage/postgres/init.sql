@@ -1,10 +1,16 @@
--- init.sql — runs once on first PostgreSQL startup as axiaops_owner.
+-- init.sql — idempotent infrastructure setup, run explicitly via scripts/db_init.sh.
 -- Creates the application user, schema, and default grants.
 -- All table DDL is managed by versioned migrations (001_initial.up.sql etc).
 
 -- ── Application user ──────────────────────────────────────────────────────────
 
-CREATE USER axiaops WITH PASSWORD 'axiaops';
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'axiaops') THEN
+    CREATE USER axiaops WITH PASSWORD 'axiaops';
+  END IF;
+END
+$$;
 
 -- ── Schema ────────────────────────────────────────────────────────────────────
 
