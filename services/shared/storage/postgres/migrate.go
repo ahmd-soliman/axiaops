@@ -31,7 +31,7 @@ func Migrate(dbURL string) error {
 	}
 
 	driver, err := migratepg.WithInstance(db, &migratepg.Config{
-		SchemaName:      "axiaops",
+		SchemaName:      "public",
 		MigrationsTable: "schema_migrations",
 	})
 	if err != nil {
