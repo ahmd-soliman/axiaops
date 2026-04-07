@@ -1,6 +1,6 @@
 -- 001_initial.up.sql
 -- Baseline schema: all tables and RLS policies.
--- User, schema, and default grants are set up by init.sql (Docker entrypoint).
+-- User, schema, and default grants are set up by 000_init.up.sql.
 
 SET search_path TO axiaops;
 

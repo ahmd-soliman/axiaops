@@ -1,6 +1,6 @@
--- init.sql — idempotent infrastructure setup, run explicitly via scripts/db_init.sh.
--- Creates the application user, schema, and default grants.
--- All table DDL is managed by versioned migrations (001_initial.up.sql etc).
+-- 000_init.up.sql
+-- One-time infrastructure setup: app user, schema, and default grants.
+-- Runs as axiaops_owner (superuser) via MIGRATION_DATABASE_URL.
 
 -- ── Application user ──────────────────────────────────────────────────────────
 
@@ -13,6 +13,9 @@ END
 $$;
 
 -- ── Schema ────────────────────────────────────────────────────────────────────
+
+-- Revoke app user access to public schema (schema_migrations lives there).
+REVOKE ALL ON SCHEMA public FROM axiaops;
 
 CREATE SCHEMA IF NOT EXISTS axiaops;
 
