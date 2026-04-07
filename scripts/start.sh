@@ -126,6 +126,7 @@ cd "$DASHBOARD_DIR"
 export EXPO_PUBLIC_KINDE_ISSUER="${KINDE_ISSUER:-}"
 export EXPO_PUBLIC_KINDE_CLIENT_ID="${KINDE_CLIENT_ID:-}"
 export EXPO_PUBLIC_DEV_MODE="${DEV_MODE:-true}"
+export EXPO_PUBLIC_DEV_ORG_NAME="${DEV_ORG_NAME:-AxiaOps Dev}"
 npx expo start --web --port 3000 --non-interactive --clear >> "$LOG_FILE" 2>&1 &
 echo $! >> "$PID_FILE"
 
