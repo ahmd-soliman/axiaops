@@ -50,6 +50,22 @@ export async function connectAccount({ provider, label, accessKeyId, secretKey, 
   return res.json();
 }
 
+export async function updateAccount(id, { label, accessKeyId, secretKey, region }) {
+  const body = {};
+  if (label !== undefined) body.label = label;
+  if (accessKeyId !== undefined) body.access_key_id = accessKeyId;
+  if (secretKey !== undefined && secretKey !== '') body.secret_key = secretKey;
+  if (region !== undefined) body.region = region;
+
+  const res = await fetch(`${BASE_URL}/accounts/${id}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error('Failed to update account');
+  return res.json();
+}
+
 export async function deleteAccount(id) {
   const res = await fetch(`${BASE_URL}/accounts/${id}`, {
     method: 'DELETE',

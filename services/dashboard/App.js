@@ -27,6 +27,7 @@ function parseJwt(token) {
 function AuthenticatedApp({ token, onLogout }) {
   const [selectedGhost, setSelectedGhost] = useState(null);
   const [showConnect, setShowConnect]     = useState(false);
+  const [editAccount, setEditAccount]     = useState(null); // Account being edited
   const claims  = parseJwt(token);
   const orgName = claims.org_name || claims.org_code || '';
 
@@ -39,15 +40,18 @@ function AuthenticatedApp({ token, onLogout }) {
     }
   }, [accounts.data]);
 
-  if (showConnect) {
+  if (showConnect || editAccount) {
     return (
       <ConnectScreen
+        account={editAccount}
         onConnected={() => {
           setShowConnect(false);
+          setEditAccount(null);
           accounts.refetch();
           queryClient.invalidateQueries();
         }}
-        onSkip={() => setShowConnect(false)}
+        onSkip={editAccount ? null : () => setShowConnect(false)}
+        onCancel={editAccount ? () => setEditAccount(null) : null}
       />
     );
   }
@@ -63,6 +67,8 @@ function AuthenticatedApp({ token, onLogout }) {
       orgName={orgName}
       accounts={accounts.data ?? []}
       onConnectAccount={() => setShowConnect(true)}
+      onEditAccount={(acc) => setEditAccount(acc)}
+      onDeleteAccount={() => accounts.refetch()}
     />
   );
 }
