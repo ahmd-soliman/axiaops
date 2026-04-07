@@ -167,6 +167,13 @@ func runIngestion(ctx context.Context, store storage.Store) error {
 func newStore() storage.Store {
 	ctx := context.Background()
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
+		if migrationURL == "" {
+			migrationURL = dbURL
+		}
+		if err := postgres.Migrate(migrationURL); err != nil {
+			log.Fatalf("storage: migration failed: %v", err)
+		}
 		s, err := postgres.New(ctx, dbURL)
 		if err != nil {
 			log.Fatalf("storage: postgres init failed: %v", err)
