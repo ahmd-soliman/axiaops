@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging stop db-init seed check test
+.PHONY: start-dev start-staging stop seed check test
 
 # Start all services in dev mode (DEV_MODE=true, no auth, fixed tenant).
 # Run `make seed` once after first start to populate dummy data.
@@ -11,12 +11,6 @@ start-staging:
 
 stop:
 	./scripts/start.sh stop
-
-# One-time idempotent DB infrastructure setup (app user, schema, grants).
-# Run after provisioning a new PostgreSQL instance (staging, prod).
-# Safe to re-run — will not fail if user/schema already exist.
-db-init:
-	./scripts/db_init.sh
 
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.
