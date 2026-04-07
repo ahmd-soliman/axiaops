@@ -76,8 +76,11 @@ function Root() {
 
   useEffect(() => {
     if (DEV_MODE) {
-      setAuthToken('dev');
-      setToken('dev');
+      // Only Dev Mode
+      const payload = btoa(JSON.stringify({ org_name: process.env.EXPO_PUBLIC_DEV_ORG_NAME || 'AxiaOps Dev' }));
+      const devToken = `dev.${payload}.dev`;
+      setAuthToken(devToken);
+      setToken(devToken);
       setLoading(false);
       return;
     }

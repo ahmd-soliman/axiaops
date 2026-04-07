@@ -43,8 +43,8 @@ PERIOD_END="$NOW"
 
 echo "Creating dev tenant (id: dev-tenant-axiaops)..."
 psql_exec "INSERT INTO tenants (id, org_code, name, created_at)
-  VALUES ('dev-tenant-axiaops', 'org_fea50718baf', 'AxiaOps Dev', '$NOW')
-  ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name;"
+  VALUES ('dev-tenant-axiaops', 'org_dev_local', 'AxiaOps Dev', '$NOW')
+  ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;"
 echo "  Done."
 
 # ── Additional tenants for RLS isolation testing ──────────────────────────────
