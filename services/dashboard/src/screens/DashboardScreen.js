@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSummary, fetchResources, scanAccount } from '../api/client';
+import { fetchSummary, fetchResources, scanAccount, deleteAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 
 // Design tokens
@@ -29,10 +29,11 @@ const C = {
   border: '#E2E8F0',
 };
 
-export default function DashboardScreen({ onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount }) {
+export default function DashboardScreen({ onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount, onEditAccount, onDeleteAccount }) {
   const [filterSvc, setFilterSvc]     = React.useState(null);
   const [ghostOnly, setGhostOnly]     = React.useState(true);
   const [scanning, setScanning]       = React.useState(null); // account id being scanned
+  const [deleting, setDeleting]       = React.useState(null); // account id being deleted
 
   const summary   = useQuery({ queryKey: ['summary'],   queryFn: fetchSummary   });
   const resources = useQuery({ queryKey: ['resources'], queryFn: fetchResources });
@@ -54,6 +55,16 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName, acco
       setTimeout(() => { refresh(); setScanning(null); }, 3000);
     } catch {
       setScanning(null);
+    }
+  }
+
+  async function handleDelete(accountId) {
+    setDeleting(accountId);
+    try {
+      await deleteAccount(accountId);
+      onDeleteAccount && onDeleteAccount(accountId);
+    } catch {
+      setDeleting(null);
     }
   }
 
@@ -113,9 +124,11 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName, acco
               accounts.map((acc) => (
                 <View key={acc.id} style={styles.accountChip}>
                   <View style={[styles.accountDot, acc.status === 'error' && styles.accountDotError]} />
-                  <Text style={styles.accountLabel} numberOfLines={1}>
-                    {acc.label || acc.access_key_id.slice(0, 8) + '…'}
-                  </Text>
+                  <TouchableOpacity onPress={() => onEditAccount && onEditAccount(acc)}>
+                    <Text style={styles.accountLabel} numberOfLines={1}>
+                      {acc.label || acc.access_key_id.slice(0, 8) + '…'}
+                    </Text>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => handleScan(acc.id)}
                     disabled={scanning === acc.id}
@@ -124,6 +137,16 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName, acco
                     {scanning === acc.id
                       ? <ActivityIndicator size="small" color={C.accent} />
                       : <Text style={styles.scanBtnText}>Scan</Text>
+                    }
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleDelete(acc.id)}
+                    disabled={deleting === acc.id}
+                    style={styles.deleteBtn}
+                  >
+                    {deleting === acc.id
+                      ? <ActivityIndicator size="small" color="#EF4444" />
+                      : <Text style={styles.deleteBtnText}>×</Text>
                     }
                   </TouchableOpacity>
                 </View>
@@ -328,6 +351,8 @@ const styles = StyleSheet.create({
   accountLabel: { color: C.white, fontSize: 12, fontWeight: '600', maxWidth: 120 },
   scanBtn: { paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.navy, borderRadius: 5, minWidth: 40, alignItems: 'center' },
   scanBtnText: { color: C.accent, fontSize: 11, fontWeight: '700' },
+  deleteBtn: { paddingHorizontal: 6, paddingVertical: 3, alignItems: 'center', justifyContent: 'center' },
+  deleteBtnText: { color: '#EF4444', fontSize: 16, fontWeight: '700', lineHeight: 18 },
   addAccountBtn: {
     width: 30, height: 30, borderRadius: 8,
     backgroundColor: C.navyLight,
