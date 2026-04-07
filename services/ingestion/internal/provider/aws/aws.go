@@ -6,6 +6,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -89,6 +90,12 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 	for {
 		page, err := c.ce.GetCostAndUsage(ctx, input)
 		if err != nil {
+			var unavail *types.DataUnavailableException
+			if errors.As(err, &unavail) {
+				return nil, fmt.Errorf(
+					"aws: Cost Explorer data is not yet available for this account — " +
+						"it can take up to 24 hours after first enabling Cost Explorer before data appears: %w", err)
+			}
 			return nil, fmt.Errorf("aws: GetCostAndUsage: %w", err)
 		}
 
