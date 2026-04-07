@@ -5,6 +5,7 @@
 //   GET    /summary
 //   GET    /accounts
 //   POST   /accounts
+//   PATCH  /accounts/{id}
 //   DELETE /accounts/{id}
 //   POST   /accounts/{id}/scan
 package api
@@ -50,6 +51,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /resources", h.listResources)
 	mux.HandleFunc("GET /accounts", h.listAccounts)
 	mux.HandleFunc("POST /accounts", h.createAccount)
+	mux.HandleFunc("PATCH /accounts/{id}", h.updateAccount)
 	mux.HandleFunc("DELETE /accounts/{id}", h.deleteAccount)
 	mux.HandleFunc("POST /accounts/{id}/scan", h.scanAccount)
 }
@@ -58,7 +60,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -183,6 +185,57 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	writeJSON(w, account)
+}
+
+// updateAccount edits the label, access_key_id, region, and/or secret_key of an account.
+// secret_key is only re-encrypted when a non-empty value is provided.
+func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	tenantID := middleware.TenantID(r.Context())
+	ctx := storage.WithTenantID(r.Context(), tenantID)
+
+	existing, err := h.store.GetAccount(ctx, id)
+	if err != nil {
+		http.Error(w, "account not found", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		Label       *string `json:"label"`
+		AccessKeyID *string `json:"access_key_id"`
+		SecretKey   *string `json:"secret_key"`
+		Region      *string `json:"region"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Label != nil {
+		existing.Label = *req.Label
+	}
+	if req.AccessKeyID != nil {
+		existing.AccessKeyID = *req.AccessKeyID
+	}
+	if req.SecretKey != nil && *req.SecretKey != "" {
+		encrypted, err := crypto.Encrypt(*req.SecretKey)
+		if err != nil {
+			http.Error(w, "encryption failed", http.StatusInternalServerError)
+			return
+		}
+		existing.SecretEncrypted = encrypted
+	}
+	if req.Region != nil {
+		existing.Region = *req.Region
+	}
+
+	if err := h.store.SaveAccount(ctx, existing); err != nil {
+		log.Printf("updateAccount error: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, existing)
 }
 
 // deleteAccount removes a connected account.
