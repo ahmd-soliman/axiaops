@@ -81,9 +81,10 @@ else
     echo -n "."
     sleep 1
   done
+  echo " Ready."
   export DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable"
   export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
-  echo " Ready."
+  "$ROOT/scripts/db_init.sh"
 fi
 
 # Start Ingestion service (long-running HTTP server on :8081)
