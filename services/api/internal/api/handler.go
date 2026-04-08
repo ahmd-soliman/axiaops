@@ -56,10 +56,15 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /accounts/{id}/scan", h.scanAccount)
 }
 
-// cors wraps a handler with permissive CORS headers for local development.
+// cors wraps a handler with CORS headers.
+// CORS_ORIGIN env var sets the allowed origin (defaults to "*" for local development).
 func cors(next http.Handler) http.Handler {
+	origin := os.Getenv("CORS_ORIGIN")
+	if origin == "" {
+		origin = "*"
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
