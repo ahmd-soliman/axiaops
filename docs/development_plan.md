@@ -79,6 +79,8 @@ API service (always running on :8080)
 | AmazonVPC | BytesOutToDestination | = 0 | NAT Gateway zero bytes — likely unused |
 | AmazonVPC (EIP) | NetworkInterfaceAttachment | = 0 | Elastic IP not attached — $0.005/hour idle charge |
 
+> **S3 and CloudFront exclusion:** Both services appear in fixture data but are intentionally excluded from Phase 1 detection rules. S3 detection is ambiguous — many buckets are archival by design and zero `GetRequests` is expected. CloudFront distributions can be legitimately dormant. Detection rules for both services are deferred to Phase 3 (see 3.11 Expanded Detection Rules) pending usage data from real customers to set meaningful thresholds.
+
 **API (`services/api/internal/api`):** ✅
 - `GET /ghosts` — list of detected zombie resources with cost, usage metric, reason, and owner
 - `GET /summary` — aggregate savings figure and per-service breakdown
@@ -257,7 +259,7 @@ accounts       — connected cloud accounts, secrets encrypted at rest
 - Provider-agnostic `accounts` table (not `aws_accounts`) — ready for Azure/GCP without schema changes
 - Secrets encrypted at rest with AES-256-GCM — `ENCRYPTION_KEY` env var (32-byte hex)
 - On-demand scan per account — no fixed schedule needed for MVP
-- DB-status concurrency guard: account is set to `scanning` before the goroutine fires; a second scan request will see the status and can be rejected at the application layer (full in-memory lock deferred to 2.7 Redis queue)
+- DB-status concurrency guard: account is set to `scanning` before the goroutine fires; a second scan request will see the status and can be rejected at the application layer (full in-memory lock deferred to 2.14 Redis queue)
 
 **Schema (`accounts` table — PostgreSQL production schema):**
 
@@ -299,6 +301,8 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 
 **Scan recovery (planned — see milestone May 2026):** A background ticker (every 5 minutes) will check for accounts stuck in `scanning` status for longer than 15 minutes and reset them to `error` with a timeout reason. This prevents permanently stuck scans if the API restarts mid-scan or the ingestion service crashes. Not yet implemented — currently a stuck scan requires a manual status reset.
 
+**Key rotation:** Rotating `ENCRYPTION_KEY` is not a simple env var swap — all `secret_encrypted` values in the `accounts` table must be decrypted with the old key and re-encrypted with the new key before the var is updated. A migration script must be written and tested before any key rotation in production. Document this in `docs/ops.md`.
+
 #### 2.3 Auth — Kinde ✅
 
 - Chosen over Supabase Auth, Clerk, Cognito — see `docs/auth.md`
@@ -323,7 +327,17 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 - `services/shared/storage/postgres/postgres.go` — full `Store` implementation (partially exists for accounts)
 - `services/shared/storage/postgres/migrations/*.sql` — versioned schema files
 
-#### 2.5 Observability
+#### 2.5 Savings History / Trend
+
+**Priority: Immediately after PostgreSQL migration — historical data lost on every scan cannot be recovered retroactively.**
+
+- `ghost_records` is currently replaced on every run — no history is retained
+- Add a `ghost_snapshots` table: `(id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)`
+- Ingestion job writes one snapshot row per scan instead of wiping ghost_records
+- `GET /trend` — returns snapshot series for charting savings over time
+- Dashboard: savings trend sparkline on the header
+
+#### 2.6 Observability
 
 **Priority: Must ship before production deployment.**
 
@@ -345,31 +359,79 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 - `services/api/internal/middleware/requestid.go` — request ID injection
 - `services/api/internal/middleware/metrics.go` — Prometheus HTTP middleware
 
-#### 2.6 Scheduled Auto-Scan
+#### 2.7 API Versioning
 
-- Add a `scan_interval_hours` field to the `accounts` table (default: 24)
+**Decision:** All endpoints are prefixed `/v1/` from the first production deployment. This must be established before any external integrations or documentation is published — retrofitting a version prefix after customers are using the API is a breaking change.
+
+- Update all routes: `GET /v1/ghosts`, `GET /v1/summary`, `GET /v1/accounts`, etc.
+- `GET /health` and `GET /metrics` remain unversioned (infrastructure endpoints)
+- nginx proxy rewrite: `/api/v1/*` → `api:8080/v1/*`
+- Dashboard API client updated to use `/v1/` base path
+- Deprecation policy: a version will receive 6 months notice before removal
+
+#### 2.8 Rate Limiting — In-Memory
+
+**Priority: Must be in place before production, before Redis is available.**
+
+Redis-based rate limiting isn't available until 2.14, but the API is public-facing from day one. Add a per-tenant in-memory token bucket as a temporary guard that is replaced by the Redis implementation in 2.14.
+
+- Implementation: `sync.Map` keyed by `tenant_id` + sliding window counter
+- Limits: 60 requests/minute per tenant (API endpoints); scan requests already have a concurrency guard
+- Returns `429 Too Many Requests` with `Retry-After` header
+- Disabled in `DEV_MODE=true`
+- **Key file:** `services/api/internal/middleware/ratelimit.go`
+
+#### 2.9 Graceful Shutdown
+
+**Priority: Before App Runner deployment — App Runner sends `SIGTERM` before terminating containers.**
+
+Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cleanly to avoid dropped requests or corrupted scans.
+
+- Listen for `SIGTERM` / `SIGINT` via `signal.NotifyContext`
+- API: call `server.Shutdown(ctx)` with a 30-second drain timeout — completes in-flight HTTP requests
+- Ingestion: complete the current scan before shutting down; reject new `/scan` requests during drain
+- PostgreSQL connection pool: `pool.Close()` after HTTP server exits
+- Log `shutdown.started` and `shutdown.complete` with drain duration
+
+#### 2.10 GitLab CI Pipeline
+
+**Priority: Before production deployment — no manual build/push steps in production.**
+
+- **Stages:** `test` → `build` → `deploy`
+- **test:** `go test ./...` across all three modules; `go vet ./...`; `golangci-lint run`
+- **build:** Docker image build for `api`, `ingestion`, `dashboard`; push to AWS ECR
+- **deploy:** `aws apprunner update-service` for `api` and `ingestion`; CloudFront invalidation for dashboard
+- **Branch strategy:** `main` triggers full pipeline; feature branches trigger `test` only
+- **Secrets:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SENTRY_DSN`, `ENCRYPTION_KEY` stored as GitLab CI/CD variables (masked)
+
+**Key file:** `.gitlab-ci.yml` at repo root
+
+#### 2.11 Scheduled Auto-Scan
+
+- Add a `scan_interval_hours` field to the `accounts` table (default: 24) — requires a new migration
 - Background ticker in the API service triggers ingestion per account on schedule
 - Configurable per account via `PATCH /accounts/{id}`
 - Skips if account is already `scanning` (uses same concurrency guard from 2.2)
 - Structured log: `scan.scheduled`, `scan.skipped_already_running`
 
-#### 2.7 Savings History / Trend
+#### 2.12 cost_records Retention
 
-- `ghost_records` is currently replaced on every run — no history is retained
-- Add a `ghost_snapshots` table: `(id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)`
-- Ingestion job writes one snapshot row per scan instead of wiping ghost_records
-- `GET /trend` — returns snapshot series for charting savings over time
-- Dashboard: savings trend sparkline on the header
+**Purpose:** `cost_records` grow unbounded — each scan inserts up to 30 days of billing data per account. Without a retention policy, the table will grow indefinitely and degrade query performance.
 
-#### 2.8 Backup / Disaster Recovery
+- Retention window: 90 days (configurable via `COST_RECORDS_RETENTION_DAYS` env var)
+- Cleanup: background ticker in the ingestion service runs daily; `DELETE FROM cost_records WHERE period_end < NOW() - INTERVAL '90 days' AND tenant_id = $1`
+- Log `cost_records.cleanup` with rows deleted and duration
+- Migration: add `created_at` index on `cost_records` if not already present for efficient range deletes
+
+#### 2.13 Backup / Disaster Recovery
 
 - **PostgreSQL:** Automated daily snapshots via RDS automated backups (7-day retention)
 - **Point-in-time recovery:** RDS continuous backup — restore to any second within retention window
-- **ghost_records safety:** With `ghost_snapshots` (2.7) in place, a bad scan no longer loses historical data. Current ghost_records can be regenerated by re-running a scan.
-- **Secrets:** `ENCRYPTION_KEY` stored in AWS Secrets Manager (not in env vars on disk). Rotation procedure documented in `docs/ops.md`.
-- **Infrastructure-as-code:** Docker Compose for dev; production infra defined in Terraform (App Runner, RDS, ElastiCache, Secrets Manager) — reproducible from scratch
+- **ghost_records safety:** With `ghost_snapshots` (2.5) in place, a bad scan no longer loses historical data. Current ghost_records can be regenerated by re-running a scan.
+- **Secrets:** `ENCRYPTION_KEY` stored in AWS Secrets Manager (not in env vars on disk). Rotation procedure (including re-encryption of all account secrets) documented in `docs/ops.md`.
+- **Infrastructure-as-code:** Docker Compose for dev; production infra defined in Terraform (App Runner, RDS, ElastiCache, Secrets Manager) — reproducible from scratch. State backend: S3 bucket + DynamoDB lock table.
 
-#### 2.9 Redis
+#### 2.14 Redis
 
 **Purpose:** Caching and scan job queue — keeps the API fast and decouples scan execution from HTTP requests.
 
@@ -379,13 +441,13 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 |----------|--------|
 | **JWKS key cache** | Cache Kinde's public keys in Redis with a 1h TTL — avoids a network round-trip to Kinde on every authenticated request |
 | **Scan job queue** | `POST /accounts/{id}/scan` pushes a job onto a Redis list; a worker goroutine in the ingestion service pops and processes — decouples scan from the HTTP response |
-| **Rate limiting** | Per-tenant request counter using `INCR` + `EXPIRE` — prevents abuse without a database query |
+| **Rate limiting** | Replace the in-memory token bucket (2.8) with a Redis `INCR` + `EXPIRE` counter — survives API restarts and works across multiple replicas |
 
 **Infrastructure:**
 - Dev: Redis container added to `docker-compose.yml`
 - Production: AWS ElastiCache Serverless (Redis-compatible) — pay-per-use, no cluster to manage
 - Client: `github.com/redis/go-redis/v9`
-- `REDIS_URL` env var (e.g. `redis://localhost:6379`); if unset, JWKS falls back to in-memory cache and scan stays synchronous
+- `REDIS_URL` env var (e.g. `redis://localhost:6379`); if unset, JWKS falls back to in-memory cache, scan stays synchronous, and rate limiting falls back to the in-memory implementation from 2.8
 
 **Key files to add:**
 - `services/shared/cache/cache.go` — `Cache` interface (`Get`, `Set`, `Del`)
@@ -394,22 +456,22 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 - `services/api/internal/middleware/auth.go` — inject cache for JWKS lookup
 - `services/ingestion/cmd/worker.go` — Redis queue consumer
 
-#### 2.10 Alerting
+#### 2.15 Alerting
 
 - Weekly email digest: "You have $X in ghost spend this week"
 - Email provider: Resend (preferred) or SendGrid
 - Slack webhook alert — notify a channel when new ghosts appear after a scan
-- Alerts reference `ghost_snapshots` (2.7) to show week-over-week delta
+- Alerts reference `ghost_snapshots` (2.5) to show week-over-week delta
 
-#### 2.11 Deployment
+#### 2.16 Deployment
 
 - API service: AWS App Runner — see `docs/deployment.md`
 - Ingestion service: App Runner (long-lived, receives HTTP scan requests)
 - Frontend: Expo EAS Build → web deploy (static assets behind CloudFront)
 - Database: RDS PostgreSQL (`db.t4g.micro`) — see 2.4
-- Cache: AWS ElastiCache Serverless (Redis) — see 2.9
+- Cache: AWS ElastiCache Serverless (Redis) — see 2.14
 - Secrets: AWS Secrets Manager for `ENCRYPTION_KEY`, `SENTRY_DSN`, `REDIS_URL`
-- Infrastructure: Terraform modules for reproducible provisioning
+- Infrastructure: Terraform modules for reproducible provisioning (state in S3 + DynamoDB lock)
 
 ---
 
@@ -417,7 +479,7 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 
 ### Goal: Feature-complete for first paying customers, establish revenue
 
-**Scope principle:** This phase focuses on features that directly enable paying customers. Multi-cloud, mobile, and cost forecasting are deferred to Phase 4 — they don't block revenue and need more usage data / user demand to justify.
+**Scope principle:** This phase focuses on features that directly enable paying customers. Multi-cloud and mobile are deferred to Phase 4 — they don't block revenue and need more usage data / user demand to justify.
 
 #### 3.1 Pricing & Billing
 
@@ -442,6 +504,7 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 - Dismissed ghosts are excluded from `/ghosts` and `/summary` by default; `?include_dismissed=true` shows them
 - Dashboard: "Dismiss" button on DetailScreen; dismissed ghosts shown with a grey "Intentional" badge
 - Snooze variant: `snooze_until` field — ghost reappears automatically after the date passes
+  - **Note:** Snooze reactivation requires a background ticker in the API service that periodically checks `snooze_until < NOW()` and clears the dismissed status. Add this alongside the dismiss implementation.
 
 #### 3.3 Remediation Actions
 
@@ -451,7 +514,7 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 
 #### 3.4 Resource Inventory View ✅
 
-**Status: Complete (shipped ahead of schedule)**
+**Status: Complete (shipped ahead of schedule in Phase 2)**
 
 - `model.ResourceRecord` — all resources with cost + usage + `is_ghost bool`
 - `resource_records` table populated by ingestion job (replace-on-run, like `ghost_records`)
@@ -492,7 +555,18 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 - `GET /users` — list users in tenant; `DELETE /users/{id}` — remove access
 - Plan-gated: Team tier only (see 3.1)
 
-#### 3.10 Expanded Detection Rules
+#### 3.10 GDPR / Data Deletion
+
+**Priority: Must be in place before acquiring paying customers in the EU.**
+
+- **Right to erasure:** `DELETE /tenants/me` — removes all tenant data: accounts, cost_records, ghost_records, ghost_snapshots, users, dismissed_ghosts, scan history
+- **Data retention disclosure:** Document what is stored and for how long in the privacy policy
+- **Account offboarding:** When a tenant deletes their account, encrypted AWS secrets are deleted immediately; billing is cancelled via Stripe webhook
+- **User deletion:** `DELETE /users/{id}` cascades to anonymise that user's audit log entries (replace `user_id` with a tombstone marker, not a hard delete — preserves audit trail integrity)
+- **Data portability:** `GET /export` — full JSON dump of the tenant's data (ghosts, accounts metadata without secrets, scan history)
+- Privacy policy and terms of service pages required before Phase 3 launch
+
+#### 3.11 Expanded Detection Rules
 
 - Add rules for commonly wasted resources:
   - EBS volumes (unattached — `VolumeReadOps + VolumeWriteOps = 0`)
@@ -500,13 +574,24 @@ CREATE POLICY accounts_tenant_isolation ON accounts
   - Secrets Manager secrets (unused — `GetSecretValue` invocations = 0, >90 days old)
   - Redshift clusters (`DatabaseConnections = 0`)
   - ElastiCache nodes (`CurrConnections = 0`)
+  - S3 buckets (`GetRequests = 0` over 60 days, excluding buckets tagged `archival=true`)
+  - CloudFront distributions (`Requests = 0` over 30 days)
 - Make detection rules configurable per tenant via `PATCH /settings/rules` — allow adjusting thresholds (e.g. EC2 CPU from 5% to 10%)
 - Store custom rules in a `detection_rules` table; fall back to built-in defaults
 
-#### 3.11 Reporting
+#### 3.12 Operating Entity / Legal
+
+**Priority: Must be established before mobile app submission and before first paying customer.**
+
+- Register operating entity (UG or GmbH depending on revenue trajectory)
+- Required by Apple and Google for App Store / Play Store accounts
+- Privacy policy and terms of service (prerequisite for 3.10 GDPR work)
+- VAT registration if revenue exceeds threshold
+
+#### 3.13 Reporting
 
 - Exportable PDF savings report — summary page + per-service breakdown + ghost list
-- Savings trend over time (chart) — powered by `ghost_snapshots` from 2.7
+- Savings trend over time (chart) — powered by `ghost_snapshots` from 2.5
 
 ---
 
@@ -517,11 +602,11 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 #### 4.1 Cost Forecasting
 
 - `GET /forecast?days=30|60|90` — project future spend per account and per service
-- Algorithm: linear regression over `ghost_snapshots` collected by 2.7 — no ML library, ~50 lines of Go math
+- Algorithm: linear regression over `ghost_snapshots` collected by 2.5 — no ML library, ~50 lines of Go math
 - Requires: minimum 60 days of `ghost_snapshots` data before forecasts are meaningful
 - Anomaly detection: flag if actual spend exceeds forecast by >20% (surface as alert alongside weekly digest)
 - Dashboard: forecast line overlaid on the existing savings trend chart (reuses `GET /trend` chart component)
-- DB: no schema change — consumes existing `ghost_snapshots` table from 2.7
+- DB: no schema change — consumes existing `ghost_snapshots` table from 2.5
 
 #### 4.2 Multi-cloud
 
@@ -536,12 +621,7 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 - Same Expo codebase — `npm run ios` / `npm run android`
 - Apple Developer account ($99/year) required for TestFlight
 - Only ship after web product has active paying users who request mobile access
-- Privacy policy, terms of service required for App Store submission
-
-#### 4.4 Establish Operating UG
-
-- Required before App Store submission (Apple/Google require a legal entity)
-- Privacy policy and terms of service
+- Privacy policy, terms of service, and legal entity (3.12) required before App Store submission
 
 ---
 
@@ -558,6 +638,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 #### 5.1 IaC Plan Parser
 - Parse `terraform plan -out=plan.json` and AWS CDK `cdk diff` output
 - Extract resource types, sizes, regions, counts
+- Minimum supported Terraform version: 1.5 (required for stable `plan` JSON schema — earlier versions have breaking format differences)
 
 #### 5.2 Cost Estimation Engine
 - Fetch live pricing from AWS Pricing API, Azure Retail Prices API, GCP Cloud Billing Catalog
@@ -593,7 +674,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | Hosting | AWS App Runner |
 | Observability | slog (structured logging), Sentry (errors), Prometheus (metrics) |
 | Backup | RDS automated backups (7-day retention, point-in-time recovery) |
-| Infrastructure | Terraform (production), Docker Compose (dev) |
+| Infrastructure | Terraform (production, state in S3 + DynamoDB), Docker Compose (dev) |
 | CI/CD | GitLab CI |
 | Cloud APIs | AWS Cost Explorer, CloudWatch, Azure Cost Mgmt (Phase 4), GCP Billing (Phase 4) |
 
@@ -612,20 +693,27 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | April 2026 | Account management — connect AWS, encrypted secrets, on-demand scan | ✅ Done |
 | April 2026 | Resource inventory view — all resources with ghost/active annotation | ✅ Done |
 | May 2026 | PostgreSQL migration — replace SQLite for production workloads | Planned |
+| May 2026 | Savings history / trend (`ghost_snapshots` + `GET /trend`) — prioritised to prevent data loss | Planned |
 | May 2026 | Observability — structured logging, Sentry, Prometheus metrics | Planned |
 | May 2026 | Scan recovery — timeout detection for stuck scans | Planned |
+| May 2026 | API versioning — `/v1/` prefix on all endpoints | Planned |
+| May 2026 | In-memory rate limiting — per-tenant token bucket before Redis | Planned |
+| May 2026 | Graceful shutdown — SIGTERM handling for API and ingestion | Planned |
+| May 2026 | GitLab CI pipeline — test, build, deploy stages | Planned |
 | June 2026 | Scheduled auto-scan (24h default interval per account) | Planned |
-| June 2026 | Savings history / trend (`ghost_snapshots` + `GET /trend`) | Planned |
+| June 2026 | cost_records retention — 90-day cleanup job | Planned |
 | June 2026 | Backup / disaster recovery — RDS snapshots, Secrets Manager | Planned |
-| July 2026 | Redis — JWKS cache, scan job queue, rate limiting | Planned |
+| July 2026 | Redis — JWKS cache, scan job queue, rate limiting (replaces in-memory) | Planned |
 | July 2026 | Weekly email digest + Slack webhook alerts | Planned |
 | August 2026 | Production deployment — App Runner, RDS, ElastiCache, Terraform | Planned |
 | September 2026 | Pricing & billing — Stripe integration, 3 tiers | Planned |
 | September 2026 | Dismiss ghost workflow + snooze | Planned |
+| September 2026 | GDPR / data deletion — right to erasure, data export | Planned |
+| September 2026 | Operating entity / legal registration | Planned |
 | October 2026 | Remediation CLI commands + audit trail | Planned |
 | October 2026 | Scan history log + per-account summary | Planned |
 | October 2026 | Tag/team filtering + CSV export | Planned |
-| November 2026 | Expanded detection rules + configurable thresholds | Planned |
+| November 2026 | Expanded detection rules (EBS, S3, CloudFront, Redshift, ElastiCache) + configurable thresholds | Planned |
 | November 2026 | User management + roles (admin/viewer) | Planned |
 | November 2026 | PDF savings report | Planned |
 | December 2026 | First paying customer | Planned |

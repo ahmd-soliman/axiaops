@@ -8,7 +8,7 @@
 
 **Model:** SaaS subscription, priced per cloud account monitored.
 
-**Primary Customers:** MSPs, FinOps consultants, and mid-market DevOps teams managing multi-cloud environments.
+**Primary Customers:** MSPs, FinOps consultants, and mid-market DevOps teams managing AWS environments (Azure/GCP roadmap: 2028).
 
 **Target Exit:** €5M acquisition within 3–5 years (strategic buyer: cloud provider, FinOps platform, or MSP tooling company).
 
@@ -31,7 +31,7 @@ Cloud waste is endemic. Gartner estimates 30% of cloud spend is wasted. The bigg
 
 ## Solution
 
-AxiaOps is the only tool that covers the full cloud cost lifecycle — before, during, and after deployment.
+AxiaOps is the only *unified* tool purpose-built to cover the full cloud cost lifecycle — before, during, and after deployment.
 
 ### Reactive (running infrastructure)
 AxiaOps connects to cloud billing via read-only IAM access and delivers:
@@ -42,8 +42,9 @@ AxiaOps connects to cloud billing via read-only IAM access and delivers:
 4. **The Weekly Digest** — email/Slack alert when new ghosts appear
 5. **Multi-account Dashboard** — single pane for MSPs managing multiple client accounts
 
-### Proactive (pre-deployment cost simulation)
-AxiaOps can anticipate costs before infrastructure is deployed:
+### Full Vision — Pre-Deployment Cost Simulation (Roadmap: Phase 5, 2027+)
+
+AxiaOps is designed to eventually anticipate costs before infrastructure is deployed:
 
 1. **Cost Simulation** — parse Terraform/CDK/Pulumi plans and estimate monthly cost before `apply`
 2. **What-if Scenarios** — "what if I switch from gp2 to gp3?" or "what if I move to a different region?"
@@ -56,7 +57,9 @@ Plan → Deploy → Run
 Simulate  Gate   Optimize
 ```
 
-Core value proposition: **the only FinOps tool that prevents cloud waste before it happens, and eliminates it after.**
+The full vision: **the only unified FinOps tool that prevents cloud waste before it happens, and eliminates it after.**
+
+> **Note:** Pre-deployment simulation features are on the roadmap for Phase 5 (2027+). The current product focuses on the reactive workflow (The Ghost Number, Ghost List, Remediation Workflow).
 
 ---
 
@@ -84,9 +87,12 @@ This mirrors the approach of Datadog, Grafana, and PagerDuty — desktop-native 
 - Startups wanting self-serve cost visibility without enterprise pricing
 
 ### Market Size
-- ~500,000 companies globally spending $10K+/month on cloud
-- MSP market alone: ~50,000 MSPs globally managing cloud
-- 0.1% capture at €149/month average = €74,500 MRR
+
+- **TAM:** ~500,000 companies globally spending $10K+/month on cloud; MSP market alone ~50,000 MSPs globally
+- **SAM:** ~50,000 EU + US companies with $10K–$200K/month AWS spend + MSPs — the segment reachable via direct and partner GTM
+- **SOM (3-year target):** ~500 customers at €110/month blended average = €55,000 MRR (aligns with Month 24 projection)
+
+Note: the blended average revenue per customer is modelled at ~€110/month (mix of Starter, Growth, Team), not €149/month.
 
 ---
 
@@ -97,15 +103,20 @@ This mirrors the approach of Datadog, Grafana, and PagerDuty — desktop-native 
 | Plan | Price | Includes |
 |------|-------|----------|
 | Starter | €49/month | 1 cloud account, email alerts |
-| Growth | €149/month | 5 cloud accounts, multi-cloud, Slack alerts |
+| Growth | €149/month | 5 cloud accounts, Slack alerts |
 | Team | €399/month | 20 accounts, PDF reports, remediation tracking + audit trail |
-| MSP | €799/month | Unlimited client accounts, white-label reports, reseller dashboard |
+| MSP | €799/month | Up to 50 client accounts, white-label reports, reseller dashboard; +€10/account/month above 50 |
 | Enterprise | Custom | SSO, dedicated support, SLA |
+
+> CI/CD Budget Gate and Cost Simulation available on Team plan and above (2027 roadmap).
 
 ### Revenue Drivers
 - MRR per connected account
-- Annual plans at 20% discount
-- Future: remediation marketplace (% of savings actioned via AxiaOps)
+- Annual plans at 20% discount (2-month effective discount)
+
+### Future Revenue Opportunities (Post-€500K ARR)
+- **Remediation marketplace:** AxiaOps connects customers with vetted cloud engineers who execute terminations and right-sizings. Revenue model: 10–15% platform fee on the engineer's invoice, trackable because all remediation actions are logged in the audit trail.
+- **Savings-based pricing add-on:** premium tier that charges a % of verified monthly savings surfaced (opt-in, for customers who prefer outcome-based pricing).
 
 ---
 
@@ -142,11 +153,12 @@ This mirrors the approach of Datadog, Grafana, and PagerDuty — desktop-native 
 
 ### Defensible Differentiation
 
-1. **Full cost lifecycle** — the only tool covering pre-deployment simulation, CI/CD gating, and runtime optimization
+1. **Full cost lifecycle vision** — the only unified tool designed to cover pre-deployment simulation, CI/CD gating, and runtime optimization
 2. **Remediation workflow with audit trail** — detect → assign → approve → act → prove savings
-3. **Multi-cloud ghost detection in one view** — AWS + Azure + GCP aggregated
+3. **Multi-cloud ghost detection in one view** — AWS now; Azure + GCP on roadmap (2028)
 4. **MSP-native** — multi-client dashboard, white-label reports, reseller pricing
 5. **Tagging hygiene + ghost correlation** — surfaces both problems together
+6. **EU-first data residency** — data processed and stored in EU (Frankfurt); built-in GDPR compliance including right to erasure and data export; critical for European MSPs managing client data under GDPR obligations
 
 **Why Infracost doesn't close this gap:** Infracost estimates costs at plan time but has no runtime optimization, no anomaly detection, no remediation workflow, and no CI/CD budget gate. AxiaOps owns the entire lifecycle.
 
@@ -161,11 +173,17 @@ Sell to two audiences with different languages:
 
 Don't lead with cost savings to engineers. Lead with hygiene. The money argument follows naturally.
 
-### Phase 1 — Community-Led (0 → €5K MRR)
+### Phase 1 — Founder-Led + Community (0 → €5K MRR)
+
+**Founder-led sales (primary path to first €5K MRR):**
+- Direct outreach to 5–10 MSPs or FinOps consultants in personal/professional network for paid beta
+- Offer first 10 customers a lifetime 50% discount in exchange for feedback and a testimonial
+- Target specific communities: FinOps Foundation Slack, AWS Heroes LinkedIn, r/msp subreddit
+
+**Community launch (awareness):**
 - Post on r/devops, r/aws, Hacker News "Show HN"
 - SEO content: "How to find idle AWS resources," "AWS EBS cost optimization guide"
 - Product Hunt launch
-- Direct outreach to FinOps consultants on LinkedIn
 
 ### Phase 2 — Content + SEO (€5K → €25K MRR)
 - Publish monthly "State of Cloud Waste" report with anonymized aggregate data
@@ -198,13 +216,18 @@ Ahmed (Founder / 100% shareholder)
 - Operating UG limits personal liability
 - IP cleanly owned by UG — makes due diligence straightforward for acquirers
 
-### Immediate Actions (Before First €1 of Revenue)
+### Immediate Actions (Must Complete Before First Invoice)
+
+Target: complete by **August 2026** — before any beta customer is billed (first projected revenue: October 2026).
+
 1. Found Holding GmbH
 2. Found Operating UG (€1 minimum share capital)
 3. IP assignment agreement — transfer code ownership from individual to Operating UG
 4. Open business bank account (Qonto or Fyrst)
-5. Register with Finanzamt for VAT
+5. Register with Finanzamt for VAT (Umsatzsteuer-ID required for B2B EU invoicing)
 6. Engage a Steuerberater familiar with SaaS/startup structures
+
+> Cross-reference: Operating UG is tracked as a Phase 3 milestone in the development plan. No beta customer should be charged before step 1–5 above are complete.
 
 ---
 
@@ -212,7 +235,7 @@ Ahmed (Founder / 100% shareholder)
 
 | Month | Customers | MRR | Notes |
 |-------|-----------|-----|-------|
-| Month 6 (Oct 2026) | 5 | €500 | Beta users |
+| Month 6 (Oct 2026) | 5 | €500 | Beta users (first invoices after UG is incorporated — target Aug 2026) |
 | Month 9 (Jan 2027) | 25 | €2,500 | Web app live |
 | Month 12 (Apr 2027) | 60 | €6,000 | SEO traction |
 | Month 18 (Oct 2027) | 200 | €22,000 | MSP resellers active |
@@ -233,10 +256,10 @@ New users are hesitant to connect a live AWS production account to an unknown st
 | Tactic | Detail |
 |--------|--------|
 | **Demo Mode** | Pre-loaded mock data so users see full product value before connecting any account — no AWS credentials required to experience the "aha moment" |
-| **Read-only IAM** | Publish a minimal IAM policy (read-only, no write permissions) users can inspect before granting access |
-| **SOC 2 roadmap** | Commit publicly to SOC 2 Type II certification — reassures enterprise and MSP buyers |
-| **No data storage option** | Offer a "scan and forget" mode where no billing data is persisted — results shown in session only |
-| **Open-source the scanner** | If the detection engine is open-source, customers can read exactly what it does with their data |
+| **Read-only IAM** | Publish a minimal IAM policy (read-only, no write permissions) with line-by-line explanation of every permission used and why |
+| **SOC 2 roadmap** | Commit publicly to SOC 2 Type II certification — target Q4 2027 (requires 6 months of audit evidence collection after production launch) |
+| **Publish audit documentation** | Detailed technical doc explaining exactly what data is accessed, what is stored, retention periods, and how to revoke access — open transparency without giving up the detection moat |
+| **GDPR-first architecture** | Data stored in EU-West (Frankfurt). Right to erasure and data export available on request from day one. German incorporation signals regulatory seriousness to EU customers. |
 
 ---
 
@@ -255,9 +278,15 @@ New users are hesitant to connect a live AWS production account to an unknown st
 
 ## Success Metrics (KPIs)
 
+**Product metrics:**
 - **Activation:** % of signups who connect a cloud account within 24h (target: >60%)
 - **Time-to-value:** Minutes from signup to first ghost surfaced (target: <5 min)
-- **MRR Growth:** Month-over-month (target: 20%+ early stage)
-- **Churn:** Monthly customer churn (target: <3%)
 - **NPS:** Net Promoter Score (target: >50)
 - **Ghost Savings Surfaced:** Total € identified across all customers (vanity metric but great for marketing)
+
+**Business health metrics:**
+- **MRR Growth:** Month-over-month (target: 20%+ early stage)
+- **Churn:** Monthly customer churn (target: <3%)
+- **LTV:** Average plan price ÷ monthly churn rate → at €149/mo and 3% churn = ~€4,967 LTV
+- **CAC:** Cost to acquire one customer (target: <€500; implies <4-month payback at Growth plan)
+- **LTV:CAC ratio:** Target >10x at scale
