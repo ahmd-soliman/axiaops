@@ -1,14 +1,17 @@
 package postgres
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratepg "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 )
 
@@ -48,4 +51,24 @@ func Migrate(dbURL string) error {
 		return fmt.Errorf("migrate: up: %w", err)
 	}
 	return nil
+}
+
+// ResetStuckScans resets accounts stuck in "scanning" status for longer than
+// stuckAfter back to "error". Uses the admin URL (superuser) which bypasses
+// RLS — safe to call on startup and from a periodic background ticker.
+func ResetStuckScans(ctx context.Context, adminURL string, stuckAfter time.Duration) (int64, error) {
+	pool, err := pgxpool.New(ctx, adminURL)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: admin connect: %w", err)
+	}
+	defer pool.Close()
+
+	cutoff := time.Now().UTC().Add(-stuckAfter)
+	tag, err := pool.Exec(ctx, `
+		UPDATE axiaops.accounts SET status = 'error'
+		WHERE status = 'scanning' AND last_scanned_at < $1`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: reset stuck scans: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }

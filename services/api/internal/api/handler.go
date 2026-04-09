@@ -1,13 +1,14 @@
 // Package api exposes the analysis results over HTTP.
 // Endpoints:
-//   GET    /health
-//   GET    /ghosts
-//   GET    /summary
-//   GET    /accounts
-//   POST   /accounts
-//   PATCH  /accounts/{id}
-//   DELETE /accounts/{id}
-//   POST   /accounts/{id}/scan
+//
+//	GET    /health
+//	GET    /ghosts
+//	GET    /summary
+//	GET    /accounts
+//	POST   /accounts
+//	PATCH  /accounts/{id}
+//	DELETE /accounts/{id}
+//	POST   /accounts/{id}/scan
 package api
 
 import (
@@ -15,16 +16,16 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/google/uuid"
 
-	"axiaops.io/shared/crypto"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/analyzer"
+	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 )
@@ -86,7 +87,7 @@ func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	ghosts, err := h.store.LoadGhosts(ctx)
 	if err != nil {
-		log.Printf("listGhosts error: %v", err)
+		slog.Error("listGhosts: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -100,7 +101,7 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	resources, err := h.store.LoadResources(ctx)
 	if err != nil {
-		log.Printf("listResources error: %v", err)
+		slog.Error("listResources: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -114,15 +115,29 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	ghosts, err := h.store.LoadGhosts(ctx)
 	if err != nil {
-		log.Printf("getSummary error: %v", err)
+		slog.Error("getSummary: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, analyzer.Summarize(ghosts))
 }
 
+// Pinger is satisfied by *postgres.Store (which embeds pgxpool.Pool).
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
+	if p, ok := h.store.(Pinger); ok {
+		if err := p.Ping(r.Context()); err != nil {
+			slog.Error("health: db ping failed", "error", err)
+			http.Error(w, `{"status":"error","db":"unreachable"}`, http.StatusServiceUnavailable)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 // listAccounts returns connected accounts for the tenant (secrets masked).
@@ -130,7 +145,7 @@ func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	accounts, err := h.store.ListAccounts(ctx)
 	if err != nil {
-		log.Printf("listAccounts error: %v", err)
+		slog.Error("listAccounts: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -185,7 +200,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 
 	ctx := storage.WithTenantID(r.Context(), tenantID)
 	if err := h.store.SaveAccount(ctx, account); err != nil {
-		log.Printf("createAccount error: %v", err)
+		slog.Error("createAccount: save failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -237,7 +252,7 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.SaveAccount(ctx, existing); err != nil {
-		log.Printf("updateAccount error: %v", err)
+		slog.Error("updateAccount: save failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -250,7 +265,7 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	if err := h.store.DeleteAccount(ctx, id); err != nil {
-		log.Printf("deleteAccount: failed to delete %s: %v", id, err)
+		slog.Error("deleteAccount: failed", "account_id", id, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -265,14 +280,14 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 
 	account, err := h.store.GetAccount(ctx, id)
 	if err != nil {
-		log.Printf("scanAccount: account %s not found: %v", id, err)
+		slog.Error("scanAccount: account not found", "account_id", id, "error", err)
 		http.Error(w, "account not found", http.StatusNotFound)
 		return
 	}
 
 	ok, err := h.store.TryMarkAccountScanning(ctx, id)
 	if err != nil {
-		log.Printf("scanAccount: try mark scanning failed for %s: %v", id, err)
+		slog.Error("scanAccount: mark scanning failed", "account_id", id, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -286,7 +301,7 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 		"tenant_id":  account.TenantID,
 	})
 	if err != nil {
-		log.Printf("scanAccount: marshal body: %v", err)
+		slog.Error("scanAccount: marshal body failed", "account_id", id, "error", err)
 		_ = h.store.UpdateAccountStatus(ctx, id, "error")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -294,29 +309,37 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 
 	ingestionURL := h.ingestionURL
 	// Use a detached context: the request context may be cancelled when the handler returns.
-	bg := storage.WithTenantID(context.Background(), tenantID)
+	// Cap at 15 minutes — ingestion service is expected to finish well within that.
+	bg, cancel := context.WithTimeout(
+		storage.WithTenantID(context.Background(), tenantID),
+		15*time.Minute,
+	)
+	slog.Info("scan.started", "account_id", id, "tenant_id", tenantID)
 	go func() {
+		defer cancel()
 		req, err := http.NewRequestWithContext(bg, http.MethodPost, ingestionURL+"/scan", bytes.NewReader(payload))
 		if err != nil {
-			log.Printf("scanAccount: build request for %s: %v", id, err)
-			_ = h.store.UpdateAccountStatus(bg, id, "error")
+			slog.Error("scan.failed", "account_id", id, "error", err)
+			_ = h.store.UpdateAccountStatus(context.Background(), id, "error")
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
+		start := time.Now()
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			log.Printf("scanAccount: ingestion request failed for %s: %v", id, err)
-			_ = h.store.UpdateAccountStatus(bg, id, "error")
+			slog.Error("scan.failed", "account_id", id, "error", err)
+			_ = h.store.UpdateAccountStatus(context.Background(), id, "error")
 			return
 		}
 		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			log.Printf("scanAccount: ingestion returned %d for %s", resp.StatusCode, id)
-			_ = h.store.UpdateAccountStatus(bg, id, "error")
+			slog.Error("scan.failed", "account_id", id, "status", resp.StatusCode)
+			_ = h.store.UpdateAccountStatus(context.Background(), id, "error")
 			return
 		}
-		_ = h.store.UpdateAccountStatus(bg, id, "connected")
+		slog.Info("scan.completed", "account_id", id, "duration_ms", time.Since(start).Milliseconds())
+		_ = h.store.UpdateAccountStatus(context.Background(), id, "connected")
 	}()
 
 	writeJSON(w, map[string]string{"status": "scanning"})

@@ -13,7 +13,7 @@ import (
 // Init configures the global slog logger.
 // JSON output when LOG_OUTPUT=json or DEV_MODE is unset; text otherwise.
 // Log level controlled by LOG_LEVEL (debug|info|warn|error), default info.
-func Init() {
+func Init(service string) {
 	level := slog.LevelInfo
 	if s := os.Getenv("LOG_LEVEL"); s != "" {
 		switch strings.ToLower(s) {
@@ -32,7 +32,14 @@ func Init() {
 	} else {
 		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
 	}
-	slog.SetDefault(slog.New(handler))
+	attrs := []any{"service", service}
+	if env := os.Getenv("APP_ENV"); env != "" {
+		attrs = append(attrs, "env", env)
+	}
+	if version := os.Getenv("APP_VERSION"); version != "" {
+		attrs = append(attrs, "version", version)
+	}
+	slog.SetDefault(slog.New(handler).With(attrs...))
 }
 
 // InitSentry initialises the Sentry SDK from environment variables.

@@ -12,16 +12,17 @@ import (
 	"strconv"
 	"time"
 
-	sentry "github.com/getsentry/sentry-go"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
-	"axiaops.io/shared/storage/sqlite"
+	sentry "github.com/getsentry/sentry-go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+const stuckScanTimeout = 15 * time.Minute
 
 // statusWriter captures the HTTP status code written by a handler.
 type statusWriter struct {
@@ -67,42 +68,39 @@ func die(msg string, args ...any) {
 }
 
 func main() {
-	logging.Init()
+	logging.Init("api")
 	flushSentry := logging.InitSentry("api")
 	defer flushSentry()
 
 	ctx := context.Background()
 
 	// ── Storage ──────────────────────────────────────────────────────────────
-	var store storage.Store
-	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
-		migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
-		if migrationURL == "" {
-			migrationURL = dbURL
-		}
-		if err := postgres.Migrate(migrationURL); err != nil {
-			die("storage: migration failed", "error", err)
-		}
-		s, err := postgres.New(ctx, dbURL)
-		if err != nil {
-			die("storage: postgres init failed", "error", err)
-		}
-		defer s.Close()
-		store = s
-		slog.Info("storage: using PostgreSQL")
-	} else {
-		dbPath := os.Getenv("DB_PATH")
-		if dbPath == "" {
-			dbPath = "axiaops.db"
-		}
-		s, err := sqlite.New(dbPath)
-		if err != nil {
-			die("storage: sqlite init failed", "error", err)
-		}
-		defer s.Close()
-		store = s
-		slog.Info("storage: using SQLite")
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		die("storage: DATABASE_URL is required (SQLite is tests-only)")
 	}
+	migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
+	if migrationURL == "" {
+		migrationURL = dbURL
+	}
+	if err := postgres.Migrate(migrationURL); err != nil {
+		die("storage: migration failed", "error", err)
+	}
+
+	// Startup recovery: reset any accounts left in "scanning" from a previous crash.
+	if n, err := postgres.ResetStuckScans(ctx, migrationURL, stuckScanTimeout); err != nil {
+		slog.Warn("startup: failed to reset stuck scans", "error", err)
+	} else if n > 0 {
+		slog.Warn("startup: reset stuck scanning accounts", "count", n)
+	}
+
+	s, err := postgres.New(ctx, dbURL)
+	if err != nil {
+		die("storage: postgres init failed", "error", err)
+	}
+	defer s.Close()
+	var store storage.Store = s
+	slog.Info("storage: using PostgreSQL")
 
 	// ── HTTP API ──────────────────────────────────────────────────────────────
 	addr := os.Getenv("API_ADDR")
@@ -139,10 +137,11 @@ func main() {
 	}
 
 	// Request logger + metrics — outermost layer so every request is recorded.
+	withReqID := middleware.RequestID(root)
 	logged := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rw := &statusWriter{ResponseWriter: w, code: 200}
-		root.ServeHTTP(rw, r)
+		withReqID.ServeHTTP(rw, r)
 
 		duration := time.Since(start).Seconds()
 		// Use the matched route pattern to avoid high-cardinality label values
@@ -158,8 +157,25 @@ func main() {
 			"route", route,
 			"status", rw.code,
 			"duration_ms", fmt.Sprintf("%.1f", duration*1000),
+			"request_id", middleware.RequestIDFromCtx(r.Context()),
 		)
 	})
+
+	// Background ticker: reset accounts stuck in "scanning" every 5 minutes.
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			n, err := postgres.ResetStuckScans(context.Background(), migrationURL, stuckScanTimeout)
+			if err != nil {
+				slog.Warn("scan-recovery: failed to reset stuck scans", "error", err)
+				continue
+			}
+			if n > 0 {
+				slog.Warn("scan-recovery: reset stuck scanning accounts", "count", n)
+			}
+		}
+	}()
 
 	slog.Info("api: listening", "addr", addr)
 	if err := http.ListenAndServe(addr, logged); err != nil {
