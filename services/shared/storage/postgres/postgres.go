@@ -22,7 +22,7 @@ type Store struct {
 }
 
 // New connects to PostgreSQL as the application user (axiaops).
-// Schema and tables are created by init.sql on first Docker startup — not here.
+// Schema and tables are created by postgres.Migrate (versioned migrations) — not here.
 // search_path is set to axiaops on every connection via AfterConnect.
 // URL format: postgres://axiaops:axiaops@host:5432/dbname
 func New(ctx context.Context, url string) (*Store, error) {
@@ -501,6 +501,11 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 		return nil, err
 	}
 	return resources, tx.Commit(ctx)
+}
+
+// Ping verifies the database connection is still alive.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
 }
 
 func (s *Store) Close() error {

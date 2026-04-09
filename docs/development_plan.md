@@ -23,13 +23,13 @@
 
 #### 1.3 Backend — Go Services ✅
 
-**Language:** Go 1.25+ | **Framework:** Standard library + `net/http` | **Data Layer:** SQLite (MVP) → PostgreSQL (production)
+**Language:** Go 1.25+ | **Framework:** Standard library + `net/http` | **Data Layer:** PostgreSQL (runtime) + SQLite (unit tests only)
 
 **Service architecture (Phase 2+):**
 
 ```
 services/
-  shared/     — model, storage interface + SQLite, analyzer (no AWS SDK)
+  shared/     — model, storage interface + Postgres + SQLite tests, analyzer (no AWS SDK)
   api/        — HTTP server, auth middleware, reads ghost_records from DB
   ingestion/  — long-lived HTTP server, fetches AWS/fixture data, writes to DB
 ```
@@ -142,24 +142,24 @@ api service (Go binary, :8080)
    │  reads ghost_records from DB, serves REST API
    │  POST /accounts/{id}/scan → triggers ingestion via HTTP
    ▼
-axiaops.db (SQLite, persisted in named Docker volume)
+PostgreSQL (persisted)
 
 ingestion service (long-lived HTTP server on :8081)
    │  POST /scan  — fetches costs + usage, runs analyzer, writes ghost_records
    ▼
-axiaops.db (same volume)
+PostgreSQL (same DB)
 ```
 
 **Key decisions:**
 - nginx proxy eliminates cross-origin requests
 - API healthcheck uses `/health` (no auth) — Docker `depends_on: service_healthy`
-- SQLite in a named Docker volume — survives container restarts
+- PostgreSQL container for local dev — survives container restarts
 - Expo web built at Docker image build time — no Node.js runtime in production
 - `EXPO_PUBLIC_*` vars passed as Docker build args — baked into static bundle
 
-**Known limitation:** SQLite serializes writes via file lock. Two services (API + ingestion) sharing the same file can cause `SQLITE_BUSY` under concurrent writes. Acceptable for solo dev; PostgreSQL migration in Phase 2 resolves this before multi-user load.
+**Note:** SQLite is retained for unit tests only (throwaway per-test DB files). Runtime uses PostgreSQL.
 
-#### 1.8 Storage Layer — SQLite ✅
+#### 1.8 Storage Layer — PostgreSQL ✅
 
 **Tables:**
 
@@ -171,26 +171,9 @@ users          — Kinde users, linked to tenant, last_seen updated on login
 accounts       — connected cloud accounts, secrets encrypted at rest
 ```
 
-**`cost_records` schema:**
-```sql
-CREATE TABLE IF NOT EXISTS cost_records (
-    id           INTEGER  PRIMARY KEY AUTOINCREMENT,
-    provider     TEXT     NOT NULL,
-    account_id   TEXT     NOT NULL,
-    service      TEXT     NOT NULL,
-    region       TEXT     NOT NULL,
-    resource_id  TEXT,
-    amount       REAL     NOT NULL,
-    currency     TEXT     NOT NULL,
-    period_start DATETIME NOT NULL,
-    period_end   DATETIME NOT NULL,
-    tags         TEXT,
-    fetched_at   DATETIME NOT NULL,
-    UNIQUE(provider, account_id, service, region, period_start, period_end)
-);
-```
+**Schema:** Versioned migrations in `services/shared/storage/postgres/migrations/` (includes RLS policies).
 
-**Duplicate handling:** `INSERT OR IGNORE` — safe to re-run ingestion for same date range.
+**Duplicate handling:** `ON CONFLICT ... DO NOTHING` — safe to re-run ingestion for same date range.
 
 **Production path:** `Store` interface (`services/shared/storage/storage.go`) is the only contract. Swapping to PostgreSQL requires a new implementation — no changes to providers, analyzer, or API.
 
@@ -323,14 +306,14 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 - Tenant + user persisted on first login
 - Dashboard login screen with PKCE flow
 
-#### 2.4 PostgreSQL Migration
+#### 2.4 PostgreSQL Migration ✅
 
 **Priority: Before auto-scan and Redis — eliminates SQLite concurrency bottleneck.**
 
-- Replace SQLite `Store` implementation with PostgreSQL
+- PostgreSQL is the runtime database; SQLite remains for unit tests only
 - Migrate all tables: `cost_records`, `ghost_records`, `tenants`, `users`, `accounts`
 - Enable Row-Level Security for tenant isolation on `accounts`, `ghost_records`, `cost_records`
-- Dev: PostgreSQL container in `docker-compose.yml` (replaces SQLite volume)
+- Dev: PostgreSQL container in `docker-compose.yml`
 - Production: RDS PostgreSQL (`db.t4g.micro`)
 - Add `services/shared/storage/postgres/migrations/` — versioned SQL migrations
 - Update `DEV_MODE` to still use fixture data but write to PostgreSQL
@@ -602,7 +585,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | Layer | Technology |
 |-------|-----------|
 | Backend | Go 1.25+ |
-| Database | SQLite (dev/test) → PostgreSQL (production) |
+| Database | PostgreSQL (runtime) + SQLite (unit tests only) |
 | Cache / Queue | Redis (`go-redis/v9`) — JWKS cache, scan job queue, rate limiting |
 | Frontend | React Native (Expo) — web first, mobile in Phase 4 |
 | Auth | Kinde (see docs/auth.md) |

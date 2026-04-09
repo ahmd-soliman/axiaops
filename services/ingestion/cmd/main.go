@@ -1,8 +1,8 @@
 // main is the entry point for the AxiaOps ingestion service.
 //
 // Modes:
-//   1. HTTP server (default) — listens on :8081, accepts POST /scan to run on demand.
-//   2. One-shot CLI          — set RUN_ONCE=true to run a single ingestion and exit.
+//  1. HTTP server (default) — listens on :8081, accepts POST /scan to run on demand.
+//  2. One-shot CLI          — set RUN_ONCE=true to run a single ingestion and exit.
 //
 // The API service triggers scans via POST /scan with {"account_id","tenant_id"}.
 // Credentials for the account are read from the accounts table in the database.
@@ -18,9 +18,6 @@ import (
 	"strconv"
 	"time"
 
-	sentry "github.com/getsentry/sentry-go"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/shared/analyzer"
@@ -29,7 +26,9 @@ import (
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
-	"axiaops.io/shared/storage/sqlite"
+	sentry "github.com/getsentry/sentry-go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Prometheus metrics for ingestion service
@@ -92,7 +91,7 @@ func die(msg string, args ...any) {
 }
 
 func main() {
-	logging.Init()
+	logging.Init("ingestion")
 	flushSentry := logging.InitSentry("ingestion")
 	defer flushSentry()
 
@@ -255,30 +254,22 @@ func runIngestion(ctx context.Context, store storage.Store, keys *scanAWS) error
 
 func newStore() storage.Store {
 	ctx := context.Background()
-	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
-		migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
-		if migrationURL == "" {
-			migrationURL = dbURL
-		}
-		if err := postgres.Migrate(migrationURL); err != nil {
-			die("storage: migration failed", "error", err)
-		}
-		s, err := postgres.New(ctx, dbURL)
-		if err != nil {
-			die("storage: postgres init failed", "error", err)
-		}
-		slog.Info("storage: using PostgreSQL")
-		return s
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		die("storage: DATABASE_URL is required (SQLite is tests-only)")
 	}
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "axiaops.db"
+	migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
+	if migrationURL == "" {
+		migrationURL = dbURL
 	}
-	s, err := sqlite.New(dbPath)
+	if err := postgres.Migrate(migrationURL); err != nil {
+		die("storage: migration failed", "error", err)
+	}
+	s, err := postgres.New(ctx, dbURL)
 	if err != nil {
-		die("storage: sqlite init failed", "error", err)
+		die("storage: postgres init failed", "error", err)
 	}
-	slog.Info("storage: using SQLite")
+	slog.Info("storage: using PostgreSQL")
 	return s
 }
 
