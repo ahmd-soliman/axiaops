@@ -23,20 +23,19 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 | Layer | Technology |
 |-------|-----------|
 | Backend | Go 1.25+ |
-| Database | SQLite (MVP) → PostgreSQL |
-| Frontend | React Native (Expo) — web + mobile |
-| Auth | Clerk or Supabase Auth (Phase 2) |
-| Hosting | Fly.io / Railway |
-| CI/CD | GitLab CI |
-| Cloud APIs | AWS Cost Explorer, Azure Cost Mgmt, GCP Billing |
+| Database | PostgreSQL 16 (with Row-Level Security) |
+| Frontend | React Native (Expo) — web |
+| Auth | Kinde OAuth 2.0 (PKCE + RS256 JWT) |
+| Hosting | AWS App Runner + RDS |
+| Cloud APIs | AWS Cost Explorer, CloudWatch |
 
 ---
 
 ## Running Locally
 
-Two ways to run: **Docker Compose** (recommended, one command) or **manually** (for development with hot reload).
+Use Docker Compose with Make commands:
 
-### Option A — Docker Compose
+### Development Mode
 
 **Dev mode (fixture data, no AWS needed):**
 
@@ -48,11 +47,12 @@ cp services/ingestion/.env.example services/ingestion/.env
 The default `.env` has `DEV_MODE=true` — no changes needed for dev mode.
 
 ```bash
-docker compose up
+make start-dev
 ```
 
-- Dashboard → `http://localhost:8081`
-- API → `http://localhost:8080`
+- Dashboard → `http://localhost`
+- API → `http://localhost/api/`
+- Ingestion → `http://localhost:8081` (internal)
 
 **Real AWS mode:**
 
@@ -66,32 +66,15 @@ AWS_REGION=eu-central-1
 Your `~/.aws/credentials` are mounted into the container automatically — no need to put keys in the `.env` file.
 
 ```bash
-docker compose up
+make start-staging
 ```
 
 To stop:
 ```bash
-docker compose down
+make stop
 ```
 
 > `.env` is gitignored — it will never be committed. See `services/ingestion/.env.example` for the full list of available variables.
-
-### Option B — Manual (dev mode, no AWS)
-
-**Prerequisites:** Go 1.25+, Node.js 20+
-
-```bash
-cd services/ingestion
-DEV_MODE=true go run ./cmd/main.go
-```
-
-```bash
-cd services/dashboard
-npm install      # first time only
-npm run web
-```
-
-Opens at `http://localhost:3000`. Press **F5** in VS Code to start both automatically.
 
 ---
 
@@ -153,49 +136,32 @@ Opens at `http://localhost:3000`. Press **F5** in VS Code to start both automati
 
 4. **Find your Account ID** — top-right corner of the AWS Console.
 
-### Option A — AWS CLI credentials (recommended)
+### Running with Real AWS
+
+Configure your AWS credentials via AWS CLI:
 
 ```bash
 aws configure
 # AWS Access Key ID: AKIA...
 # AWS Secret Access Key: ...
 # Default region: eu-central-1
-# Default output format: json
 ```
 
-Then run — the SDK picks up credentials automatically:
+Then use `make start-staging` (see "Running Locally" section above). The Docker container mounts your `~/.aws/credentials` automatically.
 
-```bash
-cd services/ingestion
-AWS_ACCOUNT_ID=123456789012 go run ./cmd/main.go
-```
+**What happens:**
 
-### Option B — Environment variables
+1. Ingestion service fetches cost data from AWS Cost Explorer (last 30 days)
+2. Fetches usage metrics from CloudWatch
+3. Stores records in PostgreSQL with tenant isolation (RLS)
+4. API serves requests at `http://localhost/api/`
 
-```bash
-cd services/ingestion
-AWS_ACCOUNT_ID=123456789012 \
-AWS_ACCESS_KEY_ID=AKIA... \
-AWS_SECRET_ACCESS_KEY=... \
-AWS_REGION=eu-central-1 \
-go run ./cmd/main.go
-```
-
-### What happens
-
-1. Fetches the last 30 days of cost data from AWS Cost Explorer
-2. Stores records in PostgreSQL (via `DATABASE_URL`)
-3. Fetches usage metrics from CloudWatch (Phase 2 shipped)
-4. Starts the API on `http://localhost:8080`
-
-### Known limitations (Phase 1)
+### Known limitations (Phase 2)
 
 | Limitation | Phase |
 |-----------|-------|
-| Usage metrics come from fixture, not CloudWatch | Phase 2 |
-| Single AWS account only | Phase 2 |
-| No auth — API is open | Phase 2 |
-| Ingestion runs once at startup, not on a schedule | Phase 2 |
+| Single AWS account only | Phase 3 |
+| AWS only (no Azure/GCP) | Phase 3 |
 
 ### Creating a Test Resource (Elastic IP)
 
@@ -244,12 +210,10 @@ You ran without `DEV_MODE=true` but forgot to set `AWS_ACCOUNT_ID`.
 ## Running Tests
 
 ```bash
-cd services/ingestion
-go test ./...           # uses cache if nothing changed
-go test ./... -count=1  # force full re-run
+make test           # All Go unit tests
+make test-postgres  # PostgreSQL integration tests (RLS, migrations)
+make test-all       # Unit + integration
 ```
-
-24 tests across 5 packages — all pass.
 
 ---
 
@@ -257,35 +221,25 @@ go test ./... -count=1  # force full re-run
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/ghosts` | List of all detected zombie resources |
-| `GET` | `/summary` | Aggregate savings and per-service breakdown |
+| `GET` | `/api/ghosts` | List of all detected zombie resources |
+| `GET` | `/api/summary` | Aggregate savings and per-service breakdown |
 
-Test with the REST Client extension: open `services/ingestion/api.http` in VS Code and click **Send Request**.
-
-**Example `/summary` response:**
-```json
-{
-  "total_ghosts": 5,
-  "potential_monthly_savings": 494.40,
-  "currency": "USD",
-  "by_service": {
-    "AmazonRDS": { "ghosts": 1, "savings": 210.00 },
-    "AmazonEC2": { "ghosts": 1, "savings": 189.60 }
-  }
-}
-```
+API is available at `http://localhost/api/` when running with Docker Compose.
 
 ---
 
-## Detection Rules (MVP)
+## Detection Rules
 
 | Service | Metric | Threshold | Verdict |
 |---------|--------|-----------|---------|
 | AmazonEC2 | CPUUtilization | ≤ 5% | Idle instance |
 | AmazonRDS | DatabaseConnections | = 0 | Abandoned database |
 | AWSLambda | Invocations | = 0 | Unused function |
-| AmazonElasticLoadBalancing | RequestCount | = 0 | Abandoned load balancer |
-| AmazonVPC | BytesOutToDestination | = 0 | Unused NAT Gateway |
+| ELB | RequestCount | = 0 | Abandoned load balancer |
+| VPC (NAT) | BytesOutToDestination | = 0 | Unused NAT Gateway |
+| VPC (EIP) | NetworkInterfaceAttachment | = 0 | Unattached EIP |
+
+> Rules do not change without business justification. See `CLAUDE.md` for FinOps domain thresholds.
 
 ---
 
@@ -294,15 +248,11 @@ Test with the REST Client extension: open `services/ingestion/api.http` in VS Co
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEV_MODE` | `false` | `true` → use file fixtures instead of real AWS |
-| `FIXTURE_PATH` | `fixtures/costs.json` | Path to cost fixture file |
-| `USAGE_PATH` | `fixtures/usage.json` | Path to usage fixture file |
-| `DATABASE_URL` | — | PostgreSQL connection string used by API + ingestion |
-| `MIGRATION_DATABASE_URL` | — | Owner/admin PostgreSQL connection string used to run migrations |
-| `API_ADDR` | `:8080` | HTTP server listen address |
+| `DATABASE_URL` | — | PostgreSQL connection string (app user) |
+| `MIGRATION_DATABASE_URL` | — | PostgreSQL connection string (owner/admin, migrations only) |
+| `ENCRYPTION_KEY` | — | 32-byte hex key for AES-256-GCM (AWS secrets encryption) |
 | `AWS_ACCOUNT_ID` | — | Required when `DEV_MODE=false` |
-| `DAYS_BACK` | `30` | How many days back to fetch (overrides default 30-day window) |
-| `START_DATE` | — | Explicit start date `YYYY-MM-DD` (use with `END_DATE`) |
-| `END_DATE` | — | Explicit end date `YYYY-MM-DD` (use with `START_DATE`) |
+| `AWS_REGION` | `eu-central-1` | AWS region |
 
 ---
 
@@ -310,55 +260,58 @@ Test with the REST Client extension: open `services/ingestion/api.http` in VS Co
 
 ```
 axiaops/
-├── docker-compose.yml              # One-command local stack
-├── dev.sh                          # Alternative: shell script start/stop
+├── Makefile                        # Build targets (start-dev, test, etc.)
+├── docker-compose.yml              # Docker Compose stack (postgres, ingestion, api, dashboard)
+├── go.work                         # Go workspace (api, ingestion, shared)
 ├── services/
-│   ├── ingestion/                  # Go — cost ingestion + analysis + API
-│   │   ├── cmd/main.go             # Entry point
-│   │   ├── fixtures/
-│   │   │   ├── costs.json          # Cost records fixture (dev)
-│   │   │   └── usage.json          # Usage metrics fixture (dev)
+│   ├── api/                        # Go API service (:8080)
+│   │   ├── cmd/main.go
+│   │   └── internal/handlers/      # REST endpoints + auth middleware
+│   ├── ingestion/                  # Go ingestion service (:8081)
+│   │   ├── cmd/main.go
+│   │   ├── fixtures/               # Dev mode: costs.json, usage.json
 │   │   └── internal/
-│   │       ├── analyzer/           # Zombie detection logic + tests
-│   │       ├── api/                # HTTP handlers + tests
-│   │       ├── model/              # Shared types (CostRecord, GhostResource)
-│   │       ├── provider/           # AWS Cost Explorer + file fixture + tests
-│   │       └── storage/sqlite/     # SQLite store + tests
-│   └── dashboard/                  # Expo — React Native web dashboard
+│   │       ├── analyzer/           # Zombie detection thresholds
+│   │       ├── aws/                # CloudWatch + Cost Explorer clients
+│   │       └── scheduler/          # Periodic scans
+│   ├── shared/                     # Go shared library
+│   │   ├── storage/postgres/       # PostgreSQL + RLS
+│   │   ├── crypto/                 # AES-256-GCM encryption
+│   │   ├── model/                  # Domain types
+│   │   └── logging/                # slog helpers
+│   └── dashboard/                  # React Native (Expo) web app (nginx :80)
 │       └── src/
-│           ├── api/client.js       # Fetch wrapper for the Go API
-│           └── screens/
-│               ├── DashboardScreen.js  # Savings banner + ghost list
-│               └── DetailScreen.js    # Resource detail + remediation hint
-├── scripts/
-│   └── create_user_stories.py      # Creates GitLab issues via API
-└── docs/                           # Architecture, business plan, tax strategy
+│           ├── screens/
+│           └── components/
+├── docs/                           # Architecture, deployment, business plan
+└── scripts/                        # Tooling (migrations, seed data)
 ```
 
 ---
 
 ## Roadmap
 
-### Phase 1 — MVP (April – June 2026)
+### Phase 1 — MVP ✅ Complete
 - [x] Cost + usage fixture data
-- [x] Go ingestion service with SQLite storage and deduplication
+- [x] Go ingestion service with PostgreSQL and RLS
 - [x] Zombie detection with per-service threshold rules
-- [x] REST API (`/ghosts`, `/summary`) with CORS
-- [x] React Native web dashboard (dark navy + orange design)
-- [x] Unit tests — 24 tests across 5 packages
-- [x] Docker Compose — single command runs everything
+- [x] REST API (`/api/ghosts`, `/api/summary`)
+- [x] React Native web dashboard
+- [x] Docker Compose setup
+- [x] Comprehensive test coverage
 
-### Phase 2 — Alpha (July – September 2026)
-- [ ] Real AWS Cost Explorer + CloudWatch integration
-- [ ] Auth + multi-tenancy (Clerk or Supabase)
-- [ ] Multi-account support (cross-account IAM role assumption)
-- [ ] Weekly email digest
+### Phase 2 — Alpha (in progress)
+- [x] Real AWS Cost Explorer + CloudWatch integration
+- [x] Kinde OAuth 2.0 auth + multi-tenancy (RLS)
+- [x] Ingestion scheduled scans
+- [ ] Production deployment (App Runner + RDS)
+- [ ] Observability (CloudWatch logs + metrics)
 
-### Phase 3 — Beta / Launch (October – December 2026)
+### Phase 3 — Beta / Launch
+- [ ] Multi-cloud (Azure, GCP)
 - [ ] Mobile app (iOS + Android)
-- [ ] Azure and GCP support
-- [ ] Remediation workflow (dismiss, delegate, one-click CLI commands)
-- [ ] PDF savings reports
+- [ ] Remediation workflow (dismiss, delegate, runbooks)
+- [ ] Advanced reporting + audit trail
 
 ---
 
@@ -376,4 +329,4 @@ axiaops/
 
 ## Status
 
-**Incubator phase — April 2026.** Phase 1 complete, ahead of schedule.
+**Phase 2 (Alpha) — April 2026.** Phase 1 complete. Real AWS integration shipped; working on production deployment and observability.
