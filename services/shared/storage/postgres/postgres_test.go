@@ -500,6 +500,31 @@ func TestAccount_UpdateStatus(t *testing.T) {
 	}
 }
 
+func TestAccount_TryMarkAccountScanning(t *testing.T) {
+	s := newTestStore(t)
+	ctx, tenant := newTenantCtx(t, s)
+
+	a := testAccount(tenant.ID)
+	if err := s.SaveAccount(ctx, a); err != nil {
+		t.Fatalf("SaveAccount: %v", err)
+	}
+
+	ok, err := s.TryMarkAccountScanning(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("TryMarkAccountScanning first: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected first TryMarkAccountScanning to succeed")
+	}
+	ok2, err := s.TryMarkAccountScanning(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("TryMarkAccountScanning second: %v", err)
+	}
+	if ok2 {
+		t.Fatal("expected second TryMarkAccountScanning to fail while already scanning")
+	}
+}
+
 func TestAccount_TenantIsolation(t *testing.T) {
 	if !rlsEnforced() {
 		t.Skip("skipping: requires TEST_STORE_URL (non-superuser) for RLS enforcement")

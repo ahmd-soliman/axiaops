@@ -21,6 +21,8 @@ type stubStore struct {
 	ghosts        []model.GhostResource
 	accounts      []model.Account
 	getAccountErr error
+	// tryMarkBusy simulates TryMarkAccountScanning losing the race (account already scanning).
+	tryMarkBusy bool
 }
 
 func (s *stubStore) Save(_ context.Context, _ []model.CostRecord) (int64, error) { return 0, nil }
@@ -57,6 +59,12 @@ func (s *stubStore) GetAccount(_ context.Context, id string) (model.Account, err
 }
 func (s *stubStore) DeleteAccount(_ context.Context, _ string) error                  { return nil }
 func (s *stubStore) UpdateAccountStatus(_ context.Context, _, _ string) error         { return nil }
+func (s *stubStore) TryMarkAccountScanning(_ context.Context, _ string) (bool, error) {
+	if s.tryMarkBusy {
+		return false, nil
+	}
+	return true, nil
+}
 func (s *stubStore) SaveResources(_ context.Context, _ []model.ResourceRecord) error  { return nil }
 func (s *stubStore) LoadResources(_ context.Context) ([]model.ResourceRecord, error)  { return nil, nil }
 func (s *stubStore) Close() error                                                      { return nil }
@@ -472,5 +480,27 @@ func TestScanAccount_AccountNotFound_Returns404(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
+	store := &stubStore{
+		tryMarkBusy: true,
+		accounts: []model.Account{
+			{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1", Status: "scanning"},
+		},
+	}
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/accounts/acc-1/scan"))
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d — body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "scan already in progress") {
+		t.Errorf("expected conflict message in body, got: %s", w.Body.String())
 	}
 }

@@ -109,6 +109,34 @@ integrates with Supabase Auth).
 
 ---
 
+## RDS vs Aurora PostgreSQL
+
+When moving to AWS-hosted PostgreSQL, the choice is between RDS PostgreSQL and Aurora PostgreSQL.
+
+| | RDS PostgreSQL | Aurora PostgreSQL |
+|---|---|---|
+| Cost (db.t3.micro) | ~$15/month | ~$45/month minimum |
+| Minimum storage | Pay per GB used | 10 GB always billed |
+| Storage scaling | Manual resize | Automatic |
+| Multi-AZ failover | ~60–120s | ~30s |
+| Read replicas | Supported | Supported (lag ~10ms lower) |
+| Complexity | Simple, single instance | Cluster with writer + reader endpoints |
+| When it pays off | < 1M rows, single region | High read traffic, multiple tenants |
+
+**Decision: use RDS PostgreSQL.**
+
+Aurora costs 3× more with no meaningful benefit at AxiaOps's current scale.
+The workload is write-heavy (ingestion) with low read concurrency — exactly
+the profile where Aurora's advantages (read replicas, faster failover) don't
+apply yet.
+
+Revisit Aurora when:
+- Read query latency becomes measurable (many concurrent tenants)
+- You need multiple read replicas for reporting queries
+- Monthly DB cost is already >$100 (Aurora overhead becomes proportionally smaller)
+
+---
+
 ## Environment Variables (Production)
 
 | Variable | Dev default | Production value |

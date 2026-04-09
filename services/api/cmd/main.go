@@ -5,12 +5,19 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
+	"time"
 
+	sentry "github.com/getsentry/sentry-go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/middleware"
+	"axiaops.io/shared/logging"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
 	"axiaops.io/shared/storage/sqlite"
@@ -27,7 +34,43 @@ func (sw *statusWriter) WriteHeader(code int) {
 	sw.ResponseWriter.WriteHeader(code)
 }
 
+// Prometheus metrics
+var (
+	apiRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "axiaops_api_requests_total",
+			Help: "Total number of API requests received.",
+		},
+		[]string{"method", "route", "status"},
+	)
+
+	apiRequestDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name: "axiaops_api_request_duration_seconds",
+			Help: "API request latencies in seconds.",
+		},
+		[]string{"method", "route"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(apiRequestsTotal)
+	prometheus.MustRegister(apiRequestDurationSeconds)
+}
+
+// die logs a fatal error, flushes Sentry, and exits with code 1.
+// Safe to call at any point — sentry.Flush is a no-op if Sentry is not initialised.
+func die(msg string, args ...any) {
+	slog.Error(msg, args...)
+	sentry.Flush(2 * time.Second)
+	os.Exit(1)
+}
+
 func main() {
+	logging.Init()
+	flushSentry := logging.InitSentry("api")
+	defer flushSentry()
+
 	ctx := context.Background()
 
 	// ── Storage ──────────────────────────────────────────────────────────────
@@ -38,15 +81,15 @@ func main() {
 			migrationURL = dbURL
 		}
 		if err := postgres.Migrate(migrationURL); err != nil {
-			log.Fatalf("storage: migration failed: %v", err)
+			die("storage: migration failed", "error", err)
 		}
 		s, err := postgres.New(ctx, dbURL)
 		if err != nil {
-			log.Fatalf("storage: postgres init failed: %v", err)
+			die("storage: postgres init failed", "error", err)
 		}
 		defer s.Close()
 		store = s
-		log.Println("storage: using PostgreSQL")
+		slog.Info("storage: using PostgreSQL")
 	} else {
 		dbPath := os.Getenv("DB_PATH")
 		if dbPath == "" {
@@ -54,11 +97,11 @@ func main() {
 		}
 		s, err := sqlite.New(dbPath)
 		if err != nil {
-			log.Fatalf("storage: sqlite init failed: %v", err)
+			die("storage: sqlite init failed", "error", err)
 		}
 		defer s.Close()
 		store = s
-		log.Println("storage: using SQLite")
+		slog.Info("storage: using SQLite")
 	}
 
 	// ── HTTP API ──────────────────────────────────────────────────────────────
@@ -70,39 +113,56 @@ func main() {
 	mux := http.NewServeMux()
 	h := api.New(store)
 	h.Register(mux)
+	mux.Handle("/metrics", promhttp.Handler())
 
 	// ── Auth ──────────────────────────────────────────────────────────────────
 	var root http.Handler = h.Handler(mux)
 	if os.Getenv("DEV_MODE") == "true" {
 		devTenantID := os.Getenv("DEV_TENANT_ID")
 		if devTenantID == "" {
-			log.Fatal("auth: DEV_MODE=true requires DEV_TENANT_ID to be set")
+			die("auth: DEV_MODE=true requires DEV_TENANT_ID to be set")
 		}
-		log.Printf("auth: DEV_MODE — bypassing auth, tenant=%s", devTenantID)
+		slog.Warn("auth: DEV_MODE — bypassing auth", "tenant", devTenantID)
 		root = middleware.DevBypass(devTenantID, root)
 	} else {
 		kindeIssuer := os.Getenv("KINDE_ISSUER")
 		if kindeIssuer == "" {
-			log.Println("auth: KINDE_ISSUER not set — running without authentication")
+			slog.Warn("auth: KINDE_ISSUER not set — running without authentication")
 		} else {
 			auth, err := middleware.NewAuth(ctx, kindeIssuer, store)
 			if err != nil {
-				log.Fatalf("auth: init failed: %v", err)
+				die("auth: init failed", "error", err)
 			}
-			log.Printf("auth: JWT verification enabled (issuer: %s)", kindeIssuer)
+			slog.Info("auth: JWT verification enabled", "issuer", kindeIssuer)
 			root = auth.Wrap(root)
 		}
 	}
 
-	// Request logger — outermost layer so every request is visible.
+	// Request logger + metrics — outermost layer so every request is recorded.
 	logged := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
 		rw := &statusWriter{ResponseWriter: w, code: 200}
 		root.ServeHTTP(rw, r)
-		log.Printf("%s %s → %d", r.Method, r.URL.Path, rw.code)
+
+		duration := time.Since(start).Seconds()
+		// Use the matched route pattern to avoid high-cardinality label values
+		// (e.g. "/accounts/{id}/scan" instead of "/accounts/abc-123/scan").
+		_, route := mux.Handler(r)
+		status := strconv.Itoa(rw.code)
+		apiRequestsTotal.WithLabelValues(r.Method, route, status).Inc()
+		apiRequestDurationSeconds.WithLabelValues(r.Method, route).Observe(duration)
+
+		slog.Info("api: request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"route", route,
+			"status", rw.code,
+			"duration_ms", fmt.Sprintf("%.1f", duration*1000),
+		)
 	})
 
-	log.Printf("api: listening on %s", addr)
+	slog.Info("api: listening", "addr", addr)
 	if err := http.ListenAndServe(addr, logged); err != nil {
-		log.Fatalf("api: server error: %v", err)
+		die("api: server error", "error", err)
 	}
 }
