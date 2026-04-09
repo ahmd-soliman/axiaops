@@ -2,6 +2,36 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Make: stop",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["stop"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Make: start-dev",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["start-dev"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Make: start-staging",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["start-staging"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
       "name": "AxiaOps",
       "type": "go",
       "request": "launch",
@@ -12,7 +42,169 @@
         "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
         "API_ADDR": ":8080"
       },
-      "preLaunchTask": "Prepare"
+    },
+    {
+      "name": "AxiaOps (staging)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/services/api/cmd/main.go",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080",
+        "DEV_MODE": "false"
+      },
+    },
+    {
+      "name": "API Test / Handler",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/services/api/internal/api",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080"
+      },
+      "args": ["-test.v"]
+    },
+    {
+      "name": "API Test / Middleware",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/services/api/internal/middleware",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080"
+      },
+      "args": ["-test.v"]
+    },
+    {
+      "name": "Ingestion Test / Handler",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/services/ingestion/internal/api",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080"
+      },
+      "args": ["-test.v"]
+    },
+    {
+      "name": "Ingestion Test / Middleware",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/services/ingestion/internal/middleware",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080"
+      },
+      "args": ["-test.v"]
+    },
+    {
+      "name": "Ingestion Test / Analyzer",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/services/ingestion/internal/analyzer",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080"
+      },
+      "args": ["-test.v"]
+    },
+    {
+      "name": "Ingestion Test / AWS",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/services/ingestion/internal/provider/aws",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080"
+      },
+      "args": ["-test.v"]
+    },
+    {
+      "name": "Ingestion Test / SQLite",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/services/ingestion/internal/storage/sqlite",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080"
+      },
+      "args": ["-test.v"]
+    },
+    {
+      "name": "Shared Test / Analyzer",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/services/shared/analyzer",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080"
+      },
+      "args": ["-test.v"]
+    },
+    {
+      "name": "Shared Test / Postgres",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/services/shared/storage/postgres",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
+        "API_ADDR": ":8080",
+        "TEST_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable",
+        "TEST_STORE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable"
+      },
+      "args": ["-test.v"]
+    },
+    {
+      "name": "Shared Test / SQLite",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/services/shared/storage/sqlite",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops",
+        "API_ADDR": ":8080"
+      },
+      "args": ["-test.v"]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Unit-Tests",
+      "configurations": [
+        "API Test / Handler",
+        "API Test / Middleware",
+        "Ingestion Test / Handler",
+        "Ingestion Test / Middleware",
+        "Ingestion Test / Analyzer",
+        "Ingestion Test / AWS",
+        "Ingestion Test / SQLite",
+        "Shared Test / Analyzer",
+        "Shared Test / Postgres",
+        "Shared Test / SQLite"
+      ],
+      "stopAll": true
     }
   ]
 }

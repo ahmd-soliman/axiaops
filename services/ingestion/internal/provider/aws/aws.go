@@ -14,6 +14,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
@@ -36,6 +37,32 @@ type Client struct {
 // resolves the account ID automatically via sts:GetCallerIdentity.
 func New(ctx context.Context) (*Client, error) {
 	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("aws: load config: %w", err)
+	}
+	out, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return nil, fmt.Errorf("aws: GetCallerIdentity: %w", err)
+	}
+	accountID := aws.ToString(out.Account)
+	log.Printf("aws: resolved account ID %s", accountID)
+	return &Client{
+		accountID: accountID,
+		ce:        costexplorer.NewFromConfig(cfg),
+		cw:        cloudwatchsdk.NewFromConfig(cfg),
+	}, nil
+}
+
+// NewWithStaticCredentials builds a Client using the given access key (e.g. per-tenant scan)
+// without mutating process-wide environment variables.
+func NewWithStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey, region string) (*Client, error) {
+	if region == "" {
+		region = "us-east-1"
+	}
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, "")),
+		config.WithRegion(region),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("aws: load config: %w", err)
 	}

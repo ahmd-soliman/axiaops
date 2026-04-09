@@ -12,28 +12,95 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
 
+	sentry "github.com/getsentry/sentry-go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/crypto"
+	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
 	"axiaops.io/shared/storage/sqlite"
 )
 
+// Prometheus metrics for ingestion service
+var (
+	// axiaops_ingestion_records_fetched_total: Total number of cost records fetched.
+	// Labels: provider, tenant_id.
+	ingestionRecordsFetchedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "axiaops_ingestion_records_fetched_total",
+			Help: "Total number of cost records fetched by the ingestion service.",
+		},
+		[]string{"provider", "tenant_id"},
+	)
+
+	// axiaops_ingestion_records_saved_total: Total number of cost records successfully saved to the database.
+	// Labels: provider, tenant_id, status (inserted/skipped).
+	ingestionRecordsSavedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "axiaops_ingestion_records_saved_total",
+			Help: "Total number of cost records saved to the database.",
+		},
+		[]string{"provider", "tenant_id", "status"},
+	)
+
+	// axiaops_ghosts_detected_total: Total number of ghost resources detected in the current scan.
+	// Labels: tenant_id, provider.
+	ingestionGhostsDetectedTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "axiaops_ingestion_ghosts_detected_total",
+			Help: "Total number of ghost resources detected in the current scan.",
+		},
+		[]string{"tenant_id", "provider"},
+	)
+
+	// axiaops_potential_monthly_savings_usd: Current potential monthly savings in USD.
+	// Labels: tenant_id, provider.
+	ingestionPotentialMonthlySavings = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "axiaops_potential_monthly_savings_usd",
+			Help: "Current potential monthly savings in USD.",
+		},
+		[]string{"tenant_id", "provider"},
+	)
+)
+
+func init() {
+	// Register ingestion metrics with the default Prometheus registry.
+	prometheus.MustRegister(ingestionRecordsFetchedTotal)
+	prometheus.MustRegister(ingestionRecordsSavedTotal)
+	prometheus.MustRegister(ingestionGhostsDetectedTotal)
+	prometheus.MustRegister(ingestionPotentialMonthlySavings)
+}
+
+// die logs a fatal error, flushes Sentry, and exits with code 1.
+// Safe to call at any point — sentry.Flush is a no-op if Sentry is not initialised.
+func die(msg string, args ...any) {
+	slog.Error(msg, args...)
+	sentry.Flush(2 * time.Second)
+	os.Exit(1)
+}
+
 func main() {
+	logging.Init()
+	flushSentry := logging.InitSentry("ingestion")
+	defer flushSentry()
+
 	store := newStore()
 
 	if os.Getenv("RUN_ONCE") == "true" {
-		if err := runIngestion(context.Background(), store); err != nil {
-			log.Fatalf("ingestion: %v", err)
+		if err := runIngestion(context.Background(), store, nil); err != nil {
+			die("ingestion: one-shot run failed", "error", err)
 		}
 		return
 	}
@@ -43,12 +110,16 @@ func main() {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	// Metrics handler
+	mux.Handle("GET /metrics", promhttp.Handler())
+
 	mux.HandleFunc("POST /scan", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			AccountID string `json:"account_id"`
 			TenantID  string `json:"tenant_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			slog.Error("scan: invalid request", "error", err)
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
@@ -57,28 +128,29 @@ func main() {
 
 		account, err := store.GetAccount(ctx, req.AccountID)
 		if err != nil {
-			log.Printf("scan: account %s not found: %v", req.AccountID, err)
+			slog.Error("scan: account not found", "account_id", req.AccountID, "error", err)
 			http.Error(w, "account not found", http.StatusNotFound)
 			return
 		}
 
 		if account.SecretEncrypted == "" {
-			log.Printf("scan: account %s has no secret configured", req.AccountID)
+			slog.Warn("scan: account has no secret configured", "account_id", req.AccountID)
 			http.Error(w, "no credentials configured", http.StatusUnprocessableEntity)
 			return
 		}
 		secret, err := crypto.Decrypt(account.SecretEncrypted)
 		if err != nil {
-			log.Printf("scan: decrypt failed: %v", err)
+			slog.Error("scan: decrypt failed", "account_id", req.AccountID, "error", err)
 			http.Error(w, "credential error", http.StatusInternalServerError)
 			return
 		}
-		os.Setenv("AWS_ACCESS_KEY_ID", account.AccessKeyID)
-		os.Setenv("AWS_SECRET_ACCESS_KEY", secret)
-		os.Setenv("AWS_DEFAULT_REGION", account.Region)
 
-		if err := runIngestion(ctx, store); err != nil {
-			log.Printf("scan: ingestion failed: %v", err)
+		if err := runIngestion(ctx, store, &scanAWS{
+			AccessKeyID: account.AccessKeyID,
+			SecretKey:   secret,
+			Region:      account.Region,
+		}); err != nil {
+			slog.Error("scan: ingestion failed", "account_id", req.AccountID, "error", err)
 			http.Error(w, "ingestion failed", http.StatusInternalServerError)
 			return
 		}
@@ -89,17 +161,30 @@ func main() {
 	if port == "" {
 		port = "8081"
 	}
-	log.Printf("ingestion: listening on :%s", port)
+	slog.Info("ingestion: listening", "port", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		log.Fatalf("ingestion: server failed: %v", err)
+		die("ingestion: server failed", "error", err)
 	}
 }
 
+// scanAWS supplies per-account static credentials for POST /scan. Nil uses the default chain (env, shared config).
+type scanAWS struct {
+	AccessKeyID string
+	SecretKey   string
+	Region      string
+}
+
 // runIngestion fetches costs, detects ghosts, and writes results to the store.
-func runIngestion(ctx context.Context, store storage.Store) error {
+func runIngestion(ctx context.Context, store storage.Store, keys *scanAWS) error {
 	var providers []provider.Provider
 
-	awsClient, err := aws.New(ctx)
+	var awsClient *aws.Client
+	var err error
+	if keys != nil {
+		awsClient, err = aws.NewWithStaticCredentials(ctx, keys.AccessKeyID, keys.SecretKey, keys.Region)
+	} else {
+		awsClient, err = aws.New(ctx)
+	}
 	if err != nil {
 		return fmt.Errorf("aws init: %w", err)
 	}
@@ -114,7 +199,7 @@ func runIngestion(ctx context.Context, store storage.Store) error {
 		}
 		tenantID = tenant.ID
 		ctx = storage.WithTenantID(ctx, tenantID)
-		log.Printf("ingestion: using auto-created tenant %s (%s)", tenantID, orgCode)
+		slog.Info("ingestion: using auto-created tenant", "tenant_id", tenantID, "org_code", orgCode)
 	}
 
 	end, start := dateRange()
@@ -123,7 +208,7 @@ func runIngestion(ctx context.Context, store storage.Store) error {
 	for _, p := range providers {
 		records, err := p.FetchCosts(ctx, start, end)
 		if err != nil {
-			log.Printf("[%s] fetch failed: %v", p.Name(), err)
+			slog.Error("fetch failed", "provider", p.Name(), "error", err)
 			continue
 		}
 		inserted, saveErr := store.Save(ctx, records)
@@ -131,8 +216,11 @@ func runIngestion(ctx context.Context, store storage.Store) error {
 			return fmt.Errorf("[%s] save failed: %w", p.Name(), saveErr)
 		}
 		skipped := int64(len(records)) - inserted
-		log.Printf("[%s] fetched %d records — inserted %d, skipped %d duplicates",
-			p.Name(), len(records), inserted, skipped)
+		slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted, "skipped", skipped)
+		ingestionRecordsFetchedTotal.WithLabelValues(p.Name(), tenantID).Add(float64(len(records)))
+		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), tenantID, "inserted").Add(float64(inserted))
+		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), tenantID, "skipped").Add(float64(skipped))
+
 		allRecords = append(allRecords, records...)
 	}
 
@@ -140,7 +228,7 @@ func runIngestion(ctx context.Context, store storage.Store) error {
 	if err != nil {
 		return fmt.Errorf("fetch usage from cloudwatch: %w", err)
 	}
-	log.Printf("analysis: fetched %d usage records from cloudwatch", len(usage))
+	slog.Info("analysis: fetched usage records", "count", len(usage))
 
 	ghosts := analyzer.Detect(allRecords, usage)
 
@@ -148,19 +236,20 @@ func runIngestion(ctx context.Context, store storage.Store) error {
 	ghosts = append(ghosts, eipGhosts...)
 
 	summary := analyzer.Summarize(ghosts)
-	log.Printf("analysis: %d ghost resources — potential savings %.2f %s/month",
-		summary.TotalGhosts, summary.PotentialMonthlySave, summary.Currency)
+	slog.Info("analysis: detected ghost resources", "total", summary.TotalGhosts, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
+	ingestionGhostsDetectedTotal.WithLabelValues(tenantID, awsClient.Name()).Set(float64(summary.TotalGhosts))
+	ingestionPotentialMonthlySavings.WithLabelValues(tenantID, awsClient.Name()).Set(summary.PotentialMonthlySave)
 
 	if err := store.SaveGhosts(ctx, ghosts); err != nil {
 		return fmt.Errorf("save ghosts: %w", err)
 	}
-	log.Printf("storage: saved %d ghost records", len(ghosts))
+	slog.Info("storage: saved ghost records", "count", len(ghosts))
 
 	resources := analyzer.AnnotateAll(allRecords, usage, ghosts)
 	if err := store.SaveResources(ctx, resources); err != nil {
 		return fmt.Errorf("save resources: %w", err)
 	}
-	log.Printf("storage: saved %d resource records (%d ghosts)", len(resources), len(ghosts))
+	slog.Info("storage: saved resource records", "total", len(resources), "ghosts", len(ghosts))
 	return nil
 }
 
@@ -172,13 +261,13 @@ func newStore() storage.Store {
 			migrationURL = dbURL
 		}
 		if err := postgres.Migrate(migrationURL); err != nil {
-			log.Fatalf("storage: migration failed: %v", err)
+			die("storage: migration failed", "error", err)
 		}
 		s, err := postgres.New(ctx, dbURL)
 		if err != nil {
-			log.Fatalf("storage: postgres init failed: %v", err)
+			die("storage: postgres init failed", "error", err)
 		}
-		log.Println("storage: using PostgreSQL")
+		slog.Info("storage: using PostgreSQL")
 		return s
 	}
 	dbPath := os.Getenv("DB_PATH")
@@ -187,9 +276,9 @@ func newStore() storage.Store {
 	}
 	s, err := sqlite.New(dbPath)
 	if err != nil {
-		log.Fatalf("storage: sqlite init failed: %v", err)
+		die("storage: sqlite init failed", "error", err)
 	}
-	log.Println("storage: using SQLite")
+	slog.Info("storage: using SQLite")
 	return s
 }
 
@@ -200,12 +289,12 @@ func dateRange() (end, start time.Time) {
 	if s, e := os.Getenv("START_DATE"), os.Getenv("END_DATE"); s != "" && e != "" {
 		parsed, err := time.Parse(layout, s)
 		if err != nil {
-			log.Fatalf("START_DATE invalid: %v", err)
+			die("START_DATE invalid", "date", s, "error", err)
 		}
 		start = parsed
 		parsed, err = time.Parse(layout, e)
 		if err != nil {
-			log.Fatalf("END_DATE invalid: %v", err)
+			die("END_DATE invalid", "date", e, "error", err)
 		}
 		end = parsed
 		return
@@ -215,7 +304,7 @@ func dateRange() (end, start time.Time) {
 	if d := os.Getenv("DAYS_BACK"); d != "" {
 		n, err := strconv.Atoi(d)
 		if err != nil || n < 1 {
-			log.Fatalf("DAYS_BACK must be a positive integer, got: %s", d)
+			die("DAYS_BACK must be a positive integer", "value", d)
 		}
 		days = n
 	}

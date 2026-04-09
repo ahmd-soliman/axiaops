@@ -11,11 +11,13 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -268,22 +270,53 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.UpdateAccountStatus(ctx, id, "scanning"); err != nil {
-		log.Printf("scanAccount: update status failed for %s: %v", id, err)
+	ok, err := h.store.TryMarkAccountScanning(ctx, id)
+	if err != nil {
+		log.Printf("scanAccount: try mark scanning failed for %s: %v", id, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "scan already in progress", http.StatusConflict)
+		return
+	}
+
+	payload, err := json.Marshal(map[string]string{
+		"account_id": account.ID,
+		"tenant_id":  account.TenantID,
+	})
+	if err != nil {
+		log.Printf("scanAccount: marshal body: %v", err)
+		_ = h.store.UpdateAccountStatus(ctx, id, "error")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	// Trigger ingestion asynchronously.
+	ingestionURL := h.ingestionURL
+	// Use a detached context: the request context may be cancelled when the handler returns.
+	bg := storage.WithTenantID(context.Background(), tenantID)
 	go func() {
-		body := strings.NewReader(`{"account_id":"` + account.ID + `","tenant_id":"` + account.TenantID + `"}`)
-		resp, err := http.Post(h.ingestionURL+"/scan", "application/json", body)
-		if err != nil || resp.StatusCode != http.StatusOK {
-			log.Printf("scanAccount: ingestion request failed for %s: %v", id, err)
-			_ = h.store.UpdateAccountStatus(ctx, id, "error")
+		req, err := http.NewRequestWithContext(bg, http.MethodPost, ingestionURL+"/scan", bytes.NewReader(payload))
+		if err != nil {
+			log.Printf("scanAccount: build request for %s: %v", id, err)
+			_ = h.store.UpdateAccountStatus(bg, id, "error")
 			return
 		}
-		_ = h.store.UpdateAccountStatus(ctx, id, "connected")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			log.Printf("scanAccount: ingestion request failed for %s: %v", id, err)
+			_ = h.store.UpdateAccountStatus(bg, id, "error")
+			return
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("scanAccount: ingestion returned %d for %s", resp.StatusCode, id)
+			_ = h.store.UpdateAccountStatus(bg, id, "error")
+			return
+		}
+		_ = h.store.UpdateAccountStatus(bg, id, "connected")
 	}()
 
 	writeJSON(w, map[string]string{"status": "scanning"})

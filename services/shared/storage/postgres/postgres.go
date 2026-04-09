@@ -383,6 +383,30 @@ func (s *Store) UpdateAccountStatus(ctx context.Context, id, status string) erro
 	return tx.Commit(ctx)
 }
 
+// TryMarkAccountScanning sets status to scanning only if the account is not already scanning.
+func (s *Store) TryMarkAccountScanning(ctx context.Context, id string) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := setTenant(ctx, tx); err != nil {
+		return false, err
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE accounts SET status = 'scanning', last_scanned_at = NOW()
+		WHERE id = $1 AND status <> 'scanning'`, id)
+	if err != nil {
+		return false, fmt.Errorf("postgres: try mark account scanning: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("postgres: commit: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // SaveResources replaces the tenant's resource records with the latest inventory.
 func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRecord) error {
 	tenantID := storage.TenantIDFromCtx(ctx)

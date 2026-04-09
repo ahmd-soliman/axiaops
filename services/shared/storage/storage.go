@@ -64,6 +64,10 @@ type Store interface {
 	// UpdateAccountStatus sets the status and last_scanned_at for an account.
 	UpdateAccountStatus(ctx context.Context, id, status string) error
 
+	// TryMarkAccountScanning sets status to scanning only if not already scanning.
+	// Returns true when the row was updated; false when another scan is in progress.
+	TryMarkAccountScanning(ctx context.Context, id string) (bool, error)
+
 	// SaveResources replaces all resource records with the latest inventory.
 	// Called by the ingestion job after each analysis run.
 	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.

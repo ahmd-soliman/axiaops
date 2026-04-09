@@ -112,6 +112,59 @@ AWS-managed identity service. Part of the AWS ecosystem.
 
 ---
 
+## Login Screen
+
+### Option A — Branded hosted UI (current approach)
+
+- Upload logo and set brand colors in the Kinde dashboard → Settings → Design
+- Set a custom domain: `login.axiaops.io` → CNAME pointing to Kinde
+- Zero code, looks professional, done in 10 minutes
+- **This is what AxiaOps uses now**
+
+#### Setup steps
+
+**Step 1 — Logo**
+
+Kinde dashboard → Settings → Design → Brand assets
+
+Upload: `services/dashboard/assets/icon.png`
+
+**Step 2 — Brand colors**
+
+| Field | Value |
+|---|---|
+| Primary / Button color | `#F97316` (orange — matches login button) |
+| Background | `#0F172A` (dark navy — matches app background) |
+| Text on background | `#FFFFFF` |
+| Muted text | `#94A3B8` |
+
+**Step 3 — Custom domain**
+
+Kinde dashboard → Settings → Domains → Add domain → enter `login.axiaops.io`
+
+Kinde will provide a CNAME target. Add it in your DNS provider:
+
+```
+Type:  CNAME
+Name:  login
+Value: <CNAME target from Kinde>
+TTL:   Auto
+```
+
+DNS propagation takes 5–30 minutes. After that the branded login is live.
+
+### Option B — Fully custom UI (Phase 3+)
+
+- Install `@kinde-oss/kinde-auth-pkce-js` SDK in the React Native app
+- Build your own form, call `kinde.login()` — Kinde still handles the auth backend
+- You own the HTML/CSS; Kinde owns the token issuance and session management
+- Worth doing when you need pixel-perfect control or a native mobile login screen
+
+Option B adds 1–2 weeks of frontend work with no auth-security benefit. Defer until
+there is a specific UX requirement that Option A cannot satisfy.
+
+---
+
 ## Why Kinde Won
 
 | Requirement | Why Kinde |

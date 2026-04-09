@@ -367,14 +367,33 @@ func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 
 // UpdateAccountStatus sets the status and last_scanned_at for an account.
 func (s *Store) UpdateAccountStatus(ctx context.Context, id, status string) error {
+	tenantID := storage.TenantIDFromCtx(ctx)
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE accounts SET status = ?, last_scanned_at = ? WHERE id = ?`,
-		status, now, id)
+		`UPDATE accounts SET status = ?, last_scanned_at = ? WHERE id = ? AND tenant_id = ?`,
+		status, now, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("sqlite: update account status: %w", err)
 	}
 	return nil
+}
+
+// TryMarkAccountScanning sets status to scanning only if the account is not already scanning.
+func (s *Store) TryMarkAccountScanning(ctx context.Context, id string) (bool, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	now := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE accounts SET status = ?, last_scanned_at = ?
+		WHERE id = ? AND tenant_id = ? AND status != ?`,
+		"scanning", now, id, tenantID, "scanning")
+	if err != nil {
+		return false, fmt.Errorf("sqlite: try mark account scanning: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("sqlite: rows affected: %w", err)
+	}
+	return n == 1, nil
 }
 
 // SaveResources replaces all resource records with the latest inventory.

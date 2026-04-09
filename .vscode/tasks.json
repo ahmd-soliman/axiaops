@@ -2,75 +2,46 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Start",
-      "type": "shell",
-      "command": "make start",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "isBackground": true,
-      "problemMatcher": {
-        "pattern": {
-          "regexp": "^$"
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": "Starting",
-          "endsPattern": "All systems go"
-        }
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
-      }
-    },
-    {
-      "label": "Stop",
+      "label": "stop",
       "type": "shell",
       "command": "make stop",
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "problemMatcher": []
-    },
-    {
-      "label": "Seed",
-      "type": "shell",
-      "command": "make seed",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
+      "problemMatcher": [],
       "presentation": {
         "reveal": "always",
-        "panel": "dedicated"
-      },
-      "problemMatcher": []
+        "panel": "shared",
+        "showReuseMessage": false
+      }
     },
     {
-      "label": "Test",
+      "label": "start-dev",
       "type": "shell",
-      "command": "make test",
+      "command": "make start-dev",
       "options": {
         "cwd": "${workspaceFolder}"
       },
+      "problemMatcher": [],
       "presentation": {
         "reveal": "always",
-        "panel": "dedicated"
-      },
-      "problemMatcher": "$go"
+        "panel": "shared",
+        "showReuseMessage": false
+      }
     },
     {
-      "label": "Prepare",
+      "label": "start-staging",
       "type": "shell",
-      "command": "docker compose -f ${workspaceFolder}/docker-compose.yml up -d postgres && until docker exec axiaops-postgres pg_isready -U axiaops_owner &>/dev/null; do sleep 1; done",
+      "command": "make start-staging",
       "options": {
         "cwd": "${workspaceFolder}"
       },
+      "problemMatcher": [],
       "presentation": {
-        "reveal": "silent",
-        "panel": "shared"
-      },
-      "problemMatcher": []
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      }
     }
   ]
 }
