@@ -184,8 +184,8 @@ go run ./cmd/main.go
 ### What happens
 
 1. Fetches the last 30 days of cost data from AWS Cost Explorer
-2. Stores records in `axiaops.db` (created automatically)
-3. Loads usage metrics from `fixtures/usage.json` — **CloudWatch integration is Phase 2**, so zombie detection still uses fixture usage data even against real cost data
+2. Stores records in PostgreSQL (via `DATABASE_URL`)
+3. Fetches usage metrics from CloudWatch (Phase 2 shipped)
 4. Starts the API on `http://localhost:8080`
 
 ### Known limitations (Phase 1)
@@ -296,7 +296,8 @@ Test with the REST Client extension: open `services/ingestion/api.http` in VS Co
 | `DEV_MODE` | `false` | `true` → use file fixtures instead of real AWS |
 | `FIXTURE_PATH` | `fixtures/costs.json` | Path to cost fixture file |
 | `USAGE_PATH` | `fixtures/usage.json` | Path to usage fixture file |
-| `DB_PATH` | `axiaops.db` | SQLite database file path |
+| `DATABASE_URL` | — | PostgreSQL connection string used by API + ingestion |
+| `MIGRATION_DATABASE_URL` | — | Owner/admin PostgreSQL connection string used to run migrations |
 | `API_ADDR` | `:8080` | HTTP server listen address |
 | `AWS_ACCOUNT_ID` | — | Required when `DEV_MODE=false` |
 | `DAYS_BACK` | `30` | How many days back to fetch (overrides default 30-day window) |

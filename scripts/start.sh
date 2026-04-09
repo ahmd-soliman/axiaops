@@ -3,7 +3,6 @@
 #
 # Usage:
 #   ./scripts/start.sh                    start in dev mode (no auth, fixed tenant)
-#   ./scripts/start.sh --sqlite           use SQLite instead of PostgreSQL (no Docker needed)
 #   ./scripts/start.sh stop               kill all running services
 #   DEV_MODE=false ./scripts/start.sh     start in staging mode (real Kinde auth + real AWS)
 
@@ -15,7 +14,6 @@ INGESTION_DIR="$ROOT/services/ingestion"
 DASHBOARD_DIR="$ROOT/services/dashboard"
 PID_FILE="$ROOT/.dev-pids"
 LOG_FILE="$ROOT/.dev.log"
-DB_PATH="$ROOT/axiaops.db"
 
 # Ensure we are in the root for docker-compose commands
 cd "$ROOT"
@@ -59,32 +57,19 @@ if [[ "${1:-}" == "stop" ]]; then
   exit 0
 fi
 
-# Flags
-USE_SQLITE=false
-for arg in "$@"; do
-  case "$arg" in
-    --sqlite) USE_SQLITE=true ;;
-  esac
-done
-
 # Clear logs
 : > "$LOG_FILE"
 
 # Database Setup
-if [[ "$USE_SQLITE" == "true" ]]; then
-  unset DATABASE_URL
-  echo "Storage: SQLite ($DB_PATH)"
-else
-  docker compose up -d postgres
-  echo -n "Waiting for PostgreSQL..."
-  until docker exec axiaops-postgres pg_isready -U axiaops_owner -d axiaops &>/dev/null; do
-    echo -n "."
-    sleep 1
-  done
-  echo " Ready."
-  export DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable"
-  export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
-fi
+docker compose up -d postgres
+echo -n "Waiting for PostgreSQL..."
+until docker exec axiaops-postgres pg_isready -U axiaops_owner -d axiaops &>/dev/null; do
+  echo -n "."
+  sleep 1
+done
+echo " Ready."
+export DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable"
+export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
 
 # Start Ingestion service (long-running HTTP server on :8081)
 echo "Starting ingestion service (8081)..."
@@ -93,8 +78,8 @@ if [[ -f .env ]]; then
     set -a; source .env; set +a
 fi
 (
-  export DB_PATH="$DB_PATH"
-  export DATABASE_URL="${DATABASE_URL:-}"
+  export DATABASE_URL="$DATABASE_URL"
+  export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
   exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 ) &
 echo $! >> "$PID_FILE"
@@ -105,8 +90,8 @@ until curl -sf http://localhost:8081/health &>/dev/null; do sleep 1; done
 echo "Starting API service (8080)..."
 cd "$API_DIR"
 (
-  export DB_PATH="$DB_PATH"
-  export DATABASE_URL="${DATABASE_URL:-}"
+  export DATABASE_URL="$DATABASE_URL"
+  export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
   export DEV_MODE="${DEV_MODE:-true}"
   if [[ "$DEV_MODE" == "true" ]]; then
     export DEV_TENANT_ID="dev-tenant-axiaops"

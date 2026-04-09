@@ -77,35 +77,13 @@ AxiaOps's own policy needs `sts:AssumeRole` on `arn:aws:iam::*:role/AxiaOpsReadO
 
 ---
 
-## Database — SQLite → PostgreSQL
+## Database — PostgreSQL (SQLite tests-only)
 
-SQLite works for single-user local dev. It does not support concurrent writes
-from multiple instances and has no access control.
+AxiaOps runs on PostgreSQL. SQLite is retained for unit tests only (throwaway per-test DB files).
 
-**Migration path:**
-
-The `Store` interface (`internal/storage/storage.go`) is the only contract the
-rest of the code depends on:
-
-```go
-type Store interface {
-    Save(ctx context.Context, records []model.CostRecord) (int64, error)
-    Close() error
-}
-```
-
-To switch to PostgreSQL:
-1. Implement `Store` in a new package `internal/storage/postgres`
-2. Replace `sqlite.New(dbPath)` with `postgres.New(connStr)` in `cmd/main.go`
-3. No other changes required — providers, analyzer, and API are storage-agnostic
-
-**Schema changes needed for production:**
-- Add `tenant_id TEXT NOT NULL` to `cost_records`
-- Add index on `tenant_id` for query performance
-- All queries must filter by `tenant_id` derived from the authenticated JWT
-
-**Recommended hosted option:** Supabase (managed PostgreSQL, free tier available,
-integrates with Supabase Auth).
+**Schema + migrations:**
+- Migrations live in `services/shared/storage/postgres/migrations/`
+- Both services run migrations automatically on startup (using `MIGRATION_DATABASE_URL`)
 
 ---
 
@@ -144,7 +122,8 @@ Revisit Aurora when:
 | `DEV_MODE` | `true` | `false` |
 | `FIXTURE_PATH` | `fixtures/costs.json` | — (not used) |
 | `USAGE_PATH` | `fixtures/usage.json` | — (CloudWatch in Phase 2) |
-| `DB_PATH` | `axiaops.db` | — (replaced by PostgreSQL connection string) |
+| `DATABASE_URL` | — | PostgreSQL connection string (application user) |
+| `MIGRATION_DATABASE_URL` | — | PostgreSQL connection string (owner/admin, used for migrations) |
 | `API_ADDR` | `:8080` | `:8080` (TLS terminated by platform) |
 | `AWS_ACCOUNT_ID` | — | Your AWS account ID |
 | `AWS_REGION` | — | `eu-central-1` (or your primary region) |

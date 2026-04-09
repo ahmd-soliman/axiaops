@@ -24,27 +24,28 @@ If no new migrations are pending, it exits immediately with no side effects.
 
 ```
 services/shared/storage/postgres/
-  init.sql                          ← Docker entrypoint (runs once, as axiaops_owner)
   migrate.go                        ← Migrate() function called at startup
   migrations/
+    000_init.up.sql                 ← creates app user + schema + default grants (runs as owner/admin)
+    000_init.down.sql
     001_initial.up.sql              ← creates all tables + RLS policies
     001_initial.down.sql            ← drops all tables (reverse FK order)
     002_your_next_change.up.sql     ← future migrations go here
     002_your_next_change.down.sql
 ```
 
-### init.sql vs migrations
+### 000_init vs schema migrations
 
-`init.sql` is mounted into the PostgreSQL Docker container as a Docker entrypoint script. It runs **once**, when the data directory is first created, as the superuser `axiaops_owner`. Its only job is infrastructure:
+`000_init.up.sql` runs as the owner/admin connection (`MIGRATION_DATABASE_URL`). Its only job is infrastructure:
 
 - Create the `axiaops` application user
 - Create the `axiaops` schema
 - Set default privileges so future tables are accessible to the app user
 
-**All table DDL lives in migrations**, not in `init.sql`. This means:
+**All table DDL lives in migrations**, not in `000_init`. This means:
 
-- Fresh installs: Docker runs `init.sql` (user + schema), then the app runs migrations (tables)
-- Existing installs: `init.sql` is skipped (data directory already exists), app runs any new migrations
+- Fresh installs: the app runs `000_init` (user + schema), then runs `001_initial` (tables)
+- Existing installs: the app runs any new migrations
 
 ---
 
