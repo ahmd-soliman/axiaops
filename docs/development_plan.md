@@ -327,7 +327,7 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 - `services/shared/storage/postgres/postgres.go` — full `Store` implementation (partially exists for accounts)
 - `services/shared/storage/postgres/migrations/*.sql` — versioned schema files
 
-#### 2.5 Savings History / Trend
+#### 2.5 Savings History / Trend ✅
 
 **Priority: Immediately after PostgreSQL migration — historical data lost on every scan cannot be recovered retroactively.**
 
