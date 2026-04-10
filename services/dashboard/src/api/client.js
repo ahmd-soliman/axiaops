@@ -82,3 +82,12 @@ export async function scanAccount(id) {
   if (!res.ok) throw new Error('Failed to trigger scan');
   return res.json();
 }
+
+export async function fetchTrend(accountId) {
+  const url = accountId
+    ? `${BASE_URL}/trend?account_id=${encodeURIComponent(accountId)}`
+    : `${BASE_URL}/trend`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch trend');
+  return res.json();
+}

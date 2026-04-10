@@ -503,6 +503,92 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 	return resources, tx.Commit(ctx)
 }
 
+// SaveSnapshot writes a ghost snapshot record (one per scan run).
+func (s *Store) SaveSnapshot(ctx context.Context, snap model.GhostSnapshot) error {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO ghost_snapshots
+			(id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		snap.ID, tenantID, snap.AccountID, snap.SnapshotAt,
+		snap.GhostCount, snap.TotalMonthlyCost, snap.Currency,
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: insert ghost_snapshot: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// ListSnapshots returns ghost snapshots for the tenant, oldest-first.
+// If accountID is non-empty, only snapshots for that account are returned.
+func (s *Store) ListSnapshots(ctx context.Context, accountID string) ([]model.GhostSnapshot, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := setTenant(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	var rows pgx.Rows
+	if accountID != "" {
+		rows, err = tx.Query(ctx, `
+			SELECT id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency
+			FROM ghost_snapshots
+			WHERE account_id = $1
+			ORDER BY snapshot_at ASC`,
+			accountID,
+		)
+	} else {
+		rows, err = tx.Query(ctx, `
+			SELECT id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency
+			FROM ghost_snapshots
+			ORDER BY snapshot_at ASC`,
+		)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("postgres: query ghost_snapshots: %w", err)
+	}
+	defer rows.Close()
+
+	var snaps []model.GhostSnapshot
+	for rows.Next() {
+		var snap model.GhostSnapshot
+		if err := rows.Scan(
+			&snap.ID, &snap.AccountID, &snap.SnapshotAt,
+			&snap.GhostCount, &snap.TotalMonthlyCost, &snap.Currency,
+		); err != nil {
+			return nil, fmt.Errorf("postgres: scan ghost_snapshot: %w", err)
+		}
+		snaps = append(snaps, snap)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return snaps, tx.Commit(ctx)
+}
+
 // Ping verifies the database connection is still alive.
 func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
