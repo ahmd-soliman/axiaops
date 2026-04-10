@@ -51,6 +51,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /ghosts", h.listGhosts)
 	mux.HandleFunc("GET /summary", h.getSummary)
+	mux.HandleFunc("GET /trend", h.getTrend)
 	mux.HandleFunc("GET /resources", h.listResources)
 	mux.HandleFunc("GET /accounts", h.listAccounts)
 	mux.HandleFunc("POST /accounts", h.createAccount)
@@ -120,6 +121,23 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, analyzer.Summarize(ghosts))
+}
+
+// getTrend returns ghost snapshots for the tenant, ordered oldest-first.
+// Optional query param: ?account_id=<id> to filter to a single account.
+func (h *Handler) getTrend(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	accountID := r.URL.Query().Get("account_id")
+	snaps, err := h.store.ListSnapshots(ctx, accountID)
+	if err != nil {
+		slog.Error("getTrend: load failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if snaps == nil {
+		snaps = []model.GhostSnapshot{}
+	}
+	writeJSON(w, snaps)
 }
 
 // Pinger is satisfied by *postgres.Store (which embeds pgxpool.Pool).

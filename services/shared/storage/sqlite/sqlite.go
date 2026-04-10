@@ -477,6 +477,16 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 	return resources, rows.Err()
 }
 
+// SaveSnapshot is a no-op in SQLite — snapshots are only supported in PostgreSQL.
+func (s *Store) SaveSnapshot(_ context.Context, _ model.GhostSnapshot) error {
+	return nil
+}
+
+// ListSnapshots returns nil in SQLite — snapshots are only supported in PostgreSQL.
+func (s *Store) ListSnapshots(_ context.Context, _ string) ([]model.GhostSnapshot, error) {
+	return nil, nil
+}
+
 func (s *Store) Close() error {
 	return s.db.Close()
 }

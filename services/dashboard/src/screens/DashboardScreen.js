@@ -10,8 +10,42 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSummary, fetchResources, scanAccount, deleteAccount } from '../api/client';
+import { fetchSummary, fetchResources, fetchTrend, scanAccount, deleteAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
+
+// SavingsSparkline renders a simple bar chart of ghost savings over time.
+// snaps: array of { total_monthly_cost, snapshot_at }
+function SavingsSparkline({ snaps }) {
+  if (!snaps || snaps.length < 2) return null;
+
+  const W = 220, H = 36, BAR_W = 4, GAP = 2;
+  const values = snaps.map(s => s.total_monthly_cost);
+  const maxVal = Math.max(...values, 0.01);
+  // Only show the last N bars that fit in W
+  const maxBars = Math.floor(W / (BAR_W + GAP));
+  const visible = values.slice(-maxBars);
+
+  return (
+    <View style={{ width: W, height: H, flexDirection: 'row', alignItems: 'flex-end', marginTop: 8, opacity: 0.85 }}>
+      {visible.map((v, i) => {
+        const barH = Math.max(3, Math.round((v / maxVal) * H));
+        const isLast = i === visible.length - 1;
+        return (
+          <View
+            key={i}
+            style={{
+              width: BAR_W,
+              height: barH,
+              backgroundColor: isLast ? C.accent : 'rgba(249,115,22,0.45)',
+              marginRight: i < visible.length - 1 ? GAP : 0,
+              borderRadius: 1,
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+}
 
 // Design tokens
 const C = {
@@ -37,6 +71,7 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName, acco
 
   const summary   = useQuery({ queryKey: ['summary'],   queryFn: fetchSummary   });
   const resources = useQuery({ queryKey: ['resources'], queryFn: fetchResources });
+  const trend     = useQuery({ queryKey: ['trend'],     queryFn: () => fetchTrend(null) });
 
   const isLoading    = summary.isLoading    || resources.isLoading;
   const isError      = summary.isError      || resources.isError;
@@ -45,6 +80,7 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName, acco
   function refresh() {
     summary.refetch();
     resources.refetch();
+    trend.refetch();
   }
 
   async function handleScan(accountId) {
@@ -169,6 +205,12 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName, acco
             <Text style={styles.heroSub}>
               {summary.data.total_ghosts} zombie resource{summary.data.total_ghosts !== 1 ? 's' : ''} detected across your account
             </Text>
+
+            {/* Savings trend sparkline */}
+            <SavingsSparkline snaps={trend.data} />
+            {trend.data && trend.data.length >= 2 && (
+              <Text style={styles.sparklineLabel}>Savings trend ({trend.data.length} scans)</Text>
+            )}
 
             {/* By-service pills */}
             <ScrollView
@@ -369,7 +411,8 @@ const styles = StyleSheet.create({
   },
   heroEyebrow: { color: C.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 },
   heroAmount: { color: C.accent, fontSize: 46, fontWeight: '800', letterSpacing: -1 },
-  heroSub: { color: C.textSub, fontSize: 13, marginTop: 4, marginBottom: 20 },
+  heroSub: { color: C.textSub, fontSize: 13, marginTop: 4, marginBottom: 4 },
+  sparklineLabel: { color: C.textSub, fontSize: 10, marginTop: 4, marginBottom: 16 },
 
   pillsRow: { marginTop: 4 },
   pill: {

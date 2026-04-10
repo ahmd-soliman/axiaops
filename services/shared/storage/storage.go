@@ -78,6 +78,16 @@ type Store interface {
 	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
 	LoadResources(ctx context.Context) ([]model.ResourceRecord, error)
 
+	// SaveSnapshot writes a ghost snapshot after each ingestion scan.
+	// Snapshots are never replaced — they accumulate to form the savings history.
+	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
+	SaveSnapshot(ctx context.Context, snap model.GhostSnapshot) error
+
+	// ListSnapshots returns ghost snapshots for the tenant in ctx, ordered
+	// oldest-first. If accountID is non-empty, only snapshots for that account
+	// are returned.
+	ListSnapshots(ctx context.Context, accountID string) ([]model.GhostSnapshot, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 }
