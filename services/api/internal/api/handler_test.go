@@ -20,7 +20,12 @@ import (
 type stubStore struct {
 	ghosts        []model.GhostResource
 	accounts      []model.Account
+	snapshots     []model.GhostSnapshot
 	getAccountErr error
+	// listSnapshotsErr simulates a store-level failure for ListSnapshots.
+	listSnapshotsErr error
+	// lastListSnapshotsAccountID captures the account_id passed to ListSnapshots.
+	lastListSnapshotsAccountID string
 	// tryMarkBusy simulates TryMarkAccountScanning losing the race (account already scanning).
 	tryMarkBusy bool
 }
@@ -65,9 +70,17 @@ func (s *stubStore) TryMarkAccountScanning(_ context.Context, _ string) (bool, e
 	}
 	return true, nil
 }
-func (s *stubStore) SaveResources(_ context.Context, _ []model.ResourceRecord) error  { return nil }
-func (s *stubStore) LoadResources(_ context.Context) ([]model.ResourceRecord, error)  { return nil, nil }
-func (s *stubStore) Close() error                                                      { return nil }
+func (s *stubStore) SaveResources(_ context.Context, _ []model.ResourceRecord) error        { return nil }
+func (s *stubStore) LoadResources(_ context.Context) ([]model.ResourceRecord, error)        { return nil, nil }
+func (s *stubStore) SaveSnapshot(_ context.Context, _ model.GhostSnapshot) error { return nil }
+func (s *stubStore) ListSnapshots(_ context.Context, accountID string) ([]model.GhostSnapshot, error) {
+	s.lastListSnapshotsAccountID = accountID
+	if s.listSnapshotsErr != nil {
+		return nil, s.listSnapshotsErr
+	}
+	return s.snapshots, nil
+}
+func (s *stubStore) Close() error                                                            { return nil }
 
 var testGhost = model.GhostResource{
 	Provider:    "aws",
@@ -502,5 +515,148 @@ func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "scan already in progress") {
 		t.Errorf("expected conflict message in body, got: %s", w.Body.String())
+	}
+}
+
+// ── GET /trend ────────────────────────────────────────────────────────────────
+
+func TestGetTrend_Returns200(t *testing.T) {
+	_, mux := testHandler()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestGetTrend_ContentType(t *testing.T) {
+	_, mux := testHandler()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json, got %s", ct)
+	}
+}
+
+func TestGetTrend_EmptyStoreReturnsEmptyArray(t *testing.T) {
+	// testHandler stub returns nil snapshots — handler must coerce nil → [].
+	_, mux := testHandler()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+
+	var snaps []model.GhostSnapshot
+	if err := json.NewDecoder(w.Body).Decode(&snaps); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if snaps == nil {
+		t.Error("expected non-nil empty array, got JSON null")
+	}
+	if len(snaps) != 0 {
+		t.Errorf("expected 0 snapshots, got %d", len(snaps))
+	}
+}
+
+func TestGetTrend_ReturnsSnapshots(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	store := &stubStore{
+		ghosts: []model.GhostResource{testGhost},
+		snapshots: []model.GhostSnapshot{
+			{ID: "snap-1", AccountID: "acc-1", SnapshotAt: now.Add(-2 * time.Hour), GhostCount: 3, TotalMonthlyCost: 150.00, Currency: "USD"},
+			{ID: "snap-2", AccountID: "acc-1", SnapshotAt: now, GhostCount: 5, TotalMonthlyCost: 300.00, Currency: "USD"},
+		},
+	}
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var snaps []model.GhostSnapshot
+	if err := json.NewDecoder(w.Body).Decode(&snaps); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(snaps) != 2 {
+		t.Fatalf("expected 2 snapshots, got %d", len(snaps))
+	}
+	if snaps[0].ID != "snap-1" {
+		t.Errorf("expected first snapshot ID snap-1, got %s", snaps[0].ID)
+	}
+	if snaps[1].TotalMonthlyCost != 300.00 {
+		t.Errorf("expected second snapshot cost 300.00, got %f", snaps[1].TotalMonthlyCost)
+	}
+}
+
+func TestGetTrend_SnapshotTenantIDNotExposed(t *testing.T) {
+	store := &stubStore{
+		ghosts: []model.GhostResource{testGhost},
+		snapshots: []model.GhostSnapshot{
+			{ID: "snap-1", AccountID: "acc-1", TenantID: "secret-tenant", GhostCount: 1, TotalMonthlyCost: 50.00, Currency: "USD"},
+		},
+	}
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+
+	if strings.Contains(w.Body.String(), "secret-tenant") {
+		t.Error("response must not expose tenant_id (json:\"-\" tag)")
+	}
+}
+
+func TestGetTrend_StoreError_Returns500(t *testing.T) {
+	store := &stubStore{
+		ghosts:           []model.GhostResource{testGhost},
+		listSnapshotsErr: errors.New("db connection lost"),
+	}
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestGetTrend_AccountIDQueryParamPassedToStore(t *testing.T) {
+	store := &stubStore{ghosts: []model.GhostResource{testGhost}}
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend?account_id=acc-42"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if store.lastListSnapshotsAccountID != "acc-42" {
+		t.Errorf("expected account_id acc-42 forwarded to store, got %q", store.lastListSnapshotsAccountID)
+	}
+}
+
+func TestGetTrend_NoAccountIDQueryParam_PassesEmptyString(t *testing.T) {
+	store := &stubStore{ghosts: []model.GhostResource{testGhost}}
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if store.lastListSnapshotsAccountID != "" {
+		t.Errorf("expected empty account_id forwarded to store, got %q", store.lastListSnapshotsAccountID)
 	}
 }

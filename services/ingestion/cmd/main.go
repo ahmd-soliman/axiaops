@@ -27,6 +27,7 @@ import (
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
 	sentry "github.com/getsentry/sentry-go"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -98,7 +99,7 @@ func main() {
 	store := newStore()
 
 	if os.Getenv("RUN_ONCE") == "true" {
-		if err := runIngestion(context.Background(), store, nil); err != nil {
+		if err := runIngestion(context.Background(), store, "", nil); err != nil {
 			die("ingestion: one-shot run failed", "error", err)
 		}
 		return
@@ -144,7 +145,7 @@ func main() {
 			return
 		}
 
-		if err := runIngestion(ctx, store, &scanAWS{
+		if err := runIngestion(ctx, store, req.AccountID, &scanAWS{
 			AccessKeyID: account.AccessKeyID,
 			SecretKey:   secret,
 			Region:      account.Region,
@@ -174,7 +175,9 @@ type scanAWS struct {
 }
 
 // runIngestion fetches costs, detects ghosts, and writes results to the store.
-func runIngestion(ctx context.Context, store storage.Store, keys *scanAWS) error {
+// accountID is the internal DB account UUID from the accounts table; pass ""
+// when running in one-shot mode (no per-account tracking).
+func runIngestion(ctx context.Context, store storage.Store, accountID string, keys *scanAWS) error {
 	var providers []provider.Provider
 
 	var awsClient *aws.Client
@@ -243,6 +246,24 @@ func runIngestion(ctx context.Context, store storage.Store, keys *scanAWS) error
 		return fmt.Errorf("save ghosts: %w", err)
 	}
 	slog.Info("storage: saved ghost records", "count", len(ghosts))
+
+	snap := model.GhostSnapshot{
+		ID:               uuid.New().String(),
+		AccountID:        accountID,
+		SnapshotAt:       time.Now().UTC(),
+		GhostCount:       summary.TotalGhosts,
+		TotalMonthlyCost: summary.PotentialMonthlySave,
+		Currency:         summary.Currency,
+	}
+	if snap.Currency == "" {
+		snap.Currency = "USD"
+	}
+	if err := store.SaveSnapshot(ctx, snap); err != nil {
+		// Non-fatal: log and continue — ghost records are already saved.
+		slog.Error("storage: save snapshot failed", "error", err)
+	} else {
+		slog.Info("storage: saved ghost snapshot", "ghost_count", snap.GhostCount, "total_monthly_cost", snap.TotalMonthlyCost)
+	}
 
 	resources := analyzer.AnnotateAll(allRecords, usage, ghosts)
 	if err := store.SaveResources(ctx, resources); err != nil {

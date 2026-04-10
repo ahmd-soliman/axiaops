@@ -617,3 +617,227 @@ func TestSaveResources_ReplacesOnSecondRun(t *testing.T) {
 		t.Errorf("expected 1 resource after replacement, got %d", len(loaded))
 	}
 }
+
+// ── SaveSnapshot / ListSnapshots ──────────────────────────────────────────────
+
+func ghostSnapshot(tenantID, accountID string, cost float64, ghostCount int) model.GhostSnapshot {
+	return model.GhostSnapshot{
+		ID:               uuid.New().String(),
+		TenantID:         tenantID,
+		AccountID:        accountID,
+		SnapshotAt:       time.Now().UTC(),
+		GhostCount:       ghostCount,
+		TotalMonthlyCost: cost,
+		Currency:         "USD",
+	}
+}
+
+func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx, tenant := newTenantCtx(t, s)
+
+	snap := ghostSnapshot(tenant.ID, "acc-001", 150.00, 3)
+	if err := s.SaveSnapshot(ctx, snap); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	snaps, err := s.ListSnapshots(ctx, "")
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) != 1 {
+		t.Fatalf("expected 1 snapshot, got %d", len(snaps))
+	}
+	got := snaps[0]
+	if got.ID != snap.ID {
+		t.Errorf("expected ID %s, got %s", snap.ID, got.ID)
+	}
+	if got.AccountID != "acc-001" {
+		t.Errorf("expected account_id acc-001, got %s", got.AccountID)
+	}
+	if got.GhostCount != 3 {
+		t.Errorf("expected ghost_count 3, got %d", got.GhostCount)
+	}
+	if got.TotalMonthlyCost != 150.00 {
+		t.Errorf("expected total_monthly_cost 150.00, got %f", got.TotalMonthlyCost)
+	}
+	if got.Currency != "USD" {
+		t.Errorf("expected currency USD, got %s", got.Currency)
+	}
+}
+
+func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
+	s := newTestStore(t)
+	ctx, tenant := newTenantCtx(t, s)
+
+	// Insert three snapshots with explicit timestamps spread one hour apart.
+	base := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+	snapsToSave := []model.GhostSnapshot{
+		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(2 * time.Hour), GhostCount: 5, TotalMonthlyCost: 500, Currency: "USD"},
+		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base, GhostCount: 1, TotalMonthlyCost: 100, Currency: "USD"},
+		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(time.Hour), GhostCount: 3, TotalMonthlyCost: 300, Currency: "USD"},
+	}
+	for _, snap := range snapsToSave {
+		if err := s.SaveSnapshot(ctx, snap); err != nil {
+			t.Fatalf("SaveSnapshot: %v", err)
+		}
+	}
+
+	loaded, err := s.ListSnapshots(ctx, "")
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(loaded) != 3 {
+		t.Fatalf("expected 3 snapshots, got %d", len(loaded))
+	}
+
+	// Verify ascending order by snapshot_at.
+	for i := 1; i < len(loaded); i++ {
+		if !loaded[i].SnapshotAt.After(loaded[i-1].SnapshotAt) {
+			t.Errorf("snapshots not in ascending order: index %d (%v) not after index %d (%v)",
+				i, loaded[i].SnapshotAt, i-1, loaded[i-1].SnapshotAt)
+		}
+	}
+	// Oldest-first: ghost_count should go 1 → 3 → 5.
+	if loaded[0].GhostCount != 1 {
+		t.Errorf("expected first (oldest) ghost_count 1, got %d", loaded[0].GhostCount)
+	}
+	if loaded[2].GhostCount != 5 {
+		t.Errorf("expected last (newest) ghost_count 5, got %d", loaded[2].GhostCount)
+	}
+}
+
+func TestListSnapshots_FilterByAccountID(t *testing.T) {
+	s := newTestStore(t)
+	ctx, tenant := newTenantCtx(t, s)
+
+	// Two snapshots for acc-A, one for acc-B.
+	if err := s.SaveSnapshot(ctx, ghostSnapshot(tenant.ID, "acc-A", 100, 2)); err != nil {
+		t.Fatalf("SaveSnapshot acc-A first: %v", err)
+	}
+	if err := s.SaveSnapshot(ctx, ghostSnapshot(tenant.ID, "acc-A", 200, 4)); err != nil {
+		t.Fatalf("SaveSnapshot acc-A second: %v", err)
+	}
+	if err := s.SaveSnapshot(ctx, ghostSnapshot(tenant.ID, "acc-B", 50, 1)); err != nil {
+		t.Fatalf("SaveSnapshot acc-B: %v", err)
+	}
+
+	// Filter to acc-A only.
+	snaps, err := s.ListSnapshots(ctx, "acc-A")
+	if err != nil {
+		t.Fatalf("ListSnapshots acc-A: %v", err)
+	}
+	if len(snaps) != 2 {
+		t.Fatalf("expected 2 snapshots for acc-A, got %d", len(snaps))
+	}
+	for _, snap := range snaps {
+		if snap.AccountID != "acc-A" {
+			t.Errorf("expected only acc-A snapshots, got account_id %s", snap.AccountID)
+		}
+	}
+
+	// Filter to acc-B only.
+	snapsB, err := s.ListSnapshots(ctx, "acc-B")
+	if err != nil {
+		t.Fatalf("ListSnapshots acc-B: %v", err)
+	}
+	if len(snapsB) != 1 {
+		t.Fatalf("expected 1 snapshot for acc-B, got %d", len(snapsB))
+	}
+
+	// No filter — all three.
+	all, err := s.ListSnapshots(ctx, "")
+	if err != nil {
+		t.Fatalf("ListSnapshots all: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 snapshots total, got %d", len(all))
+	}
+}
+
+func TestListSnapshots_EmptyWhenNoneSaved(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("skipping: requires TEST_STORE_URL (non-superuser) for RLS to filter out other tenants' snapshots")
+	}
+	s := newTestStore(t)
+	ctx, _ := newTenantCtx(t, s)
+
+	snaps, err := s.ListSnapshots(ctx, "")
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) != 0 {
+		t.Errorf("expected 0 snapshots for new tenant, got %d", len(snaps))
+	}
+}
+
+func TestSaveSnapshot_MissingTenantID_Errors(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background() // no tenant in context
+
+	snap := model.GhostSnapshot{
+		ID:               uuid.New().String(),
+		AccountID:        "acc-1",
+		SnapshotAt:       time.Now().UTC(),
+		GhostCount:       1,
+		TotalMonthlyCost: 50.00,
+		Currency:         "USD",
+	}
+	if err := s.SaveSnapshot(ctx, snap); err == nil {
+		t.Error("expected error when tenant_id missing from context, got nil")
+	}
+}
+
+func TestListSnapshots_MissingTenantID_Errors(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background() // no tenant in context
+
+	if _, err := s.ListSnapshots(ctx, ""); err == nil {
+		t.Error("expected error when tenant_id missing from context, got nil")
+	}
+}
+
+func TestSnapshot_TenantIsolation(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("skipping: requires TEST_STORE_URL (non-superuser) for RLS enforcement")
+	}
+	s := newTestStore(t)
+
+	ctxA, tenantA := newTenantCtx(t, s)
+	ctxB, _ := newTenantCtx(t, s)
+
+	// Tenant A saves a snapshot.
+	if err := s.SaveSnapshot(ctxA, ghostSnapshot(tenantA.ID, "acc-1", 100, 2)); err != nil {
+		t.Fatalf("SaveSnapshot tenant A: %v", err)
+	}
+
+	// Tenant B should see none of Tenant A's snapshots.
+	snapsB, err := s.ListSnapshots(ctxB, "")
+	if err != nil {
+		t.Fatalf("ListSnapshots tenant B: %v", err)
+	}
+	if len(snapsB) != 0 {
+		t.Errorf("tenant B should see 0 snapshots, got %d", len(snapsB))
+	}
+}
+
+func TestSaveSnapshot_AccumulatesAcrossScans(t *testing.T) {
+	s := newTestStore(t)
+	ctx, tenant := newTenantCtx(t, s)
+
+	// Simulate three consecutive scans — unlike ghost_records, snapshots must not be replaced.
+	for i := 1; i <= 3; i++ {
+		snap := ghostSnapshot(tenant.ID, "acc-1", float64(i)*100, i)
+		if err := s.SaveSnapshot(ctx, snap); err != nil {
+			t.Fatalf("SaveSnapshot scan %d: %v", i, err)
+		}
+	}
+
+	snaps, err := s.ListSnapshots(ctx, "")
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) != 3 {
+		t.Errorf("expected 3 accumulated snapshots (one per scan), got %d", len(snaps))
+	}
+}
