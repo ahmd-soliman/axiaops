@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging stop seed check test test-postgres test-all
+.PHONY: start-dev start-staging stop seed check test integration-tests test-all
 
 # Postgres integration test URLs (used by services/shared/storage/postgres tests).
 TEST_DATABASE_URL ?= postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
@@ -34,9 +34,9 @@ test:
 	cd services/shared && go test ./...
 
 # Run Postgres integration tests (migrations + RLS/tenant isolation tests).
-test-postgres:
+integration-tests:
 	docker compose up -d postgres
 	cd services/shared && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_STORE_URL="$(TEST_STORE_URL)" go test -v ./storage/postgres/...
 
 # Full suite: unit tests + Postgres integration tests.
-test-all: test test-postgres
+test-all: test integration-tests

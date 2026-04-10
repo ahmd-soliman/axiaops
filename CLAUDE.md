@@ -30,7 +30,7 @@ make start-staging  # Real AWS + Kinde auth
 make stop           # Kill all services, free ports
 make seed           # Populate dummy tenant/user/ghost records
 make test           # All Go unit tests
-make test-postgres  # PostgreSQL integration tests (RLS, migrations)
+make integration-tests  # PostgreSQL integration tests (RLS, migrations)
 make test-all       # Unit + integration
 ```
 
