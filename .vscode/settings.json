@@ -2,5 +2,6 @@
   "go.toolsManagement.autoUpdate": true,
   "files.associations": {
     "launch.json": "jsonc"
-  }
+  },
+  "makefile.configureOnOpen": true
 }
