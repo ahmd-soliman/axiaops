@@ -177,13 +177,46 @@ VALUES
 echo "  Inserted 7 resource records (5 ghosts, 2 active)."
 echo ""
 
+# ── Ghost snapshots — 1000 days of historical trend data ─────────────────────────
+# Creates 1000 snapshots simulating daily scans over ~4 months, with realistic
+# savings variation (upward trend as resources are optimized, with noise).
+
+echo "Inserting 1000 ghost snapshots (1000 days of trend data)..."
+
+# Build a single INSERT with 1000 rows (one per day going back 1000 days)
+SNAP_INSERT="INSERT INTO ghost_snapshots (id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency) VALUES"
+
+for i in {1000..1}; do
+  # Calculate date i days ago
+  SNAP_DATE=$(date -u -v-${i}d +"%Y-%m-%dT12:00:00Z" 2>/dev/null || TZ=UTC date -d "$i days ago" +"%Y-%m-%dT12:00:00Z" 2>/dev/null)
+
+  # Generate realistic trend: start at ~$280, gradually decrease to ~$159 with noise
+  # Linear decrease: cost = 280 - (i * 0.12) + random noise
+  BASE_COST=$(awk "BEGIN {printf \"%.2f\", 280 - ($i * 0.12) + (rand() * 20 - 10)}")
+  GHOSTS=$((8 + RANDOM % 5))  # ghost count 8-13
+
+  if [ $i -eq 1 ]; then
+    SNAP_INSERT="$SNAP_INSERT (gen_random_uuid()::text, 'dev-tenant-axiaops', 'dev-account-001', '$SNAP_DATE', $GHOSTS, $BASE_COST, 'USD')"
+  else
+    SNAP_INSERT="$SNAP_INSERT (gen_random_uuid()::text, 'dev-tenant-axiaops', 'dev-account-001', '$SNAP_DATE', $GHOSTS, $BASE_COST, 'USD'),"
+  fi
+done
+
+SNAP_INSERT="$SNAP_INSERT ON CONFLICT DO NOTHING;"
+
+psql_exec "$SNAP_INSERT"
+echo "  Inserted 1000 ghost snapshots (1000-day trend from \$280 → \$159/month)."
+echo ""
+
 # ── RLS isolation check (using app user, not owner) ───────────────────────────
 
 echo "=== Verifying dev tenant data ==="
 GHOST_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_records WHERE tenant_id = 'dev-tenant-axiaops';")
 RESOURCE_COUNT=$(psql_query "SELECT COUNT(*) FROM resource_records WHERE tenant_id = 'dev-tenant-axiaops';")
-echo "Dev tenant ghost records:    $GHOST_COUNT"
-echo "Dev tenant resource records: $RESOURCE_COUNT"
+SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshots WHERE tenant_id = 'dev-tenant-axiaops';")
+echo "Dev tenant ghost records:     $GHOST_COUNT"
+echo "Dev tenant resource records:  $RESOURCE_COUNT"
+echo "Dev tenant ghost snapshots:   $SNAPSHOT_COUNT"
 echo ""
 
 echo "=== Done ==="
