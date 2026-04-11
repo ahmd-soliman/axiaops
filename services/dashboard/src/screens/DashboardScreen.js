@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { fetchSummary, fetchResources, fetchTrend, scanAccount, deleteAccount } from '../api/client';
@@ -63,7 +64,7 @@ const C = {
   border: '#E2E8F0',
 };
 
-export default function DashboardScreen({ onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount, onEditAccount, onDeleteAccount }) {
+export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount, onEditAccount, onDeleteAccount }) {
   const [filterSvc, setFilterSvc]     = React.useState(null);
   const [ghostOnly, setGhostOnly]     = React.useState(true);
   const [scanning, setScanning]       = React.useState(null); // account id being scanned
@@ -207,10 +208,12 @@ export default function DashboardScreen({ onSelectGhost, onLogout, orgName, acco
             </Text>
 
             {/* Savings trend sparkline */}
-            <SavingsSparkline snaps={trend.data} />
-            {trend.data && trend.data.length >= 2 && (
-              <Text style={styles.sparklineLabel}>Savings trend ({trend.data.length} scans)</Text>
-            )}
+            <TouchableOpacity activeOpacity={0.8} onPress={() => onShowTrend && onShowTrend()}>
+              <SavingsSparkline snaps={trend.data} />
+              {trend.data && trend.data.length >= 2 && (
+                <Text style={styles.sparklineLabel}>Savings trend ({trend.data.length} scans)</Text>
+              )}
+            </TouchableOpacity>
 
             {/* By-service pills */}
             <ScrollView
