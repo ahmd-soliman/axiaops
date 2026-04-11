@@ -49,15 +49,15 @@ func New(store storage.Store) *Handler {
 // Register attaches the routes to the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.health)
-	mux.HandleFunc("GET /ghosts", h.listGhosts)
-	mux.HandleFunc("GET /summary", h.getSummary)
-	mux.HandleFunc("GET /trend", h.getTrend)
-	mux.HandleFunc("GET /resources", h.listResources)
-	mux.HandleFunc("GET /accounts", h.listAccounts)
-	mux.HandleFunc("POST /accounts", h.createAccount)
-	mux.HandleFunc("PATCH /accounts/{id}", h.updateAccount)
-	mux.HandleFunc("DELETE /accounts/{id}", h.deleteAccount)
-	mux.HandleFunc("POST /accounts/{id}/scan", h.scanAccount)
+	mux.HandleFunc("GET /v1/ghosts", h.listGhosts)
+	mux.HandleFunc("GET /v1/summary", h.getSummary)
+	mux.HandleFunc("GET /v1/trend", h.getTrend)
+	mux.HandleFunc("GET /v1/resources", h.listResources)
+	mux.HandleFunc("GET /v1/accounts", h.listAccounts)
+	mux.HandleFunc("POST /v1/accounts", h.createAccount)
+	mux.HandleFunc("PATCH /v1/accounts/{id}", h.updateAccount)
+	mux.HandleFunc("DELETE /v1/accounts/{id}", h.deleteAccount)
+	mux.HandleFunc("POST /v1/accounts/{id}/scan", h.scanAccount)
 }
 
 // cors wraps a handler with CORS headers.
