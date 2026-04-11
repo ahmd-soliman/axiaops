@@ -166,7 +166,7 @@ func TestScanAccount_TryMarkScanning_Called(t *testing.T) {
 	ts.statusSignal = sig
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/accounts/acc-99/scan"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-99/scan"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
@@ -201,7 +201,7 @@ func TestScanAccount_TryMarkScanning_StoreError_Returns500(t *testing.T) {
 	api.New(ts).Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/accounts/acc-1/scan"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d — body: %s", w.Code, w.Body.String())
@@ -231,7 +231,7 @@ func TestScanAccount_Async_UpdatesStatusConnectedOnSuccess(t *testing.T) {
 	api.New(ts).Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/accounts/acc-async/scan"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-async/scan"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -276,7 +276,7 @@ func TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure(t *testing.T) {
 	api.New(ts).Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/accounts/acc-fail/scan"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-fail/scan"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -311,7 +311,7 @@ func TestAccountLifecycle_CreateThenList(t *testing.T) {
 	// 1. Create the account.
 	body := `{"provider":"aws","label":"integration-test","access_key_id":"AKIA_INT","secret_key":"secret123","region":"ap-southeast-1"}`
 	wCreate := httptest.NewRecorder()
-	mux.ServeHTTP(wCreate, tenantRequestWithBody(http.MethodPost, "/accounts", body))
+	mux.ServeHTTP(wCreate, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
 	if wCreate.Code != http.StatusCreated {
 		t.Fatalf("create: expected 201, got %d — body: %s", wCreate.Code, wCreate.Body.String())
 	}
@@ -329,7 +329,7 @@ func TestAccountLifecycle_CreateThenList(t *testing.T) {
 
 	// 2. List accounts — the created account must appear.
 	wList := httptest.NewRecorder()
-	mux.ServeHTTP(wList, tenantRequest(http.MethodGet, "/accounts"))
+	mux.ServeHTTP(wList, tenantRequest(http.MethodGet, "/v1/accounts"))
 	if wList.Code != http.StatusOK {
 		t.Fatalf("list: expected 200, got %d", wList.Code)
 	}
@@ -369,7 +369,7 @@ func TestAccountLifecycle_ScanThenTrend(t *testing.T) {
 	_, mux := newTrackingHandler(base)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend?account_id=acc-trend"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend?account_id=acc-trend"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -408,7 +408,7 @@ func TestAccountLifecycle_MultipleScans(t *testing.T) {
 	_, mux := newTrackingHandler(base)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend?account_id=acc-multi"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend?account_id=acc-multi"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -448,7 +448,7 @@ func TestGetTrend_ReflectsLatestScan(t *testing.T) {
 	_, mux := newTrackingHandler(base)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -487,7 +487,7 @@ func TestListGhosts_StoreError_Returns500(t *testing.T) {
 	api.New(ts).Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/ghosts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -504,7 +504,7 @@ func TestGetSummary_StoreError_Returns500(t *testing.T) {
 	api.New(ts).Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/summary"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/summary"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -521,7 +521,7 @@ func TestListAccounts_StoreError_Returns500(t *testing.T) {
 	api.New(ts).Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/accounts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -538,7 +538,7 @@ func TestDeleteAccount_StoreError_Returns500(t *testing.T) {
 	api.New(ts).Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodDelete, "/accounts/any-id"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodDelete, "/v1/accounts/any-id"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -558,7 +558,7 @@ func TestUpdateAccount_UpdatesLabel_Returns200(t *testing.T) {
 	_, mux := newTrackingHandler(base)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/accounts/acc-patch", `{"label":"new-label"}`))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-patch", `{"label":"new-label"}`))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
@@ -591,7 +591,7 @@ func TestUpdateAccount_UpdatesRegion_Returns200(t *testing.T) {
 	_, mux := newTrackingHandler(base)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/accounts/acc-region", `{"region":"eu-central-1"}`))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-region", `{"region":"eu-central-1"}`))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
@@ -616,7 +616,7 @@ func TestUpdateAccount_NotFound_Returns404(t *testing.T) {
 	_, mux := newTrackingHandler(base)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/accounts/nonexistent", `{"label":"any"}`))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/nonexistent", `{"label":"any"}`))
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -634,7 +634,7 @@ func TestUpdateAccount_InvalidJSON_Returns400(t *testing.T) {
 	_, mux := newTrackingHandler(base)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/accounts/acc-json", `not-json`))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-json", `not-json`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -655,7 +655,7 @@ func TestTenantIsolation_LoadGhosts_ReceivesContextTenantID(t *testing.T) {
 	// because the middleware and storage packages use distinct context key types.
 	handler := middleware.DevBypass("tenant-alpha-uuid", mux)
 	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ghosts", nil))
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -681,7 +681,7 @@ func TestTenantIsolation_ListAccounts_ReceivesContextTenantID(t *testing.T) {
 
 	handler := middleware.DevBypass("tenant-beta-uuid", mux)
 	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/accounts", nil))
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/accounts", nil))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -748,7 +748,7 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		req := httptest.NewRequest(http.MethodPost, "/accounts/"+accA+"/scan", nil)
+		req := httptest.NewRequest(http.MethodPost, "/v1/accounts/"+accA+"/scan", nil)
 		req = req.WithContext(storage.WithTenantID(req.Context(), tenantA))
 		w := httptest.NewRecorder()
 		muxA.ServeHTTP(w, req)
@@ -756,7 +756,7 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		req := httptest.NewRequest(http.MethodPost, "/accounts/"+accB+"/scan", nil)
+		req := httptest.NewRequest(http.MethodPost, "/v1/accounts/"+accB+"/scan", nil)
 		req = req.WithContext(storage.WithTenantID(req.Context(), tenantB))
 		w := httptest.NewRecorder()
 		muxB.ServeHTTP(w, req)

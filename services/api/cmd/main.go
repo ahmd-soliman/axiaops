@@ -113,8 +113,16 @@ func main() {
 	h.Register(mux)
 	mux.Handle("/metrics", promhttp.Handler())
 
-	// ── Auth ──────────────────────────────────────────────────────────────────
+	// ── Rate Limiting ─────────────────────────────────────────────────────────
 	var root http.Handler = h.Handler(mux)
+	if os.Getenv("DEV_MODE") != "true" {
+		// 60 requests per minute = 1 req/sec rate, max burst of 60.
+		limiter := middleware.NewRateLimiter(1.0, 60.0)
+		root = limiter.Wrap(root)
+		slog.Info("api: rate limiting enabled (60 req/min per tenant)")
+	}
+
+	// ── Auth ──────────────────────────────────────────────────────────────────
 	if os.Getenv("DEV_MODE") == "true" {
 		devTenantID := os.Getenv("DEV_TENANT_ID")
 		if devTenantID == "" {

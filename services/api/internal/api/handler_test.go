@@ -138,7 +138,7 @@ func TestHealth_Returns200(t *testing.T) {
 func TestGetGhosts_Returns200(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/ghosts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -147,7 +147,7 @@ func TestGetGhosts_Returns200(t *testing.T) {
 func TestGetGhosts_ContentType(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/ghosts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("expected application/json, got %s", ct)
 	}
@@ -156,7 +156,7 @@ func TestGetGhosts_ContentType(t *testing.T) {
 func TestGetGhosts_ReturnsGhostList(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/ghosts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
 
 	var ghosts []model.GhostResource
 	if err := json.NewDecoder(w.Body).Decode(&ghosts); err != nil {
@@ -176,7 +176,7 @@ func TestGetGhosts_ReturnsGhostList(t *testing.T) {
 func TestGetGhosts_CORSHeader(t *testing.T) {
 	h, mux := testHandler()
 	w := httptest.NewRecorder()
-	h.Handler(mux).ServeHTTP(w, tenantRequest(http.MethodGet, "/ghosts"))
+	h.Handler(mux).ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
 	if w.Header().Get("Access-Control-Allow-Origin") != "*" {
 		t.Errorf("expected CORS header, got: %s", w.Header().Get("Access-Control-Allow-Origin"))
 	}
@@ -185,7 +185,7 @@ func TestGetGhosts_CORSHeader(t *testing.T) {
 func TestGetGhosts_OPTIONSPreflight(t *testing.T) {
 	h, mux := testHandler()
 	w := httptest.NewRecorder()
-	h.Handler(mux).ServeHTTP(w, httptest.NewRequest(http.MethodOptions, "/ghosts", nil))
+	h.Handler(mux).ServeHTTP(w, httptest.NewRequest(http.MethodOptions, "/v1/ghosts", nil))
 	if w.Code != http.StatusNoContent {
 		t.Errorf("expected 204 for OPTIONS, got %d", w.Code)
 	}
@@ -196,7 +196,7 @@ func TestGetGhosts_OPTIONSPreflight(t *testing.T) {
 func TestGetSummary_Returns200(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/summary"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/summary"))
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -205,7 +205,7 @@ func TestGetSummary_Returns200(t *testing.T) {
 func TestGetSummary_ReturnsSavings(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/summary"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/summary"))
 
 	var summary analyzer.Summary
 	if err := json.NewDecoder(w.Body).Decode(&summary); err != nil {
@@ -227,7 +227,7 @@ func TestGetSummary_ReturnsSavings(t *testing.T) {
 func TestListAccounts_Returns200(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/accounts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -236,7 +236,7 @@ func TestListAccounts_Returns200(t *testing.T) {
 func TestListAccounts_EmptyStoreReturnsEmptyArray(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/accounts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
 
 	var accounts []model.Account
 	if err := json.NewDecoder(w.Body).Decode(&accounts); err != nil {
@@ -258,7 +258,7 @@ func TestListAccounts_ReturnsStoredAccounts(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/accounts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
 
 	var accounts []model.Account
 	if err := json.NewDecoder(w.Body).Decode(&accounts); err != nil {
@@ -286,7 +286,7 @@ func TestListAccounts_SecretNotExposed(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/accounts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
 
 	if strings.Contains(w.Body.String(), "super-secret-value") {
 		t.Error("response must not contain SecretEncrypted value")
@@ -305,7 +305,7 @@ func TestCreateAccount_Returns201(t *testing.T) {
 
 	body := `{"provider":"aws","label":"prod","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"us-east-1"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/accounts", body))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
 	if w.Code != http.StatusCreated {
 		t.Errorf("expected 201, got %d — body: %s", w.Code, w.Body.String())
@@ -322,7 +322,7 @@ func TestCreateAccount_ReturnsAccountJSON(t *testing.T) {
 
 	body := `{"provider":"aws","label":"prod","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI","region":"us-east-1"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/accounts", body))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
 	var account model.Account
 	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
@@ -349,7 +349,7 @@ func TestCreateAccount_DefaultsProviderAndRegion(t *testing.T) {
 
 	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/accounts", body))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
 	var account model.Account
 	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
@@ -374,7 +374,7 @@ func TestCreateAccount_SecretNotInResponse(t *testing.T) {
 	secret := "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"` + secret + `"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/accounts", body))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
 	if strings.Contains(w.Body.String(), secret) {
 		t.Error("response must not contain the plaintext secret_key")
@@ -386,7 +386,7 @@ func TestCreateAccount_MissingAccessKeyID_Returns400(t *testing.T) {
 
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/accounts", `{"secret_key":"somekey"}`))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", `{"secret_key":"somekey"}`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -398,7 +398,7 @@ func TestCreateAccount_MissingSecretKey_Returns400(t *testing.T) {
 
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/accounts", `{"access_key_id":"AKIA123"}`))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", `{"access_key_id":"AKIA123"}`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -408,7 +408,7 @@ func TestCreateAccount_MissingSecretKey_Returns400(t *testing.T) {
 func TestCreateAccount_InvalidJSON_Returns400(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/accounts", `not-json`))
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", `not-json`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -420,7 +420,7 @@ func TestCreateAccount_InvalidJSON_Returns400(t *testing.T) {
 func TestDeleteAccount_Returns204(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodDelete, "/accounts/acc-1"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodDelete, "/v1/accounts/acc-1"))
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("expected 204, got %d", w.Code)
@@ -447,7 +447,7 @@ func TestScanAccount_Returns200(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/accounts/acc-1/scan"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d — body: %s", w.Code, w.Body.String())
@@ -471,7 +471,7 @@ func TestScanAccount_ReturnsScanningStatus(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/accounts/acc-1/scan"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
 
 	var resp map[string]string
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
@@ -489,7 +489,7 @@ func TestScanAccount_AccountNotFound_Returns404(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/accounts/nonexistent/scan"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/nonexistent/scan"))
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -508,7 +508,7 @@ func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/accounts/acc-1/scan"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d — body: %s", w.Code, w.Body.String())
@@ -523,7 +523,7 @@ func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
 func TestGetTrend_Returns200(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -532,7 +532,7 @@ func TestGetTrend_Returns200(t *testing.T) {
 func TestGetTrend_ContentType(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("expected application/json, got %s", ct)
 	}
@@ -542,7 +542,7 @@ func TestGetTrend_EmptyStoreReturnsEmptyArray(t *testing.T) {
 	// testHandler stub returns nil snapshots — handler must coerce nil → [].
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
 
 	var snaps []model.GhostSnapshot
 	if err := json.NewDecoder(w.Body).Decode(&snaps); err != nil {
@@ -570,7 +570,7 @@ func TestGetTrend_ReturnsSnapshots(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -603,7 +603,7 @@ func TestGetTrend_SnapshotTenantIDNotExposed(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
 
 	if strings.Contains(w.Body.String(), "secret-tenant") {
 		t.Error("response must not expose tenant_id (json:\"-\" tag)")
@@ -620,7 +620,7 @@ func TestGetTrend_StoreError_Returns500(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -634,7 +634,7 @@ func TestGetTrend_AccountIDQueryParamPassedToStore(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend?account_id=acc-42"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend?account_id=acc-42"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -651,7 +651,7 @@ func TestGetTrend_NoAccountIDQueryParam_PassesEmptyString(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/trend"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
