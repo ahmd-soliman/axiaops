@@ -2,7 +2,6 @@ package observability
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 )
 
