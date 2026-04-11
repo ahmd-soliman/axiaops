@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"axiaops.io/api/internal/api"
@@ -120,6 +122,16 @@ func main() {
 		limiter := middleware.NewRateLimiter(1.0, 60.0)
 		root = limiter.Wrap(root)
 		slog.Info("api: rate limiting enabled (60 req/min per tenant)")
+
+		// Background ticker: clean up stale tenant buckets every 5 minutes.
+		// Prevents memory leak in long-running instances. Temporary until Phase 2.14 (Redis).
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				limiter.CleanupStaleBuckets(1 * time.Hour) // Remove buckets inactive >1h
+			}
+		}()
 	}
 
 	// ── Auth ──────────────────────────────────────────────────────────────────
@@ -185,8 +197,48 @@ func main() {
 		}
 	}()
 
-	slog.Info("api: listening", "addr", addr)
-	if err := http.ListenAndServe(addr, logged); err != nil {
-		die("api: server error", "error", err)
+	// ── Graceful Shutdown ────────────────────────────────────────────────────────
+	// Set up signal handling for SIGTERM/SIGINT (App Runner sends SIGTERM on shutdown)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	sigCtx, sigCancel := signal.NotifyContext(shutdownCtx, os.Interrupt, syscall.SIGTERM)
+	defer sigCancel()
+
+	// Start HTTP server in a goroutine
+	server := &http.Server{
+		Addr:    addr,
+		Handler: logged,
+	}
+
+	// Run server in background; will block until signal or error
+	errCh := make(chan error, 1)
+	go func() {
+		slog.Info("api: listening", "addr", addr)
+		errCh <- server.ListenAndServe()
+	}()
+
+	// Wait for either: (1) shutdown signal received, or (2) server error
+	select {
+	case err := <-errCh:
+		// Server exited with error
+		if err != nil && err != http.ErrServerClosed {
+			die("api: server error", "error", err)
+		}
+	case <-sigCtx.Done():
+		// SIGTERM or SIGINT received — graceful shutdown
+		slog.Warn("api: shutdown signal received, draining requests")
+		shutdownStart := time.Now()
+
+		// server.Shutdown waits for all in-flight requests to complete (with timeout)
+		if err := server.Shutdown(shutdownCtx); err != nil && err != context.DeadlineExceeded {
+			slog.Error("api: shutdown error", "error", err)
+		}
+
+		// Close database connection pool
+		s.Close()
+
+		shutdownDuration := time.Since(shutdownStart).Seconds()
+		slog.Info("api: shutdown complete", "duration_seconds", fmt.Sprintf("%.2f", shutdownDuration))
 	}
 }

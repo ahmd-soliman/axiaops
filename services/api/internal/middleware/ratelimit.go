@@ -74,7 +74,7 @@ func (rl *RateLimiter) Wrap(next http.Handler) http.Handler {
 		tenantID := TenantID(r.Context())
 		if tenantID == "" {
 			// If no tenant is injected (e.g. unauthenticated request hitting public surface), we allow it.
-			// Auth wrapper should have already intercepted unauthenticated requests, but this makes the 
+			// Auth wrapper should have already intercepted unauthenticated requests, but this makes the
 			// limiter robust if the route doesn't require auth.
 			next.ServeHTTP(w, r)
 			return
@@ -89,4 +89,24 @@ func (rl *RateLimiter) Wrap(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// CleanupStaleBuckets removes tenant buckets not accessed in the given duration.
+// Prevents memory leak from unbounded growth in long-running instances.
+// Safe to call concurrently; uses a lock. Temporary until Phase 2.14 (Redis integration).
+func (rl *RateLimiter) CleanupStaleBuckets(maxAge time.Duration) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	deleted := 0
+	for tenantID, bucket := range rl.buckets {
+		if now.Sub(bucket.lastRefill) > maxAge {
+			delete(rl.buckets, tenantID)
+			deleted++
+		}
+	}
+	if deleted > 0 {
+		slog.Debug("ratelimit: cleanup", "stale_buckets_removed", deleted, "max_age", maxAge.String())
+	}
 }
