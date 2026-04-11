@@ -4,7 +4,7 @@
 
 ### 1. Observability (P0) — DONE
 - **Structured logging:** `log/slog` with JSON output in production, text in dev
-- **Error tracking:** Sentry SDK integrated (`services/shared/logging/logging.go`)
+- **Error handling:** Structured logging via `log/slog` for error tracking (`services/shared/logging/logging.go`)
 - **Prometheus metrics:** 
   - `axiaops_api_requests_total` — request counter per endpoint/status
   - `axiaops_api_request_duration_seconds` — request latency histogram
@@ -239,10 +239,10 @@ deploy:production:
 - App Runner services: one for API (:8080), one for ingestion (:8081)
 - RDS PostgreSQL: `db.t4g.micro` (free tier eligible; ~€10–20/month)
 - ElastiCache Serverless (Redis) for caching and queue
-- Secrets Manager: `ENCRYPTION_KEY`, `SENTRY_DSN`, `REDIS_URL`
+- Secrets Manager: `ENCRYPTION_KEY`, `REDIS_URL`
 - Terraform modules: reproducible IaC (state in S3 + DynamoDB lock)
 - CloudFront for dashboard static assets
-- Monitoring: CloudWatch Container Insights + Sentry dashboard
+- Monitoring: CloudWatch logs + Prometheus metrics
 
 **Dependencies:** Graceful shutdown, CI/CD pipeline, observability, Redis
 

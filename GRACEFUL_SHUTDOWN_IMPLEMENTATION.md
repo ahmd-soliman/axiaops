@@ -337,7 +337,7 @@ This P0 blocker is **complete and ready for App Runner deployment**.
 
 Remaining Phase 2 items before production:
 
-1. **2.6 Observability** — Prometheus metrics, Sentry integration
+1. **2.6 Observability** — Prometheus metrics, structured logging
 2. **2.10 GitLab CI Pipeline** — Automated build/test/deploy
 3. **2.16 Deployment** — App Runner, RDS, Terraform
 

@@ -8,7 +8,7 @@
 
 ---
 
-## 1. ✅ Observability (Structured Logging, Sentry, Prometheus)
+## 1. ✅ Observability (Structured Logging, Prometheus)
 
 ### 1.1 Structured Logging with `log/slog`
 
@@ -18,7 +18,6 @@
 - JSON output in production (`LOG_OUTPUT=json`), text in dev
 - Log level configuration via `LOG_LEVEL` env var (debug|info|warn|error)
 - Service name + environment + version injected into every log line
-- Full Sentry SDK integration with DSN and traces sampling
 
 ```go
 // Init configures the global slog logger
@@ -41,8 +40,6 @@ func Init(service string) {
 - `LOG_OUTPUT` — json|text (defaults to json unless DEV_MODE=true)
 - `APP_ENV` — production|staging|development (optional, included in logs)
 - `APP_VERSION` — release tag (optional, included in logs)
-- `SENTRY_DSN` — Sentry error tracking (optional; disabled if empty)
-- `SENTRY_TRACES_SAMPLE_RATE` — float 0.0–1.0 (default: 0.1)
 
 **Integration across services:**
 - `services/api/cmd/main.go` — Initializes at startup
@@ -66,50 +63,7 @@ func Init(service string) {
 }
 ```
 
-### 1.2 Sentry Error Tracking
-
-**File:** `services/shared/logging/logging.go`
-
-**What was implemented:**
-```go
-func InitSentry(service string) (flush func()) {
-    flush = func() {}
-    dsn := os.Getenv("SENTRY_DSN")
-    if dsn == "" {
-        slog.Warn("sentry: SENTRY_DSN not set, error tracking disabled")
-        return
-    }
-    
-    tracesRate := parseSampleRate("SENTRY_TRACES_SAMPLE_RATE", 0.1)
-    
-    if err := sentry.Init(sentry.ClientOptions{
-        Dsn:              dsn,
-        Environment:      os.Getenv("APP_ENV"),
-        Release:          os.Getenv("APP_VERSION"),
-        ServerName:       service,
-        EnableTracing:    tracesRate > 0,
-        TracesSampleRate: tracesRate,
-    }); err != nil {
-        slog.Error("sentry: initialization failed", "error", err)
-        return
-    }
-    
-    return func() { sentry.Flush(2 * time.Second) }
-}
-```
-
-**Integration:**
-- Called on startup: `flushSentry := logging.InitSentry("api")`
-- Deferred at exit: `defer flushSentry()` for graceful shutdown
-- Captures panics and unhandled errors automatically
-- Traces sampled at 10% by default (configurable)
-
-**What's tracked:**
-- Panics in HTTP handlers
-- `panic()` calls caught by middleware
-- Errors explicitly reported via `sentry.CaptureException()`
-
-### 1.3 Prometheus Metrics
+### 1.2 Prometheus Metrics
 
 **Files:** 
 - `services/api/cmd/main.go`
@@ -466,7 +420,7 @@ slog.Error("sentry: initialization failed", "error", err)
 
 ### 5.3 Documentation
 
-✅ **docs/logging.md** — Complete guide to slog, Sentry, structured logging
+✅ **docs/logging.md** — Complete guide to slog and structured logging
 ✅ **CLAUDE.md** — Project instructions + dev workflow
 ✅ **Service-specific CLAUDE.md** — API, ingestion, shared, dashboard instructions
 
@@ -482,8 +436,6 @@ LOG_LEVEL=info                          # debug|info|warn|error
 LOG_OUTPUT=json                         # json|text
 APP_ENV=production                      # environment
 APP_VERSION=1.0.0                       # release tag
-SENTRY_DSN=https://...@sentry.io/12345 # error tracking
-SENTRY_TRACES_SAMPLE_RATE=0.1          # trace sampling
 ```
 
 ### 6.2 Docker Compose
@@ -497,7 +449,7 @@ SENTRY_TRACES_SAMPLE_RATE=0.1          # trace sampling
 | Item | Status | Notes |
 |------|--------|-------|
 | Structured logging (slog) | ✅ Done | JSON in prod, text in dev |
-| Sentry integration | ✅ Done | DSN from env var; disables if empty |
+| Error handling | ✅ Done | Structured logging via slog |
 | Prometheus metrics | ✅ Done | Exposed on `/metrics` |
 | Request tracing (Request ID) | ✅ Done | UUID-based, injected in context |
 | Rate limiting | ✅ Done | Per-tenant token bucket; 60 req/min |
@@ -574,7 +526,7 @@ In-memory buckets are lost on restart. Fixed in Phase 2.14 with Redis.
 | Feature | Status | Lines | Tests | Risk |
 |---------|--------|-------|-------|------|
 | Structured logging | ✅ | 92 | — | Low (stdlib + official SDKs) |
-| Sentry integration | ✅ | 50 | — | Low (conditional, disabled by default) |
+| Error handling (slog) | ✅ | 20 | — | Low (stdlib, no external deps) |
 | Prometheus metrics | ✅ | ~80 | — | Low (read-only /metrics endpoint) |
 | Request tracing | ✅ | 29 | — | Low (context injection only) |
 | Rate limiting | ✅ | 92 | 147 | Low (tight mutex, no external deps) |

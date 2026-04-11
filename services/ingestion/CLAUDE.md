@@ -62,6 +62,77 @@ and storage layers are provider-agnostic.
 - `fixtures/usage.json` — CloudWatch-style metrics per resource (some deliberately zero)
 - Used when `DEV_MODE=true` — no AWS credentials needed
 
+## Observability (Phase 2.6)
+
+See `../../OBSERVABILITY.md` for full observability guide.
+
+### Prometheus Metrics
+
+Already instrumented in `cmd/main.go`:
+
+- `axiaops_ingestion_records_fetched_total` — cost records fetched by provider
+- `axiaops_ingestion_records_saved_total` — records saved by provider and status
+- `axiaops_ingestion_ghosts_detected_total` — ghost count by provider
+- `axiaops_potential_monthly_savings_usd` — potential savings by provider
+
+Additional metrics to add via `observability`:
+
+- `axiaops_scan_duration_seconds` — scan stage duration (fetch, analyze, save)
+- `axiaops_aws_api_call_duration_seconds` — AWS API latency (CostExplorer, CloudWatch, etc.)
+- `axiaops_aws_api_errors_total` — AWS API errors
+- `axiaops_scan_errors_total` — scan errors by account_id and error_type
+
+### Error Handling (Structured Logging)
+
+Wrap AWS API calls with error logging:
+
+```go
+import "axiaops.io/shared/observability"
+
+observer := observability.NewAWSObserver("CostExplorer")
+defer observer.Observe()
+
+records, err := awsClient.FetchCosts(ctx, start, end)
+if err != nil {
+    observer.ObserveError()
+    observability.LogError(ctx, err,
+        "operation", "fetch_costs",
+        "account_id", accountID,
+        "provider", "aws",
+    )
+    return err
+}
+```
+
+Errors are logged with structured context (JSON format in production).
+
+### Scan Lifecycle Tracking
+
+Record scan operation stages:
+
+```go
+// Fetch stage
+fetchObserver := observability.NewScanObserver("fetch")
+records, err := p.FetchCosts(ctx, start, end)
+fetchObserver.Observe()
+
+// Analyze stage
+analyzeObserver := observability.NewScanObserver("analyze")
+ghosts := analyzer.Detect(allRecords, usage)
+analyzeObserver.Observe()
+
+// Save stage
+saveObserver := observability.NewScanObserver("save")
+if err := store.SaveGhosts(ctx, ghosts); err != nil {
+    observability.RecordScanError(accountID, "save_ghosts_failed")
+}
+saveObserver.Observe()
+
+// Update summary
+observability.Global.GhostsDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalGhosts))
+observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(summary.PotentialMonthlySave)
+```
+
 ## Environment Variables
 
 | Variable | Required | Default | Notes |
@@ -72,7 +143,12 @@ and storage layers are provider-agnostic.
 | AWS_REGION | Prod | eu-central-1 | AWS region for API calls |
 | DAYS_BACK | No | 30 | Cost lookback window (days) |
 | ENCRYPTION_KEY | Yes | — | Decrypt account secrets |
-| SENTRY_DSN | No | — | Error tracking |
+| APP_ENV | No | — | Environment (production, staging, development) |
+| APP_VERSION | No | — | Release version (e.g., 2.6.0) |
+| LOG_LEVEL | No | info | Log level (debug, info, warn, error) |
+| LOG_OUTPUT | No | json | Log format (json or text; text when DEV_MODE=true) |
+| INGESTION_PORT | No | 8081 | HTTP listen port |
+| RUN_ONCE | No | false | One-shot mode (run once and exit) |
 
 ## Testing
 

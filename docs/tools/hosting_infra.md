@@ -103,11 +103,11 @@ Serverless PostgreSQL. Scales to zero — no cost when idle.
 | Tool | What It Does | Free Tier |
 |------|-------------|-----------|
 | **Grafana Cloud** | Metrics, logs, traces | 10K series, 50GB logs/month free |
-| **Sentry** | Error tracking + performance | 5K errors/month free |
+| **CloudWatch** | Logs, metrics (via App Runner) | Included with App Runner |
 | **UptimeRobot** | Uptime monitoring + alerts | 50 monitors, 5-min checks free |
 | **Betterstack** | Uptime + logs + on-call | Free tier available |
 
-**Minimum viable stack:** Sentry (errors) + UptimeRobot (uptime) — both free, 10 minutes to set up.
+**Minimum viable stack:** CloudWatch logs (free via App Runner) + Prometheus/Grafana (free tier) + UptimeRobot (free).
 
 ---
 

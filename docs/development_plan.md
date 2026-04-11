@@ -344,15 +344,14 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 - **Structured logging:** Replace `log.Printf` with `log/slog` (stdlib) — JSON output in production, text in dev
   - Every log line includes: `tenant_id`, `account_id`, `request_id`, `service`
   - Scan lifecycle: `scan.started`, `scan.completed`, `scan.failed` with duration and ghost count
-- **Error tracking:** Sentry Go SDK — captures panics, unhandled errors, and scan failures
-  - Sentry DSN via `SENTRY_DSN` env var; disabled when unset
+- **Error handling:** Structured logging via `log/slog` — errors logged as JSON to stdout for aggregation
 - **Metrics:** Prometheus client (`promhttp`) exposed on `/metrics` (internal port, not public)
   - `axiaops_scan_duration_seconds` — histogram per account
   - `axiaops_ghosts_detected_total` — counter per service
   - `axiaops_api_request_duration_seconds` — histogram per endpoint
   - `axiaops_api_requests_total` — counter per endpoint + status code
 - **Health endpoint:** Already exists (`GET /health`); extend to include DB connectivity and ingestion service reachability
-- **Production:** CloudWatch Container Insights for App Runner; Sentry for errors; Prometheus metrics scraped by Grafana Cloud (or CloudWatch custom metrics if Grafana is overkill at this stage)
+- **Production:** CloudWatch logs for structured logging; Prometheus metrics scraped by Grafana Cloud (or CloudWatch custom metrics)
 
 **Key files to add:**
 - `services/shared/logging/logging.go` — slog setup (JSON vs text based on env)
@@ -402,7 +401,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 - **build:** Docker image build for `api`, `ingestion`, `dashboard`; push to AWS ECR
 - **deploy:** `aws apprunner update-service` for `api` and `ingestion`; CloudFront invalidation for dashboard
 - **Branch strategy:** `main` triggers full pipeline; feature branches trigger `test` only
-- **Secrets:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SENTRY_DSN`, `ENCRYPTION_KEY` stored as GitLab CI/CD variables (masked)
+- **Secrets:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ENCRYPTION_KEY` stored as GitLab CI/CD variables (masked)
 
 **Key file:** `.gitlab-ci.yml` at repo root
 
@@ -470,7 +469,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 - Frontend: Expo EAS Build → web deploy (static assets behind CloudFront)
 - Database: RDS PostgreSQL (`db.t4g.micro`) — see 2.4
 - Cache: AWS ElastiCache Serverless (Redis) — see 2.14
-- Secrets: AWS Secrets Manager for `ENCRYPTION_KEY`, `SENTRY_DSN`, `REDIS_URL`
+- Secrets: AWS Secrets Manager for `ENCRYPTION_KEY`, `REDIS_URL`
 - Infrastructure: Terraform modules for reproducible provisioning (state in S3 + DynamoDB lock)
 
 ---
@@ -672,7 +671,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | Auth | Kinde (see docs/auth.md) |
 | Billing | Stripe (subscriptions, invoicing) |
 | Hosting | AWS App Runner |
-| Observability | slog (structured logging), Sentry (errors), Prometheus (metrics) |
+| Observability | slog (structured logging), Prometheus (metrics) |
 | Backup | RDS automated backups (7-day retention, point-in-time recovery) |
 | Infrastructure | Terraform (production, state in S3 + DynamoDB), Docker Compose (dev) |
 | CI/CD | GitLab CI |
@@ -694,7 +693,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | April 2026 | Resource inventory view — all resources with ghost/active annotation | ✅ Done |
 | May 2026 | PostgreSQL migration — replace SQLite for production workloads | Planned |
 | May 2026 | Savings history / trend (`ghost_snapshots` + `GET /trend`) — prioritised to prevent data loss | Planned |
-| May 2026 | Observability — structured logging, Sentry, Prometheus metrics | Planned |
+| May 2026 | Observability — structured logging, Prometheus metrics | Completed |
 | May 2026 | Scan recovery — timeout detection for stuck scans | Planned |
 | May 2026 | API versioning — `/v1/` prefix on all endpoints | Planned |
 | May 2026 | In-memory rate limiting — per-tenant token bucket before Redis | Planned |

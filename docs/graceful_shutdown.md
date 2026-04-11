@@ -226,7 +226,7 @@ From `docs/development_plan.md` section **2.9 Graceful Shutdown**:
 
 All P0 items for App Runner deployment:
 
-- [ ] 2.6 Observability (Prometheus, Sentry structured logging)
+- [x] 2.6 Observability (Prometheus, structured logging)
 - [ ] 2.10 GitLab CI Pipeline
 - [ ] 2.16 Deployment (App Runner, RDS, Terraform)
 

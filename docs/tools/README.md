@@ -23,7 +23,6 @@ Free and low-cost tools for building AxiaOps. Organised by category.
 | Database | Supabase | Free tier / $25/month |
 | Object storage | Cloudflare R2 | Free tier |
 | DNS + SSL | Cloudflare | Free |
-| Error tracking | Sentry | Free tier |
 | Uptime monitoring | UptimeRobot | Free |
 | Transactional email | Resend | Free tier |
 | API client | Bruno | Free |
