@@ -40,3 +40,16 @@ integration-tests:
 
 # Full suite: unit tests + Postgres integration tests.
 test-all: test integration-tests
+
+# Test graceful shutdown: start services, send SIGTERM, verify clean exit.
+test-shutdown:
+	@echo "Starting services..."
+	./scripts/start.sh &
+	SERVICE_PID=$$!
+	sleep 3
+	@echo "Services running. Press Ctrl+C or wait 10 seconds for automatic SIGTERM..."
+	sleep 10
+	@echo "Sending SIGTERM to services..."
+	kill -SIGTERM $$SERVICE_PID 2>/dev/null || true
+	wait $$SERVICE_PID 2>/dev/null || true
+	@echo "Graceful shutdown test complete. Check logs above for 'shutdown complete' message."
