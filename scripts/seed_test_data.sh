@@ -190,9 +190,8 @@ for i in {1000..1}; do
   # Calculate date i days ago
   SNAP_DATE=$(date -u -v-${i}d +"%Y-%m-%dT12:00:00Z" 2>/dev/null || TZ=UTC date -d "$i days ago" +"%Y-%m-%dT12:00:00Z" 2>/dev/null)
 
-  # Generate realistic trend: start at ~$280, gradually decrease to ~$159 with noise
-  # Linear decrease: cost = 280 - (i * 0.12) + random noise
-  BASE_COST=$(awk "BEGIN {printf \"%.2f\", 280 - ($i * 0.12) + (rand() * 20 - 10)}")
+  # Generate completely random cost between $100 and $500
+  BASE_COST=$(awk -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", 100 + (rand() * 400)}")
   GHOSTS=$((8 + RANDOM % 5))  # ghost count 8-13
 
   if [ $i -eq 1 ]; then
