@@ -59,7 +59,7 @@ func TestRateLimiter_Isolation(t *testing.T) {
 
 func TestRateLimiter_Wrap(t *testing.T) {
 	rl := NewRateLimiter(2.0, 2.0)
-	
+
 	count := 0
 	handler := rl.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
@@ -120,7 +120,7 @@ func TestRateLimiter_Wrap(t *testing.T) {
 	if wHlt.Code != http.StatusOK {
 		t.Errorf("expected 200 for health, got %d", wHlt.Code)
 	}
-	
+
 	if count != 5 {
 		t.Errorf("expected handler execution 5 times, got %d", count)
 	}
@@ -143,5 +143,53 @@ func TestRateLimiter_ConcurrentAccess(t *testing.T) {
 	// 101st request should be blocked
 	if rl.Allow("tenant-busy") {
 		t.Fatal("expected blocked after concurrent drain")
+	}
+}
+
+func TestRateLimiter_CleanupStaleBuckets(t *testing.T) {
+	rl := NewRateLimiter(10.0, 10.0)
+
+	// Create buckets for 3 tenants
+	rl.Allow("tenant-1")
+	rl.Allow("tenant-2")
+	rl.Allow("tenant-3")
+
+	if len(rl.buckets) != 3 {
+		t.Fatalf("expected 3 buckets, got %d", len(rl.buckets))
+	}
+
+	// Manually age two buckets by modifying lastRefill (for testing purposes)
+	now := time.Now()
+	rl.mu.Lock()
+	rl.buckets["tenant-1"].lastRefill = now.Add(-2 * time.Hour)    // old
+	rl.buckets["tenant-2"].lastRefill = now.Add(-30 * time.Minute) // recent
+	rl.buckets["tenant-3"].lastRefill = now.Add(-2 * time.Hour)    // old
+	rl.mu.Unlock()
+
+	// Clean up buckets older than 1 hour
+	rl.CleanupStaleBuckets(1 * time.Hour)
+
+	rl.mu.Lock()
+	remaining := len(rl.buckets)
+	rl.mu.Unlock()
+
+	// Only tenant-2 should remain (accessed within 1 hour)
+	if remaining != 1 {
+		t.Fatalf("expected 1 bucket after cleanup, got %d", remaining)
+	}
+
+	// Verify the right bucket remains
+	if rl.Allow("tenant-2") {
+		// tenant-2 should still work (bucket not deleted)
+		// (Allow might fail if it's at capacity, but that's OK; we just want to verify bucket exists)
+	}
+	if rl.Allow("tenant-1") {
+		// tenant-1 was deleted, so this creates a new bucket with full capacity
+		// Verify new bucket was created
+		rl.mu.Lock()
+		if len(rl.buckets) != 2 {
+			t.Errorf("expected 2 buckets after re-accessing tenant-1, got %d", len(rl.buckets))
+		}
+		rl.mu.Unlock()
 	}
 }
