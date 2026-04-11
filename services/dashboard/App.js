@@ -5,6 +5,7 @@ import * as AuthSession from 'expo-auth-session';
 
 import DashboardScreen from './src/screens/DashboardScreen';
 import DetailScreen from './src/screens/DetailScreen';
+import TrendScreen from './src/screens/TrendScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import ConnectScreen from './src/screens/ConnectScreen';
 import { useKindeAuth } from './src/auth/kinde';
@@ -27,6 +28,7 @@ function parseJwt(token) {
 function AuthenticatedApp({ token, onLogout }) {
   const [selectedGhost, setSelectedGhost] = useState(null);
   const [showConnect, setShowConnect]     = useState(false);
+  const [showTrend, setShowTrend]         = useState(false);
   const [editAccount, setEditAccount]     = useState(null); // Account being edited
   const claims  = parseJwt(token);
   const orgName = claims.org_name || claims.org_code || '';
@@ -60,8 +62,13 @@ function AuthenticatedApp({ token, onLogout }) {
     return <DetailScreen ghost={selectedGhost} onBack={() => setSelectedGhost(null)} />;
   }
 
+  if (showTrend) {
+    return <TrendScreen onBack={() => setShowTrend(false)} />;
+  }
+
   return (
     <DashboardScreen
+      onShowTrend={() => setShowTrend(true)}
       onSelectGhost={setSelectedGhost}
       onLogout={onLogout}
       orgName={orgName}
