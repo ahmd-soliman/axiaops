@@ -62,17 +62,17 @@ func (s *stubStore) GetAccount(_ context.Context, id string) (model.Account, err
 	}
 	return model.Account{}, errors.New("not found")
 }
-func (s *stubStore) DeleteAccount(_ context.Context, _ string) error                  { return nil }
-func (s *stubStore) UpdateAccountStatus(_ context.Context, _, _ string) error         { return nil }
+func (s *stubStore) DeleteAccount(_ context.Context, _ string) error          { return nil }
+func (s *stubStore) UpdateAccountStatus(_ context.Context, _, _ string) error { return nil }
 func (s *stubStore) TryMarkAccountScanning(_ context.Context, _ string) (bool, error) {
 	if s.tryMarkBusy {
 		return false, nil
 	}
 	return true, nil
 }
-func (s *stubStore) SaveResources(_ context.Context, _ []model.ResourceRecord) error        { return nil }
-func (s *stubStore) LoadResources(_ context.Context) ([]model.ResourceRecord, error)        { return nil, nil }
-func (s *stubStore) SaveSnapshot(_ context.Context, _ model.GhostSnapshot) error { return nil }
+func (s *stubStore) SaveResources(_ context.Context, _ []model.ResourceRecord) error { return nil }
+func (s *stubStore) LoadResources(_ context.Context) ([]model.ResourceRecord, error) { return nil, nil }
+func (s *stubStore) SaveSnapshot(_ context.Context, _ model.GhostSnapshot) error     { return nil }
 func (s *stubStore) ListSnapshots(_ context.Context, accountID string) ([]model.GhostSnapshot, error) {
 	s.lastListSnapshotsAccountID = accountID
 	if s.listSnapshotsErr != nil {
@@ -80,7 +80,7 @@ func (s *stubStore) ListSnapshots(_ context.Context, accountID string) ([]model.
 	}
 	return s.snapshots, nil
 }
-func (s *stubStore) Close() error                                                            { return nil }
+func (s *stubStore) Close() error { return nil }
 
 var testGhost = model.GhostResource{
 	Provider:    "aws",
@@ -131,6 +131,37 @@ func TestHealth_Returns200(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
+}
+
+func TestHealth_DatabasePingFails_Returns503(t *testing.T) {
+	store := &stubStoreWithFailingPing{
+		stubStore: &stubStore{ghosts: []model.GhostResource{testGhost}},
+		pingErr:   errors.New("connection refused"),
+	}
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", w.Code)
+	}
+
+	if !strings.Contains(w.Body.String(), "unreachable") {
+		t.Errorf("expected 'unreachable' in response body, got: %s", w.Body.String())
+	}
+}
+
+// stubStoreWithFailingPing wraps stubStore and implements Pinger interface with a failing Ping.
+type stubStoreWithFailingPing struct {
+	*stubStore
+	pingErr error
+}
+
+func (s *stubStoreWithFailingPing) Ping(_ context.Context) error {
+	return s.pingErr
 }
 
 // ── GET /ghosts ───────────────────────────────────────────────────────────────
