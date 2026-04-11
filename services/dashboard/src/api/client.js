@@ -17,31 +17,31 @@ function authHeaders() {
 }
 
 export async function fetchSummary() {
-  const res = await fetch(`${BASE_URL}/summary`, { headers: authHeaders() });
+  const res = await fetch(`${BASE_URL}/v1/summary`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch summary');
   return res.json();
 }
 
 export async function fetchGhosts() {
-  const res = await fetch(`${BASE_URL}/ghosts`, { headers: authHeaders() });
+  const res = await fetch(`${BASE_URL}/v1/ghosts`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch ghosts');
   return res.json();
 }
 
 export async function fetchResources() {
-  const res = await fetch(`${BASE_URL}/resources`, { headers: authHeaders() });
+  const res = await fetch(`${BASE_URL}/v1/resources`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch resources');
   return res.json();
 }
 
 export async function fetchAccounts() {
-  const res = await fetch(`${BASE_URL}/accounts`, { headers: authHeaders() });
+  const res = await fetch(`${BASE_URL}/v1/accounts`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch accounts');
   return res.json();
 }
 
 export async function connectAccount({ provider, label, accessKeyId, secretKey, region }) {
-  const res = await fetch(`${BASE_URL}/accounts`, {
+  const res = await fetch(`${BASE_URL}/v1/accounts`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider, label, access_key_id: accessKeyId, secret_key: secretKey, region }),
@@ -57,7 +57,7 @@ export async function updateAccount(id, { label, accessKeyId, secretKey, region 
   if (secretKey !== undefined && secretKey !== '') body.secret_key = secretKey;
   if (region !== undefined) body.region = region;
 
-  const res = await fetch(`${BASE_URL}/accounts/${id}`, {
+  const res = await fetch(`${BASE_URL}/v1/accounts/${id}`, {
     method: 'PATCH',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -67,7 +67,7 @@ export async function updateAccount(id, { label, accessKeyId, secretKey, region 
 }
 
 export async function deleteAccount(id) {
-  const res = await fetch(`${BASE_URL}/accounts/${id}`, {
+  const res = await fetch(`${BASE_URL}/v1/accounts/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -75,7 +75,7 @@ export async function deleteAccount(id) {
 }
 
 export async function scanAccount(id) {
-  const res = await fetch(`${BASE_URL}/accounts/${id}/scan`, {
+  const res = await fetch(`${BASE_URL}/v1/accounts/${id}/scan`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -85,8 +85,8 @@ export async function scanAccount(id) {
 
 export async function fetchTrend(accountId) {
   const url = accountId
-    ? `${BASE_URL}/trend?account_id=${encodeURIComponent(accountId)}`
-    : `${BASE_URL}/trend`;
+    ? `${BASE_URL}/v1/trend?account_id=${encodeURIComponent(accountId)}`
+    : `${BASE_URL}/v1/trend`;
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch trend');
   return res.json();
