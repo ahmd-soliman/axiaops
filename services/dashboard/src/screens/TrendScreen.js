@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -23,7 +23,7 @@ const C = {
   border: '#E2E8F0',
 };
 
-function FullTrendChart({ snaps }) {
+function FullTrendChart({ snaps, selectedId, onSelect }) {
   if (!snaps || snaps.length < 2) return null;
 
   const H = 160;
@@ -42,19 +42,35 @@ function FullTrendChart({ snaps }) {
         {snaps.map((s, i) => {
           const v = s.total_monthly_cost;
           const barH = Math.max(4, Math.round((v / maxVal) * H));
+          const isSelected = selectedId === s.snapshot_at;
           const isLast = i === snaps.length - 1;
+
+          let bgColor = 'rgba(249,115,22,0.45)';
+          if (isSelected) bgColor = C.navy;
+          else if (isLast) bgColor = C.accent;
+
           return (
-            <View
+            <TouchableOpacity
               key={i}
+              activeOpacity={0.7}
+              onPress={() => onSelect(s)}
               style={{
                 width: BAR_W,
-                height: barH,
-                backgroundColor: isLast ? C.accent : 'rgba(249,115,22,0.45)',
+                height: H, // Fill container height for easier tap target
+                justifyContent: 'flex-end',
                 marginRight: i < snaps.length - 1 ? GAP : 0,
-                borderTopLeftRadius: 3,
-                borderTopRightRadius: 3,
               }}
-            />
+            >
+              <View
+                style={{
+                  width: BAR_W,
+                  height: barH,
+                  backgroundColor: bgColor,
+                  borderTopLeftRadius: 3,
+                  borderTopRightRadius: 3,
+                }}
+              />
+            </TouchableOpacity>
           );
         })}
       </View>
@@ -64,6 +80,7 @@ function FullTrendChart({ snaps }) {
 
 export default function TrendScreen({ onBack }) {
   const trend = useQuery({ queryKey: ['trend'], queryFn: () => fetchTrend(null) });
+  const [selectedSnap, setSelectedSnap] = useState(null);
 
   if (trend.isLoading) {
     return (
@@ -86,7 +103,8 @@ export default function TrendScreen({ onBack }) {
   }
 
   const snaps = trend.data;
-  const latestCost = snaps.length > 0 ? snaps[snaps.length - 1].total_monthly_cost : 0;
+  const latestSnap = snaps.length > 0 ? snaps[snaps.length - 1] : null;
+  const displaySnap = selectedSnap || latestSnap;
   
   // Create a reversed array for the list so we see the newest first
   const reversedSnaps = [...snaps].reverse();
@@ -99,11 +117,15 @@ export default function TrendScreen({ onBack }) {
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <View style={styles.headerBody}>
-          <Text style={styles.headerEyebrow}>Historical Savings Trend</Text>
-          <Text style={styles.headerAmount}>
-            {snaps[0]?.currency || '$'} {latestCost.toFixed(2)}
+          <Text style={styles.headerEyebrow}>
+            {selectedSnap ? `Snapshot: ${new Date(selectedSnap.snapshot_at).toLocaleDateString('en-GB')}` : 'Historical Savings Trend'}
           </Text>
-          <Text style={styles.headerSub}>Latest projected monthly cost</Text>
+          <Text style={styles.headerAmount}>
+            {displaySnap?.currency || '$'} {displaySnap ? displaySnap.total_monthly_cost.toFixed(2) : '0.00'}
+          </Text>
+          <Text style={styles.headerSub}>
+            {selectedSnap ? `${selectedSnap.ghost_count} ghost resources found` : 'Latest projected monthly cost'}
+          </Text>
         </View>
       </View>
 
@@ -111,7 +133,11 @@ export default function TrendScreen({ onBack }) {
       <View style={styles.chartContainer}>
         <Text style={styles.sectionTitle}>Monthly Projection Timeline</Text>
         <View style={styles.chartWrapper}>
-          <FullTrendChart snaps={snaps} />
+          <FullTrendChart 
+            snaps={snaps} 
+            selectedId={selectedSnap?.snapshot_at} 
+            onSelect={(s) => setSelectedSnap(s.snapshot_at === selectedSnap?.snapshot_at ? null : s)} 
+          />
         </View>
         <View style={styles.chartLegend}>
           <Text style={styles.legendText}>{snaps.length} days of recorded history</Text>
@@ -125,23 +151,31 @@ export default function TrendScreen({ onBack }) {
           data={reversedSnaps}
           keyExtractor={(item, idx) => item.snapshot_at + idx}
           contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => (
-            <View style={styles.row}>
-              <View>
-                <Text style={styles.rowDate}>
-                  {new Date(item.snapshot_at).toLocaleDateString('en-GB', {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric',
-                  })}
+          extraData={selectedSnap}
+          renderItem={({ item }) => {
+            const isSelected = selectedSnap?.snapshot_at === item.snapshot_at;
+            return (
+              <TouchableOpacity
+                activeOpacity={0.6}
+                onPress={() => setSelectedSnap(isSelected ? null : item)}
+                style={[styles.row, isSelected && styles.rowSelected]}
+              >
+                <View>
+                  <Text style={styles.rowDate}>
+                    {new Date(item.snapshot_at).toLocaleDateString('en-GB', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </Text>
+                  <Text style={styles.rowGhosts}>{item.ghost_count} ghost resources flagged</Text>
+                </View>
+                <Text style={styles.rowCost}>
+                  {item.currency} {item.total_monthly_cost.toFixed(2)}
                 </Text>
-                <Text style={styles.rowGhosts}>{item.ghost_count} ghost resources flagged</Text>
-              </View>
-              <Text style={styles.rowCost}>
-                {item.currency} {item.total_monthly_cost.toFixed(2)}
-              </Text>
-            </View>
-          )}
+              </TouchableOpacity>
+            );
+          }}
         />
       </View>
     </View>
@@ -179,14 +213,22 @@ const styles = StyleSheet.create({
   chartLegend: { paddingHorizontal: 16, marginTop: 12 },
   legendText: { fontSize: 12, color: C.textMuted, fontStyle: 'italic' },
 
-  listContent: { paddingHorizontal: 16, paddingBottom: 40 },
+  listContent: { paddingHorizontal: 8, paddingBottom: 40 },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 14,
+    paddingHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
+    borderRadius: 8,
+  },
+  rowSelected: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FFEDD5',
+    borderWidth: 1,
+    borderBottomWidth: 1,
   },
   rowDate: { fontSize: 14, color: C.text, fontWeight: '600', marginBottom: 4 },
   rowGhosts: { fontSize: 12, color: C.textMuted },
