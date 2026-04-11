@@ -29,14 +29,14 @@ check:
 	./scripts/check_db.sh
 
 test:
-	cd services/api && go test ./... $(ARGS)
-	cd services/ingestion && go test ./... $(ARGS)
-	cd services/shared && go test ./... $(ARGS)
+	cd services/api && go test ./... -count=1 $(ARGS)
+	cd services/ingestion && go test ./... -count=1 $(ARGS)
+	cd services/shared && go test ./... -count=1 $(ARGS)
 
 # Run Postgres integration tests (migrations + RLS/tenant isolation tests).
 integration-tests:
 	docker compose up -d postgres
-	cd services/shared && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_STORE_URL="$(TEST_STORE_URL)" go test -v ./storage/postgres/...
+	cd services/shared && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_STORE_URL="$(TEST_STORE_URL)" go test -count=1 -v ./storage/postgres/...
 
 # Full suite: unit tests + Postgres integration tests.
 test-all: test integration-tests
