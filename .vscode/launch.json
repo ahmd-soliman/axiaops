@@ -2,6 +2,26 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Make: test",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["test"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Make: test-all",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["test-all"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
       "name": "Make: stop",
       "type": "node",
       "request": "launch",
@@ -190,6 +210,11 @@
     }
   ],
   "compounds": [
+    {
+      "name": "All Tests",
+      "configurations": ["Make: test"],
+      "stopAll": true
+    },
     {
       "name": "Unit-Tests",
       "configurations": [
