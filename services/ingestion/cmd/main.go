@@ -15,7 +15,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"axiaops.io/ingestion/internal/provider"
@@ -161,9 +163,50 @@ func main() {
 	if port == "" {
 		port = "8081"
 	}
-	slog.Info("ingestion: listening", "port", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		die("ingestion: server failed", "error", err)
+
+	// ── Graceful Shutdown ────────────────────────────────────────────────────────
+	// Set up signal handling for SIGTERM/SIGINT (App Runner sends SIGTERM on shutdown)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	sigCtx, sigCancel := signal.NotifyContext(shutdownCtx, os.Interrupt, syscall.SIGTERM)
+	defer sigCancel()
+
+	// Start HTTP server in a goroutine
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: mux,
+	}
+
+	// Run server in background; will block until signal or error
+	errCh := make(chan error, 1)
+	go func() {
+		slog.Info("ingestion: listening", "port", port)
+		errCh <- server.ListenAndServe()
+	}()
+
+	// Wait for either: (1) shutdown signal received, or (2) server error
+	select {
+	case err := <-errCh:
+		// Server exited with error
+		if err != nil && err != http.ErrServerClosed {
+			die("ingestion: server failed", "error", err)
+		}
+	case <-sigCtx.Done():
+		// SIGTERM or SIGINT received — graceful shutdown
+		slog.Warn("ingestion: shutdown signal received, draining requests")
+		shutdownStart := time.Now()
+
+		// server.Shutdown waits for all in-flight requests to complete (with timeout)
+		if err := server.Shutdown(shutdownCtx); err != nil && err != context.DeadlineExceeded {
+			slog.Error("ingestion: shutdown error", "error", err)
+		}
+
+		// Close database connection pool
+		store.(interface{ Close() error }).Close()
+
+		shutdownDuration := time.Since(shutdownStart).Seconds()
+		slog.Info("ingestion: shutdown complete", "duration_seconds", fmt.Sprintf("%.2f", shutdownDuration))
 	}
 }
 
