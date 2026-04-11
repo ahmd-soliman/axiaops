@@ -29,9 +29,9 @@ check:
 	./scripts/check_db.sh
 
 test:
-	cd services/api && go test ./...
-	cd services/ingestion && go test ./...
-	cd services/shared && go test ./...
+	cd services/api && go test ./... $(ARGS)
+	cd services/ingestion && go test ./... $(ARGS)
+	cd services/shared && go test ./... $(ARGS)
 
 # Run Postgres integration tests (migrations + RLS/tenant isolation tests).
 integration-tests:

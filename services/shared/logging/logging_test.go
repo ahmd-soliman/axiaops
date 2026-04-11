@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestInit_WithJSONOutput(t *testing.T) {
@@ -13,8 +14,6 @@ func TestInit_WithJSONOutput(t *testing.T) {
 	os.Unsetenv("LOG_OUTPUT")
 	os.Unsetenv("DEV_MODE")
 
-	// Capture slog output
-	var buf bytes.Buffer
 	Init("test-service")
 
 	// Log a test message
@@ -80,13 +79,15 @@ func TestInit_IncludesServiceName(t *testing.T) {
 	// Capture output
 	var buf bytes.Buffer
 	h := slog.NewJSONHandler(&buf, nil)
-	logger := slog.New(h)
 
-	record := slog.NewRecord(slog.Record{}, slog.LevelInfo, "test", 0)
+	record := slog.NewRecord(time.Now(), slog.LevelInfo, "test", 0)
 	h.Handle(nil, record)
 
 	// Verify service name is included (basic check)
-	_ = buf.String()
+	output := buf.String()
+	if output == "" {
+		t.Errorf("expected non-empty log output, got empty string")
+	}
 }
 
 func TestInitSentry_DisabledWhenMissingDSN(t *testing.T) {
