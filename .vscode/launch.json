@@ -52,6 +52,16 @@
       "skipFiles": ["<node_internals>/**"]
     },
     {
+      "name": "Make: seed",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["seed"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
       "name": "AxiaOps",
       "type": "go",
       "request": "launch",
