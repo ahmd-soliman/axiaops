@@ -49,11 +49,54 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 - `DEV_MODE=true` → auth bypassed, uses `DEV_TENANT_ID`
 - Tenant mapped: Kinde `org_code` → `tenants.id` via `UpsertTenant()`
 
-## Prometheus Metrics
+## Prometheus Metrics (Phase 2.6)
 
-- `axiaops_api_requests_total` — counter per method/route/status
-- `axiaops_api_request_duration_seconds` — histogram per method/route
-- Registered via `prometheus.MustRegister()` in `main.go`
+See `../../OBSERVABILITY.md` for full observability guide.
+
+### HTTP Metrics (Automatic)
+
+The request logging middleware (line 161–182 of main.go) records:
+
+- `axiaops_http_requests_total` — counter per method/route/status
+- `axiaops_http_request_duration_seconds` — histogram per method/route
+- `axiaops_http_responses_total` — responses by method/route/status
+- `axiaops_http_errors_total` — 5xx errors by method/route/status
+- `axiaops_http_requests_in_flight` — active requests (gauge)
+
+These are exposed via `/metrics` endpoint for Prometheus scraping.
+
+### Database Metrics (To Add)
+
+Wrap database calls with `observability.DatabaseObserver`:
+
+```go
+import "axiaops.io/shared/observability"
+
+observer := observability.NewDatabaseObserver("LOAD_GHOSTS")
+defer observer.Observe()
+ghosts, err := h.store.LoadGhosts(ctx)
+if err != nil {
+    observer.ObserveError()
+    // ... handle error
+}
+```
+
+### Error Handling (Structured Logging)
+
+Use `observability.LogError()` for API errors:
+
+```go
+import "axiaops.io/shared/observability"
+
+if err != nil {
+    observability.LogError(r.Context(), err,
+        "operation", "list_ghosts",
+        "endpoint", "GET /v1/ghosts",
+    )
+}
+```
+
+Errors are logged to stdout with structured context (JSON format in production).
 
 ## Environment Variables
 
@@ -67,7 +110,10 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | DEV_TENANT_ID | No | dev-tenant-axiaops | Tenant ID in dev mode |
 | CORS_ORIGIN | No | * | Allowed CORS origin |
 | ENCRYPTION_KEY | Yes | — | 32-byte hex for AES-256-GCM |
-| SENTRY_DSN | No | — | Sentry error tracking |
+| APP_ENV | No | — | Environment (production, staging, development) |
+| APP_VERSION | No | — | Release version (e.g., 2.6.0) |
+| LOG_LEVEL | No | info | Log level (debug, info, warn, error) |
+| LOG_OUTPUT | No | json | Log format (json or text; text when DEV_MODE=true) |
 
 ## Testing
 

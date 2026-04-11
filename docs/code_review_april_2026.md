@@ -36,13 +36,10 @@
 
 **Functions without tests:**
 - `Init(service string)` — Configures slog, level, JSON/text output based on env vars
-- `InitSentry(service string)` — Initializes Sentry SDK, handles missing DSN gracefully
 
 **Impact:** Critical initialization code depends on environment variables but has zero test coverage. No tests for:
 - Log level parsing (debug|info|warn|error)
 - JSON vs text output selection based on `LOG_OUTPUT` and `DEV_MODE`
-- Sentry DSN handling (present vs missing)
-- Sentry traces sample rate parsing (float 0–1 validation)
 
 **Fix:** Add unit tests in `services/shared/logging/logging_test.go` (new file). See "Implementation" section below.
 
@@ -218,7 +215,7 @@ All code paths covered, RLS policies correct, schema clean.
 | Issue | File | Severity | Type | Effort | Status |
 |-------|------|----------|------|--------|--------|
 | Rate limiter memory leak | `ratelimit.go` | **P1** | Bug | 30 min | TODO |
-| No tests: logging Init/InitSentry | `logging.go` | P2 | Test gap | 45 min | TODO |
+| No tests: logging Init | `logging.go` | P2 | Test gap | 30 min | TODO |
 | No tests: RequestID middleware | `requestid.go` | P2 | Test gap | 30 min | TODO |
 | No tests: ResetStuckScans() | `migrate.go` | P2 | Test gap | 30 min | TODO |
 | Health endpoint ping failure untested | `handler_test.go` | P2 | Test gap | 15 min | TODO |
@@ -232,7 +229,7 @@ All code paths covered, RLS policies correct, schema clean.
 1. **Fix rate limiter memory leak** — Add bucket cleanup goroutine (30 min)
 
 ### Phase 2 (Test coverage)
-2. **Add logging unit tests** — Init, InitSentry with various env vars (45 min)
+2. **Add logging unit tests** — Init with various env vars (30 min)
 3. **Add RequestID middleware tests** — UUID injection, header passthrough, context storage (30 min)
 4. **Add ResetStuckScans tests** — Mocked database, verify reset logic (30 min)
 5. **Add health endpoint failure test** — Pinger error → HTTP 503 (15 min)
@@ -247,7 +244,7 @@ All code paths covered, RLS policies correct, schema clean.
 **Before deployment to App Runner:**
 - ✅ API versioning complete
 - ✅ Structured logging working
-- ✅ Sentry error tracking integrated
+- ✅ Structured logging with error handling
 - ✅ Prometheus metrics exposed
 - ✅ Rate limiting functional
 - ✅ Health endpoint with DB check
@@ -334,19 +331,6 @@ func TestInit_TextOutput_WhenDEVMode(t *testing.T) {
     // Text handler should be active
 }
 
-func TestInitSentry_DisabledWhenMissing(t *testing.T) {
-    os.Unsetenv("SENTRY_DSN")
-    flush := InitSentry("test-service")
-    flush()  // Should be a no-op
-}
-
-func TestInitSentry_EnabledWithDSN(t *testing.T) {
-    os.Setenv("SENTRY_DSN", "https://test@sentry.io/123")
-    defer os.Unsetenv("SENTRY_DSN")
-    
-    flush := InitSentry("test-service")
-    defer flush()  // Sentry initialized
-}
 ```
 
 ---
