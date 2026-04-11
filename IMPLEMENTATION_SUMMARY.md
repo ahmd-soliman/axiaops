@@ -84,27 +84,22 @@ if os.Getenv("DEV_MODE") != "true" {
 
 ### 2. ✅ P2: Logging Unit Tests
 
-**Problem:** `logging.Init()` and `logging.InitSentry()` had zero test coverage despite depending on environment variables.
+**Problem:** `logging.Init()` had zero test coverage despite depending on environment variables.
 
 **Solution implemented:**
 
 #### File: `services/shared/logging/logging_test.go` (NEW)
 
-Created 10 unit tests covering:
+Created unit tests covering:
 1. `TestInit_WithJSONOutput()` — JSON output mode
 2. `TestInit_TextOutput_WhenDEVMode()` — Text output when DEV_MODE=true
 3. `TestInit_LogLevel_Debug()` — Debug level parsing
 4. `TestInit_LogLevel_Warn()` — Warn level parsing
 5. `TestInit_IncludesServiceName()` — Service name in logs
-6. `TestInitSentry_DisabledWhenMissingDSN()` — Graceful fallback when DSN unset
-7. `TestInitSentry_FlushReturnsFunction()` — Flush function returned
-8. `TestInitSentry_ParsesSampleRate()` — Sample rate parsing (0.0–1.0)
-9. `TestInitSentry_InvalidSampleRate_UsesDefault()` — Invalid rate handling
-10. `TestInit_JSONFormatValid()` — Valid JSON output validation
+6. `TestInit_JSONFormatValid()` — Valid JSON output validation
 
 **Coverage:**
 - Environment variable parsing (LOG_OUTPUT, LOG_LEVEL, DEV_MODE, APP_ENV, APP_VERSION)
-- Sentry initialization (DSN, traces sample rate, fallback when disabled)
 - JSON/text output format validation
 
 ---
@@ -236,7 +231,7 @@ func TestHealth_DatabasePingFails_Returns503(t *testing.T) {
 | Item | Status | Notes |
 |------|--------|-------|
 | Rate limiter memory leak fixed | ✅ | Cleanup ticker + stale bucket removal |
-| Logging tests added | ✅ | 10 test cases covering init/sentry |
+| Logging tests added | ✅ | 6 test cases covering logging initialization |
 | RequestID middleware tests added | ✅ | 7 test cases covering UUID + context |
 | ResetStuckScans tests | ⏳ | See note below |
 | Health endpoint failure test | ✅ | DB ping failure → 503 |

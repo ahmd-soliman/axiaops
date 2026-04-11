@@ -72,9 +72,7 @@
 - [ ] Replace all `log.Printf` / `fmt.Println` calls in all three services with `slog.Info/Error/Warn`
 - [ ] Create `services/api/internal/middleware/requestid.go` — inject `X-Request-ID` header and add to `slog` context
 - [ ] Add scan lifecycle logs: `scan.started`, `scan.completed`, `scan.failed` with `tenant_id`, `account_id`, `duration_ms`, `ghost_count`
-- [ ] Add Sentry Go SDK (`github.com/getsentry/sentry-go`) to `services/api` and `services/ingestion`
-  - Read `SENTRY_DSN` env var; skip initialisation if unset (dev/test safe)
-  - Capture panics and unhandled errors; call `sentry.Flush()` on graceful shutdown
+- [x] ~~Add Sentry Go SDK~~ — SKIPPED: Using structured logging instead (cost optimization)
 - [ ] Create `services/api/internal/middleware/metrics.go` — Prometheus HTTP middleware
   - `axiaops_api_request_duration_seconds` histogram (endpoint + status code labels)
   - `axiaops_api_requests_total` counter
@@ -147,7 +145,7 @@
 - [ ] **deploy stage:** (main branch only, after build succeeds)
   - `aws apprunner update-service` for `api` and `ingestion`
   - CloudFront invalidation for dashboard static assets
-- [ ] Add required CI/CD variables in GitLab: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SENTRY_DSN`, `ENCRYPTION_KEY`
+- [ ] Add required CI/CD variables in GitLab: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ENCRYPTION_KEY`
 - [ ] Test: push to a feature branch — only `test` stage runs; merge to `main` — full pipeline runs
 
 #### 2.12 Scheduled Auto-Scan
@@ -221,7 +219,7 @@
   - Enable automated daily snapshots (7-day retention)
   - Set CloudWatch log retention to 7 days
 - [ ] **Secrets Manager**
-  - Store `ENCRYPTION_KEY`, `SENTRY_DSN`, `REDIS_URL`, `RESEND_API_KEY`, `KINDE_ISSUER`, `KINDE_CLIENT_ID` in Secrets Manager
+  - Store `ENCRYPTION_KEY`, `REDIS_URL`, `RESEND_API_KEY`, `KINDE_ISSUER`, `KINDE_CLIENT_ID` in Secrets Manager
   - Reference secrets in App Runner service definition (not environment variables)
   - Document key rotation procedure in `docs/ops.md` (re-encrypt all `secret_encrypted` rows before rotating `ENCRYPTION_KEY`)
 - [ ] **App Runner**
