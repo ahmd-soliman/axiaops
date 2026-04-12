@@ -65,10 +65,11 @@ test-postgres:
 # Full test suite: unit tests + API integration tests + storage tests.
 test-all: test test-postgres
 
-# Smoke tests: requires a running stack (make start-dev) and SMOKE_API_URL.
-# Usage: SMOKE_API_URL=http://localhost:8080 make test-smoke
+# Smoke tests: requires a running stack. Run 'make start-dev' first.
+# Override the URL with: SMOKE_API_URL=https://staging.example.com make test-smoke
+SMOKE_API_URL ?= http://localhost:8080
 test-smoke:
-	cd test/smoke && SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./...
+	cd test/smoke && SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -count=1 $(ARGS)
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:

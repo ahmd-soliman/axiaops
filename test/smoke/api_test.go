@@ -83,8 +83,8 @@ func TestSummary(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("GET /v1/summary: decode: %v", err)
 	}
-	if _, ok := body["total_monthly_cost"]; !ok {
-		t.Fatalf("GET /v1/summary: missing total_monthly_cost field, got %v", body)
+	if _, ok := body["potential_monthly_savings"]; !ok {
+		t.Fatalf("GET /v1/summary: missing potential_monthly_savings field, got %v", body)
 	}
 }
 
