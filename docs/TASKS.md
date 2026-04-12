@@ -122,9 +122,10 @@
 - [x] Create `test/smoke/api_test.go` — Go test package that hits the live API over HTTP
   - Covers: `GET /health`, `GET /v1/ghosts`, `GET /v1/summary`, `GET /v1/resources`, `GET /v1/trend`, `GET /v1/accounts`, `GET /metrics`
   - Skipped automatically when `SMOKE_API_URL` is unset (safe for CI unit-test jobs)
-- [x] Add `test/smoke/go.mod` and register module in `go.work`
-- [x] Add `make test-smoke` target — `SMOKE_API_URL=http://localhost:8080 make test-smoke`
-- [x] Test: `make start-dev && SMOKE_API_URL=http://localhost:8080 make test-smoke` — all tests pass
+- [x] Add `test/smoke/go.mod` — intentionally **excluded from `go.work`** (`GOWORK=off` in `make test-smoke`)
+  - Reason: including it caused `go test` to recompile the workspace, killing running `go run` services
+- [x] Add `make test-smoke` target — `GOWORK=off SMOKE_API_URL=http://localhost:8080 go test ./...`
+- [x] Test: start services with `make start-dev` in one terminal, run `make test-smoke` in another — all tests pass and services stay up
 
 ---
 

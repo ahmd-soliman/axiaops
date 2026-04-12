@@ -4,5 +4,4 @@ use (
 	./services/api
 	./services/ingestion
 	./services/shared
-	./test/smoke
 )

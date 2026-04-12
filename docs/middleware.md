@@ -4,12 +4,52 @@ The API middleware chain lives in `services/api/internal/middleware/` and `servi
 
 ```
 Request
+  └── CORS               (api/handler.go)            — outermost, always runs
+  └── Logger + Metrics   (cmd/main.go inline)
   └── RequestID          (shared/observability)
-  └── Prometheus metrics (shared/observability)
-  └── RateLimiter        (middleware/ratelimit.go)   — skipped in DEV_MODE
   └── Auth / DevBypass   (middleware/auth.go)
-  └── Handler
+  └── RateLimiter        (middleware/ratelimit.go)   — skipped in DEV_MODE
+  └── Mux (router)
 ```
+
+---
+
+## CORS (`handler.go`)
+
+Sets `Access-Control-Allow-*` headers on every response so browsers allow cross-origin requests (e.g. dashboard on `:3000` calling API on `:8080` in local dev).
+
+- Reads `CORS_ORIGIN` env var — defaults to `*`. Set to your domain in production (e.g. `https://app.axiaops.com`).
+- Short-circuits `OPTIONS` preflight requests with `204 No Content` immediately — no auth or rate limiting applied.
+- **Must be outermost** so CORS headers are present even when auth or rate limiting rejects the request. If auth returns `401` without CORS headers, the browser cannot read the error response.
+
+### Before (broken)
+
+CORS was innermost — wrapped only the mux. Auth ran first, so a rejected request never reached CORS:
+
+```
+Browser → Auth (401, no CORS headers) ✗
+                ↓ never reached
+              CORS → Mux
+```
+
+The browser received a `401` with no `Access-Control-Allow-Origin` header and blocked the response entirely — showing a CORS error instead of an auth error.
+
+### After (fixed)
+
+CORS is outermost — wraps the entire chain. Headers are set before anything else runs:
+
+```
+Browser → CORS (sets headers) → Auth → Rate Limiter → Mux ✓
+```
+
+Even if auth returns `401`, the CORS headers are already written and the browser can read the response.
+
+```
+CORS_ORIGIN=https://app.axiaops.com  # production
+CORS_ORIGIN=*                        # default (local dev)
+```
+
+**In production with same-domain deployment** (dashboard and API behind the same load balancer/CDN), CORS headers are not strictly required since there is no cross-origin request. The middleware is harmless to keep.
 
 ---
 
@@ -71,7 +111,9 @@ Exposed at `GET /metrics` (unversioned, not behind auth).
 
 Order matters — each layer wraps the next:
 
-1. **RequestID** — outermost so every log line has a request ID, including auth failures.
-2. **Metrics** — wraps everything so failed auth and rate-limited requests are counted.
-3. **RateLimiter** — before auth to reject abusive clients cheaply (no DB lookup).
-4. **Auth** — innermost before handlers; injects tenant context used by all handlers.
+1. **CORS** — outermost so headers are always set, even on rejected requests. Browser needs them to read any response.
+2. **Logger + Metrics** — wraps everything so all requests (including auth failures) are logged and counted.
+3. **RequestID** — early so every log line has a request ID, including auth failures.
+4. **Auth** — before rate limiter; injects tenant context used by the rate limiter and all handlers.
+5. **RateLimiter** — after auth so it can bucket by tenant ID rather than IP.
+6. **Mux** — innermost; routes to the correct handler.
