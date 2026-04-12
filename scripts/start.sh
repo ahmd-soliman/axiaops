@@ -80,8 +80,8 @@ fi
 (
   export DATABASE_URL="$DATABASE_URL"
   export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
-  exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
-) &
+  exec go run ./cmd/main.go
+) >> "$LOG_FILE" 2>&1 &
 INGESTION_PID=$!
 echo $INGESTION_PID >> "$PID_FILE"
 disown $INGESTION_PID
@@ -102,8 +102,8 @@ cd "$API_DIR"
       set -a; source .env; set +a
     fi
   fi
-  exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
-) &
+  exec go run ./cmd/main.go
+) >> "$LOG_FILE" 2>&1 &
 API_PID=$!
 echo $API_PID >> "$PID_FILE"
 disown $API_PID
@@ -125,10 +125,8 @@ disown $DASHBOARD_PID
 echo "---------------------------------------"
 echo "All systems go."
 echo "Logs: tail -f .dev.log"
-
-# Keep script alive. `wait -n` waits for any background job to exit.
-# If a job exits with non-zero, `|| true` prevents set -e from killing the script.
-wait -n 2>/dev/null || true
+echo ""
+echo "Services are running in the background. Use 'make stop' to shut them down."
 
 # Keep the script alive so the process group stays intact.
 # `|| true` prevents set -e from exiting if a background job exits non-zero.
