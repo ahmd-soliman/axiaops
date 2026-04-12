@@ -82,6 +82,7 @@ fi
   export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
   exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 ) &
+disown $!
 echo $! >> "$PID_FILE"
 
 until curl -sf http://localhost:8081/health &>/dev/null; do sleep 1; done
@@ -102,6 +103,7 @@ cd "$API_DIR"
   fi
   exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 ) &
+disown $!
 echo $! >> "$PID_FILE"
 
 until curl -sf http://localhost:8080/health &>/dev/null; do sleep 1; done
@@ -114,8 +116,13 @@ export EXPO_PUBLIC_KINDE_CLIENT_ID="${KINDE_CLIENT_ID:-}"
 export EXPO_PUBLIC_DEV_MODE="${DEV_MODE:-true}"
 export EXPO_PUBLIC_DEV_ORG_NAME="${DEV_ORG_NAME:-AxiaOps Dev}"
 npx expo start --web --port 3000 --non-interactive --clear >> "$LOG_FILE" 2>&1 &
+disown $!
 echo $! >> "$PID_FILE"
 
 echo "---------------------------------------"
 echo "All systems go."
 echo "Logs: tail -f .dev.log"
+
+# Keep the script alive so the process group stays intact.
+# `|| true` prevents set -e from exiting if a background job exits non-zero.
+wait || true
