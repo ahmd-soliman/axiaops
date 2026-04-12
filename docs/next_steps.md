@@ -16,7 +16,7 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 - [x] AWS Cost Explorer integration (`ce:GetCostAndUsage`)
 - [x] CloudWatch integration (`cloudwatch:GetMetricStatistics`)
 - [x] Resource discovery via Describe APIs (EC2, RDS, Lambda, ELB, NAT Gateway)
-- [x] SQLite storage with `INSERT OR IGNORE` deduplication
+- [x] PostgreSQL storage with `INSERT OR IGNORE` deduplication
 - [x] Configurable date range — `DAYS_BACK`, `START_DATE`, `END_DATE` env vars
 
 ### Zombie Detection
@@ -83,7 +83,6 @@ Current status: Phase 1 complete, Phase 2 AWS + CloudWatch integration complete.
 - [x] AES-256-GCM secret encryption at rest (`services/shared/crypto/crypto.go`)
 - [x] Store interface: `SaveAccount`, `ListAccounts`, `GetAccount`, `DeleteAccount`, `UpdateAccountStatus`
 - [x] PostgreSQL implementation of all account methods
-- [x] SQLite stubs (accounts not supported in SQLite dev mode)
 - [x] API endpoints: `GET/POST /accounts`, `DELETE /accounts/{id}`, `POST /accounts/{id}/scan`
 - [x] Ingestion refactored to long-lived HTTP server (`POST /scan` on `:8081`)
 - [ ] Add IAM role ARN field per account — implement `sts:AssumeRole` as alternative to access keys

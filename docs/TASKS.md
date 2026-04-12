@@ -58,7 +58,6 @@
 - [ ] Write migration `003_add_ghost_snapshots.sql` — create `ghost_snapshots(id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)`
 - [ ] Update `Store` interface in `services/shared/storage/storage.go` — add `SaveSnapshot(ctx, snapshot)` and `ListSnapshots(ctx, accountID, limit)` methods
 - [ ] Implement `SaveSnapshot` + `ListSnapshots` in `services/shared/storage/postgres/postgres.go`
-- [ ] Add `SaveSnapshot` stub to SQLite store (dev/test only)
 - [ ] Update ingestion scan flow — write one snapshot row per scan after `SaveGhosts`
 - [ ] Add `GET /v1/trend?account_id={id}&days=30` endpoint in `services/api/internal/api/`
 - [ ] Dashboard: savings trend sparkline on the header (replace static savings banner)

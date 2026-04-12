@@ -16,7 +16,7 @@ observability, scheduled scans, and production deployment (App Runner + RDS).
 services/
   api/        — HTTP server (:8080), auth middleware, reads from DB
   ingestion/  — Long-lived HTTP server (:8081), fetches AWS data, writes to DB
-  shared/     — Domain models, Store interface, PostgreSQL + SQLite, analyzer, crypto, logging
+  shared/     — Domain models, Store interface, PostgreSQL, analyzer, crypto, logging
   dashboard/  — React Native (Expo) web app, served via nginx
 ```
 
@@ -44,7 +44,6 @@ make test-all       # Unit + integration
 ## Database
 
 - **Runtime:** PostgreSQL 16 with Row-Level Security (tenant isolation via `SET app.tenant_id`)
-- **Tests only:** SQLite (throwaway per-test files via `os.CreateTemp`)
 - **Migrations:** `services/shared/storage/postgres/migrations/` — versioned SQL, run on startup
 - Two connection strings: `DATABASE_URL` (app user) and `MIGRATION_DATABASE_URL` (owner/admin)
 

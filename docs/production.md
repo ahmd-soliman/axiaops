@@ -10,7 +10,7 @@ a production-ready deployment.
 
 | Concern | Current (MVP) | Production target |
 |---------|--------------|-------------------|
-| Database | SQLite (file on disk) | PostgreSQL |
+| Database | PostgreSQL | PostgreSQL |
 | Usage data | `fixtures/usage.json` (always) | AWS CloudWatch |
 | Auth | None — all endpoints open | JWT (Clerk or Supabase Auth) |
 | CORS | `Access-Control-Allow-Origin: *` | Locked to your domain |
@@ -77,9 +77,9 @@ AxiaOps's own policy needs `sts:AssumeRole` on `arn:aws:iam::*:role/AxiaOpsReadO
 
 ---
 
-## Database — PostgreSQL (SQLite tests-only)
+## Database — PostgreSQL
 
-AxiaOps runs on PostgreSQL. SQLite is retained for unit tests only (throwaway per-test DB files).
+AxiaOps runs on PostgreSQL exclusively.
 
 **Schema + migrations:**
 - Migrations live in `services/shared/storage/postgres/migrations/`
@@ -216,7 +216,7 @@ fly launch --name axiaops-dashboard
 Fly.io provides:
 - Automatic TLS
 - Private networking between services (ingestion reachable at `axiaops-ingestion.internal:8080`)
-- Persistent volumes for SQLite (until PostgreSQL is in place)
+- Persistent volumes for PostgreSQL data
 - `fly machine run` for scheduled ingestion
 
 ### Railway

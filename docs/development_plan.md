@@ -23,13 +23,13 @@
 
 #### 1.3 Backend — Go Services ✅
 
-**Language:** Go 1.25+ | **Framework:** Standard library + `net/http` | **Data Layer:** PostgreSQL (runtime) + SQLite (unit tests only)
+**Language:** Go 1.25+ | **Framework:** Standard library + `net/http` | **Data Layer:** PostgreSQL
 
 **Service architecture (Phase 2+):**
 
 ```
 services/
-  shared/     — model, storage interface + Postgres + SQLite tests, analyzer (no AWS SDK)
+  shared/     — model, storage interface + Postgres tests, analyzer (no AWS SDK)
   api/        — HTTP server, auth middleware, reads ghost_records from DB
   ingestion/  — long-lived HTTP server, fetches AWS/fixture data, writes to DB
 ```
@@ -109,13 +109,12 @@ API service (always running on :8080)
 | `shared/analyzer` | 9 | Flags zero-usage resources, skips active, skips missing data, owner fallback, aggregate savings |
 | `api/internal/api` | 7 | GET /ghosts, GET /summary — 200, JSON payload, content type, CORS, OPTIONS preflight |
 | `api/internal/middleware` | 9 | Valid/invalid/expired/wrong-issuer tokens, missing org_code, OPTIONS passthrough, tenant in context |
-| `shared/storage/sqlite` | 11 | Insert, dedup, empty batch, region uniqueness, tags as JSON, UpsertTenant, UpsertUser |
+| `shared/storage/postgres` | 30+ | Insert, dedup, empty batch, region uniqueness, tags, UpsertTenant, UpsertUser, RLS isolation, accounts CRUD, snapshots |
 | `ingestion/provider/filefixture` | 5 | Returns all records, multiple records, file not found, invalid JSON, correct Name() |
 | `ingestion/provider/aws` | 3 | Single-page response, multi-page pagination, API error propagation |
 
 **Test patterns used:**
 - `mockCEClient` — implements `CostExplorerAPI` interface, no real AWS calls
-- `os.CreateTemp` — throwaway SQLite file per test, cleaned up via `t.Cleanup`
 - `httptest.NewRecorder` — tests HTTP handlers without a real server
 - RSA key generation — signs test JWTs for middleware tests without hitting Kinde
 
@@ -159,7 +158,7 @@ PostgreSQL (same DB)
 - Expo web built at Docker image build time — no Node.js runtime in production
 - `EXPO_PUBLIC_*` vars passed as Docker build args — baked into static bundle
 
-**Note:** SQLite is retained for unit tests only (throwaway per-test DB files). Runtime uses PostgreSQL.
+**Note:** Runtime uses PostgreSQL exclusively. Integration tests run against a real PostgreSQL instance via `make test-postgres`.
 
 #### 1.8 Storage Layer — PostgreSQL ✅
 
@@ -281,14 +280,13 @@ CREATE POLICY accounts_tenant_isolation ON accounts
     USING (tenant_id = current_setting('app.tenant_id', true));
 ```
 
-> **Note:** Row-Level Security and `CREATE POLICY` are PostgreSQL-only features. The SQLite dev schema omits these — tenant isolation in dev relies on application-level filtering.
+> **Note:** Row-Level Security and `CREATE POLICY` are PostgreSQL-only features.
 
 **Key files:**
 - `services/shared/model/account.go` — Account struct (`SecretEncrypted` omitted from JSON)
 - `services/shared/crypto/crypto.go` — AES-256-GCM encrypt/decrypt (shared between api and ingestion)
 - `services/shared/storage/storage.go` — Store interface extended with 5 account methods
 - `services/shared/storage/postgres/postgres.go` — Full account CRUD implementation
-- `services/shared/storage/sqlite/sqlite.go` — Stub implementations (dev-only, accounts not supported in SQLite)
 - `services/ingestion/cmd/main.go` — Long-lived HTTP server; `POST /scan` decrypts credentials and runs ingestion
 
 **Ingestion scan flow:**
@@ -312,19 +310,16 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 
 #### 2.4 PostgreSQL Migration ✅
 
-**Priority: Before auto-scan and Redis — eliminates SQLite concurrency bottleneck.**
-
-- PostgreSQL is the runtime database; SQLite remains for unit tests only
+- PostgreSQL is the runtime database
 - Migrate all tables: `cost_records`, `ghost_records`, `tenants`, `users`, `accounts`
 - Enable Row-Level Security for tenant isolation on `accounts`, `ghost_records`, `cost_records`
 - Dev: PostgreSQL container in `docker-compose.yml`
 - Production: RDS PostgreSQL (`db.t4g.micro`)
 - Add `services/shared/storage/postgres/migrations/` — versioned SQL migrations
 - Update `DEV_MODE` to still use fixture data but write to PostgreSQL
-- Retain SQLite implementation for unit tests only (throwaway per-test databases)
 
 **Key files:**
-- `services/shared/storage/postgres/postgres.go` — full `Store` implementation (partially exists for accounts)
+- `services/shared/storage/postgres/postgres.go` — full `Store` implementation
 - `services/shared/storage/postgres/migrations/*.sql` — versioned schema files
 
 #### 2.5 Savings History / Trend ✅
@@ -665,7 +660,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | Layer | Technology |
 |-------|-----------|
 | Backend | Go 1.25+ |
-| Database | PostgreSQL (runtime) + SQLite (unit tests only) |
+| Database | PostgreSQL |
 | Cache / Queue | Redis (`go-redis/v9`) — JWKS cache, scan job queue, rate limiting |
 | Frontend | React Native (Expo) — web first, mobile in Phase 4 |
 | Auth | Kinde (see docs/auth.md) |
@@ -691,7 +686,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | April 2026 | API/ingestion service split + ghost_records DB | ✅ Done |
 | April 2026 | Account management — connect AWS, encrypted secrets, on-demand scan | ✅ Done |
 | April 2026 | Resource inventory view — all resources with ghost/active annotation | ✅ Done |
-| May 2026 | PostgreSQL migration — replace SQLite for production workloads | Planned |
+| April 2026 | PostgreSQL migration — full production storage layer | ✅ Done |
 | May 2026 | Savings history / trend (`ghost_snapshots` + `GET /trend`) — prioritised to prevent data loss | Planned |
 | May 2026 | Observability — structured logging, Prometheus metrics | Completed |
 | May 2026 | Scan recovery — timeout detection for stuck scans | Planned |

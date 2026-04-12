@@ -3,7 +3,7 @@
 ## Purpose
 
 Core library shared between API and ingestion services. Contains domain models, storage
-interface, PostgreSQL/SQLite implementations, analyzer (detection logic), crypto, and logging.
+interface, PostgreSQL implementation, analyzer (detection logic), crypto, and logging.
 No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 
 ## Module
@@ -17,7 +17,6 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 | `model/` | Domain types: Tenant, User, Account, CostRecord, GhostResource, ResourceRecord |
 | `storage/` | `Store` interface + `WithTenantID()` / `TenantIDFromCtx()` context helpers |
 | `storage/postgres/` | Production Store impl — PostgreSQL with RLS, migrations |
-| `storage/sqlite/` | Test-only Store impl — throwaway per-test databases |
 | `analyzer/` | `Detect()`, `Summarize()`, `AnnotateAll()` — pure functions, no I/O |
 | `crypto/` | AES-256-GCM encrypt/decrypt for account secrets |
 | `logging/` | `Init(service)` — configures `log/slog` with JSON/text output |
@@ -33,8 +32,8 @@ Key methods: `SaveCostRecords`, `SaveGhostRecords`, `LoadGhosts`, `Summary`,
 `SaveAccount`, `ListAccounts`, `GetAccount`, `DeleteAccount`, `TryMarkAccountScanning`,
 `UpsertTenant`, `UpsertUser`.
 
-When adding new data access, add to this interface first, then implement in both
-`postgres/` and `sqlite/` (sqlite can stub with `return nil, nil` if not needed for tests).
+When adding new data access, add to this interface first, then implement in
+`postgres/postgres.go`.
 
 ## Analyzer
 
@@ -62,8 +61,7 @@ Resources with no matching rule or no usage data are skipped (not flagged).
 2. Add RLS policy: `CREATE POLICY ... USING (tenant_id = current_setting('app.tenant_id', true))`
 3. Add methods to `Store` interface in `storage/storage.go`
 4. Implement in `storage/postgres/postgres.go`
-5. Add stub in `storage/sqlite/sqlite.go`
-6. Write integration test in `storage/postgres/postgres_test.go`
+5. Write integration test in `storage/postgres/postgres_test.go`
 
 ## Crypto
 
@@ -160,7 +158,7 @@ See `../../OBSERVABILITY.md` for full guide.
 ## Testing
 
 ```bash
-cd services/shared && go test ./...                              # unit tests (SQLite)
+cd services/shared && go test ./...                              # unit tests (analyzer, crypto, etc.)
 cd services/shared && go test ./storage/postgres/... -count=1    # integration (needs running PostgreSQL)
 ```
 
