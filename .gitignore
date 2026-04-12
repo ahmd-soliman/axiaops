@@ -86,3 +86,4 @@ logs/
 *.tfvars
 !*.tfvars.example
 .dev-pids
+.aider*

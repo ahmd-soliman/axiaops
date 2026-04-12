@@ -16,72 +16,6 @@ import (
 	"axiaops.io/shared/storage"
 )
 
-// stubStore is an in-memory Store for handler tests.
-type stubStore struct {
-	ghosts        []model.GhostResource
-	accounts      []model.Account
-	snapshots     []model.GhostSnapshot
-	getAccountErr error
-	// listSnapshotsErr simulates a store-level failure for ListSnapshots.
-	listSnapshotsErr error
-	// lastListSnapshotsAccountID captures the account_id passed to ListSnapshots.
-	lastListSnapshotsAccountID string
-	// tryMarkBusy simulates TryMarkAccountScanning losing the race (account already scanning).
-	tryMarkBusy bool
-}
-
-func (s *stubStore) Save(_ context.Context, _ []model.CostRecord) (int64, error) { return 0, nil }
-func (s *stubStore) SaveGhosts(_ context.Context, g []model.GhostResource) error {
-	s.ghosts = g
-	return nil
-}
-func (s *stubStore) LoadGhosts(_ context.Context) ([]model.GhostResource, error) {
-	return s.ghosts, nil
-}
-func (s *stubStore) UpsertTenant(_ context.Context, _, _ string) (model.Tenant, error) {
-	return model.Tenant{}, nil
-}
-func (s *stubStore) UpsertUser(_ context.Context, _, _, _, _ string) (model.User, error) {
-	return model.User{}, nil
-}
-func (s *stubStore) SaveAccount(_ context.Context, a model.Account) error {
-	s.accounts = append(s.accounts, a)
-	return nil
-}
-func (s *stubStore) ListAccounts(_ context.Context) ([]model.Account, error) {
-	return s.accounts, nil
-}
-func (s *stubStore) GetAccount(_ context.Context, id string) (model.Account, error) {
-	if s.getAccountErr != nil {
-		return model.Account{}, s.getAccountErr
-	}
-	for _, a := range s.accounts {
-		if a.ID == id {
-			return a, nil
-		}
-	}
-	return model.Account{}, errors.New("not found")
-}
-func (s *stubStore) DeleteAccount(_ context.Context, _ string) error          { return nil }
-func (s *stubStore) UpdateAccountStatus(_ context.Context, _, _ string) error { return nil }
-func (s *stubStore) TryMarkAccountScanning(_ context.Context, _ string) (bool, error) {
-	if s.tryMarkBusy {
-		return false, nil
-	}
-	return true, nil
-}
-func (s *stubStore) SaveResources(_ context.Context, _ []model.ResourceRecord) error { return nil }
-func (s *stubStore) LoadResources(_ context.Context) ([]model.ResourceRecord, error) { return nil, nil }
-func (s *stubStore) SaveSnapshot(_ context.Context, _ model.GhostSnapshot) error     { return nil }
-func (s *stubStore) ListSnapshots(_ context.Context, accountID string) ([]model.GhostSnapshot, error) {
-	s.lastListSnapshotsAccountID = accountID
-	if s.listSnapshotsErr != nil {
-		return nil, s.listSnapshotsErr
-	}
-	return s.snapshots, nil
-}
-func (s *stubStore) Close() error { return nil }
-
 var testGhost = model.GhostResource{
 	Provider:    "aws",
 	AccountID:   "000000000000",
@@ -101,7 +35,7 @@ var testGhost = model.GhostResource{
 }
 
 func testHandler() (*api.Handler, *http.ServeMux) {
-	store := &stubStore{ghosts: []model.GhostResource{testGhost}}
+	store := NewMockStore().WithGhosts([]model.GhostResource{testGhost})
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -122,6 +56,16 @@ func tenantRequestWithBody(method, path, body string) *http.Request {
 	return r.WithContext(ctx)
 }
 
+// mockStoreWithFailingPing wraps MockStore and overrides Ping to simulate database failure.
+type mockStoreWithFailingPing struct {
+	*MockStore
+	pingErr error
+}
+
+func (s *mockStoreWithFailingPing) Ping(_ context.Context) error {
+	return s.pingErr
+}
+
 // ── GET /health ───────────────────────────────────────────────────────────────
 
 func TestHealth_Returns200(t *testing.T) {
@@ -134,8 +78,8 @@ func TestHealth_Returns200(t *testing.T) {
 }
 
 func TestHealth_DatabasePingFails_Returns503(t *testing.T) {
-	store := &stubStoreWithFailingPing{
-		stubStore: &stubStore{ghosts: []model.GhostResource{testGhost}},
+	store := &mockStoreWithFailingPing{
+		MockStore: NewMockStore().WithGhosts([]model.GhostResource{testGhost}),
 		pingErr:   errors.New("connection refused"),
 	}
 	h := api.New(store)
@@ -152,16 +96,6 @@ func TestHealth_DatabasePingFails_Returns503(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "unreachable") {
 		t.Errorf("expected 'unreachable' in response body, got: %s", w.Body.String())
 	}
-}
-
-// stubStoreWithFailingPing wraps stubStore and implements Pinger interface with a failing Ping.
-type stubStoreWithFailingPing struct {
-	*stubStore
-	pingErr error
-}
-
-func (s *stubStoreWithFailingPing) Ping(_ context.Context) error {
-	return s.pingErr
 }
 
 // ── GET /ghosts ───────────────────────────────────────────────────────────────
@@ -279,11 +213,9 @@ func TestListAccounts_EmptyStoreReturnsEmptyArray(t *testing.T) {
 }
 
 func TestListAccounts_ReturnsStoredAccounts(t *testing.T) {
-	store := &stubStore{
-		accounts: []model.Account{
-			{ID: "acc-1", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", Status: "connected"},
-		},
-	}
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", Status: "connected"},
+	})
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -307,11 +239,9 @@ func TestListAccounts_ReturnsStoredAccounts(t *testing.T) {
 }
 
 func TestListAccounts_SecretNotExposed(t *testing.T) {
-	store := &stubStore{
-		accounts: []model.Account{
-			{ID: "acc-1", SecretEncrypted: "super-secret-value", AccessKeyID: "AKIA123"},
-		},
-	}
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", SecretEncrypted: "super-secret-value", AccessKeyID: "AKIA123"},
+	})
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -329,7 +259,7 @@ func TestListAccounts_SecretNotExposed(t *testing.T) {
 func TestCreateAccount_Returns201(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
-	store := &stubStore{}
+	store := NewMockStore()
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -346,7 +276,7 @@ func TestCreateAccount_Returns201(t *testing.T) {
 func TestCreateAccount_ReturnsAccountJSON(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
-	store := &stubStore{}
+	store := NewMockStore()
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -373,7 +303,7 @@ func TestCreateAccount_ReturnsAccountJSON(t *testing.T) {
 func TestCreateAccount_DefaultsProviderAndRegion(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
-	store := &stubStore{}
+	store := NewMockStore()
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -397,7 +327,7 @@ func TestCreateAccount_DefaultsProviderAndRegion(t *testing.T) {
 func TestCreateAccount_SecretNotInResponse(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
-	store := &stubStore{}
+	store := NewMockStore()
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -468,11 +398,9 @@ func TestScanAccount_Returns200(t *testing.T) {
 	defer ingestion.Close()
 	t.Setenv("INGESTION_URL", ingestion.URL)
 
-	store := &stubStore{
-		accounts: []model.Account{
-			{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
-		},
-	}
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
+	})
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -492,11 +420,9 @@ func TestScanAccount_ReturnsScanningStatus(t *testing.T) {
 	defer ingestion.Close()
 	t.Setenv("INGESTION_URL", ingestion.URL)
 
-	store := &stubStore{
-		accounts: []model.Account{
-			{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
-		},
-	}
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
+	})
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -514,7 +440,7 @@ func TestScanAccount_ReturnsScanningStatus(t *testing.T) {
 }
 
 func TestScanAccount_AccountNotFound_Returns404(t *testing.T) {
-	store := &stubStore{getAccountErr: errors.New("not found")}
+	store := NewMockStore().WithGetAccountError(errors.New("not found"))
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -528,12 +454,11 @@ func TestScanAccount_AccountNotFound_Returns404(t *testing.T) {
 }
 
 func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
-	store := &stubStore{
-		tryMarkBusy: true,
-		accounts: []model.Account{
+	store := NewMockStore().
+		WithAccounts([]model.Account{
 			{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1", Status: "scanning"},
-		},
-	}
+		}).
+		WithAccountAlreadyScanning("acc-1")
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -589,13 +514,12 @@ func TestGetTrend_EmptyStoreReturnsEmptyArray(t *testing.T) {
 
 func TestGetTrend_ReturnsSnapshots(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
-	store := &stubStore{
-		ghosts: []model.GhostResource{testGhost},
-		snapshots: []model.GhostSnapshot{
+	store := NewMockStore().
+		WithGhosts([]model.GhostResource{testGhost}).
+		WithSnapshots([]model.GhostSnapshot{
 			{ID: "snap-1", AccountID: "acc-1", SnapshotAt: now.Add(-2 * time.Hour), GhostCount: 3, TotalMonthlyCost: 150.00, Currency: "USD"},
 			{ID: "snap-2", AccountID: "acc-1", SnapshotAt: now, GhostCount: 5, TotalMonthlyCost: 300.00, Currency: "USD"},
-		},
-	}
+		})
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -623,12 +547,11 @@ func TestGetTrend_ReturnsSnapshots(t *testing.T) {
 }
 
 func TestGetTrend_SnapshotTenantIDNotExposed(t *testing.T) {
-	store := &stubStore{
-		ghosts: []model.GhostResource{testGhost},
-		snapshots: []model.GhostSnapshot{
+	store := NewMockStore().
+		WithGhosts([]model.GhostResource{testGhost}).
+		WithSnapshots([]model.GhostSnapshot{
 			{ID: "snap-1", AccountID: "acc-1", TenantID: "secret-tenant", GhostCount: 1, TotalMonthlyCost: 50.00, Currency: "USD"},
-		},
-	}
+		})
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -642,10 +565,9 @@ func TestGetTrend_SnapshotTenantIDNotExposed(t *testing.T) {
 }
 
 func TestGetTrend_StoreError_Returns500(t *testing.T) {
-	store := &stubStore{
-		ghosts:           []model.GhostResource{testGhost},
-		listSnapshotsErr: errors.New("db connection lost"),
-	}
+	store := NewMockStore().
+		WithGhosts([]model.GhostResource{testGhost}).
+		WithListSnapshotsError(errors.New("db connection lost"))
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -659,7 +581,7 @@ func TestGetTrend_StoreError_Returns500(t *testing.T) {
 }
 
 func TestGetTrend_AccountIDQueryParamPassedToStore(t *testing.T) {
-	store := &stubStore{ghosts: []model.GhostResource{testGhost}}
+	store := NewMockStore().WithGhosts([]model.GhostResource{testGhost})
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -670,13 +592,13 @@ func TestGetTrend_AccountIDQueryParamPassedToStore(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if store.lastListSnapshotsAccountID != "acc-42" {
-		t.Errorf("expected account_id acc-42 forwarded to store, got %q", store.lastListSnapshotsAccountID)
+	if store.GetLastListSnapshotsAccountID() != "acc-42" {
+		t.Errorf("expected account_id acc-42 forwarded to store, got %q", store.GetLastListSnapshotsAccountID())
 	}
 }
 
 func TestGetTrend_NoAccountIDQueryParam_PassesEmptyString(t *testing.T) {
-	store := &stubStore{ghosts: []model.GhostResource{testGhost}}
+	store := NewMockStore().WithGhosts([]model.GhostResource{testGhost})
 	h := api.New(store)
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -687,7 +609,7 @@ func TestGetTrend_NoAccountIDQueryParam_PassesEmptyString(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if store.lastListSnapshotsAccountID != "" {
-		t.Errorf("expected empty account_id forwarded to store, got %q", store.lastListSnapshotsAccountID)
+	if store.GetLastListSnapshotsAccountID() != "" {
+		t.Errorf("expected empty account_id forwarded to store, got %q", store.GetLastListSnapshotsAccountID())
 	}
 }

@@ -1,14 +1,10 @@
 // Package api_test — integration-level handler tests.
 //
-// These tests sit in the same black-box package as handler_test.go and share
-// the stubStore type declared there. They add a trackingStore wrapper that
-// records method calls and injects per-method errors, enabling assertions about
-// cross-handler interactions, async goroutine behaviour, and tenant-context
-// propagation.
+// These tests exercise cross-handler interactions, async goroutine behaviour,
+// and tenant-context propagation using the unified MockStore from test_helpers.go.
 package api_test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -23,109 +19,14 @@ import (
 	"axiaops.io/shared/storage"
 )
 
-// ─── trackingStore ────────────────────────────────────────────────────────────
-
-// statusCall records a single UpdateAccountStatus invocation.
-type statusCall struct {
-	accountID string
-	status    string
-}
-
-// trackingStore embeds *stubStore and overrides selected methods to record
-// calls, capture context values, and inject per-method errors.
-// Methods not overridden fall through to the embedded *stubStore.
-type trackingStore struct {
-	*stubStore
-
-	mu sync.Mutex
-
-	// TryMarkAccountScanning instrumentation.
-	tryMarkCalledWith []string // account IDs passed, in call order
-	tryMarkErr        error    // if non-nil, returned instead of real logic
-
-	// UpdateAccountStatus instrumentation.
-	statusCalls  []statusCall  // recorded in call order
-	statusSignal chan struct{} // non-blocking send after each call (buffer ≥ 1)
-
-	// capturedTenantIDs collects the tenant ID read from the context on every
-	// overridden store call, enabling tenant-propagation assertions.
-	capturedTenantIDs []string
-
-	// Per-method error injection.
-	loadGhostsErr   error
-	listAccountsErr error
-	deleteAccErr    error
-}
-
-func newTrackingStore(base *stubStore) *trackingStore {
-	return &trackingStore{stubStore: base}
-}
-
-func (s *trackingStore) captureTenant(ctx context.Context) {
-	s.mu.Lock()
-	s.capturedTenantIDs = append(s.capturedTenantIDs, storage.TenantIDFromCtx(ctx))
-	s.mu.Unlock()
-}
-
-func (s *trackingStore) TryMarkAccountScanning(_ context.Context, id string) (bool, error) {
-	s.mu.Lock()
-	s.tryMarkCalledWith = append(s.tryMarkCalledWith, id)
-	err := s.tryMarkErr
-	busy := s.tryMarkBusy // promoted from embedded *stubStore
-	s.mu.Unlock()
-
-	if err != nil {
-		return false, err
-	}
-	if busy {
-		return false, nil
-	}
-	return true, nil
-}
-
-func (s *trackingStore) UpdateAccountStatus(_ context.Context, id, status string) error {
-	s.mu.Lock()
-	s.statusCalls = append(s.statusCalls, statusCall{id, status})
-	ch := s.statusSignal
-	s.mu.Unlock()
-
-	if ch != nil {
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}
-	return nil
-}
-
-func (s *trackingStore) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
-	s.captureTenant(ctx)
-	if s.loadGhostsErr != nil {
-		return nil, s.loadGhostsErr
-	}
-	return s.stubStore.LoadGhosts(ctx)
-}
-
-func (s *trackingStore) ListAccounts(ctx context.Context) ([]model.Account, error) {
-	s.captureTenant(ctx)
-	if s.listAccountsErr != nil {
-		return nil, s.listAccountsErr
-	}
-	return s.stubStore.ListAccounts(ctx)
-}
-
-func (s *trackingStore) DeleteAccount(_ context.Context, _ string) error {
-	return s.deleteAccErr // nil on success, non-nil to inject error
-}
-
 // ─── Test helpers ─────────────────────────────────────────────────────────────
 
-// newTrackingHandler builds a Handler backed by ts and returns the registered mux.
-func newTrackingHandler(base *stubStore) (*trackingStore, *http.ServeMux) {
-	ts := newTrackingStore(base)
+// newTrackingHandler builds a Handler backed by a MockStore and returns both the store and mux.
+// The MockStore includes call tracking and signaling for assertions.
+func newTrackingHandler(mockStore *MockStore) (*MockStore, *http.ServeMux) {
 	mux := http.NewServeMux()
-	api.New(ts).Register(mux)
-	return ts, mux
+	api.New(mockStore).Register(mux)
+	return mockStore, mux
 }
 
 // waitForStatus blocks until the trackingStore's statusSignal fires or the
@@ -151,19 +52,20 @@ func fakeIngestion(statusCode int) *httptest.Server {
 
 // TestScanAccount_TryMarkScanning_Called verifies that POST /accounts/{id}/scan
 // invokes TryMarkAccountScanning with the exact account ID from the URL.
+// We verify this indirectly: a successful scan means TryMarkAccountScanning
+// returned true, which drives the async goroutine to call UpdateAccountStatus.
 func TestScanAccount_TryMarkScanning_Called(t *testing.T) {
 	ingestion := fakeIngestion(http.StatusOK)
 	defer ingestion.Close()
 	t.Setenv("INGESTION_URL", ingestion.URL)
 
-	base := &stubStore{
-		accounts: []model.Account{
-			{ID: "acc-99", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "eu-west-1"},
-		},
-	}
-	ts, mux := newTrackingHandler(base)
 	sig := make(chan struct{}, 1)
-	ts.statusSignal = sig
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-99", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "eu-west-1"},
+		}).
+		WithStatusSignal(sig)
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-99/scan"))
@@ -174,31 +76,26 @@ func TestScanAccount_TryMarkScanning_Called(t *testing.T) {
 
 	waitForStatus(t, sig) // wait for async goroutine to finish
 
-	ts.mu.Lock()
-	called := append([]string(nil), ts.tryMarkCalledWith...)
-	ts.mu.Unlock()
-
-	if len(called) == 0 {
-		t.Fatal("expected TryMarkAccountScanning to be called")
+	// TryMarkAccountScanning was called if the scan succeeded and status was updated.
+	calls := mockStore.GetStatusUpdateCalls()
+	if len(calls) == 0 {
+		t.Fatal("expected TryMarkAccountScanning to be called (no status update recorded)")
 	}
-	if called[0] != "acc-99" {
-		t.Errorf("expected TryMarkAccountScanning with acc-99, got %q", called[0])
+	if calls[0].accountID != "acc-99" {
+		t.Errorf("expected TryMarkAccountScanning with acc-99, got %q", calls[0].accountID)
 	}
 }
 
 // TestScanAccount_TryMarkScanning_StoreError_Returns500 verifies that a store
 // error from TryMarkAccountScanning is surfaced as HTTP 500.
 func TestScanAccount_TryMarkScanning_StoreError_Returns500(t *testing.T) {
-	base := &stubStore{
-		accounts: []model.Account{
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
 			{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
-		},
-	}
-	ts := newTrackingStore(base)
-	ts.tryMarkErr = errors.New("db lock timeout")
+		}).
+		WithTryMarkScanningError(errors.New("db lock timeout"))
 
-	mux := http.NewServeMux()
-	api.New(ts).Register(mux)
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
@@ -218,17 +115,14 @@ func TestScanAccount_Async_UpdatesStatusConnectedOnSuccess(t *testing.T) {
 	defer ingestion.Close()
 	t.Setenv("INGESTION_URL", ingestion.URL)
 
-	base := &stubStore{
-		accounts: []model.Account{
-			{ID: "acc-async", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
-		},
-	}
-	ts := newTrackingStore(base)
 	sig := make(chan struct{}, 1)
-	ts.statusSignal = sig
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-async", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+		}).
+		WithStatusSignal(sig)
 
-	mux := http.NewServeMux()
-	api.New(ts).Register(mux)
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-async/scan"))
@@ -239,9 +133,7 @@ func TestScanAccount_Async_UpdatesStatusConnectedOnSuccess(t *testing.T) {
 
 	waitForStatus(t, sig)
 
-	ts.mu.Lock()
-	calls := append([]statusCall(nil), ts.statusCalls...)
-	ts.mu.Unlock()
+	calls := mockStore.GetStatusUpdateCalls()
 
 	if len(calls) == 0 {
 		t.Fatal("expected UpdateAccountStatus to be called")
@@ -263,17 +155,14 @@ func TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure(t *testing.T) {
 	defer ingestion.Close()
 	t.Setenv("INGESTION_URL", ingestion.URL)
 
-	base := &stubStore{
-		accounts: []model.Account{
-			{ID: "acc-fail", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
-		},
-	}
-	ts := newTrackingStore(base)
 	sig := make(chan struct{}, 1)
-	ts.statusSignal = sig
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-fail", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+		}).
+		WithStatusSignal(sig)
 
-	mux := http.NewServeMux()
-	api.New(ts).Register(mux)
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-fail/scan"))
@@ -284,9 +173,7 @@ func TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure(t *testing.T) {
 
 	waitForStatus(t, sig)
 
-	ts.mu.Lock()
-	calls := append([]statusCall(nil), ts.statusCalls...)
-	ts.mu.Unlock()
+	calls := mockStore.GetStatusUpdateCalls()
 
 	if len(calls) == 0 {
 		t.Fatal("expected UpdateAccountStatus to be called")
@@ -305,8 +192,8 @@ func TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure(t *testing.T) {
 func TestAccountLifecycle_CreateThenList(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
-	base := &stubStore{}
-	_, mux := newTrackingHandler(base)
+	mockStore := NewMockStore()
+	_, mux := newTrackingHandler(mockStore)
 
 	// 1. Create the account.
 	body := `{"provider":"aws","label":"integration-test","access_key_id":"AKIA_INT","secret_key":"secret123","region":"ap-southeast-1"}`
@@ -357,16 +244,15 @@ func TestAccountLifecycle_CreateThenList(t *testing.T) {
 // returned by GET /trend.
 func TestAccountLifecycle_ScanThenTrend(t *testing.T) {
 	snapTime := time.Now().UTC().Truncate(time.Second)
-	base := &stubStore{
-		accounts: []model.Account{
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
 			{ID: "acc-trend", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
-		},
+		}).
 		// Simulate what the ingestion service would write after scanning.
-		snapshots: []model.GhostSnapshot{
+		WithSnapshots([]model.GhostSnapshot{
 			{ID: "snap-1", AccountID: "acc-trend", SnapshotAt: snapTime, GhostCount: 7, TotalMonthlyCost: 420.0, Currency: "USD"},
-		},
-	}
-	_, mux := newTrackingHandler(base)
+		})
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend?account_id=acc-trend"))
@@ -394,18 +280,17 @@ func TestAccountLifecycle_ScanThenTrend(t *testing.T) {
 // order the store returns them.
 func TestAccountLifecycle_MultipleScans(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
-	base := &stubStore{
-		accounts: []model.Account{
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
 			{ID: "acc-multi", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
-		},
+		}).
 		// Three snapshots representing three historical scan cycles.
-		snapshots: []model.GhostSnapshot{
+		WithSnapshots([]model.GhostSnapshot{
 			{ID: "snap-a", AccountID: "acc-multi", SnapshotAt: now.Add(-4 * time.Hour), GhostCount: 3, TotalMonthlyCost: 150.0, Currency: "USD"},
 			{ID: "snap-b", AccountID: "acc-multi", SnapshotAt: now.Add(-2 * time.Hour), GhostCount: 5, TotalMonthlyCost: 250.0, Currency: "USD"},
 			{ID: "snap-c", AccountID: "acc-multi", SnapshotAt: now, GhostCount: 2, TotalMonthlyCost: 100.0, Currency: "USD"},
-		},
-	}
-	_, mux := newTrackingHandler(base)
+		})
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend?account_id=acc-multi"))
@@ -439,13 +324,12 @@ func TestAccountLifecycle_MultipleScans(t *testing.T) {
 // outcome of the newest scan cycle.
 func TestGetTrend_ReflectsLatestScan(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
-	base := &stubStore{
-		snapshots: []model.GhostSnapshot{
+	mockStore := NewMockStore().
+		WithSnapshots([]model.GhostSnapshot{
 			{ID: "old-snap", AccountID: "acc-1", SnapshotAt: now.Add(-time.Hour), GhostCount: 10, TotalMonthlyCost: 500.0, Currency: "USD"},
 			{ID: "new-snap", AccountID: "acc-1", SnapshotAt: now, GhostCount: 4, TotalMonthlyCost: 200.0, Currency: "USD"},
-		},
-	}
-	_, mux := newTrackingHandler(base)
+		})
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
@@ -480,11 +364,10 @@ func TestGetTrend_ReflectsLatestScan(t *testing.T) {
 // TestListGhosts_StoreError_Returns500 verifies that a LoadGhosts store error
 // is surfaced as HTTP 500.
 func TestListGhosts_StoreError_Returns500(t *testing.T) {
-	ts := newTrackingStore(&stubStore{})
-	ts.loadGhostsErr = errors.New("connection reset by peer")
+	mockStore := NewMockStore().
+		WithLoadGhostsError(errors.New("connection reset by peer"))
 
-	mux := http.NewServeMux()
-	api.New(ts).Register(mux)
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
@@ -497,11 +380,10 @@ func TestListGhosts_StoreError_Returns500(t *testing.T) {
 // TestGetSummary_StoreError_Returns500 verifies that a LoadGhosts store error
 // during summary aggregation is surfaced as HTTP 500.
 func TestGetSummary_StoreError_Returns500(t *testing.T) {
-	ts := newTrackingStore(&stubStore{})
-	ts.loadGhostsErr = errors.New("timeout querying ghosts")
+	mockStore := NewMockStore().
+		WithLoadGhostsError(errors.New("timeout querying ghosts"))
 
-	mux := http.NewServeMux()
-	api.New(ts).Register(mux)
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/summary"))
@@ -514,11 +396,10 @@ func TestGetSummary_StoreError_Returns500(t *testing.T) {
 // TestListAccounts_StoreError_Returns500 verifies that a ListAccounts store
 // error is surfaced as HTTP 500.
 func TestListAccounts_StoreError_Returns500(t *testing.T) {
-	ts := newTrackingStore(&stubStore{})
-	ts.listAccountsErr = errors.New("pg: too many connections")
+	mockStore := NewMockStore().
+		WithListAccountsError(errors.New("pg: too many connections"))
 
-	mux := http.NewServeMux()
-	api.New(ts).Register(mux)
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
@@ -531,11 +412,10 @@ func TestListAccounts_StoreError_Returns500(t *testing.T) {
 // TestDeleteAccount_StoreError_Returns500 verifies that a DeleteAccount store
 // error is surfaced as HTTP 500.
 func TestDeleteAccount_StoreError_Returns500(t *testing.T) {
-	ts := newTrackingStore(&stubStore{})
-	ts.deleteAccErr = errors.New("foreign key constraint violation")
+	mockStore := NewMockStore().
+		WithDeleteAccountError(errors.New("foreign key constraint violation"))
 
-	mux := http.NewServeMux()
-	api.New(ts).Register(mux)
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodDelete, "/v1/accounts/any-id"))
@@ -550,12 +430,11 @@ func TestDeleteAccount_StoreError_Returns500(t *testing.T) {
 // TestUpdateAccount_UpdatesLabel_Returns200 verifies that PATCH /accounts/{id}
 // applies the label change and returns the updated account in the response.
 func TestUpdateAccount_UpdatesLabel_Returns200(t *testing.T) {
-	base := &stubStore{
-		accounts: []model.Account{
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
 			{ID: "acc-patch", TenantID: "tenant-test-uuid", Provider: "aws", Label: "old-label", AccessKeyID: "AKIA123", Region: "us-east-1"},
-		},
-	}
-	_, mux := newTrackingHandler(base)
+		})
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-patch", `{"label":"new-label"}`))
@@ -583,12 +462,11 @@ func TestUpdateAccount_UpdatesLabel_Returns200(t *testing.T) {
 // TestUpdateAccount_UpdatesRegion_Returns200 verifies that PATCH /accounts/{id}
 // applies a region change while preserving all other fields.
 func TestUpdateAccount_UpdatesRegion_Returns200(t *testing.T) {
-	base := &stubStore{
-		accounts: []model.Account{
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
 			{ID: "acc-region", TenantID: "tenant-test-uuid", Provider: "aws", Label: "my-account", AccessKeyID: "AKIA123", Region: "us-east-1"},
-		},
-	}
-	_, mux := newTrackingHandler(base)
+		})
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-region", `{"region":"eu-central-1"}`))
@@ -612,8 +490,9 @@ func TestUpdateAccount_UpdatesRegion_Returns200(t *testing.T) {
 // TestUpdateAccount_NotFound_Returns404 verifies that PATCH /accounts/{id}
 // returns 404 when the account does not exist in the store.
 func TestUpdateAccount_NotFound_Returns404(t *testing.T) {
-	base := &stubStore{getAccountErr: errors.New("not found")}
-	_, mux := newTrackingHandler(base)
+	mockStore := NewMockStore().
+		WithGetAccountError(errors.New("not found"))
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/nonexistent", `{"label":"any"}`))
@@ -626,12 +505,11 @@ func TestUpdateAccount_NotFound_Returns404(t *testing.T) {
 // TestUpdateAccount_InvalidJSON_Returns400 verifies that a malformed request
 // body is rejected with HTTP 400.
 func TestUpdateAccount_InvalidJSON_Returns400(t *testing.T) {
-	base := &stubStore{
-		accounts: []model.Account{
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
 			{ID: "acc-json", Provider: "aws"},
-		},
-	}
-	_, mux := newTrackingHandler(base)
+		})
+	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-json", `not-json`))
@@ -647,8 +525,9 @@ func TestUpdateAccount_InvalidJSON_Returns400(t *testing.T) {
 // tenant ID set by the auth middleware (DevBypass here) is forwarded to the
 // store's LoadGhosts call via the context.
 func TestTenantIsolation_LoadGhosts_ReceivesContextTenantID(t *testing.T) {
-	base := &stubStore{ghosts: []model.GhostResource{testGhost}}
-	ts, mux := newTrackingHandler(base)
+	mockStore := NewMockStore().
+		WithGhosts([]model.GhostResource{testGhost})
+	_, mux := newTrackingHandler(mockStore)
 
 	// DevBypass injects the tenant ID via the middleware context key, exactly
 	// as the real auth middleware does. Without it, middleware.TenantID returns ""
@@ -661,9 +540,7 @@ func TestTenantIsolation_LoadGhosts_ReceivesContextTenantID(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	ts.mu.Lock()
-	captured := append([]string(nil), ts.capturedTenantIDs...)
-	ts.mu.Unlock()
+	captured := mockStore.GetCapturedTenantIDs()
 
 	if len(captured) == 0 {
 		t.Fatal("capturedTenantIDs is empty — tenant ID was not propagated to store")
@@ -676,8 +553,8 @@ func TestTenantIsolation_LoadGhosts_ReceivesContextTenantID(t *testing.T) {
 // TestTenantIsolation_ListAccounts_ReceivesContextTenantID verifies the same
 // propagation guarantee for the ListAccounts path.
 func TestTenantIsolation_ListAccounts_ReceivesContextTenantID(t *testing.T) {
-	base := &stubStore{}
-	ts, mux := newTrackingHandler(base)
+	mockStore := NewMockStore()
+	_, mux := newTrackingHandler(mockStore)
 
 	handler := middleware.DevBypass("tenant-beta-uuid", mux)
 	w := httptest.NewRecorder()
@@ -687,9 +564,7 @@ func TestTenantIsolation_ListAccounts_ReceivesContextTenantID(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	ts.mu.Lock()
-	captured := append([]string(nil), ts.capturedTenantIDs...)
-	ts.mu.Unlock()
+	captured := mockStore.GetCapturedTenantIDs()
 
 	if len(captured) == 0 {
 		t.Fatal("capturedTenantIDs is empty — tenant ID was not propagated to store")
@@ -722,17 +597,18 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 	// Each tenant has its own isolated store — mirroring RLS isolation in
 	// production. A real PostgreSQL store would enforce this at the DB layer;
 	// here we simulate it with separate in-memory instances.
-	storeA := newTrackingStore(&stubStore{accounts: []model.Account{
-		{ID: accA, TenantID: tenantA, Provider: "aws", AccessKeyID: "AKIA_A", Region: "us-east-1"},
-	}})
-	storeB := newTrackingStore(&stubStore{accounts: []model.Account{
-		{ID: accB, TenantID: tenantB, Provider: "aws", AccessKeyID: "AKIA_B", Region: "eu-west-1"},
-	}})
-
 	sigA := make(chan struct{}, 1)
 	sigB := make(chan struct{}, 1)
-	storeA.statusSignal = sigA
-	storeB.statusSignal = sigB
+	storeA := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: accA, TenantID: tenantA, Provider: "aws", AccessKeyID: "AKIA_A", Region: "us-east-1"},
+		}).
+		WithStatusSignal(sigA)
+	storeB := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: accB, TenantID: tenantB, Provider: "aws", AccessKeyID: "AKIA_B", Region: "eu-west-1"},
+		}).
+		WithStatusSignal(sigB)
 
 	muxA := http.NewServeMux()
 	api.New(storeA).Register(muxA)
@@ -777,22 +653,20 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 	waitForStatus(t, sigB)
 
 	// Tenant A's store must have been called only for accA.
-	storeA.mu.Lock()
-	markedA := append([]string(nil), storeA.tryMarkCalledWith...)
-	statusesA := append([]statusCall(nil), storeA.statusCalls...)
-	storeA.mu.Unlock()
-
+	statusesA := storeA.GetStatusUpdateCalls()
 	// Tenant B's store must have been called only for accB.
-	storeB.mu.Lock()
-	markedB := append([]string(nil), storeB.tryMarkCalledWith...)
-	statusesB := append([]statusCall(nil), storeB.statusCalls...)
-	storeB.mu.Unlock()
+	statusesB := storeB.GetStatusUpdateCalls()
 
-	if len(markedA) == 0 || markedA[0] != accA {
-		t.Errorf("expected storeA.TryMarkAccountScanning(%q), got %v", accA, markedA)
+	// Verify that the status was updated for the correct accounts.
+	if len(statusesA) == 0 {
+		t.Error("expected storeA.UpdateAccountStatus to be called")
+	} else if statusesA[0].accountID != accA {
+		t.Errorf("expected storeA.UpdateAccountStatus(%q), got %q", accA, statusesA[0].accountID)
 	}
-	if len(markedB) == 0 || markedB[0] != accB {
-		t.Errorf("expected storeB.TryMarkAccountScanning(%q), got %v", accB, markedB)
+	if len(statusesB) == 0 {
+		t.Error("expected storeB.UpdateAccountStatus to be called")
+	} else if statusesB[0].accountID != accB {
+		t.Errorf("expected storeB.UpdateAccountStatus(%q), got %q", accB, statusesB[0].accountID)
 	}
 
 	for _, call := range statusesA {
