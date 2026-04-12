@@ -202,11 +202,9 @@ func main() {
 	}()
 
 	// ── Graceful Shutdown ────────────────────────────────────────────────────────
-	// Set up signal handling for SIGTERM/SIGINT (App Runner sends SIGTERM on shutdown)
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer shutdownCancel()
-
-	sigCtx, sigCancel := signal.NotifyContext(shutdownCtx, os.Interrupt, syscall.SIGTERM)
+	// Wait for SIGTERM/SIGINT indefinitely (App Runner sends SIGTERM on shutdown).
+	// The 30-second timeout applies only to the drain phase, not to the signal wait.
+	sigCtx, sigCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer sigCancel()
 
 	// Start HTTP server in a goroutine
@@ -233,6 +231,10 @@ func main() {
 		// SIGTERM or SIGINT received — graceful shutdown
 		slog.Warn("api: shutdown signal received, draining requests")
 		shutdownStart := time.Now()
+
+		// Give in-flight requests up to 30 seconds to complete
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
 
 		// server.Shutdown waits for all in-flight requests to complete (with timeout)
 		if err := server.Shutdown(shutdownCtx); err != nil && err != context.DeadlineExceeded {
