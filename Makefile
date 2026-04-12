@@ -80,3 +80,9 @@ test-shutdown:
 	kill -SIGTERM $$SERVICE_PID 2>/dev/null || true
 	wait $$SERVICE_PID 2>/dev/null || true
 	@echo "Graceful shutdown test complete. Check logs above for 'shutdown complete' message."
+
+.PHONY: lint
+lint:
+	cd services/api && golangci-lint run ./... --timeout=5m
+	cd services/ingestion && golangci-lint run ./... --timeout=5m
+	cd services/shared && golangci-lint run ./... --timeout=5m
