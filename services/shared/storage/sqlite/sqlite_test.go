@@ -16,14 +16,14 @@ func newTestStore(t *testing.T) *sqlite.Store {
 	if err != nil {
 		t.Fatalf("create temp db: %v", err)
 	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	_ = f.Close()
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
 
 	store, err := sqlite.New(f.Name())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	t.Cleanup(func() { store.Close() })
+	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
 

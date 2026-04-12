@@ -26,7 +26,11 @@ func Migrate(dbURL string) error {
 	if err != nil {
 		return fmt.Errorf("migrate: open db: %w", err)
 	}
-	defer db.Close()
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			err = fmt.Errorf("migrate: close db: %w", cerr)
+		}
+	}()
 
 	src, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
@@ -45,7 +49,14 @@ func Migrate(dbURL string) error {
 	if err != nil {
 		return fmt.Errorf("migrate: init: %w", err)
 	}
-	defer m.Close()
+	defer func() {
+		srcErr, dbErr := m.Close()
+		if srcErr != nil {
+			err = fmt.Errorf("migrate: close source: %w", srcErr)
+		} else if dbErr != nil {
+			err = fmt.Errorf("migrate: close db driver: %w", dbErr)
+		}
+	}()
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("migrate: up: %w", err)

@@ -100,8 +100,12 @@ func main() {
 	if err != nil {
 		die("storage: postgres init failed", "error", err)
 	}
-	defer s.Close()
-	var store storage.Store = s
+	defer func() {
+		if err := s.Close(); err != nil {
+			slog.Error("storage: close error", "error", err)
+		}
+	}()
+	store := storage.Store(s)
 	slog.Info("storage: using PostgreSQL")
 
 	// ── HTTP API ──────────────────────────────────────────────────────────────
@@ -116,7 +120,7 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// ── Rate Limiting ─────────────────────────────────────────────────────────
-	var root http.Handler = h.Handler(mux)
+	root := h.Handler(mux)
 	if os.Getenv("DEV_MODE") != "true" {
 		// 60 requests per minute = 1 req/sec rate, max burst of 60.
 		limiter := middleware.NewRateLimiter(1.0, 60.0)
@@ -236,7 +240,9 @@ func main() {
 		}
 
 		// Close database connection pool
-		s.Close()
+		if err := s.Close(); err != nil {
+			slog.Error("api: db close error", "error", err)
+		}
 
 		shutdownDuration := time.Since(shutdownStart).Seconds()
 		slog.Info("api: shutdown complete", "duration_seconds", fmt.Sprintf("%.2f", shutdownDuration))

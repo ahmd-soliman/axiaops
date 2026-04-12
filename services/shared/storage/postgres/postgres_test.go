@@ -75,7 +75,7 @@ func setup(t *testing.T) *pgx.Conn {
 		if _, err := conn.Exec(context.Background(), truncate); err != nil {
 			t.Logf("post-test cleanup truncate: %v", err)
 		}
-		conn.Close(context.Background())
+		_ = conn.Close(context.Background())
 	})
 	return conn
 }
@@ -109,7 +109,7 @@ func newTestStore(t *testing.T) *postgres.Store {
 	if err != nil {
 		t.Fatalf("postgres.New: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 

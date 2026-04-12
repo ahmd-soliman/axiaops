@@ -203,7 +203,11 @@ func main() {
 		}
 
 		// Close database connection pool
-		store.(interface{ Close() error }).Close()
+		if closer, ok := store.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				slog.Error("ingestion: db close error", "error", err)
+			}
+		}
 
 		shutdownDuration := time.Since(shutdownStart).Seconds()
 		slog.Info("ingestion: shutdown complete", "duration_seconds", fmt.Sprintf("%.2f", shutdownDuration))

@@ -16,11 +16,11 @@ import (
 
 // MockStore is a unified in-memory Store implementation for testing.
 // It provides:
-//   • Real data storage (ghosts, accounts, snapshots)
-//   • Method call tracking (who called what, in what order)
-//   • Per-method error injection (simulate failures)
-//   • Context value capture (verify tenant propagation)
-//   • Async signaling (wait for background goroutines)
+//   - Real data storage (ghosts, accounts, snapshots)
+//   - Method call tracking (who called what, in what order)
+//   - Per-method error injection (simulate failures)
+//   - Context value capture (verify tenant propagation)
+//   - Async signaling (wait for background goroutines)
 //
 // Use MockStore for all handler tests — simple tests use basic fields,
 // complex tests use tracking/instrumentation.
@@ -42,13 +42,12 @@ type MockStore struct {
 	lastListSnapshotsAccountID string
 
 	// ── Error Injection (optional, for failure testing) ──
-	errLoadGhosts       error
-	errListAccounts     error
-	errDeleteAccount    error
-	errGetAccount       error
-	errListSnapshots    error
-	errTryMarkScanning  error
-	errUpdateStatus     error
+	errLoadGhosts      error
+	errListAccounts    error
+	errDeleteAccount   error
+	errGetAccount      error
+	errListSnapshots   error
+	errTryMarkScanning error
 
 	// ── Account Status (for concurrency testing) ──
 	accountScanning map[string]bool // account ID → is scanning
