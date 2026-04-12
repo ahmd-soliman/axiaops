@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# check_db.sh — inspect the AxiaOps database
+# inspect_db.sh — inspect the AxiaOps database
 #
 # Usage:
-#   ./scripts/check_db.sh              PostgreSQL (default)
+#   ./scripts/inspect_db.sh
 
 set -euo pipefail
 

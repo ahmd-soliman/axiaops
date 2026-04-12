@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging stop seed check test integration-tests test-all
+.PHONY: start-dev start-staging stop seed check test test-storage test-all integration-tests
 
 # Postgres integration test URLs (used by services/shared/storage/postgres tests).
 TEST_DATABASE_URL ?= postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
@@ -28,18 +28,35 @@ seed:
 check:
 	./scripts/check_db.sh
 
+clean-db:
+	docker compose exec -T postgres psql -U axiaops_owner -d axiaops -c "TRUNCATE TABLE snapshots, resources, accounts, users, tenants CASCADE;" 2>/dev/null || true
+
+# Unit and API integration tests (MockStore, no database, can run in parallel).
+# Includes:
+#   • handler_test.go — unit tests (MockStore)
+#   • handler_lifecycle_test.go — API integration tests (workflows, async, tenant isolation)
+#   • analyzer, crypto, model tests — business logic
 test:
-	cd services/api && go test ./... -count=1 $(ARGS)
-	cd services/ingestion && go test ./... -count=1 $(ARGS)
-	cd services/shared && go test ./... -count=1 $(ARGS)
+	cd services/api && go test ./... -count=1 -parallel 4 $(ARGS)
+	cd services/ingestion && go test ./... -count=1 -parallel 4 $(ARGS)
+	cd services/shared && go test ./... -count=1 -parallel 4 -skip=Postgres $(ARGS)
 
-# Run Postgres integration tests (migrations + RLS/tenant isolation tests).
-integration-tests:
+# PostgreSQL storage layer tests (database required, runs sequentially).
+# Tests:
+#   • Real PostgreSQL database operations
+#   • Row-Level Security (RLS) policies
+#   • Schema migrations
+test-storage:
 	docker compose up -d postgres
-	cd services/shared && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_STORE_URL="$(TEST_STORE_URL)" go test -count=1 -v ./storage/postgres/...
+	sleep 2
+	$(MAKE) clean-db
+	cd services/shared && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_STORE_URL="$(TEST_STORE_URL)" go test -count=1 -v -p=1 ./storage/postgres/...
 
-# Full suite: unit tests + Postgres integration tests.
-test-all: test integration-tests
+# Alias so existing scripts/CI that used the old name still work.
+integration-tests: test-storage
+
+# Full test suite: unit tests + API integration tests + storage tests.
+test-all: test test-storage
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:

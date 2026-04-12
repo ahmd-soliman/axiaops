@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
@@ -38,6 +39,47 @@ func storeURL(t *testing.T) string {
 	return url
 }
 
+// connectTestDB opens a pgx connection to TEST_DATABASE_URL (owner/admin user).
+// Used only for setup/teardown truncation — not for Store operations.
+func connectTestDB(t *testing.T) *pgx.Conn {
+	t.Helper()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL not set — skipping postgres integration tests")
+	}
+	conn, err := pgx.Connect(context.Background(), url)
+	if err != nil {
+		t.Fatalf("connectTestDB: connect: %v", err)
+	}
+	return conn
+}
+
+func setup(t *testing.T) *pgx.Conn {
+	t.Helper()
+	conn := connectTestDB(t)
+	const truncate = `TRUNCATE TABLE
+		axiaops.ghost_snapshots,
+		axiaops.resource_records,
+		axiaops.ghost_records,
+		axiaops.cost_records,
+		axiaops.accounts,
+		axiaops.users,
+		axiaops.tenants
+	CASCADE`
+	// Wipe everything to ensure a "known good state"
+	if _, err := conn.Exec(context.Background(), truncate); err != nil {
+		t.Fatalf("cleanup truncate: %v", err)
+	}
+	// Register cleanup for after test completes
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), truncate); err != nil {
+			t.Logf("post-test cleanup truncate: %v", err)
+		}
+		conn.Close(context.Background())
+	})
+	return conn
+}
+
 // rlsEnforced reports whether the store connects as a non-superuser (RLS is active).
 // Tests that rely on tenant isolation skip when connecting as a superuser.
 func rlsEnforced() bool {
@@ -55,9 +97,14 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// newTestStore opens a postgres store and registers cleanup.
+// newTestStore opens a postgres store and cleans database before test.
+// Each test gets a fresh clean database state via truncation.
 func newTestStore(t *testing.T) *postgres.Store {
 	t.Helper()
+
+	// Clean database before test starts
+	setup(t)
+
 	s, err := postgres.New(context.Background(), storeURL(t))
 	if err != nil {
 		t.Fatalf("postgres.New: %v", err)
