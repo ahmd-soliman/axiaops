@@ -82,8 +82,9 @@ fi
   export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
   exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 ) &
-disown $!
-echo $! >> "$PID_FILE"
+INGESTION_PID=$!
+echo $INGESTION_PID >> "$PID_FILE"
+disown $INGESTION_PID
 
 until curl -sf http://localhost:8081/health &>/dev/null; do sleep 1; done
 
@@ -103,8 +104,9 @@ cd "$API_DIR"
   fi
   exec go run ./cmd/main.go >> "$LOG_FILE" 2>&1
 ) &
-disown $!
-echo $! >> "$PID_FILE"
+API_PID=$!
+echo $API_PID >> "$PID_FILE"
+disown $API_PID
 
 until curl -sf http://localhost:8080/health &>/dev/null; do sleep 1; done
 
@@ -116,8 +118,9 @@ export EXPO_PUBLIC_KINDE_CLIENT_ID="${KINDE_CLIENT_ID:-}"
 export EXPO_PUBLIC_DEV_MODE="${DEV_MODE:-true}"
 export EXPO_PUBLIC_DEV_ORG_NAME="${DEV_ORG_NAME:-AxiaOps Dev}"
 npx expo start --web --port 3000 --non-interactive --clear >> "$LOG_FILE" 2>&1 &
-disown $!
-echo $! >> "$PID_FILE"
+DASHBOARD_PID=$!
+echo $DASHBOARD_PID >> "$PID_FILE"
+disown $DASHBOARD_PID
 
 echo "---------------------------------------"
 echo "All systems go."
