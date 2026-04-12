@@ -33,8 +33,7 @@ POST /scan {account_id, tenant_id}
 
 `internal/provider/Provider` — the abstraction for data sources:
 
-- `filefixture` — reads from `fixtures/costs.json` and `fixtures/usage.json` (DEV_MODE=true)
-- `aws` — real AWS SDK calls: Cost Explorer, CloudWatch, EC2/RDS/Lambda/ELB Describe APIs
+- `aws` — AWS SDK calls: Cost Explorer, CloudWatch, EC2/RDS/Lambda/ELB Describe APIs
 
 When adding a new cloud provider (Azure, GCP), implement this interface. The analyzer
 and storage layers are provider-agnostic.
@@ -52,15 +51,8 @@ and storage layers are provider-agnostic.
 1. Add the service's metric to `services/shared/analyzer/detector.go` → `serviceRules` map
 2. Add Describe API call in `internal/provider/aws/discover.go` for resource discovery
 3. Add CloudWatch metric mapping in `internal/provider/aws/cloudwatch.go`
-4. Add fixture entries in `fixtures/costs.json` and `fixtures/usage.json` for dev mode
-5. Add unit test in `shared/analyzer/` covering the new threshold
-6. Update IAM policy docs in `docs/production.md`
-
-## Fixtures (Dev Mode)
-
-- `fixtures/costs.json` — 13 cost records with ARN-style resource IDs, tags, amounts
-- `fixtures/usage.json` — CloudWatch-style metrics per resource (some deliberately zero)
-- Used when `DEV_MODE=true` — no AWS credentials needed
+4. Add unit test in `shared/analyzer/` covering the new threshold
+5. Update IAM policy docs in `docs/production.md`
 
 ## Observability (Phase 2.6)
 
@@ -139,14 +131,13 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set
 |----------|----------|---------|-------|
 | DATABASE_URL | Yes | — | PostgreSQL app connection |
 | MIGRATION_DATABASE_URL | Yes | — | PostgreSQL owner connection |
-| DEV_MODE | No | false | Use fixtures instead of AWS |
 | AWS_REGION | Prod | eu-central-1 | AWS region for API calls |
 | DAYS_BACK | No | 30 | Cost lookback window (days) |
 | ENCRYPTION_KEY | Yes | — | Decrypt account secrets |
 | APP_ENV | No | — | Environment (production, staging, development) |
 | APP_VERSION | No | — | Release version (e.g., 2.6.0) |
 | LOG_LEVEL | No | info | Log level (debug, info, warn, error) |
-| LOG_OUTPUT | No | json | Log format (json or text; text when DEV_MODE=true) |
+| LOG_OUTPUT | No | json | Log format (json or text) |
 | INGESTION_PORT | No | 8081 | HTTP listen port |
 | RUN_ONCE | No | false | One-shot mode (run once and exit) |
 
@@ -156,8 +147,8 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set
 cd services/ingestion && go test ./...
 ```
 
-Tests mock AWS SDK interfaces. No real AWS calls. Coverage includes pagination,
-error propagation, and fixture parsing.
+Tests mock AWS SDK interfaces. No real AWS calls. Coverage includes pagination
+and error propagation.
 
 ## Cost Awareness
 

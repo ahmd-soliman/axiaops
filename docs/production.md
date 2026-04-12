@@ -8,17 +8,17 @@ a production-ready deployment.
 
 ## Current State vs Production Requirements
 
-| Concern | Current (MVP) | Production target |
-|---------|--------------|-------------------|
+| Concern | Current | Production target |
+|---------|---------|-------------------|
 | Database | PostgreSQL | PostgreSQL |
-| Usage data | `fixtures/usage.json` (always) | AWS CloudWatch |
-| Auth | None — all endpoints open | JWT (Clerk or Supabase Auth) |
+| Usage data | AWS CloudWatch | AWS CloudWatch |
+| Auth | Kinde OAuth | Kinde OAuth (PKCE + RS256 JWT) |
 | CORS | `Access-Control-Allow-Origin: *` | Locked to your domain |
 | TLS | HTTP only | HTTPS via reverse proxy or platform |
-| Secrets | Plain env vars | Secret manager (AWS Secrets Manager, Fly.io secrets) |
-| Ingestion schedule | Once at startup | Scheduled (cron, cloud scheduler) |
-| Logging | `log.Printf` (unstructured) | Structured JSON logs |
-| Multi-tenancy | Single account hardcoded | `tenant_id` on all DB rows |
+| Secrets | Encrypted in DB | Secret manager (AWS Secrets Manager) |
+| Ingestion schedule | On-demand via API | Scheduled (cron, cloud scheduler) |
+| Logging | Structured JSON | Structured JSON (CloudWatch logs) |
+| Multi-tenancy | Per-tenant isolation (RLS) | Per-tenant isolation (RLS) |
 
 ---
 
@@ -117,16 +117,17 @@ Revisit Aurora when:
 
 ## Environment Variables (Production)
 
-| Variable | Dev default | Production value |
-|----------|-------------|-----------------|
-| `DEV_MODE` | `true` | `false` |
-| `FIXTURE_PATH` | `fixtures/costs.json` | — (not used) |
-| `USAGE_PATH` | `fixtures/usage.json` | — (CloudWatch in Phase 2) |
-| `DATABASE_URL` | — | PostgreSQL connection string (application user) |
-| `MIGRATION_DATABASE_URL` | — | PostgreSQL connection string (owner/admin, used for migrations) |
-| `API_ADDR` | `:8080` | `:8080` (TLS terminated by platform) |
-| `AWS_ACCOUNT_ID` | — | Your AWS account ID |
-| `AWS_REGION` | — | `eu-central-1` (or your primary region) |
+| Variable | Development | Production |
+|----------|-------------|-----------|
+| `DATABASE_URL` | Local postgres:// | RDS PostgreSQL connection string (application user) |
+| `MIGRATION_DATABASE_URL` | Local postgres:// | RDS PostgreSQL connection string (owner/admin, used for migrations) |
+| `ENCRYPTION_KEY` | 32-byte hex | 32-byte hex (generated and stored in AWS Secrets Manager) |
+| `AWS_ACCOUNT_ID` | Your test account | Your AWS account ID |
+| `AWS_REGION` | `eu-central-1` | `eu-central-1` (or your primary region) |
+| `INGESTION_PORT` | `8081` | `8081` (internal) |
+| `KINDE_ISSUER` | — | Your Kinde issuer URL |
+| `KINDE_CLIENT_ID` | — | Your Kinde client ID |
+| `KINDE_CLIENT_SECRET` | — | Your Kinde client secret (from Secrets Manager) |
 
 **Never set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in production.**
 Use IAM roles instead (see above).

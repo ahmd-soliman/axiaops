@@ -439,15 +439,16 @@ func TestUpsertUser_ReturnsSameIDOnSecondLogin(t *testing.T) {
 
 func testAccount(tenantID string) model.Account {
 	return model.Account{
-		ID:              uuid.New().String(),
-		TenantID:        tenantID,
-		Provider:        "aws",
-		Label:           "dev account",
-		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
-		SecretEncrypted: "encrypted-secret",
-		Region:          "eu-central-1",
-		Status:          "connected",
-		CreatedAt:       time.Now().UTC(),
+		ID:                uuid.New().String(),
+		TenantID:          tenantID,
+		Provider:          "aws",
+		Label:             "dev account",
+		AccessKeyID:       "AKIAIOSFODNN7EXAMPLE",
+		SecretEncrypted:   "encrypted-secret",
+		Region:            "eu-central-1",
+		Status:            "connected",
+		ScanIntervalHours: 24,
+		CreatedAt:         time.Now().UTC(),
 	}
 }
 
@@ -591,6 +592,39 @@ func TestAccount_TenantIsolation(t *testing.T) {
 	}
 	if len(accountsB) != 0 {
 		t.Errorf("tenant B should see 0 accounts, got %d", len(accountsB))
+	}
+}
+
+func TestAccount_ScanIntervalHours(t *testing.T) {
+	s := newTestStore(t)
+	ctx, tenant := newTenantCtx(t, s)
+
+	a := testAccount(tenant.ID)
+	a.ScanIntervalHours = 12
+	if err := s.SaveAccount(ctx, a); err != nil {
+		t.Fatalf("SaveAccount: %v", err)
+	}
+
+	got, err := s.GetAccount(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if got.ScanIntervalHours != 12 {
+		t.Errorf("expected ScanIntervalHours 12, got %d", got.ScanIntervalHours)
+	}
+
+	// Test updating scan_interval_hours via SaveAccount (upsert)
+	a.ScanIntervalHours = 6
+	if err := s.SaveAccount(ctx, a); err != nil {
+		t.Fatalf("SaveAccount (update): %v", err)
+	}
+
+	got2, err := s.GetAccount(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("GetAccount after update: %v", err)
+	}
+	if got2.ScanIntervalHours != 6 {
+		t.Errorf("expected ScanIntervalHours 6 after update, got %d", got2.ScanIntervalHours)
 	}
 }
 
