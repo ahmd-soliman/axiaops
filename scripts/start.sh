@@ -49,9 +49,6 @@ stop() {
   echo "Done."
 }
 
-# Trap unexpected exits (like Ctrl+C during startup)
-trap stop ERR SIGINT SIGTERM
-
 if [[ "${1:-}" == "stop" ]]; then
   stop
   exit 0
@@ -127,10 +124,6 @@ echo "All systems go."
 echo "Logs: tail -f .dev.log"
 echo ""
 echo "Services are running in the background. Use 'make stop' to shut them down."
-
-# Disable the cleanup trap — services are now disowned and should survive.
-# The trap was only needed during startup to clean up on error.
-trap - ERR SIGINT SIGTERM
 
 # Keep the script alive so the process group stays intact.
 # `|| true` prevents set -e from exiting if a background job exits non-zero.
