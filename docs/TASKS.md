@@ -18,8 +18,7 @@
 
 ## ✅ Phase 1 — MVP (Complete)
 
-- [x] Cost + usage fixture data (`fixtures/costs.json`, `fixtures/usage.json`)
-- [x] Go ingestion service with `Provider` interface and `DEV_MODE` switch
+- [x] Go ingestion service with AWS integration
 - [x] Zombie detection analyzer (`Detect()`, `Summarize()`, threshold rules)
 - [x] REST API: `GET /ghosts`, `GET /summary`, `GET /health`, `GET /accounts`, `POST /accounts`, `DELETE /accounts/{id}`, `POST /accounts/{id}/scan`
 - [x] Kinde auth — PKCE flow, RS256 JWT middleware, tenant + user persistence

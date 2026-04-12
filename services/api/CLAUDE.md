@@ -113,7 +113,7 @@ Errors are logged to stdout with structured context (JSON format in production).
 | APP_ENV | No | — | Environment (production, staging, development) |
 | APP_VERSION | No | — | Release version (e.g., 2.6.0) |
 | LOG_LEVEL | No | info | Log level (debug, info, warn, error) |
-| LOG_OUTPUT | No | json | Log format (json or text; text when DEV_MODE=true) |
+| LOG_OUTPUT | No | json | Log format (json or text) |
 
 ## Testing
 

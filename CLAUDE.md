@@ -25,7 +25,7 @@ Go workspace (`go.work`) links all three Go modules. Import paths: `axiaops.io/a
 ## Key Commands
 
 ```bash
-make start-dev      # Docker Compose with DEV_MODE=true (fixture data, no auth)
+make start-dev      # Docker Compose with real AWS (from .env or env vars)
 make start-staging  # Real AWS + Kinde auth
 make stop           # Kill all services, free ports
 make seed           # Populate dummy tenant/user/ghost records
@@ -38,9 +38,10 @@ make test-all       # Unit + postgres tests
 
 ## Dev Workflow
 
-- `DEV_MODE=true` → JSON fixtures, no auth, fixed tenant (`dev-tenant-axiaops`)
-- `DEV_MODE=false` → Real AWS Cost Explorer + CloudWatch, Kinde JWT auth required
 - Docker Compose runs: postgres (5432), ingestion (8081), api (8080), dashboard (80→nginx)
+- All modes use real AWS Cost Explorer + CloudWatch data
+- `make start-dev` requires AWS credentials in `.env` or environment
+- `make start-staging` additionally requires Kinde JWT auth
 - Dashboard proxies `/api/*` through nginx to the API service
 
 ## Database

@@ -72,7 +72,7 @@ Generate with: `openssl rand -hex 32`
 ## Logging
 
 `logging.Init(service)` must be called once at service startup. Configures:
-- JSON output (production) or text (dev) — via `LOG_OUTPUT` or `DEV_MODE`
+- JSON output (production) or text (dev) — via `LOG_OUTPUT`
 - Log level via `LOG_LEVEL` (debug/info/warn/error, default: info)
 - Error handling via structured logging
 - Auto-attaches `service`, `env` (`APP_ENV`), `version` (`APP_VERSION`) to all logs

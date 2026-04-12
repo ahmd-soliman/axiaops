@@ -263,16 +263,17 @@ func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO accounts
-			(id, tenant_id, provider, label, access_key_id, secret_encrypted, region, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			(id, tenant_id, provider, label, access_key_id, secret_encrypted, region, status, scan_interval_hours, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO UPDATE SET
-			label            = EXCLUDED.label,
-			access_key_id    = EXCLUDED.access_key_id,
-			secret_encrypted = EXCLUDED.secret_encrypted,
-			region           = EXCLUDED.region,
-			status           = EXCLUDED.status`,
+			label               = EXCLUDED.label,
+			access_key_id       = EXCLUDED.access_key_id,
+			secret_encrypted    = EXCLUDED.secret_encrypted,
+			region              = EXCLUDED.region,
+			status              = EXCLUDED.status,
+			scan_interval_hours = EXCLUDED.scan_interval_hours`,
 		a.ID, a.TenantID, a.Provider, a.Label,
-		a.AccessKeyID, a.SecretEncrypted, a.Region, a.Status, a.CreatedAt,
+		a.AccessKeyID, a.SecretEncrypted, a.Region, a.Status, a.ScanIntervalHours, a.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: save account: %w", err)
@@ -294,7 +295,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 
 	rows, err := tx.Query(ctx, `
 		SELECT id, tenant_id, provider, label, access_key_id, secret_encrypted,
-		       region, status, last_scanned_at, created_at
+		       region, status, last_scanned_at, scan_interval_hours, created_at
 		FROM accounts ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -306,7 +307,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 		var a model.Account
 		if err := rows.Scan(
 			&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccessKeyID, &a.SecretEncrypted,
-			&a.Region, &a.Status, &a.LastScannedAt, &a.CreatedAt,
+			&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -333,10 +334,10 @@ func (s *Store) GetAccount(ctx context.Context, id string) (model.Account, error
 	var a model.Account
 	err = tx.QueryRow(ctx, `
 		SELECT id, tenant_id, provider, label, access_key_id, secret_encrypted,
-		       region, status, last_scanned_at, created_at
+		       region, status, last_scanned_at, scan_interval_hours, created_at
 		FROM accounts WHERE id = $1`, id,
 	).Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccessKeyID, &a.SecretEncrypted,
-		&a.Region, &a.Status, &a.LastScannedAt, &a.CreatedAt)
+		&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt)
 	if err != nil {
 		return model.Account{}, err
 	}

@@ -37,14 +37,18 @@ Use Docker Compose with Make commands:
 
 ### Development Mode
 
-**Dev mode (fixture data, no AWS needed):**
-
 Create `services/ingestion/.env` from the example:
 ```bash
 cp services/ingestion/.env.example services/ingestion/.env
 ```
 
-The default `.env` has `DEV_MODE=true` — no changes needed for dev mode.
+Edit it with your AWS account details:
+```
+AWS_ACCOUNT_ID=123456789012
+AWS_REGION=eu-central-1
+```
+
+Your `~/.aws/credentials` are mounted into the container automatically — no need to put keys in the `.env` file.
 
 ```bash
 make start-dev
@@ -54,17 +58,7 @@ make start-dev
 - API → `http://localhost/api/`
 - Ingestion → `http://localhost:8081` (internal)
 
-**Real AWS mode:**
-
-Edit `services/ingestion/.env`:
-```
-DEV_MODE=false
-AWS_ACCOUNT_ID=123456789012
-AWS_REGION=eu-central-1
-```
-
-Your `~/.aws/credentials` are mounted into the container automatically — no need to put keys in the `.env` file.
-
+To enable Kinde auth, use:
 ```bash
 make start-staging
 ```
@@ -292,13 +286,13 @@ axiaops/
 ## Roadmap
 
 ### Phase 1 — MVP ✅ Complete
-- [x] Cost + usage fixture data
 - [x] Go ingestion service with PostgreSQL and RLS
 - [x] Zombie detection with per-service threshold rules
 - [x] REST API (`/api/ghosts`, `/api/summary`)
 - [x] React Native web dashboard
 - [x] Docker Compose setup
 - [x] Comprehensive test coverage
+- [x] AWS Cost Explorer + CloudWatch integration
 
 ### Phase 2 — Alpha (in progress)
 - [x] Real AWS Cost Explorer + CloudWatch integration

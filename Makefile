@@ -8,7 +8,7 @@ TEST_STORE_URL ?= postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disa
 stop:
 	./scripts/start.sh stop
 
-# Start all services in dev mode (DEV_MODE=true, no auth, fixed tenant).
+# Start all services in dev mode (bypass auth with fixed tenant).
 # Always runs `stop` first so ports and stale processes are cleared.
 # Run `make seed` once after first start to populate dummy data.
 start-dev: stop
