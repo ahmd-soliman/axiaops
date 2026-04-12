@@ -143,10 +143,17 @@
     },
     {
       "name": "Make: test-smoke",
-      "type": "node-terminal",
+      "type": "node",
       "request": "launch",
-      "command": "SMOKE_API_URL=http://localhost:8080 make test-smoke",
-      "cwd": "${workspaceFolder}"
+      "runtimeExecutable": "make",
+      "runtimeArgs": [
+        "test-smoke"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
     },
     {
       "name": "Make: inspect-db",
