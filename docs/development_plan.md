@@ -311,20 +311,23 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 #### 2.4 PostgreSQL Migration ✅
 
 - PostgreSQL is the runtime database
-- Migrate all tables: `cost_records`, `ghost_records`, `tenants`, `users`, `accounts`
-- Enable Row-Level Security for tenant isolation on `accounts`, `ghost_records`, `cost_records`
+- Versioned migrations via `golang-migrate/v4` — embedded in binary, run on startup using `MIGRATION_DATABASE_URL`
+- `000_init.up.sql` — app user (`axiaops`), schema, default grants
+- `001_initial.up.sql` — all tables + RLS policies
+- `002_ghost_snapshots.up.sql` — `ghost_snapshots` table (see 2.5)
+- Both `api` and `ingestion` call `postgres.Migrate(migrationURL)` on startup; advisory lock makes concurrent calls safe
+- No inline `CREATE TABLE` / `ALTER TABLE` in application code
 - Dev: PostgreSQL container in `docker-compose.yml`
 - Production: RDS PostgreSQL (`db.t4g.micro`)
-- Add `services/shared/storage/postgres/migrations/` — versioned SQL migrations
-- Update `DEV_MODE` to still use fixture data but write to PostgreSQL
 
 **Key files:**
-- `services/shared/storage/postgres/postgres.go` — full `Store` implementation
+- `services/shared/storage/postgres/migrate.go` — `Migrate()` runner + `ResetStuckScans()`
 - `services/shared/storage/postgres/migrations/*.sql` — versioned schema files
+- `services/shared/storage/postgres/postgres.go` — full `Store` implementation
 
 #### 2.5 Savings History / Trend ✅
 
-**Priority: Immediately after PostgreSQL migration — historical data lost on every scan cannot be recovered retroactively.**
+**Status: Complete**
 
 - `ghost_records` is currently replaced on every run — no history is retained
 - Add a `ghost_snapshots` table: `(id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)`
@@ -687,13 +690,13 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | April 2026 | Account management — connect AWS, encrypted secrets, on-demand scan | ✅ Done |
 | April 2026 | Resource inventory view — all resources with ghost/active annotation | ✅ Done |
 | April 2026 | PostgreSQL migration — full production storage layer | ✅ Done |
-| May 2026 | Savings history / trend (`ghost_snapshots` + `GET /trend`) — prioritised to prevent data loss | Planned |
-| May 2026 | Observability — structured logging, Prometheus metrics | Completed |
-| May 2026 | Scan recovery — timeout detection for stuck scans | Planned |
-| May 2026 | API versioning — `/v1/` prefix on all endpoints | Planned |
-| May 2026 | In-memory rate limiting — per-tenant token bucket before Redis | Planned |
-| May 2026 | Graceful shutdown — SIGTERM handling for API and ingestion | Planned |
-| May 2026 | GitLab CI pipeline — test, build, deploy stages | Planned |
+| May 2026 | Savings history / trend (`ghost_snapshots` + `GET /trend`) — prioritised to prevent data loss | ✅ Done |
+| May 2026 | Observability — structured logging, Prometheus metrics | ✅ Done |
+| May 2026 | Scan recovery — timeout detection for stuck scans | ✅ Done |
+| May 2026 | API versioning — `/v1/` prefix on all endpoints | ✅ Done |
+| May 2026 | In-memory rate limiting — per-tenant token bucket before Redis | ✅ Done |
+| May 2026 | Graceful shutdown — SIGTERM handling for API and ingestion | ✅ Done |
+| May 2026 | GitLab CI pipeline — test, build, deploy stages | ✅ Done |
 | June 2026 | Scheduled auto-scan (24h default interval per account) | Planned |
 | June 2026 | cost_records retention — 90-day cleanup job | Planned |
 | June 2026 | Backup / disaster recovery — RDS snapshots, Secrets Manager | Planned |

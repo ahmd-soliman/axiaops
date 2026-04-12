@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging stop seed inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all integration-tests
+.PHONY: start-dev start-staging stop seed inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke
 
 # Postgres integration test URLs (used by services/shared/storage/postgres tests).
 TEST_DATABASE_URL ?= postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
@@ -62,11 +62,13 @@ test-postgres:
 	$(MAKE) clean-db
 	cd services/shared && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_STORE_URL="$(TEST_STORE_URL)" go test -count=1 -v -p=1 ./storage/postgres/...
 
-# Alias so existing scripts/CI that used the old name still work.
-integration-tests: test-postgres
-
 # Full test suite: unit tests + API integration tests + storage tests.
 test-all: test test-postgres
+
+# Smoke tests: requires a running stack (make start-dev) and SMOKE_API_URL.
+# Usage: SMOKE_API_URL=http://localhost:8080 make test-smoke
+test-smoke:
+	cd test/smoke && SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./...
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:
