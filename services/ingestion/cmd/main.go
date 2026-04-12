@@ -324,7 +324,7 @@ func newStore() storage.Store {
 	ctx := context.Background()
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		die("storage: DATABASE_URL is required (SQLite is tests-only)")
+		die("storage: DATABASE_URL is required")
 	}
 	migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
 	if migrationURL == "" {

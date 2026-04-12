@@ -1,5 +1,5 @@
 // Package storage defines the Store interface for persisting cost records.
-// Implementations can swap between SQLite (dev) and PostgreSQL (production)
+// PostgreSQL is the only storage implementation.
 // without changing any other code.
 package storage
 

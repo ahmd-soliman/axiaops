@@ -46,7 +46,7 @@ A complete GitLab CI/CD pipeline for AxiaOps following the Phase 2 development p
 Git Commit to main
   │
   ├─→ TEST STAGE (all branches)
-  │    ├── test:shared       (SQLite unit tests)
+  │    ├── test:shared       (shared module unit tests)
   │    ├── test:postgres     (PostgreSQL integration tests)
   │    ├── test:api          (HTTP handlers + middleware)
   │    ├── test:ingestion    (Cost/usage fetchers)
