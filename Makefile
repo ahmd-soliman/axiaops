@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging stop seed check test test-storage test-all integration-tests
+.PHONY: start-dev start-staging stop seed inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all integration-tests
 
 # Postgres integration test URLs (used by services/shared/storage/postgres tests).
 TEST_DATABASE_URL ?= postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
@@ -25,38 +25,48 @@ start-staging: stop
 seed:
 	./scripts/seed_test_data.sh
 
-check:
-	./scripts/check_db.sh
+inspect-db:
+	./scripts/inspect_db.sh
 
 clean-db:
-	docker compose exec -T postgres psql -U axiaops_owner -d axiaops -c "TRUNCATE TABLE snapshots, resources, accounts, users, tenants CASCADE;" 2>/dev/null || true
+	docker compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
+		"TRUNCATE TABLE axiaops.ghost_snapshots, axiaops.resource_records, axiaops.ghost_records, axiaops.cost_records, axiaops.accounts, axiaops.users, axiaops.tenants CASCADE;" \
+		2>/dev/null || true
 
-# Unit and API integration tests (MockStore, no database, can run in parallel).
-# Includes:
-#   • handler_test.go — unit tests (MockStore)
-#   • handler_lifecycle_test.go — API integration tests (workflows, async, tenant isolation)
-#   • analyzer, crypto, model tests — business logic
-test:
-	cd services/api && go test ./... -count=1 -parallel 4 $(ARGS)
-	cd services/ingestion && go test ./... -count=1 -parallel 4 $(ARGS)
+# Per-service test targets — each mirrors the matching CI job (test:shared, test:api, test:ingestion).
+# Running one target locally reproduces exactly what CI runs for that job.
+
+# Shared module: business logic, models, crypto, analyzer (excludes Postgres integration tests).
+test-shared:
 	cd services/shared && go test ./... -count=1 -parallel 4 -skip=Postgres $(ARGS)
+
+# API service: handler unit tests (MockStore) + lifecycle integration tests.
+test-api:
+	cd services/api && go test ./... -count=1 -parallel 4 $(ARGS)
+
+# Ingestion service: unit tests.
+test-ingestion:
+	cd services/ingestion && go test ./... -count=1 -parallel 4 $(ARGS)
+
+# Rollup: all unit/integration tests without a database (mirrors running all three CI jobs above).
+test: test-shared test-api test-ingestion
 
 # PostgreSQL storage layer tests (database required, runs sequentially).
 # Tests:
 #   • Real PostgreSQL database operations
 #   • Row-Level Security (RLS) policies
 #   • Schema migrations
-test-storage:
+test-postgres:
 	docker compose up -d postgres
 	sleep 2
 	$(MAKE) clean-db
 	cd services/shared && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_STORE_URL="$(TEST_STORE_URL)" go test -count=1 -v -p=1 ./storage/postgres/...
 
 # Alias so existing scripts/CI that used the old name still work.
-integration-tests: test-storage
+integration-tests: test-postgres
 
 # Full test suite: unit tests + API integration tests + storage tests.
-test-all: test test-storage
+test-all: test test-postgres
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:
