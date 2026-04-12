@@ -19,6 +19,7 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | GET | /summary | Yes | Aggregate savings + per-service breakdown |
 | GET | /accounts | Yes | List connected cloud accounts |
 | POST | /accounts | Yes | Connect new account (encrypts secret) |
+| PATCH | /accounts/{id} | Yes | Update label, region, secret_key, scan_interval_hours |
 | DELETE | /accounts/{id} | Yes | Remove account |
 | POST | /accounts/{id}/scan | Yes | Trigger on-demand ingestion scan |
 
