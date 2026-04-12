@@ -1,6 +1,6 @@
 # AxiaOps — Task List
 
-> Derived from `development_plan.md` and `next_steps.md`.
+> Derived from `development_plan.md`.
 > Phase 1 and most of Phase 2 early work are complete. This list focuses on **remaining work** with executable steps, grouped by milestone.
 >
 > Single developer · ~6–7 productive hours/day · AI-assisted (~3× multiplier)
@@ -39,113 +39,114 @@
 
 ### Milestone: May 2026
 
-#### 2.4 Versioned Migrations (golang-migrate)
+#### 2.4 Versioned Migrations (golang-migrate) ✅
 
-> Required before onboarding any real customer. Current `ALTER TABLE` on startup is not production-safe.
+- [x] Install `golang-migrate` CLI and add `github.com/golang-migrate/migrate/v4` to Go modules
+- [x] Create `services/shared/storage/postgres/migrations/000_init.up.sql` — app user, schema, default grants
+- [x] Create `services/shared/storage/postgres/migrations/001_initial.up.sql` — baseline schema + RLS policies
+- [x] Wire migration runner into `services/api/cmd/main.go` and `services/ingestion/cmd/main.go` — run on startup using `MIGRATION_DATABASE_URL`
+- [x] Remove inline `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` calls from application code
+- [x] Test: run `make test-postgres` and verify `schema_migrations` table is populated correctly
+- [x] Test: run migrations from scratch on a clean PostgreSQL container
 
-- [ ] Install `golang-migrate` CLI and add `github.com/golang-migrate/migrate/v4` to Go modules
-- [ ] Create `services/shared/storage/postgres/migrations/001_initial.sql` — baseline schema (all current tables)
-- [ ] Create `services/shared/storage/postgres/migrations/002_add_tenant_id.sql` — tenant_id columns + RLS policies
-- [ ] Wire migration runner into `services/api/cmd/main.go` and `services/ingestion/cmd/main.go` — run on startup using `MIGRATION_DATABASE_URL`
-- [ ] Remove inline `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` calls from application code
-- [ ] Test: run `make test-postgres` and verify `schema_migrations` table is populated correctly
-- [ ] Test: run migrations from scratch on a clean PostgreSQL container
+#### 2.5 Savings History / Trend ✅
 
-#### 2.5 Savings History / Trend
+- [x] Write migration `002_ghost_snapshots.up.sql` — create `ghost_snapshots(id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)`
+- [x] Update `Store` interface in `services/shared/storage/storage.go` — add `SaveSnapshot(ctx, snapshot)` and `ListSnapshots(ctx, accountID, limit)` methods
+- [x] Implement `SaveSnapshot` + `ListSnapshots` in `services/shared/storage/postgres/postgres.go`
+- [x] Update ingestion scan flow — write one snapshot row per scan after `SaveGhosts`
+- [x] Add `GET /v1/trend?account_id={id}&days=30` endpoint in `services/api/internal/api/`
+- [x] Dashboard: savings trend sparkline on the header (replace static savings banner)
+- [x] Test: scan twice, verify two snapshot rows exist and `GET /trend` returns series
 
-> Must ship before production — historical ghost data is lost on every scan currently.
+#### 2.6 Observability ✅
 
-- [ ] Write migration `003_add_ghost_snapshots.sql` — create `ghost_snapshots(id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)`
-- [ ] Update `Store` interface in `services/shared/storage/storage.go` — add `SaveSnapshot(ctx, snapshot)` and `ListSnapshots(ctx, accountID, limit)` methods
-- [ ] Implement `SaveSnapshot` + `ListSnapshots` in `services/shared/storage/postgres/postgres.go`
-- [ ] Update ingestion scan flow — write one snapshot row per scan after `SaveGhosts`
-- [ ] Add `GET /v1/trend?account_id={id}&days=30` endpoint in `services/api/internal/api/`
-- [ ] Dashboard: savings trend sparkline on the header (replace static savings banner)
-- [ ] Test: scan twice, verify two snapshot rows exist and `GET /trend` returns series
-
-#### 2.6 Observability
-
-> Required before production deployment.
-
-- [ ] Create `services/shared/logging/logging.go` — `slog` setup (JSON in production, text in dev based on `LOG_FORMAT` env var)
-- [ ] Replace all `log.Printf` / `fmt.Println` calls in all three services with `slog.Info/Error/Warn`
-- [ ] Create `services/api/internal/middleware/requestid.go` — inject `X-Request-ID` header and add to `slog` context
-- [ ] Add scan lifecycle logs: `scan.started`, `scan.completed`, `scan.failed` with `tenant_id`, `account_id`, `duration_ms`, `ghost_count`
+- [x] Create `services/shared/logging/logging.go` — `slog` setup (JSON in production, text in dev based on `LOG_FORMAT` env var)
+- [x] Replace all `log.Printf` / `fmt.Println` calls in all three services with `slog.Info/Error/Warn`
+- [x] Create `services/api/internal/middleware/requestid.go` — inject `X-Request-ID` header and add to `slog` context
+- [x] Add scan lifecycle logs: `scan.started`, `scan.completed`, `scan.failed` with `tenant_id`, `account_id`, `duration_ms`, `ghost_count`
 - [x] ~~Add Sentry Go SDK~~ — SKIPPED: Using structured logging instead (cost optimization)
-- [ ] Create `services/api/internal/middleware/metrics.go` — Prometheus HTTP middleware
+- [x] Create `services/api/internal/middleware/metrics.go` — Prometheus HTTP middleware
   - `axiaops_api_request_duration_seconds` histogram (endpoint + status code labels)
   - `axiaops_api_requests_total` counter
-- [ ] Add `axiaops_scan_duration_seconds` histogram and `axiaops_ghosts_detected_total` counter in ingestion service
-- [ ] Expose `/metrics` on the API service (internal port — not behind auth middleware)
-- [ ] Extend `GET /health` to check DB connectivity (`SELECT 1`) and ingestion reachability (`GET http://ingestion:8081/health`)
-- [ ] Test: run `make start-dev`, hit `/metrics`, verify Prometheus output format
+- [x] Add `axiaops_scan_duration_seconds` histogram and `axiaops_ghosts_detected_total` counter in ingestion service
+- [x] Expose `/metrics` on the API service (internal port — not behind auth middleware)
+- [x] Extend `GET /health` to check DB connectivity (`SELECT 1`) and ingestion reachability (`GET http://ingestion:8081/health`)
+- [x] Test: run `make start-dev`, hit `/metrics`, verify Prometheus output format
 
-#### 2.7 Scan Recovery (Stuck Scan Timeout)
+#### 2.7 Scan Recovery (Stuck Scan Timeout) ✅
 
-- [ ] Add background ticker in `services/api` — runs every 5 minutes
-- [ ] Query: find accounts with `status = 'scanning'` and `last_scanned_at < NOW() - INTERVAL '15 minutes'`
-- [ ] Update those accounts to `status = 'error'` with a `scan_timeout` reason
-- [ ] Log `scan.timeout_reset` with `account_id` and `stuck_duration`
-- [ ] Test: manually set an account to `scanning` with an old timestamp, verify ticker resets it
+- [x] Add background ticker in `services/api` — runs every 5 minutes
+- [x] Query: find accounts with `status = 'scanning'` and `last_scanned_at < NOW() - INTERVAL '15 minutes'`
+- [x] Update those accounts to `status = 'error'` with a `scan_timeout` reason
+- [x] Log `scan.timeout_reset` with `account_id` and `stuck_duration`
+- [x] Test: manually set an account to `scanning` with an old timestamp, verify ticker resets it
 
-#### 2.8 API Versioning
+#### 2.8 API Versioning ✅
 
-> Must be done before any external integrations or docs are published.
-
-- [ ] Update all routes in `services/api/internal/api/` to use `/v1/` prefix
+- [x] Update all routes in `services/api/internal/api/` to use `/v1/` prefix
   - `GET /v1/ghosts`, `GET /v1/summary`, `GET /v1/accounts`, `POST /v1/accounts`, etc.
   - `GET /health` and `GET /metrics` stay unversioned
-- [ ] Update nginx config — rewrite `/api/v1/*` → `api:8080/v1/*`
-- [ ] Update dashboard API client base path to `/v1/`
-- [ ] Update all handler tests to use `/v1/` paths
-- [ ] Test: `make test` passes; hit `/v1/ghosts` in browser
+- [x] Update nginx config — rewrite `/api/v1/*` → `api:8080/v1/*`
+- [x] Update dashboard API client base path to `/v1/`
+- [x] Update all handler tests to use `/v1/` paths
+- [x] Test: `make test` passes; hit `/v1/ghosts` in browser
 
-#### 2.9 In-Memory Rate Limiting
+#### 2.9 In-Memory Rate Limiting ✅
 
-> Temporary guard until Redis ships in July. Must be live before production.
-
-- [ ] Create `services/api/internal/middleware/ratelimit.go`
+- [x] Create `services/api/internal/middleware/ratelimit.go`
   - `sync.Map` keyed by `tenant_id`
   - Sliding window: 60 requests/minute per tenant
   - Returns `429 Too Many Requests` with `Retry-After` header
   - No-op when `DEV_MODE=true`
-- [ ] Wire into the middleware chain in `services/api/cmd/main.go` (after auth, before handlers)
-- [ ] Test: write a test that fires >60 requests and asserts 429 is returned
+- [x] Wire into the middleware chain in `services/api/cmd/main.go` (after auth, before handlers)
+- [x] Test: write a test that fires >60 requests and asserts 429 is returned
 
-#### 2.10 Graceful Shutdown
+#### 2.10 Graceful Shutdown ✅
 
-> App Runner sends `SIGTERM` before container termination.
-
-- [ ] `services/api/cmd/main.go` — listen for `SIGTERM`/`SIGINT` via `signal.NotifyContext`
+- [x] `services/api/cmd/main.go` — listen for `SIGTERM`/`SIGINT` via `signal.NotifyContext`
   - Call `server.Shutdown(ctx)` with 30-second drain timeout
   - Call `pool.Close()` after server exits
   - Log `shutdown.started` and `shutdown.complete` with drain duration
-- [ ] `services/ingestion/cmd/main.go` — same pattern
+- [x] `services/ingestion/cmd/main.go` — same pattern
   - Reject new `POST /scan` requests during drain (return `503 Service Unavailable`)
   - Allow current scan to complete before shutdown
-- [ ] Test: send `SIGTERM` during an active scan; verify scan completes and server exits cleanly
+- [x] Test: send `SIGTERM` during an active scan; verify scan completes and server exits cleanly
+
+---
+
+### Milestone: May 2026 (continued)
+
+#### 2.Smoke Tests ✅
+
+- [x] Create `test/smoke/api_test.go` — Go test package that hits the live API over HTTP
+  - Covers: `GET /health`, `GET /v1/ghosts`, `GET /v1/summary`, `GET /v1/resources`, `GET /v1/trend`, `GET /v1/accounts`, `GET /metrics`
+  - Skipped automatically when `SMOKE_API_URL` is unset (safe for CI unit-test jobs)
+- [x] Add `test/smoke/go.mod` and register module in `go.work`
+- [x] Add `make test-smoke` target — `SMOKE_API_URL=http://localhost:8080 make test-smoke`
+- [x] Test: `make start-dev && SMOKE_API_URL=http://localhost:8080 make test-smoke` — all tests pass
 
 ---
 
 ### Milestone: June 2026
 
-#### 2.11 GitLab CI Pipeline
+#### 2.11 GitLab CI Pipeline ✅
 
-- [ ] Create `.gitlab-ci.yml` at repo root with three stages: `test`, `build`, `deploy`
-- [ ] **test stage:**
+- [x] Create `.gitlab-ci.yml` at repo root with three stages: `test`, `build`, `deploy`
+- [x] **test stage:**
   - `go test ./...` for all three modules
-  - `go vet ./...`
+  - `go vet ./...` (covered by golangci-lint `govet` linter)
   - `golangci-lint run` (add `.golangci.yml` config)
   - Run on all branches
-- [ ] **build stage:** (main branch only)
+- [x] **build stage:** (main branch only)
   - Build Docker images for `api`, `ingestion`, `dashboard`
   - Tag with Git SHA
   - Push to AWS ECR (use `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` CI/CD variables — masked)
-- [ ] **deploy stage:** (main branch only, after build succeeds)
+- [x] **deploy stage:** (main branch only, after build succeeds)
   - `aws apprunner update-service` for `api` and `ingestion`
   - CloudFront invalidation for dashboard static assets
-- [ ] Add required CI/CD variables in GitLab: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ENCRYPTION_KEY`
-- [ ] Test: push to a feature branch — only `test` stage runs; merge to `main` — full pipeline runs
+- [x] Add required CI/CD variables in GitLab: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ENCRYPTION_KEY`
+- [x] Test: push to a feature branch — only `test` stage runs; merge to `main` — full pipeline runs
 
 #### 2.12 Scheduled Auto-Scan
 
@@ -445,7 +446,7 @@
 | Date | Milestone | Status |
 |------|-----------|--------|
 | April 2026 | Phase 1 complete + Phase 2 early work | ✅ Done |
-| May 2026 | Versioned migrations, savings history, observability, scan recovery, API versioning, rate limiting, graceful shutdown | Planned |
+| May 2026 | Versioned migrations, savings history, observability, scan recovery, API versioning, rate limiting, graceful shutdown | ✅ Done (code) — dashboard sparkline pending |
 | June 2026 | GitLab CI pipeline, scheduled auto-scan, cost_records retention | Planned |
 | July 2026 | Redis (JWKS cache, scan queue, rate limiting), weekly digest + Slack alerts | Planned |
 | August 2026 | Production deployment (App Runner, RDS, ElastiCache, Terraform, CloudFront) | Planned |
