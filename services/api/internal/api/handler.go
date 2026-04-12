@@ -205,15 +205,16 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 
 	tenantID := middleware.TenantID(r.Context())
 	account := model.Account{
-		ID:              uuid.New().String(),
-		TenantID:        tenantID,
-		Provider:        req.Provider,
-		Label:           req.Label,
-		AccessKeyID:     req.AccessKeyID,
-		SecretEncrypted: secretEncrypted,
-		Region:          req.Region,
-		Status:          "connected",
-		CreatedAt:       time.Now().UTC(),
+		ID:                uuid.New().String(),
+		TenantID:          tenantID,
+		Provider:          req.Provider,
+		Label:             req.Label,
+		AccessKeyID:       req.AccessKeyID,
+		SecretEncrypted:   secretEncrypted,
+		Region:            req.Region,
+		Status:            "connected",
+		ScanIntervalHours: 24,
+		CreatedAt:         time.Now().UTC(),
 	}
 
 	ctx := storage.WithTenantID(r.Context(), tenantID)
@@ -227,7 +228,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, account)
 }
 
-// updateAccount edits the label, access_key_id, region, and/or secret_key of an account.
+// updateAccount edits the label, access_key_id, region, secret_key, and/or scan_interval_hours of an account.
 // secret_key is only re-encrypted when a non-empty value is provided.
 func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -241,10 +242,11 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Label       *string `json:"label"`
-		AccessKeyID *string `json:"access_key_id"`
-		SecretKey   *string `json:"secret_key"`
-		Region      *string `json:"region"`
+		Label             *string `json:"label"`
+		AccessKeyID       *string `json:"access_key_id"`
+		SecretKey         *string `json:"secret_key"`
+		Region            *string `json:"region"`
+		ScanIntervalHours *int    `json:"scan_interval_hours"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -267,6 +269,13 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Region != nil {
 		existing.Region = *req.Region
+	}
+	if req.ScanIntervalHours != nil {
+		if *req.ScanIntervalHours < 0 {
+			http.Error(w, "scan_interval_hours must be >= 0", http.StatusBadRequest)
+			return
+		}
+		existing.ScanIntervalHours = *req.ScanIntervalHours
 	}
 
 	if err := h.store.SaveAccount(ctx, existing); err != nil {
