@@ -350,7 +350,9 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("scan: failed to close response body", "error", err)
+		}
 		if resp.StatusCode != http.StatusOK {
 			slog.Error("scan.failed", "account_id", id, "status", resp.StatusCode)
 			_ = h.store.UpdateAccountStatus(context.Background(), id, "error")

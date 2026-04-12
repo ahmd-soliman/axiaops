@@ -130,7 +130,7 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 	if err != nil {
 		return 0, fmt.Errorf("sqlite: begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT OR IGNORE INTO cost_records
@@ -141,7 +141,7 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 	if err != nil {
 		return 0, fmt.Errorf("sqlite: prepare: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	var inserted int64
 	for _, r := range records {
@@ -171,7 +171,7 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 	if err != nil {
 		return fmt.Errorf("sqlite: begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM ghost_records`); err != nil {
 		return fmt.Errorf("sqlite: clear ghosts: %w", err)
@@ -187,7 +187,7 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 	if err != nil {
 		return fmt.Errorf("sqlite: prepare: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	now := time.Now().UTC()
 	for _, g := range ghosts {
@@ -219,7 +219,7 @@ func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: query ghosts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ghosts []model.GhostResource
 	for rows.Next() {
@@ -323,7 +323,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list accounts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var accounts []model.Account
 	for rows.Next() {
@@ -402,7 +402,7 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 	if err != nil {
 		return fmt.Errorf("sqlite: begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM resource_records`); err != nil {
 		return fmt.Errorf("sqlite: clear resource_records: %w", err)
@@ -418,7 +418,7 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 	if err != nil {
 		return fmt.Errorf("sqlite: prepare: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	now := time.Now().UTC()
 	for _, r := range resources {
@@ -454,7 +454,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: query resource_records: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var resources []model.ResourceRecord
 	for rows.Next() {

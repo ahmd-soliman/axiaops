@@ -14,7 +14,7 @@ func TestHTTPMiddleware(t *testing.T) {
 	// Create a simple handler that returns 200 OK
 	handler := observability.HTTPMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Hello"))
+		_, _ = w.Write([]byte("Hello"))
 	}))
 
 	// Create a test request
@@ -94,7 +94,7 @@ func TestHTTPObserverWriter(t *testing.T) {
 
 	// Write header and data
 	observer.WriteHeader(http.StatusCreated)
-	observer.Write([]byte("test"))
+	_, _ = observer.Write([]byte("test"))
 
 	// Verify captured values
 	if observer.StatusCode() != http.StatusCreated {
