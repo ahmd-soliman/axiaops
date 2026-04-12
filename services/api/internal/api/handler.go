@@ -79,9 +79,9 @@ func cors(next http.Handler) http.Handler {
 	})
 }
 
-// Handler returns the mux wrapped with CORS middleware.
-func (h *Handler) Handler(mux *http.ServeMux) http.Handler {
-	return cors(mux)
+// Handler wraps the given handler with CORS middleware.
+func (h *Handler) Handler(next http.Handler) http.Handler {
+	return cors(next)
 }
 
 func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {

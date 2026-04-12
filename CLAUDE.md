@@ -31,7 +31,8 @@ make stop           # Kill all services, free ports
 make seed           # Populate dummy tenant/user/ghost records
 make test           # All Go unit tests
 make test-postgres  # PostgreSQL tests (RLS, migrations) — needs running postgres
-make test-smoke     # Smoke tests — needs full stack running (make start-dev)
+make test-smoke     # Smoke tests — needs full stack running (make start-dev in a separate terminal)
+                    # Uses GOWORK=off so tests don't recompile services and kill running processes
 make test-all       # Unit + postgres tests
 ```
 

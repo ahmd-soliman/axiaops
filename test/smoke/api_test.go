@@ -1,15 +1,31 @@
 // Package smoke contains smoke tests that run against a live stack.
 //
-// Prerequisites: the full Docker Compose stack must be running in dev mode:
+// # Setup
 //
-//	make start-dev
+// Smoke tests are intentionally outside go.work (GOWORK=off in make test-smoke).
+// This prevents `go test` from recompiling the workspace services, which would
+// kill any running `go run` processes.
 //
-// Set SMOKE_API_URL to the API base URL before running:
+// # Running locally
 //
-//	SMOKE_API_URL=http://localhost:8080 go test ./test/smoke/... -v
+//  1. Start the stack in one terminal (keep it open — it blocks on `wait`):
 //
-// All tests are skipped when SMOKE_API_URL is unset, so they never run during
-// normal `make test` or CI unit-test jobs.
+//     make start-dev
+//
+//  2. In a second terminal, run the smoke tests:
+//
+//     make test-smoke
+//
+// The services stay running after the tests complete.
+//
+// # Running against a custom URL (e.g. staging)
+//
+//	SMOKE_API_URL=https://staging.example.com make test-smoke
+//
+// # CI
+//
+// Smoke tests are skipped in normal CI (`make test`) because SMOKE_API_URL is
+// unset. They run only in a dedicated smoke-test CI job against a live stack.
 package smoke
 
 import (

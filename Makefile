@@ -69,7 +69,7 @@ test-all: test test-postgres
 # Override the URL with: SMOKE_API_URL=https://staging.example.com make test-smoke
 SMOKE_API_URL ?= http://localhost:8080
 test-smoke:
-	cd test/smoke && SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -count=1 $(ARGS)
+	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -count=1 $(ARGS)
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:
