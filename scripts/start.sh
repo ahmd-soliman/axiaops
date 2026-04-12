@@ -128,6 +128,10 @@ echo "Logs: tail -f .dev.log"
 echo ""
 echo "Services are running in the background. Use 'make stop' to shut them down."
 
+# Disable the cleanup trap — services are now disowned and should survive.
+# The trap was only needed during startup to clean up on error.
+trap - ERR SIGINT SIGTERM
+
 # Keep the script alive so the process group stays intact.
 # `|| true` prevents set -e from exiting if a background job exits non-zero.
 wait || true
