@@ -243,6 +243,14 @@ Create the following variables (all must be **Masked** and **Protected**):
 | Protect | ✓ Yes |
 | Mask | ✓ Yes |
 
+#### STAGING_API_URL
+| Field | Value |
+|-------|-------|
+| Key | `STAGING_API_URL` |
+| Value | `https://your-api.eu-central-1.awsapprunner.com` |
+| Type | Variable |
+| Protect | ✓ Yes |
+| Mask | ✗ No (not a secret) |
 ---
 
 ## Verification Checklist
@@ -255,6 +263,7 @@ Create the following variables (all must be **Masked** and **Protected**):
 - [ ] `EXPO_PUBLIC_KINDE_ISSUER` — masked ✓, protected ✓
 - [ ] `EXPO_PUBLIC_KINDE_CLIENT_ID` — masked ✓, protected ✓
 - [ ] `CLOUDFRONT_DISTRIBUTION_ID` — masked ✓, protected ✓
+- [ ] `STAGING_API_URL` — protected ✓
 
 ### Test the Configuration
 
