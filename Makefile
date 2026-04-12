@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging stop seed inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke
+.PHONY: start-dev start-staging stop seed inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke test-liveness
 
 # Postgres integration test URLs (used by services/shared/storage/postgres tests).
 TEST_DATABASE_URL ?= postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
@@ -83,6 +83,21 @@ test-shutdown:
 	kill -SIGTERM $$SERVICE_PID 2>/dev/null || true
 	wait $$SERVICE_PID 2>/dev/null || true
 	@echo "Graceful shutdown test complete. Check logs above for 'shutdown complete' message."
+
+# Test that services stay alive on their own for 60 seconds (no signal sent).
+# Catches bugs where services self-terminate due to context timeouts or similar.
+# Starts a fresh stack, waits 60 seconds, checks both health endpoints, then stops.
+test-liveness:
+	@echo "Starting services..."
+	$(MAKE) start-dev
+	@echo "Waiting 60 seconds to verify services do not self-terminate..."
+	sleep 60
+	@echo "Checking API health..."
+	@curl -sf http://localhost:8080/health > /dev/null || (echo "FAIL: API died on its own" && $(MAKE) stop && exit 1)
+	@echo "Checking ingestion health..."
+	@curl -sf http://localhost:8081/health > /dev/null || (echo "FAIL: ingestion died on its own" && $(MAKE) stop && exit 1)
+	@echo "PASS: services still running after 60 seconds"
+	$(MAKE) stop
 
 .PHONY: lint
 lint:
