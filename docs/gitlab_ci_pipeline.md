@@ -24,7 +24,7 @@ GitLab Repository
   └── Commit pushed to main
         │
         ├─── TEST STAGE (all branches, automatic)
-        │     ├── test:shared      — shared module unit tests (SQLite)
+        │     ├── test:shared      — shared module unit tests (analyzer, crypto, models)
         │     ├── test:postgres    — storage PostgreSQL integration tests
         │     ├── test:api         — API service unit tests
         │     ├── test:ingestion   — Ingestion service unit tests
@@ -182,7 +182,6 @@ Add the distribution ID as the `CLOUDFRONT_DISTRIBUTION_ID` GitLab variable.
 
 ### test:shared
 Runs unit tests for the shared module (models, storage interface, analyzer, crypto).
-- Uses SQLite for fast, isolated test databases
 - No external dependencies
 
 ### test:postgres

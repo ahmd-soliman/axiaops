@@ -23,7 +23,7 @@
 
 - **Logging migration:** `log.Printf()` → `slog.Info/Error/Warn` across both services (api + ingestion)
 - **Environment-driven output:** JSON for production, text for dev; controlled by `LOG_OUTPUT` and `DEV_MODE`
-- **SQLite removal:** Both `services/api/cmd/main.go` and `services/ingestion/cmd/main.go` now require `DATABASE_URL`; SQLite removed from production paths
+- **SQLite removal:** Both `services/api/cmd/main.go` and `services/ingestion/cmd/main.go` now require `DATABASE_URL`; SQLite packages removed entirely
 - **Operational safety:** `ResetStuckScans()` on startup + 5-minute background ticker prevents permanently stuck scans
 - **Health endpoint DB ping:** Implements `Pinger` interface check; returns HTTP 503 if DB is unreachable
 - **Scan lifecycle logging:** New log lines for `scan.started`, `scan.completed` with duration (ms)
@@ -198,7 +198,7 @@ w.Header().Set("Retry-After", "1")
 
 - **GhostSnapshot model:** Clean schema with `snapshot_at`, `ghost_count`, `total_monthly_cost`, `currency`
 - **Database design:** Migration file creates `ghost_snapshots` table with RLS policy for tenant isolation
-- **Storage implementation:** `SaveSnapshot()` and `ListSnapshots()` in PostgreSQL Store; SQLite stubs for dev
+- **Storage implementation:** `SaveSnapshot()` and `ListSnapshots()` in PostgreSQL Store
 - **Ingestion integration:** Snapshot created after each scan; prevents data loss between runs
 - **API endpoint:** `GET /v1/trend` with optional `account_id` query parameter for filtering
 - **Test coverage:** 8 handler unit tests + 8 PostgreSQL integration tests; good isolation testing

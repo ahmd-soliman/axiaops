@@ -1,5 +1,4 @@
 // Package postgres implements the Store interface using PostgreSQL.
-// Used in production — swap for SQLite in development by omitting DATABASE_URL.
 package postgres
 
 import (
