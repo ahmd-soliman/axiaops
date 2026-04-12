@@ -120,7 +120,7 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// ── Rate Limiting ─────────────────────────────────────────────────────────
-	root := h.Handler(mux)
+	root := http.Handler(mux)
 	if os.Getenv("DEV_MODE") != "true" {
 		// 60 requests per minute = 1 req/sec rate, max burst of 60.
 		limiter := middleware.NewRateLimiter(1.0, 60.0)
@@ -212,7 +212,7 @@ func main() {
 	// Start HTTP server in a goroutine
 	server := &http.Server{
 		Addr:    addr,
-		Handler: logged,
+		Handler: h.Handler(logged), // CORS outermost — headers always set before auth/rate-limit can reject
 	}
 
 	// Run server in background; will block until signal or error
