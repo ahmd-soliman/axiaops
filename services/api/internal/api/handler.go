@@ -1,14 +1,3 @@
-// Package api exposes the analysis results over HTTP.
-// Endpoints:
-//
-//	GET    /health
-//	GET    /ghosts
-//	GET    /summary
-//	GET    /accounts
-//	POST   /accounts
-//	PATCH  /accounts/{id}
-//	DELETE /accounts/{id}
-//	POST   /accounts/{id}/scan
 package api
 
 import (
@@ -231,7 +220,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 // updateAccount edits the label, access_key_id, region, secret_key, and/or scan_interval_hours of an account.
 // secret_key is only re-encrypted when a non-empty value is provided.
 func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := chi.URLParam(r, "id")
 	tenantID := middleware.TenantID(r.Context())
 	ctx := storage.WithTenantID(r.Context(), tenantID)
 
@@ -289,7 +278,7 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 
 // deleteAccount removes a connected account.
 func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := chi.URLParam(r, "id")
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	if err := h.store.DeleteAccount(ctx, id); err != nil {
 		slog.Error("deleteAccount: failed", "account_id", id, "error", err)
@@ -301,7 +290,7 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 
 // scanAccount triggers an ingestion run for the given account.
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := chi.URLParam(r, "id")
 	tenantID := middleware.TenantID(r.Context())
 	ctx := storage.WithTenantID(r.Context(), tenantID)
 

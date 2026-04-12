@@ -1,6 +1,3 @@
-// main is the entry point for the AxiaOps API service.
-// It reads ghost detection results from the database and serves them over HTTP.
-// Ingestion is handled by a separate service (services/ingestion).
 package main
 
 import (
