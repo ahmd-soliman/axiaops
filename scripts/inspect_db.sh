@@ -34,6 +34,13 @@ q "SELECT id, tenant_id, kinde_sub, email, name, last_seen FROM users ORDER BY l
 
 echo ""
 
+# ── Accounts ──────────────────────────────────────────────────────────────────
+
+echo "=== Accounts ==="
+q "SELECT id, tenant_id, provider, label, region, status, last_scanned_at FROM accounts ORDER BY created_at;"
+
+echo ""
+
 # ── Cost Records ──────────────────────────────────────────────────────────────
 
 echo "=== Cost Records ==="
@@ -45,3 +52,25 @@ echo ""
 
 echo "=== Ghost Records ==="
 q "SELECT tenant_id, service, resource_id, monthly_cost, currency, reason FROM ghost_records ORDER BY monthly_cost DESC;"
+
+echo ""
+
+# ── Resource Records ──────────────────────────────────────────────────────────
+
+echo "=== Resource Records ==="
+q "SELECT tenant_id, service, resource_id, monthly_cost, is_ghost, currency FROM resource_records ORDER BY monthly_cost DESC;"
+
+echo ""
+
+# ── Ghost Snapshots ───────────────────────────────────────────────────────────
+
+echo "=== Ghost Snapshots (latest 5 per tenant) ==="
+q "SELECT tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency
+   FROM (
+     SELECT *, ROW_NUMBER() OVER (PARTITION BY tenant_id ORDER BY snapshot_at DESC) AS rn
+     FROM ghost_snapshots
+   ) ranked WHERE rn <= 5 ORDER BY tenant_id, snapshot_at DESC;"
+
+echo ""
+echo "=== Ghost Snapshots Total Count ==="
+q "SELECT tenant_id, COUNT(*) || ' snapshots' FROM ghost_snapshots GROUP BY tenant_id ORDER BY tenant_id;"
