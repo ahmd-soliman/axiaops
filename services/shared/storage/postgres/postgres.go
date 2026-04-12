@@ -66,7 +66,12 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 	if err != nil {
 		return 0, fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return 0, err
@@ -111,7 +116,12 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 	if err != nil {
 		return fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return err
@@ -158,7 +168,12 @@ func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return nil, err
@@ -256,7 +271,12 @@ func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
 	if err != nil {
 		return fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return err
@@ -287,7 +307,12 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return nil, err
@@ -324,7 +349,12 @@ func (s *Store) GetAccount(ctx context.Context, id string) (model.Account, error
 	if err != nil {
 		return model.Account{}, fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return model.Account{}, err
@@ -349,7 +379,12 @@ func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return err
@@ -368,7 +403,12 @@ func (s *Store) UpdateAccountStatus(ctx context.Context, id, status string) erro
 	if err != nil {
 		return fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return err
@@ -389,7 +429,12 @@ func (s *Store) TryMarkAccountScanning(ctx context.Context, id string) (bool, er
 	if err != nil {
 		return false, fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return false, err
@@ -418,7 +463,12 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 	if err != nil {
 		return fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return err
@@ -464,7 +514,12 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 	if err != nil {
 		return nil, fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return nil, err
@@ -514,7 +569,12 @@ func (s *Store) SaveSnapshot(ctx context.Context, snap model.GhostSnapshot) erro
 	if err != nil {
 		return fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return err
@@ -545,7 +605,12 @@ func (s *Store) ListSnapshots(ctx context.Context, accountID string) ([]model.Gh
 	if err != nil {
 		return nil, fmt.Errorf("postgres: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func(tx pgx.Tx, ctx context.Context) {
+		err := tx.Rollback(ctx)
+		if err != nil {
+			fmt.Printf("rollback failed: %v\n", err)
+		}
+	}(tx, ctx)
 
 	if err := setTenant(ctx, tx); err != nil {
 		return nil, err
