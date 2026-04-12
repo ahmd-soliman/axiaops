@@ -8,20 +8,9 @@
 
 ## Phase 1 — Incubator / MVP (April – June 2026) ✅
 
-### Goal: Working AxiaOps Detector (local, no auth, fixture data)
+### Goal: Working AxiaOps Detector (local, real AWS integration)
 
-#### 1.1 Cost Fixture Data ✅
-- `fixtures/costs.json` — 13 realistic `CostRecord` entries with ARN-style resource IDs
-- Fields: `provider`, `account_id`, `service`, `region`, `resource_id`, `amount`, `currency`, `period_start`, `period_end`, `tags`
-- Tags include `env` and `team` on every record — ownership resolution depends on this
-- Covers: EC2, RDS, S3, Lambda, CloudFront, ELB, CloudWatch, NAT Gateway across `eu-central-1` and `eu-west-1`
-
-#### 1.2 Usage Fixture Data ✅
-- `fixtures/usage.json` — one CloudWatch-style metric per resource (mirrors what production will fetch from CloudWatch)
-- Fields: `resource_id`, `metric`, `unit`, `avg`, `period_days`
-- Some resources deliberately have zero usage to act as zombies in development and testing
-
-#### 1.3 Backend — Go Services ✅
+#### 1.1 Backend — Go Services ✅
 
 **Language:** Go 1.25+ | **Framework:** Standard library + `net/http` | **Data Layer:** PostgreSQL
 
@@ -31,7 +20,7 @@
 services/
   shared/     — model, storage interface + Postgres tests, analyzer (no AWS SDK)
   api/        — HTTP server, auth middleware, reads ghost_records from DB
-  ingestion/  — long-lived HTTP server, fetches AWS/fixture data, writes to DB
+  ingestion/  — long-lived HTTP server, fetches AWS data, writes to DB
 ```
 
 **Flow:**
@@ -40,7 +29,7 @@ services/
 ingestion service (long-lived HTTP server on :8081)
   ├── POST /scan      — triggered by API or scheduler
   ├── FetchCosts      → cost_records table
-  ├── FetchUsage      → CloudWatch / fixture
+  ├── FetchUsage      → CloudWatch
   ├── Detect()        → analyzer flags zombies
   └── SaveGhosts      → ghost_records table
 
@@ -58,7 +47,7 @@ API service (always running on :8080)
 **Go workspace (`go.work`)** links all three modules locally — no publishing required.
 
 **Ingestion (`services/ingestion/internal/provider`):**
-- `Provider` interface — swap AWS Cost Explorer for file fixture with one env var (`DEV_MODE=true`)
+- `Provider` interface — AWS Cost Explorer and CloudWatch API integration
 - `INSERT OR IGNORE` deduplication — safe to re-run; logs inserted vs skipped counts
 
 **Analysis (`services/shared/analyzer`):**
@@ -79,7 +68,7 @@ API service (always running on :8080)
 | AmazonVPC | BytesOutToDestination | = 0 | NAT Gateway zero bytes — likely unused |
 | AmazonVPC (EIP) | NetworkInterfaceAttachment | = 0 | Elastic IP not attached — $0.005/hour idle charge |
 
-> **S3 and CloudFront exclusion:** Both services appear in fixture data but are intentionally excluded from Phase 1 detection rules. S3 detection is ambiguous — many buckets are archival by design and zero `GetRequests` is expected. CloudFront distributions can be legitimately dormant. Detection rules for both services are deferred to Phase 3 (see 3.11 Expanded Detection Rules) pending usage data from real customers to set meaningful thresholds.
+> **S3 and CloudFront exclusion:** Both services are intentionally excluded from Phase 1 detection rules. S3 detection is ambiguous — many buckets are archival by design and zero `GetRequests` is expected. CloudFront distributions can be legitimately dormant. Detection rules for both services are deferred to Phase 3 (see 3.11 Expanded Detection Rules) pending usage data from real customers to set meaningful thresholds.
 
 **API (`services/api/internal/api`):** ✅
 - `GET /ghosts` — list of detected zombie resources with cost, usage metric, reason, and owner
@@ -110,7 +99,6 @@ API service (always running on :8080)
 | `api/internal/api` | 7 | GET /ghosts, GET /summary — 200, JSON payload, content type, CORS, OPTIONS preflight |
 | `api/internal/middleware` | 9 | Valid/invalid/expired/wrong-issuer tokens, missing org_code, OPTIONS passthrough, tenant in context |
 | `shared/storage/postgres` | 30+ | Insert, dedup, empty batch, region uniqueness, tags, UpsertTenant, UpsertUser, RLS isolation, accounts CRUD, snapshots |
-| `ingestion/provider/filefixture` | 5 | Returns all records, multiple records, file not found, invalid JSON, correct Name() |
 | `ingestion/provider/aws` | 3 | Single-page response, multi-page pagination, API error propagation |
 
 **Test patterns used:**
@@ -165,7 +153,7 @@ PostgreSQL (same DB)
 **Tables:**
 
 ```sql
-cost_records   — raw billing data from Cost Explorer / fixture
+cost_records   — raw billing data from Cost Explorer
 ghost_records  — detected zombie resources (replaced on each ingestion run)
 tenants        — Kinde org_code → internal UUID mapping
 users          — Kinde users, linked to tenant, last_seen updated on login
@@ -182,9 +170,9 @@ accounts       — connected cloud accounts, secrets encrypted at rest
 
 **Run locally:**
 ```bash
-./scripts/dev.sh          # fixture data (DEV_MODE=true)
-./scripts/dev.sh --aws    # real AWS (DEV_MODE=false)
-./scripts/dev.sh stop     # kill all services
+make start-dev      # real AWS (from env or .env)
+make start-staging  # real AWS + Kinde auth
+make stop           # kill all services
 ```
 
 **Inspect database:**
@@ -192,9 +180,9 @@ accounts       — connected cloud accounts, secrets encrypted at rest
 ./scripts/check_db.sh
 ```
 
-**`DEV_MODE` switch:**
-- `DEV_MODE=true` → reads from `fixtures/costs.json` and `fixtures/usage.json`
-- `DEV_MODE=false` → calls real AWS Cost Explorer + Describe APIs + CloudWatch
+**AWS Integration:**
+- Always uses real AWS Cost Explorer + Describe APIs + CloudWatch
+- AWS credentials from `.env` or environment variables
 
 ---
 
@@ -375,7 +363,6 @@ Redis-based rate limiting isn't available until 2.14, but the API is public-faci
 - Implementation: `sync.Map` keyed by `tenant_id` + sliding window counter
 - Limits: 60 requests/minute per tenant (API endpoints); scan requests already have a concurrency guard
 - Returns `429 Too Many Requests` with `Retry-After` header
-- Disabled in `DEV_MODE=true`
 - **Key file:** `services/api/internal/middleware/ratelimit.go`
 
 #### 2.9 Graceful Shutdown
@@ -681,7 +668,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 
 | Date | Milestone | Status |
 |------|-----------|--------|
-| April 2026 | Go ingestion service + fixture data + zombie detection | ✅ Done |
+| April 2026 | Go ingestion service + AWS integration + zombie detection | ✅ Done |
 | April 2026 | React Native web dashboard | ✅ Done |
 | April 2026 | Docker Compose full-stack + unit tests | ✅ Done |
 | April 2026 | AWS Cost Explorer + CloudWatch integration | ✅ Done |
