@@ -126,6 +126,10 @@ echo "---------------------------------------"
 echo "All systems go."
 echo "Logs: tail -f .dev.log"
 
+# Keep script alive. `wait -n` waits for any background job to exit.
+# If a job exits with non-zero, `|| true` prevents set -e from killing the script.
+wait -n 2>/dev/null || true
+
 # Keep the script alive so the process group stays intact.
 # `|| true` prevents set -e from exiting if a background job exits non-zero.
 wait || true
