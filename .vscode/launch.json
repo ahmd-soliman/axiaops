@@ -142,6 +142,13 @@
       ]
     },
     {
+      "name": "Make: test-smoke",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "SMOKE_API_URL=http://localhost:8080 make test-smoke",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Make: inspect-db",
       "type": "node",
       "request": "launch",
