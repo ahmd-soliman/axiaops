@@ -11,8 +11,8 @@ import (
 
 func TestInit_WithJSONOutput(t *testing.T) {
 	// Clear any existing env vars
-	os.Unsetenv("LOG_OUTPUT")
-	os.Unsetenv("DEV_MODE")
+	_ = os.Unsetenv("LOG_OUTPUT")
+	_ = os.Unsetenv("DEV_MODE")
 
 	Init("test-service")
 
@@ -27,13 +27,13 @@ func TestInit_TextOutput_WhenDEVMode(t *testing.T) {
 	oldDevMode := os.Getenv("DEV_MODE")
 	defer func() {
 		if oldDevMode != "" {
-			os.Setenv("DEV_MODE", oldDevMode)
+			_ = os.Setenv("DEV_MODE", oldDevMode)
 		} else {
-			os.Unsetenv("DEV_MODE")
+			_ = os.Unsetenv("DEV_MODE")
 		}
 	}()
 
-	os.Setenv("DEV_MODE", "true")
+	_ = os.Setenv("DEV_MODE", "true")
 	Init("test-service")
 
 	// Verify no panic; slog is initialized with text handler
@@ -43,13 +43,13 @@ func TestInit_LogLevel_Debug(t *testing.T) {
 	oldLevel := os.Getenv("LOG_LEVEL")
 	defer func() {
 		if oldLevel != "" {
-			os.Setenv("LOG_LEVEL", oldLevel)
+			_ = os.Setenv("LOG_LEVEL", oldLevel)
 		} else {
-			os.Unsetenv("LOG_LEVEL")
+			_ = os.Unsetenv("LOG_LEVEL")
 		}
 	}()
 
-	os.Setenv("LOG_LEVEL", "debug")
+	_ = os.Setenv("LOG_LEVEL", "debug")
 	Init("test-service")
 
 	// Verify no panic; slog initialized with debug level
@@ -59,21 +59,21 @@ func TestInit_LogLevel_Warn(t *testing.T) {
 	oldLevel := os.Getenv("LOG_LEVEL")
 	defer func() {
 		if oldLevel != "" {
-			os.Setenv("LOG_LEVEL", oldLevel)
+			_ = os.Setenv("LOG_LEVEL", oldLevel)
 		} else {
-			os.Unsetenv("LOG_LEVEL")
+			_ = os.Unsetenv("LOG_LEVEL")
 		}
 	}()
 
-	os.Setenv("LOG_LEVEL", "warn")
+	_ = os.Setenv("LOG_LEVEL", "warn")
 	Init("test-service")
 
 	// Verify no panic; slog initialized with warn level
 }
 
 func TestInit_IncludesServiceName(t *testing.T) {
-	os.Setenv("LOG_OUTPUT", "json")
-	os.Unsetenv("DEV_MODE")
+	_ = os.Setenv("LOG_OUTPUT", "json")
+	_ = os.Unsetenv("DEV_MODE")
 	Init("my-service")
 
 	// Capture output
@@ -81,7 +81,7 @@ func TestInit_IncludesServiceName(t *testing.T) {
 	h := slog.NewJSONHandler(&buf, nil)
 
 	record := slog.NewRecord(time.Now(), slog.LevelInfo, "test", 0)
-	h.Handle(nil, record)
+	_ = h.Handle(t.Context(), record)
 
 	// Verify service name is included (basic check)
 	output := buf.String()
@@ -94,13 +94,13 @@ func TestInitSentry_DisabledWhenMissingDSN(t *testing.T) {
 	oldDSN := os.Getenv("SENTRY_DSN")
 	defer func() {
 		if oldDSN != "" {
-			os.Setenv("SENTRY_DSN", oldDSN)
+			_ = os.Setenv("SENTRY_DSN", oldDSN)
 		} else {
-			os.Unsetenv("SENTRY_DSN")
+			_ = os.Unsetenv("SENTRY_DSN")
 		}
 	}()
 
-	os.Unsetenv("SENTRY_DSN")
+	_ = os.Unsetenv("SENTRY_DSN")
 	flush := InitSentry("test-service")
 
 	// flush should be a no-op (returns immediately)
@@ -113,13 +113,13 @@ func TestInitSentry_FlushReturnsFunction(t *testing.T) {
 	oldDSN := os.Getenv("SENTRY_DSN")
 	defer func() {
 		if oldDSN != "" {
-			os.Setenv("SENTRY_DSN", oldDSN)
+			_ = os.Setenv("SENTRY_DSN", oldDSN)
 		} else {
-			os.Unsetenv("SENTRY_DSN")
+			_ = os.Unsetenv("SENTRY_DSN")
 		}
 	}()
 
-	os.Unsetenv("SENTRY_DSN")
+	_ = os.Unsetenv("SENTRY_DSN")
 	flush := InitSentry("test-service")
 
 	if flush == nil {
@@ -135,20 +135,20 @@ func TestInitSentry_ParsesSampleRate(t *testing.T) {
 	oldRate := os.Getenv("SENTRY_TRACES_SAMPLE_RATE")
 	defer func() {
 		if oldDSN != "" {
-			os.Setenv("SENTRY_DSN", oldDSN)
+			_ = os.Setenv("SENTRY_DSN", oldDSN)
 		} else {
-			os.Unsetenv("SENTRY_DSN")
+			_ = os.Unsetenv("SENTRY_DSN")
 		}
 		if oldRate != "" {
-			os.Setenv("SENTRY_TRACES_SAMPLE_RATE", oldRate)
+			_ = os.Setenv("SENTRY_TRACES_SAMPLE_RATE", oldRate)
 		} else {
-			os.Unsetenv("SENTRY_TRACES_SAMPLE_RATE")
+			_ = os.Unsetenv("SENTRY_TRACES_SAMPLE_RATE")
 		}
 	}()
 
 	// Test with valid sample rate
-	os.Unsetenv("SENTRY_DSN") // Sentry disabled, but parsing still tested
-	os.Setenv("SENTRY_TRACES_SAMPLE_RATE", "0.5")
+	_ = os.Unsetenv("SENTRY_DSN") // Sentry disabled, but parsing still tested
+	_ = os.Setenv("SENTRY_TRACES_SAMPLE_RATE", "0.5")
 	flush := InitSentry("test-service")
 	flush()
 
@@ -160,19 +160,19 @@ func TestInitSentry_InvalidSampleRate_UsesDefault(t *testing.T) {
 	oldRate := os.Getenv("SENTRY_TRACES_SAMPLE_RATE")
 	defer func() {
 		if oldDSN != "" {
-			os.Setenv("SENTRY_DSN", oldDSN)
+			_ = os.Setenv("SENTRY_DSN", oldDSN)
 		} else {
-			os.Unsetenv("SENTRY_DSN")
+			_ = os.Unsetenv("SENTRY_DSN")
 		}
 		if oldRate != "" {
-			os.Setenv("SENTRY_TRACES_SAMPLE_RATE", oldRate)
+			_ = os.Setenv("SENTRY_TRACES_SAMPLE_RATE", oldRate)
 		} else {
-			os.Unsetenv("SENTRY_TRACES_SAMPLE_RATE")
+			_ = os.Unsetenv("SENTRY_TRACES_SAMPLE_RATE")
 		}
 	}()
 
-	os.Unsetenv("SENTRY_DSN")
-	os.Setenv("SENTRY_TRACES_SAMPLE_RATE", "invalid")
+	_ = os.Unsetenv("SENTRY_DSN")
+	_ = os.Setenv("SENTRY_TRACES_SAMPLE_RATE", "invalid")
 	flush := InitSentry("test-service")
 	flush()
 
@@ -184,19 +184,19 @@ func TestInitSentry_IncludesEnvironment(t *testing.T) {
 	oldEnv := os.Getenv("APP_ENV")
 	defer func() {
 		if oldDSN != "" {
-			os.Setenv("SENTRY_DSN", oldDSN)
+			_ = os.Setenv("SENTRY_DSN", oldDSN)
 		} else {
-			os.Unsetenv("SENTRY_DSN")
+			_ = os.Unsetenv("SENTRY_DSN")
 		}
 		if oldEnv != "" {
-			os.Setenv("APP_ENV", oldEnv)
+			_ = os.Setenv("APP_ENV", oldEnv)
 		} else {
-			os.Unsetenv("APP_ENV")
+			_ = os.Unsetenv("APP_ENV")
 		}
 	}()
 
-	os.Unsetenv("SENTRY_DSN")
-	os.Setenv("APP_ENV", "production")
+	_ = os.Unsetenv("SENTRY_DSN")
+	_ = os.Setenv("APP_ENV", "production")
 	flush := InitSentry("test-service")
 	defer flush()
 
@@ -208,19 +208,19 @@ func TestInitSentry_IncludesVersion(t *testing.T) {
 	oldVer := os.Getenv("APP_VERSION")
 	defer func() {
 		if oldDSN != "" {
-			os.Setenv("SENTRY_DSN", oldDSN)
+			_ = os.Setenv("SENTRY_DSN", oldDSN)
 		} else {
-			os.Unsetenv("SENTRY_DSN")
+			_ = os.Unsetenv("SENTRY_DSN")
 		}
 		if oldVer != "" {
-			os.Setenv("APP_VERSION", oldVer)
+			_ = os.Setenv("APP_VERSION", oldVer)
 		} else {
-			os.Unsetenv("APP_VERSION")
+			_ = os.Unsetenv("APP_VERSION")
 		}
 	}()
 
-	os.Unsetenv("SENTRY_DSN")
-	os.Setenv("APP_VERSION", "1.2.3")
+	_ = os.Unsetenv("SENTRY_DSN")
+	_ = os.Setenv("APP_VERSION", "1.2.3")
 	flush := InitSentry("test-service")
 	defer flush()
 
@@ -228,10 +228,10 @@ func TestInitSentry_IncludesVersion(t *testing.T) {
 }
 
 func TestInit_JSONFormatValid(t *testing.T) {
-	os.Setenv("LOG_OUTPUT", "json")
-	os.Unsetenv("DEV_MODE")
-	os.Setenv("APP_ENV", "test")
-	os.Setenv("APP_VERSION", "0.0.1")
+	_ = os.Setenv("LOG_OUTPUT", "json")
+	_ = os.Unsetenv("DEV_MODE")
+	_ = os.Setenv("APP_ENV", "test")
+	_ = os.Setenv("APP_VERSION", "0.0.1")
 
 	var buf bytes.Buffer
 	h := slog.NewJSONHandler(&buf, &slog.HandlerOptions{
@@ -242,7 +242,7 @@ func TestInit_JSONFormatValid(t *testing.T) {
 	logger.Info("test", "foo", "bar")
 
 	// Verify JSON is valid
-	var result map[string]interface{}
+	var result map[string]any
 	err := json.Unmarshal(buf.Bytes(), &result)
 	if err != nil {
 		t.Fatalf("expected valid JSON, got: %v", err)

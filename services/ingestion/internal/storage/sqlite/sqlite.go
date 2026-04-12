@@ -75,7 +75,7 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 	if err != nil {
 		return 0, fmt.Errorf("sqlite: begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT OR IGNORE INTO cost_records
@@ -86,7 +86,7 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 	if err != nil {
 		return 0, fmt.Errorf("sqlite: prepare: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	var inserted int64
 	for _, r := range records {
