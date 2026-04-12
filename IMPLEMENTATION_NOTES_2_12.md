@@ -98,12 +98,51 @@ type Account struct {
 
 ---
 
-## Next Steps (Phase 2 of 2.12)
+## Step 3: PATCH /v1/accounts/{id} Endpoint ✅
 
-### Step 3: PATCH /v1/accounts/{id} Endpoint
-- Update `label`, `region`, `scan_interval_hours`
-- Store service to update Account fields
-- Handler in `services/api/internal/api/accounts.go`
+**Files updated:**
+- `services/api/internal/api/handler.go` — updateAccount method
+- `services/api/internal/api/handler_test.go` — comprehensive tests
+
+**Changes to updateAccount handler:**
+- Added `ScanIntervalHours *int` to request struct
+- Added validation: `scan_interval_hours` must be >= 0 (allows 0 for immediate scans)
+- Partial update support (null fields are skipped)
+- Returns updated Account as JSON
+
+**Example requests:**
+```bash
+# Update only scan_interval_hours
+PATCH /v1/accounts/acc-1
+{"scan_interval_hours": 12}
+
+# Update multiple fields
+PATCH /v1/accounts/acc-1
+{
+  "label": "staging",
+  "region": "eu-west-1",
+  "scan_interval_hours": 6
+}
+
+# Set to 0 for immediate scan
+PATCH /v1/accounts/acc-1
+{"scan_interval_hours": 0}
+```
+
+**New tests (7 total):**
+1. **TestUpdateAccount_UpdatesScanIntervalHours** — Basic update of scan interval
+2. **TestUpdateAccount_UpdatesMultipleFields** — Update label, region, and scan_interval_hours together
+3. **TestUpdateAccount_ScanIntervalHoursZero** — Set to 0 for immediate scans (valid)
+4. **TestUpdateAccount_NegativeScanIntervalHours_Returns400** — Validation: negative values rejected
+5. **TestUpdateAccount_AccountNotFound_Returns404** — Account not found error
+6. **TestUpdateAccount_InvalidJSON_Returns400** — Malformed JSON handling
+
+**Response:**
+Returns `200 OK` with updated Account JSON (including new `scan_interval_hours` field).
+
+---
+
+## Next Steps (Phase 3 of 2.12)
 
 ### Step 4: Background Ticker
 - Add ticker in `services/api/cmd/main.go`

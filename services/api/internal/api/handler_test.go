@@ -300,6 +300,27 @@ func TestCreateAccount_ReturnsAccountJSON(t *testing.T) {
 	}
 }
 
+func TestCreateAccount_DefaultsScanIntervalHoursTo24(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
+
+	store := NewMockStore()
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI"}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
+
+	var account model.Account
+	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if account.ScanIntervalHours != 24 {
+		t.Errorf("expected default ScanIntervalHours 24, got %d", account.ScanIntervalHours)
+	}
+}
+
 func TestCreateAccount_DefaultsProviderAndRegion(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
@@ -377,6 +398,143 @@ func TestCreateAccount_InvalidJSON_Returns400(t *testing.T) {
 }
 
 // ── DELETE /accounts/{id} ─────────────────────────────────────────────────────
+
+// ── PATCH /accounts/{id} ────────────────────────────────────────────────────
+
+func TestUpdateAccount_UpdatesScanIntervalHours(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+	})
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := `{"scan_interval_hours":12}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	var account model.Account
+	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if account.ScanIntervalHours != 12 {
+		t.Errorf("expected ScanIntervalHours 12, got %d", account.ScanIntervalHours)
+	}
+}
+
+func TestUpdateAccount_UpdatesMultipleFields(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+	})
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := `{"label":"staging","region":"eu-west-1","scan_interval_hours":6}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var account model.Account
+	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if account.Label != "staging" {
+		t.Errorf("expected label staging, got %s", account.Label)
+	}
+	if account.Region != "eu-west-1" {
+		t.Errorf("expected region eu-west-1, got %s", account.Region)
+	}
+	if account.ScanIntervalHours != 6 {
+		t.Errorf("expected ScanIntervalHours 6, got %d", account.ScanIntervalHours)
+	}
+}
+
+func TestUpdateAccount_ScanIntervalHoursZeroImmediate(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+	})
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := `{"scan_interval_hours":0}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for zero interval (always eligible for scheduled scan), got %d", w.Code)
+	}
+
+	var account model.Account
+	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if account.ScanIntervalHours != 0 {
+		t.Errorf("expected ScanIntervalHours 0, got %d", account.ScanIntervalHours)
+	}
+}
+
+func TestUpdateAccount_NegativeScanIntervalHours_Returns400(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+	})
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := `{"scan_interval_hours":-1}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for negative interval, got %d", w.Code)
+	}
+
+	if !strings.Contains(w.Body.String(), "must be >= 0") {
+		t.Errorf("expected error message containing 'must be >= 0', got: %s", w.Body.String())
+	}
+}
+
+func TestUpdateAccount_AccountNotFound_Returns404(t *testing.T) {
+	store := NewMockStore().WithGetAccountError(errors.New("not found"))
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := `{"scan_interval_hours":12}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/nonexistent", body))
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestUpdateAccount_InvalidJSON_Returns400(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
+	})
+	h := api.New(store)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", `{invalid json}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+// ── DELETE /accounts/{id} ────────────────────────────────────────────────────
 
 func TestDeleteAccount_Returns204(t *testing.T) {
 	_, mux := testHandler()
