@@ -245,6 +245,19 @@ func (m *MockStore) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	return accounts, nil
 }
 
+func (m *MockStore) ListAllAccounts(_ context.Context) ([]model.Account, error) {
+	m.mu.Lock()
+	// Note: Not capturing tenant ID for ListAllAccounts, as it intentionally bypasses tenant isolation
+	err := m.errListAccounts
+	accounts := append([]model.Account(nil), m.accounts...)
+	m.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+	return accounts, nil
+}
+
 func (m *MockStore) GetAccount(_ context.Context, id string) (model.Account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

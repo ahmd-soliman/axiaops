@@ -457,7 +457,7 @@ func TestUpdateAccount_UpdatesMultipleFields(t *testing.T) {
 	}
 }
 
-func TestUpdateAccount_ScanIntervalHoursZeroImmediate(t *testing.T) {
+func TestUpdateAccount_ScanIntervalHoursZero(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
 		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
@@ -470,7 +470,7 @@ func TestUpdateAccount_ScanIntervalHoursZeroImmediate(t *testing.T) {
 	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
 
 	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for zero interval (always eligible for scheduled scan), got %d", w.Code)
+		t.Errorf("expected 200 for zero interval (always eligible per scheduled tick), got %d", w.Code)
 	}
 
 	var account model.Account

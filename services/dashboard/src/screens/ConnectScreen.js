@@ -31,6 +31,7 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
   const [secretKey, setSecretKey]     = useState('');
   const [region, setRegion]           = useState(account?.region ?? 'us-east-1');
+  const [scanIntervalHours, setScanIntervalHours] = useState(account?.scan_interval_hours?.toString() ?? '24');
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
 
@@ -48,11 +49,18 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
     try {
       let result;
       if (isEdit) {
+        const scanInterval = parseInt(scanIntervalHours, 10);
+        if (isNaN(scanInterval) || scanInterval < 0) {
+          setError('Scan interval must be a number >= 0.');
+          setLoading(false);
+          return;
+        }
         result = await updateAccount(account.id, {
           label: label.trim() || 'My AWS Account',
           accessKeyId: accessKeyId.trim(),
           secretKey: secretKey.trim() || undefined,
           region: region.trim() || 'us-east-1',
+          scan_interval_hours: scanInterval,
         });
       } else {
         result = await connectAccount({
@@ -101,6 +109,16 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
         <Field label="AWS Access Key ID" value={accessKeyId} onChangeText={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
         <Field label="AWS Secret Access Key" value={secretKey} onChangeText={setSecretKey} placeholder={isEdit ? 'Leave blank to keep existing' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'} mono secureTextEntry />
         <Field label="Region" value={region} onChangeText={setRegion} placeholder="us-east-1" mono />
+        {isEdit && (
+          <Field
+            label="Auto-scan interval (hours)"
+            value={scanIntervalHours}
+            onChangeText={setScanIntervalHours}
+            placeholder="24"
+            keyboardType="number-pad"
+            hint="0 = on-demand (always eligible per 60-min check), or enter hours between scans"
+          />
+        )}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -131,7 +149,7 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
   );
 }
 
-function Field({ label, value, onChangeText, placeholder, mono, secureTextEntry }) {
+function Field({ label, value, onChangeText, placeholder, mono, secureTextEntry, keyboardType, hint }) {
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -144,7 +162,9 @@ function Field({ label, value, onChangeText, placeholder, mono, secureTextEntry 
         autoCapitalize="none"
         autoCorrect={false}
         secureTextEntry={secureTextEntry}
+        keyboardType={keyboardType}
       />
+      {hint && <Text style={styles.fieldHint}>{hint}</Text>}
     </View>
   );
 }
@@ -188,6 +208,7 @@ const styles = StyleSheet.create({
     color: C.text,
   },
   inputMono: { fontFamily: 'monospace', fontSize: 13 },
+  fieldHint: { fontSize: 12, color: C.textMuted, fontStyle: 'italic', marginTop: 2 },
 
   error: { fontSize: 13, color: C.error, fontWeight: '500' },
 

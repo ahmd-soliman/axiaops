@@ -55,6 +55,12 @@ type Store interface {
 	// ListAccounts returns all connected accounts for the tenant in ctx.
 	ListAccounts(ctx context.Context) ([]model.Account, error)
 
+	// ListAllAccounts returns accounts for ALL tenants, bypassing row-level security.
+	// Used internally by the scheduled scan scheduler to check all accounts across all tenants.
+	// WARNING: This must only be called from trusted internal code (e.g., background jobs).
+	// Never call with untrusted input. ctx.tenant_id is ignored if present.
+	ListAllAccounts(ctx context.Context) ([]model.Account, error)
+
 	// GetAccount returns a single account by ID for the tenant in ctx.
 	GetAccount(ctx context.Context, id string) (model.Account, error)
 
