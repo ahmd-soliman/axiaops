@@ -922,3 +922,62 @@ func TestSaveSnapshot_AccumulatesAcrossScans(t *testing.T) {
 		t.Errorf("expected 3 accumulated snapshots (one per scan), got %d", len(snaps))
 	}
 }
+
+// ── DeleteOldCostRecords ──────────────────────────────────────────────────────
+
+func TestDeleteOldCostRecords_DeletesExpiredRows(t *testing.T) {
+	s := newTestStore(t)
+	ctx, _ := newTenantCtx(t, s)
+
+	old := costRecord("AmazonEC2", "eu-central-1", 10.00)
+	old.PeriodEnd = time.Now().UTC().AddDate(0, 0, -100)
+	old.PeriodStart = old.PeriodEnd.AddDate(0, 0, -30)
+
+	recent := costRecord("AmazonRDS", "eu-central-1", 20.00)
+	// recent uses default PeriodEnd (2026-03-31) which is within 90 days
+
+	if _, err := s.Save(ctx, []model.CostRecord{old, recent}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	cutoff := time.Now().UTC().AddDate(0, 0, -90)
+	deleted, err := s.DeleteOldCostRecords(context.Background(), cutoff)
+	if err != nil {
+		t.Fatalf("DeleteOldCostRecords: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("expected 1 row deleted, got %d", deleted)
+	}
+}
+
+func TestDeleteOldCostRecords_KeepsRecentRows(t *testing.T) {
+	s := newTestStore(t)
+	ctx, _ := newTenantCtx(t, s)
+
+	recent := costRecord("AmazonEC2", "eu-central-1", 50.00)
+	if _, err := s.Save(ctx, []model.CostRecord{recent}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	cutoff := time.Now().UTC().AddDate(0, 0, -90)
+	deleted, err := s.DeleteOldCostRecords(context.Background(), cutoff)
+	if err != nil {
+		t.Fatalf("DeleteOldCostRecords: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("expected 0 rows deleted, got %d", deleted)
+	}
+}
+
+func TestDeleteOldCostRecords_ReturnsZeroWhenEmpty(t *testing.T) {
+	s := newTestStore(t)
+	// no records inserted
+
+	deleted, err := s.DeleteOldCostRecords(context.Background(), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("DeleteOldCostRecords: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("expected 0 rows deleted on empty table, got %d", deleted)
+	}
+}

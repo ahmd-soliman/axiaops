@@ -100,6 +100,13 @@ func main() {
 
 	store := newStore()
 
+	retentionDays := 90
+	if v := os.Getenv("COST_RECORDS_RETENTION_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			retentionDays = n
+		}
+	}
+
 	if os.Getenv("RUN_ONCE") == "true" {
 		if err := runIngestion(context.Background(), store, "", nil); err != nil {
 			die("ingestion: one-shot run failed", "error", err)
@@ -181,6 +188,27 @@ func main() {
 	go func() {
 		slog.Info("ingestion: listening", "port", port)
 		errCh <- server.ListenAndServe()
+	}()
+
+	// Daily cost_records retention cleanup — runs at midnight UTC.
+	go func() {
+		for {
+			now := time.Now().UTC()
+			next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+			select {
+			case <-sigCtx.Done():
+				return
+			case <-time.After(time.Until(next)):
+			}
+			start := time.Now()
+			cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+			deleted, err := store.DeleteOldCostRecords(context.Background(), cutoff)
+			if err != nil {
+				slog.Error("cost_records.cleanup failed", "error", err)
+			} else {
+				slog.Info("cost_records.cleanup", "rows_deleted", deleted, "duration_ms", time.Since(start).Milliseconds())
+			}
+		}
 	}()
 
 	// Wait for either: (1) shutdown signal received, or (2) server error
