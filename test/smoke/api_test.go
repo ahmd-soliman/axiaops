@@ -166,8 +166,7 @@ func TestMetrics(t *testing.T) {
 // then polls until last_scanned_at is set (up to 90s), verifying the scheduler triggers a scan.
 //
 // Requires a running stack (make start-dev) and DEV_MODE=true (no real AWS credentials needed).
-// The ticker fires every 60 minutes in production, but in dev mode the ingestion service
-// uses fixtures, so the scan completes quickly once triggered.
+// The ticker fires every 60 minutes in production, but in dev mode the scan completes quickly once triggered.
 func TestScheduledAutoScan_ZeroInterval(t *testing.T) {
 	base := apiURL(t)
 

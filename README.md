@@ -241,7 +241,7 @@ API is available at `http://localhost/api/` when running with Docker Compose.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DEV_MODE` | `false` | `true` → use file fixtures instead of real AWS |
+| `DEV_MODE` | `false` | `true` → use mock data instead of real AWS |
 | `DATABASE_URL` | — | PostgreSQL connection string (app user) |
 | `MIGRATION_DATABASE_URL` | — | PostgreSQL connection string (owner/admin, migrations only) |
 | `ENCRYPTION_KEY` | — | 32-byte hex key for AES-256-GCM (AWS secrets encryption) |
@@ -263,7 +263,6 @@ axiaops/
 │   │   └── internal/handlers/      # REST endpoints + auth middleware
 │   ├── ingestion/                  # Go ingestion service (:8081)
 │   │   ├── cmd/main.go
-│   │   ├── fixtures/               # Dev mode: costs.json, usage.json
 │   │   └── internal/
 │   │       ├── analyzer/           # Zombie detection thresholds
 │   │       ├── aws/                # CloudWatch + Cost Explorer clients
