@@ -28,14 +28,6 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# ─── Database ─────────────────────────────────────────────────────────────────
-*.sqlite
-*.sqlite3
-*.db
-*.db-shm
-*.db-wal
-axiaops.db
-
 # ─── Docker ───────────────────────────────────────────────────────────────────
 docker-compose.override.yml
 pg_data/
