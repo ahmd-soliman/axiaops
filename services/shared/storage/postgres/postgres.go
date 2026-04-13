@@ -17,7 +17,8 @@ import (
 
 // Store is a PostgreSQL-backed implementation of storage.Store.
 type Store struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	adminPool *pgxpool.Pool // owner connection — bypasses RLS, used only for ListAllAccounts
 }
 
 // New connects to PostgreSQL as the application user (axiaops).
@@ -25,6 +26,29 @@ type Store struct {
 // search_path is set to axiaops on every connection via AfterConnect.
 // URL format: postgres://axiaops:axiaops@host:5432/dbname
 func New(ctx context.Context, url string) (*Store, error) {
+	return NewWithAdmin(ctx, url, "")
+}
+
+// NewWithAdmin is like New but also opens a second pool using adminURL (the owner/migration
+// connection). ListAllAccounts uses this pool so it bypasses RLS without granting BYPASSRLS
+// to the app user. If adminURL is empty, adminPool falls back to pool (dev/test convenience).
+func NewWithAdmin(ctx context.Context, url, adminURL string) (*Store, error) {
+	pool, err := newPool(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	adminPool := pool
+	if adminURL != "" && adminURL != url {
+		adminPool, err = newPool(ctx, adminURL)
+		if err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("postgres: admin pool: %w", err)
+		}
+	}
+	return &Store{pool: pool, adminPool: adminPool}, nil
+}
+
+func newPool(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: parse config: %w", err)
@@ -40,7 +64,7 @@ func New(ctx context.Context, url string) (*Store, error) {
 	if err := pool.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("postgres: ping: %w", err)
 	}
-	return &Store{pool: pool}, nil
+	return pool, nil
 }
 
 // setTenant sets the app.tenant_id session variable for Row-Level Security.
@@ -322,7 +346,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 // ListAllAccounts returns accounts for ALL tenants, bypassing row-level security.
 // Used internally by the scheduled scan scheduler. Does not respect tenant_id in context.
 func (s *Store) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.adminPool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: begin tx: %w", err)
 	}
@@ -646,5 +670,8 @@ func (s *Store) Ping(ctx context.Context) error {
 
 func (s *Store) Close() error {
 	s.pool.Close()
+	if s.adminPool != s.pool {
+		s.adminPool.Close()
+	}
 	return nil
 }
