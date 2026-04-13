@@ -29,7 +29,6 @@ import (
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
-	sentry "github.com/getsentry/sentry-go"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -86,18 +85,14 @@ func init() {
 	prometheus.MustRegister(ingestionPotentialMonthlySavings)
 }
 
-// die logs a fatal error, flushes Sentry, and exits with code 1.
-// Safe to call at any point — sentry.Flush is a no-op if Sentry is not initialised.
+// die logs a fatal error and exits with code 1.
 func die(msg string, args ...any) {
 	slog.Error(msg, args...)
-	sentry.Flush(2 * time.Second)
 	os.Exit(1)
 }
 
 func main() {
 	logging.Init("ingestion")
-	flushSentry := logging.InitSentry("ingestion")
-	defer flushSentry()
 
 	store := newStore()
 
