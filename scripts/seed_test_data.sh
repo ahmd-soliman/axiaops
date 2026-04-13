@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# seed_test_data.sh — seed dev tenant with dummy data for local development
+# seed_test_data.sh — seed dev tenant with dummy data for local development or remote servers
 #
 # Usage:
-#   ./scripts/seed_test_data.sh
+#   ./scripts/seed_test_data.sh                           # Local docker container
+#   DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh  # Remote postgres
+
+#   - Dev
+#   DATABASE_URL="postgres://axiaops_owner:axiaops_dev_pass@192.168.1.100:5432/axiaops?sslmode=disable" ./scripts/seed_test_data.sh
+#   - Staging
+#   DATABASE_URL="postgres://axiaops_owner:axiaops_staging_pass@192.168.1.100:5433/axiaops?sslmode=disable" ./scripts/seed_test_data.sh
+
+
 #
-# Starts PostgreSQL automatically if not already running.
+# Supports both local (docker) and remote database connections.
 # Safe to re-run — all inserts are idempotent (ON CONFLICT DO NOTHING / DO UPDATE).
 #
 # Dev tenant ID is fixed: dev-tenant-axiaops
@@ -12,24 +20,54 @@
 
 set -euo pipefail
 
+# ── Determine connection mode (local docker or remote) ──────────────────────────
+
+if [ -z "${DATABASE_URL:-}" ]; then
+  # Local mode: use docker container
+  MODE="docker"
+  echo "DATABASE_URL not set — using local docker container (axiaops-postgres)"
+else
+  # Remote mode: use direct psql connection
+  MODE="remote"
+  echo "DATABASE_URL set — connecting to remote postgres"
+fi
+
 # Use axiaops_owner for direct DB access (bypasses RLS — owner privilege)
-psql_exec()  { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops --quiet -c "$1"; }
-psql_query() { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops -t --no-align -c "$1"; }
+if [ "$MODE" = "docker" ]; then
+  psql_exec()  { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops --quiet -c "$1"; }
+  psql_query() { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops -t --no-align -c "$1"; }
+else
+  # Remote: parse DATABASE_URL and connect directly
+  psql_exec()  { PGOPTIONS="-c search_path=axiaops" psql "$DATABASE_URL" --quiet -c "$1"; }
+  psql_query() { PGOPTIONS="-c search_path=axiaops" psql "$DATABASE_URL" -t --no-align -c "$1"; }
+fi
 
 # ── Ensure postgres is running ────────────────────────────────────────────────
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^axiaops-postgres$"; then
-  echo "PostgreSQL not running — starting..."
-  cd "$ROOT"
-  docker compose up -d postgres
-  echo -n "Waiting for PostgreSQL..."
-  until docker exec axiaops-postgres pg_isready -U axiaops_owner -d axiaops &>/dev/null; do
+if [ "$MODE" = "docker" ]; then
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^axiaops-postgres$"; then
+    echo "PostgreSQL not running — starting..."
+    cd "$ROOT"
+    docker compose up -d postgres
+    echo -n "Waiting for PostgreSQL..."
+    until docker exec axiaops-postgres pg_isready -U axiaops_owner -d axiaops &>/dev/null; do
+      echo -n "."
+      sleep 1
+    done
+    echo " Ready."
+  fi
+else
+  echo -n "Waiting for remote PostgreSQL to be ready..."
+  for i in {1..30}; do
+    if psql "$DATABASE_URL" -c "SELECT 1" &>/dev/null; then
+      echo " Ready."
+      break
+    fi
     echo -n "."
-    sleep 1
+    sleep 2
   done
-  echo " Ready."
 fi
 
 echo "=== AxiaOps — Seeding dev data ==="
