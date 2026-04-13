@@ -14,8 +14,8 @@ services:
 
   ingestion:
     build:
-      context: ../services
-      dockerfile: ingestion/Dockerfile
+      context: ..
+      dockerfile: services/ingestion/Dockerfile
     environment:
       DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops?sslmode=disable
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops?sslmode=disable
@@ -33,8 +33,8 @@ services:
 
   api:
     build:
-      context: ../services
-      dockerfile: api/Dockerfile
+      context: ..
+      dockerfile: services/api/Dockerfile
     environment:
       DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops?sslmode=disable
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops?sslmode=disable
@@ -56,3 +56,7 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+
+networks:
+  default:
+    enable_ipv6: false
