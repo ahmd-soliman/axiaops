@@ -287,24 +287,47 @@ axiaops/
 ### Phase 1 — MVP ✅ Complete
 - [x] Go ingestion service with PostgreSQL and RLS
 - [x] Zombie detection with per-service threshold rules
-- [x] REST API (`/api/ghosts`, `/api/summary`)
+- [x] REST API (`/api/v1/ghosts`, `/api/v1/summary`, `/api/v1/resources`)
 - [x] React Native web dashboard
 - [x] Docker Compose setup
-- [x] Comprehensive test coverage
+- [x] Comprehensive test coverage (44+ tests across 6 packages)
 - [x] AWS Cost Explorer + CloudWatch integration
 
-### Phase 2 — Alpha (in progress)
-- [x] Real AWS Cost Explorer + CloudWatch integration
+### Phase 2 — Alpha (in progress, target August 2026)
+- [x] AWS Cost Explorer + CloudWatch + resource discovery integration
 - [x] Kinde OAuth 2.0 auth + multi-tenancy (RLS)
-- [x] Ingestion scheduled scans
-- [ ] Production deployment (App Runner + RDS)
-- [ ] Observability (CloudWatch logs + metrics)
+- [x] Account management — connect AWS accounts, encrypted secrets, on-demand scan
+- [x] Resource inventory view — all resources with ghost/active annotation
+- [x] Savings history / trend (`ghost_snapshots` + `GET /v1/trend`)
+- [x] Observability — structured logging (slog), Prometheus metrics
+- [x] API versioning — `/v1/` prefix on all endpoints
+- [x] In-memory rate limiting + graceful shutdown
+- [x] GitLab CI pipeline — test + build stages
+- [ ] Scheduled auto-scan (24h default per account)
+- [ ] `cost_records` 90-day retention cleanup
+- [ ] Redis — JWKS cache, scan job queue, rate limiting
+- [ ] Weekly email digest + Slack alerts
+- [ ] Production deployment (App Runner + RDS + ElastiCache via Terraform)
 
-### Phase 3 — Beta / Launch
+### Phase 3 — Beta / Launch (target December 2026)
+- [ ] Stripe billing — Starter €49 / Growth €149 / Team €399
+- [ ] Dismiss ghost workflow + snooze + audit trail
+- [ ] GDPR / right to erasure + data export
+- [ ] Remediation CLI commands per resource type
+- [ ] Scan history log + tag/team filtering + CSV export
+- [ ] Expanded detection rules (EBS, S3, CloudFront, Redshift, ElastiCache)
+- [ ] User management + roles (admin/viewer)
+- [ ] Operating entity — Holding GmbH + Operating UG (target August 2026)
+
+### Phase 4 — Scale (2027)
 - [ ] Multi-cloud (Azure, GCP)
-- [ ] Mobile app (iOS + Android)
-- [ ] Remediation workflow (dismiss, delegate, runbooks)
-- [ ] Advanced reporting + audit trail
+- [ ] Mobile app (iOS + Android via Expo)
+- [ ] Cost forecasting (linear regression over snapshot history)
+
+### Phase 5 — Pre-deployment Simulation (2027+)
+- [ ] IaC plan parser (Terraform / CDK)
+- [ ] CI/CD budget gate
+- [ ] What-if cost scenarios
 
 ---
 
@@ -313,14 +336,15 @@ axiaops/
 | File | Description |
 |------|-------------|
 | [docs/development_plan.md](docs/development_plan.md) | Architecture decisions, data model, DB schema, phase plans |
+| [docs/go_live_checklist.md](docs/go_live_checklist.md) | Hard blockers and recommendations before first paying customer |
 | [docs/middleware.md](docs/middleware.md) | API middleware chain — auth, rate limiting, request ID, metrics |
-| [docs/production.md](docs/production.md) | Production setup — IAM, PostgreSQL migration, TLS, hosting, scheduling |
-| [docs/deployment.md](docs/deployment.md) | Deployment options, Kubernetes vs alternatives, cost estimates by phase |
-| [docs/business_plan.md](docs/business_plan.md) | Business model, pricing, GTM strategy |
+| [docs/production.md](docs/production.md) | Production setup — IAM, App Runner, RDS, Redis, Terraform |
+| [docs/deployment.md](docs/deployment.md) | Deployment options, cost estimates by phase |
+| [docs/business_plan.md](docs/business_plan.md) | Business model, pricing, GTM strategy, competitive landscape |
 | [docs/tax_strategy.md](docs/tax_strategy.md) | German tax structure, VAT, exit planning |
 
 ---
 
 ## Status
 
-**Phase 2 (Alpha) — April 2026.** Phase 1 complete. Real AWS integration shipped; working on production deployment and observability.
+**Phase 2 (Alpha) — April 2026.** Most of Phase 2 shipped ahead of schedule (auth, account management, resource inventory, savings trend, observability, CI pipeline). Remaining: scheduled auto-scan, Redis, production deployment (App Runner + RDS + Terraform). Target first paying customer: October 2026.
