@@ -7,4 +7,4 @@ ALTER TABLE accounts
     ADD COLUMN scan_interval_hours INTEGER NOT NULL DEFAULT 24;
 
 -- Ensure the app user has grants on the updated table.
-GRANT SELECT, INSERT, UPDATE, DELETE ON accounts TO axiaops;
+GRANT SELECT, INSERT, UPDATE, DELETE ON axiaops.accounts TO axiaops;
