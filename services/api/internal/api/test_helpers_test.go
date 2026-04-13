@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
@@ -349,4 +350,8 @@ func (m *MockStore) ListSnapshots(_ context.Context, accountID string) ([]model.
 
 func (m *MockStore) Close() error {
 	return nil
+}
+
+func (m *MockStore) DeleteOldCostRecords(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
 }

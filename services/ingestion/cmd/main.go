@@ -9,6 +9,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -178,6 +179,27 @@ func main() {
 	// The 30-second timeout applies only to the drain phase, not to the signal wait.
 	sigCtx, sigCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer sigCancel()
+
+	// Background ticker: trigger scheduled auto-scans across all tenants.
+	go func() {
+		scanInterval := 60 * time.Minute
+		if v := os.Getenv("SCAN_INTERVAL"); v != "" {
+			if d, err := time.ParseDuration(v); err == nil {
+				scanInterval = d
+			}
+		}
+		scanScheduledAccounts(context.Background(), store)
+		ticker := time.NewTicker(scanInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-sigCtx.Done():
+				return
+			case <-ticker.C:
+				scanScheduledAccounts(context.Background(), store)
+			}
+		}
+	}()
 
 	// Start HTTP server in a goroutine
 	server := &http.Server{
@@ -365,12 +387,66 @@ func newStore() storage.Store {
 	if err := postgres.Migrate(migrationURL); err != nil {
 		die("storage: migration failed", "error", err)
 	}
-	s, err := postgres.New(ctx, dbURL)
+	s, err := postgres.NewWithOwner(ctx, dbURL, migrationURL)
 	if err != nil {
 		die("storage: postgres init failed", "error", err)
 	}
 	slog.Info("storage: using PostgreSQL")
 	return s
+}
+
+// scanScheduledAccounts checks all accounts across all tenants and triggers scans for those overdue.
+func scanScheduledAccounts(ctx context.Context, store storage.Store) {
+	accounts, err := store.ListAllAccounts(ctx)
+	if err != nil {
+		slog.Error("scan-scheduler: failed to list accounts", "error", err)
+		return
+	}
+	now := time.Now()
+	for _, acc := range accounts {
+		if acc.Status == "scanning" {
+			continue
+		}
+		if acc.ScanIntervalHours < 0 {
+			continue
+		}
+		isOverdue := acc.LastScannedAt == nil
+		if !isOverdue {
+			nextScan := acc.LastScannedAt.Add(time.Duration(acc.ScanIntervalHours) * time.Hour)
+			isOverdue = now.After(nextScan)
+		}
+		if !isOverdue {
+			continue
+		}
+		if err := triggerScan(ctx, acc.ID, acc.TenantID); err != nil {
+			slog.Error("scan.failed_to_trigger", "account_id", acc.ID, "tenant_id", acc.TenantID, "error", err)
+			continue
+		}
+		slog.Info("scan.scheduled", "account_id", acc.ID, "tenant_id", acc.TenantID, "interval_hours", acc.ScanIntervalHours)
+	}
+}
+
+// triggerScan fires a POST /scan to ourselves (the ingestion service).
+func triggerScan(ctx context.Context, accountID, tenantID string) error {
+	port := os.Getenv("INGESTION_PORT")
+	if port == "" {
+		port = "8081"
+	}
+	body, _ := json.Marshal(map[string]string{"account_id": accountID, "tenant_id": tenantID})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost:"+port+"/scan", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("scan returned status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func dateRange() (end, start time.Time) {
