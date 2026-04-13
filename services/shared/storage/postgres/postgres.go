@@ -26,23 +26,23 @@ type Store struct {
 // search_path is set to axiaops on every connection via AfterConnect.
 // URL format: postgres://axiaops:axiaops@host:5432/dbname
 func New(ctx context.Context, url string) (*Store, error) {
-	return NewWithAdmin(ctx, url, "")
+	return NewWithOwner(ctx, url, "")
 }
 
-// NewWithAdmin is like New but also opens a second pool using adminURL (the owner/migration
-// connection). ListAllAccounts uses this pool so it bypasses RLS without granting BYPASSRLS
-// to the app user. If adminURL is empty, adminPool falls back to pool (dev/test convenience).
-func NewWithAdmin(ctx context.Context, url, adminURL string) (*Store, error) {
+// NewWithOwner opens both the app pool (url) and a separate owner pool (ownerURL).
+// ListAllAccounts uses the owner pool to bypass RLS without granting BYPASSRLS to the app user.
+// If ownerURL is empty or equal to url, ownerPool falls back to pool (tests/simple setups).
+func NewWithOwner(ctx context.Context, url, ownerURL string) (*Store, error) {
 	pool, err := newPool(ctx, url)
 	if err != nil {
 		return nil, err
 	}
 	adminPool := pool
-	if adminURL != "" && adminURL != url {
-		adminPool, err = newPool(ctx, adminURL)
+	if ownerURL != "" && ownerURL != url {
+		adminPool, err = newPool(ctx, ownerURL)
 		if err != nil {
 			pool.Close()
-			return nil, fmt.Errorf("postgres: admin pool: %w", err)
+			return nil, fmt.Errorf("postgres: owner pool: %w", err)
 		}
 	}
 	return &Store{pool: pool, adminPool: adminPool}, nil

@@ -200,7 +200,7 @@ func main() {
 		slog.Warn("startup: reset stuck scanning accounts", "count", n)
 	}
 
-	s, err := postgres.NewWithAdmin(ctx, dbURL, migrationURL)
+	s, err := postgres.NewWithOwner(ctx, dbURL, migrationURL)
 	if err != nil {
 		die("storage: postgres init failed", "error", err)
 	}
