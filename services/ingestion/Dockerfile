@@ -1,9 +1,9 @@
 FROM golang:1.25-alpine AS builder
 WORKDIR /app
-COPY services/shared/ /shared/
-COPY services/ingestion/go.mod services/ingestion/go.sum ./
+COPY shared/ /shared/
+COPY ingestion/go.mod ingestion/go.sum ./
 RUN go mod download
-COPY services/ingestion/ .
+COPY ingestion/ .
 RUN go build -o ingestion ./cmd/main.go
 
 FROM alpine:3.20
