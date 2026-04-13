@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -66,111 +64,6 @@ func die(msg string, args ...any) {
 	slog.Error(msg, args...)
 	sentry.Flush(2 * time.Second)
 	os.Exit(1)
-}
-
-// scanScheduledAccounts checks all accounts and triggers scans for those that are overdue.
-// An account is eligible if: scan_interval_hours >= 0 AND (never scanned OR last_scanned_at + interval < now) AND status != 'scanning'
-// scan_interval_hours=0 means "always eligible for scheduled scan" (triggers on every check).
-func scanScheduledAccounts(ctx context.Context, store storage.Store, h *api.Handler) {
-	// List all accounts across all tenants using ListAllAccounts, which explicitly bypasses RLS.
-	// This is the correct method for background jobs that operate across tenants.
-	accounts, err := store.ListAllAccounts(ctx)
-	if err != nil {
-		slog.Error("scan-scheduler: failed to list accounts", "error", err)
-		return
-	}
-
-	if len(accounts) == 0 {
-		return // Nothing to do
-	}
-
-	now := time.Now()
-	for _, acc := range accounts {
-		// Skip if account is already scanning
-		if acc.Status == "scanning" {
-			slog.Debug("scan.skipped_already_running", "account_id", acc.ID, "tenant_id", acc.TenantID)
-			continue
-		}
-
-		// Skip if scan_interval_hours is negative (invalid configuration)
-		if acc.ScanIntervalHours < 0 {
-			slog.Warn("scan-scheduler: skipping account with negative interval", "account_id", acc.ID, "interval", acc.ScanIntervalHours)
-			continue
-		}
-
-		// Check if account is overdue for a scan
-		isOverdue := false
-		if acc.LastScannedAt == nil {
-			// Never scanned — overdue immediately
-			isOverdue = true
-		} else {
-			// Calculate next scan time: last_scanned_at + (scan_interval_hours * time.Hour)
-			// If scan_interval_hours=0, next_scan equals last_scanned_at, so now.After(last_scanned_at) is true (always eligible)
-			nextScan := acc.LastScannedAt.Add(time.Duration(acc.ScanIntervalHours) * time.Hour)
-			isOverdue = now.After(nextScan)
-		}
-
-		if !isOverdue {
-			continue
-		}
-
-		// Trigger scan via HTTP POST to ingestion service
-		err := triggerScheduledScan(ctx, acc.ID, acc.TenantID)
-		if err != nil {
-			slog.Error("scan.failed_to_trigger",
-				"account_id", acc.ID,
-				"tenant_id", acc.TenantID,
-				"error", err,
-			)
-			continue
-		}
-
-		slog.Info("scan.scheduled",
-			"account_id", acc.ID,
-			"tenant_id", acc.TenantID,
-			"last_scanned_at", acc.LastScannedAt,
-			"interval_hours", acc.ScanIntervalHours,
-		)
-	}
-}
-
-// triggerScheduledScan fires a POST request to the ingestion service to start a scan.
-func triggerScheduledScan(ctx context.Context, accountID, tenantID string) error {
-	ingestionURL := os.Getenv("INGESTION_URL")
-	if ingestionURL == "" {
-		ingestionURL = "http://localhost:8081"
-	}
-
-	scanURL := ingestionURL + "/scan"
-
-	// Marshal request body as JSON to safely handle any special characters in IDs
-	body := map[string]string{
-		"account_id": accountID,
-		"tenant_id":  tenantID,
-	}
-	bodyBytes, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, scanURL, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("post request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("ingestion returned status %d", resp.StatusCode)
-	}
-
-	return nil
 }
 
 func main() {
@@ -302,24 +195,6 @@ func main() {
 			if n > 0 {
 				slog.Warn("scan-recovery: reset stuck scanning accounts", "count", n)
 			}
-		}
-	}()
-
-	// Background ticker: trigger scheduled auto-scans.
-	// Interval defaults to 60 minutes; override with SCAN_INTERVAL env var (e.g. "30s" in dev/test).
-	// Also runs immediately on startup so overdue accounts are picked up without waiting for the first tick.
-	go func() {
-		scanInterval := 60 * time.Minute
-		if v := os.Getenv("SCAN_INTERVAL"); v != "" {
-			if d, err := time.ParseDuration(v); err == nil {
-				scanInterval = d
-			}
-		}
-		scanScheduledAccounts(context.Background(), store, h)
-		ticker := time.NewTicker(scanInterval)
-		defer ticker.Stop()
-		for range ticker.C {
-			scanScheduledAccounts(context.Background(), store, h)
 		}
 	}()
 
