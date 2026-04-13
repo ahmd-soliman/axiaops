@@ -6,9 +6,9 @@
 #   DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh  # Remote postgres
 
 #   - Dev
-#   DATABASE_URL="postgres://axiaops_owner:axiaops_dev_pass@192.168.1.100:5432/axiaops?sslmode=disable" ./scripts/seed_test_data.sh
+#   DATABASE_URL="postgres://axiaops_owner:axiaops_owner@192.168.1.100:5432/axiaops?sslmode=disable" ./scripts/seed_test_data.sh
 #   - Staging
-#   DATABASE_URL="postgres://axiaops_owner:axiaops_staging_pass@192.168.1.100:5433/axiaops?sslmode=disable" ./scripts/seed_test_data.sh
+#   DATABASE_URL="postgres://axiaops_owner:axiaops_owner@192.168.1.100:5433/axiaops?sslmode=disable" ./scripts/seed_test_data.sh
 
 
 #
