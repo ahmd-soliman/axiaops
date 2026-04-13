@@ -367,6 +367,16 @@
 - [ ] Dashboard: "Export PDF Report" button on summary screen
 - [ ] Test: generate PDF for a tenant with known data; verify page count and key fields present
 
+### 3.14 Database Security Hardening (pre-launch)
+
+- [ ] Create separate DB users per service in migration `000_init.up.sql`:
+  - `axiaops_api` — SELECT, INSERT, UPDATE on API-facing tables
+  - `axiaops_ingestion` — SELECT, INSERT, UPDATE on `cost_records`, `resource_records`, `ghost_snapshots`
+  - Retire shared `axiaops` app user
+- [ ] Update `DATABASE_URL` env var per service to use its dedicated user
+- [ ] Add integration test: connect as `axiaops_ingestion`, assert it cannot SELECT from `tenants` or `users`
+- [ ] Add integration test: connect as `axiaops_api`, assert it cannot INSERT into `cost_records` directly
+
 ---
 
 ## 🔮 Phase 4 — Scale & Expand (Q1–Q2 2027)
