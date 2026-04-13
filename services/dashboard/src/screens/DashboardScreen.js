@@ -14,6 +14,40 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchSummary, fetchResources, fetchTrend, scanAccount, deleteAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 
+// calculateNextScanTime returns a human-readable time until the next scheduled scan.
+// account: { last_scanned_at, scan_interval_hours }
+// Returns: 'On-demand' for interval=0, 'Now' if overdue, 'in Xh' if hours, 'in Xm' if minutes
+function calculateNextScanTime(account) {
+  if (!account || account.scan_interval_hours === null || account.scan_interval_hours === undefined) return null;
+
+  // If scan_interval_hours is 0, account is always eligible for scheduled scan (triggered on every check)
+  if (account.scan_interval_hours === 0) {
+    return 'On-demand';
+  }
+
+  // If negative interval (should not happen), don't show
+  if (account.scan_interval_hours < 0) return null;
+
+  // If never scanned, show based on interval
+  if (!account.last_scanned_at) {
+    return `in ${account.scan_interval_hours}h`;
+  }
+
+  // Calculate time until next scan
+  const lastScanned = new Date(account.last_scanned_at);
+  const nextScan = new Date(lastScanned.getTime() + account.scan_interval_hours * 60 * 60 * 1000);
+  const now = new Date();
+  const diffMs = nextScan - now;
+
+  if (diffMs <= 0) return 'Now'; // Overdue
+
+  const diffHours = Math.floor(diffMs / (60 * 60 * 1000));
+  if (diffHours > 0) return `in ${diffHours}h`;
+
+  const diffMinutes = Math.ceil(diffMs / (60 * 1000));
+  return `in ${diffMinutes}m`;
+}
+
 // SavingsSparkline renders a simple bar chart of ghost savings over time.
 // snaps: array of { total_monthly_cost, snapshot_at }
 function SavingsSparkline({ snaps }) {
@@ -158,36 +192,44 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
                 <Text style={styles.connectBtnText}>+ Connect AWS Account</Text>
               </TouchableOpacity>
             ) : (
-              accounts.map((acc) => (
-                <View key={acc.id} style={styles.accountChip}>
-                  <View style={[styles.accountDot, acc.status === 'error' && styles.accountDotError]} />
-                  <TouchableOpacity onPress={() => onEditAccount && onEditAccount(acc)}>
-                    <Text style={styles.accountLabel} numberOfLines={1}>
-                      {acc.label || acc.access_key_id.slice(0, 8) + '…'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleScan(acc.id)}
-                    disabled={scanning === acc.id}
-                    style={styles.scanBtn}
-                  >
-                    {scanning === acc.id
-                      ? <ActivityIndicator size="small" color={C.accent} />
-                      : <Text style={styles.scanBtnText}>Scan</Text>
-                    }
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleDelete(acc.id)}
-                    disabled={deleting === acc.id}
-                    style={styles.deleteBtn}
-                  >
-                    {deleting === acc.id
-                      ? <ActivityIndicator size="small" color="#EF4444" />
-                      : <Text style={styles.deleteBtnText}>×</Text>
-                    }
-                  </TouchableOpacity>
-                </View>
-              ))
+              accounts.map((acc) => {
+                const nextScanTime = calculateNextScanTime(acc);
+                return (
+                  <View key={acc.id} style={styles.accountChip}>
+                    <View style={[styles.accountDot, acc.status === 'error' && styles.accountDotError]} />
+                    <TouchableOpacity onPress={() => onEditAccount && onEditAccount(acc)} style={styles.accountLabelWrapper}>
+                      <Text style={styles.accountLabel} numberOfLines={1}>
+                        {acc.label || acc.access_key_id.slice(0, 8) + '…'}
+                      </Text>
+                      {nextScanTime && (
+                        <Text style={styles.accountNextScan} numberOfLines={1}>
+                          {nextScanTime}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleScan(acc.id)}
+                      disabled={scanning === acc.id}
+                      style={styles.scanBtn}
+                    >
+                      {scanning === acc.id
+                        ? <ActivityIndicator size="small" color={C.accent} />
+                        : <Text style={styles.scanBtnText}>Scan</Text>
+                      }
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDelete(acc.id)}
+                      disabled={deleting === acc.id}
+                      style={styles.deleteBtn}
+                    >
+                      {deleting === acc.id
+                        ? <ActivityIndicator size="small" color="#EF4444" />
+                        : <Text style={styles.deleteBtnText}>×</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                );
+              })
             )}
             {accounts.length > 0 && (
               <TouchableOpacity onPress={onConnectAccount} style={styles.addAccountBtn}>
@@ -393,7 +435,9 @@ const styles = StyleSheet.create({
   },
   accountDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#22C55E' },
   accountDotError: { backgroundColor: '#EF4444' },
+  accountLabelWrapper: { flexDirection: 'column', justifyContent: 'center' },
   accountLabel: { color: C.white, fontSize: 12, fontWeight: '600', maxWidth: 120 },
+  accountNextScan: { color: C.textSub, fontSize: 10, maxWidth: 120, marginTop: 2 },
   scanBtn: { paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.navy, borderRadius: 5, minWidth: 40, alignItems: 'center' },
   scanBtnText: { color: C.accent, fontSize: 11, fontWeight: '700' },
   deleteBtn: { paddingHorizontal: 6, paddingVertical: 3, alignItems: 'center', justifyContent: 'center' },

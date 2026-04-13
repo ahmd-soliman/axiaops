@@ -319,6 +319,45 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	return accounts, tx.Commit(ctx)
 }
 
+// ListAllAccounts returns accounts for ALL tenants, bypassing row-level security.
+// Used internally by the scheduled scan scheduler. Does not respect tenant_id in context.
+func (s *Store) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// NOTE: Deliberately NOT calling setTenant(ctx, tx) here.
+	// This allows the query to return accounts from all tenants.
+	// Only use this method for trusted internal operations (scheduler, background jobs).
+
+	rows, err := tx.Query(ctx, `
+		SELECT id, tenant_id, provider, label, access_key_id, secret_encrypted,
+		       region, status, last_scanned_at, scan_interval_hours, created_at
+		FROM accounts ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var accounts []model.Account
+	for rows.Next() {
+		var a model.Account
+		if err := rows.Scan(
+			&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccessKeyID, &a.SecretEncrypted,
+			&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return accounts, tx.Commit(ctx)
+}
+
 // GetAccount returns a single account by ID for the tenant in ctx.
 func (s *Store) GetAccount(ctx context.Context, id string) (model.Account, error) {
 	tx, err := s.pool.Begin(ctx)

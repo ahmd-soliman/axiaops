@@ -1,14 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -68,11 +69,12 @@ func die(msg string, args ...any) {
 }
 
 // scanScheduledAccounts checks all accounts and triggers scans for those that are overdue.
-// An account is eligible if: scan_interval_hours > 0 AND (never scanned OR last_scanned_at + interval < now) AND status != 'scanning'
+// An account is eligible if: scan_interval_hours >= 0 AND (never scanned OR last_scanned_at + interval < now) AND status != 'scanning'
+// scan_interval_hours=0 means "always eligible for scheduled scan" (triggers on every check).
 func scanScheduledAccounts(ctx context.Context, store storage.Store, h *api.Handler) {
-	// List all accounts for all tenants — note: we bypass tenant isolation by not setting app.tenant_id in context.
-	// This is safe because we're only listing, not modifying, and we explicitly include all tenants.
-	accounts, err := store.ListAccounts(ctx)
+	// List all accounts across all tenants using ListAllAccounts, which explicitly bypasses RLS.
+	// This is the correct method for background jobs that operate across tenants.
+	accounts, err := store.ListAllAccounts(ctx)
 	if err != nil {
 		slog.Error("scan-scheduler: failed to list accounts", "error", err)
 		return
@@ -84,11 +86,15 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, h *api.Hand
 
 	now := time.Now()
 	for _, acc := range accounts {
-		// Skip if scan_interval_hours is 0 (manual only) or account is already scanning
-		if acc.ScanIntervalHours == 0 || acc.Status == "scanning" {
-			if acc.Status == "scanning" {
-				slog.Debug("scan-scheduler: skipping already scanning account", "account_id", acc.ID)
-			}
+		// Skip if account is already scanning
+		if acc.Status == "scanning" {
+			slog.Debug("scan.skipped_already_running", "account_id", acc.ID, "tenant_id", acc.TenantID)
+			continue
+		}
+
+		// Skip if scan_interval_hours is negative (invalid configuration)
+		if acc.ScanIntervalHours < 0 {
+			slog.Warn("scan-scheduler: skipping account with negative interval", "account_id", acc.ID, "interval", acc.ScanIntervalHours)
 			continue
 		}
 
@@ -99,6 +105,7 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, h *api.Hand
 			isOverdue = true
 		} else {
 			// Calculate next scan time: last_scanned_at + (scan_interval_hours * time.Hour)
+			// If scan_interval_hours=0, next_scan equals last_scanned_at, so now.After(last_scanned_at) is true (always eligible)
 			nextScan := acc.LastScannedAt.Add(time.Duration(acc.ScanIntervalHours) * time.Hour)
 			isOverdue = now.After(nextScan)
 		}
@@ -110,7 +117,7 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, h *api.Hand
 		// Trigger scan via HTTP POST to ingestion service
 		err := triggerScheduledScan(ctx, acc.ID, acc.TenantID)
 		if err != nil {
-			slog.Error("scan-scheduler: failed to trigger scan",
+			slog.Error("scan.failed_to_trigger",
 				"account_id", acc.ID,
 				"tenant_id", acc.TenantID,
 				"error", err,
@@ -118,7 +125,7 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, h *api.Hand
 			continue
 		}
 
-		slog.Info("scan-scheduler: scheduled scan triggered",
+		slog.Info("scan.scheduled",
 			"account_id", acc.ID,
 			"tenant_id", acc.TenantID,
 			"last_scanned_at", acc.LastScannedAt,
@@ -135,9 +142,18 @@ func triggerScheduledScan(ctx context.Context, accountID, tenantID string) error
 	}
 
 	scanURL := ingestionURL + "/scan"
-	reqBody := fmt.Sprintf(`{"account_id":"%s","tenant_id":"%s"}`, accountID, tenantID)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, scanURL, strings.NewReader(reqBody))
+	// Marshal request body as JSON to safely handle any special characters in IDs
+	body := map[string]string{
+		"account_id": accountID,
+		"tenant_id":  tenantID,
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, scanURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
