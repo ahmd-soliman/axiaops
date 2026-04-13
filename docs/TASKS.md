@@ -163,12 +163,12 @@
 
 #### 2.13 cost_records Retention
 
-- [ ] Add `COST_RECORDS_RETENTION_DAYS` env var (default `90`)
-- [ ] Add background ticker in `services/ingestion` — runs daily at midnight UTC
+- [x] Add `COST_RECORDS_RETENTION_DAYS` env var (default `90`)
+- [x] Add background ticker in `services/ingestion` — runs daily at midnight UTC
   - `DELETE FROM cost_records WHERE period_end < NOW() - INTERVAL '{n} days' AND tenant_id = $1`
   - Log `cost_records.cleanup` with `rows_deleted` and `duration_ms`
-- [ ] Write migration `005_add_cost_records_index.sql` — add index on `(tenant_id, period_end)` for efficient range deletes
-- [ ] Test: insert cost records with old `period_end`, run cleanup manually, verify rows deleted
+- [x] Write migration `005_add_cost_records_index.sql` — add index on `(tenant_id, period_end)` for efficient range deletes
+- [x] Test: insert cost records with old `period_end`, run cleanup manually, verify rows deleted
 
 ---
 
@@ -446,7 +446,7 @@
 | Date | Milestone | Status |
 |------|-----------|--------|
 | April 2026 | Phase 1 complete + Phase 2 early work | ✅ Done |
-| May 2026 | Versioned migrations, savings history, observability, scan recovery, API versioning, rate limiting, graceful shutdown | ✅ Done (code) — dashboard sparkline pending |
+| May 2026 | Versioned migrations, savings history, observability, scan recovery, API versioning, rate limiting, graceful shutdown | ✅ Done |
 | June 2026 | GitLab CI pipeline, scheduled auto-scan, cost_records retention | Planned |
 | July 2026 | Redis (JWKS cache, scan queue, rate limiting), weekly digest + Slack alerts | Planned |
 | August 2026 | Production deployment (App Runner, RDS, ElastiCache, Terraform, CloudFront) | Planned |

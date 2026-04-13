@@ -160,9 +160,11 @@ func main() {
 			Region:      account.Region,
 		}); err != nil {
 			slog.Error("scan: ingestion failed", "account_id", req.AccountID, "error", err)
+			_ = store.UpdateAccountStatus(ctx, req.AccountID, "error")
 			http.Error(w, "ingestion failed", http.StatusInternalServerError)
 			return
 		}
+		_ = store.UpdateAccountStatus(ctx, req.AccountID, "connected")
 		w.WriteHeader(http.StatusOK)
 	})
 

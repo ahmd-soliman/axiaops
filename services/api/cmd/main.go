@@ -200,7 +200,7 @@ func main() {
 		slog.Warn("startup: reset stuck scanning accounts", "count", n)
 	}
 
-	s, err := postgres.New(ctx, dbURL)
+	s, err := postgres.NewWithAdmin(ctx, dbURL, migrationURL)
 	if err != nil {
 		die("storage: postgres init failed", "error", err)
 	}
@@ -305,9 +305,18 @@ func main() {
 		}
 	}()
 
-	// Background ticker: trigger scheduled auto-scans every 60 minutes.
+	// Background ticker: trigger scheduled auto-scans.
+	// Interval defaults to 60 minutes; override with SCAN_INTERVAL env var (e.g. "30s" in dev/test).
+	// Also runs immediately on startup so overdue accounts are picked up without waiting for the first tick.
 	go func() {
-		ticker := time.NewTicker(60 * time.Minute)
+		scanInterval := 60 * time.Minute
+		if v := os.Getenv("SCAN_INTERVAL"); v != "" {
+			if d, err := time.ParseDuration(v); err == nil {
+				scanInterval = d
+			}
+		}
+		scanScheduledAccounts(context.Background(), store, h)
+		ticker := time.NewTicker(scanInterval)
 		defer ticker.Stop()
 		for range ticker.C {
 			scanScheduledAccounts(context.Background(), store, h)

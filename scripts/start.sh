@@ -92,12 +92,11 @@ cd "$API_DIR"
   export DATABASE_URL="$DATABASE_URL"
   export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
   export DEV_MODE="${DEV_MODE:-true}"
+  if [[ -f .env ]]; then
+    set -a; source .env; set +a
+  fi
   if [[ "$DEV_MODE" == "true" ]]; then
     export DEV_TENANT_ID="dev-tenant-axiaops"
-  else
-    if [[ -f .env ]]; then
-      set -a; source .env; set +a
-    fi
   fi
   exec go run ./cmd/main.go
 ) >> "$LOG_FILE" 2>&1 &
