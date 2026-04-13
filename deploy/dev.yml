@@ -36,6 +36,15 @@ services:
     networks:
       - gitlab-cloud-runner-network
 
+  dashboard:
+    image: axiaops-dashboard:dev
+    container_name: axiaops-dashboard-dev
+    restart: unless-stopped
+    ports:
+      - "30032:80"
+    networks:
+      - gitlab-cloud-runner-network
+
 networks:
   gitlab-cloud-runner-network:
     external: true
