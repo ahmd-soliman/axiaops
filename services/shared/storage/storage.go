@@ -5,6 +5,7 @@ package storage
 
 import (
 	"context"
+	"time"
 
 	"axiaops.io/shared/model"
 )
@@ -93,6 +94,10 @@ type Store interface {
 	// oldest-first. If accountID is non-empty, only snapshots for that account
 	// are returned.
 	ListSnapshots(ctx context.Context, accountID string) ([]model.GhostSnapshot, error)
+
+	// DeleteOldCostRecords removes cost records older than the given cutoff for all tenants.
+	// Returns the number of rows deleted.
+	DeleteOldCostRecords(ctx context.Context, cutoff time.Time) (int64, error)
 
 	// Close releases any resources held by the store.
 	Close() error
