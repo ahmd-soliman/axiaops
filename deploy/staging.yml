@@ -1,0 +1,37 @@
+services:
+  ingestion:
+    image: axiaops-ingestion:staging
+    container_name: axiaops-ingestion-staging
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
+      SCAN_INTERVAL: ${SCAN_INTERVAL:-60s}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      KINDE_ISSUER: ${KINDE_ISSUER}
+      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID}
+      KINDE_CLIENT_SECRET: ${KINDE_CLIENT_SECRET}
+    networks:
+      - gitlab-cloud-runner-network
+
+  api:
+    image: axiaops-api:staging
+    container_name: axiaops-api-staging
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
+      INGESTION_URL: http://axiaops-ingestion-staging:8081
+      API_ADDR: ":8080"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      KINDE_ISSUER: ${KINDE_ISSUER}
+      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID}
+      KINDE_CLIENT_SECRET: ${KINDE_CLIENT_SECRET}
+    networks:
+      - gitlab-cloud-runner-network
+
+networks:
+  gitlab-cloud-runner-network:
+    external: true
