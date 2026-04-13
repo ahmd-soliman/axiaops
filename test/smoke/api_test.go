@@ -213,9 +213,9 @@ func TestScheduledAutoScan_ZeroInterval(t *testing.T) {
 	})
 
 	// Poll until last_scanned_at is set (scheduler triggered a scan) or timeout.
-	deadline := time.Now().Add(90 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 
 		r := get(t, base+"/v1/accounts/"+id)
 		defer r.Body.Close()
