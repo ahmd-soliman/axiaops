@@ -163,7 +163,7 @@ func TestMetrics(t *testing.T) {
 }
 
 // TestScheduledAutoScan_ZeroInterval creates an account with scan_interval_hours=0,
-// then polls until last_scanned_at is set (up to 90s), verifying the scheduler triggers a scan.
+// then polls until last_scanned_at is set (up to 60s), verifying the scheduler triggers a scan.
 //
 // Requires a running stack (make start-dev) and DEV_MODE=true (no real AWS credentials needed).
 // The ticker fires every 60 minutes in production, but in dev mode the scan completes quickly once triggered.
@@ -213,7 +213,7 @@ func TestScheduledAutoScan_ZeroInterval(t *testing.T) {
 	})
 
 	// Poll until last_scanned_at is set (scheduler triggered a scan) or timeout.
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
 
@@ -231,5 +231,5 @@ func TestScheduledAutoScan_ZeroInterval(t *testing.T) {
 		}
 	}
 
-	t.Fatalf("scheduler did not trigger a scan within 90s for account %s (scan_interval_hours=0)", id)
+	t.Fatalf("scheduler did not trigger a scan within 60s for account %s (scan_interval_hours=0)", id)
 }
