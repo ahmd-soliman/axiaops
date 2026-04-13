@@ -194,9 +194,14 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
             ) : (
               accounts.map((acc) => {
                 const nextScanTime = calculateNextScanTime(acc);
+                const isPending = acc.status === 'connected' && !acc.last_scanned_at;
                 return (
                   <View key={acc.id} style={styles.accountChip}>
-                    <View style={[styles.accountDot, acc.status === 'error' && styles.accountDotError]} />
+                    <View style={[
+                      styles.accountDot,
+                      acc.status === 'error' && styles.accountDotError,
+                      isPending && styles.accountDotPending
+                    ]} />
                     <TouchableOpacity onPress={() => onEditAccount && onEditAccount(acc)} style={styles.accountLabelWrapper}>
                       <Text style={styles.accountLabel} numberOfLines={1}>
                         {acc.label || acc.access_key_id.slice(0, 8) + '…'}
@@ -434,6 +439,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   accountDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#22C55E' },
+  accountDotPending: { backgroundColor: '#EAB308' },
   accountDotError: { backgroundColor: '#EF4444' },
   accountLabelWrapper: { flexDirection: 'column', justifyContent: 'center' },
   accountLabel: { color: C.white, fontSize: 12, fontWeight: '600', maxWidth: 120 },
