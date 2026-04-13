@@ -40,7 +40,7 @@ clean-db:
 test-shared:
 	cd services/shared && go test ./... -count=1 -parallel 4 -skip=Postgres $(ARGS)
 
-# API service: handler unit tests (MockStore) + lifecycle integration tests.
+# API service: handler unit tests (MockStore) + lifecycle unit tests (no external deps).
 test-api:
 	cd services/api && go test ./... -count=1 -parallel 4 $(ARGS)
 
