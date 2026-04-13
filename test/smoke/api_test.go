@@ -32,7 +32,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
+	"time"
 )
 
 func apiURL(t *testing.T) string {
@@ -158,4 +160,77 @@ func TestMetrics(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /metrics: want 200, got %d", resp.StatusCode)
 	}
+}
+
+// TestScheduledAutoScan_ZeroInterval creates an account with scan_interval_hours=0,
+// then polls until last_scanned_at is set (up to 90s), verifying the scheduler triggers a scan.
+//
+// Requires a running stack (make start-dev) and DEV_MODE=true (no real AWS credentials needed).
+// The ticker fires every 60 minutes in production, but in dev mode the ingestion service
+// uses fixtures, so the scan completes quickly once triggered.
+func TestScheduledAutoScan_ZeroInterval(t *testing.T) {
+	base := apiURL(t)
+
+	// Create a test account with scan_interval_hours=0 (always eligible).
+	body := `{"provider":"aws","label":"smoke-test-scheduler","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"eu-central-1"}`
+	resp, err := http.Post(base+"/v1/accounts", "application/json", strings.NewReader(body)) //nolint:noctx
+	if err != nil {
+		t.Fatalf("POST /v1/accounts: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /v1/accounts: want 201, got %d", resp.StatusCode)
+	}
+
+	var account map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&account); err != nil {
+		t.Fatalf("POST /v1/accounts: decode: %v", err)
+	}
+	id, _ := account["id"].(string)
+	if id == "" {
+		t.Fatal("POST /v1/accounts: missing id in response")
+	}
+
+	// Set scan_interval_hours=0 so the scheduler considers it always overdue.
+	patch := `{"scan_interval_hours":0}`
+	req, _ := http.NewRequest(http.MethodPatch, base+"/v1/accounts/"+id, strings.NewReader(patch)) //nolint:noctx
+	req.Header.Set("Content-Type", "application/json")
+	patchResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH /v1/accounts/%s: %v", id, err)
+	}
+	patchResp.Body.Close()
+	if patchResp.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH /v1/accounts/%s: want 200, got %d", id, patchResp.StatusCode)
+	}
+
+	// Clean up the account after the test regardless of outcome.
+	t.Cleanup(func() {
+		req, _ := http.NewRequest(http.MethodDelete, base+"/v1/accounts/"+id, nil) //nolint:noctx
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+	})
+
+	// Poll until last_scanned_at is set (scheduler triggered a scan) or timeout.
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(5 * time.Second)
+
+		r := get(t, base+"/v1/accounts/"+id)
+		defer r.Body.Close()
+		if r.StatusCode != http.StatusOK {
+			t.Fatalf("GET /v1/accounts/%s: want 200, got %d", id, r.StatusCode)
+		}
+		var acc map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&acc); err != nil {
+			t.Fatalf("GET /v1/accounts/%s: decode: %v", id, err)
+		}
+		if acc["last_scanned_at"] != nil {
+			return // scan was triggered — pass
+		}
+	}
+
+	t.Fatalf("scheduler did not trigger a scan within 90s for account %s (scan_interval_hours=0)", id)
 }

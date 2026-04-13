@@ -86,13 +86,16 @@ func TestScanScheduledAccounts_ListError(t *testing.T) {
 	scanScheduledAccounts(ctx, store, nil)
 }
 
-// TestScanScheduledAccounts_TriggersZeroInterval verifies accounts with scan_interval_hours=0 are always eligible.
+// TestScanScheduledAccounts_TriggersZeroInterval verifies accounts with scan_interval_hours=0
+// are always eligible and that the scheduler actually fires a POST to the ingestion service.
 func TestScanScheduledAccounts_TriggersZeroInterval(t *testing.T) {
+	triggered := make(chan struct{}, 1)
 	ingestion := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		triggered <- struct{}{}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ingestion.Close()
@@ -105,16 +108,21 @@ func TestScanScheduledAccounts_TriggersZeroInterval(t *testing.T) {
 				ID:                "acc-1",
 				TenantID:          "tenant-1",
 				Provider:          "aws",
-				ScanIntervalHours: 0, // Always eligible for scheduled scan
+				ScanIntervalHours: 0, // Always eligible — next scan = last_scanned_at, always overdue
 				LastScannedAt:     &now,
 				Status:            "connected",
 			},
 		},
 	}
-	ctx := context.Background()
 
-	// Should trigger a scan even though interval=0 (account is always eligible)
-	scanScheduledAccounts(ctx, store, nil)
+	scanScheduledAccounts(context.Background(), store, nil)
+
+	select {
+	case <-triggered:
+		// scan was triggered — pass
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected ingestion POST within 5s, but none received")
+	}
 }
 
 // TestScanScheduledAccounts_SkipsAlreadyScanning verifies accounts already scanning are skipped.

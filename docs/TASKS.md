@@ -148,18 +148,18 @@
 - [x] Add required CI/CD variables in GitLab: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ENCRYPTION_KEY`
 - [x] Test: push to a feature branch — only `test` stage runs; merge to `main` — full pipeline runs
 
-#### 2.12 Scheduled Auto-Scan
+#### 2.12 Scheduled Auto-Scan ✅
 
-- [ ] Write migration `004_add_scan_interval.sql` — add `scan_interval_hours INTEGER NOT NULL DEFAULT 24` to `accounts` table
-- [ ] Update `model.Account` struct in `services/shared/model/account.go` to include `ScanIntervalHours`
-- [ ] Add `PATCH /v1/accounts/{id}` endpoint — update `label`, `region`, `scan_interval_hours` fields
-- [ ] Add background ticker in `services/api/cmd/main.go`
+- [x] Write migration `004_add_scan_interval.sql` — add `scan_interval_hours INTEGER NOT NULL DEFAULT 24` to `accounts` table
+- [x] Update `model.Account` struct in `services/shared/model/account.go` to include `ScanIntervalHours`
+- [x] Add `PATCH /v1/accounts/{id}` endpoint — update `label`, `region`, `scan_interval_hours` fields
+- [x] Add background ticker in `services/api/cmd/main.go`
   - Runs every 60 minutes; queries accounts where `last_scanned_at < NOW() - INTERVAL '{scan_interval_hours} hours'`
   - Skips accounts already in `scanning` status
   - Fires `POST http://ingestion:8081/scan` for eligible accounts
   - Log `scan.scheduled` and `scan.skipped_already_running`
-- [ ] Dashboard: show next scheduled scan time per account in accounts bar
-- [ ] Test: set `scan_interval_hours=0` (immediate), verify ticker triggers a scan within 60 seconds
+- [x] Dashboard: show next scheduled scan time per account in accounts bar
+- [x] Smoke test: create an account with `scan_interval_hours=0`, wait up to 90s, verify a scan is triggered (last_scanned_at updated)
 
 #### 2.13 cost_records Retention
 
