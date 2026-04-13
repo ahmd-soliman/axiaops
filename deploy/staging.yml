@@ -11,6 +11,10 @@ services:
       KINDE_ISSUER: ${KINDE_ISSUER}
       KINDE_CLIENT_ID: ${KINDE_CLIENT_ID}
       KINDE_CLIENT_SECRET: ${KINDE_CLIENT_SECRET}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
     networks:
       - gitlab-cloud-runner-network
 
