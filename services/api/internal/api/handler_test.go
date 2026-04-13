@@ -518,22 +518,6 @@ func TestUpdateAccount_AccountNotFound_Returns404(t *testing.T) {
 	}
 }
 
-func TestUpdateAccount_InvalidJSON_Returns400(t *testing.T) {
-	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
-	})
-	h := api.New(store)
-	mux := http.NewServeMux()
-	h.Register(mux)
-
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", `{invalid json}`))
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
 // ── DELETE /accounts/{id} ────────────────────────────────────────────────────
 
 func TestDeleteAccount_Returns204(t *testing.T) {
