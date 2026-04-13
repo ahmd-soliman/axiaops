@@ -18,7 +18,7 @@ services:
       context: ..
       dockerfile: services/ingestion/Dockerfile
     environment:
-      DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops?sslmode=disable
+      DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops?sslmode=disable
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops?sslmode=disable
       SCAN_INTERVAL: 10s
       ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
@@ -37,7 +37,7 @@ services:
       context: ..
       dockerfile: services/api/Dockerfile
     environment:
-      DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops?sslmode=disable
+      DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops?sslmode=disable
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops?sslmode=disable
       INGESTION_URL: http://ingestion:8081
       API_ADDR: ":8080"
