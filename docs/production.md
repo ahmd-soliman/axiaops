@@ -1,251 +1,242 @@
 # Production Setup — AxiaOps
 
-This document covers what is required to deploy AxiaOps beyond local development.
-Phase 1 is MVP/dev only. This guide tracks the gap between the current state and
-a production-ready deployment.
+This document covers what is required to deploy AxiaOps to production.
+Phase 1/2 dev runs on Docker Compose locally. This guide tracks the gap
+between the current state and a production-ready deployment on AWS.
 
 ---
 
 ## Current State vs Production Requirements
 
-| Concern | Current | Production target |
-|---------|---------|-------------------|
-| Database | PostgreSQL | PostgreSQL |
-| Usage data | AWS CloudWatch | AWS CloudWatch |
-| Auth | Kinde OAuth | Kinde OAuth (PKCE + RS256 JWT) |
-| CORS | `Access-Control-Allow-Origin: *` | Locked to your domain |
-| TLS | HTTP only | HTTPS via reverse proxy or platform |
-| Secrets | Encrypted in DB | Secret manager (AWS Secrets Manager) |
-| Ingestion schedule | On-demand via API | Scheduled (cron, cloud scheduler) |
-| Logging | Structured JSON | Structured JSON (CloudWatch logs) |
-| Multi-tenancy | Per-tenant isolation (RLS) | Per-tenant isolation (RLS) |
+| Concern | Current (dev) | Production target |
+|---------|--------------|-------------------|
+| Database | PostgreSQL (Docker) | RDS PostgreSQL `db.t4g.micro` |
+| Cache / Queue | None (in-memory fallback) | ElastiCache Serverless (Redis) |
+| Auth | Kinde OAuth (PKCE + RS256 JWT) | Same — no change |
+| CORS | `Access-Control-Allow-Origin: *` | Locked to `https://app.axiaops.io` |
+| TLS | HTTP only | Automatic HTTPS via App Runner |
+| Secrets | `ENCRYPTION_KEY` in `.env` | AWS Secrets Manager |
+| Ingestion schedule | On-demand via API | Scheduled auto-scan (24h default, 2.11) |
+| Logging | Structured JSON (slog) | Structured JSON → CloudWatch Logs |
+| Metrics | Prometheus `/metrics` | Prometheus → Grafana Cloud (or CloudWatch custom metrics) |
+| Multi-tenancy | Per-tenant RLS | Same — no change |
+| CI/CD | GitLab CI (test + build) | GitLab CI (test → build → deploy to ECR + App Runner) |
+| Infrastructure | Docker Compose | Terraform (App Runner + RDS + ElastiCache + Secrets Manager) |
 
 ---
 
 ## AWS Credentials
 
-The ingestion service uses the AWS SDK v2, which loads credentials in this order:
+The ingestion service uses AWS SDK v2, which loads credentials in this order:
 
 1. `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` env vars
-2. `~/.aws/credentials` file (local dev / EC2 instance profile)
-3. IAM Role attached to the compute resource (ECS task role, EC2 instance role)
+2. `~/.aws/credentials` file (local dev)
+3. IAM Role attached to the compute resource (App Runner task role)
 
-**For production, use option 3** — attach an IAM role directly to your compute
-resource. No credentials to rotate, no secrets to store.
+**For production, use option 3** — attach an IAM role to the App Runner service.
+No credentials to rotate, no secrets to store.
 
-### Minimum IAM policy
+### IAM Policy (`AxiaOpsReadOnly`)
 
 ```json
 {
   "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ce:GetCostAndUsage"
-      ],
-      "Resource": "*"
-    }
-  ]
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "ce:GetCostAndUsage",
+      "cloudwatch:GetMetricStatistics",
+      "cloudwatch:ListMetrics",
+      "ec2:DescribeInstances",
+      "ec2:DescribeNatGateways",
+      "ec2:DescribeAddresses",
+      "rds:DescribeDBInstances",
+      "lambda:ListFunctions",
+      "elasticloadbalancing:DescribeLoadBalancers"
+    ],
+    "Resource": "*"
+  }]
 }
 ```
 
-When CloudWatch integration is added (Phase 2), add:
-
-```json
-{
-  "Effect": "Allow",
-  "Action": [
-    "cloudwatch:GetMetricStatistics",
-    "cloudwatch:ListMetrics"
-  ],
-  "Resource": "*"
-}
-```
-
-### Multi-tenant (SaaS model — Phase 2)
-
-Customers connect their own AWS accounts. AxiaOps assumes a role in the
-customer's account rather than holding their credentials:
-
-1. Customer creates an IAM role in their account with the above policy
-2. Customer adds AxiaOps's AWS account ID as a trusted principal
-3. AxiaOps calls `sts:AssumeRole` with the customer's role ARN
-4. Temporary credentials are used for that request only — nothing stored
-
-AxiaOps's own policy needs `sts:AssumeRole` on `arn:aws:iam::*:role/AxiaOpsReadOnly`.
+**Never set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in production.**
 
 ---
 
-## Database — PostgreSQL
+## Database — RDS PostgreSQL
 
-AxiaOps runs on PostgreSQL exclusively.
+**Decision: RDS PostgreSQL `db.t4g.micro` (~€15/month)**
+
+Aurora costs 3× more with no meaningful benefit at current scale. The workload
+is write-heavy (ingestion) with low read concurrency — exactly the profile where
+Aurora's advantages don't apply yet. Revisit when monthly DB cost exceeds €100.
 
 **Schema + migrations:**
-- Migrations live in `services/shared/storage/postgres/migrations/`
-- Both services run migrations automatically on startup (using `MIGRATION_DATABASE_URL`)
+- Versioned migrations in `services/shared/storage/postgres/migrations/`
+- Both `api` and `ingestion` run migrations on startup via `MIGRATION_DATABASE_URL`
+- Advisory lock makes concurrent startup calls safe
+
+**Backup:**
+- RDS automated backups — 7-day retention
+- Point-in-time recovery to any second within retention window
+- `ghost_records` can be regenerated by re-running a scan; `ghost_snapshots` preserves history
 
 ---
 
-## RDS vs Aurora PostgreSQL
+## Redis — ElastiCache Serverless
 
-When moving to AWS-hosted PostgreSQL, the choice is between RDS PostgreSQL and Aurora PostgreSQL.
+**Use cases (dev plan 2.14):**
 
-| | RDS PostgreSQL | Aurora PostgreSQL |
-|---|---|---|
-| Cost (db.t3.micro) | ~$15/month | ~$45/month minimum |
-| Minimum storage | Pay per GB used | 10 GB always billed |
-| Storage scaling | Manual resize | Automatic |
-| Multi-AZ failover | ~60–120s | ~30s |
-| Read replicas | Supported | Supported (lag ~10ms lower) |
-| Complexity | Simple, single instance | Cluster with writer + reader endpoints |
-| When it pays off | < 1M rows, single region | High read traffic, multiple tenants |
+| Use case | Detail |
+|----------|--------|
+| JWKS key cache | Cache Kinde's public keys with 1h TTL — avoids network round-trip on every request |
+| Scan job queue | `POST /accounts/{id}/scan` pushes a job; ingestion worker pops and processes |
+| Rate limiting | Replaces in-memory token bucket — survives restarts, works across replicas |
 
-**Decision: use RDS PostgreSQL.**
-
-Aurora costs 3× more with no meaningful benefit at AxiaOps's current scale.
-The workload is write-heavy (ingestion) with low read concurrency — exactly
-the profile where Aurora's advantages (read replicas, faster failover) don't
-apply yet.
-
-Revisit Aurora when:
-- Read query latency becomes measurable (many concurrent tenants)
-- You need multiple read replicas for reporting queries
-- Monthly DB cost is already >$100 (Aurora overhead becomes proportionally smaller)
+**Infrastructure:**
+- Dev: Redis container in `docker-compose.yml`
+- Production: AWS ElastiCache Serverless (Redis-compatible) — pay-per-use
+- `REDIS_URL` env var; if unset, falls back to in-memory implementations
 
 ---
 
 ## Environment Variables (Production)
 
-| Variable | Development | Production |
-|----------|-------------|-----------|
-| `DATABASE_URL` | Local postgres:// | RDS PostgreSQL connection string (application user) |
-| `MIGRATION_DATABASE_URL` | Local postgres:// | RDS PostgreSQL connection string (owner/admin, used for migrations) |
-| `ENCRYPTION_KEY` | 32-byte hex | 32-byte hex (generated and stored in AWS Secrets Manager) |
-| `AWS_ACCOUNT_ID` | Your test account | Your AWS account ID |
-| `AWS_REGION` | `eu-central-1` | `eu-central-1` (or your primary region) |
-| `INGESTION_PORT` | `8081` | `8081` (internal) |
-| `KINDE_ISSUER` | — | Your Kinde issuer URL |
-| `KINDE_CLIENT_ID` | — | Your Kinde client ID |
-| `KINDE_CLIENT_SECRET` | — | Your Kinde client secret (from Secrets Manager) |
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | RDS PostgreSQL connection string (application user `axiaops`) |
+| `MIGRATION_DATABASE_URL` | RDS PostgreSQL connection string (owner/admin, migrations only) |
+| `ENCRYPTION_KEY` | 32-byte hex — stored in AWS Secrets Manager, injected at runtime |
+| `REDIS_URL` | ElastiCache Serverless endpoint |
+| `AWS_REGION` | `eu-central-1` |
+| `KINDE_ISSUER` | Your Kinde issuer URL |
+| `KINDE_CLIENT_ID` | Your Kinde client ID |
+| `LOG_FORMAT` | `json` in production, `text` in dev |
+| `INGESTION_URL` | Internal URL of the ingestion service (e.g. `http://ingestion:8081`) |
 
-**Never set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in production.**
-Use IAM roles instead (see above).
+---
+
+## Secrets Management
+
+All secrets are stored in AWS Secrets Manager — not in environment variables on disk.
+
+**Secrets to store:**
+- `ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM
+- `DATABASE_URL` / `MIGRATION_DATABASE_URL` — RDS connection strings
+- `REDIS_URL` — ElastiCache endpoint
+- `KINDE_CLIENT_SECRET` — Kinde OAuth client secret
+
+**Key rotation warning:** Rotating `ENCRYPTION_KEY` is not a simple env var swap.
+All `secret_encrypted` values in the `accounts` table must be decrypted with the
+old key and re-encrypted with the new key before the var is updated. A migration
+script must be written and tested before any key rotation in production.
+Document the procedure in `docs/ops.md` before first production deployment.
 
 ---
 
 ## CORS
 
-The current CORS middleware (`internal/api/handler.go`) allows all origins:
+In production, lock CORS to your actual domain:
 
-```go
-w.Header().Set("Access-Control-Allow-Origin", "*")
-```
-
-In production this must be locked to your actual domain. When the nginx proxy
-is used (Docker Compose or any reverse proxy setup), the browser never reaches
-the Go API directly — CORS headers are only needed if the API is exposed
-publicly without a proxy.
-
-**With nginx proxy (recommended):** CORS headers on the Go API are irrelevant —
-nginx handles the single origin. The `*` header is harmless but can be removed.
-
-**Without proxy:** Change `*` to your domain:
 ```go
 w.Header().Set("Access-Control-Allow-Origin", "https://app.axiaops.io")
 ```
+
+With the nginx proxy (Docker Compose dev), the browser never reaches the Go API
+directly — CORS headers are only needed if the API is exposed publicly without a proxy.
+App Runner exposes the API directly, so this must be set correctly.
 
 ---
 
 ## TLS / HTTPS
 
-Neither the Go service nor nginx currently terminate TLS. In production:
+App Runner provides automatic HTTPS — no configuration needed. The Go services
+stay on HTTP internally; TLS is terminated at the App Runner edge.
 
-**Option A — Platform-managed TLS (recommended):**
-- Fly.io and Railway provision Let's Encrypt certificates automatically
-- Deploy behind their load balancer — no nginx changes needed
-- The Go service stays on HTTP internally; TLS is terminated at the edge
+---
 
-**Option B — nginx with Let's Encrypt:**
-- Add `certbot` to the dashboard container
-- Configure nginx with `listen 443 ssl` and certificate paths
-- Requires a domain name pointed at the server
+## Hosting — AWS App Runner
+
+Both `api` and `ingestion` run on App Runner. The dashboard (Expo static build)
+is served via CloudFront.
+
+```
+User browser (HTTPS)
+     │
+     ▼
+CloudFront → S3 (dashboard static assets)
+     │ /api/v1/* proxied to App Runner
+     ▼
+App Runner — axiaops-api (:8080)
+     │ POST /accounts/{id}/scan → HTTP to ingestion
+     ▼
+App Runner — axiaops-ingestion (:8081)
+     │
+     ▼
+RDS PostgreSQL + ElastiCache (Redis)
+```
+
+### Deployment (ECR + App Runner)
+
+```bash
+# Authenticate Docker to ECR
+aws ecr get-login-password --region eu-central-1 | \
+  docker login --username AWS --password-stdin <account_id>.dkr.ecr.eu-central-1.amazonaws.com
+
+# Build and push
+docker build -t axiaops-api ./services/api
+docker tag axiaops-api:latest <account_id>.dkr.ecr.eu-central-1.amazonaws.com/axiaops-api:latest
+docker push <account_id>.dkr.ecr.eu-central-1.amazonaws.com/axiaops-api:latest
+
+# App Runner picks up the new image automatically (auto-deploy enabled)
+```
+
+In production this is handled by the GitLab CI pipeline (dev plan 2.10) —
+no manual build/push steps.
+
+---
+
+## Infrastructure as Code — Terraform
+
+Production infrastructure is defined in Terraform for reproducible provisioning.
+
+**State backend:** S3 bucket + DynamoDB lock table
+
+**Modules to provision:**
+- App Runner services (api, ingestion)
+- RDS PostgreSQL `db.t4g.micro`
+- ElastiCache Serverless (Redis)
+- AWS Secrets Manager secrets
+- ECR repositories
+- CloudFront distribution + S3 bucket (dashboard)
+- IAM roles and policies
 
 ---
 
 ## Ingestion Schedule
 
-Currently the ingestion service fetches data once at startup and then serves
-the cached results until restart. In production, ingestion should run on a schedule.
+Scheduled auto-scan is dev plan milestone 2.11 (June 2026).
 
-**Options:**
+- `scan_interval_hours` field on the `accounts` table (default: 24)
+- Background ticker in the API service triggers ingestion per account on schedule
+- Configurable per account via `PATCH /v1/accounts/{id}`
+- Skips if account is already `scanning`
 
-| Option | How |
-|--------|-----|
-| Cron job (simple) | Run the ingestion binary on a schedule via `cron` or a cloud scheduler; the HTTP server is a separate long-running process |
-| Split into two services | `ingestion-worker` (scheduled job, no HTTP) + `api-server` (long-running, reads from DB) |
-| Scheduled task on Fly.io | `fly machine run` on a cron schedule |
-
-The cleanest production architecture splits the worker from the API server.
-Both share the same PostgreSQL database. This is Phase 2 work.
+Until 2.11 is shipped, scans are triggered manually via `POST /v1/accounts/{id}/scan`.
 
 ---
 
-## Hosting
+## Observability
 
-### Fly.io (recommended for Phase 2)
-
-```bash
-# Install flyctl
-brew install flyctl
-
-# Authenticate
-fly auth login
-
-# Launch ingestion service
-cd services/ingestion
-fly launch --name axiaops-ingestion
-
-# Set secrets
-fly secrets set AWS_ACCOUNT_ID=123456789012 AWS_REGION=eu-central-1
-
-# Launch dashboard
-cd services/dashboard
-fly launch --name axiaops-dashboard
-```
-
-Fly.io provides:
-- Automatic TLS
-- Private networking between services (ingestion reachable at `axiaops-ingestion.internal:8080`)
-- Persistent volumes for PostgreSQL data
-- `fly machine run` for scheduled ingestion
-
-### Railway
-
-Similar to Fly.io. Connect your GitLab repository, set environment variables
-in the Railway dashboard, and it deploys on every push to `main`.
+- **Logging:** `slog` JSON output → stdout → CloudWatch Logs (App Runner captures stdout automatically)
+- **Metrics:** Prometheus `/metrics` endpoint → Grafana Cloud (or CloudWatch custom metrics)
+- **Health:** `GET /health` checks DB connectivity + ingestion reachability
+- **Request tracing:** `X-Request-ID` header injected by middleware, included in all log lines
 
 ---
 
-## What Phase 2 Changes
+## Related
 
-Once Phase 2 is complete, the production setup becomes:
-
-```
-User browser
-     │ HTTPS
-     ▼
-Fly.io / Railway edge (TLS termination)
-     │
-     ▼
-dashboard (nginx) → /api/* → ingestion API
-     │
-     ▼
-PostgreSQL (Supabase)
-     │
-     ▼ scheduled (Fly machine / cron)
-ingestion worker → AWS Cost Explorer → CloudWatch
-```
-
-Auth is enforced at the API layer — every request carries a JWT verified against
-Supabase Auth. Tenant ID is extracted from the JWT and applied to all DB queries.
+- [deployment.md](deployment.md) — App Runner cost estimates by phase
+- [development_plan.md](development_plan.md) — full phase-by-phase breakdown
+- [go_live_checklist.md](go_live_checklist.md) — what must be complete before first paying customer
