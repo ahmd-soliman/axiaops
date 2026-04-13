@@ -5,7 +5,6 @@ go 1.25.0
 require (
 	axiaops.io/shared v0.0.0
 	github.com/MicahParks/keyfunc/v3 v3.8.0
-	github.com/getsentry/sentry-go v0.44.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2
