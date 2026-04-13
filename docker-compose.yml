@@ -27,6 +27,10 @@ services:
     environment:
       DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops
+      # Dev mode defaults — overridable by .env or explicit env vars
+      DEV_MODE: ${DEV_MODE:-true}
+      DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
     volumes:
       - ${HOME}/.aws:/root/.aws:ro
     depends_on:
@@ -51,6 +55,10 @@ services:
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops
       INGESTION_URL: http://ingestion:8081
       API_ADDR: ":8080"
+      # Dev mode defaults — overridable by .env or explicit env vars
+      DEV_MODE: ${DEV_MODE:-true}
+      DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
     ports:
       - "8080:8080"
     depends_on:
