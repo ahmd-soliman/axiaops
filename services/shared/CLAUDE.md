@@ -21,6 +21,8 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 | `crypto/` | AES-256-GCM encrypt/decrypt for account secrets |
 | `logging/` | `Init(service)` — configures `log/slog` with JSON/text output |
 | `observability/` | **Phase 2.6** — Prometheus metrics, HTTP middleware |
+| `cache/` | **Phase 2.14** — `Cache` interface + Redis + memory implementations. `cache.New(redisURL)` selects backend. |
+| `queue/` | **Phase 2.14** — `Queue` interface + Redis (LPUSH/BRPOP) + sync HTTP fallback. `queue.New(redisURL, ingestionURL)` selects backend. |
 
 ## Store Interface
 
