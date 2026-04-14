@@ -10,9 +10,6 @@ services:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
-      KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
-      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
-      KINDE_CLIENT_SECRET: ${KINDE_CLIENT_SECRET:-}
     networks:
       - gitlab-cloud-runner-network
 
@@ -30,9 +27,6 @@ services:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
-      KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
-      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
-      KINDE_CLIENT_SECRET: ${KINDE_CLIENT_SECRET:-}
     networks:
       - gitlab-cloud-runner-network
 
@@ -44,8 +38,6 @@ services:
       - "30032:80"
     environment:
       DEV_MODE: "true"
-      KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
-      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
       DEV_ORG_NAME: ${DEV_ORG_NAME:-AxiaOps Dev}
     networks:
       - gitlab-cloud-runner-network
