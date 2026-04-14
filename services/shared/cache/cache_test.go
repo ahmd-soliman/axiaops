@@ -88,7 +88,7 @@ func suite(t *testing.T, c cache.Cache) {
 
 func TestMemoryCache(t *testing.T) {
 	c := &wrappedMemory{memorycache.New()}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	suite(t, c)
 }
 
@@ -102,7 +102,7 @@ func TestRedisCache(t *testing.T) {
 		t.Fatalf("connect to Redis: %v", err)
 	}
 	c := cache.New(url) // goes through the factory wrapper
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	// Flush test keys to avoid cross-test pollution.
 	ctx := context.Background()
