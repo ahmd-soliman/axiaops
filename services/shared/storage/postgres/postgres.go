@@ -654,9 +654,9 @@ func (s *Store) ListSnapshots(ctx context.Context, accountID string) ([]model.Gh
 }
 
 // DeleteOldCostRecords deletes cost records with period_end before cutoff across all tenants.
-// Bypasses RLS by running outside a tenant-scoped transaction.
+// Uses adminPool to bypass RLS — this is a maintenance operation across all tenants.
 func (s *Store) DeleteOldCostRecords(ctx context.Context, cutoff time.Time) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM cost_records WHERE period_end < $1`, cutoff)
+	tag, err := s.adminPool.Exec(ctx, `DELETE FROM cost_records WHERE period_end < $1`, cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("postgres: delete old cost_records: %w", err)
 	}
