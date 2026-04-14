@@ -119,20 +119,9 @@ func main() {
 	// ── Rate Limiting ─────────────────────────────────────────────────────────
 	root := http.Handler(mux)
 	if os.Getenv("DEV_MODE") != "true" {
-		// 60 requests per minute = 1 req/sec rate, max burst of 60.
-		limiter := middleware.NewRateLimiter(1.0, 60.0)
+		limiter := middleware.NewRateLimiter(c)
 		root = limiter.Wrap(root)
 		slog.Info("api: rate limiting enabled (60 req/min per tenant)")
-
-		// Background ticker: clean up stale tenant buckets every 5 minutes.
-		// Prevents memory leak in long-running instances. Temporary until Phase 2.14 (Redis).
-		go func() {
-			ticker := time.NewTicker(5 * time.Minute)
-			defer ticker.Stop()
-			for range ticker.C {
-				limiter.CleanupStaleBuckets(1 * time.Hour) // Remove buckets inactive >1h
-			}
-		}()
 	}
 
 	// ── Auth ──────────────────────────────────────────────────────────────────
