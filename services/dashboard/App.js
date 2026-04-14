@@ -12,7 +12,7 @@ import { useKindeAuth } from './src/auth/kinde';
 import { saveToken, getToken, clearToken } from './src/auth/storage';
 import { setAuthToken, fetchAccounts } from './src/api/client';
 
-const DEV_MODE = process.env.EXPO_PUBLIC_DEV_MODE === 'true';
+import { DEV_MODE, DEV_ORG_NAME } from './src/config';
 
 const queryClient = new QueryClient();
 
@@ -90,7 +90,7 @@ function Root() {
   useEffect(() => {
     if (DEV_MODE) {
       // Only Dev Mode
-      const payload = btoa(JSON.stringify({ org_name: process.env.EXPO_PUBLIC_DEV_ORG_NAME || 'AxiaOps Dev' }));
+      const payload = btoa(JSON.stringify({ org_name: DEV_ORG_NAME }));
       const devToken = `dev.${payload}.dev`;
       setAuthToken(devToken);
       setToken(devToken);
