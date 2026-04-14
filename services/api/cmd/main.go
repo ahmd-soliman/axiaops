@@ -15,6 +15,7 @@ import (
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/logging"
+	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
 	"github.com/prometheus/client_golang/prometheus"
@@ -105,6 +106,14 @@ func main() {
 	c := cache.New(os.Getenv("REDIS_URL"))
 	defer func() { _ = c.Close() }()
 
+	// ── Queue ─────────────────────────────────────────────────────────────────
+	ingestionURL := os.Getenv("INGESTION_URL")
+	if ingestionURL == "" {
+		ingestionURL = "http://localhost:8081"
+	}
+	q := queue.New(os.Getenv("REDIS_URL"), ingestionURL)
+	defer func() { _ = q.Close() }()
+
 	// ── HTTP API ──────────────────────────────────────────────────────────────
 	addr := os.Getenv("API_ADDR")
 	if addr == "" {
@@ -112,7 +121,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	h := api.New(store)
+	h := api.New(store, q)
 	h.Register(mux)
 	mux.Handle("/metrics", promhttp.Handler())
 
