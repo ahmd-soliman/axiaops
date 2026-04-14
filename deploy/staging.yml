@@ -45,7 +45,7 @@ services:
     environment:
       DEV_MODE: "false"
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
-      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
+      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-9fc9d3b7d0024947bd3c9fa253dfd28c}
       DEV_ORG_NAME: ""
     networks:
       - gitlab-cloud-runner-network
