@@ -23,7 +23,7 @@ services:
     container_name: axiaops-api-staging
     restart: unless-stopped
     ports:
-      - "8090:8080"
+      - "30041:8080"
     environment:
       DATABASE_URL: ${DATABASE_URL}
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
@@ -41,7 +41,7 @@ services:
     container_name: axiaops-dashboard-staging
     restart: unless-stopped
     ports:
-      - "30033:80"
+      - "30042:80"
     networks:
       - gitlab-cloud-runner-network
 

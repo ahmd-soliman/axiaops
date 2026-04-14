@@ -15,23 +15,15 @@ This directory contains Docker Compose files for different environments.
 docker-compose -f deploy/dev.yml up -d
 ```
 
-### `prod.yml` — Production Environment
+### `staging.yml` — Staging Environment
 - **DEV_MODE**: `false` (real Kinde auth required)
-- **Image tags**: `:prod`
-- **Restart policy**: `always`
-- **Network**: Internal network (created by docker-compose)
-- **Logging**: JSON format for log aggregation
-- **Healthchecks**: Enabled for monitoring
-- **Required secrets**: Must be set as env vars
+- **Image tags**: `:staging`
+- **Restart policy**: `unless-stopped`
+- **Network**: Uses external GitLab runner network
+- **Usage**: GitLab CI builds and runs this
 
 ```bash
-export DATABASE_URL=...
-export ENCRYPTION_KEY=...
-export KINDE_ISSUER=...
-export KINDE_CLIENT_ID=...
-export KINDE_CLIENT_SECRET=...
-
-docker-compose -f deploy/prod.yml up -d
+docker-compose -f deploy/staging.yml up -d
 ```
 
 ## Local Development
@@ -46,15 +38,11 @@ make test
 
 ## GitLab CI
 
-In CI, the build stage uses `deploy/dev.yml`:
-
-```bash
-docker-compose -f deploy/dev.yml up -d --force-recreate
-```
+CI builds and deploys via `.gitlab-ci.yml`. Dev and staging are deployed manually on `main`/`develop` branches. Production is deployed to AWS App Runner via ECR — no compose file is used for production.
 
 ## Environment Variables
 
-### Required in Production
+### Required in Staging/Production
 - `DATABASE_URL`
 - `MIGRATION_DATABASE_URL`
 - `ENCRYPTION_KEY` (32-byte hex)
@@ -63,6 +51,6 @@ docker-compose -f deploy/dev.yml up -d --force-recreate
 - `KINDE_CLIENT_SECRET`
 
 ### Optional (have defaults)
-- `SCAN_INTERVAL` (default: `60s` for dev, `1h` for prod)
-- `DEV_MODE` (default: `true` for dev, `false` for prod)
+- `SCAN_INTERVAL` (default: `60s` for dev, `1h` for staging)
+- `DEV_MODE` (default: `true` for dev, `false` for staging)
 - `LOG_LEVEL` (default: `info`)
