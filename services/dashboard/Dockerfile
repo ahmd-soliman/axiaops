@@ -5,7 +5,7 @@ RUN npm ci
 COPY . .
 
 # EXPO_PUBLIC_* vars are baked into the static bundle at build time.
-# Pass them as build args: docker build --build-arg EXPO_PUBLIC_KINDE_ISSUER=...
+# Runtime overrides are injected via window.__ENV__ by inject-env.sh at container startup.
 ARG EXPO_PUBLIC_KINDE_ISSUER
 ARG EXPO_PUBLIC_KINDE_CLIENT_ID
 ARG EXPO_PUBLIC_API_URL=/api
@@ -20,4 +20,6 @@ RUN npx expo export --platform web
 FROM nginx:1.27-alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY inject-env.sh /docker-entrypoint.d/40-inject-env.sh
+RUN chmod +x /docker-entrypoint.d/40-inject-env.sh
 EXPOSE 80

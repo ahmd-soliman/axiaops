@@ -42,6 +42,11 @@ services:
     restart: unless-stopped
     ports:
       - "30052:80"
+    environment:
+      DEV_MODE: "false"
+      KINDE_ISSUER: ${KINDE_ISSUER}
+      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID}
+      DEV_ORG_NAME: ""
     networks:
       - gitlab-cloud-runner-network
 
