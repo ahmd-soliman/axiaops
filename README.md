@@ -209,6 +209,21 @@ make test-postgres  # PostgreSQL integration tests (RLS, migrations)
 make test-all       # Unit + integration
 ```
 
+## Seeding Dev Data
+
+Requires `psql`. If not installed:
+
+```bash
+brew install libpq
+echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+```
+
+Then run:
+
+```bash
+DATABASE_URL="postgres://axiaops_owner:axiaops_owner@<host>:<port>/axiaops?sslmode=disable" ./scripts/seed_test_data.sh
+```
+
 ---
 
 ## API Endpoints

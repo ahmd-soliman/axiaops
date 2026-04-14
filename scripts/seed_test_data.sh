@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # seed_test_data.sh — seed dev tenant with dummy data for local development or remote servers
 #
+# Prerequisites:
+#   Requires psql. If not installed:
+#     brew install libpq
+#     echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+#
 # Usage:
 #   ./scripts/seed_test_data.sh                           # Local docker container
 #   DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh  # Remote postgres
@@ -261,6 +266,6 @@ echo "Dev tenant ID: dev-tenant-axiaops"
 echo "DEV_TENANT_ID=dev-tenant-axiaops is set automatically by dev.sh"
 echo ""
 echo "Workflow:"
-echo "  make start   — start all services (dev mode, no auth)"
-echo "  make seed    — (re-)populate dummy data"
-echo "  open http://localhost:3000"
+echo "  make start-dev   — start all services (dev mode, no auth)"
+echo "  make seed        — (re-)populate dummy data"
+echo "  open http://<host>:<port>"
