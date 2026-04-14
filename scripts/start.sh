@@ -68,15 +68,18 @@ echo " Ready."
 export DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable"
 export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
 
+# Capture DEV_MODE before subshells source .env (which may override it)
+CALLER_DEV_MODE="${DEV_MODE:-true}"
+
 # Start Ingestion service (long-running HTTP server on :8081)
 echo "Starting ingestion service (8081)..."
 cd "$INGESTION_DIR"
-if [[ -f .env ]]; then
-    set -a; source .env; set +a
-fi
 (
   export DATABASE_URL="$DATABASE_URL"
   export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
+  if [[ -f .env ]]; then
+    set -a; source .env; set +a
+  fi
   exec go run ./cmd/main.go
 ) >> "$LOG_FILE" 2>&1 &
 INGESTION_PID=$!
@@ -91,10 +94,10 @@ cd "$API_DIR"
 (
   export DATABASE_URL="$DATABASE_URL"
   export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
-  export DEV_MODE="${DEV_MODE:-true}"
   if [[ -f .env ]]; then
     set -a; source .env; set +a
   fi
+  export DEV_MODE="$CALLER_DEV_MODE"
   if [[ "$DEV_MODE" == "true" ]]; then
     export DEV_TENANT_ID="dev-tenant-axiaops"
   fi
@@ -111,7 +114,7 @@ echo "Starting Dashboard (3000)..."
 cd "$DASHBOARD_DIR"
 export EXPO_PUBLIC_KINDE_ISSUER="https://axiaops.kinde.com"
 export EXPO_PUBLIC_KINDE_CLIENT_ID="9fc9d3b7d0024947bd3c9fa253dfd28c"
-export EXPO_PUBLIC_DEV_MODE="${DEV_MODE:-true}"
+export EXPO_PUBLIC_DEV_MODE="$CALLER_DEV_MODE"
 export EXPO_PUBLIC_DEV_ORG_NAME="${DEV_ORG_NAME:-AxiaOps Dev}"
 export BROWSER="${BROWSER:-google chrome}"
 npx expo start --web --port 3000 --non-interactive --clear >> "$LOG_FILE" 2>&1 &
