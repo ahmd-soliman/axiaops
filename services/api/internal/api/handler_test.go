@@ -13,6 +13,7 @@ import (
 	"axiaops.io/api/internal/api"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 )
 
@@ -36,7 +37,7 @@ var testGhost = model.GhostResource{
 
 func testHandler() (*api.Handler, *http.ServeMux) {
 	store := NewMockStore().WithGhosts([]model.GhostResource{testGhost})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 	return h, mux
@@ -82,7 +83,7 @@ func TestHealth_DatabasePingFails_Returns503(t *testing.T) {
 		MockStore: NewMockStore().WithGhosts([]model.GhostResource{testGhost}),
 		pingErr:   errors.New("connection refused"),
 	}
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -216,7 +217,7 @@ func TestListAccounts_ReturnsStoredAccounts(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
 		{ID: "acc-1", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", Status: "connected"},
 	})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -242,7 +243,7 @@ func TestListAccounts_SecretNotExposed(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
 		{ID: "acc-1", SecretEncrypted: "super-secret-value", AccessKeyID: "AKIA123"},
 	})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -260,7 +261,7 @@ func TestCreateAccount_Returns201(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
 	store := NewMockStore()
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -277,7 +278,7 @@ func TestCreateAccount_ReturnsAccountJSON(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
 	store := NewMockStore()
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -304,7 +305,7 @@ func TestCreateAccount_DefaultsScanIntervalHoursTo24(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
 	store := NewMockStore()
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -325,7 +326,7 @@ func TestCreateAccount_DefaultsProviderAndRegion(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
 	store := NewMockStore()
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -349,7 +350,7 @@ func TestCreateAccount_SecretNotInResponse(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 
 	store := NewMockStore()
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -405,7 +406,7 @@ func TestUpdateAccount_UpdatesScanIntervalHours(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
 		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -430,7 +431,7 @@ func TestUpdateAccount_UpdatesMultipleFields(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
 		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -461,7 +462,7 @@ func TestUpdateAccount_ScanIntervalHoursZero(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
 		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -486,7 +487,7 @@ func TestUpdateAccount_NegativeScanIntervalHours_Returns400(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
 		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -505,7 +506,7 @@ func TestUpdateAccount_NegativeScanIntervalHours_Returns400(t *testing.T) {
 
 func TestUpdateAccount_AccountNotFound_Returns404(t *testing.T) {
 	store := NewMockStore().WithGetAccountError(errors.New("not found"))
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -533,17 +534,10 @@ func TestDeleteAccount_Returns204(t *testing.T) {
 // ── POST /accounts/{id}/scan ──────────────────────────────────────────────────
 
 func TestScanAccount_Returns200(t *testing.T) {
-	// Fake ingestion service that accepts the scan request.
-	ingestion := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ingestion.Close()
-	t.Setenv("INGESTION_URL", ingestion.URL)
-
 	store := NewMockStore().WithAccounts([]model.Account{
 		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
 	})
-	h := api.New(store)
+	h := api.New(store, &testCaptureQueue{})
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -556,16 +550,10 @@ func TestScanAccount_Returns200(t *testing.T) {
 }
 
 func TestScanAccount_ReturnsScanningStatus(t *testing.T) {
-	ingestion := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ingestion.Close()
-	t.Setenv("INGESTION_URL", ingestion.URL)
-
 	store := NewMockStore().WithAccounts([]model.Account{
 		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
 	})
-	h := api.New(store)
+	h := api.New(store, &testCaptureQueue{})
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -583,7 +571,7 @@ func TestScanAccount_ReturnsScanningStatus(t *testing.T) {
 
 func TestScanAccount_AccountNotFound_Returns404(t *testing.T) {
 	store := NewMockStore().WithGetAccountError(errors.New("not found"))
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -601,7 +589,7 @@ func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
 			{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1", Status: "scanning"},
 		}).
 		WithAccountAlreadyScanning("acc-1")
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -662,7 +650,7 @@ func TestGetTrend_ReturnsSnapshots(t *testing.T) {
 			{ID: "snap-1", AccountID: "acc-1", SnapshotAt: now.Add(-2 * time.Hour), GhostCount: 3, TotalMonthlyCost: 150.00, Currency: "USD"},
 			{ID: "snap-2", AccountID: "acc-1", SnapshotAt: now, GhostCount: 5, TotalMonthlyCost: 300.00, Currency: "USD"},
 		})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -694,7 +682,7 @@ func TestGetTrend_SnapshotTenantIDNotExposed(t *testing.T) {
 		WithSnapshots([]model.GhostSnapshot{
 			{ID: "snap-1", AccountID: "acc-1", TenantID: "secret-tenant", GhostCount: 1, TotalMonthlyCost: 50.00, Currency: "USD"},
 		})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -710,7 +698,7 @@ func TestGetTrend_StoreError_Returns500(t *testing.T) {
 	store := NewMockStore().
 		WithGhosts([]model.GhostResource{testGhost}).
 		WithListSnapshotsError(errors.New("db connection lost"))
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -724,7 +712,7 @@ func TestGetTrend_StoreError_Returns500(t *testing.T) {
 
 func TestGetTrend_AccountIDQueryParamPassedToStore(t *testing.T) {
 	store := NewMockStore().WithGhosts([]model.GhostResource{testGhost})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -741,7 +729,7 @@ func TestGetTrend_AccountIDQueryParamPassedToStore(t *testing.T) {
 
 func TestGetTrend_NoAccountIDQueryParam_PassesEmptyString(t *testing.T) {
 	store := NewMockStore().WithGhosts([]model.GhostResource{testGhost})
-	h := api.New(store)
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -755,3 +743,19 @@ func TestGetTrend_NoAccountIDQueryParam_PassesEmptyString(t *testing.T) {
 		t.Errorf("expected empty account_id forwarded to store, got %q", store.GetLastListSnapshotsAccountID())
 	}
 }
+
+// noopQueue is a queue.Queue that does nothing — used in tests that don't exercise scan.
+func noopQueue() queue.Queue { return &testCaptureQueue{} }
+
+// testCaptureQueue records enqueued jobs and always succeeds.
+type testCaptureQueue struct{ jobs []queue.ScanJob }
+
+func (q *testCaptureQueue) Enqueue(_ context.Context, job queue.ScanJob) error {
+	q.jobs = append(q.jobs, job)
+	return nil
+}
+func (q *testCaptureQueue) Dequeue(ctx context.Context) (queue.ScanJob, error) {
+	<-ctx.Done()
+	return queue.ScanJob{}, ctx.Err()
+}
+func (q *testCaptureQueue) Close() error { return nil }

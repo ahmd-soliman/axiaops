@@ -1,10 +1,8 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,23 +14,24 @@ import (
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 )
 
 // Handler serves ghost detection results over HTTP.
 type Handler struct {
 	store        storage.Store
-	ingestionURL string // URL of the ingestion service scan endpoint
+	queue        queue.Queue
+	ingestionURL string // used only by sync queue fallback
 }
 
-// New creates a Handler backed by the given store.
-// ingestionURL is the base URL of the ingestion service (e.g. http://localhost:8081).
-func New(store storage.Store) *Handler {
+// New creates a Handler backed by the given store and queue.
+func New(store storage.Store, q queue.Queue) *Handler {
 	ingestionURL := os.Getenv("INGESTION_URL")
 	if ingestionURL == "" {
 		ingestionURL = "http://localhost:8081"
 	}
-	return &Handler{store: store, ingestionURL: ingestionURL}
+	return &Handler{store: store, queue: q, ingestionURL: ingestionURL}
 }
 
 // Register attaches the routes to the given mux.
@@ -324,54 +323,19 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload, err := json.Marshal(map[string]string{
-		"account_id": account.ID,
-		"tenant_id":  account.TenantID,
-	})
-	if err != nil {
-		slog.Error("scanAccount: marshal body failed", "account_id", id, "error", err)
+	job := queue.ScanJob{
+		TenantID:   account.TenantID,
+		AccountID:  account.ID,
+		EnqueuedAt: time.Now().UTC(),
+		RequestID:  middleware.RequestIDFromCtx(r.Context()),
+	}
+	if err := h.queue.Enqueue(ctx, job); err != nil {
+		slog.Error("scan.enqueue_failed", "account_id", id, "error", err)
 		_ = h.store.UpdateAccountStatus(ctx, id, "error")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-
-	ingestionURL := h.ingestionURL
-	// Use a detached context: the request context may be cancelled when the handler returns.
-	// Cap at 15 minutes — ingestion service is expected to finish well within that.
-	bg, cancel := context.WithTimeout(
-		storage.WithTenantID(context.Background(), tenantID),
-		15*time.Minute,
-	)
-	slog.Info("scan.started", "account_id", id, "tenant_id", tenantID)
-	go func() {
-		defer cancel()
-		req, err := http.NewRequestWithContext(bg, http.MethodPost, ingestionURL+"/scan", bytes.NewReader(payload))
-		if err != nil {
-			slog.Error("scan.failed", "account_id", id, "error", err)
-			_ = h.store.UpdateAccountStatus(context.Background(), id, "error")
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		start := time.Now()
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			slog.Error("scan.failed", "account_id", id, "error", err)
-			_ = h.store.UpdateAccountStatus(context.Background(), id, "error")
-			return
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		if err := resp.Body.Close(); err != nil {
-			slog.Warn("scan: failed to close response body", "error", err)
-		}
-		if resp.StatusCode != http.StatusOK {
-			slog.Error("scan.failed", "account_id", id, "status", resp.StatusCode)
-			_ = h.store.UpdateAccountStatus(context.Background(), id, "error")
-			return
-		}
-		slog.Info("scan.completed", "account_id", id, "duration_ms", time.Since(start).Milliseconds())
-		_ = h.store.UpdateAccountStatus(context.Background(), id, "connected")
-	}()
-
+	slog.Info("scan.enqueued", "account_id", id, "tenant_id", tenantID)
 	writeJSON(w, map[string]string{"status": "scanning"})
 }
 
