@@ -12,7 +12,7 @@ import { useKindeAuth } from './src/auth/kinde';
 import { saveToken, getToken, clearToken } from './src/auth/storage';
 import { setAuthToken, fetchAccounts } from './src/api/client';
 
-import { DEV_MODE, DEV_ORG_NAME } from './src/config';
+import { DEV_MODE, DEV_ORG_NAME, KINDE_CLIENT_ID } from './src/config';
 
 const queryClient = new QueryClient();
 
@@ -110,7 +110,7 @@ function Root() {
     if (response?.type === 'success' && request && discovery) {
       AuthSession.exchangeCodeAsync(
         {
-          clientId: process.env.EXPO_PUBLIC_KINDE_CLIENT_ID,
+          clientId: KINDE_CLIENT_ID,
           redirectUri: AuthSession.makeRedirectUri({ useProxy: false }),
           code: response.params.code,
           extraParams: { code_verifier: request.codeVerifier },
