@@ -74,8 +74,8 @@ func suite(t *testing.T, c cache.Cache) {
 	})
 
 	t.Run("Incr resets after TTL", func(t *testing.T) {
-		_, _ = c.Incr(ctx, "counter2", 50*time.Millisecond)
-		time.Sleep(100 * time.Millisecond)
+		_, _ = c.Incr(ctx, "counter2", 100*time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 		n, err := c.Incr(ctx, "counter2", time.Minute)
 		if err != nil {
 			t.Fatal(err)
