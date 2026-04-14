@@ -9,8 +9,6 @@ services:
       SCAN_INTERVAL: ${SCAN_INTERVAL:-60s}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
-      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
-      KINDE_CLIENT_SECRET: ${KINDE_CLIENT_SECRET}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
@@ -31,8 +29,6 @@ services:
       API_ADDR: ":8080"
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
-      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
-      KINDE_CLIENT_SECRET: ${KINDE_CLIENT_SECRET}
     networks:
       - gitlab-cloud-runner-network
 
@@ -45,7 +41,7 @@ services:
     environment:
       DEV_MODE: "false"
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
-      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-9fc9d3b7d0024947bd3c9fa253dfd28c}
+      KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-848ddce9ff16479798b3c42ced7290e6}
       DEV_ORG_NAME: ""
     networks:
       - gitlab-cloud-runner-network
