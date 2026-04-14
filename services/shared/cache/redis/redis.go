@@ -79,7 +79,7 @@ func (c *Client) Incr(ctx context.Context, key string, ttl time.Duration) (int64
 	obs := observability.NewDatabaseObserver("REDIS_INCR")
 	pipe := c.rdb.Pipeline()
 	incrCmd := pipe.Incr(ctx, key)
-	pipe.Expire(ctx, key, ttl)
+	pipe.PExpire(ctx, key, ttl)
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		obs.ObserveError()
