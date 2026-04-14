@@ -13,6 +13,7 @@ import (
 
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/middleware"
+	"axiaops.io/shared/cache"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
@@ -100,6 +101,10 @@ func main() {
 	store := storage.Store(s)
 	slog.Info("storage: using PostgreSQL")
 
+	// ── Cache ─────────────────────────────────────────────────────────────────
+	c := cache.New(os.Getenv("REDIS_URL"))
+	defer func() { _ = c.Close() }()
+
 	// ── HTTP API ──────────────────────────────────────────────────────────────
 	addr := os.Getenv("API_ADDR")
 	if addr == "" {
@@ -143,7 +148,7 @@ func main() {
 		if kindeIssuer == "" {
 			slog.Warn("auth: KINDE_ISSUER not set — running without authentication")
 		} else {
-			auth, err := middleware.NewAuth(ctx, kindeIssuer, store)
+			auth, err := middleware.NewAuth(ctx, kindeIssuer, store, c)
 			if err != nil {
 				die("auth: init failed", "error", err)
 			}
