@@ -9,9 +9,7 @@ services:
       SCAN_INTERVAL: ${SCAN_INTERVAL:-60s}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
-
       KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
-
       KINDE_CLIENT_SECRET: ${KINDE_CLIENT_SECRET}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
@@ -25,7 +23,7 @@ services:
     container_name: axiaops-api-staging
     restart: unless-stopped
     ports:
-      - "30041:8080"
+      - "30051:8080"
     environment:
       DATABASE_URL: ${DATABASE_URL}
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
@@ -43,7 +41,7 @@ services:
     container_name: axiaops-dashboard-staging
     restart: unless-stopped
     ports:
-      - "30042:80"
+      - "30052:80"
     networks:
       - gitlab-cloud-runner-network
 
