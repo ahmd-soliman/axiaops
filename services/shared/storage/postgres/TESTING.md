@@ -6,11 +6,11 @@ Tests in `postgres_test.go` run against a real PostgreSQL instance and cover the
 
 | Variable | Description |
 |---|---|
-| `TEST_DATABASE_URL` | Owner/admin connection URL used for migrations (`axiaops_owner`). Required to run any test. |
-| `TEST_STORE_URL` | App user connection URL used for the store (`axiaops`). Optional — enables RLS isolation tests. |
+| `MIGRATION_DATABASE_URL` | Owner/admin connection URL used for migrations (`axiaops_owner`). Required to run any test. |
+| `DATABASE_URL` | App user connection URL used for the store (`axiaops`). Optional — enables RLS isolation tests. |
 
-If `TEST_DATABASE_URL` is not set, all tests are skipped.  
-If `TEST_STORE_URL` is not set, RLS isolation tests are skipped (see below).
+If `MIGRATION_DATABASE_URL` is not set, all tests are skipped.  
+If `DATABASE_URL` is not set, RLS isolation tests are skipped (see below).
 
 ## Running Locally
 
@@ -23,15 +23,15 @@ docker compose up -d postgres
 Run all tests including RLS isolation:
 
 ```bash
-TEST_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable" \
-TEST_STORE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable" \
+MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable" \
+DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable" \
 go test ./storage/postgres/...
 ```
 
 Run without RLS isolation tests (superuser only):
 
 ```bash
-TEST_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable" \
+MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable" \
 go test ./storage/postgres/...
 ```
 
