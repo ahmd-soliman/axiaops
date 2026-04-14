@@ -1,8 +1,8 @@
 .PHONY: start-dev start-staging stop seed inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke test-liveness
 
 # Postgres integration test URLs (used by services/shared/storage/postgres tests).
-TEST_DATABASE_URL ?= postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
-TEST_STORE_URL ?= postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable
+MIGRATION_DATABASE_URL ?= postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
+DATABASE_URL ?= postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable
 
 # Stop local processes, free ports, and stop Postgres if running.
 stop:
@@ -60,7 +60,7 @@ test-postgres:
 	docker compose up -d postgres
 	sleep 2
 	$(MAKE) clean-db
-	cd services/shared && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_STORE_URL="$(TEST_STORE_URL)" go test -count=1 -v -p=1 ./storage/postgres/...
+	cd services/shared && MIGRATION_DATABASE_URL="$(MIGRATION_DATABASE_URL)" DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v -p=1 ./storage/postgres/...
 
 # Full test suite: unit tests + API integration tests + storage tests.
 test-all: test test-postgres

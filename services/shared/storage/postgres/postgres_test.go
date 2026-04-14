@@ -16,36 +16,36 @@ import (
 
 // Two env vars are required to run these tests:
 //
-//	TEST_DATABASE_URL  — owner/admin URL used for migrations (axiaops_owner).
-//	                     postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
+//	MIGRATION_DATABASE_URL  — owner/admin URL used for migrations (axiaops_owner).
+//	                          postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
 //
-//	TEST_STORE_URL     — app user URL used for the Store (axiaops).
-//	                     postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable
-//	                     The axiaops user is a non-superuser, so RLS is enforced.
-//	                     If omitted, TEST_DATABASE_URL is used (RLS isolation tests will be skipped).
+//	DATABASE_URL            — app user URL used for the Store (axiaops).
+//	                          postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable
+//	                          The axiaops user is a non-superuser, so RLS is enforced.
+//	                          If omitted, MIGRATION_DATABASE_URL is used (RLS isolation tests will be skipped).
 //
 // Run with:
 //
-//	TEST_DATABASE_URL=... TEST_STORE_URL=... go test ./storage/postgres/...
+//	MIGRATION_DATABASE_URL=... DATABASE_URL=... go test ./storage/postgres/...
 func storeURL(t *testing.T) string {
 	t.Helper()
-	if url := os.Getenv("TEST_STORE_URL"); url != "" {
+	if url := os.Getenv("DATABASE_URL"); url != "" {
 		return url
 	}
-	url := os.Getenv("TEST_DATABASE_URL")
+	url := os.Getenv("MIGRATION_DATABASE_URL")
 	if url == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping postgres integration tests")
+		t.Skip("MIGRATION_DATABASE_URL not set — skipping postgres integration tests")
 	}
 	return url
 }
 
-// connectTestDB opens a pgx connection to TEST_DATABASE_URL (owner/admin user).
+// connectTestDB opens a pgx connection to MIGRATION_DATABASE_URL (owner/admin user).
 // Used only for setup/teardown truncation — not for Store operations.
 func connectTestDB(t *testing.T) *pgx.Conn {
 	t.Helper()
-	url := os.Getenv("TEST_DATABASE_URL")
+	url := os.Getenv("MIGRATION_DATABASE_URL")
 	if url == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping postgres integration tests")
+		t.Skip("MIGRATION_DATABASE_URL not set — skipping postgres integration tests")
 	}
 	conn, err := pgx.Connect(context.Background(), url)
 	if err != nil {
@@ -83,12 +83,12 @@ func setup(t *testing.T) *pgx.Conn {
 // rlsEnforced reports whether the store connects as a non-superuser (RLS is active).
 // Tests that rely on tenant isolation skip when connecting as a superuser.
 func rlsEnforced() bool {
-	return os.Getenv("TEST_STORE_URL") != ""
+	return os.Getenv("DATABASE_URL") != ""
 }
 
 // TestMain runs migrations once before all tests in this package.
 func TestMain(m *testing.M) {
-	url := os.Getenv("TEST_DATABASE_URL")
+	url := os.Getenv("MIGRATION_DATABASE_URL")
 	if url != "" {
 		if err := postgres.Migrate(url); err != nil {
 			panic("postgres: migration failed: " + err.Error())
@@ -105,9 +105,10 @@ func newTestStore(t *testing.T) *postgres.Store {
 	// Clean database before test starts
 	setup(t)
 
-	s, err := postgres.New(context.Background(), storeURL(t))
+	migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
+	s, err := postgres.NewWithOwner(context.Background(), storeURL(t), migrationURL)
 	if err != nil {
-		t.Fatalf("postgres.New: %v", err)
+		t.Fatalf("postgres.NewWithOwner: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s
@@ -302,7 +303,7 @@ func TestSaveGhosts_ReplacesOnSecondRun(t *testing.T) {
 
 func TestLoadGhosts_EmptyWhenNoneSaved(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires TEST_STORE_URL (non-superuser) for RLS to filter out other tenants' data")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to filter out other tenants' data")
 	}
 	s := newTestStore(t)
 	ctx, _ := newTenantCtx(t, s)
@@ -320,7 +321,7 @@ func TestLoadGhosts_EmptyWhenNoneSaved(t *testing.T) {
 
 func TestGhosts_TenantIsolation(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires TEST_STORE_URL (non-superuser) for RLS enforcement")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS enforcement")
 	}
 	s := newTestStore(t)
 
@@ -454,7 +455,7 @@ func testAccount(tenantID string) model.Account {
 
 func TestAccount_SaveAndList(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires TEST_STORE_URL (non-superuser) for RLS to scope ListAccounts to this tenant")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope ListAccounts to this tenant")
 	}
 	s := newTestStore(t)
 	ctx, tenant := newTenantCtx(t, s)
@@ -502,7 +503,7 @@ func TestAccount_GetByID(t *testing.T) {
 
 func TestAccount_Delete(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires TEST_STORE_URL (non-superuser) for RLS to scope ListAccounts to this tenant")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope ListAccounts to this tenant")
 	}
 	s := newTestStore(t)
 	ctx, tenant := newTenantCtx(t, s)
@@ -575,7 +576,7 @@ func TestAccount_TryMarkAccountScanning(t *testing.T) {
 
 func TestAccount_TenantIsolation(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires TEST_STORE_URL (non-superuser) for RLS enforcement")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS enforcement")
 	}
 	s := newTestStore(t)
 	ctxA, tenantA := newTenantCtx(t, s)
@@ -838,7 +839,7 @@ func TestListSnapshots_FilterByAccountID(t *testing.T) {
 
 func TestListSnapshots_EmptyWhenNoneSaved(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires TEST_STORE_URL (non-superuser) for RLS to filter out other tenants' snapshots")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to filter out other tenants' snapshots")
 	}
 	s := newTestStore(t)
 	ctx, _ := newTenantCtx(t, s)
@@ -880,7 +881,7 @@ func TestListSnapshots_MissingTenantID_Errors(t *testing.T) {
 
 func TestSnapshot_TenantIsolation(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires TEST_STORE_URL (non-superuser) for RLS enforcement")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS enforcement")
 	}
 	s := newTestStore(t)
 

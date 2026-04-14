@@ -162,5 +162,5 @@ cd services/shared && go test ./...                              # unit tests (a
 cd services/shared && go test ./storage/postgres/... -count=1    # integration (needs running PostgreSQL)
 ```
 
-Integration tests require env vars: `TEST_DATABASE_URL` and `TEST_STORE_URL`.
+Integration tests require env vars: `MIGRATION_DATABASE_URL` and `DATABASE_URL`.
 The Makefile handles this: `make test-postgres`.
