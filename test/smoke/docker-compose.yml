@@ -58,6 +58,16 @@ services:
       retries: 10
       start_period: 10s
 
+  smoke:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SMOKE_API_URL: http://api:8080
+    depends_on:
+      api:
+        condition: service_healthy
+
 networks:
   default:
     enable_ipv6: false
