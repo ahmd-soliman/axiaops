@@ -195,11 +195,17 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
               accounts.map((acc) => {
                 const nextScanTime = calculateNextScanTime(acc);
                 const isPending = acc.status === 'connected' && !acc.last_scanned_at;
+                const isError = acc.status === 'error';
+                const isTimeout = acc.status === 'scan_timeout';
+                const isCircuitBreakerOpen = acc.status === 'circuit_breaker_open';
+                
                 return (
                   <View key={acc.id} style={styles.accountChip}>
                     <View style={[
                       styles.accountDot,
-                      acc.status === 'error' && styles.accountDotError,
+                      isError && styles.accountDotError,
+                      isTimeout && styles.accountDotTimeout,
+                      isCircuitBreakerOpen && styles.accountDotCircuitBreaker,
                       isPending && styles.accountDotPending
                     ]} />
                     <TouchableOpacity onPress={() => onEditAccount && onEditAccount(acc)} style={styles.accountLabelWrapper}>
@@ -211,11 +217,19 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
                           {nextScanTime}
                         </Text>
                       )}
+                      {(isTimeout || isCircuitBreakerOpen) && (
+                        <Text style={styles.accountErrorStatus} numberOfLines={1}>
+                          {isTimeout ? 'Scan timeout' : 'Circuit breaker open'}
+                        </Text>
+                      )}
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleScan(acc.id)}
-                      disabled={scanning === acc.id}
-                      style={styles.scanBtn}
+                      disabled={scanning === acc.id || isCircuitBreakerOpen}
+                      style={[
+                        styles.scanBtn,
+                        isCircuitBreakerOpen && styles.scanBtnDisabled
+                      ]}
                     >
                       {scanning === acc.id
                         ? <ActivityIndicator size="small" color={C.accent} />
@@ -441,10 +455,18 @@ const styles = StyleSheet.create({
   accountDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#22C55E' },
   accountDotPending: { backgroundColor: '#EAB308' },
   accountDotError: { backgroundColor: '#EF4444' },
+  accountDotTimeout: { backgroundColor: '#F97316' },
+  accountDotCircuitBreaker: { backgroundColor: '#8B5CF6' },
+  accountErrorStatus: {
+    fontSize: 11,
+    color: '#EF4444',
+    fontWeight: '500',
+  },
   accountLabelWrapper: { flexDirection: 'column', justifyContent: 'center' },
   accountLabel: { color: C.white, fontSize: 12, fontWeight: '600', maxWidth: 120 },
   accountNextScan: { color: C.textSub, fontSize: 10, maxWidth: 120, marginTop: 2 },
   scanBtn: { paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.navy, borderRadius: 5, minWidth: 40, alignItems: 'center' },
+  scanBtnDisabled: { backgroundColor: '#6B7280', opacity: 0.5 },
   scanBtnText: { color: C.accent, fontSize: 11, fontWeight: '700' },
   deleteBtn: { paddingHorizontal: 6, paddingVertical: 3, alignItems: 'center', justifyContent: 'center' },
   deleteBtnText: { color: '#EF4444', fontSize: 16, fontWeight: '700', lineHeight: 18 },

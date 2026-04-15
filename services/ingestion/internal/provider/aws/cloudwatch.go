@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 
 	"axiaops.io/shared/analyzer"
+	"axiaops.io/shared/retry"
 )
 
 // serviceMetric maps an AWS service name to the CloudWatch namespace,
@@ -63,6 +64,7 @@ func FetchUsage(ctx context.Context, cw CloudWatchAPI, resources []DiscoveredRes
 	}
 
 	var usage []analyzer.UsageRecord
+	var errors []error
 
 	for _, r := range resources {
 		sm, ok := serviceMetrics[r.Service]
@@ -70,22 +72,30 @@ func FetchUsage(ctx context.Context, cw CloudWatchAPI, resources []DiscoveredRes
 			continue
 		}
 
-		out, err := cw.GetMetricStatistics(ctx, &cloudwatch.GetMetricStatisticsInput{
-			Namespace:  aws.String(sm.namespace),
-			MetricName: aws.String(sm.metricName),
-			Dimensions: []types.Dimension{
-				{
-					Name:  aws.String(sm.dimensionName),
-					Value: aws.String(r.ResourceID),
+		var out *cloudwatch.GetMetricStatisticsOutput
+		err := retry.Do(ctx, retry.DefaultConfig(), func() error {
+			var err error
+			out, err = cw.GetMetricStatistics(ctx, &cloudwatch.GetMetricStatisticsInput{
+				Namespace:  aws.String(sm.namespace),
+				MetricName: aws.String(sm.metricName),
+				Dimensions: []types.Dimension{
+					{
+						Name:  aws.String(sm.dimensionName),
+						Value: aws.String(r.ResourceID),
+					},
 				},
-			},
-			StartTime:  aws.Time(start),
-			EndTime:    aws.Time(end),
-			Period:     aws.Int32(periodSecs),
-			Statistics: []types.Statistic{types.StatisticAverage},
+				StartTime:  aws.Time(start),
+				EndTime:    aws.Time(end),
+				Period:     aws.Int32(periodSecs),
+				Statistics: []types.Statistic{types.StatisticAverage},
+			})
+			return err
 		})
 		if err != nil {
-			return nil, fmt.Errorf("cloudwatch: GetMetricStatistics %s/%s: %w", r.Service, r.ResourceID, err)
+			// Log individual resource failure but continue processing others
+			fmt.Printf("cloudwatch: GetMetricStatistics %s/%s failed: %v\n", r.Service, r.ResourceID, err)
+			errors = append(errors, fmt.Errorf("resource %s/%s: %w", r.Service, r.ResourceID, err))
+			continue
 		}
 
 		avg := 0.0
@@ -102,5 +112,11 @@ func FetchUsage(ctx context.Context, cw CloudWatchAPI, resources []DiscoveredRes
 		})
 	}
 
+	// Return partial results even if some resources failed
+	if len(errors) > 0 && len(usage) == 0 {
+		// All resources failed - return the first error
+		return nil, errors[0]
+	}
+	
 	return usage, nil
 }
