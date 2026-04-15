@@ -3,12 +3,11 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/queue"
 )
 
 // mockStoreForScheduler is a minimal mock store for testing the scheduler.
@@ -20,14 +19,12 @@ type mockStoreForScheduler struct {
 func (m *mockStoreForScheduler) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	return m.ListAllAccounts(ctx)
 }
-
 func (m *mockStoreForScheduler) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
 	if m.listErr != nil {
 		return nil, m.listErr
 	}
 	return append([]model.Account(nil), m.accounts...), nil
 }
-
 func (m *mockStoreForScheduler) Save(context.Context, []model.CostRecord) (int64, error) {
 	return 0, nil
 }
@@ -67,38 +64,32 @@ func (m *mockStoreForScheduler) DeleteOldCostRecords(context.Context, time.Time)
 }
 func (m *mockStoreForScheduler) Close() error { return nil }
 
+// captureQueue records enqueued jobs.
+type captureQueue struct{ jobs []queue.ScanJob }
+
+func (q *captureQueue) Enqueue(_ context.Context, job queue.ScanJob) error {
+	q.jobs = append(q.jobs, job)
+	return nil
+}
+func (q *captureQueue) Dequeue(ctx context.Context) (queue.ScanJob, error) {
+	<-ctx.Done()
+	return queue.ScanJob{}, ctx.Err()
+}
+func (q *captureQueue) Close() error { return nil }
+
 func TestScanScheduledAccounts_NoAccounts(t *testing.T) {
 	store := &mockStoreForScheduler{accounts: []model.Account{}}
-	scanScheduledAccounts(context.Background(), store)
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 0 {
+		t.Fatalf("expected 0 jobs, got %d", len(q.jobs))
+	}
 }
 
 func TestScanScheduledAccounts_ListError(t *testing.T) {
 	store := &mockStoreForScheduler{listErr: errors.New("db error")}
-	scanScheduledAccounts(context.Background(), store)
-}
-
-func TestScanScheduledAccounts_TriggersZeroInterval(t *testing.T) {
-	triggered := make(chan struct{}, 1)
-	ingestion := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		triggered <- struct{}{}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ingestion.Close()
-	t.Setenv("INGESTION_PORT", ingestion.URL[len("http://localhost:"):])
-
-	now := time.Now()
-	store := &mockStoreForScheduler{
-		accounts: []model.Account{{
-			ID: "acc-1", TenantID: "tenant-1", Provider: "aws",
-			ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
-		}},
-	}
-	scanScheduledAccounts(context.Background(), store)
-	select {
-	case <-triggered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("expected ingestion POST within 5s")
-	}
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q) // should not panic
 }
 
 func TestScanScheduledAccounts_SkipsAlreadyScanning(t *testing.T) {
@@ -107,38 +98,41 @@ func TestScanScheduledAccounts_SkipsAlreadyScanning(t *testing.T) {
 			ID: "acc-1", TenantID: "tenant-1", ScanIntervalHours: 24, Status: "scanning",
 		}},
 	}
-	scanScheduledAccounts(context.Background(), store)
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 0 {
+		t.Fatalf("expected 0 jobs for scanning account, got %d", len(q.jobs))
+	}
 }
 
 func TestScanScheduledAccounts_NeverScanned(t *testing.T) {
-	ingestion := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ingestion.Close()
-	t.Setenv("INGESTION_PORT", ingestion.URL[len("http://localhost:"):])
-
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
 			ID: "acc-1", TenantID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: nil, Status: "connected",
 		}},
 	}
-	scanScheduledAccounts(context.Background(), store)
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 1 {
+		t.Fatalf("expected 1 job for never-scanned account, got %d", len(q.jobs))
+	}
 }
 
 func TestScanScheduledAccounts_Overdue(t *testing.T) {
-	ingestion := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ingestion.Close()
-	t.Setenv("INGESTION_PORT", ingestion.URL[len("http://localhost:"):])
-
 	last := time.Now().Add(-30 * time.Hour)
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
 			ID: "acc-1", TenantID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: &last, Status: "connected",
 		}},
 	}
-	scanScheduledAccounts(context.Background(), store)
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 1 {
+		t.Fatalf("expected 1 job for overdue account, got %d", len(q.jobs))
+	}
+	if q.jobs[0].AccountID != "acc-1" {
+		t.Errorf("expected account acc-1, got %s", q.jobs[0].AccountID)
+	}
 }
 
 func TestScanScheduledAccounts_NotOverdue(t *testing.T) {
@@ -148,39 +142,23 @@ func TestScanScheduledAccounts_NotOverdue(t *testing.T) {
 			ID: "acc-1", TenantID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: &last, Status: "connected",
 		}},
 	}
-	scanScheduledAccounts(context.Background(), store)
-}
-
-func TestTriggerScan_Success(t *testing.T) {
-	ingestion := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ingestion.Close()
-	t.Setenv("INGESTION_PORT", ingestion.URL[len("http://localhost:"):])
-
-	if err := triggerScan(context.Background(), "acc-1", "tenant-1"); err != nil {
-		t.Errorf("expected nil error, got %v", err)
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 0 {
+		t.Fatalf("expected 0 jobs for non-overdue account, got %d", len(q.jobs))
 	}
 }
 
-func TestTriggerScan_IngestionError(t *testing.T) {
-	ingestion := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer ingestion.Close()
-	t.Setenv("INGESTION_PORT", ingestion.URL[len("http://localhost:"):])
-
-	if err := triggerScan(context.Background(), "acc-1", "tenant-1"); err == nil {
-		t.Error("expected error, got nil")
+func TestScanScheduledAccounts_ZeroInterval_AlwaysOverdue(t *testing.T) {
+	now := time.Now()
+	store := &mockStoreForScheduler{
+		accounts: []model.Account{{
+			ID: "acc-1", TenantID: "tenant-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
+		}},
 	}
-}
-
-func TestTriggerScan_NetworkError(t *testing.T) {
-	t.Setenv("INGESTION_PORT", "19999") // nothing listening there
-	if err := triggerScan(context.Background(), "acc-1", "tenant-1"); err == nil {
-		t.Error("expected error for unreachable host, got nil")
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 1 {
+		t.Fatalf("expected 1 job for zero-interval account, got %d", len(q.jobs))
 	}
 }
