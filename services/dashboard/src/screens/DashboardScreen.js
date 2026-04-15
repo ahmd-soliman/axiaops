@@ -101,6 +101,7 @@ const C = {
 export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount, onEditAccount, onDeleteAccount }) {
   const [filterSvc, setFilterSvc]     = React.useState(null);
   const [ghostOnly, setGhostOnly]     = React.useState(true);
+  const [selectedAccount, setSelectedAccount] = React.useState(null); // null = all accounts
   const [scanning, setScanning]       = React.useState(null); // account id being scanned
   const [deleting, setDeleting]       = React.useState(null); // account id being deleted
 
@@ -257,6 +258,32 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
             )}
           </View>
 
+          {/* Account Filter */}
+          {accounts.length > 1 && (
+            <View style={styles.accountFilter}>
+              <Text style={styles.filterLabel}>View:</Text>
+              <TouchableOpacity
+                style={[styles.filterBtn, selectedAccount === null && styles.filterBtnActive]}
+                onPress={() => setSelectedAccount(null)}
+              >
+                <Text style={[styles.filterBtnText, selectedAccount === null && styles.filterBtnTextActive]}>
+                  All Accounts
+                </Text>
+              </TouchableOpacity>
+              {accounts.map((acc) => (
+                <TouchableOpacity
+                  key={acc.id}
+                  style={[styles.filterBtn, selectedAccount === acc.id && styles.filterBtnActive]}
+                  onPress={() => setSelectedAccount(acc.id)}
+                >
+                  <Text style={[styles.filterBtnText, selectedAccount === acc.id && styles.filterBtnTextActive]}>
+                    {acc.label || acc.access_key_id.slice(0, 8) + '…'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
           {/* Hero */}
           <View style={styles.hero}>
             <Text style={styles.heroEyebrow}>Potential Monthly Savings</Text>
@@ -333,6 +360,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
         let list = resources.data ?? [];
         if (ghostOnly) list = list.filter(r => r.is_ghost);
         if (filterSvc) list = list.filter(r => r.service === filterSvc);
+        if (selectedAccount) list = list.filter(r => r.account_id === selectedAccount);
         return list;
       })()}
       keyExtractor={(item) => item.resource_id}
@@ -476,6 +504,28 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   addAccountText: { color: C.textMuted, fontSize: 18, lineHeight: 20 },
+
+  // Account filter
+  accountFilter: {
+    backgroundColor: C.bg,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.border,
+  },
+  filterLabel: { color: C.textMid, fontSize: 13, fontWeight: '600', marginRight: 4 },
+  filterBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: C.border,
+  },
+  filterBtnActive: { backgroundColor: C.accent },
+  filterBtnText: { fontSize: 12, fontWeight: '600', color: C.textMid },
+  filterBtnTextActive: { color: C.white },
 
   // Hero
   hero: {
