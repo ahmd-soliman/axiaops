@@ -127,7 +127,7 @@ func main() {
 
 	// ── Rate Limiting ─────────────────────────────────────────────────────────
 	root := http.Handler(mux)
-	if os.Getenv("REDIS_URL") != "" {
+	if (os.Getenv("DEV_MODE") != "true" || os.Getenv("ENABLE_RATE_LIMIT") == "true") && os.Getenv("REDIS_URL") != "" {
 		limiter := middleware.NewRateLimiter(c)
 		root = limiter.Wrap(root)
 		slog.Info("api: rate limiting enabled (60 req/min per tenant)")
