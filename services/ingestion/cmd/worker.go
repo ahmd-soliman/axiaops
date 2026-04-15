@@ -37,12 +37,13 @@ func startWorker(ctx context.Context, q queue.Queue, store storage.Store) {
 			)
 
 			scanCtx := storage.WithTenantID(ctx, job.TenantID)
+			statusCtx := storage.WithTenantID(context.Background(), job.TenantID)
 			if err := runScan(scanCtx, store, job.AccountID); err != nil {
 				slog.Error("worker: scan.failed", "account_id", job.AccountID, "err", err)
-				_ = store.UpdateAccountStatus(scanCtx, job.AccountID, "error")
+				_ = store.UpdateAccountStatus(statusCtx, job.AccountID, "error")
 				continue
 			}
-			_ = store.UpdateAccountStatus(scanCtx, job.AccountID, "connected")
+			_ = store.UpdateAccountStatus(statusCtx, job.AccountID, "connected")
 			slog.Info("worker: scan.completed", "account_id", job.AccountID)
 		}
 	}()
