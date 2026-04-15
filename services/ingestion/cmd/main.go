@@ -24,6 +24,7 @@ import (
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/crypto"
+	"axiaops.io/shared/errors"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
@@ -322,9 +323,27 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 	var allRecords []model.CostRecord
 	for _, p := range providers {
+		// Check for cancellation before each provider
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		
 		records, err := p.FetchCosts(ctx, start, end)
 		if err != nil {
-			slog.Error("fetch failed", "provider", p.Name(), "error", err)
+			catErr := errors.Categorize(err, "fetch_costs")
+			slog.Error("fetch failed", 
+				"provider", p.Name(), 
+				"error", err,
+				"category", catErr.Category,
+				"should_fail_scan", catErr.Category.ShouldFailScan(),
+			)
+			
+			// Fail entire scan for credential/permission errors
+			if catErr.Category.ShouldFailScan() {
+				return fmt.Errorf("[%s] %w", p.Name(), catErr)
+			}
 			continue
 		}
 		inserted, saveErr := store.Save(ctx, records)
@@ -340,16 +359,42 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		allRecords = append(allRecords, records...)
 	}
 
-	usage, err := awsClient.FetchUsage(ctx, allRecords, start, end)
-	if err != nil {
-		return fmt.Errorf("fetch usage from cloudwatch: %w", err)
+	// Check for cancellation before usage fetching
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
-	slog.Info("analysis: fetched usage records", "count", len(usage))
+
+	var usage []analyzer.UsageRecord
+	var usageErr error
+	if len(allRecords) > 0 {
+		usage, usageErr = awsClient.FetchUsage(ctx, allRecords, start, end)
+		if usageErr != nil {
+			catErr := errors.Categorize(usageErr, "fetch_usage")
+			slog.Error("fetch usage from cloudwatch failed, continuing without usage data", 
+				"error", usageErr,
+				"category", catErr.Category,
+			)
+			// Continue with empty usage - ghost detection will work with cost data only
+		} else {
+			slog.Info("analysis: fetched usage records", "count", len(usage))
+		}
+	}
 
 	ghosts := analyzer.Detect(allRecords, usage)
 
-	eipGhosts := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient.AccountID(), start, end)
-	ghosts = append(ghosts, eipGhosts...)
+	// Try to discover unattached EIPs - don't fail entire scan if this fails
+	eipGhosts, eipErr := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient.AccountID(), start, end)
+	if eipErr != nil {
+		catErr := errors.Categorize(eipErr, "discover_eips")
+		slog.Error("discover unattached EIPs failed, continuing without EIP data", 
+			"error", eipErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, eipGhosts...)
+	}
 
 	summary := analyzer.Summarize(ghosts)
 	slog.Info("analysis: detected ghost resources", "total", summary.TotalGhosts, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))

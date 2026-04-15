@@ -22,6 +22,7 @@ import (
 
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/retry"
 )
 
 const dateLayout = "2006-01-02"
@@ -115,7 +116,13 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 	var records []model.CostRecord
 
 	for {
-		page, err := c.ce.GetCostAndUsage(ctx, input)
+		var page *costexplorer.GetCostAndUsageOutput
+		err := retry.Do(ctx, retry.DefaultConfig(), func() error {
+			var err error
+			page, err = c.ce.GetCostAndUsage(ctx, input)
+			return err
+		})
+		
 		if err != nil {
 			var unavail *types.DataUnavailableException
 			if errors.As(err, &unavail) {
