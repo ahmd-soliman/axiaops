@@ -128,7 +128,7 @@ func main() {
 	// ── Rate Limiting ─────────────────────────────────────────────────────────
 	root := http.Handler(mux)
 	devMode := os.Getenv("DEV_MODE") == "true"
-	rateLimitEnabled := (!devMode || os.Getenv("ENABLE_RATE_LIMIT") == "true") && os.Getenv("REDIS_URL") != ""
+	rateLimitEnabled := os.Getenv("REDIS_URL") != ""
 	if rateLimitEnabled {
 		limiter := middleware.NewRateLimiter(c)
 		root = limiter.Wrap(root)
