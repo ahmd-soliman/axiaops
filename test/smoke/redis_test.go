@@ -30,29 +30,32 @@ func redisClient(t *testing.T) *redis.Client {
 }
 
 // TestRateLimit_Redis verifies that the Redis-backed rate limiter returns 429
-// after 60 requests within the same minute bucket.
+// once the bucket counter reaches the limit.
+// Pre-seeds the bucket to 59 so only 2 requests are needed — avoids firing 61
+// real requests and makes the test independent of prior bucket state.
 func TestRateLimit_Redis(t *testing.T) {
 	base := apiURL(t)
-	redisClient(t) // skip if no Redis
+	rdb := redisClient(t)
+	ctx := context.Background()
 
-	// Use a unique tenant injected via DEV_TENANT_ID — all requests share the same bucket.
-	// Fire 61 requests; the 61st must be 429.
-	var lastCode int
-	for i := 1; i <= 61; i++ {
-		resp, err := http.Get(base + "/v1/ghosts") //nolint:noctx
-		if err != nil {
-			t.Fatalf("request %d: %v", i, err)
-		}
-		_ = resp.Body.Close()
-		lastCode = resp.StatusCode
-		if resp.StatusCode == http.StatusTooManyRequests {
-			if i < 61 {
-				t.Fatalf("rate limited too early on request %d", i)
-			}
-			return // pass
-		}
+	// Pre-seed the current minute bucket to one below the limit.
+	bucket := time.Now().Unix() / 60
+	key := fmt.Sprintf("ratelimit:ci-tenant:%d", bucket)
+	rdb.Set(ctx, key, 59, 2*time.Minute)
+
+	// Request 60 — should pass.
+	resp := get(t, base+"/v1/ghosts")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("request 60: want 200, got %d", resp.StatusCode)
 	}
-	t.Fatalf("expected 429 on request 61, got %d on last request", lastCode)
+
+	// Request 61 — should be rate limited.
+	resp = get(t, base+"/v1/ghosts")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("request 61: want 429, got %d", resp.StatusCode)
+	}
 }
 
 // TestRateLimit_SurvivesRestart verifies that the rate limit counter persists
