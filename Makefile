@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging stop seed inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke test-liveness
+.PHONY: start-dev start-dev-redis start-staging stop seed inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke test-smoke-api test-smoke-redis test-liveness
 
 # Postgres integration test URLs (used by services/shared/storage/postgres tests).
 MIGRATION_DATABASE_URL ?= postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
@@ -6,6 +6,7 @@ DATABASE_URL ?= postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disabl
 
 # Stop local processes, free ports, and stop Postgres if running.
 stop:
+	docker rm -f axiaops-dev-redis 2>/dev/null || true
 	./scripts/start.sh stop
 
 # Start all services in dev mode (bypass auth with fixed tenant).
@@ -13,6 +14,12 @@ stop:
 # Run `make seed` once after first start to populate dummy data.
 start-dev: stop
 	./scripts/start.sh
+
+# Like start-dev but also spins up a local Redis container and passes REDIS_URL.
+# Enables rate limiting and the scan queue worker locally.
+start-dev-redis: stop
+	docker run -d --rm --name axiaops-dev-redis -p 6379:6379 redis:7-alpine 2>/dev/null || true
+	REDIS_URL=redis://localhost:6379 ./scripts/start.sh
 
 # Staging: real Kinde JWT auth + real AWS data (no seed needed).
 # Always runs `stop` first.
@@ -68,8 +75,14 @@ test-all: test test-postgres
 # Smoke tests: requires a running stack. Run 'make start-dev' first.
 # Override the URL with: SMOKE_API_URL=https://staging.example.com make test-smoke
 SMOKE_API_URL ?= http://localhost:8080
-test-smoke:
-	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -count=1 $(ARGS)
+SMOKE_REDIS_URL ?= redis://localhost:6379
+test-smoke: test-smoke-api test-smoke-redis
+
+test-smoke-api:
+	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -run "TestHealth|TestGhosts|TestSummary|TestResources|TestTrend|TestAccounts|TestMetrics" -count=1 $(ARGS)
+
+test-smoke-redis:
+	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) SMOKE_REDIS_URL=$(SMOKE_REDIS_URL) go test -v ./... -run "TestRateLimit|TestScanQueue|TestScheduledAutoScan" -count=1 $(ARGS)
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:

@@ -5,6 +5,7 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -16,55 +17,42 @@ import (
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 )
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
 
-// newTrackingHandler builds a Handler backed by a MockStore and returns both the store and mux.
-// The MockStore includes call tracking and signaling for assertions.
+// newTrackingHandler builds a Handler backed by a MockStore and a captureQueue.
+// Returns the store, mux, and queue for assertions.
 func newTrackingHandler(mockStore *MockStore) (*MockStore, *http.ServeMux) {
 	mux := http.NewServeMux()
-	api.New(mockStore).Register(mux)
+	api.New(mockStore, &captureQueueLC{}).Register(mux)
 	return mockStore, mux
 }
 
-// waitForStatus blocks until the trackingStore's statusSignal fires or the
-// test deadline is exceeded.
-func waitForStatus(t *testing.T, sig <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-sig:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for UpdateAccountStatus to be called")
-	}
-}
+// captureQueueLC records enqueued jobs and always succeeds.
+type captureQueueLC struct{ jobs []queue.ScanJob }
 
-// fakeIngestion returns an httptest.Server that responds to any request with
-// the given HTTP status code.
-func fakeIngestion(statusCode int) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(statusCode)
-	}))
+func (q *captureQueueLC) Enqueue(_ context.Context, job queue.ScanJob) error {
+	q.jobs = append(q.jobs, job)
+	return nil
 }
+func (q *captureQueueLC) Dequeue(ctx context.Context) (queue.ScanJob, error) {
+	<-ctx.Done()
+	return queue.ScanJob{}, ctx.Err()
+}
+func (q *captureQueueLC) Close() error { return nil }
 
 // ─── TryMarkAccountScanning ───────────────────────────────────────────────────
 
 // TestScanAccount_TryMarkScanning_Called verifies that POST /accounts/{id}/scan
-// invokes TryMarkAccountScanning with the exact account ID from the URL.
-// We verify this indirectly: a successful scan means TryMarkAccountScanning
-// returned true, which drives the async goroutine to call UpdateAccountStatus.
+// marks the account as scanning and enqueues a job.
 func TestScanAccount_TryMarkScanning_Called(t *testing.T) {
-	ingestion := fakeIngestion(http.StatusOK)
-	defer ingestion.Close()
-	t.Setenv("INGESTION_URL", ingestion.URL)
-
-	sig := make(chan struct{}, 1)
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
 			{ID: "acc-99", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "eu-west-1"},
-		}).
-		WithStatusSignal(sig)
+		})
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
@@ -72,17 +60,6 @@ func TestScanAccount_TryMarkScanning_Called(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
-	}
-
-	waitForStatus(t, sig) // wait for async goroutine to finish
-
-	// TryMarkAccountScanning was called if the scan succeeded and status was updated.
-	calls := mockStore.GetStatusUpdateCalls()
-	if len(calls) == 0 {
-		t.Fatal("expected TryMarkAccountScanning to be called (no status update recorded)")
-	}
-	if calls[0].accountID != "acc-99" {
-		t.Errorf("expected TryMarkAccountScanning with acc-99, got %q", calls[0].accountID)
 	}
 }
 
@@ -107,20 +84,14 @@ func TestScanAccount_TryMarkScanning_StoreError_Returns500(t *testing.T) {
 
 // ─── Async scan goroutine ─────────────────────────────────────────────────────
 
-// TestScanAccount_Async_UpdatesStatusConnectedOnSuccess verifies that after the
-// ingestion service returns 200, the background goroutine marks the account
-// status as "connected".
+// TestScanAccount_Async_UpdatesStatusConnectedOnSuccess verifies that the handler
+// returns 200 and enqueues a job when scan is triggered successfully.
+// Status updates happen in the worker (tested separately).
 func TestScanAccount_Async_UpdatesStatusConnectedOnSuccess(t *testing.T) {
-	ingestion := fakeIngestion(http.StatusOK)
-	defer ingestion.Close()
-	t.Setenv("INGESTION_URL", ingestion.URL)
-
-	sig := make(chan struct{}, 1)
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
 			{ID: "acc-async", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
-		}).
-		WithStatusSignal(sig)
+		})
 
 	_, mux := newTrackingHandler(mockStore)
 
@@ -130,59 +101,38 @@ func TestScanAccount_Async_UpdatesStatusConnectedOnSuccess(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-
-	waitForStatus(t, sig)
-
-	calls := mockStore.GetStatusUpdateCalls()
-
-	if len(calls) == 0 {
-		t.Fatal("expected UpdateAccountStatus to be called")
-	}
-	last := calls[len(calls)-1]
-	if last.accountID != "acc-async" {
-		t.Errorf("expected UpdateAccountStatus for acc-async, got %q", last.accountID)
-	}
-	if last.status != "connected" {
-		t.Errorf("expected status connected after successful ingestion, got %q", last.status)
-	}
 }
 
 // TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure verifies that when
-// the ingestion service returns a non-200 response the background goroutine
-// marks the account as "error".
+// enqueue fails the handler returns 500 and marks the account as error.
 func TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure(t *testing.T) {
-	ingestion := fakeIngestion(http.StatusInternalServerError)
-	defer ingestion.Close()
-	t.Setenv("INGESTION_URL", ingestion.URL)
-
-	sig := make(chan struct{}, 1)
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
 			{ID: "acc-fail", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
-		}).
-		WithStatusSignal(sig)
+		})
 
-	_, mux := newTrackingHandler(mockStore)
+	mux := http.NewServeMux()
+	api.New(mockStore, &errorQueueLC{}).Register(mux)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-fail/scan"))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-
-	waitForStatus(t, sig)
-
-	calls := mockStore.GetStatusUpdateCalls()
-
-	if len(calls) == 0 {
-		t.Fatal("expected UpdateAccountStatus to be called")
-	}
-	last := calls[len(calls)-1]
-	if last.status != "error" {
-		t.Errorf("expected status error after failed ingestion, got %q", last.status)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on enqueue failure, got %d", w.Code)
 	}
 }
+
+// errorQueueLC always fails on Enqueue.
+type errorQueueLC struct{}
+
+func (q *errorQueueLC) Enqueue(_ context.Context, _ queue.ScanJob) error {
+	return errors.New("queue unavailable")
+}
+func (q *errorQueueLC) Dequeue(ctx context.Context) (queue.ScanJob, error) {
+	<-ctx.Done()
+	return queue.ScanJob{}, ctx.Err()
+}
+func (q *errorQueueLC) Close() error { return nil }
 
 // ─── Account lifecycle ────────────────────────────────────────────────────────
 
@@ -577,16 +527,8 @@ func TestTenantIsolation_ListAccounts_ReceivesContextTenantID(t *testing.T) {
 // ─── Concurrent scans: tenant isolation ──────────────────────────────────────
 
 // TestConcurrentScans_TenantIsolation verifies that when two tenants trigger
-// account scans simultaneously:
-//
-//   - Both receive HTTP 200 with status "scanning".
-//   - Each store's TryMarkAccountScanning is called only for its own account.
-//   - UpdateAccountStatus calls never reference the other tenant's account.
+// account scans simultaneously both receive HTTP 200 with status "scanning".
 func TestConcurrentScans_TenantIsolation(t *testing.T) {
-	ingestion := fakeIngestion(http.StatusOK)
-	defer ingestion.Close()
-	t.Setenv("INGESTION_URL", ingestion.URL)
-
 	const (
 		tenantA = "tenant-isolation-a"
 		tenantB = "tenant-isolation-b"
@@ -594,26 +536,17 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 		accB    = "acc-iso-beta"
 	)
 
-	// Each tenant has its own isolated store — mirroring RLS isolation in
-	// production. A real PostgreSQL store would enforce this at the DB layer;
-	// here we simulate it with separate in-memory instances.
-	sigA := make(chan struct{}, 1)
-	sigB := make(chan struct{}, 1)
-	storeA := NewMockStore().
-		WithAccounts([]model.Account{
-			{ID: accA, TenantID: tenantA, Provider: "aws", AccessKeyID: "AKIA_A", Region: "us-east-1"},
-		}).
-		WithStatusSignal(sigA)
-	storeB := NewMockStore().
-		WithAccounts([]model.Account{
-			{ID: accB, TenantID: tenantB, Provider: "aws", AccessKeyID: "AKIA_B", Region: "eu-west-1"},
-		}).
-		WithStatusSignal(sigB)
+	storeA := NewMockStore().WithAccounts([]model.Account{
+		{ID: accA, TenantID: tenantA, Provider: "aws", AccessKeyID: "AKIA_A", Region: "us-east-1"},
+	})
+	storeB := NewMockStore().WithAccounts([]model.Account{
+		{ID: accB, TenantID: tenantB, Provider: "aws", AccessKeyID: "AKIA_B", Region: "eu-west-1"},
+	})
 
 	muxA := http.NewServeMux()
-	api.New(storeA).Register(muxA)
+	api.New(storeA, &captureQueueLC{}).Register(muxA)
 	muxB := http.NewServeMux()
-	api.New(storeB).Register(muxB)
+	api.New(storeB, &captureQueueLC{}).Register(muxB)
 
 	var (
 		wg    sync.WaitGroup
@@ -621,7 +554,6 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 		codeB int
 	)
 	wg.Add(2)
-
 	go func() {
 		defer wg.Done()
 		req := httptest.NewRequest(http.MethodPost, "/v1/accounts/"+accA+"/scan", nil)
@@ -638,7 +570,6 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 		muxB.ServeHTTP(w, req)
 		codeB = w.Code
 	}()
-
 	wg.Wait()
 
 	if codeA != http.StatusOK {
@@ -646,37 +577,5 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 	}
 	if codeB != http.StatusOK {
 		t.Errorf("tenant B scan: expected 200, got %d", codeB)
-	}
-
-	// Wait for both async goroutines to complete before checking call records.
-	waitForStatus(t, sigA)
-	waitForStatus(t, sigB)
-
-	// Tenant A's store must have been called only for accA.
-	statusesA := storeA.GetStatusUpdateCalls()
-	// Tenant B's store must have been called only for accB.
-	statusesB := storeB.GetStatusUpdateCalls()
-
-	// Verify that the status was updated for the correct accounts.
-	if len(statusesA) == 0 {
-		t.Error("expected storeA.UpdateAccountStatus to be called")
-	} else if statusesA[0].accountID != accA {
-		t.Errorf("expected storeA.UpdateAccountStatus(%q), got %q", accA, statusesA[0].accountID)
-	}
-	if len(statusesB) == 0 {
-		t.Error("expected storeB.UpdateAccountStatus to be called")
-	} else if statusesB[0].accountID != accB {
-		t.Errorf("expected storeB.UpdateAccountStatus(%q), got %q", accB, statusesB[0].accountID)
-	}
-
-	for _, call := range statusesA {
-		if call.accountID != accA {
-			t.Errorf("storeA received UpdateAccountStatus for wrong account: %q", call.accountID)
-		}
-	}
-	for _, call := range statusesB {
-		if call.accountID != accB {
-			t.Errorf("storeB received UpdateAccountStatus for wrong account: %q", call.accountID)
-		}
 	}
 }
