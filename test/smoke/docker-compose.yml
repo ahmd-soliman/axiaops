@@ -31,6 +31,7 @@ services:
       SCAN_INTERVAL: 10s
       ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
       REDIS_URL: redis://redis:6379
+      DEV_MODE: "true"
     depends_on:
       postgres:
         condition: service_healthy
