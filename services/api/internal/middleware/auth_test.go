@@ -244,20 +244,6 @@ func (m *mockCache) Del(_ context.Context, key string) error  { delete(m.data, k
 func (m *mockCache) Incr(_ context.Context, _ string, _ time.Duration) (int64, error) { return 0, nil }
 func (m *mockCache) Close() error                              { return nil }
 
-// buildJWKSServer returns an httptest.Server that serves a minimal JWKS for the given public key.
-func buildJWKSServer(t *testing.T, pub *rsa.PublicKey) *httptest.Server {
-	t.Helper()
-	// Use the keyfunc library to serialise the public key into a JWKS JSON.
-	// Simplest approach: serve a static JWKS with a single RSA key.
-	jwksJSON := rsaPublicKeyToJWKS(t, pub)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(jwksJSON)
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
 // rsaPublicKeyToJWKS serialises an RSA public key into a minimal JWKS JSON.
 func rsaPublicKeyToJWKS(t *testing.T, pub *rsa.PublicKey) []byte {
 	t.Helper()
