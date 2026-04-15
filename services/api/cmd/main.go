@@ -133,7 +133,7 @@ func main() {
 		limiter := middleware.NewRateLimiter(c)
 		root = limiter.Wrap(root)
 		slog.Info("api: rate limiting enabled (60 req/min per tenant)")
-	} else if !devMode {
+	} else if !devMode && os.Getenv("REDIS_URL") == "" {
 		slog.Warn("api: rate limiting disabled — REDIS_URL not set")
 	}
 
