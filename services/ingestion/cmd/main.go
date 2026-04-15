@@ -288,6 +288,10 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 
 // runIngestionCore is the shared implementation used by runScan and the HTTP handler.
 func runIngestionCore(ctx context.Context, store storage.Store, accountID string, keys *scanAWS) error {
+	if os.Getenv("DEV_MODE") == "true" {
+		slog.Info("ingestion: DEV_MODE — skipping AWS scan", "account_id", accountID)
+		return nil
+	}
 	var providers []provider.Provider
 
 	var awsClient *aws.Client
