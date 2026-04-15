@@ -351,6 +351,7 @@ axiaops/
 | File | Description |
 |------|-------------|
 | [docs/development_plan.md](docs/development_plan.md) | Architecture decisions, data model, DB schema, phase plans |
+| [docs/error_handling.md](docs/error_handling.md) | Comprehensive error handling, retry logic, circuit breaker, UI status indicators |
 | [docs/go_live_checklist.md](docs/go_live_checklist.md) | Hard blockers and recommendations before first paying customer |
 | [docs/middleware.md](docs/middleware.md) | API middleware chain — auth, rate limiting, request ID, metrics |
 | [docs/production.md](docs/production.md) | Production setup — IAM, App Runner, RDS, Redis, Terraform |
