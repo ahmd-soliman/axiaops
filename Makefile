@@ -79,10 +79,10 @@ SMOKE_REDIS_URL ?= redis://localhost:6379
 test-smoke: test-smoke-api test-smoke-redis
 
 test-smoke-api:
-	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -run "TestHealth|TestGhosts|TestSummary|TestResources|TestTrend|TestAccounts|TestMetrics|TestScheduledAutoScan" -count=1 $(ARGS)
+	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -run "TestHealth|TestGhosts|TestSummary|TestResources|TestTrend|TestAccounts|TestMetrics" -count=1 $(ARGS)
 
 test-smoke-redis:
-	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) SMOKE_REDIS_URL=$(SMOKE_REDIS_URL) go test -v ./... -run "TestRateLimit|TestScanQueue" -count=1 $(ARGS)
+	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) SMOKE_REDIS_URL=$(SMOKE_REDIS_URL) go test -v ./... -run "TestRateLimit|TestScanQueue|TestScheduledAutoScan" -count=1 $(ARGS)
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:
