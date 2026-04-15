@@ -30,6 +30,7 @@ const dateLayout = "2006-01-02"
 // Client fetches costs from the AWS Cost Explorer API and usage from CloudWatch.
 type Client struct {
 	accountID string
+	cfg       aws.Config
 	ce        CostExplorerAPI
 	cw        CloudWatchAPI
 }
@@ -49,6 +50,7 @@ func New(ctx context.Context) (*Client, error) {
 	log.Printf("aws: resolved account ID %s", accountID)
 	return &Client{
 		accountID: accountID,
+		cfg:       cfg,
 		ce:        costexplorer.NewFromConfig(cfg),
 		cw:        cloudwatchsdk.NewFromConfig(cfg),
 	}, nil
@@ -75,6 +77,7 @@ func NewWithStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey,
 	log.Printf("aws: resolved account ID %s", accountID)
 	return &Client{
 		accountID: accountID,
+		cfg:       cfg,
 		ce:        costexplorer.NewFromConfig(cfg),
 		cw:        cloudwatchsdk.NewFromConfig(cfg),
 	}, nil
@@ -96,6 +99,13 @@ func (c *Client) FetchUsage(ctx context.Context, records []model.CostRecord, sta
 
 func (c *Client) Name() string      { return "aws" }
 func (c *Client) AccountID() string { return c.accountID }
+
+// configForRegion creates a new AWS config for the specified region using the same credentials
+func (c *Client) configForRegion(ctx context.Context, region string) (aws.Config, error) {
+	cfg := c.cfg.Copy()
+	cfg.Region = region
+	return cfg, nil
+}
 
 // FetchCosts calls GetCostAndUsage with daily granularity, grouped by
 // SERVICE and REGION, and normalizes each result into a CostRecord.

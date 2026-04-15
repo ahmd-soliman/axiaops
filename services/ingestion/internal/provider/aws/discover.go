@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -204,7 +203,7 @@ const eipMonthlyCost = 3.60
 // the cost records and returns a GhostResource for every Elastic IP that is not
 // attached to a network interface. Unattached EIPs are always zombies — AWS
 // charges for them regardless of usage, with no CloudWatch metric to consult.
-func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, accountID string, start, end time.Time) ([]model.GhostResource, error) {
+func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time) ([]model.GhostResource, error) {
 	// Collect unique real AWS regions from cost records (skipping Cost Explorer
 	// pseudo-values like "global" or "NoRegion").
 	regions := make(map[string]struct{})
@@ -215,9 +214,11 @@ func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, acc
 	}
 
 	var ghosts []model.GhostResource
+	accountID := awsClient.AccountID()
 
 	for region := range regions {
-		cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
+		// Use the same AWS client configuration but for different region
+		cfg, err := awsClient.configForRegion(ctx, region)
 		if err != nil {
 			log.Printf("eip: load config for region %s: %v", region, err)
 			continue

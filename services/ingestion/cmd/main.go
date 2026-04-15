@@ -385,7 +385,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	ghosts := analyzer.Detect(allRecords, usage)
 
 	// Try to discover unattached EIPs - don't fail entire scan if this fails
-	eipGhosts, eipErr := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient.AccountID(), start, end)
+	eipGhosts, eipErr := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient, start, end)
 	if eipErr != nil {
 		catErr := errors.Categorize(eipErr, "discover_eips")
 		slog.Error("discover unattached EIPs failed, continuing without EIP data", 
