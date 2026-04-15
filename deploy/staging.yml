@@ -41,6 +41,7 @@ services:
     ports:
       - "30052:80"
     environment:
+      API_HOST: axiaops-api-staging
       DEV_MODE: "false"
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
       KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-848ddce9ff16479798b3c42ced7290e6}
