@@ -25,7 +25,7 @@ type DiscoveredResource struct {
 // DiscoverResources calls service-specific AWS APIs to list resource IDs for
 // each service+region combination present in the cost records.
 // Cost Explorer does not expose resource IDs via group-by — this bridges that gap.
-func DiscoverResources(ctx context.Context, records []model.CostRecord) []DiscoveredResource {
+func DiscoverResources(ctx context.Context, awsClient *Client, records []model.CostRecord) []DiscoveredResource {
 	// Build a set of unique service+region pairs from cost records.
 	type key struct{ service, region string }
 	pairs := make(map[key]struct{})
@@ -38,9 +38,7 @@ func DiscoverResources(ctx context.Context, records []model.CostRecord) []Discov
 	var discovered []DiscoveredResource
 
 	for k := range pairs {
-		cfg, err := awsconfig.LoadDefaultConfig(ctx,
-			awsconfig.WithRegion(k.region),
-		)
+		cfg, err := awsClient.configForRegion(ctx, k.region)
 		if err != nil {
 			log.Printf("discover: load config for region %s: %v", k.region, err)
 			continue
