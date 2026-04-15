@@ -1,4 +1,11 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: axiaops-redis-staging
+    restart: unless-stopped
+    networks:
+      - gitlab-cloud-runner-network
+
   ingestion:
     image: axiaops-ingestion:staging
     container_name: axiaops-ingestion-staging
