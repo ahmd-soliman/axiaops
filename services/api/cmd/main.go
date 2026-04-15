@@ -127,16 +127,18 @@ func main() {
 
 	// ── Rate Limiting ─────────────────────────────────────────────────────────
 	root := http.Handler(mux)
-	if (os.Getenv("DEV_MODE") != "true" || os.Getenv("ENABLE_RATE_LIMIT") == "true") && os.Getenv("REDIS_URL") != "" {
+	devMode := os.Getenv("DEV_MODE") == "true"
+	rateLimitEnabled := (!devMode || os.Getenv("ENABLE_RATE_LIMIT") == "true") && os.Getenv("REDIS_URL") != ""
+	if rateLimitEnabled {
 		limiter := middleware.NewRateLimiter(c)
 		root = limiter.Wrap(root)
 		slog.Info("api: rate limiting enabled (60 req/min per tenant)")
-	} else if os.Getenv("DEV_MODE") != "true" {
+	} else if !devMode {
 		slog.Warn("api: rate limiting disabled — REDIS_URL not set")
 	}
 
 	// ── Auth ──────────────────────────────────────────────────────────────────
-	if os.Getenv("DEV_MODE") == "true" {
+	if devMode {
 		devTenantID := os.Getenv("DEV_TENANT_ID")
 		if devTenantID == "" {
 			die("auth: DEV_MODE=true requires DEV_TENANT_ID to be set")
