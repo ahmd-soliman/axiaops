@@ -51,6 +51,7 @@ services:
     ports:
       - "30032:80"
     environment:
+      API_HOST: axiaops-api-dev
       DEV_MODE: "true"
       DEV_ORG_NAME: ${DEV_ORG_NAME:-AxiaOps Dev}
     networks:
