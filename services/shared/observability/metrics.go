@@ -37,6 +37,10 @@ type Metrics struct {
 	ScanQueueDepth          prometheus.Gauge         // Current scan queue depth
 	AccountsScanning        prometheus.Gauge         // Accounts currently being scanned
 
+	// Cache metrics
+	CacheOperationsTotal    *prometheus.CounterVec   // Cache ops by op, backend, status
+	CacheOperationDuration  *prometheus.HistogramVec // Cache op latency by op, backend
+
 	// Application/process metrics
 	ApplicationUptime       prometheus.Gauge         // Seconds since service startup
 	ApplicationErrors       prometheus.Counter       // Total application errors
@@ -141,6 +145,17 @@ func newMetrics() *Metrics {
 			Name: "axiaops_accounts_scanning",
 			Help: "Number of accounts currently being scanned.",
 		}),
+
+		// Cache metrics
+		CacheOperationsTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_cache_operations_total",
+			Help: "Total cache operations by op, backend, and status.",
+		}, []string{"op", "backend", "status"}),
+		CacheOperationDuration: factory.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "axiaops_cache_operation_duration_seconds",
+			Help:    "Cache operation latency in seconds by op and backend.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"op", "backend"}),
 
 		// Application metrics
 		ApplicationUptime: factory.NewGauge(prometheus.GaugeOpts{

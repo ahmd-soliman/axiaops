@@ -13,7 +13,9 @@ import (
 
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/middleware"
+	"axiaops.io/shared/cache"
 	"axiaops.io/shared/logging"
+	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
 	"github.com/prometheus/client_golang/prometheus"
@@ -100,6 +102,18 @@ func main() {
 	store := storage.Store(s)
 	slog.Info("storage: using PostgreSQL")
 
+	// ── Cache ─────────────────────────────────────────────────────────────────
+	c := cache.New(os.Getenv("REDIS_URL"))
+	defer func() { _ = c.Close() }()
+
+	// ── Queue ─────────────────────────────────────────────────────────────────
+	ingestionURL := os.Getenv("INGESTION_URL")
+	if ingestionURL == "" {
+		ingestionURL = "http://localhost:8081"
+	}
+	q := queue.New(os.Getenv("REDIS_URL"), ingestionURL)
+	defer func() { _ = q.Close() }()
+
 	// ── HTTP API ──────────────────────────────────────────────────────────────
 	addr := os.Getenv("API_ADDR")
 	if addr == "" {
@@ -107,31 +121,24 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	h := api.New(store)
+	h := api.New(store, q)
 	h.Register(mux)
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// ── Rate Limiting ─────────────────────────────────────────────────────────
 	root := http.Handler(mux)
-	if os.Getenv("DEV_MODE") != "true" {
-		// 60 requests per minute = 1 req/sec rate, max burst of 60.
-		limiter := middleware.NewRateLimiter(1.0, 60.0)
+	devMode := os.Getenv("DEV_MODE") == "true"
+	rateLimitEnabled := os.Getenv("REDIS_URL") != ""
+	if rateLimitEnabled {
+		limiter := middleware.NewRateLimiter(c)
 		root = limiter.Wrap(root)
 		slog.Info("api: rate limiting enabled (60 req/min per tenant)")
-
-		// Background ticker: clean up stale tenant buckets every 5 minutes.
-		// Prevents memory leak in long-running instances. Temporary until Phase 2.14 (Redis).
-		go func() {
-			ticker := time.NewTicker(5 * time.Minute)
-			defer ticker.Stop()
-			for range ticker.C {
-				limiter.CleanupStaleBuckets(1 * time.Hour) // Remove buckets inactive >1h
-			}
-		}()
+	} else if !devMode && os.Getenv("REDIS_URL") == "" {
+		slog.Warn("api: rate limiting disabled — REDIS_URL not set")
 	}
 
 	// ── Auth ──────────────────────────────────────────────────────────────────
-	if os.Getenv("DEV_MODE") == "true" {
+	if devMode {
 		devTenantID := os.Getenv("DEV_TENANT_ID")
 		if devTenantID == "" {
 			die("auth: DEV_MODE=true requires DEV_TENANT_ID to be set")
@@ -143,7 +150,7 @@ func main() {
 		if kindeIssuer == "" {
 			slog.Warn("auth: KINDE_ISSUER not set — running without authentication")
 		} else {
-			auth, err := middleware.NewAuth(ctx, kindeIssuer, store)
+			auth, err := middleware.NewAuth(ctx, kindeIssuer, store, c)
 			if err != nil {
 				die("auth: init failed", "error", err)
 			}
