@@ -25,6 +25,7 @@ type DiscoveredResource struct {
 // DiscoverResources calls service-specific AWS APIs to list resource IDs for
 // each service+region combination present in the cost records.
 // Cost Explorer does not expose resource IDs via group-by — this bridges that gap.
+// Uses the provided AWS client for consistent credential handling.
 func DiscoverResources(ctx context.Context, awsClient *Client, records []model.CostRecord) []DiscoveredResource {
 	// Build a set of unique service+region pairs from cost records.
 	type key struct{ service, region string }
