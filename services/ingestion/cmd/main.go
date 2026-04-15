@@ -263,6 +263,15 @@ type scanAWS struct {
 // accountID is the internal DB account UUID; pass "" for one-shot/dev mode.
 // Credentials are loaded from the DB when accountID is non-empty.
 func runScan(ctx context.Context, store storage.Store, accountID string) error {
+	// Production: require database credentials only
+	if accountID == "" {
+		if os.Getenv("DEV_MODE") == "true" {
+			slog.Warn("dev mode: using environment credentials - not recommended for production")
+		} else {
+			return fmt.Errorf("account ID required - database credentials only in production")
+		}
+	}
+
 	var keys *scanAWS
 
 	if accountID != "" {
@@ -293,15 +302,15 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		slog.Info("ingestion: DEV_MODE — skipping AWS scan", "account_id", accountID)
 		return nil
 	}
+
+	// Production: require database credentials
+	if keys == nil {
+		return fmt.Errorf("AWS credentials required - configure account in database")
+	}
+
 	var providers []provider.Provider
 
-	var awsClient *aws.Client
-	var err error
-	if keys != nil {
-		awsClient, err = aws.NewWithStaticCredentials(ctx, keys.AccessKeyID, keys.SecretKey, keys.Region)
-	} else {
-		awsClient, err = aws.New(ctx)
-	}
+	awsClient, err := aws.NewWithStaticCredentials(ctx, keys.AccessKeyID, keys.SecretKey, keys.Region)
 	if err != nil {
 		return fmt.Errorf("aws init: %w", err)
 	}
