@@ -43,6 +43,9 @@ func TestRateLimit_Redis(t *testing.T) {
 	key := fmt.Sprintf("ratelimit:ci-tenant:%d", bucket)
 	rdb.Set(ctx, key, 59, 2*time.Minute)
 
+	// Clean up so subsequent tests in the same minute are not rate limited.
+	t.Cleanup(func() { rdb.Del(ctx, key) })
+
 	// Request 60 — should pass.
 	resp := get(t, base+"/v1/ghosts")
 	resp.Body.Close()
