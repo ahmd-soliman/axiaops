@@ -44,25 +44,6 @@ func (q *captureQueueLC) Dequeue(ctx context.Context) (queue.ScanJob, error) {
 }
 func (q *captureQueueLC) Close() error { return nil }
 
-// waitForStatus blocks until the trackingStore's statusSignal fires or the
-// test deadline is exceeded.
-func waitForStatus(t *testing.T, sig <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-sig:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for UpdateAccountStatus to be called")
-	}
-}
-
-// fakeIngestion returns an httptest.Server that responds to any request with
-// the given HTTP status code.
-func fakeIngestion(statusCode int) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(statusCode)
-	}))
-}
-
 // ─── TryMarkAccountScanning ───────────────────────────────────────────────────
 
 // TestScanAccount_TryMarkScanning_Called verifies that POST /accounts/{id}/scan
@@ -598,5 +579,3 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 		t.Errorf("tenant B scan: expected 200, got %d", codeB)
 	}
 }
-
-func noopQueueLC() queue.Queue { return queue.New("", "") }
