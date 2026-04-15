@@ -106,7 +106,10 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
   const [deleting, setDeleting]       = React.useState(null); // account id being deleted
 
   const summary   = useQuery({ queryKey: ['summary'],   queryFn: fetchSummary   });
-  const resources = useQuery({ queryKey: ['resources'], queryFn: fetchResources });
+  const resources = useQuery({ 
+    queryKey: ['resources', selectedAccount], 
+    queryFn: () => fetchResources(selectedAccount) 
+  });
   const trend     = useQuery({ queryKey: ['trend'],     queryFn: () => fetchTrend(null) });
 
   const isLoading    = summary.isLoading    || resources.isLoading;
@@ -360,7 +363,6 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
         let list = resources.data ?? [];
         if (ghostOnly) list = list.filter(r => r.is_ghost);
         if (filterSvc) list = list.filter(r => r.service === filterSvc);
-        if (selectedAccount) list = list.filter(r => r.account_id === selectedAccount);
         return list;
       })()}
       keyExtractor={(item) => item.resource_id}
