@@ -92,7 +92,7 @@ func NewWithClient(accountID string, ce CostExplorerAPI, cw CloudWatchAPI) *Clie
 // FetchUsage discovers resources via service APIs then queries CloudWatch
 // for usage metrics for each discovered resource.
 func (c *Client) FetchUsage(ctx context.Context, records []model.CostRecord, start, end time.Time) ([]analyzer.UsageRecord, error) {
-	discovered := DiscoverResources(ctx, records)
+	discovered := DiscoverResources(ctx, c, records)
 	log.Printf("discover: found %d resources across %d cost records", len(discovered), len(records))
 	return FetchUsage(ctx, c.cw, discovered, start, end)
 }
