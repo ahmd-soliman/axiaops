@@ -57,6 +57,7 @@ services:
       DEV_TENANT_ID: "ci-tenant"
       ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
       REDIS_URL: redis://redis:6379
+      ENABLE_RATE_LIMIT: "true"
     depends_on:
       postgres:
         condition: service_healthy
