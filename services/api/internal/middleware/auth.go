@@ -61,7 +61,7 @@ func keyfuncFromCache(ctx context.Context, issuer, jwksURL string, c cache.Cache
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, err
