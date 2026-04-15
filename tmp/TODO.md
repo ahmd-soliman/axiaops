@@ -15,14 +15,14 @@ Every Redis-dependent path degrades gracefully to in-memory behaviour when `REDI
 
 All branches are chained. Merge strictly in order.
 
-| # | Branch | Status | Merge into |
-|---|--------|--------|------------|
+| # | Branch | Status | MR target |
+|---|--------|--------|-----------|
 | 1 | `feature/2.14-redis-cache-interface` | ✅ Ready | `develop` |
-| 2 | `feature/2.14-jwks-cache` | ✅ Ready | after PR1 |
-| 3 | `feature/2.14-redis-ratelimit` | ✅ Ready | after PR2 |
-| 4 | `feature/2.14-scan-queue` | ✅ Ready | after PR3 |
-| 5 | `feature/2.14-wire-queue` | ✅ Ready | after PR4 |
-| 6 | `feature/2.14-observability-docs` | ✅ Ready | after PR5 |
+| 2 | `feature/2.14-jwks-cache` | ✅ Ready | `develop` (after PR1 merged) |
+| 3 | `feature/2.14-redis-ratelimit` | ✅ Ready | `develop` (after PR2 merged) |
+| 4 | `feature/2.14-scan-queue` | ✅ Ready | `develop` (after PR3 merged) |
+| 5 | `feature/2.14-wire-queue` | ✅ Ready | `develop` (after PR4 merged) |
+| 6 | `feature/2.14-observability-docs` | ✅ Ready | `develop` (after PR5 merged) |
 
 ### Merge procedure
 
@@ -111,3 +111,58 @@ Metrics + documentation
 | Redis outage breaks rate limiter | Cache error → fail-open (allow request, log warn) |
 | Worker crashes mid-scan → job lost | Known limitation; revisit with Redis Streams in a later phase |
 | Rate limit bucket boundary burst | Acceptable for MVP; sliding window (sorted sets) as follow-up if needed |
+
+---
+
+## MR Description (feature/2.14-observability-docs → main)
+
+**Title:** `feat(redis): JWKS cache, Redis-backed rate limiting, scan job queue, and smoke tests`
+
+### What
+
+Implements the Redis integration from the Phase 2 roadmap across three concerns:
+
+**PR1 — `cache.Cache` interface** (`d7357b1`)
+- `cache.Cache` interface with Redis and in-memory implementations
+- Used as the foundation for all Redis-backed features
+
+**PR2 — JWKS caching** (`48ef3af`)
+- Auth middleware caches JWKS responses in Redis (or memory fallback)
+- Eliminates repeated round-trips to Kinde on every request
+
+**PR3 — Redis-backed rate limiting** (`fa598b5`)
+- Replaces the in-memory token bucket with a Redis-backed rate limiter
+- Rate limiting is gated on `REDIS_URL` being set — no flag needed
+- Disabled in dev mode, active in staging/production automatically
+
+**PR4 — Scan job queue** (`26cc5de`)
+- `queue.Queue` interface with Redis and synchronous implementations
+- Decouples scan triggering from execution
+
+**PR5 — Queue wired into services** (`d9a7d10`)
+- API enqueues scan jobs; ingestion worker loop dequeues and executes
+
+**PR6 — Cache metrics + observability** (`c69ec63`)
+- Prometheus metrics for cache hits/misses
+- `start-dev-redis` Make target for local dev with Redis
+
+**Smoke tests** (`4a9716f`, `79bff86`)
+- Redis smoke test suite covering rate limiting and queue behaviour
+- Split into separate `test:api` and `test:redis` CI jobs
+
+### Testing
+
+```bash
+make start-dev-redis   # local stack with Redis
+make test              # unit tests
+make test-all          # unit + integration + smoke
+```
+
+### Create MR
+
+```bash
+glab mr create \
+  --title "feat(redis): JWKS cache, Redis-backed rate limiting, scan job queue, and smoke tests" \
+  --target-branch develop \
+  --assignee @me
+```

@@ -1,4 +1,16 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: axiaops-redis-dev
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - gitlab-cloud-runner-network
+
   ingestion:
     image: axiaops-ingestion:dev
     container_name: axiaops-ingestion-dev
@@ -10,6 +22,7 @@ services:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
+      REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-dev:6379}
     networks:
       - gitlab-cloud-runner-network
 
@@ -27,6 +40,7 @@ services:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
+      REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-dev:6379}
     networks:
       - gitlab-cloud-runner-network
 
