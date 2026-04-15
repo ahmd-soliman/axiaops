@@ -24,7 +24,8 @@ start-dev-redis: stop
 # Staging: real Kinde JWT auth + real AWS data (no seed needed).
 # Always runs `stop` first.
 start-staging: stop
-	DEV_MODE=false ./scripts/start.sh
+	docker run -d --rm --name axiaops-dev-redis -p 6379:6379 redis:7-alpine 2>/dev/null || true
+	DEV_MODE=false REDIS_URL=redis://localhost:6379 ./scripts/start.sh
 
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.
