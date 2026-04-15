@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging stop seed inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke test-liveness
+.PHONY: start-dev start-staging stop seed inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke test-smoke-api test-smoke-redis test-liveness
 
 # Postgres integration test URLs (used by services/shared/storage/postgres tests).
 MIGRATION_DATABASE_URL ?= postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
@@ -68,8 +68,14 @@ test-all: test test-postgres
 # Smoke tests: requires a running stack. Run 'make start-dev' first.
 # Override the URL with: SMOKE_API_URL=https://staging.example.com make test-smoke
 SMOKE_API_URL ?= http://localhost:8080
-test-smoke:
-	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -count=1 $(ARGS)
+SMOKE_REDIS_URL ?= redis://localhost:6379
+test-smoke: test-smoke-api test-smoke-redis
+
+test-smoke-api:
+	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -run "TestHealth|TestGhosts|TestSummary|TestResources|TestTrend|TestAccounts|TestMetrics|TestScheduledAutoScan" -count=1 $(ARGS)
+
+test-smoke-redis:
+	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) SMOKE_REDIS_URL=$(SMOKE_REDIS_URL) go test -v ./... -run "TestRateLimit|TestScanQueue" -count=1 $(ARGS)
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:
