@@ -80,7 +80,7 @@ cd "$INGESTION_DIR"
   if [[ -f .env ]]; then
     set -a; source .env; set +a
   fi
-  exec go run ./cmd/main.go
+  exec go run ./cmd/
 ) >> "$LOG_FILE" 2>&1 &
 INGESTION_PID=$!
 echo $INGESTION_PID >> "$PID_FILE"
@@ -101,7 +101,7 @@ cd "$API_DIR"
   if [[ "$DEV_MODE" == "true" ]]; then
     export DEV_TENANT_ID="dev-tenant-axiaops"
   fi
-  exec go run ./cmd/main.go
+  exec go run ./cmd/
 ) >> "$LOG_FILE" 2>&1 &
 API_PID=$!
 echo $API_PID >> "$PID_FILE"

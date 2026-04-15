@@ -22,14 +22,20 @@ export async function fetchSummary() {
   return res.json();
 }
 
-export async function fetchGhosts() {
-  const res = await fetch(`${BASE_URL}/v1/ghosts`, { headers: authHeaders() });
+export async function fetchGhosts(accountId) {
+  const url = accountId
+    ? `${BASE_URL}/v1/ghosts?account_id=${encodeURIComponent(accountId)}`
+    : `${BASE_URL}/v1/ghosts`;
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch ghosts');
   return res.json();
 }
 
-export async function fetchResources() {
-  const res = await fetch(`${BASE_URL}/v1/resources`, { headers: authHeaders() });
+export async function fetchResources(accountId) {
+  const url = accountId
+    ? `${BASE_URL}/v1/resources?account_id=${encodeURIComponent(accountId)}`
+    : `${BASE_URL}/v1/resources`;
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch resources');
   return res.json();
 }
