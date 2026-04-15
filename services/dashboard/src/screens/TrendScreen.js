@@ -146,7 +146,7 @@ export default function TrendScreen({ onBack }) {
 
       {/* List Section */}
       <View style={{ flex: 1 }}>
-        <Text style={[styles.sectionTitle, { paddingHorizontal: 16 }]}>Detailed Records</Text>
+        <Text style={[styles.sectionTitle, { paddingHorizontal: 16 }]}>Scan History</Text>
         <FlatList
           data={reversedSnaps}
           keyExtractor={(item, idx) => item.snapshot_at + idx}
@@ -166,9 +166,14 @@ export default function TrendScreen({ onBack }) {
                       day: 'numeric',
                       month: 'short',
                       year: 'numeric',
+                    })} at {new Date(item.snapshot_at).toLocaleTimeString('en-GB', {
+                      hour: '2-digit',
+                      minute: '2-digit',
                     })}
                   </Text>
-                  <Text style={styles.rowGhosts}>{item.ghost_count} ghost resources flagged</Text>
+                  <Text style={styles.rowGhosts}>
+                    {item.ghost_count === 0 ? 'No ghosts found' : `${item.ghost_count} ghost${item.ghost_count !== 1 ? 's' : ''} found`}
+                  </Text>
                 </View>
                 <Text style={styles.rowCost}>
                   {item.currency} {item.total_monthly_cost.toFixed(2)}
