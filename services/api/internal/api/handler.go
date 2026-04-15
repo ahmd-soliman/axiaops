@@ -73,28 +73,56 @@ func (h *Handler) Handler(next http.Handler) http.Handler {
 	return cors(next)
 }
 
+// Optional query param: ?account_id=<id> to filter to a single account.
 func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	accountID := r.URL.Query().Get("account_id")
 	ghosts, err := h.store.LoadGhosts(ctx)
 	if err != nil {
 		slog.Error("listGhosts: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	
+	// Filter by account_id if provided
+	if accountID != "" {
+		filtered := make([]model.GhostResource, 0)
+		for _, ghost := range ghosts {
+			if ghost.AccountID == accountID {
+				filtered = append(filtered, ghost)
+			}
+		}
+		ghosts = filtered
+	}
+	
 	if ghosts == nil {
 		ghosts = []model.GhostResource{}
 	}
 	writeJSON(w, ghosts)
 }
 
+// Optional query param: ?account_id=<id> to filter to a single account.
 func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	accountID := r.URL.Query().Get("account_id")
 	resources, err := h.store.LoadResources(ctx)
 	if err != nil {
 		slog.Error("listResources: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	
+	// Filter by account_id if provided
+	if accountID != "" {
+		filtered := make([]model.ResourceRecord, 0)
+		for _, resource := range resources {
+			if resource.AccountID == accountID {
+				filtered = append(filtered, resource)
+			}
+		}
+		resources = filtered
+	}
+	
 	if resources == nil {
 		resources = []model.ResourceRecord{}
 	}
