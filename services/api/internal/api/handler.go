@@ -131,11 +131,21 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	accountID := r.URL.Query().Get("account_id")
 	ghosts, err := h.store.LoadGhosts(ctx)
 	if err != nil {
 		slog.Error("getSummary: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	if accountID != "" {
+		filtered := make([]model.GhostResource, 0)
+		for _, g := range ghosts {
+			if g.AccountID == accountID {
+				filtered = append(filtered, g)
+			}
+		}
+		ghosts = filtered
 	}
 	writeJSON(w, analyzer.Summarize(ghosts))
 }
