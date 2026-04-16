@@ -13,6 +13,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { fetchSummary, fetchResources, fetchTrend, scanAccount, deleteAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
+import AccountSelector from '../components/AccountSelector';
 
 // calculateNextScanTime returns a human-readable time until the next scheduled scan.
 // account: { last_scanned_at, scan_interval_hours }
@@ -103,7 +104,6 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
   const [ghostOnly, setGhostOnly]     = React.useState(true);
   const [selectedAccount, setSelectedAccount] = React.useState(null); // null = all accounts
   const [scanning, setScanning]       = React.useState(null); // account id being scanned
-  const [deleting, setDeleting]       = React.useState(null); // account id being deleted
 
   const summary   = useQuery({ queryKey: ['summary'],   queryFn: fetchSummary   });
   const resources = useQuery({ 
@@ -130,16 +130,6 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
       setTimeout(() => { refresh(); setScanning(null); }, 3000);
     } catch {
       setScanning(null);
-    }
-  }
-
-  async function handleDelete(accountId) {
-    setDeleting(accountId);
-    try {
-      await deleteAccount(accountId);
-      onDeleteAccount && onDeleteAccount(accountId);
-    } catch {
-      setDeleting(null);
     }
   }
 
@@ -179,6 +169,17 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
           <View style={styles.navbar}>
             <Text style={styles.navBrand}>AxiaOps</Text>
             <View style={{ flex: 1 }} />
+            {accounts.length > 0 && (
+              <AccountSelector
+                accounts={accounts}
+                selectedAccount={selectedAccount}
+                onSelectAccount={setSelectedAccount}
+                onConnectAccount={onConnectAccount}
+                onEditAccount={onEditAccount}
+                onScanAccount={handleScan}
+                scanning={scanning}
+              />
+            )}
             {orgName ? (
               <View style={styles.orgPill}>
                 <Text style={styles.orgPillText}>{orgName}</Text>
@@ -189,101 +190,13 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
             </TouchableOpacity>
           </View>
 
-          {/* Accounts bar */}
-          <View style={styles.accountsBar}>
-            {accounts.length === 0 ? (
+          {/* Show connect prompt if no accounts */}
+          {accounts.length === 0 && (
+            <View style={styles.connectPrompt}>
+              <Text style={styles.connectPromptText}>Connect your first AWS account to get started</Text>
               <TouchableOpacity style={styles.connectBtn} onPress={onConnectAccount}>
                 <Text style={styles.connectBtnText}>+ Connect AWS Account</Text>
               </TouchableOpacity>
-            ) : (
-              accounts.map((acc) => {
-                const nextScanTime = calculateNextScanTime(acc);
-                const isPending = acc.status === 'connected' && !acc.last_scanned_at;
-                const isError = acc.status === 'error';
-                const isTimeout = acc.status === 'scan_timeout';
-                const isCircuitBreakerOpen = acc.status === 'circuit_breaker_open';
-                
-                return (
-                  <View key={acc.id} style={styles.accountChip}>
-                    <View style={[
-                      styles.accountDot,
-                      isError && styles.accountDotError,
-                      isTimeout && styles.accountDotTimeout,
-                      isCircuitBreakerOpen && styles.accountDotCircuitBreaker,
-                      isPending && styles.accountDotPending
-                    ]} />
-                    <TouchableOpacity onPress={() => onEditAccount && onEditAccount(acc)} style={styles.accountLabelWrapper}>
-                      <Text style={styles.accountLabel} numberOfLines={1}>
-                        {acc.label || acc.access_key_id.slice(0, 8) + '…'}
-                      </Text>
-                      {nextScanTime && (
-                        <Text style={styles.accountNextScan} numberOfLines={1}>
-                          {nextScanTime}
-                        </Text>
-                      )}
-                      {(isTimeout || isCircuitBreakerOpen) && (
-                        <Text style={styles.accountErrorStatus} numberOfLines={1}>
-                          {isTimeout ? 'Scan timeout' : 'Circuit breaker open'}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => handleScan(acc.id)}
-                      disabled={scanning === acc.id || isCircuitBreakerOpen}
-                      style={[
-                        styles.scanBtn,
-                        isCircuitBreakerOpen && styles.scanBtnDisabled
-                      ]}
-                    >
-                      {scanning === acc.id
-                        ? <ActivityIndicator size="small" color={C.accent} />
-                        : <Text style={styles.scanBtnText}>Scan</Text>
-                      }
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => handleDelete(acc.id)}
-                      disabled={deleting === acc.id}
-                      style={styles.deleteBtn}
-                    >
-                      {deleting === acc.id
-                        ? <ActivityIndicator size="small" color="#EF4444" />
-                        : <Text style={styles.deleteBtnText}>×</Text>
-                      }
-                    </TouchableOpacity>
-                  </View>
-                );
-              })
-            )}
-            {accounts.length > 0 && (
-              <TouchableOpacity onPress={onConnectAccount} style={styles.addAccountBtn}>
-                <Text style={styles.addAccountText}>+</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Account Filter */}
-          {accounts.length > 1 && (
-            <View style={styles.accountFilter}>
-              <Text style={styles.filterLabel}>View:</Text>
-              <TouchableOpacity
-                style={[styles.filterBtn, selectedAccount === null && styles.filterBtnActive]}
-                onPress={() => setSelectedAccount(null)}
-              >
-                <Text style={[styles.filterBtnText, selectedAccount === null && styles.filterBtnTextActive]}>
-                  All Accounts
-                </Text>
-              </TouchableOpacity>
-              {accounts.map((acc) => (
-                <TouchableOpacity
-                  key={acc.id}
-                  style={[styles.filterBtn, selectedAccount === acc.id && styles.filterBtnActive]}
-                  onPress={() => setSelectedAccount(acc.id)}
-                >
-                  <Text style={[styles.filterBtnText, selectedAccount === acc.id && styles.filterBtnTextActive]}>
-                    {acc.label || acc.access_key_id.slice(0, 8) + '…'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
             </View>
           )}
 
@@ -452,82 +365,29 @@ const styles = StyleSheet.create({
   logoutBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: C.navyLight },
   logoutText: { color: C.textMuted, fontSize: 12, fontWeight: '600' },
 
-  // Accounts bar
-  accountsBar: {
+  // Connect prompt (when no accounts)
+  connectPrompt: {
     backgroundColor: C.navyMid,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    flexDirection: 'row',
+    paddingVertical: 16,
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.navyLight,
+  },
+  connectPromptText: {
+    color: C.textSub,
+    fontSize: 14,
+    marginBottom: 12,
   },
   connectBtn: {
     borderWidth: 1,
     borderColor: C.accent,
     borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderStyle: 'dashed',
   },
   connectBtnText: { color: C.accent, fontSize: 13, fontWeight: '600' },
-  accountChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: C.navyLight,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    gap: 8,
-  },
-  accountDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#22C55E' },
-  accountDotPending: { backgroundColor: '#EAB308' },
-  accountDotError: { backgroundColor: '#EF4444' },
-  accountDotTimeout: { backgroundColor: '#F97316' },
-  accountDotCircuitBreaker: { backgroundColor: '#8B5CF6' },
-  accountErrorStatus: {
-    fontSize: 11,
-    color: '#EF4444',
-    fontWeight: '500',
-  },
-  accountLabelWrapper: { flexDirection: 'column', justifyContent: 'center' },
-  accountLabel: { color: C.white, fontSize: 12, fontWeight: '600', maxWidth: 120 },
-  accountNextScan: { color: C.textSub, fontSize: 10, maxWidth: 120, marginTop: 2 },
-  scanBtn: { paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.navy, borderRadius: 5, minWidth: 40, alignItems: 'center' },
-  scanBtnDisabled: { backgroundColor: '#6B7280', opacity: 0.5 },
-  scanBtnText: { color: C.accent, fontSize: 11, fontWeight: '700' },
-  deleteBtn: { paddingHorizontal: 6, paddingVertical: 3, alignItems: 'center', justifyContent: 'center' },
-  deleteBtnText: { color: '#EF4444', fontSize: 16, fontWeight: '700', lineHeight: 18 },
-  addAccountBtn: {
-    width: 30, height: 30, borderRadius: 8,
-    backgroundColor: C.navyLight,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  addAccountText: { color: C.textMuted, fontSize: 18, lineHeight: 20 },
-
-  // Account filter
-  accountFilter: {
-    backgroundColor: C.bg,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
-  },
-  filterLabel: { color: C.textMid, fontSize: 13, fontWeight: '600', marginRight: 4 },
-  filterBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: C.border,
-  },
-  filterBtnActive: { backgroundColor: C.accent },
-  filterBtnText: { fontSize: 12, fontWeight: '600', color: C.textMid },
-  filterBtnTextActive: { color: C.white },
 
   // Hero
   hero: {

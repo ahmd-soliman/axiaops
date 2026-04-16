@@ -8,6 +8,7 @@ import DetailScreen from './src/screens/DetailScreen';
 import TrendScreen from './src/screens/TrendScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import ConnectScreen from './src/screens/ConnectScreen';
+import AccountSettingsScreen from './src/screens/AccountSettingsScreen';
 import { useKindeAuth } from './src/auth/kinde';
 import { saveToken, getToken, clearToken } from './src/auth/storage';
 import { setAuthToken, fetchAccounts } from './src/api/client';
@@ -30,6 +31,7 @@ function AuthenticatedApp({ token, onLogout }) {
   const [showConnect, setShowConnect]     = useState(false);
   const [showTrend, setShowTrend]         = useState(false);
   const [editAccount, setEditAccount]     = useState(null); // Account being edited
+  const [showAccountSettings, setShowAccountSettings] = useState(null); // Account for settings screen
   const claims  = parseJwt(token);
   const orgName = claims.org_name || claims.org_code || '';
 
@@ -42,18 +44,47 @@ function AuthenticatedApp({ token, onLogout }) {
     }
   }, [accounts.data]);
 
-  if (showConnect || editAccount) {
+  if (showConnect) {
+    return (
+      <ConnectScreen
+        onConnected={() => {
+          setShowConnect(false);
+          accounts.refetch();
+          queryClient.invalidateQueries();
+        }}
+        onSkip={() => setShowConnect(false)}
+      />
+    );
+  }
+
+  if (editAccount) {
     return (
       <ConnectScreen
         account={editAccount}
         onConnected={() => {
-          setShowConnect(false);
           setEditAccount(null);
           accounts.refetch();
           queryClient.invalidateQueries();
         }}
-        onSkip={editAccount ? null : () => setShowConnect(false)}
-        onCancel={editAccount ? () => setEditAccount(null) : null}
+        onCancel={() => setEditAccount(null)}
+      />
+    );
+  }
+
+  if (showAccountSettings) {
+    return (
+      <AccountSettingsScreen
+        account={showAccountSettings}
+        onBack={() => setShowAccountSettings(null)}
+        onAccountUpdated={() => {
+          setShowAccountSettings(null);
+          accounts.refetch();
+          queryClient.invalidateQueries();
+        }}
+        onAccountDeleted={() => {
+          setShowAccountSettings(null);
+          accounts.refetch();
+        }}
       />
     );
   }
@@ -74,7 +105,7 @@ function AuthenticatedApp({ token, onLogout }) {
       orgName={orgName}
       accounts={accounts.data ?? []}
       onConnectAccount={() => setShowConnect(true)}
-      onEditAccount={(acc) => setEditAccount(acc)}
+      onEditAccount={(acc) => setShowAccountSettings(acc)}
       onDeleteAccount={() => accounts.refetch()}
     />
   );
