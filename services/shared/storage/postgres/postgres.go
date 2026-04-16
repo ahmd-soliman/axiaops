@@ -483,7 +483,8 @@ func (s *Store) TryMarkAccountScanning(ctx context.Context, id string) (bool, er
 	return tag.RowsAffected() == 1, nil
 }
 
-// SaveResources replaces the tenant's resource records with the latest inventory.
+// SaveResources replaces resource records for the accounts present in the
+// provided slice, leaving all other accounts' records untouched.
 func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRecord) error {
 	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
@@ -500,8 +501,16 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM resource_records`); err != nil {
-		return fmt.Errorf("postgres: clear resource_records: %w", err)
+	// Collect the unique account IDs present in this batch and delete only
+	// their existing records, so other accounts' data is not affected.
+	accountIDs := make(map[string]bool)
+	for _, r := range resources {
+		accountIDs[r.AccountID] = true
+	}
+	for accountID := range accountIDs {
+		if _, err := tx.Exec(ctx, `DELETE FROM resource_records WHERE account_id = $1`, accountID); err != nil {
+			return fmt.Errorf("postgres: clear resource_records for account %s: %w", accountID, err)
+		}
 	}
 
 	now := time.Now().UTC()
