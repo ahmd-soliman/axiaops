@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,20 +10,9 @@ import {
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { fetchTrend } from '../api/client';
+import { useTheme } from '../theme/ThemeContext';
 
-const C = {
-  bg: '#F8FAFC',
-  navy: '#0F172A',
-  navyMid: '#1E293B',
-  accent: '#F97316',
-  text: '#0F172A',
-  textMid: '#475569',
-  textMuted: '#94A3B8',
-  white: '#FFFFFF',
-  border: '#E2E8F0',
-};
-
-function FullTrendChart({ snaps, selectedId, onSelect }) {
+function FullTrendChart({ snaps, selectedId, onSelect, theme, scrollViewRef }) {
   if (!snaps || snaps.length < 2) return null;
 
   const H = 160;
@@ -31,45 +20,28 @@ function FullTrendChart({ snaps, selectedId, onSelect }) {
   const GAP = 2;
   const values = snaps.map((s) => s.total_monthly_cost);
   const maxVal = Math.max(...values, 0.01);
-
-  // We show all items in a horizontally scrolling view
   const W = snaps.length * (BAR_W + GAP);
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
-      {/* Container aligned to flex-end so bars grow upwards */}
+    <ScrollView ref={scrollViewRef} horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
       <View style={{ width: W, height: H, flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 16 }}>
         {snaps.map((s, i) => {
-          const v = s.total_monthly_cost;
-          const barH = Math.max(4, Math.round((v / maxVal) * H));
+          const barH = Math.max(4, Math.round((s.total_monthly_cost / maxVal) * H));
           const isSelected = selectedId === s.snapshot_at;
           const isLast = i === snaps.length - 1;
 
           let bgColor = 'rgba(249,115,22,0.45)';
-          if (isSelected) bgColor = C.navy;
-          else if (isLast) bgColor = C.accent;
+          if (isSelected) bgColor = theme.accent;
+          else if (isLast) bgColor = theme.accent;
 
           return (
             <TouchableOpacity
               key={i}
               activeOpacity={0.7}
               onPress={() => onSelect(s)}
-              style={{
-                width: BAR_W,
-                height: H, // Fill container height for easier tap target
-                justifyContent: 'flex-end',
-                marginRight: i < snaps.length - 1 ? GAP : 0,
-              }}
+              style={{ width: BAR_W, height: H, justifyContent: 'flex-end', marginRight: i < snaps.length - 1 ? GAP : 0 }}
             >
-              <View
-                style={{
-                  width: BAR_W,
-                  height: barH,
-                  backgroundColor: bgColor,
-                  borderTopLeftRadius: 3,
-                  borderTopRightRadius: 3,
-                }}
-              />
+              <View style={{ width: BAR_W, height: barH, backgroundColor: bgColor, borderTopLeftRadius: 3, borderTopRightRadius: 3 }} />
             </TouchableOpacity>
           );
         })}
@@ -79,13 +51,17 @@ function FullTrendChart({ snaps, selectedId, onSelect }) {
 }
 
 export default function TrendScreen({ onBack }) {
+  const { theme } = useTheme();
+  const styles = createStyles(theme);
   const trend = useQuery({ queryKey: ['trend'], queryFn: () => fetchTrend(null) });
   const [selectedSnap, setSelectedSnap] = useState(null);
+  const flatListRef = useRef(null);
+  const chartScrollRef = useRef(null);
 
   if (trend.isLoading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={C.accent} />
+        <ActivityIndicator size="large" color={theme.accent} />
         <Text style={styles.loadingText}>Loading trend data...</Text>
       </View>
     );
@@ -105,13 +81,10 @@ export default function TrendScreen({ onBack }) {
   const snaps = trend.data;
   const latestSnap = snaps.length > 0 ? snaps[snaps.length - 1] : null;
   const displaySnap = selectedSnap || latestSnap;
-  
-  // Create a reversed array for the list so we see the newest first
   const reversedSnaps = [...snaps].reverse();
 
   return (
     <View style={styles.container}>
-      {/* Dark Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.back}>
           <Text style={styles.backText}>← Back</Text>
@@ -124,19 +97,33 @@ export default function TrendScreen({ onBack }) {
             {displaySnap?.currency || '$'} {displaySnap ? displaySnap.total_monthly_cost.toFixed(2) : '0.00'}
           </Text>
           <Text style={styles.headerSub}>
-            {selectedSnap ? `${selectedSnap.ghost_count} ghost resources found` : 'Latest projected monthly cost'}
+            {selectedSnap
+              ? `${selectedSnap.ghost_count} zombie resource${selectedSnap.ghost_count !== 1 ? 's' : ''} detected across your accounts`
+              : 'Latest projected monthly cost'}
           </Text>
         </View>
       </View>
 
-      {/* Chart Section */}
       <View style={styles.chartContainer}>
         <Text style={styles.sectionTitle}>Monthly Projection Timeline</Text>
         <View style={styles.chartWrapper}>
-          <FullTrendChart 
-            snaps={snaps} 
-            selectedId={selectedSnap?.snapshot_at} 
-            onSelect={(s) => setSelectedSnap(s.snapshot_at === selectedSnap?.snapshot_at ? null : s)} 
+          <FullTrendChart
+            snaps={snaps}
+            selectedId={selectedSnap?.snapshot_at}
+            onSelect={(s) => {
+              const newSelection = s.snapshot_at === selectedSnap?.snapshot_at ? null : s;
+              setSelectedSnap(newSelection);
+              if (newSelection && flatListRef.current) {
+                setTimeout(() => {
+                  const index = reversedSnaps.findIndex(snap => snap.snapshot_at === newSelection.snapshot_at);
+                  if (index >= 0) {
+                    flatListRef.current.scrollToOffset({ offset: index * 60, animated: true });
+                  }
+                }, 100);
+              }
+            }}
+            theme={theme}
+            scrollViewRef={chartScrollRef}
           />
         </View>
         <View style={styles.chartLegend}>
@@ -144,40 +131,47 @@ export default function TrendScreen({ onBack }) {
         </View>
       </View>
 
-      {/* List Section */}
       <View style={{ flex: 1 }}>
         <Text style={[styles.sectionTitle, { paddingHorizontal: 16 }]}>Scan History</Text>
         <FlatList
+          ref={flatListRef}
           data={reversedSnaps}
           keyExtractor={(item, idx) => item.snapshot_at + idx}
           contentContainerStyle={styles.listContent}
           extraData={selectedSnap}
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             const isSelected = selectedSnap?.snapshot_at === item.snapshot_at;
             return (
               <TouchableOpacity
                 activeOpacity={0.6}
-                onPress={() => setSelectedSnap(isSelected ? null : item)}
+                onPress={() => {
+                  const newSelection = isSelected ? null : item;
+                  setSelectedSnap(newSelection);
+                  if (newSelection && chartScrollRef.current) {
+                    setTimeout(() => {
+                      const chartIndex = snaps.findIndex(snap => snap.snapshot_at === newSelection.snapshot_at);
+                      if (chartIndex >= 0) {
+                        const BAR_W = 6;
+                        const GAP = 2;
+                        const scrollX = chartIndex * (BAR_W + GAP);
+                        chartScrollRef.current.scrollTo({ x: scrollX, animated: true });
+                      }
+                    }, 100);
+                  }
+                }}
                 style={[styles.row, isSelected && styles.rowSelected]}
               >
                 <View>
                   <Text style={styles.rowDate}>
-                    {new Date(item.snapshot_at).toLocaleDateString('en-GB', {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })} at {new Date(item.snapshot_at).toLocaleTimeString('en-GB', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {new Date(item.snapshot_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {' at '}
+                    {new Date(item.snapshot_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                   <Text style={styles.rowGhosts}>
                     {item.ghost_count === 0 ? 'No ghosts found' : `${item.ghost_count} ghost${item.ghost_count !== 1 ? 's' : ''} found`}
                   </Text>
                 </View>
-                <Text style={styles.rowCost}>
-                  {item.currency} {item.total_monthly_cost.toFixed(2)}
-                </Text>
+                <Text style={styles.rowCost}>{item.currency} {item.total_monthly_cost.toFixed(2)}</Text>
               </TouchableOpacity>
             );
           }}
@@ -187,36 +181,36 @@ export default function TrendScreen({ onBack }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
-  loadingText: { marginTop: 14, color: C.textMuted, fontSize: 14 },
-  errorText: { color: C.textMid, fontSize: 16, marginBottom: 20 },
-  backBtnError: { paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.navy, borderRadius: 8 },
-  backBtnErrorText: { color: C.white, fontWeight: '600' },
+const createStyles = (theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.bg },
+  loadingText: { marginTop: 14, color: theme.textMuted, fontSize: 14 },
+  errorText: { color: theme.textMid, fontSize: 16, marginBottom: 20 },
+  backBtnError: { paddingHorizontal: 20, paddingVertical: 10, backgroundColor: theme.navy, borderRadius: 8 },
+  backBtnErrorText: { color: theme.white, fontWeight: '600' },
 
-  header: { backgroundColor: C.navyMid, paddingBottom: 28 },
+  header: { backgroundColor: theme.surfaceAlt, paddingBottom: 28, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   back: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
-  backText: { color: C.textMuted, fontWeight: '600', fontSize: 14 },
+  backText: { color: theme.textMuted, fontWeight: '600', fontSize: 14 },
   headerBody: { paddingHorizontal: 20 },
-  headerEyebrow: { color: C.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 },
-  headerAmount: { color: C.accent, fontSize: 46, fontWeight: '800', letterSpacing: -1 },
-  headerSub: { color: C.textMid, fontSize: 13, marginTop: 4 },
+  headerEyebrow: { color: theme.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 },
+  headerAmount: { color: theme.accent, fontSize: 46, fontWeight: '800', letterSpacing: -1 },
+  headerSub: { color: theme.textMid, fontSize: 13, marginTop: 4 },
 
   chartContainer: {
-    backgroundColor: C.white,
+    backgroundColor: theme.surface,
     paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
+    borderBottomColor: theme.border,
   },
   sectionTitle: {
-    fontSize: 11, fontWeight: '700', color: C.textMuted,
+    fontSize: 11, fontWeight: '700', color: theme.textMuted,
     letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12, paddingHorizontal: 16,
   },
   chartWrapper: { marginTop: 4 },
   chartLegend: { paddingHorizontal: 16, marginTop: 12 },
-  legendText: { fontSize: 12, color: C.textMuted, fontStyle: 'italic' },
+  legendText: { fontSize: 12, color: theme.textMuted, fontStyle: 'italic' },
 
   listContent: { paddingHorizontal: 8, paddingBottom: 40 },
   row: {
@@ -226,16 +220,16 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
+    borderBottomColor: theme.border,
     borderRadius: 8,
   },
   rowSelected: {
-    backgroundColor: '#FFF7ED',
-    borderColor: '#FFEDD5',
+    backgroundColor: theme.accentLight,
+    borderColor: theme.accentBorder,
     borderWidth: 1,
     borderBottomWidth: 1,
   },
-  rowDate: { fontSize: 14, color: C.text, fontWeight: '600', marginBottom: 4 },
-  rowGhosts: { fontSize: 12, color: C.textMuted },
-  rowCost: { fontSize: 15, fontWeight: '700', color: C.accent },
+  rowDate: { fontSize: 14, color: theme.text, fontWeight: '600', marginBottom: 4 },
+  rowGhosts: { fontSize: 12, color: theme.textMuted },
+  rowCost: { fontSize: 15, fontWeight: '700', color: theme.accent },
 });
