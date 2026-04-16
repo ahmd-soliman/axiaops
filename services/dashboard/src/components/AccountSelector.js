@@ -1,16 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
-
-const C = {
-  navy: '#0F172A',
-  navyMid: '#1E293B',
-  navyLight: '#334155',
-  accent: '#F97316',
-  white: '#FFFFFF',
-  textSub: '#64748B',
-  border: '#E2E8F0',
-  error: '#EF4444',
-};
+import { useTheme } from '../theme/ThemeContext';
 
 export default function AccountSelector({ 
   accounts, 
@@ -21,6 +11,7 @@ export default function AccountSelector({
   onScanAccount,
   scanning 
 }) {
+  const { theme } = useTheme();
   const [showDropdown, setShowDropdown] = useState(false);
 
   const currentAccount = selectedAccount 
@@ -54,10 +45,12 @@ export default function AccountSelector({
   }
 
   const getStatusColor = (account) => {
-    if (account.status === 'error') return C.error;
-    if (account.status === 'scan_timeout' || account.status === 'circuit_breaker_open') return '#F59E0B';
-    return '#22C55E';
+    if (account.status === 'error') return theme.error;
+    if (account.status === 'scan_timeout' || account.status === 'circuit_breaker_open') return theme.warning;
+    return theme.success;
   };
+
+  const styles = createStyles(theme);
 
   return (
     <View style={styles.container}>
@@ -119,7 +112,7 @@ export default function AccountSelector({
                       disabled={scanning === account.id}
                     >
                       {scanning === account.id ? (
-                        <ActivityIndicator size="small" color={C.accent} />
+                        <ActivityIndicator size="small" color={theme.accent} />
                       ) : (
                         <Text style={styles.actionText}>Scan</Text>
                       )}
@@ -145,14 +138,14 @@ export default function AccountSelector({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   container: {
     position: 'relative',
   },
   selector: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.navyMid,
+    backgroundColor: theme.navyMid,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
@@ -160,13 +153,13 @@ const styles = StyleSheet.create({
     maxWidth: 180,
   },
   selectorText: {
-    color: C.white,
+    color: theme.white,
     fontSize: 13,
     fontWeight: '600',
     flex: 1,
   },
   chevron: {
-    color: C.textSub,
+    color: theme.textSub,
     fontSize: 10,
     marginLeft: 6,
   },
@@ -177,7 +170,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dropdown: {
-    backgroundColor: C.white,
+    backgroundColor: theme.white,
     borderRadius: 12,
     padding: 16,
     margin: 20,
@@ -188,7 +181,7 @@ const styles = StyleSheet.create({
   dropdownTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: C.navy,
+    color: theme.navy,
     marginBottom: 12,
   },
   accountItem: {
@@ -200,7 +193,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   accountItemActive: {
-    backgroundColor: '#FFF7ED',
+    backgroundColor: theme.accentLight,
   },
   statusDot: {
     width: 8,
@@ -213,11 +206,11 @@ const styles = StyleSheet.create({
   accountName: {
     fontSize: 14,
     fontWeight: '600',
-    color: C.navy,
+    color: theme.navy,
   },
   accountDetail: {
     fontSize: 12,
-    color: C.textSub,
+    color: theme.textSub,
     marginTop: 2,
   },
   accountActions: {
@@ -228,11 +221,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: theme.bgSecondary,
   },
   actionText: {
     fontSize: 12,
-    color: C.accent,
+    color: theme.accent,
     fontWeight: '600',
   },
   connectBtn: {
@@ -240,10 +233,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: C.border,
+    borderTopColor: theme.border,
   },
   connectText: {
-    color: C.accent,
+    color: theme.accent,
     fontSize: 14,
     fontWeight: '600',
   },

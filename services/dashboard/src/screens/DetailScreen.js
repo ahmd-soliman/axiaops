@@ -7,20 +7,11 @@ import {
   StyleSheet,
 } from 'react-native';
 import { serviceConfig } from '../components/serviceConfig';
-
-const C = {
-  bg: '#F8FAFC',
-  navy: '#0F172A',
-  navyMid: '#1E293B',
-  accent: '#F97316',
-  text: '#0F172A',
-  textMid: '#475569',
-  textMuted: '#94A3B8',
-  white: '#FFFFFF',
-  border: '#E2E8F0',
-};
+import { useTheme } from '../theme/ThemeContext';
 
 export default function DetailScreen({ ghost, onBack }) {
+  const { theme } = useTheme();
+  const styles = createStyles(theme);
   const cfg = serviceConfig(ghost.service);
 
   const stats = [
@@ -131,65 +122,62 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+const createStyles = (theme) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.bg },
   content: { paddingBottom: 48 },
 
-  header: { backgroundColor: C.navyMid, paddingBottom: 28 },
+  header: { backgroundColor: theme.surfaceAlt, paddingBottom: 28, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   back: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
-  backText: { color: C.textMuted, fontWeight: '600', fontSize: 14 },
+  backText: { color: theme.textMuted, fontWeight: '600', fontSize: 14 },
   headerBody: { paddingHorizontal: 20 },
   headerTop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   badge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
-  badgeText: { color: C.white, fontSize: 12, fontWeight: '800' },
-  ghostBadge: { backgroundColor: '#FEF2F2', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  ghostBadgeText: { fontSize: 10, fontWeight: '700', color: '#B91C1C' },
-  headerService: { color: C.textMuted, fontSize: 14, flex: 1 },
-  headerCost: { color: C.accent, fontSize: 42, fontWeight: '800', letterSpacing: -1 },
-  headerSub: { color: C.textMid, fontSize: 13, marginTop: 2 },
+  badgeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  ghostBadge: { backgroundColor: theme.ghostBadgeBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  ghostBadgeText: { fontSize: 10, fontWeight: '700', color: theme.ghostBadgeText },
+  headerService: { color: theme.textMuted, fontSize: 14, flex: 1 },
+  headerCost: { color: theme.accent, fontSize: 42, fontWeight: '800', letterSpacing: -1 },
+  headerSub: { color: theme.textMid, fontSize: 13, marginTop: 2 },
 
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 16 },
   statCard: {
-    backgroundColor: C.white,
+    backgroundColor: theme.card,
     borderRadius: 10,
     padding: 14,
     flex: 1,
     minWidth: '45%',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
+    boxShadow: '0px 1px 4px rgba(0,0,0,0.04)',
   },
-  statCardAccent: { backgroundColor: '#FFF7ED' },
-  statValue: { fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 4 },
-  statValueAccent: { color: C.accent },
-  statLabel: { fontSize: 11, color: C.textMuted, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
+  statCardAccent: { backgroundColor: theme.accentLight },
+  statValue: { fontSize: 17, fontWeight: '700', color: theme.text, marginBottom: 4 },
+  statValueAccent: { color: theme.accent },
+  statLabel: { fontSize: 11, color: theme.textMuted, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
 
   section: { paddingHorizontal: 16, marginBottom: 16 },
   sectionTitle: {
-    fontSize: 11, fontWeight: '700', color: C.textMuted,
+    fontSize: 11, fontWeight: '700', color: theme.textMuted,
     letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8,
   },
 
-  reasonBox: { backgroundColor: C.white, borderLeftWidth: 4, borderRadius: 8, padding: 16 },
-  reasonText: { fontSize: 14, color: C.textMid, lineHeight: 21 },
+  reasonBox: { backgroundColor: theme.card, borderLeftWidth: 4, borderRadius: 8, padding: 16 },
+  reasonText: { fontSize: 14, color: theme.textMid, lineHeight: 21 },
 
-  table: { backgroundColor: C.white, borderRadius: 10, overflow: 'hidden' },
+  table: { backgroundColor: theme.card, borderRadius: 10, overflow: 'hidden' },
   row: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 16, paddingVertical: 13,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border,
   },
   rowLast: { borderBottomWidth: 0 },
-  rowLabel: { fontSize: 13, color: C.textMuted },
-  rowValue: { fontSize: 13, color: C.text, fontWeight: '600', textAlign: 'right', flex: 1, marginLeft: 16 },
+  rowLabel: { fontSize: 13, color: theme.textMuted },
+  rowValue: { fontSize: 13, color: theme.text, fontWeight: '600', textAlign: 'right', flex: 1, marginLeft: 16 },
   mono: { fontFamily: 'monospace', fontSize: 11 },
 
   actionBox: {
-    backgroundColor: '#FFFBEB', borderRadius: 10, padding: 16,
+    backgroundColor: theme.accentLight, borderRadius: 10, padding: 16,
     flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-    borderWidth: 1, borderColor: '#FDE68A',
+    borderWidth: 1, borderColor: theme.accentBorder,
   },
   actionIcon: { fontSize: 18 },
-  actionText: { fontSize: 14, color: '#78350F', lineHeight: 21, flex: 1 },
+  actionText: { fontSize: 14, color: theme.accentText, lineHeight: 21, flex: 1 },
 });

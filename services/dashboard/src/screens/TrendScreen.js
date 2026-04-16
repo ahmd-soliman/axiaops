@@ -7,28 +7,38 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
+  useWindowDimensions,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { fetchTrend } from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
 
-function FullTrendChart({ snaps, selectedId, onSelect, theme, scrollViewRef }) {
+const PAGE_SIZE = 90;
+const CHART_HEIGHT = 160;
+const CHART_GAP = 2;
+const CHART_PADDING = 16; // horizontal padding inside scroll content
+
+function FullTrendChart({ snaps, selectedId, onSelect, theme, scrollViewRef, page = 0, barWidth, contentWidth, screenWidth }) {
   if (!snaps || snaps.length < 2) return null;
 
-  const H = 160;
-  const BAR_W = 6;
-  const GAP = 2;
-  const values = snaps.map((s) => s.total_monthly_cost);
+  const startIndex = Math.max(0, snaps.length - (page + 1) * PAGE_SIZE);
+  const endIndex = snaps.length - page * PAGE_SIZE;
+  const pageSnaps = snaps.slice(startIndex, endIndex);
+
+  const values = pageSnaps.map((s) => s.total_monthly_cost);
   const maxVal = Math.max(...values, 0.01);
-  const W = snaps.length * (BAR_W + GAP);
+
+  // Center bars if content is smaller than screen width
+  const barsWidth = pageSnaps.length * barWidth + Math.max(0, pageSnaps.length - 1) * CHART_GAP;
+  const horizontalPadding = Math.max(CHART_PADDING, (screenWidth - barsWidth) / 2);
 
   return (
-    <ScrollView ref={scrollViewRef} horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
-      <View style={{ width: W, height: H, flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 16 }}>
-        {snaps.map((s, i) => {
-          const barH = Math.max(4, Math.round((s.total_monthly_cost / maxVal) * H));
+    <ScrollView ref={scrollViewRef} horizontal showsHorizontalScrollIndicator={false} style={{ width: '100%', flexGrow: 0 }}>
+      <View style={{ width: contentWidth, height: CHART_HEIGHT, flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: horizontalPadding }}>
+        {pageSnaps.map((s, i) => {
+          const barH = Math.max(4, Math.round((s.total_monthly_cost / maxVal) * CHART_HEIGHT));
           const isSelected = selectedId === s.snapshot_at;
-          const isLast = i === snaps.length - 1;
+          const isLast = i === pageSnaps.length - 1 && page === 0;
 
           let bgColor = 'rgba(249,115,22,0.45)';
           if (isSelected) bgColor = theme.accent;
@@ -39,9 +49,9 @@ function FullTrendChart({ snaps, selectedId, onSelect, theme, scrollViewRef }) {
               key={i}
               activeOpacity={0.7}
               onPress={() => onSelect(s)}
-              style={{ width: BAR_W, height: H, justifyContent: 'flex-end', marginRight: i < snaps.length - 1 ? GAP : 0 }}
+              style={{ width: barWidth, height: CHART_HEIGHT, justifyContent: 'flex-end', marginRight: i < pageSnaps.length - 1 ? CHART_GAP : 0 }}
             >
-              <View style={{ width: BAR_W, height: barH, backgroundColor: bgColor, borderTopLeftRadius: 3, borderTopRightRadius: 3 }} />
+              <View style={{ width: barWidth, height: barH, backgroundColor: bgColor, borderTopLeftRadius: 3, borderTopRightRadius: 3 }} />
             </TouchableOpacity>
           );
         })}
@@ -53,10 +63,12 @@ function FullTrendChart({ snaps, selectedId, onSelect, theme, scrollViewRef }) {
 export default function TrendScreen({ onBack }) {
   const { theme } = useTheme();
   const styles = createStyles(theme);
+  const { width: screenWidth } = useWindowDimensions();
   const trend = useQuery({ queryKey: ['trend'], queryFn: () => fetchTrend(null) });
   const [selectedSnap, setSelectedSnap] = useState(null);
   const flatListRef = useRef(null);
   const chartScrollRef = useRef(null);
+  const [chartPage, setChartPage] = useState(0); // 0 = most recent 90 days
 
   if (trend.isLoading) {
     return (
@@ -83,6 +95,50 @@ export default function TrendScreen({ onBack }) {
   const displaySnap = selectedSnap || latestSnap;
   const reversedSnaps = [...snaps].reverse();
 
+  const totalPages = Math.max(1, Math.ceil(snaps.length / PAGE_SIZE));
+  const canGoBack = chartPage < totalPages - 1;
+  const canGoForward = chartPage > 0;
+
+  // Current page's bar layout — bars expand to fill the screen.
+  const currentPageCount = Math.min(PAGE_SIZE, snaps.length - chartPage * PAGE_SIZE);
+  const availableChartWidth = screenWidth - CHART_PADDING * 2;
+  const computedBarW = Math.floor(availableChartWidth / Math.max(1, currentPageCount)) - CHART_GAP;
+  const BAR_W = Math.min(24, Math.max(4, computedBarW));
+  // Accurate width: bars + gaps between them (not after last bar) + padding
+  const barsWidth = currentPageCount * BAR_W + Math.max(0, currentPageCount - 1) * CHART_GAP;
+  const totalPadding = CHART_PADDING * 2;
+  const naturalWidth = barsWidth + totalPadding;
+  const chartContentWidth = Math.max(screenWidth, naturalWidth);
+
+  // Scroll the chart so the selected snap's bar is centered on screen.
+  // If the snap is on another page, switch pages first, then scroll once the
+  // ScrollView has re-rendered with the new content.
+  const scrollChartToSnap = (snap) => {
+    if (!snap) return;
+    const globalIndex = snaps.findIndex((s) => s.snapshot_at === snap.snapshot_at);
+    if (globalIndex < 0) return;
+
+    const targetPage = Math.floor((snaps.length - 1 - globalIndex) / PAGE_SIZE);
+    const pageStart = Math.max(0, snaps.length - (targetPage + 1) * PAGE_SIZE);
+    const indexInPage = globalIndex - pageStart;
+
+    const doScroll = () => {
+      if (!chartScrollRef.current) return;
+      const barLeft = CHART_PADDING + indexInPage * (BAR_W + CHART_GAP);
+      const barCenter = barLeft + BAR_W / 2;
+      const offset = Math.max(0, barCenter - screenWidth / 2);
+      chartScrollRef.current.scrollTo({ x: offset, animated: true });
+    };
+
+    if (targetPage !== chartPage) {
+      setChartPage(targetPage);
+      // Wait for the chart to re-render with the new page before scrolling.
+      setTimeout(doScroll, 120);
+    } else {
+      setTimeout(doScroll, 50);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -105,7 +161,28 @@ export default function TrendScreen({ onBack }) {
       </View>
 
       <View style={styles.chartContainer}>
-        <Text style={styles.sectionTitle}>Monthly Projection Timeline</Text>
+        <View style={styles.chartHeader}>
+          <Text style={styles.sectionTitle}>Monthly Projection Timeline</Text>
+          <View style={styles.chartPagination}>
+            <TouchableOpacity
+              onPress={() => setChartPage(chartPage + 1)}
+              disabled={!canGoBack}
+              style={[styles.pageBtn, !canGoBack && styles.pageBtnDisabled]}
+            >
+              <Text style={[styles.pageBtnText, !canGoBack && styles.pageBtnTextDisabled]}>← Older</Text>
+            </TouchableOpacity>
+            <Text style={styles.pageInfo}>
+              {chartPage === 0 ? 'Recent 90 days' : `${chartPage * PAGE_SIZE + 1}-${Math.min((chartPage + 1) * PAGE_SIZE, snaps.length)} days ago`}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setChartPage(chartPage - 1)}
+              disabled={!canGoForward}
+              style={[styles.pageBtn, !canGoForward && styles.pageBtnDisabled]}
+            >
+              <Text style={[styles.pageBtnText, !canGoForward && styles.pageBtnTextDisabled]}>Newer →</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
         <View style={styles.chartWrapper}>
           <FullTrendChart
             snaps={snaps}
@@ -113,17 +190,24 @@ export default function TrendScreen({ onBack }) {
             onSelect={(s) => {
               const newSelection = s.snapshot_at === selectedSnap?.snapshot_at ? null : s;
               setSelectedSnap(newSelection);
-              if (newSelection && flatListRef.current) {
-                setTimeout(() => {
-                  const index = reversedSnaps.findIndex(snap => snap.snapshot_at === newSelection.snapshot_at);
-                  if (index >= 0) {
-                    flatListRef.current.scrollToOffset({ offset: index * 60, animated: true });
-                  }
-                }, 100);
+              if (newSelection) {
+                scrollChartToSnap(newSelection);
+                if (flatListRef.current) {
+                  setTimeout(() => {
+                    const index = reversedSnaps.findIndex(snap => snap.snapshot_at === newSelection.snapshot_at);
+                    if (index >= 0) {
+                      flatListRef.current.scrollToIndex({ index, viewPosition: 0.15, animated: true });
+                    }
+                  }, 100);
+                }
               }
             }}
             theme={theme}
             scrollViewRef={chartScrollRef}
+            page={chartPage}
+            barWidth={BAR_W}
+            contentWidth={chartContentWidth}
+            screenWidth={screenWidth}
           />
         </View>
         <View style={styles.chartLegend}>
@@ -147,16 +231,8 @@ export default function TrendScreen({ onBack }) {
                 onPress={() => {
                   const newSelection = isSelected ? null : item;
                   setSelectedSnap(newSelection);
-                  if (newSelection && chartScrollRef.current) {
-                    setTimeout(() => {
-                      const chartIndex = snaps.findIndex(snap => snap.snapshot_at === newSelection.snapshot_at);
-                      if (chartIndex >= 0) {
-                        const BAR_W = 6;
-                        const GAP = 2;
-                        const scrollX = chartIndex * (BAR_W + GAP);
-                        chartScrollRef.current.scrollTo({ x: scrollX, animated: true });
-                      }
-                    }, 100);
+                  if (newSelection) {
+                    scrollChartToSnap(newSelection);
                   }
                 }}
                 style={[styles.row, isSelected && styles.rowSelected]}
@@ -203,6 +279,38 @@ const createStyles = (theme) => StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.border,
+  },
+  chartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  chartPagination: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  pageBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  pageBtnDisabled: {
+    opacity: 0.3,
+  },
+  pageBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.accent,
+  },
+  pageBtnTextDisabled: {
+    color: theme.textMuted,
+  },
+  pageInfo: {
+    fontSize: 11,
+    color: theme.textMuted,
+    fontWeight: '600',
   },
   sectionTitle: {
     fontSize: 11, fontWeight: '700', color: theme.textMuted,

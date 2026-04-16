@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, StatusBar, StyleSheet } from 'react-native';
+import { SafeAreaView, StatusBar, StyleSheet, View, Text } from 'react-native';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import * as AuthSession from 'expo-auth-session';
 
@@ -12,6 +12,7 @@ import AccountSettingsScreen from './src/screens/AccountSettingsScreen';
 import { useKindeAuth } from './src/auth/kinde';
 import { saveToken, getToken, clearToken } from './src/auth/storage';
 import { setAuthToken, fetchAccounts } from './src/api/client';
+import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 
 import { DEV_MODE, DEV_ORG_NAME, KINDE_CLIENT_ID } from './src/config';
 
@@ -184,14 +185,27 @@ function Root() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
-        <Root />
-      </SafeAreaView>
+      <ThemeProvider>
+        <ThemedApp />
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
 
+function ThemedApp() {
+  const { theme } = useTheme();
+  
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <StatusBar 
+        barStyle={theme.bg === '#FFFFFF' ? 'dark-content' : 'light-content'} 
+        backgroundColor={theme.bg} 
+      />
+      <Root />
+    </SafeAreaView>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F172A' },
+  container: { flex: 1 },
 });
