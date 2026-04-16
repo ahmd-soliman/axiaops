@@ -16,8 +16,11 @@ function authHeaders() {
   return authToken ? { Authorization: `Bearer ${authToken}` } : {};
 }
 
-export async function fetchSummary() {
-  const res = await fetch(`${BASE_URL}/v1/summary`, { headers: authHeaders() });
+export async function fetchSummary(accountId) {
+  const url = accountId
+    ? `${BASE_URL}/v1/summary?account_id=${encodeURIComponent(accountId)}`
+    : `${BASE_URL}/v1/summary`;
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch summary');
   return res.json();
 }
