@@ -92,7 +92,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
   const [selectedAccount, setSelectedAccount] = React.useState(null); // null = all accounts
   const [scanning, setScanning]       = React.useState(null); // account id being scanned
 
-  const summary   = useQuery({ queryKey: ['summary'],   queryFn: fetchSummary   });
+  const summary   = useQuery({ queryKey: ['summary', selectedAccount], queryFn: () => fetchSummary(selectedAccount) });
   const resources = useQuery({ 
     queryKey: ['resources', selectedAccount], 
     queryFn: () => fetchResources(selectedAccount) 
@@ -198,7 +198,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
               {summary.data.potential_monthly_savings.toFixed(2)}
             </Text>
             <Text style={styles.heroSub}>
-              {summary.data.total_ghosts} zombie resource{summary.data.total_ghosts !== 1 ? 's' : ''} detected across your account
+              {summary.data.total_ghosts} zombie resource{summary.data.total_ghosts !== 1 ? 's' : ''} detected across your accounts
             </Text>
 
             {/* Savings trend sparkline */}
