@@ -14,6 +14,7 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchSummary, fetchResources, fetchTrend, scanAccount, deleteAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
+import { useTheme } from '../theme/ThemeContext';
 
 // calculateNextScanTime returns a human-readable time until the next scheduled scan.
 // account: { last_scanned_at, scan_interval_hours }
@@ -51,7 +52,7 @@ function calculateNextScanTime(account) {
 
 // SavingsSparkline renders a simple bar chart of ghost savings over time.
 // snaps: array of { total_monthly_cost, snapshot_at }
-function SavingsSparkline({ snaps }) {
+function SavingsSparkline({ snaps, theme }) {
   if (!snaps || snaps.length < 2) return null;
 
   const W = 220, H = 36, BAR_W = 4, GAP = 2;
@@ -72,7 +73,7 @@ function SavingsSparkline({ snaps }) {
             style={{
               width: BAR_W,
               height: barH,
-              backgroundColor: isLast ? C.accent : 'rgba(249,115,22,0.45)',
+              backgroundColor: isLast ? theme.accent : 'rgba(249,115,22,0.45)',
               marginRight: i < visible.length - 1 ? GAP : 0,
               borderRadius: 1,
             }}
@@ -83,23 +84,9 @@ function SavingsSparkline({ snaps }) {
   );
 }
 
-// Design tokens
-const C = {
-  bg: '#F8FAFC',
-  navy: '#0F172A',
-  navyMid: '#1E293B',
-  navyLight: '#334155',
-  accent: '#F97316',   // orange — savings / money
-  accentLight: '#FFF7ED',
-  textSub: '#64748B',  // Slate-500 — subtitles on dark backgrounds
-  text: '#0F172A',
-  textMid: '#475569',
-  textMuted: '#94A3B8',
-  white: '#FFFFFF',
-  border: '#E2E8F0',
-};
-
 export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount, onEditAccount, onDeleteAccount }) {
+  const { theme, toggleTheme, isDark } = useTheme();
+  const styles = createStyles(theme);
   const [filterSvc, setFilterSvc]     = React.useState(null);
   const [ghostOnly, setGhostOnly]     = React.useState(true);
   const [selectedAccount, setSelectedAccount] = React.useState(null); // null = all accounts
@@ -135,21 +122,21 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
 
   if (isLoading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={C.accent} />
-        <Text style={styles.loadingText}>Analysing resources…</Text>
+      <View style={[styles.center, { backgroundColor: theme.bg }]}>
+        <ActivityIndicator size="large" color={theme.accent} />
+        <Text style={[styles.loadingText, { color: theme.textMid }]}>Analysing resources…</Text>
       </View>
     );
   }
 
   if (isError) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorIcon}>⚠</Text>
-        <Text style={styles.errorTitle}>Service unavailable</Text>
-        <Text style={styles.errorHint}>Make sure the ingestion service is running on localhost:8080</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={refresh}>
-          <Text style={styles.retryText}>Retry</Text>
+      <View style={[styles.center, { backgroundColor: theme.bg }]}>
+        <Text style={[styles.errorIcon, { color: theme.textMuted }]}>⚠</Text>
+        <Text style={[styles.errorTitle, { color: theme.text }]}>Service unavailable</Text>
+        <Text style={[styles.errorHint, { color: theme.textMid }]}>Make sure the ingestion service is running on localhost:8080</Text>
+        <TouchableOpacity style={[styles.retryBtn, { backgroundColor: theme.accent }]} onPress={refresh}>
+          <Text style={[styles.retryText, { color: theme.white }]}>Retry</Text>
         </TouchableOpacity>
       </View>
     );
@@ -162,7 +149,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
   return (
     <FlatList
       style={styles.list}
-      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refresh} tintColor={C.accent} />}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refresh} tintColor={theme.accent} />}
       ListHeaderComponent={
         <View>
           {/* Navbar */}
@@ -180,6 +167,9 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
                 scanning={scanning}
               />
             )}
+            <TouchableOpacity onPress={toggleTheme} style={styles.themeBtn}>
+              <Text style={[styles.themeBtnText, { color: isDark ? theme.text : '#F59E0B' }]}>{isDark ? '☀' : '☾'}</Text>
+            </TouchableOpacity>
             {orgName ? (
               <View style={styles.orgPill}>
                 <Text style={styles.orgPillText}>{orgName}</Text>
@@ -213,7 +203,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
 
             {/* Savings trend sparkline */}
             <TouchableOpacity activeOpacity={0.8} onPress={() => onShowTrend && onShowTrend()}>
-              <SavingsSparkline snaps={trend.data} />
+              <SavingsSparkline snaps={trend.data} theme={theme} />
               {trend.data && trend.data.length >= 2 && (
                 <Text style={styles.sparklineLabel}>Savings trend ({trend.data.length} scans)</Text>
               )}
@@ -307,8 +297,8 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
 
             {/* Meta row */}
             <View style={styles.cardMeta}>
-              <Chip label={item.region} />
-              <Chip label={item.tags?.env ?? 'unknown'} variant={isProd ? 'prod' : 'stag'} />
+              <Chip label={item.region} styles={styles} />
+              <Chip label={item.tags?.env ?? 'unknown'} variant={isProd ? 'prod' : 'stag'} styles={styles} />
               <Text style={styles.cardOwner}>👤 {item.owner}</Text>
             </View>
 
@@ -328,7 +318,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
   );
 }
 
-function Chip({ label, variant }) {
+function Chip({ label, variant, styles }) {
   return (
     <View style={[styles.chip, variant === 'prod' && styles.chipProd, variant === 'stag' && styles.chipStag]}>
       <Text style={[styles.chipText, variant === 'prod' && styles.chipTextProd, variant === 'stag' && styles.chipTextStag]}>
@@ -338,89 +328,93 @@ function Chip({ label, variant }) {
   );
 }
 
-const styles = StyleSheet.create({
-  list: { flex: 1, backgroundColor: C.bg },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, backgroundColor: C.bg },
+const createStyles = (theme) => StyleSheet.create({
+  list: { flex: 1, backgroundColor: theme.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, backgroundColor: theme.bg },
 
-  loadingText: { marginTop: 14, color: C.textMuted, fontSize: 14 },
+  loadingText: { marginTop: 14, color: theme.textMuted, fontSize: 14 },
 
   errorIcon: { fontSize: 32, marginBottom: 12 },
-  errorTitle: { fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 6 },
-  errorHint: { fontSize: 13, color: C.textMuted, textAlign: 'center', lineHeight: 20 },
-  retryBtn: { marginTop: 20, backgroundColor: C.accent, paddingHorizontal: 28, paddingVertical: 11, borderRadius: 8 },
-  retryText: { color: C.white, fontWeight: '700', fontSize: 14 },
+  errorTitle: { fontSize: 17, fontWeight: '700', color: theme.text, marginBottom: 6 },
+  errorHint: { fontSize: 13, color: theme.textMuted, textAlign: 'center', lineHeight: 20 },
+  retryBtn: { marginTop: 20, backgroundColor: theme.accent, paddingHorizontal: 28, paddingVertical: 11, borderRadius: 8 },
+  retryText: { color: theme.white, fontWeight: '700', fontSize: 14 },
 
   // Navbar
   navbar: {
-    backgroundColor: C.navy,
+    backgroundColor: theme.surface,
     paddingHorizontal: 20,
     paddingVertical: 15,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
   },
-  navBrand: { color: C.white, fontSize: 18, fontWeight: '800', letterSpacing: 0.3, flex: 1 },
-  orgPill: { backgroundColor: C.navyLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, marginRight: 8 },
-  orgPillText: { color: C.white, fontSize: 12, fontWeight: '600' },
-  logoutBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: C.navyLight },
-  logoutText: { color: C.textMuted, fontSize: 12, fontWeight: '600' },
+  navBrand: { color: theme.text, fontSize: 18, fontWeight: '800', letterSpacing: 0.3, flex: 1 },
+  themeBtn: { paddingHorizontal: 8, paddingVertical: 4, marginRight: 8 },
+  themeBtnText: { fontSize: 16 },
+  orgPill: { backgroundColor: theme.surfaceRaised, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, marginRight: 8 },
+  orgPillText: { color: theme.textMid, fontSize: 12, fontWeight: '600' },
+  logoutBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: theme.border },
+  logoutText: { color: theme.textMuted, fontSize: 12, fontWeight: '600' },
 
   // Connect prompt (when no accounts)
   connectPrompt: {
-    backgroundColor: C.navyMid,
+    backgroundColor: theme.surfaceAlt,
     paddingHorizontal: 16,
     paddingVertical: 16,
     alignItems: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.navyLight,
+    borderBottomColor: theme.border,
   },
   connectPromptText: {
-    color: C.textSub,
+    color: theme.textSub,
     fontSize: 14,
     marginBottom: 12,
   },
   connectBtn: {
     borderWidth: 1,
-    borderColor: C.accent,
+    borderColor: theme.accent,
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderStyle: 'dashed',
   },
-  connectBtnText: { color: C.accent, fontSize: 13, fontWeight: '600' },
+  connectBtnText: { color: theme.accent, fontSize: 13, fontWeight: '600' },
 
   // Hero
   hero: {
-    backgroundColor: C.navyMid,
+    backgroundColor: theme.surfaceAlt,
     paddingHorizontal: 20,
     paddingTop: 28,
     paddingBottom: 24,
   },
-  heroEyebrow: { color: C.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 },
-  heroAmount: { color: C.accent, fontSize: 46, fontWeight: '800', letterSpacing: -1 },
-  heroSub: { color: C.textSub, fontSize: 13, marginTop: 4, marginBottom: 4 },
-  sparklineLabel: { color: C.textSub, fontSize: 10, marginTop: 4, marginBottom: 16 },
+  heroEyebrow: { color: theme.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 },
+  heroAmount: { color: theme.accent, fontSize: 46, fontWeight: '800', letterSpacing: -1 },
+  heroSub: { color: theme.textSub, fontSize: 13, marginTop: 4, marginBottom: 4 },
+  sparklineLabel: { color: theme.textSub, fontSize: 10, marginTop: 4, marginBottom: 16 },
 
   pillsRow: { marginTop: 4 },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: C.navyLight,
+    backgroundColor: theme.surfaceRaised,
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  pillActive: { backgroundColor: C.accent, borderColor: C.accent },
+  pillActive: { backgroundColor: theme.accent, borderColor: theme.accent },
   pillDot: { width: 6, height: 6, borderRadius: 3 },
-  pillLabel: { color: C.white, fontSize: 12, fontWeight: '700' },
-  pillSavings: { color: C.textMuted, fontSize: 12 },
+  pillLabel: { color: theme.text, fontSize: 12, fontWeight: '700' },
+  pillSavings: { color: theme.textMuted, fontSize: 12 },
 
   // Section title
   sectionTitle: {
     fontSize: 11,
     fontWeight: '700',
-    color: C.textMuted,
+    color: theme.textMuted,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
     paddingHorizontal: 16,
@@ -430,33 +424,30 @@ const styles = StyleSheet.create({
 
   // Cards
   card: {
-    backgroundColor: C.white,
+    backgroundColor: theme.card,
     marginHorizontal: 16,
     borderRadius: 10,
     padding: 16,
     borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    boxShadow: '0px 2px 6px rgba(0,0,0,0.05)',
   },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   badge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 5 },
   badgeText: { fontSize: 11, fontWeight: '800' },
-  cardCost: { fontSize: 14, fontWeight: '800', color: C.accent },
-  cardResource: { fontSize: 11, color: C.textMuted, fontFamily: 'monospace', marginBottom: 10 },
+  cardCost: { fontSize: 14, fontWeight: '800', color: theme.accent },
+  cardResource: { fontSize: 11, color: theme.textMuted, fontFamily: 'monospace', marginBottom: 10 },
 
   cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
-  chip: { backgroundColor: '#F1F5F9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
-  chipProd: { backgroundColor: '#FEF2F2' },
-  chipStag: { backgroundColor: '#FEFCE8' },
-  chipText: { fontSize: 11, color: C.textMid, fontWeight: '500' },
-  chipTextProd: { color: '#B91C1C' },
-  chipTextStag: { color: '#A16207' },
-  cardOwner: { fontSize: 11, color: C.textMuted, marginLeft: 'auto' },
+  chip: { backgroundColor: theme.chipBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
+  chipProd: { backgroundColor: theme.chipProdBg },
+  chipStag: { backgroundColor: theme.chipStagBg },
+  chipText: { fontSize: 11, color: theme.chipText, fontWeight: '500' },
+  chipTextProd: { color: theme.chipProdText },
+  chipTextStag: { color: theme.chipStagText },
+  cardOwner: { fontSize: 11, color: theme.textMuted, marginLeft: 'auto' },
 
-  cardReason: { fontSize: 12, color: C.textMid, fontStyle: 'italic', lineHeight: 18 },
-  cardUsage: { fontSize: 12, color: C.textMuted, lineHeight: 18 },
+  cardReason: { fontSize: 12, color: theme.textMid, fontStyle: 'italic', lineHeight: 18 },
+  cardUsage: { fontSize: 12, color: theme.textMuted, lineHeight: 18 },
 
   // Ghost-only toggle
   toggleRow: {
@@ -469,18 +460,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: C.border,
+    backgroundColor: theme.surfaceRaised,
   },
-  toggleBtnActive: { backgroundColor: C.navy },
-  toggleBtnText: { fontSize: 13, fontWeight: '600', color: C.textMid },
-  toggleBtnTextActive: { color: C.white },
+  toggleBtnActive: { backgroundColor: theme.navy },
+  toggleBtnText: { fontSize: 13, fontWeight: '600', color: theme.textMid },
+  toggleBtnTextActive: { color: theme.textOnDark },
 
   // Ghost badge on resource cards
   ghostBadge: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: theme.ghostBadgeBg,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
-  ghostBadgeText: { fontSize: 10, fontWeight: '700', color: '#B91C1C' },
+  ghostBadgeText: { fontSize: 10, fontWeight: '700', color: theme.ghostBadgeText },
 });
