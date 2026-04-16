@@ -123,11 +123,15 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 	return inserted, tx.Commit(ctx)
 }
 
-// SaveGhosts replaces the tenant's ghost records with the latest detection results.
+// SaveGhosts replaces the tenant's ghost records for the specified accounts with the latest detection results.
 func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) error {
 	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
 		return fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	if len(ghosts) == 0 {
+		return nil // Nothing to save
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -140,9 +144,17 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 		return err
 	}
 
-	// RLS ensures only this tenant's rows are deleted.
-	if _, err := tx.Exec(ctx, `DELETE FROM ghost_records`); err != nil {
-		return fmt.Errorf("postgres: clear ghosts: %w", err)
+	// Get unique account IDs from the ghosts being saved
+	accountIDs := make(map[string]bool)
+	for _, g := range ghosts {
+		accountIDs[g.AccountID] = true
+	}
+
+	// Delete existing ghost records only for the accounts being updated
+	for accountID := range accountIDs {
+		if _, err := tx.Exec(ctx, `DELETE FROM ghost_records WHERE account_id = $1`, accountID); err != nil {
+			return fmt.Errorf("postgres: clear ghosts for account %s: %w", accountID, err)
+		}
 	}
 
 	now := time.Now().UTC()
