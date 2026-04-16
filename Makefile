@@ -33,36 +33,29 @@ start-staging: stop
 seed:
 	./scripts/seed_test_data.sh
 
-# Seed dev environment specifically (uses docker exec)
+# Seed dev environment via exposed port (localhost:5432).
+# Uses direct psql connection instead of docker exec.
 seed-dev:
-	docker compose up -d postgres
-	sleep 2
-	docker exec -i axiaops-postgres psql -U axiaops_owner -d axiaops -c "SET search_path TO axiaops; INSERT INTO tenants (id, org_code, name, created_at) VALUES ('dev-tenant-axiaops', 'org_dev_local', 'AxiaOps Dev', NOW()) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;"
-	docker exec -i axiaops-postgres psql -U axiaops_owner -d axiaops -c "SET search_path TO axiaops; INSERT INTO accounts (id, tenant_id, provider, label, region, access_key_id, secret_encrypted, status, created_at, scan_interval_hours) VALUES ('dev-account-001', 'dev-tenant-axiaops', 'aws', 'Production AWS', 'eu-central-1', '', '', 'active', NOW(), 24), ('dev-account-002', 'dev-tenant-axiaops', 'aws', 'Staging AWS', 'us-east-1', '', '', 'active', NOW(), 24), ('dev-account-003', 'dev-tenant-axiaops', 'aws', 'Development AWS', 'eu-west-1', '', '', 'active', NOW(), 24) ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label;"
-	@echo "Dev environment seeded successfully"
+	DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable" \
+	./scripts/seed_test_data.sh dev
 
-# Seed staging environment specifically (uses docker exec)  
+# Seed staging environment via exposed port (localhost:5432).
+# Uses direct psql connection instead of docker exec.
 seed-staging:
-	docker compose up -d postgres
-	sleep 2
-	docker exec -i axiaops-postgres psql -U axiaops_owner -d axiaops -c "SET search_path TO axiaops; INSERT INTO tenants (id, org_code, name, created_at) VALUES ('staging-tenant-axiaops', 'org_staging', 'AxiaOps Staging', NOW()) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;"
-	docker exec -i axiaops-postgres psql -U axiaops_owner -d axiaops -c "SET search_path TO axiaops; INSERT INTO accounts (id, tenant_id, provider, label, region, access_key_id, secret_encrypted, status, created_at, scan_interval_hours) VALUES ('staging-account-001', 'staging-tenant-axiaops', 'aws', 'Production AWS', 'eu-central-1', '', '', 'active', NOW(), 24), ('staging-account-002', 'staging-tenant-axiaops', 'aws', 'Staging AWS', 'us-east-1', '', '', 'active', NOW(), 24), ('staging-account-003', 'staging-tenant-axiaops', 'aws', 'Development AWS', 'eu-west-1', '', '', 'active', NOW(), 24) ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label;"
-	@echo "Staging environment seeded successfully"
+	DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable" \
+	./scripts/seed_test_data.sh staging
 
-# Seed remote dev database (via SSH) - uses dev tenant ID
+# Seed remote dev database (via SSH) - copies script to remote and executes it.
+# Seeds the same comprehensive data as local seed-dev but on NAS.local axiaops-dev-db.
 seed-remote-dev:
-	@echo "Seeding remote dev database..."
-	@ssh root@NAS.local "docker exec -i axiaops-dev-db psql -U axiaops_owner -d axiaops -c \"SET search_path TO axiaops; INSERT INTO tenants (id, org_code, name, created_at) VALUES ('dev-tenant-axiaops', 'org_dev_local', 'AxiaOps Dev', NOW()) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;\""
-	@ssh root@NAS.local "docker exec -i axiaops-dev-db psql -U axiaops_owner -d axiaops -c \"SET search_path TO axiaops; INSERT INTO accounts (id, tenant_id, provider, label, region, access_key_id, secret_encrypted, status, created_at, scan_interval_hours) VALUES ('dev-account-001', 'dev-tenant-axiaops', 'aws', 'Production AWS', 'eu-central-1', '', '', 'active', NOW(), 24), ('dev-account-002', 'dev-tenant-axiaops', 'aws', 'Staging AWS', 'us-east-1', '', '', 'active', NOW(), 24), ('dev-account-003', 'dev-tenant-axiaops', 'aws', 'Development AWS', 'eu-west-1', '', '', 'active', NOW(), 24) ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label;\""
-	@ssh root@NAS.local "docker exec -i axiaops-dev-db psql -U axiaops_owner -d axiaops -c \"SET search_path TO axiaops; INSERT INTO resource_records (tenant_id, provider, account_id, service, region, resource_id, tags, monthly_cost, currency, period_start, period_end, usage_metric, usage_avg, usage_unit, is_ghost, reason, owner, detected_at) VALUES ('dev-tenant-axiaops', 'aws', 'dev-account-001', 'AmazonEC2', 'eu-central-1', 'i-dev-idle-001', '{\\\"env\\\":\\\"production\\\",\\\"team\\\":\\\"backend\\\"}', 45.60, 'USD', NOW() - INTERVAL '30 days', NOW(), 'CPUUtilization', 1.2, 'Percent', true, 'Instance CPU below 5% — likely idle', 'backend', NOW()), ('dev-tenant-axiaops', 'aws', 'dev-account-002', 'AWSLambda', 'us-east-1', 'dev-unused-func', '{\\\"env\\\":\\\"staging\\\",\\\"team\\\":\\\"backend\\\"}', 2.30, 'USD', NOW() - INTERVAL '30 days', NOW(), 'Invocations', 0, 'Count', true, 'Zero invocations — likely unused', 'backend', NOW()), ('dev-tenant-axiaops', 'aws', 'dev-account-003', 'AmazonVPC', 'eu-west-1', 'eip-dev-unattached', '{\\\"env\\\":\\\"dev\\\",\\\"team\\\":\\\"platform\\\"}', 3.60, 'USD', NOW() - INTERVAL '30 days', NOW(), 'NetworkInterfaceAttachment', 0, 'Count', true, 'Elastic IP not attached', 'platform', NOW()) ON CONFLICT DO NOTHING;\""
-	@echo "Remote dev environment seeded successfully"
+	@echo "Seeding remote dev database on NAS.local..."
+	./scripts/seed_remote_dbs.sh dev
 
-# Seed remote staging database (via SSH) - uses real tenant ID for authenticated testing
+# Seed remote staging database (via SSH) - copies script to remote and executes it.
+# Seeds the same comprehensive data as local seed-staging but on NAS.local axiaops-staging-db.
 seed-remote-staging:
-	@echo "Seeding remote staging database with real tenant ID..."
-	@ssh root@NAS.local "docker exec -i axiaops-staging-db psql -U axiaops_owner -d axiaops -c \"SET search_path TO axiaops; INSERT INTO accounts (id, tenant_id, provider, label, region, access_key_id, secret_encrypted, status, created_at, scan_interval_hours) VALUES ('staging-account-001', 'c9e61e49-6184-4118-be88-28b4225e4960', 'aws', 'Production AWS', 'eu-central-1', '', '', 'active', NOW(), 24), ('staging-account-002', 'c9e61e49-6184-4118-be88-28b4225e4960', 'aws', 'Staging AWS', 'us-east-1', '', '', 'active', NOW(), 24), ('staging-account-003', 'c9e61e49-6184-4118-be88-28b4225e4960', 'aws', 'Development AWS', 'eu-west-1', '', '', 'active', NOW(), 24) ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label;\""
-	@ssh root@NAS.local "docker exec -i axiaops-staging-db psql -U axiaops_owner -d axiaops -c \"SET search_path TO axiaops; INSERT INTO ghost_records (tenant_id, provider, account_id, service, region, resource_id, tags, monthly_cost, currency, period_start, period_end, usage_metric, usage_avg, usage_unit, reason, owner, detected_at) VALUES ('c9e61e49-6184-4118-be88-28b4225e4960', 'aws', 'staging-account-001', 'AmazonEC2', 'eu-central-1', 'i-staging-idle-001', '{\\\"env\\\":\\\"production\\\",\\\"team\\\":\\\"backend\\\"}', 45.60, 'USD', NOW() - INTERVAL '30 days', NOW(), 'CPUUtilization', 1.2, 'Percent', 'Instance CPU below 5% — likely idle', 'backend', NOW()), ('c9e61e49-6184-4118-be88-28b4225e4960', 'aws', 'staging-account-002', 'AWSLambda', 'us-east-1', 'staging-unused-func', '{\\\"env\\\":\\\"staging\\\",\\\"team\\\":\\\"backend\\\"}', 2.30, 'USD', NOW() - INTERVAL '30 days', NOW(), 'Invocations', 0, 'Count', 'Zero invocations — likely unused', 'backend', NOW()) ON CONFLICT DO NOTHING;\""
-	@echo "Remote staging environment seeded successfully with real tenant ID"
+	@echo "Seeding remote staging database on NAS.local..."
+	./scripts/seed_remote_dbs.sh staging
 
 inspect-db:
 	./scripts/inspect_db.sh
