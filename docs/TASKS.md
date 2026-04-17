@@ -222,6 +222,12 @@
   - Store `ENCRYPTION_KEY`, `REDIS_URL`, `RESEND_API_KEY`, `KINDE_ISSUER`, `KINDE_CLIENT_ID` in Secrets Manager
   - Reference secrets in App Runner service definition (not environment variables)
   - Document key rotation procedure in `docs/ops.md` (re-encrypt all `secret_encrypted` rows before rotating `ENCRYPTION_KEY`)
+- [ ] **Database Password Management**
+  - Separate migration execution from service runtime — run migrations as a one-off container/job (not inside long-running API/ingestion services)
+  - Remove `MIGRATION_DATABASE_URL` from production service environments — only `DATABASE_URL` (app user credentials) should be available to running services
+  - Use AWS Secrets Manager for RDS password management with automatic rotation — remove `ALTER USER` password-setting logic from service startup in production
+  - Keep self-bootstrapping pattern (service sets its own password from `DATABASE_URL`) for dev and staging environments only
+  - Document migration job setup in `docs/deployment.md` — separate ECS task or App Runner job that runs migrations then exits
 - [ ] **App Runner**
   - Deploy `api` service on `:8080` — wire to RDS and ElastiCache
   - Deploy `ingestion` service on `:8081` — wire to RDS and ElastiCache
