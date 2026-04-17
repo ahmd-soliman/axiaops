@@ -12,7 +12,7 @@ import (
 	migratepg "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 //go:embed migrations/*.sql
@@ -53,7 +53,9 @@ func Bootstrap(ownerURL, appURL string) error {
 	}
 
 	// Sync password from DATABASE_URL — idempotent, supports credential rotation.
-	if _, err := db.Exec(`ALTER USER axiaops WITH PASSWORD $1`, appPassword); err != nil {
+	// ALTER USER does not accept protocol-level parameters ($1), so the password
+	// is embedded as a safely-escaped literal via pq.QuoteLiteral.
+	if _, err := db.Exec(`ALTER USER axiaops WITH PASSWORD ` + pq.QuoteLiteral(appPassword)); err != nil {
 		return fmt.Errorf("bootstrap: set password: %w", err)
 	}
 
