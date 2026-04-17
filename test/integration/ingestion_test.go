@@ -55,7 +55,7 @@ func TestIngestionScan(t *testing.T) {
 	base := ingestionURL(t)
 
 	// DEV_MODE=true should return success without real AWS credentials
-	body := `{"account_id":"","tenant_id":"dev-tenant"}`
+	body := `{"account_id":"","tenant_id":"ci-tenant"}`
 	resp, err := http.Post(base+"/scan", "application/json", bytes.NewBufferString(body)) //nolint:noctx
 	if err != nil {
 		t.Fatalf("POST %s/scan: %v", base, err)
