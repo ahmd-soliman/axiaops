@@ -121,8 +121,7 @@ test: test-shared test-api test-ingestion
 #   • Row-Level Security (RLS) policies
 #   • Schema migrations
 test-postgres:
-	docker compose up -d postgres
-	sleep 2
+	docker compose up -d --wait postgres
 	$(MAKE) clean-db
 	cd services/shared && MIGRATION_DATABASE_URL="$(MIGRATION_DATABASE_URL)" DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v -p=1 ./storage/postgres/...
 
