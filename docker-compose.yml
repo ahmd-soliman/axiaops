@@ -15,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: axiaops
       POSTGRES_USER: axiaops_owner
-      POSTGRES_PASSWORD: axiaops_owner
+      POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:-axiaops_owner}
     ports:
       - "5432:5432"
     volumes:
@@ -34,8 +34,8 @@ services:
     env_file:
       - ./services/ingestion/.env
     environment:
-      DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops
-      MIGRATION_DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops
+      DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops
+      MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops
       # Dev mode defaults — overridable by .env or explicit env vars
       DEV_MODE: ${DEV_MODE:-true}
       DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
@@ -63,8 +63,8 @@ services:
     env_file:
       - ./services/api/.env
     environment:
-      DATABASE_URL: postgres://axiaops:axiaops@postgres:5432/axiaops
-      MIGRATION_DATABASE_URL: postgres://axiaops_owner:axiaops_owner@postgres:5432/axiaops
+      DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops
+      MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops
       INGESTION_URL: http://ingestion:8081
       API_ADDR: ":8080"
       # Dev mode defaults — overridable by .env or explicit env vars
