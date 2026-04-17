@@ -46,7 +46,7 @@ func TestDetect_FlagsZeroUsage(t *testing.T) {
 		usageRecord("db-stag-01", "DatabaseConnections", 0),
 	}
 
-	ghosts := analyzer.Detect(costs, usage)
+	ghosts := analyzer.Detect(costs, usage, "test-account-id")
 
 	if len(ghosts) != 1 {
 		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
@@ -72,7 +72,7 @@ func TestDetect_SkipsActiveResource(t *testing.T) {
 		usageRecord("i-active", "CPUUtilization", 62.4),
 	}
 
-	ghosts := analyzer.Detect(costs, usage)
+	ghosts := analyzer.Detect(costs, usage, "test-account-id")
 
 	if len(ghosts) != 0 {
 		t.Errorf("expected 0 ghosts for active resource, got %d", len(ghosts))
@@ -88,7 +88,7 @@ func TestDetect_FlagsEC2BelowThreshold(t *testing.T) {
 		usageRecord("i-idle", "CPUUtilization", 1.1),
 	}
 
-	ghosts := analyzer.Detect(costs, usage)
+	ghosts := analyzer.Detect(costs, usage, "test-account-id")
 
 	if len(ghosts) != 1 {
 		t.Fatalf("expected 1 ghost for idle EC2, got %d", len(ghosts))
@@ -104,7 +104,7 @@ func TestDetect_SkipsUnknownService(t *testing.T) {
 		usageRecord("arn:aws:s3:::my-bucket", "NumberOfObjects", 0),
 	}
 
-	ghosts := analyzer.Detect(costs, usage)
+	ghosts := analyzer.Detect(costs, usage, "test-account-id")
 
 	if len(ghosts) != 0 {
 		t.Errorf("expected 0 ghosts for service with no rule, got %d", len(ghosts))
@@ -118,7 +118,7 @@ func TestDetect_SkipsResourceWithNoUsageData(t *testing.T) {
 	// No matching usage record
 	usage := []analyzer.UsageRecord{}
 
-	ghosts := analyzer.Detect(costs, usage)
+	ghosts := analyzer.Detect(costs, usage, "test-account-id")
 
 	if len(ghosts) != 0 {
 		t.Errorf("expected 0 ghosts when usage data is missing, got %d", len(ghosts))
@@ -132,6 +132,7 @@ func TestDetect_OwnerFallback(t *testing.T) {
 	ghosts := analyzer.Detect(
 		[]model.CostRecord{c},
 		[]analyzer.UsageRecord{usageRecord("db-no-team", "DatabaseConnections", 0)},
+		"test-account-id",
 	)
 
 	if len(ghosts) != 1 {
@@ -154,7 +155,7 @@ func TestDetect_MultipleGhosts(t *testing.T) {
 		usageRecord("i-active", "CPUUtilization", 62.4), // active — not a ghost
 	}
 
-	ghosts := analyzer.Detect(costs, usage)
+	ghosts := analyzer.Detect(costs, usage, "test-account-id")
 
 	if len(ghosts) != 2 {
 		t.Fatalf("expected 2 ghosts, got %d", len(ghosts))

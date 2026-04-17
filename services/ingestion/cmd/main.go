@@ -391,10 +391,10 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		}
 	}
 
-	ghosts := analyzer.Detect(allRecords, usage)
+	ghosts := analyzer.Detect(allRecords, usage, accountID)
 
 	// Try to discover unattached EIPs - don't fail entire scan if this fails
-	eipGhosts, eipErr := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient, start, end)
+	eipGhosts, eipErr := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient, start, end, accountID)
 	if eipErr != nil {
 		catErr := errors.Categorize(eipErr, "discover_eips")
 		slog.Error("discover unattached EIPs failed, continuing without EIP data", 
@@ -434,6 +434,10 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	}
 
 	resources := analyzer.AnnotateAll(allRecords, usage, ghosts)
+	// Set internal_account_id on all resources
+	for i := range resources {
+		resources[i].InternalAccountID = accountID
+	}
 	if err := store.SaveResources(ctx, resources); err != nil {
 		return fmt.Errorf("save resources: %w", err)
 	}

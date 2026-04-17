@@ -84,11 +84,11 @@ func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Filter by account_id if provided
+	// Filter by internal_account_id if provided
 	if accountID != "" {
 		filtered := make([]model.GhostResource, 0)
 		for _, ghost := range ghosts {
-			if ghost.AccountID == accountID {
+			if ghost.InternalAccountID == accountID {
 				filtered = append(filtered, ghost)
 			}
 		}
@@ -112,11 +112,11 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Filter by account_id if provided
+	// Filter by internal_account_id if provided
 	if accountID != "" {
 		filtered := make([]model.ResourceRecord, 0)
 		for _, resource := range resources {
-			if resource.AccountID == accountID {
+			if resource.InternalAccountID == accountID {
 				filtered = append(filtered, resource)
 			}
 		}
@@ -141,7 +141,7 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 	if accountID != "" {
 		filtered := make([]model.GhostResource, 0)
 		for _, g := range ghosts {
-			if g.AccountID == accountID {
+			if g.InternalAccountID == accountID {
 				filtered = append(filtered, g)
 			}
 		}
