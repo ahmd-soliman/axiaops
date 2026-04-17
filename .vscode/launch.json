@@ -3,227 +3,129 @@
   "configurations": [
     {
       "name": "Make: start-dev",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "start-dev"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make start-dev",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: start-staging",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "start-staging"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make start-staging",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: stop",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "stop"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make stop",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: seed",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "seed"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make seed",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: seed-dev",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "seed-dev"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make seed-dev",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: seed-staging",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "seed-staging"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make seed-staging",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: seed-remote-dev",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "seed-remote-dev"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make seed-remote-dev",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: seed-remote-staging",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "seed-remote-staging"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make seed-remote-staging",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Make: clean-remote-dev",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "./scripts/clean_remote_dbs.sh dev --yes",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Make: clean-remote-staging",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "./scripts/clean_remote_dbs.sh staging --yes",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: test",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "test"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make test",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: test-shared",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "test-shared"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make test-shared",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: test-api",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "test-api"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make test-api",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: test-ingestion",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "test-ingestion"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make test-ingestion",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: test-postgres",
-      "type": "node",
+      "type": "node-terminal",
+      "command": "make test-postgres",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "test-postgres"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: test-all",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "test-all"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make test-all",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: test-smoke",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "test-smoke"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make test-smoke",
+      "cwd": "${workspaceFolder}"
     },
     {
       "name": "Make: inspect-db",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "make",
-      "runtimeArgs": [
-        "inspect-db"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "command": "make inspect-db",
+      "cwd": "${workspaceFolder}"
     }
   ]
 }
