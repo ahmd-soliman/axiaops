@@ -31,10 +31,6 @@ func ingestionURL(t *testing.T) string {
 	return u
 }
 
-func decodeJSON(r io.Reader, v any) error {
-	return json.NewDecoder(r).Decode(v)
-}
-
 // TestIngestionHealth verifies the ingestion service health endpoint returns 200 with status ok.
 func TestIngestionHealth(t *testing.T) {
 	base := ingestionURL(t)
