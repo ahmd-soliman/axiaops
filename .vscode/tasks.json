@@ -42,6 +42,34 @@
         "panel": "shared",
         "showReuseMessage": false
       }
+    },
+    {
+      "label": "clean-remote-db: dev",
+      "type": "shell",
+      "command": "./scripts/clean_remote_dbs.sh dev --yes",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "clean-remote-db: staging",
+      "type": "shell",
+      "command": "./scripts/clean_remote_dbs.sh staging --yes",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      }
     }
   ]
 }
