@@ -9,7 +9,7 @@
 //
 // # Running against a custom URL
 //
-//	SMOKE_API_URL=https://staging.example.com SMOKE_REDIS_URL=redis://localhost:6379 make test-integration
+//	INTEGRATION_INGESTION_URL=http://localhost:8081 make test-integration
 //
 package integration
 
@@ -24,9 +24,9 @@ import (
 
 func ingestionURL(t *testing.T) string {
 	t.Helper()
-	u := os.Getenv("SMOKE_INGESTION_URL")
+	u := os.Getenv("INTEGRATION_INGESTION_URL")
 	if u == "" {
-		t.Skip("SMOKE_INGESTION_URL not set — skipping ingestion integration tests")
+		t.Skip("INTEGRATION_INGESTION_URL not set — skipping ingestion integration tests")
 	}
 	return u
 }
