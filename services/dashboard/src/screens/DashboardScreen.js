@@ -84,12 +84,11 @@ function SavingsSparkline({ snaps, theme }) {
   );
 }
 
-export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount, onEditAccount, onDeleteAccount }) {
+export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount, onEditAccount, onDeleteAccount, selectedAccount, onSelectAccount }) {
   const { theme, toggleTheme, isDark } = useTheme();
   const styles = createStyles(theme);
   const [filterSvc, setFilterSvc]     = React.useState(null);
   const [ghostOnly, setGhostOnly]     = React.useState(true);
-  const [selectedAccount, setSelectedAccount] = React.useState(null); // null = all accounts
   const [scanning, setScanning]       = React.useState(null); // account id being scanned
 
   const summary   = useQuery({ queryKey: ['summary', selectedAccount], queryFn: () => fetchSummary(selectedAccount) });
@@ -160,7 +159,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
               <AccountSelector
                 accounts={accounts}
                 selectedAccount={selectedAccount}
-                onSelectAccount={setSelectedAccount}
+                onSelectAccount={onSelectAccount}
                 onConnectAccount={onConnectAccount}
                 onEditAccount={onEditAccount}
                 onScanAccount={handleScan}

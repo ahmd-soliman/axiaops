@@ -83,25 +83,27 @@ export default function AccountSelector({
               onPress={() => handleAccountSelect(null)}
             >
               <View style={styles.accountInfo}>
-                <Text style={styles.accountName}>All Accounts</Text>
-                <Text style={styles.accountDetail}>View all resources</Text>
+                <Text style={[styles.accountName, selectedAccount === null && styles.accountNameActive]}>All Accounts</Text>
+                <Text style={[styles.accountDetail, selectedAccount === null && styles.accountDetailActive]}>View all resources</Text>
               </View>
             </TouchableOpacity>
 
             <FlatList
               data={accounts}
               keyExtractor={(item) => item.id}
-              renderItem={({ item: account }) => (
+              renderItem={({ item: account }) => {
+                const isActive = selectedAccount === account.id;
+                return (
                 <TouchableOpacity
-                  style={[styles.accountItem, selectedAccount === account.id && styles.accountItemActive]}
+                  style={[styles.accountItem, isActive && styles.accountItemActive]}
                   onPress={() => handleAccountSelect(account.id)}
                 >
                   <View style={[styles.statusDot, { backgroundColor: getStatusColor(account) }]} />
                   <View style={styles.accountInfo}>
-                    <Text style={styles.accountName}>
+                    <Text style={[styles.accountName, isActive && styles.accountNameActive]}>
                       {account.label || account.access_key_id.slice(0, 8) + '…'}
                     </Text>
-                    <Text style={styles.accountDetail}>
+                    <Text style={[styles.accountDetail, isActive && styles.accountDetailActive]}>
                       {account.region} • {account.status === 'connected' ? 'Connected' : 'Error'}
                     </Text>
                   </View>
@@ -125,7 +127,8 @@ export default function AccountSelector({
                     </TouchableOpacity>
                   </View>
                 </TouchableOpacity>
-              )}
+                );
+              }}
             />
 
             <TouchableOpacity style={styles.connectBtn} onPress={handleConnect}>
@@ -208,10 +211,16 @@ const createStyles = (theme) => StyleSheet.create({
     fontWeight: '600',
     color: theme.navy,
   },
+  accountNameActive: {
+    color: theme.white,
+  },
   accountDetail: {
     fontSize: 12,
     color: theme.textSub,
     marginTop: 2,
+  },
+  accountDetailActive: {
+    color: theme.accentText,
   },
   accountActions: {
     flexDirection: 'row',
