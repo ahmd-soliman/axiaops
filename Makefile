@@ -1,8 +1,12 @@
 .PHONY: start-dev start-dev-redis start-staging stop seed seed-dev seed-staging seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke test-smoke-api test-smoke-redis test-liveness
 
+# Postgres credentials — override via env vars for non-dev environments.
+POSTGRES_PASSWORD ?= axiaops
+POSTGRES_OWNER_PASSWORD ?= axiaops_owner
+
 # Postgres integration test URLs (used by services/shared/storage/postgres tests).
-MIGRATION_DATABASE_URL ?= postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable
-DATABASE_URL ?= postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable
+MIGRATION_DATABASE_URL ?= postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5432/axiaops?sslmode=disable
+DATABASE_URL ?= postgres://axiaops:$(POSTGRES_PASSWORD)@localhost:5432/axiaops?sslmode=disable
 
 # Stop local processes, free ports, and stop Postgres if running.
 stop:
@@ -36,13 +40,13 @@ seed:
 # Seed dev environment via exposed port (localhost:5432).
 # Uses direct psql connection instead of docker exec.
 seed-dev:
-	DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable" \
+	DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5432/axiaops?sslmode=disable" \
 	./scripts/seed_test_data.sh dev
 
 # Seed staging environment via exposed port (localhost:5432).
 # Uses direct psql connection instead of docker exec.
 seed-staging:
-	DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable" \
+	DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5432/axiaops?sslmode=disable" \
 	./scripts/seed_test_data.sh staging
 
 # Seed remote dev database (via SSH) - copies script to remote and executes it.

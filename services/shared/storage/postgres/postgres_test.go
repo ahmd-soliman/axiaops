@@ -86,13 +86,22 @@ func rlsEnforced() bool {
 	return os.Getenv("DATABASE_URL") != ""
 }
 
-// TestMain runs migrations once before all tests in this package.
+// TestMain bootstraps the database and runs migrations once before all tests.
+// When DATABASE_URL is set (non-superuser), Bootstrap() creates/updates the
+// app user so the test environment is fully self-contained.
 func TestMain(m *testing.M) {
-	url := os.Getenv("MIGRATION_DATABASE_URL")
-	if url != "" {
-		if err := postgres.Migrate(url); err != nil {
-			panic("postgres: migration failed: " + err.Error())
+	migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
+	if migrationURL == "" {
+		os.Exit(m.Run())
+	}
+	appURL := os.Getenv("DATABASE_URL")
+	if appURL != "" {
+		if err := postgres.Bootstrap(migrationURL, appURL); err != nil {
+			panic("postgres: bootstrap failed: " + err.Error())
 		}
+	}
+	if err := postgres.Migrate(migrationURL); err != nil {
+		panic("postgres: migration failed: " + err.Error())
 	}
 	os.Exit(m.Run())
 }
