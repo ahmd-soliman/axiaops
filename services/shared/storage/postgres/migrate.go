@@ -18,6 +18,48 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// Bootstrap ensures the application database user exists and its password matches
+// the one in appURL. Must be called before Migrate on every startup.
+// Connects as the owner (ownerURL) to create/update the user, then syncs the
+// password from DATABASE_URL — enabling credential rotation without manual steps.
+func Bootstrap(ownerURL, appURL string) error {
+	// Parse the app user's password out of DATABASE_URL.
+	appCfg, err := pgxpool.ParseConfig(appURL)
+	if err != nil {
+		return fmt.Errorf("bootstrap: parse app url: %w", err)
+	}
+	appPassword := appCfg.ConnConfig.Password
+	if appPassword == "" {
+		return fmt.Errorf("bootstrap: DATABASE_URL contains no password")
+	}
+
+	db, err := sql.Open("postgres", ownerURL)
+	if err != nil {
+		return fmt.Errorf("bootstrap: open db: %w", err)
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("bootstrap: close db: %w", cerr)
+		}
+	}()
+
+	// Create the app user if it does not exist yet (password set below).
+	if _, err := db.Exec(`DO $$ BEGIN
+		IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'axiaops') THEN
+			CREATE USER axiaops;
+		END IF;
+	END $$`); err != nil {
+		return fmt.Errorf("bootstrap: create user: %w", err)
+	}
+
+	// Sync password from DATABASE_URL — idempotent, supports credential rotation.
+	if _, err := db.Exec(`ALTER USER axiaops WITH PASSWORD $1`, appPassword); err != nil {
+		return fmt.Errorf("bootstrap: set password: %w", err)
+	}
+
+	return nil
+}
+
 // Migrate runs all pending database migrations.
 // Safe to call on every startup — already-applied migrations are skipped.
 // Uses an advisory lock so concurrent calls (e.g. api + ingestion starting together) are safe.
