@@ -1,18 +1,10 @@
 -- 000_init.up.sql
--- One-time infrastructure setup: app user, schema, and default grants.
+-- One-time infrastructure setup: schema and default grants.
+-- The axiaops user is created and its password synced by postgres.Bootstrap()
+-- before this migration runs — no hardcoded credentials here.
 -- Runs as axiaops_owner (superuser) via MIGRATION_DATABASE_URL.
 
--- ── Application user ──────────────────────────────────────────────────────────
-
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'axiaops') THEN
-    CREATE USER axiaops WITH PASSWORD 'axiaops';
-  END IF;
-END
-$$;
-
--- Grant database connection permission
+-- Grant database connection permission (user already exists via Bootstrap).
 GRANT CONNECT ON DATABASE axiaops TO axiaops;
 
 -- ── Schema ────────────────────────────────────────────────────────────────────
