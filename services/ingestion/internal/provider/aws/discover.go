@@ -202,7 +202,8 @@ const eipMonthlyCost = 3.60
 // the cost records and returns a GhostResource for every Elastic IP that is not
 // attached to a network interface. Unattached EIPs are always zombies — AWS
 // charges for them regardless of usage, with no CloudWatch metric to consult.
-func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time) ([]model.GhostResource, error) {
+// internalAccountID is the UUID from the accounts table, used for filtering.
+func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
 	// Collect unique real AWS regions from cost records (skipping Cost Explorer
 	// pseudo-values like "global" or "NoRegion").
 	regions := make(map[string]struct{})
@@ -254,21 +255,22 @@ func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, aws
 			}
 
 			ghosts = append(ghosts, model.GhostResource{
-				Provider:    "aws",
-				AccountID:   accountID,
-				Service:     "AmazonVPC",
-				Region:      region,
-				ResourceID:  allocationID,
-				Tags:        tags,
-				MonthlyCost: eipMonthlyCost,
-				Currency:    "USD",
-				PeriodStart: start,
-				PeriodEnd:   end,
-				UsageMetric: "NetworkInterfaceAttachment",
-				UsageAvg:    0,
-				UsageUnit:   "Count",
-				Reason:      "Elastic IP not attached to any resource — incurring $0.005/hour idle charge",
-				Owner:       ownerTeam,
+				Provider:          "aws",
+				AccountID:         accountID,
+				InternalAccountID: internalAccountID,
+				Service:           "AmazonVPC",
+				Region:            region,
+				ResourceID:        allocationID,
+				Tags:              tags,
+				MonthlyCost:       eipMonthlyCost,
+				Currency:          "USD",
+				PeriodStart:       start,
+				PeriodEnd:         end,
+				UsageMetric:       "NetworkInterfaceAttachment",
+				UsageAvg:          0,
+				UsageUnit:         "Count",
+				Reason:            "Elastic IP not attached to any resource — incurring $0.005/hour idle charge",
+				Owner:             ownerTeam,
 			})
 			log.Printf("eip: unattached EIP %s in %s flagged as zombie", allocationID, region)
 		}
