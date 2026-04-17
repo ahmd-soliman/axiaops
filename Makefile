@@ -135,7 +135,7 @@ test-all: test test-postgres
 # Smoke tests: requires a running stack. Run 'make start-dev' first.
 # Integration tests - require Redis and PostgreSQL
 test-integration:
-	cd test/integration && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) SMOKE_REDIS_URL=$(SMOKE_REDIS_URL) go test -v ./... -count=1 $(ARGS)
+	cd test/integration && GOWORK=off INTEGRATION_API_URL=$(INTEGRATION_API_URL) INTEGRATION_REDIS_URL=$(INTEGRATION_REDIS_URL) INTEGRATION_INGESTION_URL=$(INTEGRATION_INGESTION_URL) go test -v . -count=1 $(ARGS)
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:
