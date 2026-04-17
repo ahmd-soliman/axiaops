@@ -33,6 +33,7 @@ function AuthenticatedApp({ token, onLogout }) {
   const [showTrend, setShowTrend]         = useState(false);
   const [editAccount, setEditAccount]     = useState(null); // Account being edited
   const [showAccountSettings, setShowAccountSettings] = useState(null); // Account for settings screen
+  const [selectedAccount, setSelectedAccount] = useState(null); // null = all accounts; lifted here to survive navigation
   const claims  = parseJwt(token);
   const orgName = claims.org_name || claims.org_code || '';
 
@@ -108,6 +109,8 @@ function AuthenticatedApp({ token, onLogout }) {
       onConnectAccount={() => setShowConnect(true)}
       onEditAccount={(acc) => setShowAccountSettings(acc)}
       onDeleteAccount={() => accounts.refetch()}
+      selectedAccount={selectedAccount}
+      onSelectAccount={setSelectedAccount}
     />
   );
 }
