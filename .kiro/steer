@@ -1,0 +1,11 @@
+# AxiaOps Steering Configuration
+# Defines project context and agent behavior
+
+resources:
+  - "services/**/go.mod"
+  - "go.work"
+  - "docker-compose.yml"
+  - "Makefile"
+  - "docs/**/*.md"
+  - "scripts/**/*"
+  - ".kiro/skills/**/SKILL.md"
