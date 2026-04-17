@@ -9,7 +9,7 @@
 //
 // # Running against a custom URL
 //
-//	SMOKE_API_URL=https://staging.example.com SMOKE_REDIS_URL=redis://localhost:6379 make test-integration
+//	INTEGRATION_API_URL=https://staging.example.com INTEGRATION_REDIS_URL=redis://localhost:6379 make test-integration
 //
 package integration
 
@@ -30,22 +30,22 @@ import (
 
 func apiURL(t *testing.T) string {
 	t.Helper()
-	u := os.Getenv("SMOKE_API_URL")
+	u := os.Getenv("INTEGRATION_API_URL")
 	if u == "" {
-		t.Skip("SMOKE_API_URL not set — skipping integration tests")
+		t.Skip("INTEGRATION_API_URL not set — skipping integration tests")
 	}
 	return u
 }
 
 func redisClient(t *testing.T) *redis.Client {
 	t.Helper()
-	url := os.Getenv("SMOKE_REDIS_URL")
+	url := os.Getenv("INTEGRATION_REDIS_URL")
 	if url == "" {
-		t.Skip("SMOKE_REDIS_URL not set — skipping Redis integration tests")
+		t.Skip("INTEGRATION_REDIS_URL not set — skipping Redis integration tests")
 	}
 	opts, err := redis.ParseURL(url)
 	if err != nil {
-		t.Fatalf("parse SMOKE_REDIS_URL: %v", err)
+		t.Fatalf("parse INTEGRATION_REDIS_URL: %v", err)
 	}
 	rdb := redis.NewClient(opts)
 	t.Cleanup(func() { _ = rdb.Close() })
