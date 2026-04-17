@@ -15,8 +15,6 @@ package integration
 
 import (
 	"bytes"
-	"encoding/json"
-	"io"
 	"net/http"
 	"os"
 	"testing"
