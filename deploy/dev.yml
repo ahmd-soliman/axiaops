@@ -16,8 +16,8 @@ services:
     container_name: axiaops-ingestion-dev
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://axiaops:axiaops@axiaops-dev-db:5432/axiaops?sslmode=disable}
-      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgres://axiaops_owner:axiaops_owner@axiaops-dev-db:5432/axiaops?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
       SCAN_INTERVAL: ${SCAN_INTERVAL:-60s}
       DEV_MODE: ${DEV_MODE:-true}
       DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
@@ -33,8 +33,8 @@ services:
     ports:
       - "30031:8080"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://axiaops:axiaops@axiaops-dev-db:5432/axiaops?sslmode=disable}
-      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgres://axiaops_owner:axiaops_owner@axiaops-dev-db:5432/axiaops?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
       INGESTION_URL: http://axiaops-ingestion-dev:8081
       API_ADDR: ":8080"
       DEV_MODE: ${DEV_MODE:-true}
