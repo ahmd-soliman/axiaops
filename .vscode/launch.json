@@ -128,13 +128,6 @@
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "Make: test-smoke",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make test-smoke",
-      "cwd": "${workspaceFolder}"
-    },
-    {
       "name": "Make: test-integration",
       "type": "node-terminal",
       "request": "launch",
