@@ -4,13 +4,15 @@
 
 -- ── Application user ──────────────────────────────────────────────────────────
 
-DO $$
+DO $
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'axiaops') THEN
     CREATE USER axiaops WITH PASSWORD 'axiaops';
   END IF;
 END
-$$;
+$;
+
+GRANT CONNECT ON DATABASE axiaops TO axiaops;
 
 -- ── Schema ────────────────────────────────────────────────────────────────────
 
