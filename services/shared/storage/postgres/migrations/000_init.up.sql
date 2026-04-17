@@ -12,6 +12,7 @@ BEGIN
 END
 $$;
 
+-- Grant database connection permission
 GRANT CONNECT ON DATABASE axiaops TO axiaops;
 
 -- ── Schema ────────────────────────────────────────────────────────────────────
@@ -30,3 +31,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA axiaops
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA axiaops
     GRANT USAGE, SELECT ON SEQUENCES TO axiaops;
+
+-- Grant permissions on existing tables (if any)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA axiaops TO axiaops;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA axiaops TO axiaops;
