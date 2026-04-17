@@ -116,15 +116,21 @@
 
 ### Milestone: May 2026 (continued)
 
-#### 2.Smoke Tests ✅
+#### 2.Integration Tests ✅
 
-- [x] Create `test/smoke/api_test.go` — Go test package that hits the live API over HTTP
-  - Covers: `GET /health`, `GET /v1/ghosts`, `GET /v1/summary`, `GET /v1/resources`, `GET /v1/trend`, `GET /v1/accounts`, `GET /metrics`
-  - Skipped automatically when `SMOKE_API_URL` is unset (safe for CI unit-test jobs)
-- [x] Add `test/smoke/go.mod` — intentionally **excluded from `go.work`** (`GOWORK=off` in `make test-smoke`)
-  - Reason: including it caused `go test` to recompile the workspace, killing running `go run` services
-- [x] Add `make test-smoke` target — `GOWORK=off SMOKE_API_URL=http://localhost:8080 go test ./...`
-- [x] Test: start services with `make start-dev` in one terminal, run `make test-smoke` in another — all tests pass and services stay up
+- [x] Create `test/integration/api_test.go` — Go test package that verifies component interaction
+  - Covers: `GET /health`, `GET /metrics`, account creation, scan queue, rate limiting, scheduled auto-scan
+  - Requires `SMOKE_API_URL` and `SMOKE_REDIS_URL` environment variables
+- [x] Add `test/integration/go.mod` — standalone module for integration tests
+- [x] Add `make test-integration` target — `GOWORK=off SMOKE_API_URL=... SMOKE_REDIS_URL=... go test ./...`
+- [x] Test: start services with `make start-dev`, run `make test-integration` — all tests pass
+
+#### 3.Smoke Tests Removed ✅
+
+- [x] Removed `test/smoke/` directory — tests were redundant with integration tests
+- [x] Removed `make test-smoke` target — replaced by `make test-integration`
+- [x] Removed `test-smoke-*` make targets — integration tests cover all functionality
+- [x] Updated `.vscode/launch.json` — removed smoke test launch configs
 
 ---
 
@@ -159,7 +165,7 @@
   - Fires `POST http://ingestion:8081/scan` for eligible accounts
   - Log `scan.scheduled` and `scan.skipped_already_running`
 - [x] Dashboard: show next scheduled scan time per account in accounts bar
-- [x] Smoke test: create an account with `scan_interval_hours=0`, wait up to 90s, verify a scan is triggered (last_scanned_at updated)
+- [x] Integration test: create an account with `scan_interval_hours=0`, wait up to 90s, verify a scan is triggered (last_scanned_at updated)
 
 #### 2.13 cost_records Retention
 
