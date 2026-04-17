@@ -8,12 +8,13 @@ import "time"
 // Every resource with a cost entry is stored here; IsGhost is true for
 // resources that also meet the zombie detection criteria.
 type ResourceRecord struct {
-	Provider   string            `json:"provider"`
-	AccountID  string            `json:"account_id"`
-	Service    string            `json:"service"`
-	Region     string            `json:"region"`
-	ResourceID string            `json:"resource_id"`
-	Tags       map[string]string `json:"tags"`
+	Provider          string            `json:"provider"`
+	AccountID         string            `json:"account_id"`          // AWS account number, GCP project, etc.
+	InternalAccountID string            `json:"internal_account_id"` // UUID from accounts table
+	Service           string            `json:"service"`
+	Region            string            `json:"region"`
+	ResourceID        string            `json:"resource_id"`
+	Tags              map[string]string `json:"tags"`
 
 	// Cost fields
 	MonthlyCost float64   `json:"monthly_cost"`

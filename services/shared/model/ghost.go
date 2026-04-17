@@ -7,12 +7,13 @@ import "time"
 // GhostResource represents a cloud resource that is incurring cost but shows
 // no meaningful usage — a zombie resource that is safe to review for removal.
 type GhostResource struct {
-	Provider   string            `json:"provider"`
-	AccountID  string            `json:"account_id"`
-	Service    string            `json:"service"`
-	Region     string            `json:"region"`
-	ResourceID string            `json:"resource_id"`
-	Tags       map[string]string `json:"tags"`
+	Provider          string            `json:"provider"`
+	AccountID         string            `json:"account_id"`          // AWS account number, GCP project, etc.
+	InternalAccountID string            `json:"internal_account_id"` // UUID from accounts table
+	Service           string            `json:"service"`
+	Region            string            `json:"region"`
+	ResourceID        string            `json:"resource_id"`
+	Tags              map[string]string `json:"tags"`
 
 	// Cost fields
 	MonthlyCost float64 `json:"monthly_cost"`

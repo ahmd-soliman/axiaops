@@ -72,6 +72,20 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      "name": "Make: clean-remote-dev-drop",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "./scripts/clean_remote_dbs.sh dev --yes --drop-schema",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Make: clean-remote-staging-drop",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "./scripts/clean_remote_dbs.sh staging --yes --drop-schema",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Make: test",
       "type": "node-terminal",
       "request": "launch",
@@ -125,6 +139,20 @@
       "type": "node-terminal",
       "request": "launch",
       "command": "make inspect-db",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Make: clean-db",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "make clean-db",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Make: drop-schema",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "make drop-schema",
       "cwd": "${workspaceFolder}"
     }
   ]

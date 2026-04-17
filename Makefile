@@ -60,10 +60,42 @@ seed-remote-staging:
 inspect-db:
 	./scripts/inspect_db.sh
 
+# ── Local Database Cleanup ────────────────────────────────────────────────────
+
+# Clean local dev database (truncate tables, preserve schema).
 clean-db:
 	docker compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
-		"TRUNCATE TABLE axiaops.ghost_snapshots, axiaops.resource_records, axiaops.ghost_records, axiaops.cost_records, axiaops.accounts, axiaops.users, axiaops.tenants CASCADE;" \
+		"TRUNCATE TABLE axiaops.ghost_snapshots, axiaops.resource_records, axiaops.ghost_records, axiaops.cost_records, axiaops.accounts, axiaops.users, axiaops.tenants CASCADE RESTART IDENTITY;" \
 		2>/dev/null || true
+
+# Clean local dev database (drop schema and user — destructive).
+clean-db-drop:
+	docker compose exec -T postgres psql -U postgres -d postgres -c \
+		"DROP SCHEMA IF EXISTS axiaops CASCADE; DROP USER IF EXISTS axiaops;" \
+		2>/dev/null || true
+	@echo "Local dev schema and user dropped. Run migrations to recreate."
+
+# ── Remote Database Cleanup ───────────────────────────────────────────────────
+
+# Clean remote dev database (truncate tables, preserve schema).
+clean-remote-dev:
+	@echo "Cleaning remote dev database on NAS.local..."
+	./scripts/clean_remote_dbs.sh dev
+
+# Clean remote staging database (truncate tables, preserve schema).
+clean-remote-staging:
+	@echo "Cleaning remote staging database on NAS.local..."
+	./scripts/clean_remote_dbs.sh staging
+
+# Clean remote dev database (drop schema and user — destructive).
+clean-remote-dev-drop:
+	@echo "Dropping remote dev schema on NAS.local..."
+	./scripts/clean_remote_dbs.sh dev --drop-schema
+
+# Clean remote staging database (drop schema and user — destructive).
+clean-remote-staging-drop:
+	@echo "Dropping remote staging schema on NAS.local..."
+	./scripts/clean_remote_dbs.sh staging --drop-schema
 
 # Per-service test targets — each mirrors the matching CI job (test:shared, test:api, test:ingestion).
 # Running one target locally reproduces exactly what CI runs for that job.

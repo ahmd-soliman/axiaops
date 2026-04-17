@@ -18,7 +18,8 @@ type UsageRecord struct {
 // Detect joins cost records with usage metrics and returns any resources that
 // are incurring cost but show no meaningful activity according to the
 // per-service threshold rules in rules.go.
-func Detect(costs []model.CostRecord, usage []UsageRecord) []model.GhostResource {
+// internalAccountID is the UUID from the accounts table, used for filtering.
+func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID string) []model.GhostResource {
 	// Index usage by resource_id for O(1) lookup.
 	usageByID := make(map[string]UsageRecord, len(usage))
 	for _, u := range usage {
@@ -39,21 +40,22 @@ func Detect(costs []model.CostRecord, usage []UsageRecord) []model.GhostResource
 
 		if u.Avg <= r.threshold {
 			ghosts = append(ghosts, model.GhostResource{
-				Provider:    c.Provider,
-				AccountID:   c.AccountID,
-				Service:     c.Service,
-				Region:      c.Region,
-				ResourceID:  c.ResourceID,
-				Tags:        c.Tags,
-				MonthlyCost: c.Amount,
-				Currency:    c.Currency,
-				PeriodStart: c.PeriodStart,
-				PeriodEnd:   c.PeriodEnd,
-				UsageMetric: u.Metric,
-				UsageAvg:    u.Avg,
-				UsageUnit:   u.Unit,
-				Reason:      r.reason,
-				Owner:       owner(c.Tags),
+				Provider:          c.Provider,
+				AccountID:         c.AccountID,
+				InternalAccountID: internalAccountID,
+				Service:           c.Service,
+				Region:            c.Region,
+				ResourceID:        c.ResourceID,
+				Tags:              c.Tags,
+				MonthlyCost:       c.Amount,
+				Currency:          c.Currency,
+				PeriodStart:       c.PeriodStart,
+				PeriodEnd:         c.PeriodEnd,
+				UsageMetric:       u.Metric,
+				UsageAvg:          u.Avg,
+				UsageUnit:         u.Unit,
+				Reason:            r.reason,
+				Owner:             owner(c.Tags),
 			})
 		}
 	}

@@ -144,15 +144,17 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 		return err
 	}
 
-	// Get unique account IDs from the ghosts being saved
+	// Get unique internal account IDs from the ghosts being saved
 	accountIDs := make(map[string]bool)
 	for _, g := range ghosts {
-		accountIDs[g.AccountID] = true
+		if g.InternalAccountID != "" {
+			accountIDs[g.InternalAccountID] = true
+		}
 	}
 
 	// Delete existing ghost records only for the accounts being updated
 	for accountID := range accountIDs {
-		if _, err := tx.Exec(ctx, `DELETE FROM ghost_records WHERE account_id = $1`, accountID); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM ghost_records WHERE internal_account_id = $1`, accountID); err != nil {
 			return fmt.Errorf("postgres: clear ghosts for account %s: %w", accountID, err)
 		}
 	}
@@ -165,12 +167,12 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO ghost_records
-				(tenant_id, provider, account_id, service, region, resource_id, tags,
+				(tenant_id, provider, account_id, internal_account_id, service, region, resource_id, tags,
 				 monthly_cost, currency, period_start, period_end,
 				 usage_metric, usage_avg, usage_unit, reason, owner, detected_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
 			tenantID,
-			g.Provider, g.AccountID, g.Service, g.Region, g.ResourceID, string(tags),
+			g.Provider, g.AccountID, g.InternalAccountID, g.Service, g.Region, g.ResourceID, string(tags),
 			g.MonthlyCost, g.Currency, g.PeriodStart, g.PeriodEnd,
 			g.UsageMetric, g.UsageAvg, g.UsageUnit, g.Reason, g.Owner, now,
 		)
@@ -200,7 +202,7 @@ func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT provider, account_id, service, region, resource_id, tags,
+		SELECT provider, account_id, internal_account_id, service, region, resource_id, tags,
 		       monthly_cost, currency, period_start, period_end,
 		       usage_metric, usage_avg, usage_unit, reason, owner
 		FROM ghost_records
@@ -214,12 +216,16 @@ func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
 	for rows.Next() {
 		var g model.GhostResource
 		var tagsJSON []byte
+		var internalAccountID *string
 		if err := rows.Scan(
-			&g.Provider, &g.AccountID, &g.Service, &g.Region, &g.ResourceID, &tagsJSON,
+			&g.Provider, &g.AccountID, &internalAccountID, &g.Service, &g.Region, &g.ResourceID, &tagsJSON,
 			&g.MonthlyCost, &g.Currency, &g.PeriodStart, &g.PeriodEnd,
 			&g.UsageMetric, &g.UsageAvg, &g.UsageUnit, &g.Reason, &g.Owner,
 		); err != nil {
 			return nil, fmt.Errorf("postgres: scan ghost: %w", err)
+		}
+		if internalAccountID != nil {
+			g.InternalAccountID = *internalAccountID
 		}
 		if err := json.Unmarshal(tagsJSON, &g.Tags); err != nil {
 			g.Tags = map[string]string{}
@@ -501,14 +507,16 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 		return err
 	}
 
-	// Collect the unique account IDs present in this batch and delete only
+	// Collect the unique internal account IDs present in this batch and delete only
 	// their existing records, so other accounts' data is not affected.
 	accountIDs := make(map[string]bool)
 	for _, r := range resources {
-		accountIDs[r.AccountID] = true
+		if r.InternalAccountID != "" {
+			accountIDs[r.InternalAccountID] = true
+		}
 	}
 	for accountID := range accountIDs {
-		if _, err := tx.Exec(ctx, `DELETE FROM resource_records WHERE account_id = $1`, accountID); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM resource_records WHERE internal_account_id = $1`, accountID); err != nil {
 			return fmt.Errorf("postgres: clear resource_records for account %s: %w", accountID, err)
 		}
 	}
@@ -521,12 +529,12 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO resource_records
-				(tenant_id, provider, account_id, service, region, resource_id, tags,
+				(tenant_id, provider, account_id, internal_account_id, service, region, resource_id, tags,
 				 monthly_cost, currency, period_start, period_end,
 				 usage_metric, usage_avg, usage_unit, is_ghost, reason, owner, detected_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
 			tenantID,
-			r.Provider, r.AccountID, r.Service, r.Region, r.ResourceID, string(tags),
+			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID, string(tags),
 			r.MonthlyCost, r.Currency, r.PeriodStart, r.PeriodEnd,
 			r.UsageMetric, r.UsageAvg, r.UsageUnit, r.IsGhost, r.Reason, r.Owner, now,
 		)
@@ -556,7 +564,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT provider, account_id, service, region, resource_id, tags,
+		SELECT provider, account_id, internal_account_id, service, region, resource_id, tags,
 		       monthly_cost, currency, period_start, period_end,
 		       usage_metric, usage_avg, usage_unit, is_ghost, reason, owner
 		FROM resource_records
@@ -570,12 +578,16 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 	for rows.Next() {
 		var r model.ResourceRecord
 		var tagsJSON []byte
+		var internalAccountID *string
 		if err := rows.Scan(
-			&r.Provider, &r.AccountID, &r.Service, &r.Region, &r.ResourceID, &tagsJSON,
+			&r.Provider, &r.AccountID, &internalAccountID, &r.Service, &r.Region, &r.ResourceID, &tagsJSON,
 			&r.MonthlyCost, &r.Currency, &r.PeriodStart, &r.PeriodEnd,
 			&r.UsageMetric, &r.UsageAvg, &r.UsageUnit, &r.IsGhost, &r.Reason, &r.Owner,
 		); err != nil {
 			return nil, fmt.Errorf("postgres: scan resource_record: %w", err)
+		}
+		if internalAccountID != nil {
+			r.InternalAccountID = *internalAccountID
 		}
 		if err := json.Unmarshal(tagsJSON, &r.Tags); err != nil {
 			r.Tags = map[string]string{}
