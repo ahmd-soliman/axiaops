@@ -136,13 +136,18 @@ test-all: test test-postgres
 # Override the URL with: SMOKE_API_URL=https://staging.example.com make test-smoke
 SMOKE_API_URL ?= http://localhost:8080
 SMOKE_REDIS_URL ?= redis://localhost:6379
-test-smoke: test-smoke-api test-smoke-redis
+SMOKE_INGESTION_URL ?= http://localhost:8081
+test-smoke: test-smoke-api test-smoke-ingestion
 
 test-smoke-api:
-	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -run "TestHealth|TestGhosts|TestSummary|TestResources|TestTrend|TestAccounts|TestMetrics" -count=1 $(ARGS)
+	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) go test -v ./... -run "TestHealth|TestMetrics" -count=1 $(ARGS)
 
-test-smoke-redis:
-	cd test/smoke && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) SMOKE_REDIS_URL=$(SMOKE_REDIS_URL) go test -v ./... -run "TestRateLimit|TestScanQueue|TestScheduledAutoScan" -count=1 $(ARGS)
+test-smoke-ingestion:
+	cd test/smoke && GOWORK=off SMOKE_INGESTION_URL=$(SMOKE_INGESTION_URL) go test -v ./... -run "TestIngestion" -count=1 $(ARGS)
+
+# Integration tests - require Redis and PostgreSQL
+test-integration:
+	cd test/integration && GOWORK=off SMOKE_API_URL=$(SMOKE_API_URL) SMOKE_REDIS_URL=$(SMOKE_REDIS_URL) go test -v ./... -count=1 $(ARGS)
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:
