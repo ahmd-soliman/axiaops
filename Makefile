@@ -70,7 +70,7 @@ clean-db:
 
 # Clean local dev database (drop schema and user — destructive).
 clean-db-drop:
-	docker compose exec -T postgres psql -U postgres -d postgres -c \
+	docker compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
 		"DROP SCHEMA IF EXISTS axiaops CASCADE; DROP USER IF EXISTS axiaops;" \
 		2>/dev/null || true
 	@echo "Local dev schema and user dropped. Run migrations to recreate."
