@@ -60,7 +60,7 @@ func New(ctx context.Context) (*Client, error) {
 // without mutating process-wide environment variables.
 func NewWithStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey, region string) (*Client, error) {
 	if region == "" {
-		region = "us-east-1"
+		region = "eu-central-1"
 	}
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, "")),

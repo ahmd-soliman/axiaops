@@ -341,8 +341,8 @@ func TestCreateAccount_DefaultsProviderAndRegion(t *testing.T) {
 	if account.Provider != "aws" {
 		t.Errorf("expected default provider aws, got %s", account.Provider)
 	}
-	if account.Region != "us-east-1" {
-		t.Errorf("expected default region us-east-1, got %s", account.Region)
+	if account.Region != "eu-central-1" {
+		t.Errorf("expected default region eu-central-1, got %s", account.Region)
 	}
 }
 

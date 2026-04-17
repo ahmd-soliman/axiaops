@@ -232,7 +232,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		req.Provider = "aws"
 	}
 	if req.Region == "" {
-		req.Region = "us-east-1"
+		req.Region = "eu-central-1"
 	}
 
 	secretEncrypted, err := crypto.Encrypt(req.SecretKey)
