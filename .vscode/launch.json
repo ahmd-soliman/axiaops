@@ -135,6 +135,13 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      "name": "Make: test-integration",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "make test-integration",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Make: inspect-db",
       "type": "node-terminal",
       "request": "launch",
