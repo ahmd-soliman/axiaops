@@ -144,7 +144,8 @@ test-all: test test-postgres
 
 # Integration tests - self-contained (starts Docker Compose stack)
 test-integration:
-	cd test/integration && GOWORK=off go test -v . -count=1 -tags=integration $(ARGS)
+	cd integration-test && docker compose up --build --exit-code-from tests tests
+	cd integration-test && docker compose down -v
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:
