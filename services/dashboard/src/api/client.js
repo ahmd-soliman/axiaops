@@ -59,12 +59,13 @@ export async function connectAccount({ provider, label, accessKeyId, secretKey, 
   return res.json();
 }
 
-export async function updateAccount(id, { label, accessKeyId, secretKey, region }) {
+export async function updateAccount(id, { label, accessKeyId, secretKey, region, scan_interval_hours }) {
   const body = {};
   if (label !== undefined) body.label = label;
   if (accessKeyId !== undefined) body.access_key_id = accessKeyId;
   if (secretKey !== undefined && secretKey !== '') body.secret_key = secretKey;
   if (region !== undefined) body.region = region;
+  if (scan_interval_hours !== undefined) body.scan_interval_hours = scan_interval_hours;
 
   const res = await fetch(`${BASE_URL}/v1/accounts/${id}`, {
     method: 'PATCH',
