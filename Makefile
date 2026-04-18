@@ -47,15 +47,15 @@ migrate:
 	docker-compose up -d postgres
 	@echo "Waiting for PostgreSQL to be ready..."
 	@until docker-compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
-	cd test-infra && docker-compose run --rm migrate
-	cd test-infra && docker-compose rm -f migrate 2>/dev/null || true
+	cd test-infra/integration && docker-compose run --rm migrate
+	cd test-infra/integration && docker-compose rm -f migrate 2>/dev/null || true
 
 # Test the migration container (uses test-infra compose — no host port binding)
 test-migrate:
 	@echo "Testing migration container..."
-	cd test-infra && docker-compose up -d --wait postgres
-	cd test-infra && docker-compose run --rm migrate
-	cd test-infra && docker-compose down -v --remove-orphans
+	cd test-infra/integration && docker-compose up -d --wait postgres
+	cd test-infra/integration && docker-compose run --rm migrate
+	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra && docker-compose rm -f 2>/dev/null || true
 
 # Seed the dev tenant with dummy ghost + resource records.
@@ -161,20 +161,20 @@ test-all: test test-storage
 
 # Integration tests - self-contained (starts Docker Compose stack)
 test-integration:
-	cd test-infra && docker-compose up --build --exit-code-from tests tests
-	cd test-infra && docker-compose down -v --remove-orphans
+	cd test-infra/integration && docker-compose up --build --exit-code-from tests tests
+	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra && docker-compose rm -f 2>/dev/null || true
 
 # API integration tests only
 test-integration-api:
 	cd test-infra && docker-compose run --rm api-tests
-	cd test-infra && docker-compose down -v --remove-orphans
+	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra && docker-compose rm -f 2>/dev/null || true
 
 # Ingestion integration tests only  
 test-integration-ingestion:
 	cd test-infra && docker-compose run --rm ingestion-tests
-	cd test-infra && docker-compose down -v --remove-orphans
+	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra && docker-compose rm -f 2>/dev/null || true
 
 # Clean up Docker resources from integration tests and other AxiaOps containers
@@ -185,7 +185,7 @@ clean-docker:
 # Clean up integration test resources specifically
 clean-integration:
 	@echo "Cleaning up integration test resources..."
-	cd test-infra && docker compose down -v --remove-orphans 2>/dev/null || true
+	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
 	docker network prune -f --filter label=com.docker.compose.project=integration-test 2>/dev/null || true
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
