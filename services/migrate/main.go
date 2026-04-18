@@ -21,12 +21,12 @@ func main() {
 		migrationURL = dbURL
 	}
 
-	if err := postgres.Bootstrap(migrationURL, dbURL); err \!= nil {
+	if err := postgres.Bootstrap(migrationURL, dbURL); err != nil {
 		slog.Error("bootstrap failed", "error", err)
 		os.Exit(1)
 	}
 
-	if err := postgres.Migrate(migrationURL); err \!= nil {
+	if err := postgres.Migrate(migrationURL); err != nil {
 		slog.Error("migration failed", "error", err)
 		os.Exit(1)
 	}
