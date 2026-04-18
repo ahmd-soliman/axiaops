@@ -158,17 +158,29 @@ func TestScanQueue_JobEnqueuedInRedis(t *testing.T) {
 	}
 
 	// Verify the job appears in the queue within 2s.
-	deadline := time.Now().Add(2 * time.Second)
+	// Note: worker may consume it immediately, so also check if scan completed.
+	deadline := time.Now().Add(5 * time.Second)
 	var queueLen int64
+	var jobFound bool
 	for time.Now().Before(deadline) {
 		queueLen, err = rdb.LLen(ctx, "axiaops:scan_queue").Result()
 		if err == nil && queueLen > 0 {
+			jobFound = true
 			break
 		}
+		// Check if worker already processed it
+		r := get(t, base+"/v1/accounts/"+id)
+		var acc map[string]any
+		if decodeJSON(r.Body, &acc) == nil && acc["last_scanned_at"] != nil {
+			jobFound = true
+			r.Body.Close()
+			break
+		}
+		r.Body.Close()
 		time.Sleep(100 * time.Millisecond)
 	}
-	if queueLen == 0 {
-		t.Fatal("scan job not found in Redis queue after 2s")
+	if !jobFound {
+		t.Fatal("scan job not found in Redis queue and not processed within 5s")
 	}
 
 	// Verify worker consumed the job by checking last_scanned_at is set.
