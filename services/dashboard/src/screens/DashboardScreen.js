@@ -88,6 +88,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
   const { theme, toggleTheme, isDark } = useTheme();
   const styles = createStyles(theme);
   const [filterSvc, setFilterSvc]           = React.useState(null);
+  const [filterOwner, setFilterOwner]       = React.useState(null);
   const [ghostOnly, setGhostOnly]           = React.useState(true);
   const [showDismissed, setShowDismissed]   = React.useState(false);
   const [scanning, setScanning]             = React.useState(null); // account id being scanned
@@ -107,6 +108,12 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
     (dismissals.data ?? []).forEach(d => set.add(d.resource_id));
     return set;
   }, [dismissals.data]);
+
+  // Collect unique owners from all resources for the team filter.
+  const owners = React.useMemo(() => {
+    const set = new Set((resources.data ?? []).map(r => r.owner).filter(Boolean));
+    return [...set].sort();
+  }, [resources.data]);
 
   function refresh() {
     summary.refetch();
@@ -252,6 +259,32 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
                 );
               })}
             </ScrollView>
+
+            {/* Owner / team filter pills — only shown when there are multiple owners */}
+            {owners.length > 1 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginTop: 10 }}
+                contentContainerStyle={{ gap: 6, paddingRight: 4 }}
+              >
+                {owners.map(owner => {
+                  const active = filterOwner === owner;
+                  return (
+                    <TouchableOpacity
+                      key={owner}
+                      style={[styles.ownerPill, active && styles.ownerPillActive]}
+                      onPress={() => setFilterOwner(active ? null : owner)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.ownerPillText, active && styles.ownerPillTextActive]}>
+                        👤 {owner}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
           </View>
 
           {/* Ghost-only / All Resources / Dismissed toggle */}
@@ -296,6 +329,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
         // Exclude resources that have an active dismissal from the ghost/all views.
         list = list.filter(r => !dismissedSet.has(r.resource_id));
         if (filterSvc) list = list.filter(r => r.service === filterSvc);
+        if (filterOwner) list = list.filter(r => r.owner === filterOwner);
         return list;
       })()}
       keyExtractor={(item) => showDismissed ? String(item.id) : item.resource_id}
@@ -476,6 +510,18 @@ const createStyles = (theme) => StyleSheet.create({
   pillDot: { width: 6, height: 6, borderRadius: 3 },
   pillLabel: { color: theme.text, fontSize: 12, fontWeight: '700' },
   pillSavings: { color: theme.textMuted, fontSize: 12 },
+
+  ownerPill: {
+    backgroundColor: theme.surfaceRaised,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  ownerPillActive: { backgroundColor: theme.navy, borderColor: theme.navy },
+  ownerPillText: { fontSize: 12, fontWeight: '600', color: theme.textMid },
+  ownerPillTextActive: { color: theme.textOnDark },
 
   // Section title
   sectionTitle: {
