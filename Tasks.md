@@ -35,7 +35,7 @@ _Last updated: 2026-04-19_
 
 | # | Task | Notes |
 |---|------|-------|
-| 1 | **Wire Redis in API `main.go`** | `REDIS_URL` env var → Redis cache → inject into `NewAuth` + `NewRateLimiter`. Falls back to memory if unset. |
+| 1 | **Wire Redis in API `main.go`** ✅ | `cache.New(REDIS_URL)` injected into `NewAuth` + `NewRateLimiter`; falls back to memory if unset |
 | 2 | **Production deployment** | App Runner (API + ingestion) + RDS + ElastiCache via Terraform. See `docs/production.md`. |
 | 3 | **Weekly email digest** | New ghosts after scan → Resend/SendGrid email. References `ghost_snapshots` for delta. |
 | 4 | **Slack webhook alert** | Notify channel when new ghosts appear post-scan. |
