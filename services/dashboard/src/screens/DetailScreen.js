@@ -213,6 +213,7 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
             <Text style={styles.actionIcon}>⚡</Text>
             <Text style={styles.actionText}>{remediationHint(ghost.service, ghost.resource_id)}</Text>
           </View>
+          <CLICommand cmd={remediationCommand(ghost.service, ghost.resource_id, ghost.region)} styles={styles} />
         </View>
       )}
 
@@ -304,6 +305,49 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
   );
 }
 
+function remediationCommand(service, resourceId = '', region = 'eu-central-1') {
+  const r = `--region ${region}`;
+  if (service === 'AmazonVPC') {
+    if (resourceId.startsWith('eipalloc-')) {
+      return `aws ec2 release-address --allocation-id ${resourceId} ${r}`;
+    }
+    return `aws ec2 delete-nat-gateway --nat-gateway-id ${resourceId} ${r}`;
+  }
+  const cmds = {
+    AmazonEC2: `aws ec2 stop-instances --instance-ids ${resourceId} ${r}`,
+    AmazonRDS: `aws rds delete-db-instance --db-instance-identifier ${resourceId} --skip-final-snapshot ${r}`,
+    AWSLambda: `aws lambda delete-function --function-name ${resourceId} ${r}`,
+    AmazonElasticLoadBalancing: `aws elbv2 delete-load-balancer --load-balancer-arn ${resourceId} ${r}`,
+  };
+  return cmds[service] ?? null;
+}
+
+function CLICommand({ cmd, styles }) {
+  const [copied, setCopied] = React.useState(false);
+  if (!cmd) return null;
+
+  function handleCopy() {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(cmd).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    }
+  }
+
+  return (
+    <View style={styles.cliBox}>
+      <Text style={styles.cliLabel}>AWS CLI COMMAND</Text>
+      <View style={styles.cliRow}>
+        <Text style={styles.cliText} selectable>{cmd}</Text>
+        <TouchableOpacity style={styles.copyBtn} onPress={handleCopy}>
+          <Text style={styles.copyBtnText}>{copied ? '✓ Copied' : 'Copy'}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 function remediationHint(service, resourceId = '') {
   if (service === 'AmazonVPC') {
     if (resourceId.startsWith('eipalloc-')) {
@@ -382,6 +426,17 @@ const createStyles = (theme) => StyleSheet.create({
   },
   actionIcon: { fontSize: 18 },
   actionText: { fontSize: 14, color: theme.accentText, lineHeight: 21, flex: 1 },
+
+  // ── CLI command block ──────────────────────────────────────────────────────
+  cliBox: {
+    marginTop: 10, backgroundColor: '#0f172a',
+    borderRadius: 8, padding: 14,
+  },
+  cliLabel: { fontSize: 10, fontWeight: '700', color: '#64748b', letterSpacing: 1.2, marginBottom: 8 },
+  cliRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  cliText: { flex: 1, fontFamily: 'monospace', fontSize: 12, color: '#e2e8f0', lineHeight: 18 },
+  copyBtn: { backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
+  copyBtnText: { fontSize: 12, fontWeight: '700', color: '#94a3b8' },
 
   // ── Dismiss / Snooze action row in header ──────────────────────────────────
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
