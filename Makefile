@@ -53,13 +53,20 @@ migrate:
 # Test the migration container (uses test-infra compose — no host port binding)
 test-migrate:
 	@echo "Testing migration container..."
-	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
-	cd test-infra/integration && docker-compose up -d postgres
-	@echo "Waiting for PostgreSQL to be ready..."
-	@until docker exec $$(cd test-infra/integration && docker-compose ps -q postgres) pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
-	cd test-infra/integration && docker-compose run --rm migrate
-	cd test-infra/integration && docker-compose down -v --remove-orphans
-	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
+	$(eval PG_CONTAINER := axiaops-migrate-test-pg-$(shell date +%s))
+	docker rm -f $(PG_CONTAINER) 2>/dev/null || true
+	docker run -d --name $(PG_CONTAINER) --network $(RUNNER_NETWORK) \
+		-e POSTGRES_DB=axiaops \
+		-e POSTGRES_USER=axiaops_owner \
+		-e POSTGRES_PASSWORD=$(POSTGRES_OWNER_PASSWORD) \
+		postgres:16-alpine
+	@until docker exec $(PG_CONTAINER) pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
+	docker build -t axiaops-migrate-test -f services/migrate/Dockerfile .
+	docker run --rm --network $(RUNNER_NETWORK) \
+		-e MIGRATION_DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@$(PG_CONTAINER):5432/axiaops?sslmode=disable" \
+		-e DATABASE_URL="postgres://axiaops:$(POSTGRES_PASSWORD)@$(PG_CONTAINER):5432/axiaops?sslmode=disable" \
+		axiaops-migrate-test
+	docker rm -f $(PG_CONTAINER)
 
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.
