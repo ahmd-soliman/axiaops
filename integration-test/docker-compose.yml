@@ -14,12 +14,11 @@ services:
       start_period: 10s
 
   init-tenant:
-    image: postgres:16-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.init-tenant
     environment:
       PGPASSWORD: ${POSTGRES_OWNER_PASSWORD:-axiaops_owner}
-    volumes:
-      - ./init-tenant.sh:/init-tenant.sh:ro
-    command: sh /init-tenant.sh
     depends_on:
       ingestion:
         condition: service_healthy
