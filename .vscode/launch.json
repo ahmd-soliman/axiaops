@@ -23,6 +23,20 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      "name": "Make: migrate",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "make migrate",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Make: test-migrate",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "make test-migrate",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Make: seed",
       "type": "node-terminal",
       "request": "launch",
