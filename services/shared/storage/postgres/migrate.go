@@ -22,6 +22,7 @@ var migrationsFS embed.FS
 // the one in appURL. Must be called before Migrate on every startup.
 // Connects as the owner (ownerURL) to create/update the user, then syncs the
 // password from DATABASE_URL — enabling credential rotation without manual steps.
+// Uses advisory lock to prevent concurrent bootstrap calls.
 func Bootstrap(ownerURL, appURL string) error {
 	// Parse the app user's password out of DATABASE_URL.
 	appCfg, err := pgxpool.ParseConfig(appURL)
@@ -37,9 +38,17 @@ func Bootstrap(ownerURL, appURL string) error {
 	if err != nil {
 		return fmt.Errorf("bootstrap: open db: %w", err)
 	}
+	defer db.Close()
+
+	// Acquire advisory lock to prevent concurrent bootstrap calls
+	// Lock ID 123456789 is arbitrary but consistent across all bootstrap calls
+	if _, err := db.Exec(`SELECT pg_advisory_lock(123456789)`); err != nil {
+		return fmt.Errorf("bootstrap: acquire lock: %w", err)
+	}
 	defer func() {
-		if cerr := db.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("bootstrap: close db: %w", cerr)
+		if err := db.Exec(`SELECT pg_advisory_unlock(123456789)`); err != nil {
+			// Log but don't return error - unlock should not fail
+			_ = fmt.Errorf("bootstrap: release lock: %w", err)
 		}
 	}()
 
