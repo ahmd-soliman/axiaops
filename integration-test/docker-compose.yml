@@ -106,12 +106,11 @@ services:
     build:
       context: ..
       dockerfile: integration-test/Dockerfile
-      args:
-        TEST_FILTER: "TestAPI"
     environment:
       INTEGRATION_API_URL: http://api:8080
       INTEGRATION_REDIS_URL: redis://redis:6379
       INTEGRATION_INGESTION_URL: http://ingestion:8081
+      TEST_FILTER: "TestRateLimit|TestScanQueue|TestScheduledAutoScan|TestAccounts|TestGhosts|TestSummary|TestResources|TestTrend"
     depends_on:
       api:
         condition: service_healthy
@@ -124,12 +123,11 @@ services:
     build:
       context: ..
       dockerfile: integration-test/Dockerfile
-      args:
-        TEST_FILTER: "TestIngestion"
     environment:
       INTEGRATION_API_URL: http://api:8080
       INTEGRATION_REDIS_URL: redis://redis:6379
       INTEGRATION_INGESTION_URL: http://ingestion:8081
+      TEST_FILTER: "TestIngestion"
     depends_on:
       ingestion:
         condition: service_healthy
