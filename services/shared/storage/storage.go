@@ -5,10 +5,15 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"axiaops.io/shared/model"
 )
+
+// ErrAlreadyDismissed is returned when a ghost resource already has an active
+// dismissal or snooze.  Callers should surface this as HTTP 409 Conflict.
+var ErrAlreadyDismissed = errors.New("storage: resource already has an active dismissal")
 
 type ctxKey string
 
@@ -98,6 +103,24 @@ type Store interface {
 	// DeleteOldCostRecords removes cost records older than the given cutoff for all tenants.
 	// Returns the number of rows deleted.
 	DeleteOldCostRecords(ctx context.Context, cutoff time.Time) (int64, error)
+
+	// DismissGhost records a dismiss or snooze action for a ghost resource.
+	// Returns the new dismissal ID.
+	// Returns ErrAlreadyDismissed if an active dismissal already exists for the fingerprint.
+	DismissGhost(ctx context.Context, d model.DismissAction) (int64, error)
+
+	// RevokeDismissal soft-deletes an active dismissal (sets revoked_at / revoked_by).
+	// Returns an error if the dismissal does not exist or is already revoked.
+	RevokeDismissal(ctx context.Context, id int64, revokedBy string) error
+
+	// ListActiveDismissals returns all active (non-revoked, non-expired) dismissals
+	// for the tenant in ctx.  If accountID is non-empty, only that account is returned.
+	ListActiveDismissals(ctx context.Context, accountID string) ([]model.DismissAction, error)
+
+	// ExpireSnoozes marks snoozed records whose snoozed_until has passed as revoked.
+	// This is a cross-tenant operation called by the background maintenance worker.
+	// Returns the number of records expired.
+	ExpireSnoozes(ctx context.Context) (int64, error)
 
 	// Close releases any resources held by the store.
 	Close() error

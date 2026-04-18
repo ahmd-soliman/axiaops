@@ -4,11 +4,13 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"axiaops.io/shared/model"
@@ -692,6 +694,159 @@ func (s *Store) DeleteOldCostRecords(ctx context.Context, cutoff time.Time) (int
 	tag, err := s.adminPool.Exec(ctx, `DELETE FROM cost_records WHERE period_end < $1`, cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("postgres: delete old cost_records: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DismissGhost inserts a new dismiss or snooze record for a ghost resource.
+// Returns ErrAlreadyDismissed if an active dismissal already exists for the fingerprint
+// (enforced by the partial unique index dismissed_ghosts_active_fingerprint).
+func (s *Store) DismissGhost(ctx context.Context, d model.DismissAction) (int64, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return 0, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setTenant(ctx, tx); err != nil {
+		return 0, err
+	}
+
+	var id int64
+	err = tx.QueryRow(ctx, `
+		INSERT INTO dismissed_ghosts
+			(tenant_id, account_id, provider, service, region, resource_id,
+			 action, reason, note, snoozed_until, dismissed_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+		RETURNING id`,
+		tenantID, d.AccountID, d.Provider, d.Service, d.Region, d.ResourceID,
+		d.Action, d.Reason, d.Note, d.SnoozedUntil, d.DismissedBy,
+	).Scan(&id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return 0, storage.ErrAlreadyDismissed
+		}
+		return 0, fmt.Errorf("postgres: insert dismissed_ghost: %w", err)
+	}
+	return id, tx.Commit(ctx)
+}
+
+// RevokeDismissal soft-deletes an active dismissal by setting revoked_at / revoked_by.
+func (s *Store) RevokeDismissal(ctx context.Context, id int64, revokedBy string) error {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE dismissed_ghosts
+		SET    revoked_at = NOW(), revoked_by = $1
+		WHERE  id = $2 AND revoked_at IS NULL`,
+		revokedBy, id,
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: revoke dismissal: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("postgres: dismissal %d not found or already revoked", id)
+	}
+	return tx.Commit(ctx)
+}
+
+// ListActiveDismissals returns all active (non-revoked, non-expired) dismissals
+// for the tenant in ctx.  If accountID is non-empty, filters to that account only.
+func (s *Store) ListActiveDismissals(ctx context.Context, accountID string) ([]model.DismissAction, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setTenant(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	var rows pgx.Rows
+	if accountID != "" {
+		rows, err = tx.Query(ctx, `
+			SELECT id, account_id, provider, service, region, resource_id,
+			       action, reason, note, snoozed_until, dismissed_by, created_at,
+			       revoked_at, revoked_by
+			FROM   dismissed_ghosts
+			WHERE  revoked_at IS NULL
+			  AND  (action = 'dismiss' OR snoozed_until > NOW())
+			  AND  account_id = $1
+			ORDER BY created_at DESC`,
+			accountID,
+		)
+	} else {
+		rows, err = tx.Query(ctx, `
+			SELECT id, account_id, provider, service, region, resource_id,
+			       action, reason, note, snoozed_until, dismissed_by, created_at,
+			       revoked_at, revoked_by
+			FROM   dismissed_ghosts
+			WHERE  revoked_at IS NULL
+			  AND  (action = 'dismiss' OR snoozed_until > NOW())
+			ORDER BY created_at DESC`,
+		)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("postgres: query dismissed_ghosts: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.DismissAction
+	for rows.Next() {
+		var d model.DismissAction
+		if err := rows.Scan(
+			&d.ID, &d.AccountID, &d.Provider, &d.Service, &d.Region, &d.ResourceID,
+			&d.Action, &d.Reason, &d.Note, &d.SnoozedUntil, &d.DismissedBy, &d.CreatedAt,
+			&d.RevokedAt, &d.RevokedBy,
+		); err != nil {
+			return nil, fmt.Errorf("postgres: scan dismissed_ghost: %w", err)
+		}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, tx.Commit(ctx)
+}
+
+// ExpireSnoozes marks snoozed records whose snoozed_until has passed as revoked.
+// This is a cross-tenant maintenance operation — uses adminPool to bypass RLS.
+// Returns the number of records expired.
+func (s *Store) ExpireSnoozes(ctx context.Context) (int64, error) {
+	tag, err := s.adminPool.Exec(ctx, `
+		UPDATE dismissed_ghosts
+		SET    revoked_at = NOW(), revoked_by = 'system:snooze_expiry'
+		WHERE  action = 'snooze'
+		  AND  revoked_at IS NULL
+		  AND  snoozed_until < NOW()`,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: expire snoozes: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }

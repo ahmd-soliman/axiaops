@@ -15,9 +15,10 @@ import (
 	"axiaops.io/shared/storage"
 )
 
+
 // MockStore is a unified in-memory Store implementation for testing.
 // It provides:
-//   - Real data storage (ghosts, accounts, snapshots)
+//   - Real data storage (ghosts, accounts, snapshots, dismissals)
 //   - Method call tracking (who called what, in what order)
 //   - Per-method error injection (simulate failures)
 //   - Context value capture (verify tenant propagation)
@@ -29,10 +30,12 @@ type MockStore struct {
 	mu sync.Mutex
 
 	// ── Data Storage (used by all tests) ──
-	ghosts    []model.GhostResource
-	accounts  []model.Account
-	snapshots []model.GhostSnapshot
-	resources []model.ResourceRecord
+	ghosts     []model.GhostResource
+	accounts   []model.Account
+	snapshots  []model.GhostSnapshot
+	resources  []model.ResourceRecord
+	dismissals []model.DismissAction
+	nextDismID int64
 
 	// ── Call Tracking (optional, for lifecycle tests) ──
 	callsToUpdateStatus []struct {
@@ -43,12 +46,14 @@ type MockStore struct {
 	lastListSnapshotsAccountID string
 
 	// ── Error Injection (optional, for failure testing) ──
-	errLoadGhosts      error
-	errListAccounts    error
-	errDeleteAccount   error
-	errGetAccount      error
-	errListSnapshots   error
-	errTryMarkScanning error
+	errLoadGhosts         error
+	errListAccounts       error
+	errDeleteAccount      error
+	errGetAccount         error
+	errListSnapshots      error
+	errTryMarkScanning    error
+	errDismissGhost       error
+	errListActiveDismiss  error
 
 	// ── Account Status (for concurrency testing) ──
 	accountScanning map[string]bool // account ID → is scanning
@@ -138,6 +143,30 @@ func (m *MockStore) WithListSnapshotsError(err error) *MockStore {
 func (m *MockStore) WithTryMarkScanningError(err error) *MockStore {
 	m.mu.Lock()
 	m.errTryMarkScanning = err
+	m.mu.Unlock()
+	return m
+}
+
+// WithDismissGhostError makes DismissGhost return an error.
+func (m *MockStore) WithDismissGhostError(err error) *MockStore {
+	m.mu.Lock()
+	m.errDismissGhost = err
+	m.mu.Unlock()
+	return m
+}
+
+// WithListActiveDismissalsError makes ListActiveDismissals return an error.
+func (m *MockStore) WithListActiveDismissalsError(err error) *MockStore {
+	m.mu.Lock()
+	m.errListActiveDismiss = err
+	m.mu.Unlock()
+	return m
+}
+
+// WithDismissals pre-populates the mock with active dismissals.
+func (m *MockStore) WithDismissals(dismissals []model.DismissAction) *MockStore {
+	m.mu.Lock()
+	m.dismissals = dismissals
 	m.mu.Unlock()
 	return m
 }
@@ -353,5 +382,54 @@ func (m *MockStore) Close() error {
 }
 
 func (m *MockStore) DeleteOldCostRecords(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *MockStore) DismissGhost(_ context.Context, d model.DismissAction) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.errDismissGhost != nil {
+		return 0, m.errDismissGhost
+	}
+	m.nextDismID++
+	d.ID = m.nextDismID
+	m.dismissals = append(m.dismissals, d)
+	return d.ID, nil
+}
+
+func (m *MockStore) RevokeDismissal(_ context.Context, id int64, revokedBy string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, d := range m.dismissals {
+		if d.ID == id && d.RevokedAt == nil {
+			now := time.Now()
+			m.dismissals[i].RevokedAt = &now
+			m.dismissals[i].RevokedBy = revokedBy
+			return nil
+		}
+	}
+	return errors.New("dismissal not found or already revoked")
+}
+
+func (m *MockStore) ListActiveDismissals(_ context.Context, accountID string) ([]model.DismissAction, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.errListActiveDismiss != nil {
+		return nil, m.errListActiveDismiss
+	}
+	var out []model.DismissAction
+	for _, d := range m.dismissals {
+		if d.RevokedAt != nil {
+			continue
+		}
+		if accountID != "" && d.AccountID != accountID {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func (m *MockStore) ExpireSnoozes(_ context.Context) (int64, error) {
 	return 0, nil
 }
