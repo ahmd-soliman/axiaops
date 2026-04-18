@@ -151,11 +151,13 @@ test-integration:
 test-integration-api:
 	cd integration-test && docker compose run api-tests
 	cd integration-test && docker compose down
+	cd integration-test && docker compose rm -f api-tests 2>/dev/null || true
 
 # Ingestion integration tests only  
 test-integration-ingestion:
 	cd integration-test && docker compose run ingestion-tests
 	cd integration-test && docker compose down
+	cd integration-test && docker compose rm -f ingestion-tests 2>/dev/null || true
 
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
