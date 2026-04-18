@@ -1,3 +1,5 @@
+name: axiaops-integration-test
+
 services:
 
   postgres:
