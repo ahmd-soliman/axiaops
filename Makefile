@@ -44,21 +44,21 @@ start-staging: stop migrate
 # Run database migrations using dedicated migration container
 migrate:
 	@echo "Running database migrations..."
-	docker compose up -d postgres
+	docker-compose up -d postgres
 	@echo "Waiting for PostgreSQL to be ready..."
-	@until docker compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
-	cd integration-test && docker compose run --rm migrate
-	cd integration-test && docker compose rm -f migrate 2>/dev/null || true
+	@until docker-compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
+	cd integration-test && docker-compose run --rm migrate
+	cd integration-test && docker-compose rm -f migrate 2>/dev/null || true
 
 # Test the migration container
 test-migrate:
 	@echo "Testing migration container..."
-	docker compose up -d postgres
+	docker-compose up -d postgres
 	@echo "Waiting for PostgreSQL to be ready..."
-	@until docker compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
-	cd integration-test && docker compose run --rm migrate
-	cd integration-test && docker compose down -v --remove-orphans
-	cd integration-test && docker compose rm -f 2>/dev/null || true
+	@until docker-compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
+	cd integration-test && docker-compose run --rm migrate
+	cd integration-test && docker-compose down -v --remove-orphans
+	cd integration-test && docker-compose rm -f 2>/dev/null || true
 
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.
@@ -97,13 +97,13 @@ inspect-db:
 
 # Clean local dev database (truncate tables, preserve schema).
 clean-db:
-	docker compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
+	docker-compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
 		"TRUNCATE TABLE axiaops.ghost_snapshots, axiaops.resource_records, axiaops.ghost_records, axiaops.cost_records, axiaops.accounts, axiaops.users, axiaops.tenants CASCADE RESTART IDENTITY; DROP TABLE IF EXISTS public.schema_migrations;" \
 		2>/dev/null || true
 
 # Clean local dev database (drop schema and user — destructive).
 clean-db-drop:
-	docker compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
+	docker-compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
 		"DROP SCHEMA IF EXISTS axiaops CASCADE; DROP USER IF EXISTS axiaops;" \
 		2>/dev/null || true
 	@echo "Local dev schema and user dropped. Run migrations to recreate."
@@ -154,7 +154,7 @@ test: test-shared test-api test-ingestion
 #   • Row-Level Security (RLS) policies
 #   • Schema migrations
 test-postgres:
-	docker compose up -d --wait postgres
+	docker-compose up -d --wait postgres
 	$(MAKE) clean-db
 	cd services/shared && MIGRATION_DATABASE_URL="$(MIGRATION_DATABASE_URL)" DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v -p=1 ./storage/postgres/...
 
@@ -163,21 +163,21 @@ test-all: test test-postgres
 
 # Integration tests - self-contained (starts Docker Compose stack)
 test-integration:
-	cd integration-test && docker compose up --build --exit-code-from tests tests
-	cd integration-test && docker compose down -v --remove-orphans
-	cd integration-test && docker compose rm -f 2>/dev/null || true
+	cd integration-test && docker-compose up --build --exit-code-from tests tests
+	cd integration-test && docker-compose down -v --remove-orphans
+	cd integration-test && docker-compose rm -f 2>/dev/null || true
 
 # API integration tests only
 test-integration-api:
-	cd integration-test && docker compose run --rm api-tests
-	cd integration-test && docker compose down -v --remove-orphans
-	cd integration-test && docker compose rm -f 2>/dev/null || true
+	cd integration-test && docker-compose run --rm api-tests
+	cd integration-test && docker-compose down -v --remove-orphans
+	cd integration-test && docker-compose rm -f 2>/dev/null || true
 
 # Ingestion integration tests only  
 test-integration-ingestion:
-	cd integration-test && docker compose run --rm ingestion-tests
-	cd integration-test && docker compose down -v --remove-orphans
-	cd integration-test && docker compose rm -f 2>/dev/null || true
+	cd integration-test && docker-compose run --rm ingestion-tests
+	cd integration-test && docker-compose down -v --remove-orphans
+	cd integration-test && docker-compose rm -f 2>/dev/null || true
 
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
