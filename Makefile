@@ -53,6 +53,7 @@ migrate:
 # Test the migration container (uses test-infra compose — no host port binding)
 test-migrate:
 	@echo "Testing migration container..."
+	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
 	cd test-infra/integration && docker-compose up -d --wait postgres
 	cd test-infra/integration && docker-compose run --rm migrate
 	cd test-infra/integration && docker-compose down -v --remove-orphans
