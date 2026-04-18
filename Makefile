@@ -149,13 +149,11 @@ test-integration:
 
 # API integration tests only
 test-integration-api:
-	cd integration-test && docker compose up --build --exit-code-from api-tests postgres redis api init-tenant api-tests
-	cd integration-test && docker compose down -v
+	cd integration-test && docker compose run --rm api-tests
 
 # Ingestion integration tests only  
 test-integration-ingestion:
-	cd integration-test && docker compose up --build --exit-code-from ingestion-tests postgres redis ingestion init-tenant ingestion-tests
-	cd integration-test && docker compose down -v
+	cd integration-test && docker compose run --rm ingestion-tests
 
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
