@@ -79,7 +79,7 @@ inspect-db:
 # Clean local dev database (truncate tables, preserve schema).
 clean-db:
 	docker compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
-		"TRUNCATE TABLE axiaops.ghost_snapshots, axiaops.resource_records, axiaops.ghost_records, axiaops.cost_records, axiaops.accounts, axiaops.users, axiaops.tenants CASCADE RESTART IDENTITY;" \
+		"TRUNCATE TABLE axiaops.ghost_snapshots, axiaops.resource_records, axiaops.ghost_records, axiaops.cost_records, axiaops.accounts, axiaops.users, axiaops.tenants CASCADE RESTART IDENTITY; DROP TABLE IF EXISTS public.schema_migrations;" \
 		2>/dev/null || true
 
 # Clean local dev database (drop schema and user — destructive).
