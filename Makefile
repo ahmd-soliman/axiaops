@@ -149,12 +149,12 @@ test-integration:
 
 # API integration tests only
 test-integration-api:
-	cd integration-test && docker compose run --remove-orphans api-tests
+	cd integration-test && docker compose run api-tests
 	cd integration-test && docker compose down
 
 # Ingestion integration tests only  
 test-integration-ingestion:
-	cd integration-test && docker compose run --remove-orphans ingestion-tests
+	cd integration-test && docker compose run ingestion-tests
 	cd integration-test && docker compose down
 
 # Clean up Docker resources from integration tests and other AxiaOps containers
