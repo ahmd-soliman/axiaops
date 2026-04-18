@@ -17,7 +17,8 @@ services:
 
   migrate:
     build:
-      context: ..
+      context: ../..
+
       dockerfile: services/migrate/Dockerfile
     environment:
       DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops?sslmode=disable
@@ -28,7 +29,8 @@ services:
 
   init-tenant:
     build:
-      context: .
+      context: ..
+
       dockerfile: Dockerfile.init-tenant
     environment:
       PGPASSWORD: ${POSTGRES_OWNER_PASSWORD:-axiaops_owner}
@@ -47,7 +49,8 @@ services:
 
   ingestion:
     build:
-      context: ..
+      context: ../..
+
       dockerfile: services/ingestion/Dockerfile
     environment:
       DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops?sslmode=disable
@@ -69,7 +72,8 @@ services:
 
   api:
     build:
-      context: ..
+      context: ../..
+
       dockerfile: services/api/Dockerfile
     environment:
       DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops?sslmode=disable
@@ -97,7 +101,8 @@ services:
 
   tests:
     build:
-      context: ..
+      context: ../..
+
       dockerfile: test-infra/integration/Dockerfile
     environment:
       INTEGRATION_API_URL: http://api:8080
@@ -115,7 +120,8 @@ services:
 
   api-tests:
     build:
-      context: ..
+      context: ../..
+
       dockerfile: test-infra/integration/Dockerfile
     environment:
       INTEGRATION_API_URL: http://api:8080
@@ -133,7 +139,8 @@ services:
 
   ingestion-tests:
     build:
-      context: ..
+      context: ../..
+
       dockerfile: test-infra/integration/Dockerfile
     environment:
       INTEGRATION_API_URL: http://api:8080
