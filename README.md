@@ -335,15 +335,16 @@ axiaops/
 - [x] API versioning — `/v1/` prefix on all endpoints
 - [x] In-memory rate limiting + graceful shutdown
 - [x] GitLab CI pipeline — test + build stages
-- [ ] Scheduled auto-scan (24h default per account)
-- [ ] `cost_records` 90-day retention cleanup
-- [ ] Redis — JWKS cache, scan job queue, rate limiting
+- [x] Scheduled auto-scan (24h default per account)
+- [x] `cost_records` 90-day retention cleanup
+- [x] Redis — JWKS cache, scan job queue, rate limiting
+- [x] Dismiss ghost workflow + snooze + audit trail
+- [ ] Wire Redis in API `main.go` (inject into auth + rate limiter)
 - [ ] Weekly email digest + Slack alerts
 - [ ] Production deployment (App Runner + RDS + ElastiCache via Terraform)
 
 ### Phase 3 — Beta / Launch (target December 2026)
 - [ ] Stripe billing — (pricing removed)
-- [ ] Dismiss ghost workflow + snooze + audit trail
 - [ ] GDPR / right to erasure + data export
 - [ ] Remediation CLI commands per resource type
 - [ ] Scan history log + tag/team filtering + CSV export
@@ -380,4 +381,4 @@ axiaops/
 
 ## Status
 
-**Phase 2 (Alpha) — April 2026.** Most of Phase 2 shipped ahead of schedule (auth, account management, resource inventory, savings trend, observability, CI pipeline). Remaining: scheduled auto-scan, Redis, production deployment (App Runner + RDS + Terraform). Target first paying customer: October 2026.
+**Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow. Remaining: wire Redis in API `main.go`, email/Slack alerts, production deployment (App Runner + RDS + Terraform). Target first paying customer: October 2026.
