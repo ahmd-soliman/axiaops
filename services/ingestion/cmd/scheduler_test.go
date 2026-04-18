@@ -59,6 +59,14 @@ func (m *mockStoreForScheduler) SaveSnapshot(context.Context, model.GhostSnapsho
 func (m *mockStoreForScheduler) ListSnapshots(context.Context, string) ([]model.GhostSnapshot, error) {
 	return nil, nil
 }
+func (m *mockStoreForScheduler) DismissGhost(context.Context, model.DismissAction) (int64, error) {
+	return 0, nil
+}
+func (m *mockStoreForScheduler) RevokeDismissal(context.Context, int64, string) error { return nil }
+func (m *mockStoreForScheduler) ListActiveDismissals(context.Context, string) ([]model.DismissAction, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) ExpireSnoozes(context.Context) (int64, error) { return 0, nil }
 func (m *mockStoreForScheduler) DeleteOldCostRecords(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }
