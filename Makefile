@@ -147,6 +147,17 @@ test-integration:
 	cd integration-test && docker compose up --build --exit-code-from tests tests
 	cd integration-test && docker compose down -v
 
+# Clean up Docker resources from integration tests and other AxiaOps containers
+clean-docker:
+	@echo "Cleaning up AxiaOps Docker resources..."
+	./scripts/cleanup_docker.sh
+
+# Clean up integration test resources specifically
+clean-integration:
+	@echo "Cleaning up integration test resources..."
+	cd integration-test && docker compose down -v --remove-orphans 2>/dev/null || true
+	docker network prune -f --filter label=com.docker.compose.project=integration-test 2>/dev/null || true
+
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:
 	@echo "Starting services..."
