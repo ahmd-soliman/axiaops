@@ -7,9 +7,6 @@ RUN go mod download
 
 COPY test/integration/*.go ./
 
-ARG TEST_FILTER=""
-ENV TEST_FILTER=${TEST_FILTER}
-
 CMD if [ -n "$TEST_FILTER" ]; then \
       go test -v . -count=1 -tags=integration -run="$TEST_FILTER"; \
     else \
