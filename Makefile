@@ -8,6 +8,16 @@ POSTGRES_OWNER_PASSWORD ?= axiaops_owner
 MIGRATION_DATABASE_URL ?= postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5432/axiaops?sslmode=disable
 DATABASE_URL ?= postgres://axiaops:$(POSTGRES_PASSWORD)@localhost:5432/axiaops?sslmode=disable
 
+# Integration test URLs
+INTEGRATION_API_URL ?= http://localhost:8080
+INTEGRATION_REDIS_URL ?= redis://localhost:6379
+INTEGRATION_INGESTION_URL ?= http://localhost:8081
+
+# Integration test URLs
+INTEGRATION_API_URL ?= http://localhost:8080
+INTEGRATION_REDIS_URL ?= redis://localhost:6379
+INTEGRATION_INGESTION_URL ?= http://localhost:8081
+
 # Stop local processes, free ports, and stop Postgres if running.
 stop:
 	docker rm -f axiaops-dev-redis 2>/dev/null || true
