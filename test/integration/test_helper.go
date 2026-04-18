@@ -5,6 +5,7 @@ package integration
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,15 +13,11 @@ import (
 	"time"
 )
 
-var (
-	apiURL      = "http://localhost:8080"
-	redisURL    = "redis://localhost:6379"
-	ingestionURL = "http://localhost:8081"
-)
-
 func TestMain(m *testing.M) {
 	// Check if we should manage the stack
 	manageStack := os.Getenv("INTEGRATION_MANAGE_STACK") != "false"
+	
+	var apiURL, redisURL, ingestionURL string
 	
 	if manageStack {
 		// Start Docker Compose
@@ -33,21 +30,20 @@ func TestMain(m *testing.M) {
 			}
 		}()
 		
+		// Use default URLs
+		apiURL = "http://localhost:8080"
+		redisURL = "redis://localhost:6379"
+		ingestionURL = "http://localhost:8081"
+		
 		// Wait for services to be ready
-		if err := waitForServices(); err != nil {
+		if err := waitForServices(apiURL, ingestionURL); err != nil {
 			log.Fatalf("Services not ready: %v", err)
 		}
 	} else {
 		// Use provided URLs
-		if u := os.Getenv("INTEGRATION_API_URL"); u != "" {
-			apiURL = u
-		}
-		if u := os.Getenv("INTEGRATION_REDIS_URL"); u != "" {
-			redisURL = u
-		}
-		if u := os.Getenv("INTEGRATION_INGESTION_URL"); u != "" {
-			ingestionURL = u
-		}
+		apiURL = os.Getenv("INTEGRATION_API_URL")
+		redisURL = os.Getenv("INTEGRATION_REDIS_URL")
+		ingestionURL = os.Getenv("INTEGRATION_INGESTION_URL")
 	}
 	
 	// Set environment variables for tests
@@ -77,7 +73,7 @@ func stopStack() error {
 	return cmd.Run()
 }
 
-func waitForServices() error {
+func waitForServices(apiURL, ingestionURL string) error {
 	// Wait for API
 	for i := 0; i < 30; i++ {
 		resp, err := http.Get(apiURL + "/health")

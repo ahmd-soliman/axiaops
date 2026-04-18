@@ -13,6 +13,17 @@ services:
       retries: 10
       start_period: 10s
 
+  init-tenant:
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: ${POSTGRES_OWNER_PASSWORD:-axiaops_owner}
+    volumes:
+      - ./init-tenant.sh:/init-tenant.sh:ro
+    command: sh /init-tenant.sh
+    depends_on:
+      ingestion:
+        condition: service_healthy
+
   redis:
     image: redis:7-alpine
     healthcheck:
@@ -32,6 +43,7 @@ services:
       REDIS_URL: redis://redis:6379
       SCAN_INTERVAL: 10s
       ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      DEV_MODE: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,6 +82,24 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+
+  tests:
+    build:
+      context: ..
+      dockerfile: integration-test/Dockerfile
+    environment:
+      INTEGRATION_API_URL: http://api:8080
+      INTEGRATION_REDIS_URL: redis://redis:6379
+      INTEGRATION_INGESTION_URL: http://ingestion:8081
+    depends_on:
+      api:
+        condition: service_healthy
+      ingestion:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      init-tenant:
+        condition: service_completed_successfully
 
 networks:
   default:
