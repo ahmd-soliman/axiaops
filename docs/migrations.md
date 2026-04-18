@@ -128,6 +128,77 @@ migrate -path services/shared/storage/postgres/migrations \
 
 ---
 
+## Production Migrations
+
+Production runs on RDS inside a VPC. The CI runner cannot reach it directly, so
+migrations are **not run automatically** by the `deploy:production` pipeline job.
+The `axiaops-migrate` image is built and pushed to ECR on every deploy — you must
+run it manually before the App Runner services pick up the new image.
+
+**The order matters: always migrate before deploying.** App Runner rolls out the
+new image gradually; if the new code reaches a schema it doesn't recognise, the
+service will error until migrations are applied.
+
+### Option A — ECS one-off task (recommended)
+
+Once the Terraform ECS task definition is in place, trigger a one-off run from
+any machine with AWS credentials:
+
+```bash
+aws ecs run-task \
+  --cluster axiaops \
+  --task-definition axiaops-migrate \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={
+    subnets=[subnet-xxxxxxxx],
+    securityGroups=[sg-xxxxxxxx],
+    assignPublicIp=DISABLED
+  }" \
+  --overrides '{
+    "containerOverrides": [{
+      "name": "migrate",
+      "environment": [
+        {"name": "MIGRATION_DATABASE_URL", "value": "postgres://axiaops_owner:<password>@<rds-host>:5432/axiaops"},
+        {"name": "DATABASE_URL",           "value": "postgres://axiaops:<password>@<rds-host>:5432/axiaops"}
+      ]
+    }]
+  }'
+```
+
+Wait for the task to reach `STOPPED` and confirm its exit code is `0` before
+proceeding with the App Runner deployment.
+
+### Option B — bastion / VPN jump host
+
+If you have a host inside the VPC (or an active VPN tunnel to the RDS subnet),
+pull and run the migrate image directly:
+
+```bash
+# Pull from ECR (authenticate first)
+aws ecr get-login-password --region eu-central-1 | \
+  docker login --username AWS --password-stdin <account_id>.dkr.ecr.eu-central-1.amazonaws.com
+
+docker pull <account_id>.dkr.ecr.eu-central-1.amazonaws.com/axiaops-migrate:<sha>
+
+docker run --rm \
+  -e MIGRATION_DATABASE_URL="postgres://axiaops_owner:<password>@<rds-host>:5432/axiaops?sslmode=require" \
+  -e DATABASE_URL="postgres://axiaops:<password>@<rds-host>:5432/axiaops?sslmode=require" \
+  <account_id>.dkr.ecr.eu-central-1.amazonaws.com/axiaops-migrate:<sha>
+```
+
+### Verifying the migration ran
+
+Connect to RDS and check the migrations table:
+
+```sql
+SELECT version, dirty FROM axiaops.schema_migrations ORDER BY version DESC LIMIT 5;
+```
+
+`dirty = false` on the latest version means the migration completed cleanly. If
+`dirty = true`, see the Dirty State section below before redeploying.
+
+---
+
 ## Dirty State
 
 If a migration fails halfway, the `dirty` flag is set to `true` and all future migration attempts are blocked. To recover:
