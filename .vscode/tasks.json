@@ -5,71 +5,73 @@
       "label": "stop",
       "type": "shell",
       "command": "make stop",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
+      "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared",
-        "showReuseMessage": false
-      }
+      "presentation": { "reveal": "always", "panel": "shared" }
     },
     {
-      "label": "start-dev",
+      "label": "seed-dev",
       "type": "shell",
-      "command": "make start-dev",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
+      "command": "make seed-dev",
+      "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared",
-        "showReuseMessage": false
-      }
+      "presentation": { "reveal": "always", "panel": "shared" }
     },
     {
-      "label": "start-staging",
+      "label": "seed-staging",
       "type": "shell",
-      "command": "make start-staging",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
+      "command": "make seed-staging",
+      "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared",
-        "showReuseMessage": false
-      }
+      "presentation": { "reveal": "always", "panel": "shared" }
     },
     {
-      "label": "clean-remote-db: dev",
+      "label": "clean-db",
       "type": "shell",
-      "command": "./scripts/clean_remote_dbs.sh dev --yes",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
+      "command": "make clean-db",
+      "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared",
-        "showReuseMessage": false
-      }
+      "presentation": { "reveal": "always", "panel": "shared" }
     },
     {
-      "label": "clean-remote-db: staging",
+      "label": "clean-docker",
       "type": "shell",
-      "command": "./scripts/clean_remote_dbs.sh staging --yes",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
+      "command": "make clean-docker",
+      "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared",
-        "showReuseMessage": false
-      }
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "clean-remote-dev",
+      "type": "shell",
+      "command": "make clean-remote-dev",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "clean-remote-staging",
+      "type": "shell",
+      "command": "make clean-remote-staging",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "make test",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "test-integration",
+      "type": "shell",
+      "command": "make test-integration",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
     }
   ]
 }

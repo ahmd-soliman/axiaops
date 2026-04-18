@@ -2,193 +2,34 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Make: start-dev",
-      "type": "node-terminal",
+      "name": "Start Dev Environment",
+      "type": "node",
       "request": "launch",
-      "command": "make start-dev",
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["start-dev"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
     },
     {
-      "name": "Make: start-staging",
-      "type": "node-terminal",
+      "name": "Start Staging Environment",
+      "type": "node",
       "request": "launch",
-      "command": "make start-staging",
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["start-staging"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
     },
     {
-      "name": "Make: stop",
-      "type": "node-terminal",
+      "name": "Debug Dashboard (Expo)",
+      "type": "node",
       "request": "launch",
-      "command": "make stop",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: migrate",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make migrate",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: test-migrate",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make test-migrate",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: seed",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make seed",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: seed-dev",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make seed-dev",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: seed-staging",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make seed-staging",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: seed-remote-dev",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make seed-remote-dev",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: seed-remote-staging",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make seed-remote-staging",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: clean-remote-dev",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "./scripts/clean_remote_dbs.sh dev --yes",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: clean-remote-staging",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "./scripts/clean_remote_dbs.sh staging --yes",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: clean-remote-dev-drop",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "./scripts/clean_remote_dbs.sh dev --yes --drop-schema",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: clean-remote-staging-drop",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "./scripts/clean_remote_dbs.sh staging --yes --drop-schema",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: test",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make test",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: test-shared",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make test-shared",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: test-api",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make test-api",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: test-ingestion",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make test-ingestion",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: test-postgres",
-      "type": "node-terminal",
-      "command": "make test-postgres",
-      "request": "launch",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: test-all",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make test-all",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: test-integration",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make test-integration",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: test-integration-api",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make test-integration-api",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: test-integration-ingestion",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make test-integration-ingestion",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: inspect-db",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make inspect-db",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: clean-db",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make clean-db",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: clean-docker",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make clean-docker",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Make: drop-schema",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "make drop-schema",
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}/services/dashboard",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "web"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
     }
   ]
 }
