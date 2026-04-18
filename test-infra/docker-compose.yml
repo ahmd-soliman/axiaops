@@ -98,7 +98,7 @@ services:
   tests:
     build:
       context: ..
-      dockerfile: test-infra/Dockerfile
+      dockerfile: test-infra/Dockerfile.integration
     environment:
       INTEGRATION_API_URL: http://api:8080
       INTEGRATION_REDIS_URL: redis://redis:6379
@@ -116,7 +116,7 @@ services:
   api-tests:
     build:
       context: ..
-      dockerfile: test-infra/Dockerfile
+      dockerfile: test-infra/Dockerfile.integration
     environment:
       INTEGRATION_API_URL: http://api:8080
       INTEGRATION_REDIS_URL: redis://redis:6379
@@ -134,7 +134,7 @@ services:
   ingestion-tests:
     build:
       context: ..
-      dockerfile: test-infra/Dockerfile
+      dockerfile: test-infra/Dockerfile.integration
     environment:
       INTEGRATION_API_URL: http://api:8080
       INTEGRATION_REDIS_URL: redis://redis:6379
