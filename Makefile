@@ -142,9 +142,9 @@ test-postgres:
 # Full test suite: unit tests + API integration tests + storage tests.
 test-all: test test-postgres
 
-# Integration tests - require Redis and PostgreSQL
-test-integration: start-dev-redis
-	cd test/integration && GOWORK=off INTEGRATION_API_URL=$(INTEGRATION_API_URL) INTEGRATION_REDIS_URL=$(INTEGRATION_REDIS_URL) INTEGRATION_INGESTION_URL=$(INTEGRATION_INGESTION_URL) go test -v . -count=1 $(ARGS)
+# Integration tests - self-contained (starts Docker Compose stack)
+test-integration:
+	cd test/integration && GOWORK=off go test -v . -count=1 -tags=integration $(ARGS)
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
 test-shutdown:

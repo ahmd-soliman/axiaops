@@ -1,3 +1,5 @@
+//go:build integration
+
 // Package integration contains integration tests that verify component interaction.
 //
 // These tests require a live stack (PostgreSQL, Redis) and may modify state
