@@ -77,6 +77,8 @@ services:
         condition: service_healthy
       ingestion:
         condition: service_healthy
+      init-tenant:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 5s
