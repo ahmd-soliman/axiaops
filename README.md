@@ -339,7 +339,7 @@ axiaops/
 - [x] `cost_records` 90-day retention cleanup
 - [x] Redis — JWKS cache, scan job queue, rate limiting
 - [x] Dismiss ghost workflow + snooze + audit trail
-- [ ] Wire Redis in API `main.go` (inject into auth + rate limiter)
+- [x] Wire Redis in API `main.go` (inject into auth + rate limiter)
 - [ ] Weekly email digest + Slack alerts
 - [ ] Production deployment (App Runner + RDS + ElastiCache via Terraform)
 
@@ -381,4 +381,4 @@ axiaops/
 
 ## Status
 
-**Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow. Remaining: wire Redis in API `main.go`, email/Slack alerts, production deployment (App Runner + RDS + Terraform). Target first paying customer: October 2026.
+**Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow. Remaining: email/Slack alerts, production deployment (App Runner + RDS + Terraform). Target first paying customer: October 2026.
