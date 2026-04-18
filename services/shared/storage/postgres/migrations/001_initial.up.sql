@@ -99,6 +99,16 @@ CREATE TABLE IF NOT EXISTS accounts (
     created_at        TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS ghost_snapshots (
+    id                  TEXT        PRIMARY KEY,
+    tenant_id           TEXT        NOT NULL REFERENCES tenants(id),
+    account_id          TEXT        NOT NULL,
+    snapshot_at         TIMESTAMPTZ NOT NULL,
+    ghost_count         INTEGER     NOT NULL DEFAULT 0,
+    total_monthly_cost  NUMERIC     NOT NULL DEFAULT 0,
+    currency            TEXT        NOT NULL DEFAULT 'USD'
+);
+
 -- Ensure the app user can access all tables created by this migration.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA axiaops TO axiaops;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA axiaops TO axiaops;
@@ -109,6 +119,7 @@ ALTER TABLE cost_records     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ghost_records    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resource_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE accounts         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ghost_snapshots  ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
     CREATE POLICY cost_tenant_isolation ON cost_records
@@ -133,3 +144,13 @@ DO $$ BEGIN
         USING (tenant_id = current_setting('app.tenant_id', true));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+DO $$ BEGIN
+    CREATE POLICY ghost_snapshots_tenant_isolation ON ghost_snapshots
+        USING (tenant_id = current_setting('app.tenant_id', true));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Add index on (tenant_id, period_end) for efficient retention range deletes.
+CREATE INDEX IF NOT EXISTS idx_cost_records_tenant_period_end
+    ON cost_records (tenant_id, period_end);
