@@ -181,7 +181,7 @@ test-integration-ingestion:
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
 	@echo "Cleaning up AxiaOps Docker resources..."
-	./scripts/cleanup_docker.sh
+	./scripts/force_clean_docker_resources.sh
 
 # Clean up integration test resources specifically
 clean-integration:

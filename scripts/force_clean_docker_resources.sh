@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# cleanup_docker.sh - Clean up AxiaOps Docker resources
+# force_clean_docker_resources.sh - Force cleanup of AxiaOps Docker resources
 #
 # Usage:
-#   ./scripts/cleanup_docker.sh [--all]
+#   ./scripts/force_clean_docker_resources.sh [--all]
 #
 # Options:
 #   --all    Also clean up non-AxiaOps containers and networks (more aggressive)
