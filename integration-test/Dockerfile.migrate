@@ -1,0 +1,13 @@
+FROM golang:1.25-alpine AS builder
+WORKDIR /app
+COPY services/shared/ /shared/
+COPY services/shared/go.mod services/shared/go.sum ./
+RUN go mod download
+COPY services/shared/ .
+RUN go build -o migrate ./cmd/migrate/
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+COPY --from=builder /app/migrate .
+CMD ["./migrate"]
