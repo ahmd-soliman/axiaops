@@ -50,12 +50,10 @@ migrate:
 	cd integration-test && docker-compose run --rm migrate
 	cd integration-test && docker-compose rm -f migrate 2>/dev/null || true
 
-# Test the migration container
+# Test the migration container (uses integration-test compose — no host port binding)
 test-migrate:
 	@echo "Testing migration container..."
-	docker-compose up -d postgres
-	@echo "Waiting for PostgreSQL to be ready..."
-	@until docker-compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
+	cd integration-test && docker-compose up -d --wait postgres
 	cd integration-test && docker-compose run --rm migrate
 	cd integration-test && docker-compose down -v --remove-orphans
 	cd integration-test && docker-compose rm -f 2>/dev/null || true
