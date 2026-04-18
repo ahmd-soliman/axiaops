@@ -144,18 +144,21 @@ test-all: test test-postgres
 
 # Integration tests - self-contained (starts Docker Compose stack)
 test-integration:
-	cd integration-test && docker-compose up --build --exit-code-from tests tests
-	cd integration-test && docker-compose down -v
+	cd integration-test && docker compose up --build --exit-code-from tests tests
+	cd integration-test && docker compose down -v --remove-orphans
+	cd integration-test && docker compose rm -f 2>/dev/null || true
 
 # API integration tests only
 test-integration-api:
-	cd integration-test && docker-compose run api-tests
-	cd integration-test && docker-compose down --volumes --remove-orphans
+	cd integration-test && docker compose run --rm api-tests
+	cd integration-test && docker compose down -v --remove-orphans
+	cd integration-test && docker compose rm -f 2>/dev/null || true
 
 # Ingestion integration tests only  
 test-integration-ingestion:
-	cd integration-test && docker-compose run ingestion-tests
-	cd integration-test && docker-compose down --volumes --remove-orphans
+	cd integration-test && docker compose run --rm ingestion-tests
+	cd integration-test && docker compose down -v --remove-orphans
+	cd integration-test && docker compose rm -f 2>/dev/null || true
 
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
