@@ -3,6 +3,7 @@ go 1.25.0
 use (
 	./services/api
 	./services/ingestion
+	./services/migrate
 	./services/shared
 	./test/integration
 )
