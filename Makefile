@@ -1,4 +1,4 @@
-.PHONY: start-dev start-dev-redis start-staging stop seed seed-dev seed-staging seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke test-smoke-api test-smoke-redis test-liveness
+.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-dev seed-staging seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-smoke test-smoke-api test-smoke-redis test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -26,20 +26,39 @@ stop:
 # Start all services in dev mode (bypass auth with fixed tenant).
 # Always runs `stop` first so ports and stale processes are cleared.
 # Run `make seed` once after first start to populate dummy data.
-start-dev: stop
+start-dev: stop migrate
 	./scripts/start.sh
 
 # Like start-dev but also spins up a local Redis container and passes REDIS_URL.
 # Enables rate limiting and the scan queue worker locally.
-start-dev-redis: stop
+start-dev-redis: stop migrate
 	docker run -d --rm --name axiaops-dev-redis -p 6379:6379 redis:7-alpine 2>/dev/null || true
 	REDIS_URL=redis://localhost:6379 ./scripts/start.sh
 
 # Staging: real Kinde JWT auth + real AWS data (no seed needed).
 # Always runs `stop` first.
-start-staging: stop
+start-staging: stop migrate
 	docker run -d --rm --name axiaops-dev-redis -p 6379:6379 redis:7-alpine 2>/dev/null || true
 	DEV_MODE=false REDIS_URL=redis://localhost:6379 ./scripts/start.sh
+
+# Run database migrations using dedicated migration container
+migrate:
+	@echo "Running database migrations..."
+	docker compose up -d postgres
+	@echo "Waiting for PostgreSQL to be ready..."
+	@until docker compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
+	cd integration-test && docker compose run --rm migrate
+	cd integration-test && docker compose rm -f migrate 2>/dev/null || true
+
+# Test the migration container
+test-migrate:
+	@echo "Testing migration container..."
+	docker compose up -d postgres
+	@echo "Waiting for PostgreSQL to be ready..."
+	@until docker compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
+	cd integration-test && docker compose run --rm migrate
+	cd integration-test && docker compose down -v --remove-orphans
+	cd integration-test && docker compose rm -f 2>/dev/null || true
 
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.
@@ -144,18 +163,21 @@ test-all: test test-postgres
 
 # Integration tests - self-contained (starts Docker Compose stack)
 test-integration:
-	cd integration-test && docker-compose up --build --exit-code-from tests tests
-	cd integration-test && docker-compose down -v
+	cd integration-test && docker compose up --build --exit-code-from tests tests
+	cd integration-test && docker compose down -v --remove-orphans
+	cd integration-test && docker compose rm -f 2>/dev/null || true
 
 # API integration tests only
 test-integration-api:
-	cd integration-test && docker-compose run api-tests
-	cd integration-test && docker-compose down --volumes --remove-orphans
+	cd integration-test && docker compose run --rm api-tests
+	cd integration-test && docker compose down -v --remove-orphans
+	cd integration-test && docker compose rm -f 2>/dev/null || true
 
 # Ingestion integration tests only  
 test-integration-ingestion:
-	cd integration-test && docker-compose run ingestion-tests
-	cd integration-test && docker-compose down --volumes --remove-orphans
+	cd integration-test && docker compose run --rm ingestion-tests
+	cd integration-test && docker compose down -v --remove-orphans
+	cd integration-test && docker compose rm -f 2>/dev/null || true
 
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
