@@ -46,7 +46,7 @@ func Bootstrap(ownerURL, appURL string) error {
 		return fmt.Errorf("bootstrap: acquire lock: %w", err)
 	}
 	defer func() {
-		if err := db.Exec(`SELECT pg_advisory_unlock(123456789)`); err != nil {
+		if _, err := db.Exec(`SELECT pg_advisory_unlock(123456789)`); err != nil {
 			// Log but don't return error - unlock should not fail
 			_ = fmt.Errorf("bootstrap: release lock: %w", err)
 		}
