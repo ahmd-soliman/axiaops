@@ -54,19 +54,22 @@ migrate:
 test-migrate:
 	@echo "Testing migration container..."
 	$(eval PG_CONTAINER := axiaops-migrate-test-pg-$(shell date +%s))
+	$(eval TEST_NETWORK := $(if $(RUNNER_NETWORK),$(RUNNER_NETWORK),axiaops-migrate-test-net))
 	docker rm -f $(PG_CONTAINER) 2>/dev/null || true
-	docker run -d --name $(PG_CONTAINER) --network $(RUNNER_NETWORK) \
+	$(if $(RUNNER_NETWORK),,docker network create $(TEST_NETWORK) 2>/dev/null || true)
+	docker run -d --name $(PG_CONTAINER) --network $(TEST_NETWORK) \
 		-e POSTGRES_DB=axiaops \
 		-e POSTGRES_USER=axiaops_owner \
 		-e POSTGRES_PASSWORD=$(POSTGRES_OWNER_PASSWORD) \
 		postgres:16-alpine
 	@until docker exec $(PG_CONTAINER) pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
 	docker build -t axiaops-migrate-test -f services/migrate/Dockerfile .
-	docker run --rm --network $(RUNNER_NETWORK) \
+	docker run --rm --network $(TEST_NETWORK) \
 		-e MIGRATION_DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@$(PG_CONTAINER):5432/axiaops?sslmode=disable" \
 		-e DATABASE_URL="postgres://axiaops:$(POSTGRES_PASSWORD)@$(PG_CONTAINER):5432/axiaops?sslmode=disable" \
 		axiaops-migrate-test
 	docker rm -f $(PG_CONTAINER)
+	$(if $(RUNNER_NETWORK),,docker network rm $(TEST_NETWORK) 2>/dev/null || true)
 
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.

@@ -1,275 +1,177 @@
-# AxiaOps Phase 2 Status — Updated April 11, 2026
+# AxiaOps Phase 2 Status — Updated April 19, 2026
 
-## ✅ COMPLETED (Shipped)
-
-### 1. Observability (P0) — DONE
-- **Structured logging:** `log/slog` with JSON output in production, text in dev
-- **Error handling:** Structured logging via `log/slog` for error tracking (`services/shared/logging/logging.go`)
-- **Prometheus metrics:** 
-  - `axiaops_api_requests_total` — request counter per endpoint/status
-  - `axiaops_api_request_duration_seconds` — request latency histogram
-  - `axiaops_ingestion_records_fetched_total` — cost records counter
-  - `axiaops_ingestion_ghosts_detected_total` — ghost detection gauge
-  - `axiaops_potential_monthly_savings_usd` — savings gauge
-- **Health endpoint:** Extended `/health` (currently reads from DB; status checks not yet implemented)
-- **Files:** `services/shared/logging/logging.go`, `services/api/cmd/main.go`, `services/ingestion/cmd/main.go`
-
-### 2. API Versioning (P0) — DONE
-- **All routes prefixed `/v1/`:** 
-  - `/v1/ghosts`, `/v1/summary`, `/v1/accounts`, `/v1/accounts/{id}/scan`, etc.
-- **nginx proxy:** Routes `/api/v1/*` → `api:8080/v1/*`
-- **Tests:** Updated to use `/v1/` paths (see middleware tests)
-- **Files:** `services/api/internal/api/api.go`, nginx config in docker-compose
-
-### 3. Rate Limiting (P0) — DONE
-- **Implementation:** In-memory token bucket (`services/api/internal/middleware/ratelimit.go`)
-- **Limits:** 60 requests/minute per tenant
-- **Response:** 429 status with `Retry-After` header
-- **Disabled in dev:** `DEV_MODE=true` bypasses limiting
-- **Concurrency guard:** Account scan already protected from double-booking
-- **Files:** `services/api/internal/middleware/ratelimit.go` (tests included)
+> Source of truth for the Phase 2 roadmap lives in `docs/TASKS.md` (section 2.x) and
+> the detailed execution plan in `docs/phase2-plan.md`. This file is the at-a-glance
+> status readout — updated when a task materially changes state.
 
 ---
 
-## ❌ NOT YET STARTED — NEXT PRIORITIES (May 2026)
+## ✅ Completed (Shipped)
 
-### 1. Graceful Shutdown (P0) — Required before App Runner deployment
-**Why:** App Runner sends `SIGTERM` before terminating containers. Must drain in-flight requests cleanly.
+All May 2026 milestone items and most June 2026 items are in `main`.
 
-**Current state:** Both services use simple `http.ListenAndServe()` — no signal handling.
+### Observability (2.6)
+- Structured logging via `log/slog` (JSON in prod, text in dev) in `services/shared/logging/logging.go`.
+- Request ID middleware (`services/api/internal/middleware/requestid.go`) threads `X-Request-ID` into `slog` context.
+- Scan lifecycle logs (`scan.started`, `scan.completed`, `scan.failed`) carry `tenant_id`, `account_id`, `duration_ms`, `ghost_count`.
+- Prometheus metrics exposed at `/metrics` on both API and ingestion:
+  - `axiaops_api_request_duration_seconds` (histogram, route + status labels)
+  - `axiaops_api_requests_total` (counter)
+  - `axiaops_scan_duration_seconds`, `axiaops_ghosts_detected_total`
+  - `axiaops_ingestion_records_fetched_total`, `axiaops_potential_monthly_savings_usd`
+- `GET /health` checks DB connectivity and ingestion reachability.
+- Sentry intentionally skipped — structured logs are sufficient at current scale.
 
-**What needs to change:**
-```go
-// services/api/cmd/main.go & services/ingestion/cmd/main.go
-import "os/signal"
+### API Versioning (2.8)
+- All routes live under `/v1/`. `/health` and `/metrics` stay unversioned.
+- nginx proxies `/api/v1/*` → `api:8080/v1/*`.
+- Dashboard client and all handler tests updated.
 
-ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-defer cancel()
+### Rate Limiting (2.9 + Redis refactor)
+- `services/api/internal/middleware/ratelimit.go` — 60 req/min per tenant, `Retry-After` on 429.
+- Backed by `cache.Incr` (Redis when `REDIS_URL` set, in-memory fallback otherwise).
+- Bypassed when `DEV_MODE=true`.
 
-server := &http.Server{Addr: addr, Handler: logged}
-go func() {
-    <-ctx.Done()
-    // 30-second drain window
-    shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer shutdownCancel()
-    server.Shutdown(shutdownCtx)
-    // Cleanup: close DB connection pool
-    s.Close()
-}()
+### Graceful Shutdown (2.10)
+- `signal.NotifyContext(SIGTERM, SIGINT)` in both `services/api/cmd/main.go` and `services/ingestion/cmd/main.go`.
+- 30-second drain window via `server.Shutdown(ctx)`; DB pool closed after.
+- Ingestion rejects new `POST /scan` with `503` during drain; current scan is allowed to finish.
+- Emits `shutdown.started` / `shutdown.complete` with drain duration.
 
-if err := server.ListenAndServe(err); err != nil && err != http.ErrServerClosed {
-    die("server error", "error", err)
-}
-```
+### Versioned Migrations (2.4)
+- `golang-migrate/v4` wired into both service `main.go`s; runs on startup against `MIGRATION_DATABASE_URL`.
+- All `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE` removed from application code.
+- Migrations under `services/shared/storage/postgres/migrations/`.
 
-**Scope:**
-- [ ] API service: handle SIGTERM, drain HTTP requests
-- [ ] Ingestion service: handle SIGTERM, complete current scan before shutdown
-- [ ] Both: close PostgreSQL connection pool cleanly
-- [ ] Log: `shutdown.started`, `shutdown.complete` with drain duration
-- [ ] Tests: unit tests for signal handling (not blocking)
+### Savings History / Trend (2.5)
+- `ghost_snapshots` table + `SaveSnapshot` / `ListSnapshots` on the `Store` interface.
+- Ingestion writes a snapshot row per scan after `SaveGhosts`.
+- `GET /v1/trend?account_id={id}&days=30` powers the dashboard sparkline.
 
-**Estimate:** 2–3 hours | **Owner:** — | **Blocker for:** Production deployment
+### Scan Recovery (2.7)
+- 5-minute background ticker in API resets accounts stuck in `scanning` > 15 min.
+- Emits `scan.timeout_reset` with `account_id` and `stuck_duration`.
 
----
+### GitLab CI Pipeline (2.11)
+- `.gitlab-ci.yml` with `test` → `build` → `deploy` stages.
+- Test runs `go test ./...` + `golangci-lint` on every branch.
+- `main` builds Docker images for api / ingestion / dashboard, pushes to ECR, and runs `aws apprunner update-service`.
+- CloudFront invalidation for dashboard assets.
 
-### 2. GitLab CI Pipeline (P0) — Build & Deploy Stages
-**Why:** No manual build/push steps in production. Automate test→build→deploy.
+### Scheduled Auto-Scan (2.12)
+- `accounts.scan_interval_hours` column (migration `004`), default 24.
+- `PATCH /v1/accounts/{id}` accepts `scan_interval_hours`.
+- Background ticker in ingestion fires scans for accounts past their interval; skips those already `scanning`.
+- Emits `scan.scheduled` / `scan.skipped_already_running`.
+- Dashboard shows next scan time per account.
 
-**Current state:** Only `test` stage exists (test:postgres, test:ingestion, test:api probably missing).
+### cost_records Retention (2.13)
+- Daily midnight-UTC ticker in ingestion deletes rows with `period_end < NOW() - COST_RECORDS_RETENTION_DAYS` (default 90).
+- Migration `005` added index on `(tenant_id, period_end)` for efficient range deletes.
+- Emits `cost_records.cleanup` with `rows_deleted` + `duration_ms`.
 
-**What needs to change:**
-
-```yaml
-# .gitlab-ci.yml additions
-
-stages:
-  - test      # ✅ Exists
-  - build     # ❌ TODO
-  - deploy    # ❌ TODO
-
-# Build stage: Docker images + ECR push
-build:api:
-  stage: build
-  image: docker:latest
-  services:
-    - docker:dind
-  script:
-    - docker build -t $AWS_ECR_REPO/api:$CI_COMMIT_SHA -f services/api/Dockerfile .
-    - aws ecr get-login-password | docker login --username AWS --password-stdin $AWS_ECR_REPO
-    - docker push $AWS_ECR_REPO/api:$CI_COMMIT_SHA
-  only:
-    - main
-
-build:ingestion:
-  # Similar to build:api
-  
-build:dashboard:
-  # an edge proxy build → Expo static bundle → Docker layer → ECR
-
-# Deploy stage: App Runner update
-deploy:production:
-  stage: deploy
-  image: amazon/aws-cli:latest
-  script:
-    - aws apprunner update-service --service-arn $API_SERVICE_ARN --image-repository $AWS_ECR_REPO/api:$CI_COMMIT_SHA
-    - aws apprunner update-service --service-arn $INGESTION_SERVICE_ARN --image-repository $AWS_ECR_REPO/ingestion:$CI_COMMIT_SHA
-  only:
-    - main
-```
-
-**Scope:**
-- [ ] Add API service Dockerfile (Go binary)
-- [ ] Add ingestion service Dockerfile (Go binary)
-- [ ] Add dashboard Dockerfile (Expo static + nginx)
-- [ ] ECR repository setup (AWS account)
-- [ ] App Runner service creation (AWS account)
-- [ ] GitLab CI/CD variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ECR_REPO`
-- [ ] Branch strategy: main → full pipeline; feature branches → test only
-
-**Estimate:** 4–6 hours | **Owner:** — | **Blocker for:** Production deployment
+### Integration Test Suite
+- `test/integration/` standalone Go module.
+- Covers `/health`, `/metrics`, account creation, scan queue, rate limiting, scheduled auto-scan.
+- `make test-integration` runs against a live `make start-dev` stack.
+- Old `test/smoke/` directory and `make test-smoke` removed — integration tests superseded them.
 
 ---
 
-### 3. Scheduled Auto-Scan (P1) — 24h interval per account
-**Why:** Users shouldn't have to manually trigger scans every time. Automate per-account interval.
+## 🟡 In Progress / Partially Shipped
 
-**Current state:** Only manual `/accounts/{id}/scan` exists. No scheduler.
+### Redis (2.14) — core shipped, hardening pending
 
-**What needs to change:**
-- Add `scan_interval_hours` field to `accounts` table (default: 24, configurable per account)
-- Background ticker in API service: every minute, check all accounts needing a scan
-- Skip if account already `scanning` (uses existing concurrency guard)
-- Respects timezone (or use UTC internally)
-- Migration: `ALTER TABLE accounts ADD COLUMN scan_interval_hours INT DEFAULT 24`
-- Log: `scan.scheduled`, `scan.skipped_already_running`, `scan.failed`
+**Shipped:**
+- `redis:7-alpine` in `docker-compose.yml` with ping healthcheck.
+- `REDIS_URL` threaded into api + ingestion service env.
+- Unified `Cache` interface at `services/shared/cache/cache.go` with Redis and in-memory implementations.
+- Unified queue interface at `services/shared/queue/queue.go` — Redis-backed scan queue, synchronous fallback.
+- API `main.go` wires `cache.New(REDIS_URL)` into:
+  - Auth middleware (`middleware.NewAuth(..., c)`) for JWKS caching.
+  - Rate limiter (`middleware.NewRateLimiter(c)`) — enabled when `REDIS_URL != ""`.
+- Ingestion worker pops jobs off the Redis list; API pushes via `q.Enqueue`.
 
-**Scope:**
-- [ ] Migration: add `scan_interval_hours` + `last_scheduled_at` to accounts
-- [ ] Background ticker: every 1 minute, find accounts past their next_scan_time
-- [ ] API endpoint: `PATCH /v1/accounts/{id}` to update `scan_interval_hours`
-- [ ] Structured logging for scheduler events
-- [ ] Tests: mock ticker behavior, verify accounts are selected correctly
-
-**Estimate:** 2–3 hours | **Owner:** — | **Blocker for:** User convenience (not deployment)
-
----
-
-### 4. cost_records Retention (P1) — 90-day cleanup
-**Why:** `cost_records` table grows unbounded. Every scan adds up to 30 days of billing data per account.
-
-**Current state:** No retention policy; table grows indefinitely.
-
-**What needs to change:**
-- Add `created_at` index on `cost_records` for efficient range deletes
-- Daily background ticker in ingestion service: `DELETE FROM cost_records WHERE period_end < NOW() - INTERVAL '90 days'`
-- Configurable via `COST_RECORDS_RETENTION_DAYS` env var (default: 90)
-- Log: `cost_records.cleanup` with rows deleted and duration
-
-**Scope:**
-- [ ] Migration: add `created_at` column + index on `cost_records` if not present
-- [ ] Background ticker in ingestion service (similar to API's scan-recovery ticker)
-- [ ] Structured logging: `cost_records.cleanup` with row count and duration
-- [ ] Tests: mock ticker, verify correct records are deleted (by period_end)
-
-**Estimate:** 1–2 hours | **Owner:** — | **Blocker for:** Performance (not deployment)
+**Pending (per `docs/phase2-plan.md` Track B):**
+- AOF persistence + volume mount in `docker-compose.yml` (lose queue on restart today).
+- Production Redis provisioning — decision gate between Upstash (recommended) vs. ElastiCache Serverless vs. self-hosted Fargate Spot.
+- Terraform module under `terraform/modules/redis/` with `REDIS_URL` stored in Secrets Manager.
+- Expanded Redis usage: idempotency keys on enqueue, summary cache, delayed-job sorted set for retries, dead-letter list.
+- `.env.example` updates with a `rediss://` sample URL.
 
 ---
 
-### 5. Redis Integration (P1) — Cache & Async Queue
-**Why:** 
-- JWKS key caching (avoid Kinde roundtrip on every auth)
-- Scan job queue (async, decouples HTTP response from ingestion start)
-- Rate limiting (survives API restarts, works across replicas)
+## ❌ Not Yet Started
 
-**Current state:** None; in-memory implementations in place as fallback.
+### Weekly Email Digest + Slack Alerts (2.15) — July 2026
+- Pick provider (Resend preferred); add `RESEND_API_KEY` env var.
+- HTML digest template: ghost count, top 5 resources by cost, week-over-week delta from `ghost_snapshots`.
+- `SLACK_WEBHOOK_URL` per account (migration `006_add_slack_webhook.sql`).
+- `POST /v1/settings/notifications` to toggle digest + webhook per tenant.
+- Post Slack message when ghost count changes after a scan.
 
-**What needs to change:**
-- Add Redis container to `docker-compose.yml`
-- Implement `Cache` interface: `Get(ctx, key)`, `Set(ctx, key, val, ttl)`, `Del(ctx, key)`
-- Redis implementation: `github.com/redis/go-redis/v9`
-- Environment: `REDIS_URL` (e.g. `redis://localhost:6379`); empty = fallback to in-memory
-- Fall back gracefully if `REDIS_URL` unset
+### Production Deployment (2.16) — August 2026
 
-**Scope:**
-- [ ] docker-compose: add Redis 7 container
-- [ ] `services/shared/cache/cache.go` — interface definition
-- [ ] `services/shared/cache/redis/redis.go` — Redis client wrapper
-- [ ] `services/shared/cache/memory/memory.go` — in-memory fallback
-- [ ] Update auth middleware: inject cache for JWKS lookup
-- [ ] Update scan queue: push to Redis list in API, consume in ingestion worker
-- [ ] Update rate limiter: Redis `INCR` + `EXPIRE` (replaces in-memory from 2.8)
-- [ ] Tests: mock Redis, verify cache invalidation
+**IAM**
+- `AxiaOpsAppRunnerRole` — ECR / Secrets Manager / RDS access.
+- `AxiaOpsCI` — ECR push + `apprunner:UpdateService` only.
 
-**Estimate:** 4–6 hours | **Owner:** — | **Blocker for:** Scalability
+**Terraform**
+- Modules: App Runner (api + ingestion), RDS `db.t4g.micro`, ElastiCache/Upstash, Secrets Manager, ECR, VPC + security groups (public subnets — no NAT Gateway).
+- S3 + DynamoDB state backend under `terraform/`.
 
----
+**RDS**
+- Provision `db.t4g.micro` PostgreSQL 16 in `eu-central-1`.
+- Run migrations as a one-off container job (not inside long-running services).
+- Daily snapshots, 7-day retention. CloudWatch log retention 7 days.
 
-### 6. Weekly Email Digest + Slack Alerts (P1) — Notifications
-**Why:** Users want periodic summaries of ghost spend and real-time alerts on new detections.
+**Secrets Manager**
+- Store `ENCRYPTION_KEY`, `REDIS_URL`, `RESEND_API_KEY`, `KINDE_ISSUER`, `KINDE_CLIENT_ID`.
+- Document `ENCRYPTION_KEY` rotation procedure in `docs/ops.md` (re-encrypt `secret_encrypted` before rotating).
 
-**Current state:** No alerting; data only visible when user logs in.
+**Database Password Management**
+- Separate migration job from service runtime — only `DATABASE_URL` available to running services in prod.
+- AWS Secrets Manager with automatic rotation; remove `ALTER USER` bootstrap logic from prod startup.
+- Keep the self-bootstrap pattern for dev/staging only.
 
-**What needs to change:**
-- Email provider: Resend or SendGrid
-- Slack webhook per tenant (optional, user-provided)
-- Weekly email: "You have $X in ghost spend this week" (references `ghost_snapshots` from Phase 2.5)
-- Slack alert: "New ghosts detected: 3 EC2 instances + 1 RDS cluster"
-- Background job: scheduled email every Sunday 08:00 UTC
+**App Runner**
+- api on `:8080`, ingestion on `:8081`, wired to RDS + Redis.
+- Custom domain + managed TLS. Health check: `GET /health`, 30s timeout.
 
-**Scope:**
-- [ ] Email template: HTML weekly digest with ghost list + savings trend
-- [ ] Slack webhook handler: POST to user-provided webhook URL
-- [ ] Background ticker in API: weekly email job (or external cron service)
-- [ ] Dashboard: settings page to add Slack webhook URL, toggle email digest
-- [ ] Structured logging: `email.sent`, `slack.alert`, with recipient and ghost count
-- [ ] Tests: mock email/Slack, verify payload structure
+**Dashboard**
+- Expo web static export → S3 + CloudFront. CI stage invalidates.
 
-**Estimate:** 3–4 hours | **Owner:** — | **Blocker for:** User engagement (not deployment)
+**EventBridge**
+- `rate(24 hours)` → `POST /v1/accounts/{id}/scan` per account (complements in-service scheduler as a safety net).
 
----
-
-### 7. Production Deployment (P0) — Final rollout
-**Why:** Everything else culminates here. App Runner + RDS + Terraform.
-
-**Current state:** Docker Compose works locally; no AWS infrastructure.
-
-**What needs to change:**
-- AWS Account setup (if not done)
-- App Runner services: one for API (:8080), one for ingestion (:8081)
-- RDS PostgreSQL: `db.t4g.micro` (free tier eligible; ~€10–20/month)
-- ElastiCache Serverless (Redis) for caching and queue
-- Secrets Manager: `ENCRYPTION_KEY`, `REDIS_URL`
-- Terraform modules: reproducible IaC (state in S3 + DynamoDB lock)
-- CloudFront for dashboard static assets
-- Monitoring: CloudWatch logs + Prometheus metrics
-
-**Dependencies:** Graceful shutdown, CI/CD pipeline, observability, Redis
-
-**Estimate:** 6–8 hours (infrastructure + IaC) | **Owner:** — | **Blocker for:** Revenue
+**Smoke test production** — connect a real AWS account, trigger scan, verify ghosts appear.
 
 ---
 
 ## 📊 Summary
 
-| Task | Status | Priority | Estimate | Target |
-|------|--------|----------|----------|--------|
-| Graceful Shutdown | ❌ TODO | P0 | 2–3h | May 1 |
-| GitLab CI Pipeline | ❌ TODO | P0 | 4–6h | May 5 |
-| Scheduled Auto-Scan | ❌ TODO | P1 | 2–3h | May 15 |
-| cost_records Retention | ❌ TODO | P1 | 1–2h | May 20 |
-| Redis Integration | ❌ TODO | P1 | 4–6h | June 1 |
-| Email/Slack Alerts | ❌ TODO | P1 | 3–4h | June 15 |
-| Production Deployment | ❌ TODO | P0 | 6–8h | July 1 |
-
-**Phase 2 completion target:** End of July 2026 (production-ready, first beta users)
+| Task | Section | Status | Target |
+|------|---------|--------|--------|
+| Versioned Migrations | 2.4 | ✅ Shipped | May 2026 |
+| Savings History | 2.5 | ✅ Shipped | May 2026 |
+| Observability | 2.6 | ✅ Shipped | May 2026 |
+| Scan Recovery | 2.7 | ✅ Shipped | May 2026 |
+| API Versioning | 2.8 | ✅ Shipped | May 2026 |
+| Rate Limiting | 2.9 | ✅ Shipped | May 2026 |
+| Graceful Shutdown | 2.10 | ✅ Shipped | May 2026 |
+| GitLab CI Pipeline | 2.11 | ✅ Shipped | June 2026 |
+| Scheduled Auto-Scan | 2.12 | ✅ Shipped | June 2026 |
+| cost_records Retention | 2.13 | ✅ Shipped | June 2026 |
+| Redis (core) | 2.14 | 🟡 Shipped locally — prod hardening pending | July 2026 |
+| Email Digest + Slack | 2.15 | ❌ Not started | July 2026 |
+| Production Deployment | 2.16 | ❌ Not started | August 2026 |
 
 ---
 
 ## 🚀 Immediate Action Items (This Sprint)
 
-1. **Graceful Shutdown** — Required for any production deployment
-2. **GitLab CI Pipeline** — Automate builds; prerequisite for App Runner
-3. **Both in parallel:** Start Redis design (interfaces) while waiting on blockers
+1. **Redis persistence + prod target** — add AOF + volume in compose; pick Upstash vs. ElastiCache so Terraform can be written against a concrete target.
+2. **Scan runs + retry/DLQ** — per `phase2-plan.md` Track A, the next user-visible gap is durable `scan_runs` history with retry/dead-letter on top of the Redis queue. Unblocks "why didn't my scan run last night?" in the dashboard.
+3. **Notifications scaffolding** — wire Resend client and Slack webhook sender behind a feature flag so 2.15 can ship incrementally.
 
 **Next review:** May 1, 2026
