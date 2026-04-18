@@ -47,15 +47,16 @@ _Last updated: 2026-04-19_
 | # | Task | Notes |
 |---|------|-------|
 | 1 | Stripe billing | Starter €49 / Growth €149 / Team €399 |
-| 2 | Audit trail for dismissals | Who dismissed what and when — already stored in `dismissed_ghosts`, needs UI |
-| 3 | Remediation CLI commands | Per-resource-type shell commands shown in DetailScreen |
-| 4 | Scan history log | Per-account scan log with timestamps and ghost delta |
-| 5 | Tag / team filtering | Filter ghost list by `owner` tag |
-| 6 | CSV export | Export ghost list / scan history |
-| 7 | User management + roles | Admin / viewer roles per tenant |
-| 8 | GDPR / right to erasure | Data export + account deletion |
-| 9 | Expanded detection rules | EBS, S3, CloudFront, Redshift, ElastiCache |
-| 10 | Operating entity | Holding GmbH + Operating UG (target August 2026) |
+| 2 | **Copy-paste remediation commands** | Show exact `aws cli` command per resource type (release EIP, stop EC2, delete LB). No write IAM needed. |
+| 3 | **Tag / team filtering** | Filter ghost list by `owner` tag — "show me only the payments team's ghosts" |
+| 4 | **CSV export** | Download ghost list. Finance teams love spreadsheets. |
+| 5 | Audit trail UI for dismissals | Who dismissed what and when — already stored in `dismissed_ghosts`, needs UI |
+| 6 | Scan history log | Per-account scan log with timestamps and ghost delta |
+| 7 | Cost forecast | "If nothing changes, you'll waste $X this month" — linear projection over `ghost_snapshots` |
+| 8 | User management + roles | Admin / viewer roles per tenant |
+| 9 | GDPR / right to erasure | Data export + account deletion |
+| 10 | Expanded detection rules | EBS, S3, CloudFront, Redshift, ElastiCache |
+| 11 | Operating entity | Holding GmbH + Operating UG (target August 2026) |
 
 ---
 
