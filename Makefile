@@ -56,7 +56,7 @@ test-migrate:
 	cd test-infra/integration && docker-compose up -d --wait postgres
 	cd test-infra/integration && docker-compose run --rm migrate
 	cd test-infra/integration && docker-compose down -v --remove-orphans
-	cd test-infra && docker-compose rm -f 2>/dev/null || true
+	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
 
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.
@@ -163,19 +163,19 @@ test-all: test test-storage
 test-integration:
 	cd test-infra/integration && docker-compose up --build --exit-code-from tests tests
 	cd test-infra/integration && docker-compose down -v --remove-orphans
-	cd test-infra && docker-compose rm -f 2>/dev/null || true
+	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
 
 # API integration tests only
 test-integration-api:
-	cd test-infra && docker-compose run --rm api-tests
+	cd test-infra/integration && docker-compose run --rm api-tests
 	cd test-infra/integration && docker-compose down -v --remove-orphans
-	cd test-infra && docker-compose rm -f 2>/dev/null || true
+	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
 
 # Ingestion integration tests only  
 test-integration-ingestion:
-	cd test-infra && docker-compose run --rm ingestion-tests
+	cd test-infra/integration && docker-compose run --rm ingestion-tests
 	cd test-infra/integration && docker-compose down -v --remove-orphans
-	cd test-infra && docker-compose rm -f 2>/dev/null || true
+	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
 
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
