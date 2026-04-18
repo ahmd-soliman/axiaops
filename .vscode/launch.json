@@ -177,6 +177,13 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      "name": "Make: clean-docker",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "make clean-docker",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Make: drop-schema",
       "type": "node-terminal",
       "request": "launch",
