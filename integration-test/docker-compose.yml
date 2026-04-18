@@ -17,9 +17,7 @@ services:
     image: postgres:16-alpine
     environment:
       PGPASSWORD: ${POSTGRES_OWNER_PASSWORD:-axiaops_owner}
-    volumes:
-      - ./init-tenant.sh:/init-tenant.sh:ro
-    command: sh /init-tenant.sh
+    command: psql -h postgres -U axiaops_owner -d axiaops -c "INSERT INTO axiaops.tenants (id, org_code, name, created_at) VALUES ('ci-tenant', 'CI', 'CI Test Tenant', NOW()) ON CONFLICT (id) DO NOTHING;"
     depends_on:
       ingestion:
         condition: service_healthy
