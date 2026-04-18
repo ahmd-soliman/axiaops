@@ -1,4 +1,4 @@
-.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-dev seed-staging seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-postgres test-all test-liveness
+.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-dev seed-staging seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -151,13 +151,13 @@ test: test-shared test-api test-ingestion
 #   • Real PostgreSQL database operations
 #   • Row-Level Security (RLS) policies
 #   • Schema migrations
-test-postgres:
+test-storage:
 	docker-compose up -d --wait postgres
 	$(MAKE) clean-db
 	cd services/shared && MIGRATION_DATABASE_URL="$(MIGRATION_DATABASE_URL)" DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v -p=1 ./storage/postgres/...
 
 # Full test suite: unit tests + API integration tests + storage tests.
-test-all: test test-postgres
+test-all: test test-storage
 
 # Integration tests - self-contained (starts Docker Compose stack)
 test-integration:
