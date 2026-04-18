@@ -23,7 +23,7 @@ docker ps -aq --filter "name=axiaops" | xargs -r docker rm 2>/dev/null || true
 
 # Remove integration test containers specifically
 echo "Cleaning integration test containers..."
-docker ps -aq --filter "label=com.docker.compose.project=axiaops-integration-test" | xargs -r docker rm -f 2>/dev/null || true
+docker ps -aq --filter "label=com.docker.compose.project=axiaops-test-infra" | xargs -r docker rm -f 2>/dev/null || true
 
 # Remove dev Redis container
 echo "Removing dev Redis container..."
@@ -32,12 +32,12 @@ docker rm -f axiaops-dev-redis 2>/dev/null || true
 # Clean up networks
 echo "Cleaning up networks..."
 docker network ls -q --filter "name=axiaops" | xargs -r docker network rm 2>/dev/null || true
-docker network ls -q --filter "label=com.docker.compose.project=axiaops-integration-test" | xargs -r docker network rm 2>/dev/null || true
+docker network ls -q --filter "label=com.docker.compose.project=axiaops-test-infra" | xargs -r docker network rm 2>/dev/null || true
 
 # Clean up volumes
 echo "Cleaning up volumes..."
 docker volume ls -q --filter "name=axiaops" | xargs -r docker volume rm 2>/dev/null || true
-docker volume ls -q --filter "label=com.docker.compose.project=axiaops-integration-test" | xargs -r docker volume rm 2>/dev/null || true
+docker volume ls -q --filter "label=com.docker.compose.project=axiaops-test-infra" | xargs -r docker volume rm 2>/dev/null || true
 
 # Remove dangling images
 echo "Removing dangling images..."
