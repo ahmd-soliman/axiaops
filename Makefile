@@ -54,7 +54,9 @@ migrate:
 test-migrate:
 	@echo "Testing migration container..."
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
-	cd test-infra/integration && docker-compose up -d --wait postgres
+	cd test-infra/integration && docker-compose up -d postgres
+	@echo "Waiting for PostgreSQL to be ready..."
+	@until cd test-infra/integration && docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
 	cd test-infra/integration && docker-compose run --rm migrate
 	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
