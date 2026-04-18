@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   ScrollView,
   StyleSheet,
-  Alert,
+  Modal,
 } from 'react-native';
 import { updateAccount, deleteAccount, scanAccount } from '../api/client';
 
@@ -34,6 +34,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState('');
 
   async function handleSave() {
@@ -82,27 +83,19 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   }
 
   function handleDelete() {
-    Alert.alert(
-      'Delete Account',
-      `Are you sure you want to delete "${account.label || account.access_key_id.slice(0, 8) + '…'}"? This action cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setDeleting(true);
-            try {
-              await deleteAccount(account.id);
-              onAccountDeleted(account.id);
-            } catch (e) {
-              setError('Failed to delete account. Please try again.');
-              setDeleting(false);
-            }
-          },
-        },
-      ]
-    );
+    setShowDeleteConfirm(true);
+  }
+
+  async function confirmDelete() {
+    setShowDeleteConfirm(false);
+    setDeleting(true);
+    try {
+      await deleteAccount(account.id);
+      onAccountDeleted(account.id);
+    } catch (e) {
+      setError('Failed to delete account. Please try again.');
+      setDeleting(false);
+    }
   }
 
   const statusColor = account.status === 'error' ? C.error : 
@@ -226,6 +219,41 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeleteConfirm(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowDeleteConfirm(false)}
+        >
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>Delete Account</Text>
+            <Text style={styles.modalMessage}>
+              Are you sure you want to delete "{account.label || account.access_key_id.slice(0, 8) + '…'}"? This action cannot be undone.
+            </Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setShowDeleteConfirm(false)}
+              >
+                <Text style={styles.modalBtnTextCancel}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnDelete]}
+                onPress={confirmDelete}
+              >
+                <Text style={styles.modalBtnTextDelete}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 }
@@ -321,4 +349,60 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.6 },
   saveBtnText: { color: C.white, fontSize: 16, fontWeight: '700' },
+
+  // Delete confirmation modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: C.white,
+    borderRadius: 12,
+    padding: 24,
+    margin: 20,
+    maxWidth: 400,
+    width: '90%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: C.navy,
+    marginBottom: 12,
+  },
+  modalMessage: {
+    fontSize: 14,
+    color: C.textMid,
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalBtnCancel: {
+    backgroundColor: C.bg,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  modalBtnDelete: {
+    backgroundColor: C.error,
+  },
+  modalBtnTextCancel: {
+    color: C.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalBtnTextDelete: {
+    color: C.white,
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });

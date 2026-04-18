@@ -83,9 +83,13 @@ function AuthenticatedApp({ token, onLogout }) {
           accounts.refetch();
           queryClient.invalidateQueries();
         }}
-        onAccountDeleted={() => {
+        onAccountDeleted={(deletedId) => {
           setShowAccountSettings(null);
+          if (selectedAccount === deletedId) {
+            setSelectedAccount(null);
+          }
           accounts.refetch();
+          queryClient.invalidateQueries();
         }}
       />
     );
