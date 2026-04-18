@@ -56,7 +56,7 @@ func TestMain(m *testing.M) {
 }
 
 func startStack() error {
-	dir := filepath.Join("..", "..", "test-infra")
+	dir := filepath.Join("..", "..", "test-infra", "integration")
 	cmd := exec.Command("docker-compose", "up", "-d", "--force-recreate")
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
@@ -65,7 +65,7 @@ func startStack() error {
 }
 
 func stopStack() error {
-	dir := filepath.Join("..", "..", "test-infra")
+	dir := filepath.Join("..", "..", "test-infra", "integration")
 	cmd := exec.Command("docker-compose", "down", "-v", "--remove-orphans")
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
