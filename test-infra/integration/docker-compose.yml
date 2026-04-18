@@ -29,8 +29,7 @@ services:
 
   init-tenant:
     build:
-      context: ..
-
+      context: .
       dockerfile: Dockerfile.init-tenant
     environment:
       PGPASSWORD: ${POSTGRES_OWNER_PASSWORD:-axiaops_owner}
