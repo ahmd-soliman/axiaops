@@ -22,6 +22,8 @@ services:
     environment:
       PGPASSWORD: ${POSTGRES_OWNER_PASSWORD:-axiaops_owner}
     depends_on:
+      postgres:
+        condition: service_healthy
       ingestion:
         condition: service_healthy
 
