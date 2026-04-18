@@ -5,14 +5,101 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
+  Modal,
+  TextInput,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { serviceConfig } from '../components/serviceConfig';
 import { useTheme } from '../theme/ThemeContext';
+import { dismissGhost, revokeDismissal } from '../api/client';
 
-export default function DetailScreen({ ghost, onBack }) {
+// Reason codes exposed to the user.
+const DISMISS_REASONS = [
+  { value: 'intentional', label: 'Intentionally idle' },
+  { value: 'scheduled_deletion', label: 'Scheduled for deletion' },
+  { value: 'false_positive', label: 'False positive' },
+  { value: 'cost_accepted', label: 'Cost accepted' },
+  { value: 'other', label: 'Other (add note)' },
+];
+
+const SNOOZE_OPTIONS = [
+  { label: '1 day',   days: 1 },
+  { label: '7 days',  days: 7 },
+  { label: '30 days', days: 30 },
+  { label: '90 days', days: 90 },
+];
+
+export default function DetailScreen({ ghost, onBack, onDismissed }) {
   const { theme } = useTheme();
   const styles = createStyles(theme);
   const cfg = serviceConfig(ghost.service);
+
+  // ── Dismiss / Snooze modal state ──────────────────────────────────────────
+  const [modalVisible, setModalVisible] = React.useState(false);
+  const [modalAction, setModalAction]   = React.useState('dismiss'); // 'dismiss' | 'snooze'
+  const [selectedReason, setSelectedReason] = React.useState('intentional');
+  const [note, setNote]       = React.useState('');
+  const [snoozeDays, setSnoozeDays] = React.useState(7);
+  const [submitting, setSubmitting] = React.useState(false);
+
+  // Derive current dismissal state from ghost annotation.
+  const isDismissed = !!ghost.dismissal_id && ghost.dismiss_action === 'dismiss';
+  const isSnoozed   = !!ghost.dismissal_id && ghost.dismiss_action === 'snooze';
+
+  function openModal(action) {
+    setModalAction(action);
+    setSelectedReason('intentional');
+    setNote('');
+    setSnoozeDays(7);
+    setModalVisible(true);
+  }
+
+  async function handleSubmit() {
+    if (selectedReason === 'other' && !note.trim()) {
+      Alert.alert('Note required', 'Please add a note when selecting "Other".');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const snoozeUntil = modalAction === 'snooze'
+        ? new Date(Date.now() + snoozeDays * 24 * 60 * 60 * 1000).toISOString()
+        : undefined;
+
+      await dismissGhost({
+        accountId:   ghost.internal_account_id,
+        provider:    ghost.provider,
+        service:     ghost.service,
+        region:      ghost.region,
+        resourceId:  ghost.resource_id,
+        action:      modalAction,
+        reason:      selectedReason,
+        note:        note.trim(),
+        snoozeUntil,
+      });
+      setModalVisible(false);
+      if (onDismissed) onDismissed();
+      onBack();
+    } catch (err) {
+      const msg = err.message === 'already_dismissed'
+        ? 'This resource is already dismissed. Restore it first.'
+        : 'Something went wrong. Please try again.';
+      Alert.alert('Error', msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleRestore() {
+    if (!ghost.dismissal_id) return;
+    try {
+      await revokeDismissal(ghost.dismissal_id);
+      if (onDismissed) onDismissed();
+      onBack();
+    } catch {
+      Alert.alert('Error', 'Could not restore this resource. Please try again.');
+    }
+  }
 
   const stats = [
     { label: 'Monthly Cost', value: `${ghost.currency} ${ghost.monthly_cost.toFixed(2)}`, accent: true },
@@ -30,6 +117,7 @@ export default function DetailScreen({ ghost, onBack }) {
   ];
 
   return (
+    <>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
 
       {/* Dark header */}
@@ -47,10 +135,40 @@ export default function DetailScreen({ ghost, onBack }) {
                 <Text style={styles.ghostBadgeText}>zombie</Text>
               </View>
             )}
+            {isDismissed && (
+              <View style={[styles.ghostBadge, { backgroundColor: '#374151' }]}>
+                <Text style={[styles.ghostBadgeText, { color: '#9CA3AF' }]}>dismissed</Text>
+              </View>
+            )}
+            {isSnoozed && (
+              <View style={[styles.ghostBadge, { backgroundColor: '#1e3a5f' }]}>
+                <Text style={[styles.ghostBadgeText, { color: '#60a5fa' }]}>snoozed</Text>
+              </View>
+            )}
             <Text style={styles.headerService}>{ghost.service}</Text>
           </View>
           <Text style={styles.headerCost}>{ghost.currency} {ghost.monthly_cost.toFixed(2)}</Text>
           <Text style={styles.headerSub}>{ghost.is_ghost ? 'wasted per month' : 'per month'}</Text>
+
+          {/* Dismiss / Snooze / Restore actions (only for ghost resources) */}
+          {ghost.is_ghost && (
+            <View style={styles.actionRow}>
+              {ghost.dismissal_id ? (
+                <TouchableOpacity style={[styles.actionBtn, styles.actionBtnRestore]} onPress={handleRestore}>
+                  <Text style={styles.actionBtnText}>↩ Restore</Text>
+                </TouchableOpacity>
+              ) : (
+                <>
+                  <TouchableOpacity style={[styles.actionBtn, styles.actionBtnDismiss]} onPress={() => openModal('dismiss')}>
+                    <Text style={styles.actionBtnText}>✕ Dismiss</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.actionBtn, styles.actionBtnSnooze]} onPress={() => openModal('snooze')}>
+                    <Text style={styles.actionBtnText}>⏰ Snooze</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          )}
         </View>
       </View>
 
@@ -99,6 +217,90 @@ export default function DetailScreen({ ghost, onBack }) {
       )}
 
     </ScrollView>
+
+      {/* ── Dismiss / Snooze Modal ──────────────────────────────────────── */}
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>
+              {modalAction === 'dismiss' ? 'Dismiss Resource' : 'Snooze Resource'}
+            </Text>
+            <Text style={styles.modalSub}>
+              {modalAction === 'dismiss'
+                ? 'This resource will be hidden from the ghost list.'
+                : 'This resource will be hidden temporarily.'}
+            </Text>
+
+            {/* Reason selector */}
+            <Text style={styles.modalLabel}>Reason</Text>
+            {DISMISS_REASONS.map(r => (
+              <TouchableOpacity
+                key={r.value}
+                style={[styles.reasonRow, selectedReason === r.value && styles.reasonRowActive]}
+                onPress={() => setSelectedReason(r.value)}
+              >
+                <View style={[styles.radioCircle, selectedReason === r.value && styles.radioCircleActive]} />
+                <Text style={[styles.reasonLabel, selectedReason === r.value && styles.reasonLabelActive]}>
+                  {r.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+
+            {/* Note input (required for 'other') */}
+            {(selectedReason === 'other' || note.length > 0) && (
+              <TextInput
+                style={styles.noteInput}
+                placeholder={selectedReason === 'other' ? 'Note (required)…' : 'Add a note (optional)…'}
+                placeholderTextColor="#6B7280"
+                value={note}
+                onChangeText={setNote}
+                multiline
+                numberOfLines={2}
+              />
+            )}
+
+            {/* Snooze duration picker */}
+            {modalAction === 'snooze' && (
+              <>
+                <Text style={styles.modalLabel}>Snooze for</Text>
+                <View style={styles.snoozeRow}>
+                  {SNOOZE_OPTIONS.map(o => (
+                    <TouchableOpacity
+                      key={o.days}
+                      style={[styles.snoozeChip, snoozeDays === o.days && styles.snoozeChipActive]}
+                      onPress={() => setSnoozeDays(o.days)}
+                    >
+                      <Text style={[styles.snoozeChipText, snoozeDays === o.days && styles.snoozeChipTextActive]}>
+                        {o.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* Buttons */}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmBtn, submitting && { opacity: 0.6 }]}
+                onPress={handleSubmit}
+                disabled={submitting}
+              >
+                {submitting
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.confirmBtnText}>
+                      {modalAction === 'dismiss' ? 'Dismiss' : 'Snooze'}
+                    </Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -180,4 +382,66 @@ const createStyles = (theme) => StyleSheet.create({
   },
   actionIcon: { fontSize: 18 },
   actionText: { fontSize: 14, color: theme.accentText, lineHeight: 21, flex: 1 },
+
+  // ── Dismiss / Snooze action row in header ──────────────────────────────────
+  actionRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  actionBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
+  actionBtnDismiss: { backgroundColor: '#374151' },
+  actionBtnSnooze:  { backgroundColor: '#1e3a5f' },
+  actionBtnRestore: { backgroundColor: '#14532d' },
+  actionBtnText:    { color: '#f3f4f6', fontWeight: '700', fontSize: 13 },
+
+  // ── Modal ──────────────────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1, justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  modalSheet: {
+    backgroundColor: theme.surface,
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 24, paddingBottom: 36,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: theme.text, marginBottom: 4 },
+  modalSub:   { fontSize: 13, color: theme.textMuted, marginBottom: 18 },
+  modalLabel: { fontSize: 11, fontWeight: '700', color: theme.textMuted, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8, marginTop: 4 },
+
+  reasonRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 10, paddingHorizontal: 12,
+    borderRadius: 8, marginBottom: 4,
+    borderWidth: 1, borderColor: theme.border,
+  },
+  reasonRowActive: { borderColor: theme.accent, backgroundColor: theme.accentLight },
+  radioCircle: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: theme.textMuted },
+  radioCircleActive: { borderColor: theme.accent, backgroundColor: theme.accent },
+  reasonLabel: { fontSize: 14, color: theme.textMid },
+  reasonLabelActive: { color: theme.accent, fontWeight: '600' },
+
+  noteInput: {
+    marginTop: 10,
+    backgroundColor: theme.card,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: 12,
+    color: theme.text,
+    fontSize: 14,
+    minHeight: 60,
+  },
+
+  snoozeRow: { flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
+  snoozeChip: {
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 20, borderWidth: 1, borderColor: theme.border,
+    backgroundColor: theme.surfaceRaised,
+  },
+  snoozeChipActive: { borderColor: theme.accent, backgroundColor: theme.accentLight },
+  snoozeChipText: { fontSize: 13, color: theme.textMid, fontWeight: '600' },
+  snoozeChipTextActive: { color: theme.accent },
+
+  modalButtons: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  cancelBtn:  { flex: 1, paddingVertical: 13, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: theme.border },
+  cancelBtnText: { color: theme.textMid, fontWeight: '700', fontSize: 15 },
+  confirmBtn: { flex: 1, paddingVertical: 13, borderRadius: 10, alignItems: 'center', backgroundColor: theme.accent },
+  confirmBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
 });

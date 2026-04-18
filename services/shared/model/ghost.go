@@ -29,4 +29,12 @@ type GhostResource struct {
 	// Detection metadata
 	Reason string `json:"reason"` // human-readable explanation
 	Owner  string `json:"owner"`  // derived from tags["team"]
+
+	// Dismissal state — enriched at read time by the API handler.
+	// Zero values mean the resource is not dismissed/snoozed.
+	DismissalID    *int64     `json:"dismissal_id,omitempty"`
+	DismissAction  string     `json:"dismiss_action,omitempty"`  // "dismiss" | "snooze"
+	DismissReason  string     `json:"dismiss_reason,omitempty"`
+	DismissNote    string     `json:"dismiss_note,omitempty"`
+	SnoozedUntil   *time.Time `json:"snoozed_until,omitempty"`
 }

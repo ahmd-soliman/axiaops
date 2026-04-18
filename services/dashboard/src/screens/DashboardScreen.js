@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSummary, fetchResources, fetchTrend, scanAccount, deleteAccount } from '../api/client';
+import { fetchSummary, fetchResources, fetchTrend, scanAccount, deleteAccount, fetchDismissals } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
@@ -87,25 +87,32 @@ function SavingsSparkline({ snaps, theme }) {
 export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, orgName, accounts = [], onConnectAccount, onEditAccount, onDeleteAccount, selectedAccount, onSelectAccount }) {
   const { theme, toggleTheme, isDark } = useTheme();
   const styles = createStyles(theme);
-  const [filterSvc, setFilterSvc]     = React.useState(null);
-  const [ghostOnly, setGhostOnly]     = React.useState(true);
-  const [scanning, setScanning]       = React.useState(null); // account id being scanned
+  const [filterSvc, setFilterSvc]           = React.useState(null);
+  const [ghostOnly, setGhostOnly]           = React.useState(true);
+  const [showDismissed, setShowDismissed]   = React.useState(false);
+  const [scanning, setScanning]             = React.useState(null); // account id being scanned
 
-  const summary   = useQuery({ queryKey: ['summary', selectedAccount], queryFn: () => fetchSummary(selectedAccount) });
-  const resources = useQuery({ 
-    queryKey: ['resources', selectedAccount], 
-    queryFn: () => fetchResources(selectedAccount) 
-  });
-  const trend     = useQuery({ queryKey: ['trend'],     queryFn: () => fetchTrend(null) });
+  const summary    = useQuery({ queryKey: ['summary', selectedAccount],    queryFn: () => fetchSummary(selectedAccount) });
+  const resources  = useQuery({ queryKey: ['resources', selectedAccount],  queryFn: () => fetchResources(selectedAccount) });
+  const trend      = useQuery({ queryKey: ['trend'],                       queryFn: () => fetchTrend(null) });
+  const dismissals = useQuery({ queryKey: ['dismissals', selectedAccount], queryFn: () => fetchDismissals(selectedAccount) });
 
   const isLoading    = summary.isLoading    || resources.isLoading;
   const isError      = summary.isError      || resources.isError;
   const isRefreshing = summary.isFetching   || resources.isFetching;
 
+  // Build a set of dismissed resource_ids for quick lookup.
+  const dismissedSet = React.useMemo(() => {
+    const set = new Set();
+    (dismissals.data ?? []).forEach(d => set.add(d.resource_id));
+    return set;
+  }, [dismissals.data]);
+
   function refresh() {
     summary.refetch();
     resources.refetch();
     trend.refetch();
+    dismissals.refetch();
   }
 
   async function handleScan(accountId) {
@@ -247,39 +254,89 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
             </ScrollView>
           </View>
 
-          {/* Ghost-only toggle */}
+          {/* Ghost-only / All Resources / Dismissed toggle */}
           <View style={styles.toggleRow}>
             <TouchableOpacity
-              style={[styles.toggleBtn, ghostOnly && styles.toggleBtnActive]}
-              onPress={() => setGhostOnly(true)}
+              style={[styles.toggleBtn, ghostOnly && !showDismissed && styles.toggleBtnActive]}
+              onPress={() => { setGhostOnly(true); setShowDismissed(false); }}
             >
-              <Text style={[styles.toggleBtnText, ghostOnly && styles.toggleBtnTextActive]}>
+              <Text style={[styles.toggleBtnText, ghostOnly && !showDismissed && styles.toggleBtnTextActive]}>
                 Ghost Resources
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.toggleBtn, !ghostOnly && styles.toggleBtnActive]}
-              onPress={() => setGhostOnly(false)}
+              style={[styles.toggleBtn, !ghostOnly && !showDismissed && styles.toggleBtnActive]}
+              onPress={() => { setGhostOnly(false); setShowDismissed(false); }}
             >
-              <Text style={[styles.toggleBtnText, !ghostOnly && styles.toggleBtnTextActive]}>
+              <Text style={[styles.toggleBtnText, !ghostOnly && !showDismissed && styles.toggleBtnTextActive]}>
                 All Resources
               </Text>
             </TouchableOpacity>
+            {(dismissals.data?.length ?? 0) > 0 && (
+              <TouchableOpacity
+                style={[styles.toggleBtn, showDismissed && styles.toggleBtnDismissed]}
+                onPress={() => setShowDismissed(v => !v)}
+              >
+                <Text style={[styles.toggleBtnText, showDismissed && styles.toggleBtnTextActive]}>
+                  Dismissed ({dismissals.data?.length ?? 0})
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <Text style={styles.sectionTitle}>
-            {ghostOnly ? 'Ghost Resources' : 'All Resources'}
+            {showDismissed ? 'Dismissed Resources' : ghostOnly ? 'Ghost Resources' : 'All Resources'}
           </Text>
         </View>
       }
       data={(() => {
+        if (showDismissed) return dismissals.data ?? [];
         let list = resources.data ?? [];
         if (ghostOnly) list = list.filter(r => r.is_ghost);
+        // Exclude resources that have an active dismissal from the ghost/all views.
+        list = list.filter(r => !dismissedSet.has(r.resource_id));
         if (filterSvc) list = list.filter(r => r.service === filterSvc);
         return list;
       })()}
-      keyExtractor={(item) => item.resource_id}
+      keyExtractor={(item) => showDismissed ? String(item.id) : item.resource_id}
       renderItem={({ item }) => {
+        if (showDismissed) {
+          // Render a dismissal record card.
+          const cfg = serviceConfig(item.service);
+          const reasonLabel = {
+            intentional: 'Intentional', scheduled_deletion: 'Scheduled deletion',
+            false_positive: 'False positive', cost_accepted: 'Cost accepted', other: 'Other',
+          }[item.reason] ?? item.reason;
+          const isSnoozed = item.action === 'snooze';
+          return (
+            <View style={[styles.card, { borderLeftColor: cfg.color, opacity: 0.75 }]}>
+              <View style={styles.cardTop}>
+                <View style={[styles.badge, { backgroundColor: cfg.bg }]}>
+                  <Text style={[styles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+                </View>
+                <View style={[styles.ghostBadge, { backgroundColor: isSnoozed ? '#1e3a5f' : '#374151' }]}>
+                  <Text style={[styles.ghostBadgeText, { color: isSnoozed ? '#60a5fa' : '#9CA3AF' }]}>
+                    {isSnoozed ? 'snoozed' : 'dismissed'}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }} />
+              </View>
+              <Text style={styles.cardResource} numberOfLines={1}>{item.resource_id}</Text>
+              <View style={styles.cardMeta}>
+                <Chip label={item.region} styles={styles} />
+                <Chip label={reasonLabel} styles={styles} />
+              </View>
+              {item.note ? <Text style={styles.cardReason}>"{item.note}"</Text> : null}
+              {isSnoozed && item.snoozed_until && (
+                <Text style={styles.cardUsage}>
+                  Until {new Date(item.snoozed_until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </Text>
+              )}
+            </View>
+          );
+        }
+
+        // Normal resource / ghost card.
         const cfg = serviceConfig(item.service);
         const isProd = item.tags?.env === 'production';
         return (
@@ -473,6 +530,7 @@ const createStyles = (theme) => StyleSheet.create({
     backgroundColor: theme.surfaceRaised,
   },
   toggleBtnActive: { backgroundColor: theme.navy },
+  toggleBtnDismissed: { backgroundColor: '#374151' },
   toggleBtnText: { fontSize: 13, fontWeight: '600', color: theme.textMid },
   toggleBtnTextActive: { color: theme.textOnDark },
 

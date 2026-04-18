@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,6 +49,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v1/accounts/{id}", h.updateAccount)
 	mux.HandleFunc("DELETE /v1/accounts/{id}", h.deleteAccount)
 	mux.HandleFunc("POST /v1/accounts/{id}/scan", h.scanAccount)
+	// Track C — Dismiss / Snooze
+	mux.HandleFunc("POST /v1/dismissals", h.createDismissal)
+	mux.HandleFunc("DELETE /v1/dismissals/{id}", h.revokeDismissal)
+	mux.HandleFunc("GET /v1/dismissals", h.listDismissals)
 }
 
 // cors wraps a handler with CORS headers.
@@ -73,32 +79,91 @@ func (h *Handler) Handler(next http.Handler) http.Handler {
 	return cors(next)
 }
 
-// Optional query param: ?account_id=<id> to filter to a single account.
+// Optional query params:
+//   - ?account_id=<id>          filter to a single account
+//   - ?include_dismissed=true   include dismissed/snoozed ghosts (default: excluded)
 func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	accountID := r.URL.Query().Get("account_id")
+	includeDismissed := r.URL.Query().Get("include_dismissed") == "true"
+
 	ghosts, err := h.store.LoadGhosts(ctx)
 	if err != nil {
 		slog.Error("listGhosts: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	
-	// Filter by internal_account_id if provided
+
+	// Filter by internal_account_id if provided.
 	if accountID != "" {
-		filtered := make([]model.GhostResource, 0)
-		for _, ghost := range ghosts {
-			if ghost.InternalAccountID == accountID {
-				filtered = append(filtered, ghost)
+		filtered := make([]model.GhostResource, 0, len(ghosts))
+		for _, g := range ghosts {
+			if g.InternalAccountID == accountID {
+				filtered = append(filtered, g)
 			}
 		}
 		ghosts = filtered
 	}
-	
+
+	// Enrich with dismissal state and optionally filter dismissed resources.
+	ghosts, err = h.enrichWithDismissals(ctx, ghosts, accountID, includeDismissed)
+	if err != nil {
+		slog.Error("listGhosts: enrich dismissals failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
 	if ghosts == nil {
 		ghosts = []model.GhostResource{}
 	}
 	writeJSON(w, ghosts)
+}
+
+// enrichWithDismissals loads active dismissals for the tenant and either annotates
+// or removes dismissed/snoozed ghosts from the list.
+func (h *Handler) enrichWithDismissals(ctx context.Context, ghosts []model.GhostResource, accountID string, includeDismissed bool) ([]model.GhostResource, error) {
+	dismissals, err := h.store.ListActiveDismissals(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build fingerprint → dismissal lookup.
+	lookup := make(map[string]model.DismissAction, len(dismissals))
+	for _, d := range dismissals {
+		lookup[dismissalKey(d)] = d
+	}
+
+	if len(lookup) == 0 {
+		return ghosts, nil
+	}
+
+	out := make([]model.GhostResource, 0, len(ghosts))
+	for _, g := range ghosts {
+		d, dismissed := lookup[ghostKey(g)]
+		if dismissed {
+			if !includeDismissed {
+				continue // omit from default response
+			}
+			// Annotate with dismissal info.
+			g.DismissalID = &d.ID
+			g.DismissAction = d.Action
+			g.DismissReason = d.Reason
+			g.DismissNote = d.Note
+			g.SnoozedUntil = d.SnoozedUntil
+		}
+		out = append(out, g)
+	}
+	return out, nil
+}
+
+// ghostKey returns a stable fingerprint string for a GhostResource.
+func ghostKey(g model.GhostResource) string {
+	return g.InternalAccountID + "|" + g.Provider + "|" + g.Service + "|" + g.Region + "|" + g.ResourceID
+}
+
+// dismissalKey returns the same fingerprint for a DismissAction.
+func dismissalKey(d model.DismissAction) string {
+	return d.AccountID + "|" + d.Provider + "|" + d.Service + "|" + d.Region + "|" + d.ResourceID
 }
 
 // Optional query param: ?account_id=<id> to filter to a single account.
@@ -139,13 +204,20 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if accountID != "" {
-		filtered := make([]model.GhostResource, 0)
+		filtered := make([]model.GhostResource, 0, len(ghosts))
 		for _, g := range ghosts {
 			if g.InternalAccountID == accountID {
 				filtered = append(filtered, g)
 			}
 		}
 		ghosts = filtered
+	}
+	// Exclude dismissed/snoozed resources from the savings summary.
+	ghosts, err = h.enrichWithDismissals(ctx, ghosts, accountID, false)
+	if err != nil {
+		slog.Error("getSummary: enrich dismissals failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
 	writeJSON(w, analyzer.Summarize(ghosts))
 }
@@ -375,6 +447,128 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("scan.enqueued", "account_id", id, "tenant_id", tenantID)
 	writeJSON(w, map[string]string{"status": "scanning"})
+}
+
+// createDismissal handles POST /v1/dismissals.
+// Body: { account_id, provider, service, region, resource_id, action, reason, note?, snooze_until? }
+func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+
+	var req struct {
+		AccountID  string     `json:"account_id"`
+		Provider   string     `json:"provider"`
+		Service    string     `json:"service"`
+		Region     string     `json:"region"`
+		ResourceID string     `json:"resource_id"`
+		Action     string     `json:"action"`
+		Reason     string     `json:"reason"`
+		Note       string     `json:"note"`
+		SnoozedUntil *time.Time `json:"snooze_until"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields.
+	if req.AccountID == "" || req.Provider == "" || req.Service == "" ||
+		req.Region == "" || req.ResourceID == "" {
+		http.Error(w, "account_id, provider, service, region, resource_id are required", http.StatusBadRequest)
+		return
+	}
+	if req.Action != model.DismissActionDismiss && req.Action != model.DismissActionSnooze {
+		http.Error(w, "action must be 'dismiss' or 'snooze'", http.StatusBadRequest)
+		return
+	}
+	if !model.ValidDismissReasons[req.Reason] {
+		http.Error(w, "invalid reason code", http.StatusBadRequest)
+		return
+	}
+	if req.Reason == model.DismissReasonOther && req.Note == "" {
+		http.Error(w, "note is required when reason is 'other'", http.StatusBadRequest)
+		return
+	}
+	if req.Action == model.DismissActionSnooze {
+		if req.SnoozedUntil == nil {
+			http.Error(w, "snooze_until is required for snooze action", http.StatusBadRequest)
+			return
+		}
+		if !req.SnoozedUntil.After(time.Now()) {
+			http.Error(w, "snooze_until must be in the future", http.StatusBadRequest)
+			return
+		}
+		maxSnooze := time.Now().AddDate(0, 0, model.MaxSnoozeDays)
+		if req.SnoozedUntil.After(maxSnooze) {
+			http.Error(w, "snooze_until must be within 90 days", http.StatusBadRequest)
+			return
+		}
+	}
+
+	d := model.DismissAction{
+		AccountID:    req.AccountID,
+		Provider:     req.Provider,
+		Service:      req.Service,
+		Region:       req.Region,
+		ResourceID:   req.ResourceID,
+		Action:       req.Action,
+		Reason:       req.Reason,
+		Note:         req.Note,
+		SnoozedUntil: req.SnoozedUntil,
+		DismissedBy:  middleware.TenantID(r.Context()), // tenant as identifier; swap for user email when available
+	}
+
+	id, err := h.store.DismissGhost(ctx, d)
+	if err != nil {
+		if errors.Is(err, storage.ErrAlreadyDismissed) {
+			http.Error(w, "resource already has an active dismissal", http.StatusConflict)
+			return
+		}
+		slog.Error("createDismissal: failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	d.ID = id
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, d)
+}
+
+// revokeDismissal handles DELETE /v1/dismissals/{id}.
+func (h *Handler) revokeDismissal(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+
+	raw := r.PathValue("id")
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid dismissal id", http.StatusBadRequest)
+		return
+	}
+
+	revokedBy := middleware.TenantID(r.Context())
+	if err := h.store.RevokeDismissal(ctx, id, revokedBy); err != nil {
+		slog.Error("revokeDismissal: failed", "id", id, "error", err)
+		http.Error(w, "dismissal not found or already revoked", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// listDismissals handles GET /v1/dismissals.
+// Optional query param: ?account_id=<id>
+func (h *Handler) listDismissals(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	accountID := r.URL.Query().Get("account_id")
+
+	dismissals, err := h.store.ListActiveDismissals(ctx, accountID)
+	if err != nil {
+		slog.Error("listDismissals: failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if dismissals == nil {
+		dismissals = []model.DismissAction{}
+	}
+	writeJSON(w, dismissals)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

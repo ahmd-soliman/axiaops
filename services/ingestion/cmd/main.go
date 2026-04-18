@@ -187,6 +187,28 @@ func main() {
 		}
 	}()
 
+	// Background ticker: expire past snoozes so dismissed_ghosts stays accurate.
+	// Runs immediately on startup then every SNOOZE_EXPIRY_INTERVAL (default 10 min).
+	go func() {
+		snoozeInterval := 10 * time.Minute
+		if v := os.Getenv("SNOOZE_EXPIRY_INTERVAL"); v != "" {
+			if d, err := time.ParseDuration(v); err == nil {
+				snoozeInterval = d
+			}
+		}
+		expireSnoozes(context.Background(), store)
+		ticker := time.NewTicker(snoozeInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-sigCtx.Done():
+				return
+			case <-ticker.C:
+				expireSnoozes(context.Background(), store)
+			}
+		}
+	}()
+
 	// Start HTTP server in a goroutine
 	server := &http.Server{
 		Addr:    ":" + port,
@@ -463,6 +485,19 @@ func newStore() storage.Store {
 	}
 	slog.Info("storage: using PostgreSQL")
 	return s
+}
+
+// expireSnoozes marks snoozed dismissals whose snoozed_until has passed as revoked.
+func expireSnoozes(ctx context.Context, store storage.Store) {
+	start := time.Now()
+	n, err := store.ExpireSnoozes(ctx)
+	if err != nil {
+		slog.Error("snooze_expiry: failed", "error", err)
+		return
+	}
+	if n > 0 {
+		slog.Info("snooze_expiry: expired", "count", n, "duration_ms", time.Since(start).Milliseconds())
+	}
 }
 
 // scanScheduledAccounts checks all accounts across all tenants and triggers scans for those overdue.
