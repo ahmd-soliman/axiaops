@@ -38,7 +38,11 @@ func Bootstrap(ownerURL, appURL string) error {
 	if err != nil {
 		return fmt.Errorf("bootstrap: open db: %w", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			_ = fmt.Errorf("bootstrap: close db: %w", err)
+		}
+	}()
 
 	// Acquire advisory lock to prevent concurrent bootstrap calls
 	// Lock ID 123456789 is arbitrary but consistent across all bootstrap calls
