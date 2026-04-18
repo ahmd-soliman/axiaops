@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     region            TEXT        NOT NULL DEFAULT 'us-east-1',
     status            TEXT        NOT NULL DEFAULT 'connected',
     last_scanned_at   TIMESTAMPTZ,
+    scan_interval_hours INT       NOT NULL DEFAULT 24,
     created_at        TIMESTAMPTZ NOT NULL
 );
 
