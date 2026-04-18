@@ -7,4 +7,11 @@ RUN go mod download
 
 COPY test/integration/*.go ./
 
-CMD ["go", "test", "-v", ".", "-count=1", "-tags=integration"]
+ARG TEST_FILTER=""
+ENV TEST_FILTER=${TEST_FILTER}
+
+CMD if [ -n "$TEST_FILTER" ]; then \
+      go test -v . -count=1 -tags=integration -run="$TEST_FILTER"; \
+    else \
+      go test -v . -count=1 -tags=integration; \
+    fi

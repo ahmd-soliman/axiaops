@@ -147,6 +147,16 @@ test-integration:
 	cd integration-test && docker compose up --build --exit-code-from tests tests
 	cd integration-test && docker compose down -v
 
+# API integration tests only
+test-integration-api:
+	cd integration-test && docker compose up --build --exit-code-from api-tests api-tests
+	cd integration-test && docker compose down -v
+
+# Ingestion integration tests only  
+test-integration-ingestion:
+	cd integration-test && docker compose up --build --exit-code-from ingestion-tests ingestion-tests
+	cd integration-test && docker compose down -v
+
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
 	@echo "Cleaning up AxiaOps Docker resources..."
