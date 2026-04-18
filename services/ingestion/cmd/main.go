@@ -457,13 +457,7 @@ func newStore() storage.Store {
 	if migrationURL == "" {
 		migrationURL = dbURL
 	}
-	if err := postgres.Bootstrap(migrationURL, dbURL); err != nil {
-		die("storage: bootstrap failed", "error", err)
-	}
-	if err := postgres.Migrate(migrationURL); err != nil {
-		die("storage: migration failed", "error", err)
-	}
-	s, err := postgres.NewWithOwner(ctx, dbURL, migrationURL)
+	s, err := postgres.New(ctx, dbURL)
 	if err != nil {
 		die("storage: postgres init failed", "error", err)
 	}
