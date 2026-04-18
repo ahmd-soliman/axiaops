@@ -122,6 +122,30 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
     dismissals.refetch();
   }
 
+  function handleExportCSV() {
+    let list = resources.data ?? [];
+    if (ghostOnly) list = list.filter(r => r.is_ghost);
+    list = list.filter(r => !dismissedSet.has(r.resource_id));
+    if (filterSvc) list = list.filter(r => r.service === filterSvc);
+    if (filterOwner) list = list.filter(r => r.owner === filterOwner);
+
+    const headers = ['resource_id', 'service', 'region', 'monthly_cost', 'currency', 'usage_metric', 'usage_avg', 'usage_unit', 'owner', 'is_ghost', 'reason'];
+    const rows = list.map(r => [
+      r.resource_id, r.service, r.region, r.monthly_cost.toFixed(2), r.currency,
+      r.usage_metric ?? '', r.usage_avg ?? '', r.usage_unit ?? '',
+      r.owner ?? '', r.is_ghost ? 'true' : 'false', r.reason ?? '',
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `axiaops-ghosts-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function handleScan(accountId) {
     setScanning(accountId);
     try {
@@ -317,9 +341,16 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
             )}
           </View>
 
-          <Text style={styles.sectionTitle}>
-            {showDismissed ? 'Dismissed Resources' : ghostOnly ? 'Ghost Resources' : 'All Resources'}
-          </Text>
+          <View style={styles.sectionRow}>
+            <Text style={styles.sectionTitle}>
+              {showDismissed ? 'Dismissed Resources' : ghostOnly ? 'Ghost Resources' : 'All Resources'}
+            </Text>
+            {!showDismissed && (
+              <TouchableOpacity onPress={handleExportCSV} style={styles.exportBtn}>
+                <Text style={styles.exportBtnText}>↓ CSV</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       }
       data={(() => {
@@ -524,16 +555,30 @@ const createStyles = (theme) => StyleSheet.create({
   ownerPillTextActive: { color: theme.textOnDark },
 
   // Section title
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 10,
+  },
   sectionTitle: {
+    flex: 1,
     fontSize: 11,
     fontWeight: '700',
     color: theme.textMuted,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 10,
   },
+  exportBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceRaised,
+  },
+  exportBtnText: { fontSize: 11, fontWeight: '700', color: theme.textMid },
 
   // Cards
   card: {
