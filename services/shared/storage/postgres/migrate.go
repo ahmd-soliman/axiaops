@@ -6,7 +6,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -34,43 +33,33 @@ func Bootstrap(ownerURL, appURL string) error {
 		return fmt.Errorf("bootstrap: DATABASE_URL contains no password")
 	}
 
-	// Retry loop to handle concurrent bootstrap calls (e.g., api + ingestion starting together)
-	for attempt := 0; attempt < 3; attempt++ {
-		db, err := sql.Open("postgres", ownerURL)
-		if err != nil {
-			return fmt.Errorf("bootstrap: open db: %w", err)
-		}
-
-		// Create the app user if it does not exist yet (password set below).
-		if _, err := db.Exec(`DO $$ BEGIN
-			IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'axiaops') THEN
-				CREATE USER axiaops;
-			END IF;
-		END $$`); err != nil {
-			db.Close()
-			return fmt.Errorf("bootstrap: create user: %w", err)
-		}
-
-		// Sync password from DATABASE_URL — idempotent, supports credential rotation.
-		// ALTER USER does not accept protocol-level parameters ($1), so the password
-		// is embedded as a safely-escaped literal via pq.QuoteLiteral.
-		_, err = db.Exec(`ALTER USER axiaops WITH PASSWORD ` + pq.QuoteLiteral(appPassword))
-		db.Close()
-		
-		if err == nil {
-			return nil
-		}
-		
-		// If the error is "tuple concurrently updated", retry
-		if !strings.Contains(err.Error(), "tuple concurrently updated") && 
-		   !strings.Contains(err.Error(), "could not obtain lock") {
-			return fmt.Errorf("bootstrap: set password: %w", err)
-		}
-		
-		time.Sleep(100 * time.Millisecond * time.Duration(attempt+1))
+	db, err := sql.Open("postgres", ownerURL)
+	if err != nil {
+		return fmt.Errorf("bootstrap: open db: %w", err)
 	}
-	
-	return fmt.Errorf("bootstrap: set password failed after retries: %w", err)
+	defer func() {
+		if cerr := db.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("bootstrap: close db: %w", cerr)
+		}
+	}()
+
+	// Create the app user if it does not exist yet (password set below).
+	if _, err := db.Exec(`DO $$ BEGIN
+		IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'axiaops') THEN
+			CREATE USER axiaops;
+		END IF;
+	END $$`); err != nil {
+		return fmt.Errorf("bootstrap: create user: %w", err)
+	}
+
+	// Sync password from DATABASE_URL — idempotent, supports credential rotation.
+	// ALTER USER does not accept protocol-level parameters ($1), so the password
+	// is embedded as a safely-escaped literal via pq.QuoteLiteral.
+	if _, err := db.Exec(`ALTER USER axiaops WITH PASSWORD ` + pq.QuoteLiteral(appPassword)); err != nil {
+		return fmt.Errorf("bootstrap: set password: %w", err)
+	}
+
+	return nil
 }
 
 // Migrate runs all pending database migrations.
