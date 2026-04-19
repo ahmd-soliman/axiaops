@@ -164,3 +164,29 @@ services/ingestion/internal/provider/fake/
 **Scenario Loading**: JSON files are embedded at compile time using `//go:embed`. No external file dependencies.
 
 **Integration**: Uses the same `runPipeline()` function as production AWS provider, ensuring identical business logic.
+
+## Performance Testing
+
+For scale testing, use **benchmarks** rather than creating massive JSON files:
+
+```bash
+cd services/ingestion
+go test -bench=. -benchmem ./internal/provider/fake/
+```
+
+**Available benchmarks:**
+- `BenchmarkFullPipeline_Enterprise` — Complete ingestion pipeline
+- `BenchmarkFetchCosts` — Cost fetching only
+- `BenchmarkFetchUsage` — Usage fetching only
+- `BenchmarkDetection` — Ghost detection only
+
+**Best practices:**
+1. Use existing scenarios (enterprise has realistic multi-account data)
+2. Benchmark performance instead of storing 10k+ records in JSON
+3. Generate test data programmatically when needed
+4. Profile with pprof for deeper analysis
+
+**Current performance (M1 Pro):**
+- Full pipeline: ~2.7μs per operation
+- Fetch costs: ~775ns per operation
+- Ghost detection: ~1.7μs per operation
