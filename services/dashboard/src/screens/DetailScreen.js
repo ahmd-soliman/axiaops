@@ -133,7 +133,7 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
             </View>
             {ghost.is_ghost && (
               <View style={styles.ghostBadge}>
-                <Text style={styles.ghostBadgeText}>zombie</Text>
+                <Text style={styles.ghostBadgeText}>idle</Text>
               </View>
             )}
             {isDismissed && (
@@ -149,34 +149,14 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
             <Text style={styles.headerService}>{ghost.service}</Text>
           </View>
           <Text style={styles.headerCost}>{ghost.currency} {ghost.monthly_cost.toFixed(2)}</Text>
-          <Text style={styles.headerSub}>{ghost.is_ghost ? 'wasted per month' : 'per month'}</Text>
-
-          {/* Dismiss / Snooze / Restore actions (only for ghost resources) */}
-          {ghost.is_ghost && (
-            <View style={styles.actionRow}>
-              {ghost.dismissal_id ? (
-                <TouchableOpacity style={[styles.actionBtn, styles.actionBtnRestore]} onPress={handleRestore}>
-                  <Text style={styles.actionBtnText}>↩ Restore</Text>
-                </TouchableOpacity>
-              ) : (
-                <>
-                  <TouchableOpacity style={[styles.actionBtn, styles.actionBtnDismiss]} onPress={() => openModal('dismiss')}>
-                    <Text style={styles.actionBtnText}>✕ Dismiss</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.actionBtn, styles.actionBtnSnooze]} onPress={() => openModal('snooze')}>
-                    <Text style={styles.actionBtnText}>⏰ Snooze</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          )}
+          <Text style={styles.headerSub}>{ghost.is_ghost ? 'wasted every month' : 'per month'}</Text>
         </View>
       </View>
 
-      {/* Stats grid */}
-      <View style={styles.statsGrid}>
+      {/* Stats row — compact key/value pairs */}
+      <View style={styles.statsRow}>
         {stats.map(({ label, value, accent }) => (
-          <View key={label} style={[styles.statCard, accent && styles.statCardAccent]}>
+          <View key={label} style={[styles.statItem, accent && styles.statItemAccent]}>
             <Text style={[styles.statValue, accent && styles.statValueAccent]}>{value}</Text>
             <Text style={styles.statLabel}>{label}</Text>
           </View>
@@ -215,6 +195,26 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
             <Text style={styles.actionText}>{remediationHint(ghost.service, ghost.resource_id)}</Text>
           </View>
           <CLICommand cmd={remediationCommand(ghost.service, ghost.resource_id, ghost.region)} styles={styles} />
+        </View>
+      )}
+
+      {/* Dismiss / Snooze / Restore — at the bottom after user has read the details */}
+      {ghost.is_ghost && (
+        <View style={styles.actionSection}>
+          {ghost.dismissal_id ? (
+            <TouchableOpacity style={[styles.actionBtn, styles.actionBtnRestore]} onPress={handleRestore}>
+              <Text style={styles.actionBtnText}>↩ Restore to list</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <TouchableOpacity style={[styles.actionBtn, styles.actionBtnSnooze]} onPress={() => openModal('snooze')}>
+                <Text style={styles.actionBtnText}>⏰ Snooze</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, styles.actionBtnDismiss]} onPress={() => openModal('dismiss')}>
+                <Text style={[styles.actionBtnText, { color: theme.textMid }]}>✕ Dismiss</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       )}
 
@@ -385,19 +385,25 @@ const createStyles = (theme) => StyleSheet.create({
   headerCost: { color: theme.accent, fontSize: 42, fontWeight: '800', letterSpacing: -1 },
   headerSub: { color: theme.textMid, fontSize: 13, marginTop: 2 },
 
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 16 },
-  statCard: {
-    backgroundColor: theme.card,
-    borderRadius: 10,
-    padding: 14,
-    flex: 1,
-    minWidth: '45%',
-    boxShadow: '0px 1px 4px rgba(0,0,0,0.04)',
+  statsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  statCardAccent: { backgroundColor: theme.accentLight },
-  statValue: { fontSize: 17, fontWeight: '700', color: theme.text, marginBottom: 4 },
+  statItem: {
+    backgroundColor: theme.card,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
+  },
+  statItemAccent: { backgroundColor: theme.accentLight, borderColor: theme.accentBorder },
+  statValue: { fontSize: 14, fontWeight: '700', color: theme.text },
   statValueAccent: { color: theme.accent },
-  statLabel: { fontSize: 11, color: theme.textMuted, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
+  statLabel: { fontSize: 11, color: theme.textMuted, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.4 },
 
   section: { paddingHorizontal: 16, marginBottom: 16 },
   sectionTitle: {
@@ -460,13 +466,22 @@ const createStyles = (theme) => StyleSheet.create({
     color: '#ffffff',
   },
 
-  // ── Dismiss / Snooze action row in header ──────────────────────────────────
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
-  actionBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
-  actionBtnDismiss: { backgroundColor: '#374151' },
-  actionBtnSnooze:  { backgroundColor: '#1e3a5f' },
+  // ── Dismiss / Snooze actions at bottom ────────────────────────────────────
+  actionSection: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 32,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.border,
+    marginTop: 8,
+  },
+  actionBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
+  actionBtnDismiss: { borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surfaceRaised },
+  actionBtnSnooze:  { backgroundColor: theme.accent },
   actionBtnRestore: { backgroundColor: '#14532d' },
-  actionBtnText:    { color: '#f3f4f6', fontWeight: '700', fontSize: 13 },
+  actionBtnText:    { color: '#f3f4f6', fontWeight: '600', fontSize: 13 },
 
   // ── Modal ──────────────────────────────────────────────────────────────────
   modalOverlay: {
