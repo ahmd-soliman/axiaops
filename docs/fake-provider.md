@@ -15,6 +15,26 @@ The fake provider runs the full ingestion pipeline — cost fetch → ghost dete
 | Unit-testing the fake itself | `make test-scenarios` |
 | CI/CD pipeline testing | Automated tests, no AWS/Docker required |
 
+## Development Workflow
+
+**For regular development:**
+```bash
+make seed              # 12 ghosts, 19 resources, 1000 days of snapshots
+make start-dev
+```
+
+**For chart/graph development:**
+```bash
+make seed-trends       # 90 days with realistic trends + patterns
+make start-dev
+```
+
+The `seed-trends` target generates time-series data with:
+- Gradual 30% growth trend over 90 days
+- Weekly patterns (±10% cycle)
+- Random noise (±10%)
+- Account-specific baselines (prod: 12 ghosts, staging: 8, dev: 5)
+
 ## Scenarios
 
 | Scenario | Resources | Ghosts | Savings | Description |
