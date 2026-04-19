@@ -23,6 +23,18 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function friendlyMetricName(metric) {
+  const map = {
+    'CPUUtilization': 'CPU Usage',
+    'DatabaseConnections': 'DB Connections',
+    'Invocations': 'Invocations',
+    'RequestCount': 'Requests',
+    'BytesOutToDestination': 'Data Transfer',
+    'NetworkInterfaceAttachment': 'Attachment',
+  };
+  return map[metric] || metric;
+}
+
 function remediationCommand(service, resourceId = '', region = 'eu-central-1') {
   const r = `--region ${region}`;
   if (service === 'AmazonVPC') {
@@ -141,9 +153,9 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
 
   const stats = [
     { label: 'Monthly Cost', value: `${ghost.currency} ${ghost.monthly_cost.toFixed(2)}`, accent: true },
-    { label: ghost.usage_metric, value: `${ghost.usage_avg} ${ghost.usage_unit}` },
+    { label: friendlyMetricName(ghost.usage_metric), value: `${ghost.usage_avg} ${ghost.usage_unit}` },
     { label: 'Region', value: ghost.region },
-    { label: 'Environment', value: ghost.tags?.env ?? '—' },
+    { label: 'Environment', value: ghost.tags?.env ?? 'Not tagged' },
   ];
 
   const details = [
@@ -162,47 +174,57 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
       <div style={{ flex: 1, backgroundColor: t.bg, minHeight: '100vh', overflowY: 'auto' }}>
         <div style={{ paddingBottom: 48 }}>
           {/* Header */}
-          <div style={{ backgroundColor: t.surfaceAlt, paddingBottom: 28, borderBottom: `1px solid ${t.border}` }}>
+          <div style={{ backgroundColor: t.surfaceAlt, paddingBottom: 24, borderBottom: `1px solid ${t.border}` }}>
             <button onClick={onBack} style={{ paddingLeft: 20, paddingTop: 16, paddingBottom: 12, background: 'none', border: 'none', cursor: 'pointer' }}>
-              <span style={{ color: t.textMuted, fontWeight: 600, fontSize: 14 }}>← Back</span>
+              <span style={{ color: t.textMuted, fontWeight: 600, fontSize: 14 }}>← Back to list</span>
             </button>
             <div style={{ paddingLeft: 20, paddingRight: 20 }}>
-              <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <div style={{ paddingLeft: 9, paddingRight: 9, paddingTop: 4, paddingBottom: 4, borderRadius: 6, backgroundColor: cfg.color }}>
-                  <span style={{ color: '#FFFFFF', fontSize: 12, fontWeight: 800 }}>{cfg.label}</span>
+              <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <div style={{ paddingLeft: 8, paddingRight: 8, paddingTop: 3, paddingBottom: 3, borderRadius: 5, backgroundColor: cfg.color }}>
+                  <span style={{ color: '#FFFFFF', fontSize: 11, fontWeight: 800 }}>{cfg.label}</span>
                 </div>
                 {ghost.is_ghost && (
-                  <div style={{ backgroundColor: t.ghostBadgeBg, paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: t.ghostBadgeText }}>zombie</span>
+                  <div style={{ backgroundColor: t.ghostBadgeBg, paddingLeft: 5, paddingRight: 5, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: t.ghostBadgeText, textTransform: 'uppercase' }}>Zombie</span>
                   </div>
                 )}
                 {isDismissed && (
-                  <div style={{ backgroundColor: '#374151', paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF' }}>dismissed</span>
+                  <div style={{ backgroundColor: '#374151', paddingLeft: 5, paddingRight: 5, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' }}>Dismissed</span>
                   </div>
                 )}
                 {isSnoozed && (
-                  <div style={{ backgroundColor: '#1e3a5f', paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa' }}>snoozed</span>
+                  <div style={{ backgroundColor: '#1e3a5f', paddingLeft: 5, paddingRight: 5, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase' }}>Snoozed</span>
                   </div>
                 )}
-                <span style={{ color: t.textMuted, fontSize: 14, flex: 1 }}>{ghost.service}</span>
               </div>
-              <span style={{ color: t.accent, fontSize: 42, fontWeight: 800, letterSpacing: -1, display: 'block' }}>{ghost.currency} {ghost.monthly_cost.toFixed(2)}</span>
-              <span style={{ color: t.textMid, fontSize: 13, marginTop: 2, display: 'block' }}>{ghost.is_ghost ? 'wasted per month' : 'per month'}</span>
+              <span style={{ color: t.text, fontSize: 15, fontWeight: 500, display: 'block', marginBottom: 8, opacity: 0.7 }}>{ghost.service}</span>
+              <span style={{ color: t.accent, fontSize: 38, fontWeight: 800, letterSpacing: -1, display: 'block' }}>{ghost.currency} {ghost.monthly_cost.toFixed(2)}</span>
+              <span style={{ color: t.textMid, fontSize: 13, marginTop: 4, marginBottom: 12, display: 'block' }}>{ghost.is_ghost ? '💸 Wasted per month' : 'Monthly cost'}</span>
+
+              {/* Stats chips in header */}
+              <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                {stats.slice(1).map(({ label, value }) => (
+                  <div key={label} style={{ backgroundColor: 'rgba(251, 146, 60, 0.15)', borderRadius: 8, paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, border: '1px solid rgba(251, 146, 60, 0.3)', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>{value}</span>
+                    <span style={{ fontSize: 11, color: t.textMuted }}>{label}</span>
+                  </div>
+                ))}
+              </div>
 
               {ghost.is_ghost && (
-                <div style={{ display: 'flex', flexDirection: 'row', gap: 10, marginTop: 18 }}>
+                <div style={{ display: 'flex', flexDirection: 'row', gap: 8, marginTop: 4 }}>
                   {ghost.dismissal_id ? (
-                    <button onClick={handleRestore} style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8, borderRadius: 8, backgroundColor: '#14532d', border: 'none', cursor: 'pointer' }}>
+                    <button onClick={handleRestore} style={{ paddingLeft: 14, paddingRight: 14, paddingTop: 9, paddingBottom: 9, borderRadius: 8, backgroundColor: '#14532d', border: 'none', cursor: 'pointer' }}>
                       <span style={{ color: '#f3f4f6', fontWeight: 700, fontSize: 13 }}>↩ Restore</span>
                     </button>
                   ) : (
                     <>
-                      <button onClick={() => openModal('dismiss')} style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8, borderRadius: 8, backgroundColor: '#374151', border: 'none', cursor: 'pointer' }}>
-                        <span style={{ color: '#f3f4f6', fontWeight: 700, fontSize: 13 }}>✕ Dismiss</span>
+                      <button onClick={() => openModal('dismiss')} style={{ paddingLeft: 14, paddingRight: 14, paddingTop: 9, paddingBottom: 9, borderRadius: 8, backgroundColor: '#374151', border: 'none', cursor: 'pointer' }}>
+                        <span style={{ color: '#f3f4f6', fontWeight: 700, fontSize: 13 }}>✓ Dismiss</span>
                       </button>
-                      <button onClick={() => openModal('snooze')} style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8, borderRadius: 8, backgroundColor: '#1e3a5f', border: 'none', cursor: 'pointer' }}>
+                      <button onClick={() => openModal('snooze')} style={{ paddingLeft: 14, paddingRight: 14, paddingTop: 9, paddingBottom: 9, borderRadius: 8, backgroundColor: '#1e3a5f', border: 'none', cursor: 'pointer' }}>
                         <span style={{ color: '#f3f4f6', fontWeight: 700, fontSize: 13 }}>⏰ Snooze</span>
                       </button>
                     </>
@@ -212,33 +234,23 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
             </div>
           </div>
 
-          {/* Stats grid */}
-          <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 16 }}>
-            {stats.map(({ label, value, accent }) => (
-              <div key={label} style={{ backgroundColor: accent ? t.accentLight : t.card, borderRadius: 10, padding: 14, flex: 1, minWidth: '45%', boxShadow: '0px 1px 4px rgba(0,0,0,0.04)' }}>
-                <span style={{ fontSize: 17, fontWeight: 700, color: accent ? t.accent : t.text, marginBottom: 4, display: 'block' }}>{value}</span>
-                <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block' }}>{label}</span>
-              </div>
-            ))}
-          </div>
-
           {/* Why flagged */}
           {ghost.is_ghost && (
             <div style={{ paddingLeft: 16, paddingRight: 16, marginBottom: 16 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, display: 'block' }}>Why it was flagged</span>
-              <div style={{ backgroundColor: t.card, borderLeft: `4px solid ${cfg.color}`, borderRadius: 8, padding: 16 }}>
-                <span style={{ fontSize: 14, color: t.textMid, lineHeight: '21px', display: 'block' }}>{ghost.reason}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8, display: 'block' }}>Detection Reason</span>
+              <div style={{ backgroundColor: t.card, borderLeft: `3px solid ${cfg.color}`, borderRadius: 8, padding: 14 }}>
+                <span style={{ fontSize: 14, color: t.text, lineHeight: '21px', display: 'block' }}>{ghost.reason}</span>
               </div>
             </div>
           )}
 
           {/* Resource details */}
           <div style={{ paddingLeft: 16, paddingRight: 16, marginBottom: 16 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, display: 'block' }}>Resource Details</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8, display: 'block' }}>Resource Details</span>
             <div style={{ backgroundColor: t.card, borderRadius: 10, overflow: 'hidden' }}>
               {details.map(({ label, value, mono }, i) => (
-                <div key={label} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 16, paddingRight: 16, paddingTop: 13, paddingBottom: 13, borderBottom: i < details.length - 1 ? `1px solid ${t.border}` : 'none' }}>
-                  <span style={{ fontSize: 13, color: t.textMuted }}>{label}</span>
+                <div key={label} style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 14, paddingRight: 14, paddingTop: 11, paddingBottom: 11, borderBottom: i < details.length - 1 ? `1px solid ${t.border}` : 'none' }}>
+                  <span style={{ fontSize: 12, color: t.textMuted, fontWeight: 500 }}>{label}</span>
                   <span style={{ fontSize: mono ? 11 : 13, color: t.text, fontWeight: 600, textAlign: 'right', flex: 1, marginLeft: 16, fontFamily: mono ? 'monospace' : undefined, overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</span>
                 </div>
               ))}
@@ -248,10 +260,10 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
           {/* Suggested action */}
           {ghost.is_ghost && (
             <div style={{ paddingLeft: 16, paddingRight: 16, marginBottom: 16 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, display: 'block' }}>Suggested Action</span>
-              <div style={{ backgroundColor: t.accentLight, borderRadius: 10, padding: 16, display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 12, border: `1px solid ${t.accentBorder}` }}>
-                <span style={{ fontSize: 18 }}>⚡</span>
-                <span style={{ fontSize: 14, color: t.accentText, lineHeight: '21px', flex: 1, display: 'block' }}>{remediationHint(ghost.service, ghost.resource_id)}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8, display: 'block' }}>How to Fix</span>
+              <div style={{ backgroundColor: t.accentLight, borderRadius: 10, padding: 14, display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 10, border: `1px solid ${t.accentBorder}` }}>
+                <span style={{ fontSize: 16 }}>⚡</span>
+                <span style={{ fontSize: 13, color: t.accentText, lineHeight: '20px', flex: 1, display: 'block' }}>{remediationHint(ghost.service, ghost.resource_id)}</span>
               </div>
               <CLICommand cmd={remediationCommand(ghost.service, ghost.resource_id, ghost.region)} />
             </div>
