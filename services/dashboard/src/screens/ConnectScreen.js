@@ -30,7 +30,7 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
   const [label, setLabel]             = useState(account?.label ?? '');
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
   const [secretKey, setSecretKey]     = useState('');
-  const [region, setRegion]           = useState(account?.region ?? 'us-east-1');
+  const [region, setRegion]           = useState(account?.region ?? 'eu-central-1');
   const [scanIntervalHours, setScanIntervalHours] = useState(account?.scan_interval_hours?.toString() ?? '24');
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
@@ -59,7 +59,7 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
           label: label.trim() || 'My AWS Account',
           accessKeyId: accessKeyId.trim(),
           secretKey: secretKey.trim() || undefined,
-          region: region.trim() || 'us-east-1',
+          region: region.trim() || 'eu-central-1',
           scan_interval_hours: scanInterval,
         });
       } else {
@@ -68,7 +68,7 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
           label: label.trim() || 'My AWS Account',
           accessKeyId: accessKeyId.trim(),
           secretKey: secretKey.trim(),
-          region: region.trim() || 'us-east-1',
+          region: region.trim() || 'eu-central-1',
         });
       }
       onConnected(result);
@@ -108,7 +108,7 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
         <Field label="Label (optional)" value={label} onChangeText={setLabel} placeholder="e.g. Production" />
         <Field label="AWS Access Key ID" value={accessKeyId} onChangeText={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
         <Field label="AWS Secret Access Key" value={secretKey} onChangeText={setSecretKey} placeholder={isEdit ? 'Leave blank to keep existing' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'} mono secureTextEntry />
-        <Field label="Region" value={region} onChangeText={setRegion} placeholder="us-east-1" mono />
+        <Field label="Region" value={region} onChangeText={setRegion} placeholder="eu-central-1" mono />
         {isEdit && (
           <Field
             label="Auto-scan interval (hours)"

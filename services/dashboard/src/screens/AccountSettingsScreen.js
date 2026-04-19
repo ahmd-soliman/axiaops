@@ -29,7 +29,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   const [label, setLabel] = useState(account?.label ?? '');
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
   const [secretKey, setSecretKey] = useState('');
-  const [region, setRegion] = useState(account?.region ?? 'us-east-1');
+  const [region, setRegion] = useState(account?.region ?? 'eu-central-1');
   const [scanIntervalHours, setScanIntervalHours] = useState(account?.scan_interval_hours?.toString() ?? '24');
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -56,7 +56,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
         label: label.trim() || 'My AWS Account',
         accessKeyId: accessKeyId.trim(),
         secretKey: secretKey.trim() || undefined,
-        region: region.trim() || 'us-east-1',
+        region: region.trim() || 'eu-central-1',
         scan_interval_hours: scanInterval,
       });
       onAccountUpdated(result);
@@ -191,7 +191,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
             label="Region" 
             value={region} 
             onChangeText={setRegion} 
-            placeholder="us-east-1" 
+            placeholder="eu-central-1" 
             mono 
           />
           
