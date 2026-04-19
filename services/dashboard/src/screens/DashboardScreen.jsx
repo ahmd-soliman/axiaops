@@ -152,7 +152,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
   return (
     <div style={{ flex: 1, backgroundColor: t.bg, minHeight: '100vh', overflowY: 'auto' }}>
       {/* Navbar */}
-      <div style={{ backgroundColor: t.surface, paddingLeft: 20, paddingRight: 20, paddingTop: 15, paddingBottom: 15, display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 10, borderBottom: `1px solid ${t.border}` }}>
+      <div style={{ backgroundColor: t.surface, paddingLeft: 20, paddingRight: 20, paddingTop: 15, paddingBottom: 15, display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <span style={{ color: t.accent, fontSize: 18, fontWeight: 800, letterSpacing: 0.3 }}>AxiaOps</span>
         {accounts.length > 0 && (
           <AccountSelector
@@ -194,7 +194,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
 
       {/* Connect prompt */}
       {accounts.length === 0 && (
-        <div style={{ backgroundColor: t.surfaceAlt, paddingLeft: 16, paddingRight: 16, paddingTop: 16, paddingBottom: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', borderBottom: `1px solid ${t.border}` }}>
+        <div style={{ backgroundColor: t.surfaceAlt, paddingLeft: 16, paddingRight: 16, paddingTop: 16, paddingBottom: 16, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <span style={{ color: t.textSub, fontSize: 14, marginBottom: 12 }}>Connect your first AWS account to get started</span>
           <button onClick={onConnectAccount} style={{ border: `1px dashed ${t.accent}`, borderRadius: 8, paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8, background: 'none', cursor: 'pointer' }}>
             <span style={{ color: t.accent, fontSize: 13, fontWeight: 600 }}>+ Connect AWS Account</span>

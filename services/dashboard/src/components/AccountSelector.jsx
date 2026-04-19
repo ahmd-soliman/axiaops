@@ -27,18 +27,18 @@ export default function AccountSelector({
   };
 
   const s = {
-    selector: { display: 'flex', flexDirection: 'row', alignItems: 'center', backgroundColor: theme.navyMid, paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, borderRadius: 6, minWidth: 120, maxWidth: 180, cursor: 'pointer', border: 'none' },
-    selectorText: { color: theme.white, fontSize: 13, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-    chevron: { color: theme.textSub, fontSize: 10, marginLeft: 6 },
-    dropdown: { backgroundColor: theme.white, borderRadius: 12, padding: 16, margin: 20, maxHeight: '70vh', overflowY: 'auto', minWidth: 300, maxWidth: 400 },
-    dropdownTitle: { fontSize: 16, fontWeight: 700, color: theme.navy, marginBottom: 12, display: 'block' },
+    selector: { display: 'flex', flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surfaceRaised, paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, borderRadius: 6, minWidth: 120, maxWidth: 180, cursor: 'pointer', border: `1px solid ${theme.border}` },
+    selectorText: { color: theme.text, fontSize: 13, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+    chevron: { color: theme.textMuted, fontSize: 10, marginLeft: 6 },
+    dropdown: { backgroundColor: theme.surface, borderRadius: 12, padding: 16, margin: 20, maxHeight: '70vh', overflowY: 'auto', minWidth: 300, maxWidth: 400 },
+    dropdownTitle: { fontSize: 16, fontWeight: 700, color: theme.text, marginBottom: 12, display: 'block' },
     accountItem: { display: 'flex', flexDirection: 'row', alignItems: 'center', paddingTop: 12, paddingBottom: 12, paddingLeft: 8, paddingRight: 8, borderRadius: 8, gap: 10, cursor: 'pointer', border: 'none', background: 'none', width: '100%', textAlign: 'left' },
     statusDot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
     accountInfo: { flex: 1, display: 'flex', flexDirection: 'column' },
-    accountName: { fontSize: 14, fontWeight: 600, color: theme.navy },
-    accountDetail: { fontSize: 12, color: theme.textSub, marginTop: 2 },
+    accountName: { fontSize: 14, fontWeight: 600, color: theme.text },
+    accountDetail: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
     accountActions: { display: 'flex', flexDirection: 'row', gap: 4 },
-    actionBtn: { paddingLeft: 8, paddingRight: 8, paddingTop: 4, paddingBottom: 4, borderRadius: 4, backgroundColor: theme.bgSecondary, border: 'none', cursor: 'pointer' },
+    actionBtn: { paddingLeft: 8, paddingRight: 8, paddingTop: 4, paddingBottom: 4, borderRadius: 4, backgroundColor: theme.surfaceRaised, border: 'none', cursor: 'pointer' },
     actionText: { fontSize: 12, color: theme.accent, fontWeight: 600 },
     connectBtn: { marginTop: 12, paddingTop: 10, paddingBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', borderTop: `1px solid ${theme.border}`, background: 'none', border: 'none', borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: theme.border, cursor: 'pointer', width: '100%' },
     connectText: { color: theme.accent, fontSize: 14, fontWeight: 600 },
@@ -60,7 +60,7 @@ export default function AccountSelector({
             onClick={() => { onSelectAccount(null); setShowDropdown(false); }}
           >
             <div style={s.accountInfo}>
-              <span style={{ ...s.accountName, color: selectedAccount === null ? theme.accent : theme.navy }}>All Accounts</span>
+              <span style={{ ...s.accountName, color: selectedAccount === null ? theme.accentText : theme.text }}>All Accounts</span>
               <span style={s.accountDetail}>View all resources</span>
             </div>
           </button>
@@ -75,7 +75,7 @@ export default function AccountSelector({
               >
                 <div style={{ ...s.statusDot, backgroundColor: getStatusColor(account) }} />
                 <div style={s.accountInfo}>
-                  <span style={{ ...s.accountName, color: isActive ? theme.accent : theme.navy }}>
+                  <span style={{ ...s.accountName, color: isActive ? theme.accentText : theme.text }}>
                     {account.label || account.access_key_id.slice(0, 8) + '…'}
                   </span>
                   <span style={s.accountDetail}>
