@@ -42,6 +42,7 @@ type GhostResource struct {
 	DismissReason  string     `json:"dismiss_reason,omitempty"`
 	DismissNote    string     `json:"dismiss_note,omitempty"`
 	SnoozedUntil   *time.Time `json:"snoozed_until,omitempty"`
+}
 
 // BuildARN constructs an Amazon Resource Name for AWS resources.
 // Returns empty string for non-AWS providers or unsupported services.
@@ -51,7 +52,7 @@ func BuildARN(provider, accountID, region, service, resourceID string) string {
 	}
 
 	var arnService, resourcePath string
-	
+
 	switch service {
 	case "AmazonEC2":
 		arnService = "ec2"
@@ -124,5 +125,4 @@ func BuildARN(provider, accountID, region, service, resourceID string) string {
 	}
 
 	return fmt.Sprintf("arn:aws:%s:%s:%s:%s", arnService, region, accountID, resourcePath)
-}
 }
