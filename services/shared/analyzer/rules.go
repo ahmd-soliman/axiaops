@@ -15,6 +15,7 @@ type rule struct {
 // serviceRules maps AWS service names to their zombie-detection rules.
 // Services not listed here are skipped (no usage data available in MVP).
 var serviceRules = map[string]rule{
+	// Tier 0 — CloudWatch-based detection (MVP)
 	"AmazonEC2": {
 		metric:    "CPUUtilization",
 		threshold: 5.0,
@@ -44,5 +45,42 @@ var serviceRules = map[string]rule{
 		threshold: 0.0,
 		unit:      "Bytes",
 		reason:    "NAT Gateway has zero outbound bytes — likely unused",
+	},
+	// Tier 2 — CloudWatch-based detection (Phase 2)
+	"AmazonElastiCache": {
+		metric:    "CurrConnections",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "ElastiCache cluster has zero connections — likely idle",
+	},
+	"AmazonES": {
+		metric:    "SearchRate",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "OpenSearch/Elasticsearch cluster has zero search rate — likely unused",
+	},
+	"AmazonRedshift": {
+		metric:    "DatabaseConnections",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "Redshift cluster has zero database connections — likely abandoned",
+	},
+	"AmazonSageMaker": {
+		metric:    "Invocations",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "SageMaker endpoint has zero invocations — likely forgotten",
+	},
+	"AmazonDynamoDB": {
+		metric:    "ConsumedReadCapacityUnits",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "DynamoDB table (provisioned mode) has zero read capacity consumed — likely unused",
+	},
+	"AmazonEKS": {
+		metric:    "cluster_node_count",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "EKS cluster has zero nodes — control plane billing with no workload",
 	},
 }

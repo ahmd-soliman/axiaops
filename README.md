@@ -94,9 +94,19 @@ make stop
          "cloudwatch:ListMetrics",
          "ec2:DescribeInstances",
          "ec2:DescribeNatGateways",
+         "ec2:DescribeVolumes",
+         "ec2:DescribeSnapshots",
+         "ec2:DescribeAddresses",
+         "ec2:DescribeImages",
          "rds:DescribeDBInstances",
          "lambda:ListFunctions",
-         "elasticloadbalancing:DescribeLoadBalancers"
+         "elasticloadbalancing:DescribeLoadBalancers",
+         "elasticache:DescribeCacheClusters",
+         "es:ListDomainNames",
+         "redshift:DescribeClusters",
+         "sagemaker:ListEndpoints",
+         "dynamodb:ListTables",
+         "eks:ListClusters"
        ],
        "Resource": "*"
      }]
@@ -294,6 +304,19 @@ API is available at `http://localhost/api/` when running with Docker Compose.
 | **Old AMI** | `ec2:DescribeImages` | `snapshotGB × $0.05/month` | Age > 90 days + not in use |
 
 > **Tier 1 detections** are API-only (no CloudWatch needed) and typically surface the largest savings in real-world FinOps audits. See `docs/tier1_detections_status.md` for implementation details.
+
+### CloudWatch-Based Detection (Tier 2) ✅
+
+| Service | Metric | Threshold | Typical Cost | Verdict |
+|---------|--------|-----------|--------------|---------|
+| ElastiCache | CurrConnections | = 0 | $25-100/mo | Idle cluster |
+| OpenSearch/ES | SearchRate | = 0 | $25+/mo | Unused cluster |
+| Redshift | DatabaseConnections | = 0 | $180+/mo | Abandoned cluster |
+| SageMaker | Invocations | = 0 | $100+/mo | Forgotten endpoint |
+| DynamoDB | ConsumedReadCapacityUnits | = 0 | Varies | Unused provisioned table |
+| EKS | cluster_node_count | = 0 | $73/mo | Control plane with no nodes |
+
+> **Tier 2 detections** use CloudWatch metrics and fit the existing rule framework. These catch expensive idle resources that are commonly forgotten.
 
 > Rules do not change without business justification. See `CLAUDE.md` for FinOps domain thresholds.
 
