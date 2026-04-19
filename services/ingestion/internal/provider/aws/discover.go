@@ -8,11 +8,17 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/eks"
+	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/opensearch"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
+	"github.com/aws/aws-sdk-go-v2/service/redshift"
+	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
 
 	"axiaops.io/shared/model"
 )
@@ -60,6 +66,18 @@ func DiscoverResources(ctx context.Context, awsClient *Client, records []model.C
 			ids = discoverELB(ctx, cfg)
 		case "AmazonVPC":
 			ids = discoverNATGateways(ctx, cfg)
+		case "AmazonElastiCache":
+			ids = discoverElastiCache(ctx, cfg)
+		case "AmazonES":
+			ids = discoverOpenSearch(ctx, cfg)
+		case "AmazonRedshift":
+			ids = discoverRedshift(ctx, cfg)
+		case "AmazonSageMaker":
+			ids = discoverSageMaker(ctx, cfg)
+		case "AmazonDynamoDB":
+			ids = discoverDynamoDB(ctx, cfg)
+		case "AmazonEKS":
+			ids = discoverEKS(ctx, cfg)
 		default:
 			continue
 		}
@@ -787,4 +805,90 @@ func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient 
 		}
 	}
 	return ghosts, nil
+}
+
+// ── Tier 2 Discovery Functions ───────────────────────────────────────────────
+
+func discoverElastiCache(ctx context.Context, cfg aws.Config) []string {
+	client := elasticache.NewFromConfig(cfg)
+	out, err := client.DescribeCacheClusters(ctx, &elasticache.DescribeCacheClustersInput{})
+	if err != nil {
+		slog.Warn("discover: ElastiCache DescribeCacheClusters", "error", err)
+		return nil
+	}
+	var ids []string
+	for _, c := range out.CacheClusters {
+		if c.CacheClusterId != nil {
+			ids = append(ids, aws.ToString(c.CacheClusterId))
+		}
+	}
+	return ids
+}
+
+func discoverOpenSearch(ctx context.Context, cfg aws.Config) []string {
+	client := opensearch.NewFromConfig(cfg)
+	out, err := client.ListDomainNames(ctx, &opensearch.ListDomainNamesInput{})
+	if err != nil {
+		slog.Warn("discover: OpenSearch ListDomainNames", "error", err)
+		return nil
+	}
+	var ids []string
+	for _, d := range out.DomainNames {
+		if d.DomainName != nil {
+			ids = append(ids, aws.ToString(d.DomainName))
+		}
+	}
+	return ids
+}
+
+func discoverRedshift(ctx context.Context, cfg aws.Config) []string {
+	client := redshift.NewFromConfig(cfg)
+	out, err := client.DescribeClusters(ctx, &redshift.DescribeClustersInput{})
+	if err != nil {
+		slog.Warn("discover: Redshift DescribeClusters", "error", err)
+		return nil
+	}
+	var ids []string
+	for _, c := range out.Clusters {
+		if c.ClusterIdentifier != nil {
+			ids = append(ids, aws.ToString(c.ClusterIdentifier))
+		}
+	}
+	return ids
+}
+
+func discoverSageMaker(ctx context.Context, cfg aws.Config) []string {
+	client := sagemaker.NewFromConfig(cfg)
+	out, err := client.ListEndpoints(ctx, &sagemaker.ListEndpointsInput{})
+	if err != nil {
+		slog.Warn("discover: SageMaker ListEndpoints", "error", err)
+		return nil
+	}
+	var ids []string
+	for _, e := range out.Endpoints {
+		if e.EndpointName != nil {
+			ids = append(ids, aws.ToString(e.EndpointName))
+		}
+	}
+	return ids
+}
+
+func discoverDynamoDB(ctx context.Context, cfg aws.Config) []string {
+	client := dynamodb.NewFromConfig(cfg)
+	out, err := client.ListTables(ctx, &dynamodb.ListTablesInput{})
+	if err != nil {
+		slog.Warn("discover: DynamoDB ListTables", "error", err)
+		return nil
+	}
+	return out.TableNames
+}
+
+func discoverEKS(ctx context.Context, cfg aws.Config) []string {
+	client := eks.NewFromConfig(cfg)
+	out, err := client.ListClusters(ctx, &eks.ListClustersInput{})
+	if err != nil {
+		slog.Warn("discover: EKS ListClusters", "error", err)
+		return nil
+	}
+	return out.Clusters
 }
