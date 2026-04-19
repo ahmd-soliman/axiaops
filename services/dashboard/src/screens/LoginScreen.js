@@ -6,21 +6,24 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
-
-const C = {
-  bg: '#0F172A',
-  navyMid: '#1E293B',
-  accent: '#F97316',
-  textMuted: '#94A3B8',
-  white: '#FFFFFF',
-};
+import { useTheme } from '../theme/ThemeContext';
 
 export default function LoginScreen({ onLogin, loading }) {
+  const { theme } = useTheme();
+  const styles = createStyles(theme);
+
   return (
     <View style={styles.container}>
       <View style={styles.card}>
+        {/* Logo mark */}
+        <View style={styles.logoMark}>
+          <Text style={styles.logoMarkText}>⚡</Text>
+        </View>
+
         <Text style={styles.logo}>AxiaOps</Text>
-        <Text style={styles.tagline}>Find idle cloud resources.{'\n'}Stop paying for nothing.</Text>
+        <Text style={styles.tagline}>
+          Spot idle cloud resources.{'\n'}Cut costs automatically.
+        </Text>
 
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
@@ -29,22 +32,24 @@ export default function LoginScreen({ onLogin, loading }) {
           activeOpacity={0.85}
         >
           {loading ? (
-            <ActivityIndicator color={C.white} />
+            <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>Sign in</Text>
+            <Text style={styles.buttonText}>Sign in to continue</Text>
           )}
         </TouchableOpacity>
 
-        <Text style={styles.hint}>You will be redirected to Kinde to authenticate.</Text>
+        <Text style={styles.hint}>
+          Secure sign-in via Kinde. No password stored here.
+        </Text>
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: C.bg,
+    backgroundColor: theme.bg,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -52,47 +57,56 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: C.navyMid,
-    borderRadius: 16,
+    backgroundColor: theme.surface,
+    borderRadius: 20,
     padding: 40,
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.border,
   },
-  logo: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: C.accent,
-    letterSpacing: -1,
+  logoMark: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: theme.accentLight,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 4,
   },
+  logoMarkText: { fontSize: 26 },
+  logo: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: theme.accent,
+    letterSpacing: -0.5,
+  },
   tagline: {
-    fontSize: 16,
-    color: C.white,
+    fontSize: 15,
+    color: theme.textMid,
     textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 8,
+    lineHeight: 23,
+    marginBottom: 6,
   },
   button: {
-    backgroundColor: C.accent,
-    borderRadius: 10,
-    paddingVertical: 14,
+    backgroundColor: theme.accent,
+    borderRadius: 12,
+    paddingVertical: 15,
     paddingHorizontal: 48,
     width: '100%',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 6,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
+  buttonDisabled: { opacity: 0.6 },
   buttonText: {
-    color: C.white,
+    color: '#fff',
     fontSize: 16,
     fontWeight: '700',
   },
   hint: {
     fontSize: 12,
-    color: C.textMuted,
+    color: theme.textMuted,
     textAlign: 'center',
-    marginTop: 4,
+    lineHeight: 18,
   },
 });
