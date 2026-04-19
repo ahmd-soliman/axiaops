@@ -29,11 +29,11 @@ const lightTheme = {
   navyMid: '#1E293B',
   navyLight: '#334155',
 
-  // Brand accent — indigo (replaces previous orange)
-  accent: '#4F46E5',            // indigo-600, primary CTA
-  accentLight: '#EEF2FF',       // indigo-50, tinted backgrounds
-  accentBorder: '#C7D2FE',      // indigo-200, soft brand borders
-  accentText: '#3730A3',        // indigo-800, 9:1 on accentLight
+  // Brand accent — orange (bold, action-oriented)
+  accent: '#F97316',            // orange-500, primary CTA
+  accentLight: '#FFF4ED',       // orange-50, tinted backgrounds
+  accentBorder: '#FDBA74',      // orange-300, soft brand borders
+  accentText: '#7C2D12',        // orange-900, 8:1 on accentLight
 
   // Text hierarchy — 4 distinct, AA-clear levels
   text: '#0F172A',              // slate-900, 18:1 on surface (AAA)
@@ -82,11 +82,11 @@ const darkTheme = {
   navyMid: '#111827',
   navyLight: '#2A3550',
 
-  // Brand accent — indigo tuned for dark readability
-  accent: '#818CF8',            // indigo-400, 7:1 on bg (AAA)
-  accentLight: '#1E1B4B',       // indigo-950 wash
-  accentBorder: '#4338CA',      // indigo-700, visible border
-  accentText: '#C7D2FE',        // indigo-200, 10:1 on accentLight
+  // Brand accent — orange tuned for dark readability
+  accent: '#FB923C',            // orange-400, 8:1 on bg (AAA)
+  accentLight: '#2D1200',       // orange-950 wash
+  accentBorder: '#7C3200',      // orange-800, visible border
+  accentText: '#FBBF24',        // amber-400, 10:1 on accentLight
 
   // Text hierarchy — warm off-whites, 4 distinct levels
   text: '#E5ECF5',              // warm off-white, 15:1 on bg (AAA)
