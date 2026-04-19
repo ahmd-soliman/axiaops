@@ -174,7 +174,7 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
       <div style={{ flex: 1, backgroundColor: t.bg, minHeight: '100vh', overflowY: 'auto' }}>
         <div style={{ paddingBottom: 48 }}>
           {/* Header */}
-          <div style={{ backgroundColor: t.surfaceAlt, paddingBottom: 24, borderBottom: `1px solid ${t.border}` }}>
+          <div style={{ backgroundColor: t.surfaceAlt, paddingBottom: 24 }}>
             <button onClick={onBack} style={{ paddingLeft: 20, paddingTop: 16, paddingBottom: 12, background: 'none', border: 'none', cursor: 'pointer' }}>
               <span style={{ color: t.textMuted, fontWeight: 600, fontSize: 14 }}>← Back to list</span>
             </button>
