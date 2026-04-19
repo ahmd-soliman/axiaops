@@ -327,11 +327,11 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
               style={{ backgroundColor: t.card, marginLeft: 16, marginRight: 16, marginBottom: 8, borderRadius: 10, padding: 16, borderLeft: `4px solid ${cfg.color}`, display: 'flex', flexDirection: 'column', width: 'calc(100% - 32px)', textAlign: 'left', cursor: 'pointer', boxShadow: '0px 2px 6px rgba(0,0,0,0.05)' }}
             >
               <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <div style={{ paddingLeft: 7, paddingRight: 7, paddingTop: 3, paddingBottom: 3, borderRadius: 5, backgroundColor: isDark ? cfg.darkBg : cfg.bg }}>
+                <div style={{ paddingLeft: 7, paddingRight: 7, paddingTop: 3, paddingBottom: 3, borderRadius: 5, backgroundColor: t.surfaceRaised, border: `1px solid ${t.border}` }}>
                   <span style={{ fontSize: 11, fontWeight: 800, color: cfg.color }}>{cfg.label}</span>
                 </div>
                 {item.is_ghost && (
-                  <div style={{ backgroundColor: t.ghostBadgeBg, paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
+                  <div style={{ backgroundColor: t.surfaceRaised, border: `1px solid ${t.border}`, paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
                     <span style={{ fontSize: 10, fontWeight: 700, color: t.ghostBadgeText }}>zombie</span>
                   </div>
                 )}
