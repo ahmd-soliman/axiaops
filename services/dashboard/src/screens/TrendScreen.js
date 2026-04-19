@@ -154,7 +154,7 @@ export default function TrendScreen({ onBack }) {
           </Text>
           <Text style={styles.headerSub}>
             {selectedSnap
-              ? `${selectedSnap.ghost_count} zombie resource${selectedSnap.ghost_count !== 1 ? 's' : ''} detected across your accounts`
+              ? `${selectedSnap.ghost_count} idle resource${selectedSnap.ghost_count !== 1 ? 's' : ''} detected across your accounts`
               : 'Latest projected monthly cost'}
           </Text>
         </View>
@@ -244,7 +244,7 @@ export default function TrendScreen({ onBack }) {
                     {new Date(item.snapshot_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                   <Text style={styles.rowGhosts}>
-                    {item.ghost_count === 0 ? 'No ghosts found' : `${item.ghost_count} ghost${item.ghost_count !== 1 ? 's' : ''} found`}
+                    {item.ghost_count === 0 ? 'No idle resources found' : `${item.ghost_count} idle resource${item.ghost_count !== 1 ? 's' : ''} found`}
                   </Text>
                 </View>
                 <Text style={styles.rowCost}>{item.currency} {item.total_monthly_cost.toFixed(2)}</Text>
