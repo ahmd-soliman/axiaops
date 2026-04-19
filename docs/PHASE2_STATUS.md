@@ -139,7 +139,7 @@ All May 2026 milestone items and most June 2026 items are in `main`.
 - Custom domain + managed TLS. Health check: `GET /health`, 30s timeout.
 
 **Dashboard**
-- Expo web static export → S3 + CloudFront. CI stage invalidates.
+- Vite static build → S3 + CloudFront. CI stage invalidates.
 
 **EventBridge**
 - `rate(24 hours)` → `POST /v1/accounts/{id}/scan` per account (complements in-service scheduler as a safety net).
