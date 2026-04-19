@@ -137,7 +137,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
     ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
 
     const csv = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -161,7 +161,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
         <ActivityIndicator size="large" color={theme.accent} />
-        <Text style={[styles.loadingText, { color: theme.textMid }]}>Analysing resources…</Text>
+        <Text style={[styles.loadingText, { color: theme.textMid }]}>Loading your resources…</Text>
       </View>
     );
   }
@@ -192,7 +192,6 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
           {/* Navbar */}
           <View style={styles.navbar}>
             <Text style={styles.navBrand}>AxiaOps</Text>
-            <View style={{ flex: 1 }} />
             {accounts.length > 0 && (
               <AccountSelector
                 accounts={accounts}
@@ -204,34 +203,34 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
                 scanning={scanning}
               />
             )}
-            <TouchableOpacity onPress={toggleTheme} style={styles.themeBtn}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={theme.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                {isDark ? (
-                  // Sun icon - shown in dark mode to switch to light
-                  <>
-                    <path d="M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"></path>
-                    <path d="M3 12h1m8 -9v1m8 8h1m-9 8v1m-6.4 -15.4l.7 .7m12.1 -.7l-.7 .7m0 11.4l.7 .7m-12.1 -.7l-.7 .7"></path>
-                  </>
-                ) : (
-                  // Moon icon - shown in light mode to switch to dark
-                  <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z"></path>
-                )}
-              </svg>
-            </TouchableOpacity>
-            {orgName ? (
-              <View style={styles.orgPill}>
-                <Text style={styles.orgPillText}>{orgName}</Text>
-              </View>
-            ) : null}
-            <TouchableOpacity onPress={onLogout} style={styles.logoutBtn}>
-              <Text style={styles.logoutText}>Sign out</Text>
-            </TouchableOpacity>
+            <View style={styles.navRight}>
+              <TouchableOpacity onPress={toggleTheme} style={styles.themeBtn}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={theme.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  {isDark ? (
+                    <>
+                      <path d="M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"></path>
+                      <path d="M3 12h1m8 -9v1m8 8h1m-9 8v1m-6.4 -15.4l.7 .7m12.1 -.7l-.7 .7m0 11.4l.7 .7m-12.1 -.7l-.7 .7"></path>
+                    </>
+                  ) : (
+                    <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z"></path>
+                  )}
+                </svg>
+              </TouchableOpacity>
+              {orgName ? (
+                <View style={styles.orgPill}>
+                  <Text style={styles.orgPillText}>{orgName}</Text>
+                </View>
+              ) : null}
+              <TouchableOpacity onPress={onLogout} style={styles.logoutBtn}>
+                <Text style={styles.logoutText}>Sign out</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Show connect prompt if no accounts */}
           {accounts.length === 0 && (
             <View style={styles.connectPrompt}>
-              <Text style={styles.connectPromptText}>Connect your first AWS account to get started</Text>
+              <Text style={styles.connectPromptText}>Connect your first AWS account to start finding idle resources</Text>
               <TouchableOpacity style={styles.connectBtn} onPress={onConnectAccount}>
                 <Text style={styles.connectBtnText}>+ Connect AWS Account</Text>
               </TouchableOpacity>
@@ -246,7 +245,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
               {summary.data.potential_monthly_savings.toFixed(2)}
             </Text>
             <Text style={styles.heroSub}>
-              {summary.data.total_ghosts} zombie resource{summary.data.total_ghosts !== 1 ? 's' : ''} detected across your accounts
+              {summary.data.total_ghosts} idle resource{summary.data.total_ghosts !== 1 ? 's' : ''} detected across your accounts
             </Text>
 
             {/* Savings trend sparkline */}
@@ -318,7 +317,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
               onPress={() => { setGhostOnly(true); setShowDismissed(false); }}
             >
               <Text style={[styles.toggleBtnText, ghostOnly && !showDismissed && styles.toggleBtnTextActive]}>
-                Ghost Resources
+                Idle Resources
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -343,7 +342,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
 
           <View style={styles.sectionRow}>
             <Text style={styles.sectionTitle}>
-              {showDismissed ? 'Dismissed Resources' : ghostOnly ? 'Ghost Resources' : 'All Resources'}
+              {showDismissed ? 'Dismissed Resources' : ghostOnly ? 'Idle Resources' : 'All Resources'}
             </Text>
             {!showDismissed && (
               <TouchableOpacity onPress={handleExportCSV} style={styles.exportBtn}>
@@ -417,7 +416,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
               </View>
               {item.is_ghost && (
                 <View style={styles.ghostBadge}>
-                  <Text style={styles.ghostBadgeText}>zombie</Text>
+                  <Text style={styles.ghostBadgeText}>idle</Text>
                 </View>
               )}
               <View style={{ flex: 1 }} />
@@ -475,20 +474,21 @@ const createStyles = (theme) => StyleSheet.create({
   // Navbar
   navbar: {
     backgroundColor: theme.surface,
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.border,
   },
-  navBrand: { color: theme.text, fontSize: 18, fontWeight: '800', letterSpacing: 0.3, flex: 1 },
-  themeBtn: { paddingHorizontal: 8, paddingVertical: 4, marginRight: 8 },
+  navBrand: { color: theme.accent, fontSize: 17, fontWeight: '800', letterSpacing: 0.3 },
+  navRight: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
+  themeBtn: { padding: 6 },
   themeBtnText: { fontSize: 16 },
-  orgPill: { backgroundColor: theme.surfaceRaised, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, marginRight: 8 },
-  orgPillText: { color: theme.textMid, fontSize: 12, fontWeight: '600' },
-  logoutBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: theme.border },
+  orgPill: { backgroundColor: theme.surfaceRaised, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5 },
+  orgPillText: { color: theme.textMuted, fontSize: 12, fontWeight: '600' },
+  logoutBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: theme.border },
   logoutText: { color: theme.textMuted, fontSize: 12, fontWeight: '600' },
 
   // Connect prompt (when no accounts)
