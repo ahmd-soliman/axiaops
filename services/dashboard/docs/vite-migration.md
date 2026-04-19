@@ -18,7 +18,7 @@ React Native Web abstraction layer) is not worth the cost for a web-first FinOps
 | Auth | `expo-auth-session` + `expo-web-browser` | `@kinde-oss/kinde-auth-pkce-js` |
 | Token storage | `expo-secure-store` / `localStorage` | `localStorage` only |
 | Theme | `ThemeContext` (kept as-is) | `ThemeContext` (kept as-is) |
-| API client | `src/api/client.js` (kept as-is) | `src/api/client.js` (kept as-is) |
+| API client | `src/api/client.js` | Same file, one-line env var rename (`EXPO_PUBLIC_API_URL` → `VITE_API_URL`) |
 | Data fetching | TanStack Query (kept as-is) | TanStack Query (kept as-is) |
 | Env vars | `EXPO_PUBLIC_*` | `VITE_*` |
 | Docker build | `npx expo export --platform web` | `npm run build` (vite build) |
@@ -40,24 +40,39 @@ const styles = StyleSheet.create({ container: { flex: 1, backgroundColor: theme.
 const styles = { container: { flex: 1, backgroundColor: theme.bg } };
 ```
 
-This means the visual output is identical, there are no CSS class-name collisions to
-worry about, and the diff in every component file is minimal. A CSS/Tailwind cleanup
-can be a separate, optional follow-up.
+This keeps the diff in every component file minimal and avoids CSS class-name
+collisions. A CSS/Tailwind cleanup can be a separate, optional follow-up.
+
+**Two non-trivial gotchas** that the primitives in Task 2 absorb so screen code
+stays untouched:
+
+1. **RN `View` defaults to `display:flex; flex-direction:column`; `<div>` does
+   not.** Layouts that rely on implicit column flex or on `flex:1` children
+   filling a parent will silently break if you swap `<View>` → `<div>`. The
+   `<View>` primitive in Task 2 sets these defaults so screens render correctly
+   without editing every container.
+2. **RN accepts `style={[a, b && c]}` arrays; React DOM does not.** The codebase
+   uses this pattern in ~70 places. The primitives flatten arrays via a shared
+   `flatStyle()` helper; plain HTML elements in screen code must be converted to
+   a primitive or the style array must be collapsed manually.
+
+Visual output will be close but not byte-identical — expect a short
+spot-the-difference pass per screen.
 
 ## React Native → HTML component map
 
 | React Native | HTML / React DOM |
 |---|---|
-| `<View>` | `<div>` |
-| `<Text>` | `<span>` (inline) or `<p>` (block) — match usage |
-| `<TouchableOpacity onPress={f}>` | `<button onClick={f}>` with `style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}` or a shared `<Pressable>` component |
+| `<View>` | `<View>` primitive (see Task 2) — a `<div>` with RN's `display:flex; flex-direction:column` defaults baked in |
+| `<Text>` | `<Text>` primitive (see Task 2) — a `<span style={{ display: 'block' }}>` to avoid inline layout surprises |
+| `<TouchableOpacity onPress={f}>` | `<Pressable>` primitive (see Task 2) — a reset `<button>` with RN-style behavior |
 | `<ScrollView>` | `<div style={{ overflowY: 'auto' }}>` |
 | `<FlatList data={d} renderItem={f}>` | `d.map(f)` inside a `<div>` |
 | `<TextInput value={v} onChangeText={f}>` | `<input value={v} onChange={e => f(e.target.value)}>` |
 | `<TextInput multiline>` | `<textarea>` |
 | `<ActivityIndicator>` | Small spinner `<div>` component (see Task 2) |
 | `<Modal visible={b}>` | Conditional render of a `<div>` overlay (see Task 2) |
-| `<RefreshControl>` | Drop entirely — use React Query's `refetch()` on a button |
+| `<RefreshControl>` | Drop entirely — pull-to-refresh is a deliberate UX regression on web; expose React Query's `refetch()` via an explicit refresh button |
 | `<Alert.alert(title, msg)>` | `window.confirm(msg)` or a custom modal |
 | `useWindowDimensions()` | `useEffect` + `window.addEventListener('resize', …)` |
 | `StyleSheet.create({ … })` | `const styles = { … }` |
@@ -121,12 +136,13 @@ export default defineConfig({
 });
 ```
 
-**Copy unchanged files directly from `dashboard/src/`:**
-- `src/api/client.js` — update `EXPO_PUBLIC_API_URL` → `VITE_API_URL` (one line)
-- `src/components/serviceConfig.js` — no changes
-- `src/theme/ThemeContext.js` — no changes
+**Copy files from `dashboard/src/`, with small edits where noted:**
+- `src/api/client.js` — copy, then change `EXPO_PUBLIC_API_URL` → `import.meta.env.VITE_API_URL` (one line; `process.env` is not available under Vite)
+- `src/components/serviceConfig.js` — copy unchanged
+- `src/theme/ThemeContext.js` — copy unchanged (already web-clean, localStorage-backed)
+- `src/config.js` — rewrite to use `import.meta.env.VITE_*` (full replacement below)
 
-**Rename env vars in `src/config.js`:**
+**Rewrite `src/config.js`:**
 
 ```js
 // services/dashboard-v2/src/config.js
@@ -164,18 +180,70 @@ Create `src/components/primitives/` with thin wrappers that match the React Nati
 API surface. This is the most important task — it makes every screen conversion
 mechanical. Write these once, use everywhere.
 
-**`src/components/primitives/index.js`** — re-exports all primitives from one place.
+**`src/components/primitives/index.js`** — re-exports all primitives plus the
+`flatStyle` helper:
+
+```js
+// Flattens React Native–style `style={[a, b && c, [d, e]]}` arrays into a
+// single object suitable for React DOM. Falsy entries are skipped.
+export function flatStyle(style) {
+  if (!style) return undefined;
+  if (!Array.isArray(style)) return style;
+  return Object.assign({}, ...style.flat(Infinity).filter(Boolean));
+}
+
+export { View } from './View';
+export { Text } from './Text';
+export { Pressable } from './Pressable';
+export { Spinner } from './Spinner';
+export { Overlay } from './Overlay';
+export { useWindowWidth } from './useWindowWidth';
+```
+
+**`View.jsx`** — replaces `<View>`, preserves RN flex defaults:
+```jsx
+import { flatStyle } from './index';
+
+export function View({ style, children, ...rest }) {
+  return (
+    <div
+      {...rest}
+      style={{ display: 'flex', flexDirection: 'column', ...flatStyle(style) }}
+    >
+      {children}
+    </div>
+  );
+}
+```
+
+**`Text.jsx`** — replaces `<Text>`, avoids inline-layout surprises:
+```jsx
+import { flatStyle } from './index';
+
+export function Text({ style, children, ...rest }) {
+  return (
+    <span {...rest} style={{ display: 'block', ...flatStyle(style) }}>
+      {children}
+    </span>
+  );
+}
+```
 
 **`Pressable.jsx`** — replaces `TouchableOpacity`:
 ```jsx
+import { flatStyle } from './index';
+
 export function Pressable({ onPress, style, children, disabled }) {
   return (
     <button
       onClick={onPress}
       disabled={disabled}
       style={{
-        background: 'none', border: 'none', cursor: disabled ? 'default' : 'pointer',
-        padding: 0, textAlign: 'left', ...flatStyle(style),
+        background: 'none', border: 'none', padding: 0,
+        font: 'inherit', color: 'inherit', textAlign: 'inherit',
+        cursor: disabled ? 'default' : 'pointer',
+        display: 'flex', flexDirection: 'column',
+        ...flatStyle(style),
       }}
     >
       {children}
@@ -211,9 +279,11 @@ export function Overlay({ visible, onClose, children }) {
 
 **`useWindowWidth.js`** — replaces `useWindowDimensions`:
 ```js
+import { useState, useEffect } from 'react';
+
 export function useWindowWidth() {
-  const [width, setWidth] = React.useState(window.innerWidth);
-  React.useEffect(() => {
+  const [width, setWidth] = useState(window.innerWidth);
+  useEffect(() => {
     const handler = () => setWidth(window.innerWidth);
     window.addEventListener('resize', handler);
     return () => window.removeEventListener('resize', handler);
@@ -222,7 +292,9 @@ export function useWindowWidth() {
 }
 ```
 
-These four cover all the non-trivial React Native APIs used in the codebase.
+These primitives (View, Text, Pressable, Spinner, Overlay, useWindowWidth) plus
+the `flatStyle` helper cover the non-trivial React Native APIs used in the
+codebase.
 
 ---
 
@@ -230,20 +302,33 @@ These four cover all the non-trivial React Native APIs used in the codebase.
 
 Replace `expo-auth-session` / `expo-web-browser` with `@kinde-oss/kinde-auth-pkce-js`.
 
+**Important: `createKindeClient()` is async and returns a Promise.** Treating it
+as a synchronous singleton — `const kindeClient = createKindeClient({...})` —
+produces a Promise, and every downstream `.login()` / `.handleRedirectCallback()`
+call throws "is not a function." Bootstrap the client once, cache the Promise,
+and `await` it at each call site.
+
 **`src/auth/kinde.js`** — rewrite:
 
 ```js
 import createKindeClient from '@kinde-oss/kinde-auth-pkce-js';
 import { KINDE_ISSUER, KINDE_CLIENT_ID } from '../config';
 
-// Singleton — created once, reused across the app.
-export const kindeClient = createKindeClient({
-  domain: KINDE_ISSUER,
-  client_id: KINDE_CLIENT_ID,
-  redirect_uri: window.location.origin + '/callback',
-  logout_uri: window.location.origin + '/login',
-  scope: 'openid profile email',
-});
+// Lazy singleton — the SDK returns a Promise. All callers await this.
+let clientPromise = null;
+
+export function getKindeClient() {
+  if (!clientPromise) {
+    clientPromise = createKindeClient({
+      domain: KINDE_ISSUER,
+      client_id: KINDE_CLIENT_ID,
+      redirect_uri: window.location.origin + '/callback',
+      logout_uri: window.location.origin + '/login',
+      scope: 'openid profile email',
+    });
+  }
+  return clientPromise;
+}
 ```
 
 **`src/auth/storage.js`** — simplify to web-only:
@@ -255,14 +340,15 @@ export const getToken   = ()  => localStorage.getItem(KEY);
 export const clearToken = ()  => localStorage.removeItem(KEY);
 ```
 
-**Add a `/callback` route** (see Task 5) that calls
-`kindeClient.handleRedirectCallback()` and then navigates to `/`.
+**Add a `/callback` route** (see Task 5) that awaits `getKindeClient()`, calls
+`client.handleRedirectCallback()`, then navigates to `/`.
 
-**`login.jsx`** calls `kindeClient.login()` — no hooks, no PKCE boilerplate.
+**`login.jsx`** awaits `getKindeClient()` then calls `client.login()` — no hooks,
+no PKCE boilerplate.
 
 The Kinde SDK manages PKCE, code exchange, and token storage internally.
 The `getToken()` in `storage.js` is kept for the auth guard and the API client;
-after login you still call `saveToken(await kindeClient.getToken())` to mirror the
+after login you still call `saveToken(await client.getToken())` to mirror the
 existing contract. This keeps the API client unchanged.
 
 ---
@@ -301,7 +387,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { getToken, saveToken } from './auth/storage';
 import { setAuthToken } from './api/client';
 import { DEV_MODE, DEV_ORG_NAME } from './config';
-import { kindeClient } from './auth/kinde';
+import { getKindeClient } from './auth/kinde';
 
 import AuthGuard   from './components/AuthGuard';
 import Dashboard   from './pages/Dashboard';
@@ -325,6 +411,9 @@ export default function App() {
       setReady(true);
       return;
     }
+    // Warm up the Kinde client so Login/Callback can await a resolved Promise.
+    // We don't need the return value here — we just want the singleton created.
+    getKindeClient().catch(() => {}); // non-fatal; Login surfaces the error
     const stored = getToken();
     if (stored) setAuthToken(stored);
     setReady(true);
@@ -372,20 +461,27 @@ logic lives here.
 ```jsx
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { kindeClient } from '../auth/kinde';
-import { saveToken, getToken } from '../auth/storage';
+import { getKindeClient } from '../auth/kinde';
+import { saveToken } from '../auth/storage';
 import { setAuthToken } from '../api/client';
 
 export default function Callback() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    kindeClient.handleRedirectCallback().then(async () => {
-      const token = await kindeClient.getToken();
-      saveToken(token);
-      setAuthToken(token);
-      navigate('/', { replace: true });
-    });
+    (async () => {
+      try {
+        const client = await getKindeClient();
+        await client.handleRedirectCallback();
+        const token = await client.getToken();
+        saveToken(token);
+        setAuthToken(token);
+        navigate('/', { replace: true });
+      } catch (e) {
+        console.error('Auth callback failed:', e);
+        navigate('/login', { replace: true });
+      }
+    })();
   }, []);
 
   return null; // blank screen while exchanging token
@@ -395,21 +491,33 @@ export default function Callback() {
 **`src/pages/Login.jsx`:**
 
 ```jsx
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { kindeClient } from '../auth/kinde';
+import { getKindeClient } from '../auth/kinde';
 import { getToken } from '../auth/storage';
 import { DEV_MODE } from '../config';
 import LoginScreen from '../screens/LoginScreen';
 
 export default function Login() {
   const navigate = useNavigate();
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
     if (DEV_MODE || getToken()) navigate('/', { replace: true });
   }, []);
 
-  return <LoginScreen onLogin={() => kindeClient.login()} loading={false} />;
+  async function handleLogin() {
+    setSigningIn(true);
+    try {
+      const client = await getKindeClient();
+      await client.login(); // browser redirects; the Promise never resolves
+    } catch (e) {
+      console.error('Login failed:', e);
+      setSigningIn(false);
+    }
+  }
+
+  return <LoginScreen onLogin={handleLogin} loading={signingIn} />;
 }
 ```
 
@@ -494,7 +602,7 @@ export default function Detail() {
   const goBack = () => navigate(-1) || navigate('/');
 
   if (isLoading) return <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: theme.bg }}><Spinner /></div>;
-  if (!ghost) { navigate('/404', { replace: true }); return null; }
+  if (!ghost) return <NotFound />; // import from ./NotFound; avoids depending on a specific /404 path
 
   return (
     <DetailScreen
@@ -579,7 +687,15 @@ EXPOSE 80
 
 **`nginx.conf`** — unchanged. SPA fallback and `/api` proxy are already correct.
 
-**`inject-env.sh`** — update the env var names from `EXPO_PUBLIC_*` to `VITE_*`.
+**`inject-env.sh`** — keep the script as-is; it writes `window.__ENV__` (runtime
+values, not build-time). The build-arg rename (`EXPO_PUBLIC_*` → `VITE_*`) only
+affects the Dockerfile `ARG`/`ENV` block above. The runtime injected vars still
+use the same unprefixed names (`DEV_MODE`, `KINDE_ISSUER`, …).
+
+**Static assets.** Copy the favicon from `dashboard/assets/favicon.png` to
+`dashboard-v2/public/favicon.ico` (or `.png` — update the `<link>` tag in
+`index.html`). `app.json`, splash, and app icons from the Expo project are
+native-only and can be dropped.
 
 ---
 
@@ -587,8 +703,12 @@ EXPOSE 80
 
 1. Rename `services/dashboard` → `services/dashboard-expo` (keep as fallback).
 2. Rename `services/dashboard-v2` → `services/dashboard`.
-3. Update `docker-compose.yml` if the dashboard service has volume mounts or build
-   args referencing the directory name.
+3. Update `docker-compose.yml` — the build context (`./services/dashboard`) and
+   `container_name` still resolve, but the build args must be renamed from
+   `EXPO_PUBLIC_*` to `VITE_*`. Grep for any remaining `EXPO_PUBLIC_` references
+   across the repo (`docker-compose.yml`, `Makefile`, `.env.example`, and any
+   `.github/workflows/*.yml` or deployment scripts) — all must flip at the same
+   moment or the staging build silently ships without its env vars.
 4. Run `make start-dev`, verify the full auth + dashboard flow end-to-end.
 5. Delete `services/dashboard-expo` once confident.
 
@@ -596,14 +716,14 @@ EXPOSE 80
 
 ## Checklist
 
-- [ ] Task 1: Vite scaffold, copy unchanged files, rename env vars
-- [ ] Task 2: Primitive components (Pressable, Spinner, Overlay, useWindowWidth)
-- [ ] Task 3: Auth — kinde-auth-pkce-js, simplified storage
+- [ ] Task 1: Vite scaffold, copy files, rewrite `config.js` for `import.meta.env`
+- [ ] Task 2: Primitives (View, Text, Pressable, Spinner, Overlay, useWindowWidth) + `flatStyle` helper
+- [ ] Task 3: Auth — `getKindeClient()` async singleton, simplified storage
 - [ ] Task 4: Root layout and route table (App.jsx, AuthGuard, main.jsx)
 - [ ] Task 5: Page files (Login, Callback, Dashboard, Detail, Trend, Connect, Settings, NotFound)
 - [ ] Task 6: Screen conversions (LoginScreen → DashboardScreen, in order)
-- [ ] Task 7: Dockerfile + inject-env.sh env var rename
-- [ ] Task 8: Cut over, smoke test, delete expo project
+- [ ] Task 7: Dockerfile build-arg rename + favicon
+- [ ] Task 8: Repo-wide `EXPO_PUBLIC_*` → `VITE_*` audit, cut over, smoke test, delete expo project
 
 ## Estimated effort
 
@@ -614,10 +734,15 @@ EXPOSE 80
 | 3 — Auth | 3 h |
 | 4 — Layout + router | 2 h |
 | 5 — Page files | 2 h |
-| 6 — Screen conversions | 8 h |
+| 6 — Screen conversions | 14 h |
 | 7 — Docker + env | 1 h |
 | 8 — Cut over + smoke test | 2 h |
-| **Total** | **~22 h** |
+| **Total** | **~28 h** |
+
+Screen-conversion hours are padded from the original 8h to cover the
+spot-the-difference cleanup pass per screen (flex defaults, inline `<Text>`
+alignment, `<button>` text centering, and any style-array collapses the
+primitives don't absorb).
 
 ## Out of scope
 
@@ -625,3 +750,8 @@ EXPOSE 80
   when a screen needs a redesign anyway)
 - Native mobile (decision deferred; React Router + Vite is web-only)
 - Adding a test suite (dashboard has none today — separate initiative)
+- **Token refresh.** The Kinde SDK's `getToken()` auto-refreshes, but
+  `api/client.js` caches the access token via `setAuthToken` and won't pick up a
+  fresh one — long sessions will 401 silently. This is a pre-existing bug, not
+  migration-specific. Fix by calling `client.getToken()` on every request (or on
+  a 401 retry) in a follow-up.
