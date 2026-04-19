@@ -206,7 +206,7 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
               {/* Stats chips in header */}
               <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
                 {stats.slice(1).map(({ label, value }) => (
-                  <div key={label} style={{ backgroundColor: 'rgba(251, 146, 60, 0.15)', borderRadius: 8, paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, border: '1px solid rgba(251, 146, 60, 0.3)', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                  <div key={label} style={{ backgroundColor: t.accentLight, borderRadius: 8, paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, border: `1px solid ${t.accentBorder}`, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>{value}</span>
                     <span style={{ fontSize: 11, color: t.textMuted }}>{label}</span>
                   </div>
