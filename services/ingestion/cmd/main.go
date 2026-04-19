@@ -322,12 +322,13 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 
 // runIngestionCore is the shared implementation used by runScan and the HTTP handler.
 func runIngestionCore(ctx context.Context, store storage.Store, accountID string, keys *scanAWS) error {
-	if os.Getenv("DEV_MODE") == "true" {
-		slog.Info("ingestion: DEV_MODE — skipping AWS scan", "account_id", accountID)
+	// In DEV_MODE, skip scan only if no real credentials are provided
+	if os.Getenv("DEV_MODE") == "true" && keys == nil {
+		slog.Info("ingestion: DEV_MODE — skipping AWS scan (no credentials)", "account_id", accountID)
 		return nil
 	}
 
-	// Production: require database credentials
+	// Require credentials for actual AWS scan
 	if keys == nil {
 		return fmt.Errorf("AWS credentials required - configure account in database")
 	}
