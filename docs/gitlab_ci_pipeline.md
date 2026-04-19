@@ -64,8 +64,8 @@ Set these in **Settings → CI/CD → Variables** in GitLab:
 | `AWS_ACCESS_KEY_ID` | Your AWS access key | Protected, masked |
 | `AWS_SECRET_ACCESS_KEY` | Your AWS secret key | Protected, masked |
 | `ENCRYPTION_KEY` | 32-byte hex AES key | Protected, masked |
-| `EXPO_PUBLIC_KINDE_ISSUER` | Kinde issuer URL | Protected, masked |
-| `EXPO_PUBLIC_KINDE_CLIENT_ID` | Kinde client ID | Protected, masked |
+| `VITE_KINDE_ISSUER` | Kinde issuer URL | Protected, masked |
+| `VITE_KINDE_CLIENT_ID` | Kinde client ID | Protected, masked |
 | `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront distribution ID | Protected, masked |
 
 **Recommendation:** Create an IAM user with minimal permissions (see **IAM Policy** below).
@@ -122,8 +122,8 @@ Create a dedicated IAM user for CI/CD with limited permissions:
 In **GitLab Settings → CI/CD → Variables** (for now, only the build stage needs variables):
 
 **Required for build stage:**
-1. Create `EXPO_PUBLIC_KINDE_ISSUER` (masked, protected) — your Kinde issuer URL
-2. Create `EXPO_PUBLIC_KINDE_CLIENT_ID` (masked, protected)
+1. Create `VITE_KINDE_ISSUER` (masked, protected) — your Kinde issuer URL
+2. Create `VITE_KINDE_CLIENT_ID` (masked, protected)
 
 **Optional (add when AWS account is ready for deployment):**
 3. Create `AWS_ACCESS_KEY_ID` (masked, protected)
@@ -225,8 +225,8 @@ Same as `build:api` but for ingestion service.
 
 ### build:dashboard
 Builds dashboard with environment variables:
-- `EXPO_PUBLIC_KINDE_ISSUER` — Kinde OAuth issuer
-- `EXPO_PUBLIC_KINDE_CLIENT_ID` — Kinde client ID
+- `VITE_KINDE_ISSUER` — Kinde OAuth issuer
+- `VITE_KINDE_CLIENT_ID` — Kinde client ID
 - Bakes these into the static bundle at build time
 
 ---

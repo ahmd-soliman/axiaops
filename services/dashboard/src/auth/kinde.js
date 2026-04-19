@@ -1,16 +1,18 @@
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
+import createKindeClient from '@kinde-oss/kinde-auth-pkce-js';
 import { KINDE_ISSUER, KINDE_CLIENT_ID } from '../config';
 
-WebBrowser.maybeCompleteAuthSession();
+// Lazy singleton — the SDK returns a Promise. All callers await this.
+let clientPromise = null;
 
-export function useKindeAuth() {
-  const redirectUri = AuthSession.makeRedirectUri({ useProxy: false });
-  // Pass null if KINDE_ISSUER is empty to avoid discovery errors
-  const discovery = AuthSession.useAutoDiscovery(KINDE_ISSUER || null);
-  const [request, response, promptAsync] = AuthSession.useAuthRequest(
-    { clientId: KINDE_CLIENT_ID, redirectUri, scopes: ['openid', 'profile', 'email'], usePKCE: true },
-    discovery,
-  );
-  return { request, response, promptAsync, redirectUri, discovery };
+export function getKindeClient() {
+  if (!clientPromise) {
+    clientPromise = createKindeClient({
+      domain: KINDE_ISSUER,
+      client_id: KINDE_CLIENT_ID,
+      redirect_uri: window.location.origin + '/callback',
+      logout_uri: window.location.origin + '/login',
+      scope: 'openid profile email',
+    });
+  }
+  return clientPromise;
 }

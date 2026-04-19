@@ -56,7 +56,7 @@ Git Commit to main
   ├─→ BUILD STAGE (main only, if test passes)
   │    ├── build:api         (Docker → ECR)
   │    ├── build:ingestion   (Docker → ECR)
-  │    └── build:dashboard   (Docker + Expo → ECR)
+  │    └── build:dashboard   (Docker + Vite → ECR)
   │
   └─→ DEPLOY STAGE (main only, if build passes)
        ├── deploy:api        (App Runner update)
@@ -113,8 +113,8 @@ Git Commit to main
 
 - [ ] **GitLab Configuration**
   - [ ] Add 2 CI/CD variables (Settings → CI/CD → Variables):
-    - `EXPO_PUBLIC_KINDE_ISSUER` (masked, protected)
-    - `EXPO_PUBLIC_KINDE_CLIENT_ID` (masked, protected)
+    - `VITE_KINDE_ISSUER` (masked, protected)
+    - `VITE_KINDE_CLIENT_ID` (masked, protected)
 
 - [ ] **Test Pipeline**
   - [ ] Push to feature branch (test stage runs automatically)
