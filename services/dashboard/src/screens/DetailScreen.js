@@ -114,6 +114,7 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
     { label: 'Owner',       value: ghost.owner },
     { label: 'Period',      value: `${fmtDate(ghost.period_start)} → ${fmtDate(ghost.period_end)}` },
     { label: 'Resource ID', value: ghost.resource_id, mono: true },
+    ...(ghost.arn ? [{ label: 'ARN', value: ghost.arn, mono: true }] : []),
   ];
 
   return (
@@ -337,12 +338,15 @@ function CLICommand({ cmd, styles }) {
 
   return (
     <View style={styles.cliBox}>
-      <Text style={styles.cliLabel}>AWS CLI COMMAND</Text>
-      <View style={styles.cliRow}>
-        <Text style={styles.cliText} selectable>{cmd}</Text>
+      <View style={styles.cliHeader}>
+        <Text style={styles.cliLabel}>CLI COMMAND</Text>
         <TouchableOpacity style={styles.copyBtn} onPress={handleCopy}>
-          <Text style={styles.copyBtnText}>{copied ? '✓ Copied' : 'Copy'}</Text>
+          <Text style={styles.copyIcon}>{copied ? '✓' : '⧉'}</Text>
+          <Text style={styles.copyBtnText}>{copied ? 'Copied' : 'Copy'}</Text>
         </TouchableOpacity>
+      </View>
+      <View style={styles.cliCodeBox}>
+        <Text style={styles.cliText} selectable>{cmd}</Text>
       </View>
     </View>
   );
@@ -429,14 +433,58 @@ const createStyles = (theme) => StyleSheet.create({
 
   // ── CLI command block ──────────────────────────────────────────────────────
   cliBox: {
-    marginTop: 10, backgroundColor: '#0f172a',
-    borderRadius: 8, padding: 14,
+    marginTop: 10,
+    backgroundColor: '#0f172a',
+    borderRadius: 10,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#1e293b',
   },
-  cliLabel: { fontSize: 10, fontWeight: '700', color: '#64748b', letterSpacing: 1.2, marginBottom: 8 },
-  cliRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  cliText: { flex: 1, fontFamily: 'monospace', fontSize: 12, color: '#e2e8f0', lineHeight: 18 },
-  copyBtn: { backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
-  copyBtnText: { fontSize: 12, fontWeight: '700', color: '#94a3b8' },
+  cliHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cliLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b',
+    letterSpacing: 1.2,
+  },
+  cliCodeBox: {
+    backgroundColor: '#1e293b',
+    borderRadius: 6,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  cliText: {
+    fontFamily: 'monospace',
+    fontSize: 13,
+    color: '#e2e8f0',
+    lineHeight: 20,
+  },
+  copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#1e293b',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  copyIcon: {
+    fontSize: 14,
+    color: '#94a3b8',
+  },
+  copyBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
 
   // ── Dismiss / Snooze action row in header ──────────────────────────────────
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
