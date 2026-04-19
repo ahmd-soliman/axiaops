@@ -68,6 +68,10 @@ echo " Ready."
 export DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable"
 export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
 
+# Run migrations
+echo "Running migrations..."
+"$ROOT/scripts/migrate.sh"
+
 # Capture DEV_MODE before subshells source .env (which may override it)
 CALLER_DEV_MODE="${DEV_MODE:-true}"
 

@@ -47,8 +47,7 @@ migrate:
 	docker-compose up -d postgres
 	@echo "Waiting for PostgreSQL to be ready..."
 	@until docker-compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
-	cd test-infra/integration && docker-compose run --rm migrate
-	cd test-infra/integration && docker-compose rm -f migrate 2>/dev/null || true
+	./scripts/migrate.sh
 
 # Test the migration container (uses test-infra compose — no host port binding)
 test-migrate:
