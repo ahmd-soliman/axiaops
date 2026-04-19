@@ -116,6 +116,8 @@ until curl -sf http://localhost:8080/health &>/dev/null; do sleep 1; done
 # Start Dashboard
 echo "Starting Dashboard (3000)..."
 cd "$DASHBOARD_DIR"
+echo "Installing dashboard dependencies..."
+npm install --silent --no-audit
 export EXPO_PUBLIC_KINDE_ISSUER="https://axiaops.kinde.com"
 export EXPO_PUBLIC_KINDE_CLIENT_ID="9fc9d3b7d0024947bd3c9fa253dfd28c"
 export EXPO_PUBLIC_DEV_MODE="$CALLER_DEV_MODE"
