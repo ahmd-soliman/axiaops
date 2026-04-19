@@ -1,4 +1,4 @@
-.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-trends inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-trends seed-remote-dev seed-remote-staging seed-remote-dev-trends seed-remote-staging-trends inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -81,6 +81,22 @@ seed:
 seed-trends:
 	./scripts/seed_test_data.sh --with-trends
 
+# Seed remote dev database (192.168.1.100:5432)
+seed-remote-dev:
+	./scripts/seed_test_data.sh --remote dev
+
+# Seed remote staging database (192.168.1.100:5433)
+seed-remote-staging:
+	./scripts/seed_test_data.sh --remote staging
+
+# Seed remote dev with trends
+seed-remote-dev-trends:
+	./scripts/seed_test_data.sh --remote dev --with-trends
+
+# Seed remote staging with trends
+seed-remote-staging-trends:
+	./scripts/seed_test_data.sh --remote staging --with-trends
+
 inspect-db:
 	./scripts/inspect_db.sh
 
@@ -88,38 +104,29 @@ inspect-db:
 
 # Clean local dev database (truncate tables, preserve schema).
 clean-db:
-	docker-compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
-		"TRUNCATE TABLE axiaops.ghost_snapshots, axiaops.resource_records, axiaops.ghost_records, axiaops.cost_records, axiaops.accounts, axiaops.users, axiaops.tenants CASCADE RESTART IDENTITY; DROP TABLE IF EXISTS public.schema_migrations;" \
-		2>/dev/null || true
+	./scripts/clean_db.sh
 
 # Clean local dev database (drop schema and user — destructive).
 clean-db-drop:
-	docker-compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
-		"DROP SCHEMA IF EXISTS axiaops CASCADE; DROP USER IF EXISTS axiaops;" \
-		2>/dev/null || true
-	@echo "Local dev schema and user dropped. Run migrations to recreate."
+	./scripts/clean_db.sh --drop-schema
 
 # ── Remote Database Cleanup ───────────────────────────────────────────────────
 
 # Clean remote dev database (truncate tables, preserve schema).
 clean-remote-dev:
-	@echo "Cleaning remote dev database on NAS.local..."
-	./scripts/clean_remote_dbs.sh dev
+	./scripts/clean_db.sh --remote dev
 
 # Clean remote staging database (truncate tables, preserve schema).
 clean-remote-staging:
-	@echo "Cleaning remote staging database on NAS.local..."
-	./scripts/clean_remote_dbs.sh staging
+	./scripts/clean_db.sh --remote staging
 
 # Clean remote dev database (drop schema and user — destructive).
 clean-remote-dev-drop:
-	@echo "Dropping remote dev schema on NAS.local..."
-	./scripts/clean_remote_dbs.sh dev --drop-schema
+	./scripts/clean_db.sh --remote dev --drop-schema
 
 # Clean remote staging database (drop schema and user — destructive).
 clean-remote-staging-drop:
-	@echo "Dropping remote staging schema on NAS.local..."
-	./scripts/clean_remote_dbs.sh staging --drop-schema
+	./scripts/clean_db.sh --remote staging --drop-schema
 
 # Per-service test targets — each mirrors the matching CI job (test:shared, test:api, test:ingestion).
 # Running one target locally reproduces exactly what CI runs for that job.

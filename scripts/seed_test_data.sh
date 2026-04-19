@@ -7,23 +7,86 @@
 #     echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 #
 # Usage:
-#   ./scripts/seed_test_data.sh                           # Local docker container
-#   DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh  # Remote postgres
-
-#   - Dev
-#   DATABASE_URL="postgres://axiaops_owner:axiaops_owner@192.168.1.100:5432/axiaops?sslmode=disable" ./scripts/seed_test_data.sh
-#   - Staging
-#   DATABASE_URL="postgres://axiaops_owner:axiaops_owner@192.168.1.100:5433/axiaops?sslmode=disable" ./scripts/seed_test_data.sh
-
-
+#   ./scripts/seed_test_data.sh                                    # Local docker, 1000 days
+#   ./scripts/seed_test_data.sh --with-trends                      # Local docker, 90 days with trends
+#   ./scripts/seed_test_data.sh --remote dev                       # Remote dev (192.168.1.100:5432)
+#   ./scripts/seed_test_data.sh --remote staging --with-trends     # Remote staging with trends
+#   DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom remote URL
 #
 # Supports both local (docker) and remote database connections.
 # Safe to re-run — all inserts are idempotent (ON CONFLICT DO NOTHING / DO UPDATE).
-#
-# Dev tenant ID is fixed: dev-tenant-axiaops
-# This matches DEV_TENANT_ID exported by dev.sh so the API resolves it without auth.
 
 set -euo pipefail
+
+# ── Parse arguments ───────────────────────────────────────────────────────────
+
+WITH_TRENDS=false
+REMOTE_ENV=""
+AUTO_YES=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --with-trends) WITH_TRENDS=true ;;
+    --remote)
+      shift
+      REMOTE_ENV="${1:-}"
+      if [[ "$REMOTE_ENV" != "dev" && "$REMOTE_ENV" != "staging" ]]; then
+        echo "Error: --remote requires 'dev' or 'staging', got '$REMOTE_ENV'"
+        exit 1
+      fi
+      ;;
+    --yes|-y) AUTO_YES=true ;;
+    *) echo "Error: Unknown flag '$1'"; exit 1 ;;
+  esac
+  shift
+done
+
+# ── Remote connection setup ───────────────────────────────────────────────────
+
+if [[ -n "$REMOTE_ENV" ]]; then
+  HOSTNAME="NAS.local"
+  
+  if [[ "$REMOTE_ENV" == "dev" ]]; then
+    DB_PORT=5432
+  else
+    DB_PORT=5433
+  fi
+  
+  export DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
+  
+  echo "=== Seeding AxiaOps $REMOTE_ENV database ==="
+  echo "Target:    $HOSTNAME:$DB_PORT"
+  echo "URL:       $DATABASE_URL"
+  echo ""
+  
+  if [[ "$AUTO_YES" != "true" ]]; then
+    read -r -p "Seed the $REMOTE_ENV database at $HOSTNAME:$DB_PORT? This will insert data. [y/N] " confirm
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+      echo "Aborted."
+      exit 0
+    fi
+    echo ""
+  fi
+  
+  # Verify connection
+  echo -n "Checking connection to $HOSTNAME..."
+  if ! psql "$DATABASE_URL" -c 'SELECT 1' > /dev/null 2>&1; then
+    echo " Failed."
+    echo "Error: Cannot reach PostgreSQL at $HOSTNAME:$DB_PORT"
+    exit 1
+  fi
+  echo " Connected."
+  echo ""
+  
+  # Look up tenant ID for staging
+  if [[ "$REMOTE_ENV" == "staging" ]]; then
+    LOOKED_UP=$(psql "$DATABASE_URL" -t -c "SELECT id FROM axiaops.tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d ' \n')
+    if [[ -n "$LOOKED_UP" ]]; then
+      export TENANT_ID="$LOOKED_UP"
+      echo "Using tenant ID from DB: $TENANT_ID"
+    fi
+  fi
+fi
 
 # Default Tenant ID (can be overridden by environment variable)
 TENANT_ID="${TENANT_ID:-dev-tenant-axiaops}"
@@ -364,8 +427,47 @@ echo ""
 # Use --with-trends for 90 days of realistic daily variation (for chart development)
 # Default: 1000 days of simple random data
 
-WITH_TRENDS="${1:-}"
-if [ "$WITH_TRENDS" = "--with-trends" ]; then
+generate_snapshots() {
+  local acct_id=$1
+  local base_ghosts=$2
+  local base_savings=$3
+  local days=$4
+  local with_trends=$5
+  
+  local snap_insert="INSERT INTO ghost_snapshots (id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency) VALUES"
+  
+  for i in $(seq $days -1 1); do
+    local snap_date=$(date -u -v-${i}d +"%Y-%m-%dT12:00:00Z" 2>/dev/null || TZ=UTC date -d "$i days ago" +"%Y-%m-%dT12:00:00Z" 2>/dev/null)
+    
+    if [ "$with_trends" = "true" ]; then
+      # Realistic variation: gradual trend + weekly pattern + random noise
+      local trend_factor=$(awk -v days=$days -v i=$i "BEGIN {printf \"%.2f\", 1.0 + (($days - $i) / $days) * 0.3}")
+      local weekly_factor=$(awk -v i=$i "BEGIN {printf \"%.2f\", 1.0 + 0.1 * sin(($i / 7) * 3.14159)}")
+      local noise=$(awk -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", 0.9 + (rand() * 0.2)}")
+      
+      local ghosts=$(awk -v base=$base_ghosts -v trend=$trend_factor -v weekly=$weekly_factor -v noise=$noise \
+        "BEGIN {printf \"%d\", int(base * trend * weekly * noise)}")
+      local cost=$(awk -v base=$base_savings -v trend=$trend_factor -v weekly=$weekly_factor -v noise=$noise \
+        "BEGIN {printf \"%.2f\", base * trend * weekly * noise}")
+    else
+      # Simple random variation
+      local ghosts=$((base_ghosts + RANDOM % 5 - 2))
+      local cost=$(awk -v base=$base_savings -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", base * (0.8 + rand() * 0.4)}")
+    fi
+    
+    if [ $i -eq 1 ]; then
+      snap_insert="$snap_insert (gen_random_uuid()::text, '${TENANT_ID}', '$acct_id', '$snap_date', $ghosts, $cost, 'USD')"
+    else
+      snap_insert="$snap_insert (gen_random_uuid()::text, '${TENANT_ID}', '$acct_id', '$snap_date', $ghosts, $cost, 'USD'),"
+    fi
+  done
+  
+  snap_insert="$snap_insert ON CONFLICT DO NOTHING;"
+  psql_exec "$snap_insert"
+  echo "  Inserted $days snapshots for $acct_id."
+}
+
+if [ "$WITH_TRENDS" = "true" ]; then
   DAYS=90
   echo "Inserting ghost snapshots with realistic trends (90 days × 3 accounts)..."
 else
@@ -373,46 +475,9 @@ else
   echo "Inserting ghost snapshots (1000 days × 3 accounts)..."
 fi
 
-for ACCT_ID in "$ACCT1" "$ACCT2" "$ACCT3"; do
-  SNAP_INSERT="INSERT INTO ghost_snapshots (id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency) VALUES"
-
-  # Set account-specific baseline
-  case "$ACCT_ID" in
-    "$ACCT1") BASE_GHOSTS=12; BASE_SAVINGS=480.0 ;;  # Production
-    "$ACCT2") BASE_GHOSTS=8;  BASE_SAVINGS=320.0 ;;  # Staging
-    "$ACCT3") BASE_GHOSTS=5;  BASE_SAVINGS=200.0 ;;  # Dev
-  esac
-
-  for i in $(seq $DAYS -1 1); do
-    SNAP_DATE=$(date -u -v-${i}d +"%Y-%m-%dT12:00:00Z" 2>/dev/null || TZ=UTC date -d "$i days ago" +"%Y-%m-%dT12:00:00Z" 2>/dev/null)
-    
-    if [ "$WITH_TRENDS" = "--with-trends" ]; then
-      # Realistic variation: gradual trend + weekly pattern + random noise
-      TREND_FACTOR=$(awk -v days=$DAYS -v i=$i "BEGIN {printf \"%.2f\", 1.0 + (($DAYS - $i) / $DAYS) * 0.3}")  # 30% increase over time
-      WEEKLY_FACTOR=$(awk -v i=$i "BEGIN {printf \"%.2f\", 1.0 + 0.1 * sin(($i / 7) * 3.14159)}")  # ±10% weekly cycle
-      NOISE=$(awk -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", 0.9 + (rand() * 0.2)}")  # ±10% random
-      
-      GHOSTS=$(awk -v base=$BASE_GHOSTS -v trend=$TREND_FACTOR -v weekly=$WEEKLY_FACTOR -v noise=$NOISE \
-        "BEGIN {printf \"%d\", int(base * trend * weekly * noise)}")
-      COST=$(awk -v base=$BASE_SAVINGS -v trend=$TREND_FACTOR -v weekly=$WEEKLY_FACTOR -v noise=$NOISE \
-        "BEGIN {printf \"%.2f\", base * trend * weekly * noise}")
-    else
-      # Simple random variation
-      GHOSTS=$((BASE_GHOSTS + RANDOM % 5 - 2))  # ±2 ghosts
-      COST=$(awk -v base=$BASE_SAVINGS -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", base * (0.8 + rand() * 0.4)}")  # ±20%
-    fi
-
-    if [ $i -eq 1 ]; then
-      SNAP_INSERT="$SNAP_INSERT (gen_random_uuid()::text, '${TENANT_ID}', '$ACCT_ID', '$SNAP_DATE', $GHOSTS, $COST, 'USD')"
-    else
-      SNAP_INSERT="$SNAP_INSERT (gen_random_uuid()::text, '${TENANT_ID}', '$ACCT_ID', '$SNAP_DATE', $GHOSTS, $COST, 'USD'),"
-    fi
-  done
-
-  SNAP_INSERT="$SNAP_INSERT ON CONFLICT DO NOTHING;"
-  psql_exec "$SNAP_INSERT"
-  echo "  Inserted $DAYS snapshots for $ACCT_ID."
-done
+generate_snapshots "$ACCT1" 12 480.0 $DAYS $WITH_TRENDS  # Production
+generate_snapshots "$ACCT2" 8  320.0 $DAYS $WITH_TRENDS  # Staging
+generate_snapshots "$ACCT3" 5  200.0 $DAYS $WITH_TRENDS  # Dev
 echo ""
 
 # ── RLS isolation check (using app user, not owner) ───────────────────────────
@@ -431,9 +496,6 @@ echo "Dev tenant ID: ${TENANT_ID}"
 echo "DEV_TENANT_ID=${TENANT_ID} is set automatically by dev.sh"
 echo ""
 echo "Workflow:"
-echo "  make start   — start all services (dev mode, no auth)"
-echo "  make seed    — (re-)populate dummy data"
-echo "  open http://localhost:3000"
 echo "  make start-dev   — start all services (dev mode, no auth)"
 echo "  make seed        — (re-)populate dummy data"
-echo "  open http://<host>:<port>"
+echo "  open http://localhost:3000"
