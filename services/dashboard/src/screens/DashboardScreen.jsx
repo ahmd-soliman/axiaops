@@ -153,7 +153,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
     <div style={{ flex: 1, backgroundColor: t.bg, minHeight: '100vh', overflowY: 'auto' }}>
       {/* Navbar */}
       <div style={{ backgroundColor: t.surface, paddingLeft: 20, paddingRight: 20, paddingTop: 15, paddingBottom: 15, display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 10, borderBottom: `1px solid ${t.border}` }}>
-        <span style={{ color: t.text, fontSize: 18, fontWeight: 800, letterSpacing: 0.3, flex: 1 }}>AxiaOps</span>
+        <span style={{ color: '#fb923c', fontSize: 18, fontWeight: 800, letterSpacing: 0.3 }}>AxiaOps</span>
         {accounts.length > 0 && (
           <AccountSelector
             accounts={accounts}
@@ -165,6 +165,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
             scanning={scanning}
           />
         )}
+        <div style={{ flex: 1 }} />
         <button onClick={toggleTheme} style={{ paddingLeft: 8, paddingRight: 8, paddingTop: 4, paddingBottom: 4, background: 'none', border: 'none', cursor: 'pointer', marginRight: 8 }}>
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={t.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             {isDark ? (
