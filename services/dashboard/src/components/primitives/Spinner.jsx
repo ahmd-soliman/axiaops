@@ -1,4 +1,6 @@
-export function Spinner({ size = 24, color = '#F97316' }) {
+// Default color matches the indigo brand accent (ThemeContext.jsx).
+// Callers that need theme-aware spinners should pass `color={theme.accent}`.
+export function Spinner({ size = 24, color = '#4F46E5' }) {
   return (
     <div
       style={{

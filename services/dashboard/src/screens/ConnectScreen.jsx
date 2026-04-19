@@ -2,17 +2,19 @@ import { useState } from 'react';
 import { connectAccount, updateAccount } from '../api/client';
 import { Spinner } from '../components/primitives';
 
+// Local palette — kept in sync with darkTheme/lightTheme in ThemeContext.jsx.
+// This screen uses the dark navy frame for chrome, light surfaces for cards.
 const C = {
-  bg: '#F8FAFC',
-  navy: '#0F172A',
-  navyMid: '#1E293B',
-  accent: '#F97316',
+  bg: '#F6F8FB',
+  navy: '#0B1220',
+  navyMid: '#182031',
+  accent: '#818CF8',        // indigo-400 (dark-context brand)
   text: '#0F172A',
   textMid: '#475569',
   textMuted: '#94A3B8',
   white: '#FFFFFF',
   border: '#E2E8F0',
-  error: '#B91C1C',
+  error: '#DC2626',
 };
 
 const styles = {

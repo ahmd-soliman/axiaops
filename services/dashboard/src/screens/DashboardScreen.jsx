@@ -33,7 +33,7 @@ function SavingsSparkline({ snaps, theme }) {
         const barH = Math.max(3, Math.round((v / maxVal) * H));
         const isLast = i === visible.length - 1;
         return (
-          <div key={i} style={{ width: BAR_W, height: barH, backgroundColor: isLast ? theme.accent : 'rgba(249,115,22,0.45)', marginRight: i < visible.length - 1 ? GAP : 0, borderRadius: 1 }} />
+          <div key={i} style={{ width: BAR_W, height: barH, backgroundColor: isLast ? theme.accent : `${theme.accent}73`, marginRight: i < visible.length - 1 ? GAP : 0, borderRadius: 1 }} />
         );
       })}
     </div>
@@ -153,7 +153,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
     <div style={{ flex: 1, backgroundColor: t.bg, minHeight: '100vh', overflowY: 'auto' }}>
       {/* Navbar */}
       <div style={{ backgroundColor: t.surface, paddingLeft: 20, paddingRight: 20, paddingTop: 15, paddingBottom: 15, display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 10, borderBottom: `1px solid ${t.border}` }}>
-        <span style={{ color: '#fb923c', fontSize: 18, fontWeight: 800, letterSpacing: 0.3 }}>AxiaOps</span>
+        <span style={{ color: t.accent, fontSize: 18, fontWeight: 800, letterSpacing: 0.3 }}>AxiaOps</span>
         {accounts.length > 0 && (
           <AccountSelector
             accounts={accounts}
@@ -296,10 +296,10 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
             return (
               <div key={String(item.id)} style={{ backgroundColor: t.card, marginLeft: 16, marginRight: 16, marginBottom: 8, borderRadius: 10, padding: 16, borderLeft: `4px solid ${cfg.color}`, opacity: 0.75 }}>
                 <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <div style={{ paddingLeft: 7, paddingRight: 7, paddingTop: 3, paddingBottom: 3, borderRadius: 5, backgroundColor: cfg.bg }}>
+                  <div style={{ paddingLeft: 7, paddingRight: 7, paddingTop: 3, paddingBottom: 3, borderRadius: 5, backgroundColor: isDark ? cfg.darkBg : cfg.bg }}>
                     <span style={{ fontSize: 11, fontWeight: 800, color: cfg.color }}>{cfg.label}</span>
                   </div>
-                  <div style={{ backgroundColor: isSnoozed ? '#1e3a5f' : '#374151', paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
+                  <div style={{ backgroundColor: isSnoozed ? (isDark ? '#1e3a5f' : '#DBEAFE') : (isDark ? '#374151' : '#F3F4F6'), paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
                     <span style={{ fontSize: 10, fontWeight: 700, color: isSnoozed ? '#60a5fa' : '#9CA3AF' }}>{isSnoozed ? 'snoozed' : 'dismissed'}</span>
                   </div>
                 </div>
@@ -327,7 +327,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
               style={{ backgroundColor: t.card, marginLeft: 16, marginRight: 16, marginBottom: 8, borderRadius: 10, padding: 16, borderLeft: `4px solid ${cfg.color}`, display: 'flex', flexDirection: 'column', width: 'calc(100% - 32px)', textAlign: 'left', cursor: 'pointer', boxShadow: '0px 2px 6px rgba(0,0,0,0.05)' }}
             >
               <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <div style={{ paddingLeft: 7, paddingRight: 7, paddingTop: 3, paddingBottom: 3, borderRadius: 5, backgroundColor: cfg.bg }}>
+                <div style={{ paddingLeft: 7, paddingRight: 7, paddingTop: 3, paddingBottom: 3, borderRadius: 5, backgroundColor: isDark ? cfg.darkBg : cfg.bg }}>
                   <span style={{ fontSize: 11, fontWeight: 800, color: cfg.color }}>{cfg.label}</span>
                 </div>
                 {item.is_ghost && (

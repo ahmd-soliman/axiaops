@@ -1,10 +1,12 @@
 import { Spinner } from '../components/primitives';
 
+// Mirror of darkTheme (src/theme/ThemeContext.jsx) — Login is pre-auth and
+// renders before ThemeProvider, so it can't use useTheme().
 const C = {
-  bg: '#0F172A',
-  navyMid: '#1E293B',
-  accent: '#F97316',
-  textMuted: '#94A3B8',
+  bg: '#0B1220',
+  navyMid: '#182031',
+  accent: '#818CF8',        // indigo-400, matches dark brand accent
+  textMuted: '#8497B2',
   white: '#FFFFFF',
 };
 
