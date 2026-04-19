@@ -2,7 +2,11 @@
 // and analysis layers.
 package model
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // GhostResource represents a cloud resource that is incurring cost but shows
 // no meaningful usage — a zombie resource that is safe to review for removal.
@@ -13,6 +17,7 @@ type GhostResource struct {
 	Service           string            `json:"service"`
 	Region            string            `json:"region"`
 	ResourceID        string            `json:"resource_id"`
+	ARN               string            `json:"arn,omitempty"` // Amazon Resource Name (AWS only)
 	Tags              map[string]string `json:"tags"`
 
 	// Cost fields
@@ -37,4 +42,87 @@ type GhostResource struct {
 	DismissReason  string     `json:"dismiss_reason,omitempty"`
 	DismissNote    string     `json:"dismiss_note,omitempty"`
 	SnoozedUntil   *time.Time `json:"snoozed_until,omitempty"`
+
+// BuildARN constructs an Amazon Resource Name for AWS resources.
+// Returns empty string for non-AWS providers or unsupported services.
+func BuildARN(provider, accountID, region, service, resourceID string) string {
+	if provider != "aws" {
+		return ""
+	}
+
+	var arnService, resourcePath string
+	
+	switch service {
+	case "AmazonEC2":
+		arnService = "ec2"
+		if strings.HasPrefix(resourceID, "i-") {
+			resourcePath = fmt.Sprintf("instance/%s", resourceID)
+		} else if strings.HasPrefix(resourceID, "eipalloc-") {
+			resourcePath = fmt.Sprintf("elastic-ip/%s", resourceID)
+		} else if strings.HasPrefix(resourceID, "vol-") {
+			resourcePath = fmt.Sprintf("volume/%s", resourceID)
+		} else if strings.HasPrefix(resourceID, "snap-") {
+			resourcePath = fmt.Sprintf("snapshot/%s", resourceID)
+		}
+	case "AmazonVPC":
+		arnService = "ec2"
+		if strings.HasPrefix(resourceID, "nat-") {
+			resourcePath = fmt.Sprintf("natgateway/%s", resourceID)
+		} else if strings.HasPrefix(resourceID, "eipalloc-") {
+			resourcePath = fmt.Sprintf("elastic-ip/%s", resourceID)
+		} else if strings.HasPrefix(resourceID, "vpc-") {
+			resourcePath = fmt.Sprintf("vpc/%s", resourceID)
+		}
+	case "AmazonRDS":
+		arnService = "rds"
+		resourcePath = fmt.Sprintf("db:%s", resourceID)
+	case "AWSLambda":
+		arnService = "lambda"
+		resourcePath = fmt.Sprintf("function:%s", resourceID)
+	case "AmazonElasticLoadBalancing":
+		arnService = "elasticloadbalancing"
+		resourcePath = fmt.Sprintf("loadbalancer/%s", resourceID)
+	case "AmazonS3":
+		arnService = "s3"
+		resourcePath = resourceID
+	case "AmazonCloudFront":
+		arnService = "cloudfront"
+		resourcePath = fmt.Sprintf("distribution/%s", resourceID)
+	case "AmazonDynamoDB":
+		arnService = "dynamodb"
+		resourcePath = fmt.Sprintf("table/%s", resourceID)
+	case "AmazonElastiCache":
+		arnService = "elasticache"
+		resourcePath = fmt.Sprintf("cluster:%s", resourceID)
+	case "AmazonRedshift":
+		arnService = "redshift"
+		resourcePath = fmt.Sprintf("cluster:%s", resourceID)
+	case "AmazonSNS":
+		arnService = "sns"
+		if strings.HasPrefix(resourceID, "arn:") {
+			return resourceID
+		}
+		resourcePath = resourceID
+	case "AmazonSQS":
+		arnService = "sqs"
+		if strings.HasPrefix(resourceID, "arn:") {
+			return resourceID
+		}
+		resourcePath = resourceID
+	case "AmazonECS":
+		arnService = "ecs"
+		resourcePath = fmt.Sprintf("cluster/%s", resourceID)
+	case "AmazonEKS":
+		arnService = "eks"
+		resourcePath = fmt.Sprintf("cluster/%s", resourceID)
+	default:
+		return ""
+	}
+
+	if resourcePath == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("arn:aws:%s:%s:%s:%s", arnService, region, accountID, resourcePath)
+}
 }

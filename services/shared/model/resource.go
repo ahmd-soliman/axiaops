@@ -14,6 +14,7 @@ type ResourceRecord struct {
 	Service           string            `json:"service"`
 	Region            string            `json:"region"`
 	ResourceID        string            `json:"resource_id"`
+	ARN               string            `json:"arn,omitempty"` // Amazon Resource Name (AWS only)
 	Tags              map[string]string `json:"tags"`
 
 	// Cost fields

@@ -169,12 +169,12 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO ghost_records
-				(tenant_id, provider, account_id, internal_account_id, service, region, resource_id, tags,
+				(tenant_id, provider, account_id, internal_account_id, service, region, resource_id, arn, tags,
 				 monthly_cost, currency, period_start, period_end,
 				 usage_metric, usage_avg, usage_unit, reason, owner, detected_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
 			tenantID,
-			g.Provider, g.AccountID, g.InternalAccountID, g.Service, g.Region, g.ResourceID, string(tags),
+			g.Provider, g.AccountID, g.InternalAccountID, g.Service, g.Region, g.ResourceID, g.ARN, string(tags),
 			g.MonthlyCost, g.Currency, g.PeriodStart, g.PeriodEnd,
 			g.UsageMetric, g.UsageAvg, g.UsageUnit, g.Reason, g.Owner, now,
 		)
@@ -204,7 +204,7 @@ func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT provider, account_id, internal_account_id, service, region, resource_id, tags,
+		SELECT provider, account_id, internal_account_id, service, region, resource_id, arn, tags,
 		       monthly_cost, currency, period_start, period_end,
 		       usage_metric, usage_avg, usage_unit, reason, owner
 		FROM ghost_records
@@ -220,7 +220,7 @@ func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
 		var tagsJSON []byte
 		var internalAccountID *string
 		if err := rows.Scan(
-			&g.Provider, &g.AccountID, &internalAccountID, &g.Service, &g.Region, &g.ResourceID, &tagsJSON,
+			&g.Provider, &g.AccountID, &internalAccountID, &g.Service, &g.Region, &g.ResourceID, &g.ARN, &tagsJSON,
 			&g.MonthlyCost, &g.Currency, &g.PeriodStart, &g.PeriodEnd,
 			&g.UsageMetric, &g.UsageAvg, &g.UsageUnit, &g.Reason, &g.Owner,
 		); err != nil {
@@ -531,12 +531,12 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO resource_records
-				(tenant_id, provider, account_id, internal_account_id, service, region, resource_id, tags,
+				(tenant_id, provider, account_id, internal_account_id, service, region, resource_id, arn, tags,
 				 monthly_cost, currency, period_start, period_end,
 				 usage_metric, usage_avg, usage_unit, is_ghost, reason, owner, detected_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
 			tenantID,
-			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID, string(tags),
+			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID, r.ARN, string(tags),
 			r.MonthlyCost, r.Currency, r.PeriodStart, r.PeriodEnd,
 			r.UsageMetric, r.UsageAvg, r.UsageUnit, r.IsGhost, r.Reason, r.Owner, now,
 		)
@@ -566,7 +566,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT provider, account_id, internal_account_id, service, region, resource_id, tags,
+		SELECT provider, account_id, internal_account_id, service, region, resource_id, arn, tags,
 		       monthly_cost, currency, period_start, period_end,
 		       usage_metric, usage_avg, usage_unit, is_ghost, reason, owner
 		FROM resource_records
@@ -582,7 +582,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 		var tagsJSON []byte
 		var internalAccountID *string
 		if err := rows.Scan(
-			&r.Provider, &r.AccountID, &internalAccountID, &r.Service, &r.Region, &r.ResourceID, &tagsJSON,
+			&r.Provider, &r.AccountID, &internalAccountID, &r.Service, &r.Region, &r.ResourceID, &r.ARN, &tagsJSON,
 			&r.MonthlyCost, &r.Currency, &r.PeriodStart, &r.PeriodEnd,
 			&r.UsageMetric, &r.UsageAvg, &r.UsageUnit, &r.IsGhost, &r.Reason, &r.Owner,
 		); err != nil {

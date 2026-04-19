@@ -132,14 +132,16 @@ make stop
 
 ### Running with Real AWS
 
-Configure your AWS credentials via AWS CLI:
+**Configure your AWS credentials:**
 
 ```bash
 aws configure
-# AWS Access Key ID: AKIA...
-# AWS Secret Access Key: ...
-# Default region: eu-central-1
 ```
+
+You'll be prompted for:
+- AWS Access Key ID: `AKIA...`
+- AWS Secret Access Key: `...`
+- Default region: `eu-central-1`
 
 Then use `make start-staging` (see "Running Locally" section above). The Docker container mounts your `~/.aws/credentials` automatically.
 
@@ -171,6 +173,8 @@ IAM → Users → axiaops-dev → Add permissions → Attach policies directly �
 
 **Step 2 — Allocate the Elastic IP**
 
+Run this command to create an unattached Elastic IP:
+
 ```bash
 aws ec2 allocate-address --domain vpc --region eu-central-1
 ```
@@ -179,8 +183,9 @@ The IP starts incurring cost immediately. It will appear in Cost Explorer within
 
 **Step 3 — Release when done**
 
+Use the `AllocationId` from the output above:
+
 ```bash
-# Use the AllocationId from the output above
 aws ec2 release-address --allocation-id eipalloc-xxxxxxxxx --region eu-central-1
 ```
 
