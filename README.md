@@ -273,6 +273,8 @@ API is available at `http://localhost/api/` when running with Docker Compose.
 
 ## Detection Rules
 
+### CloudWatch-Based Detection (Tier 0)
+
 | Service | Metric | Threshold | Verdict |
 |---------|--------|-----------|---------|
 | AmazonEC2 | CPUUtilization | ≤ 5% | Idle instance |
@@ -280,7 +282,18 @@ API is available at `http://localhost/api/` when running with Docker Compose.
 | AWSLambda | Invocations | = 0 | Unused function |
 | ELB | RequestCount | = 0 | Abandoned load balancer |
 | VPC (NAT) | BytesOutToDestination | = 0 | Unused NAT Gateway |
-| VPC (EIP) | NetworkInterfaceAttachment | = 0 | Unattached EIP |
+
+### API-Only Detection (Tier 1) ✅
+
+| Resource Type | Detection Method | Cost Formula | Threshold |
+|---------------|------------------|--------------|-----------|
+| **Unattached EIP** | `ec2:DescribeAddresses` | $3.60/month | No network interface attached |
+| **Unattached EBS Volume** | `ec2:DescribeVolumes` | `sizeGB × $0.08/month` | State = "available" |
+| **Orphaned EBS Snapshot** | `ec2:DescribeSnapshots` | `sizeGB × $0.05/month` | Source volume deleted + not backing AMI |
+| **Stopped EC2 Instance** | `ec2:DescribeInstances` | `ebsGB × $0.08/month` | Stopped > 30 days |
+| **Old AMI** | `ec2:DescribeImages` | `snapshotGB × $0.05/month` | Age > 90 days + not in use |
+
+> **Tier 1 detections** are API-only (no CloudWatch needed) and typically surface the largest savings in real-world FinOps audits. See `docs/tier1_detections_status.md` for implementation details.
 
 > Rules do not change without business justification. See `CLAUDE.md` for FinOps domain thresholds.
 

@@ -363,17 +363,17 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			return ctx.Err()
 		default:
 		}
-		
+
 		records, err := p.FetchCosts(ctx, start, end)
 		if err != nil {
 			catErr := errors.Categorize(err, "fetch_costs")
-			slog.Error("fetch failed", 
-				"provider", p.Name(), 
+			slog.Error("fetch failed",
+				"provider", p.Name(),
 				"error", err,
 				"category", catErr.Category,
 				"should_fail_scan", catErr.Category.ShouldFailScan(),
 			)
-			
+
 			// Fail entire scan for credential/permission errors
 			if catErr.Category.ShouldFailScan() {
 				return fmt.Errorf("[%s] %w", p.Name(), catErr)
@@ -406,7 +406,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		usage, usageErr = awsClient.FetchUsage(ctx, allRecords, start, end)
 		if usageErr != nil {
 			catErr := errors.Categorize(usageErr, "fetch_usage")
-			slog.Error("fetch usage from cloudwatch failed, continuing without usage data", 
+			slog.Error("fetch usage from cloudwatch failed, continuing without usage data",
 				"error", usageErr,
 				"category", catErr.Category,
 			)
@@ -418,16 +418,67 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 	ghosts := analyzer.Detect(allRecords, usage, accountID)
 
-	// Try to discover unattached EIPs - don't fail entire scan if this fails
+	// API-only zombie checks — each is non-fatal; a failure is logged and the
+	// scan continues so that a single permissions gap doesn't block all findings.
+
+	// Unattached Elastic IPs ($0.005/hour idle charge).
 	eipGhosts, eipErr := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient, start, end, accountID)
 	if eipErr != nil {
 		catErr := errors.Categorize(eipErr, "discover_eips")
-		slog.Error("discover unattached EIPs failed, continuing without EIP data", 
+		slog.Error("discover unattached EIPs failed, continuing without EIP data",
 			"error", eipErr,
 			"category", catErr.Category,
 		)
 	} else {
 		ghosts = append(ghosts, eipGhosts...)
+	}
+
+	// Unattached EBS volumes (state=available, $0.08/GB-month for gp3).
+	ebsVolGhosts, ebsVolErr := aws.DiscoverUnattachedEBSVolumes(ctx, allRecords, awsClient, start, end, accountID)
+	if ebsVolErr != nil {
+		catErr := errors.Categorize(ebsVolErr, "discover_ebs_volumes")
+		slog.Error("discover unattached EBS volumes failed, continuing",
+			"error", ebsVolErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, ebsVolGhosts...)
+	}
+
+	// Orphaned EBS snapshots (source volume deleted, not backing any AMI).
+	snapGhosts, snapErr := aws.DiscoverOrphanedEBSSnapshots(ctx, allRecords, awsClient, start, end, accountID)
+	if snapErr != nil {
+		catErr := errors.Categorize(snapErr, "discover_ebs_snapshots")
+		slog.Error("discover orphaned EBS snapshots failed, continuing",
+			"error", snapErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, snapGhosts...)
+	}
+
+	// Stopped EC2 instances idle for more than 30 days (EBS storage still bills).
+	stoppedGhosts, stoppedErr := aws.DiscoverLongStoppedInstances(ctx, allRecords, awsClient, start, end, accountID)
+	if stoppedErr != nil {
+		catErr := errors.Categorize(stoppedErr, "discover_stopped_instances")
+		slog.Error("discover long-stopped EC2 instances failed, continuing",
+			"error", stoppedErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, stoppedGhosts...)
+	}
+
+	// Old AMIs (>90 days, not in use) and their backing EBS snapshots.
+	amiGhosts, amiErr := aws.DiscoverOldAMIs(ctx, allRecords, awsClient, start, end, accountID)
+	if amiErr != nil {
+		catErr := errors.Categorize(amiErr, "discover_old_amis")
+		slog.Error("discover old AMIs failed, continuing",
+			"error", amiErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, amiGhosts...)
 	}
 
 	summary := analyzer.Summarize(ghosts)
