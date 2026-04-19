@@ -235,11 +235,23 @@ brew install libpq
 echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
 
-Then run:
-
+**Basic seed (1000 days, simple random variation):**
 ```bash
-DATABASE_URL="postgres://axiaops_owner:axiaops_owner@<host>:<port>/axiaops?sslmode=disable" ./scripts/seed_test_data.sh
+make seed
 ```
+
+**Realistic trends for chart development (90 days with patterns):**
+```bash
+make seed-trends
+```
+
+The trends version generates:
+- Gradual 30% increase over time (simulating growth)
+- Weekly patterns (±10% cycle)
+- Random noise (±10%)
+- Account-specific baselines (prod: 12 ghosts, staging: 8, dev: 5)
+
+Use `make seed-trends` when developing time-series charts and graphs.
 
 ---
 
