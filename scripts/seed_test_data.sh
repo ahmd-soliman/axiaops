@@ -359,29 +359,59 @@ VALUES
 echo "  Inserted 19 resource records (12 ghosts, 7 active) across 3 accounts."
 echo ""
 
-# ── Ghost snapshots — 1000 days of historical trend data per account ──────────
-# Creates 1000 snapshots per account simulating daily scans with realistic variation.
+# ── Ghost snapshots — historical trend data per account ───────────────────────
+# Creates snapshots per account simulating daily scans with realistic variation.
+# Use --with-trends for 90 days of realistic daily variation (for chart development)
+# Default: 1000 days of simple random data
 
-echo "Inserting ghost snapshots (1000 days × 3 accounts)..."
+WITH_TRENDS="${1:-}"
+if [ "$WITH_TRENDS" = "--with-trends" ]; then
+  DAYS=90
+  echo "Inserting ghost snapshots with realistic trends (90 days × 3 accounts)..."
+else
+  DAYS=1000
+  echo "Inserting ghost snapshots (1000 days × 3 accounts)..."
+fi
 
 for ACCT_ID in "$ACCT1" "$ACCT2" "$ACCT3"; do
   SNAP_INSERT="INSERT INTO ghost_snapshots (id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency) VALUES"
 
-  for i in {1000..1}; do
+  # Set account-specific baseline
+  case "$ACCT_ID" in
+    "$ACCT1") BASE_GHOSTS=12; BASE_SAVINGS=480.0 ;;  # Production
+    "$ACCT2") BASE_GHOSTS=8;  BASE_SAVINGS=320.0 ;;  # Staging
+    "$ACCT3") BASE_GHOSTS=5;  BASE_SAVINGS=200.0 ;;  # Dev
+  esac
+
+  for i in $(seq $DAYS -1 1); do
     SNAP_DATE=$(date -u -v-${i}d +"%Y-%m-%dT12:00:00Z" 2>/dev/null || TZ=UTC date -d "$i days ago" +"%Y-%m-%dT12:00:00Z" 2>/dev/null)
-    BASE_COST=$(awk -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", 100 + (rand() * 400)}")
-    GHOSTS=$((4 + RANDOM % 5))
+    
+    if [ "$WITH_TRENDS" = "--with-trends" ]; then
+      # Realistic variation: gradual trend + weekly pattern + random noise
+      TREND_FACTOR=$(awk -v days=$DAYS -v i=$i "BEGIN {printf \"%.2f\", 1.0 + (($DAYS - $i) / $DAYS) * 0.3}")  # 30% increase over time
+      WEEKLY_FACTOR=$(awk -v i=$i "BEGIN {printf \"%.2f\", 1.0 + 0.1 * sin(($i / 7) * 3.14159)}")  # ±10% weekly cycle
+      NOISE=$(awk -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", 0.9 + (rand() * 0.2)}")  # ±10% random
+      
+      GHOSTS=$(awk -v base=$BASE_GHOSTS -v trend=$TREND_FACTOR -v weekly=$WEEKLY_FACTOR -v noise=$NOISE \
+        "BEGIN {printf \"%d\", int(base * trend * weekly * noise)}")
+      COST=$(awk -v base=$BASE_SAVINGS -v trend=$TREND_FACTOR -v weekly=$WEEKLY_FACTOR -v noise=$NOISE \
+        "BEGIN {printf \"%.2f\", base * trend * weekly * noise}")
+    else
+      # Simple random variation
+      GHOSTS=$((BASE_GHOSTS + RANDOM % 5 - 2))  # ±2 ghosts
+      COST=$(awk -v base=$BASE_SAVINGS -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", base * (0.8 + rand() * 0.4)}")  # ±20%
+    fi
 
     if [ $i -eq 1 ]; then
-      SNAP_INSERT="$SNAP_INSERT (gen_random_uuid()::text, '${TENANT_ID}', '$ACCT_ID', '$SNAP_DATE', $GHOSTS, $BASE_COST, 'USD')"
+      SNAP_INSERT="$SNAP_INSERT (gen_random_uuid()::text, '${TENANT_ID}', '$ACCT_ID', '$SNAP_DATE', $GHOSTS, $COST, 'USD')"
     else
-      SNAP_INSERT="$SNAP_INSERT (gen_random_uuid()::text, '${TENANT_ID}', '$ACCT_ID', '$SNAP_DATE', $GHOSTS, $BASE_COST, 'USD'),"
+      SNAP_INSERT="$SNAP_INSERT (gen_random_uuid()::text, '${TENANT_ID}', '$ACCT_ID', '$SNAP_DATE', $GHOSTS, $COST, 'USD'),"
     fi
   done
 
   SNAP_INSERT="$SNAP_INSERT ON CONFLICT DO NOTHING;"
   psql_exec "$SNAP_INSERT"
-  echo "  Inserted 1000 snapshots for $ACCT_ID."
+  echo "  Inserted $DAYS snapshots for $ACCT_ID."
 done
 echo ""
 
