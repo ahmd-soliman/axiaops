@@ -91,7 +91,7 @@ function CLICommand({ cmd }) {
 }
 
 export default function DetailScreen({ ghost, onBack, onDismissed }) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const cfg = serviceConfig(ghost.service);
 
   const [modalVisible, setModalVisible] = useState(false);
@@ -180,11 +180,11 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
             </button>
             <div style={{ paddingLeft: 20, paddingRight: 20 }}>
               <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <div style={{ paddingLeft: 8, paddingRight: 8, paddingTop: 3, paddingBottom: 3, borderRadius: 5, backgroundColor: cfg.color }}>
-                  <span style={{ color: '#FFFFFF', fontSize: 11, fontWeight: 800 }}>{cfg.label}</span>
+                <div style={{ paddingLeft: 8, paddingRight: 8, paddingTop: 3, paddingBottom: 3, borderRadius: 5, backgroundColor: t.surfaceRaised, border: `1px solid ${t.border}` }}>
+                  <span style={{ color: cfg.color, fontSize: 11, fontWeight: 800 }}>{cfg.label}</span>
                 </div>
                 {ghost.is_ghost && (
-                  <div style={{ backgroundColor: t.ghostBadgeBg, paddingLeft: 5, paddingRight: 5, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
+                  <div style={{ backgroundColor: t.surfaceRaised, border: `1px solid ${t.border}`, paddingLeft: 5, paddingRight: 5, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
                     <span style={{ fontSize: 9, fontWeight: 700, color: t.ghostBadgeText, textTransform: 'uppercase' }}>Zombie</span>
                   </div>
                 )}
@@ -206,9 +206,9 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
               {/* Stats chips in header */}
               <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
                 {stats.slice(1).map(({ label, value }) => (
-                  <div key={label} style={{ backgroundColor: t.accentLight, borderRadius: 8, paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, border: `1px solid ${t.accentBorder}`, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                  <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#fb923c' }}>{label}</span>
                     <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>{value}</span>
-                    <span style={{ fontSize: 11, color: t.textMuted }}>{label}</span>
                   </div>
                 ))}
               </div>
@@ -261,9 +261,8 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
           {ghost.is_ghost && (
             <div style={{ paddingLeft: 16, paddingRight: 16, marginBottom: 16 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8, display: 'block' }}>How to Fix</span>
-              <div style={{ backgroundColor: t.accentLight, borderRadius: 10, padding: 14, display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 10, border: `1px solid ${t.accentBorder}` }}>
-                <span style={{ fontSize: 16 }}>⚡</span>
-                <span style={{ fontSize: 13, color: t.accentText, lineHeight: '20px', flex: 1, display: 'block' }}>{remediationHint(ghost.service, ghost.resource_id)}</span>
+              <div style={{ backgroundColor: t.card, borderLeft: `3px solid ${cfg.color}`, borderRadius: 8, padding: 14 }}>
+                <span style={{ fontSize: 14, color: t.text, lineHeight: '21px', display: 'block' }}>{remediationHint(ghost.service, ghost.resource_id)}</span>
               </div>
               <CLICommand cmd={remediationCommand(ghost.service, ghost.resource_id, ghost.region)} />
             </div>

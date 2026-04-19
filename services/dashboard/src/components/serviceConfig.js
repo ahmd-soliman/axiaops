@@ -3,9 +3,9 @@
 // (deeply tinted equivalent) so chips look correct in both themes.
 export const SERVICE_CONFIG = {
   AmazonEC2:                  { label: 'EC2', color: '#FF9900', bg: '#FFF7ED', darkBg: '#2A1D00' },
-  AmazonRDS:                  { label: 'RDS', color: '#3B48CC', bg: '#EEF2FF', darkBg: '#0D1140' },
+  AmazonRDS:                  { label: 'RDS', color: '#818CF8', bg: '#EEF2FF', darkBg: '#0D1140' },
   AWSLambda:                  { label: 'λ',   color: '#F59E0B', bg: '#FFFBEB', darkBg: '#231800' },
-  AmazonElasticLoadBalancing: { label: 'ELB', color: '#8B5CF6', bg: '#F5F3FF', darkBg: '#1A0D36' },
+  AmazonElasticLoadBalancing: { label: 'ELB', color: '#C4B5FD', bg: '#F5F3FF', darkBg: '#1A0D36' },
   AmazonVPC:                  { label: 'VPC', color: '#10B981', bg: '#ECFDF5', darkBg: '#042B1F' },
   AmazonS3:                   { label: 'S3',  color: '#06B6D4', bg: '#ECFEFF', darkBg: '#032830' },
   AmazonCloudFront:           { label: 'CF',  color: '#EC4899', bg: '#FDF2F8', darkBg: '#2A0620' },
