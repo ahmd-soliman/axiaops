@@ -1,4 +1,4 @@
-.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-dev seed-staging seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-trends inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -76,29 +76,10 @@ test-migrate:
 seed:
 	./scripts/seed_test_data.sh
 
-# Seed dev environment via exposed port (localhost:5432).
-# Uses direct psql connection instead of docker exec.
-seed-dev:
-	DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5432/axiaops?sslmode=disable" \
-	./scripts/seed_test_data.sh dev
-
-# Seed staging environment via exposed port (localhost:5432).
-# Uses direct psql connection instead of docker exec.
-seed-staging:
-	DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5432/axiaops?sslmode=disable" \
-	./scripts/seed_test_data.sh staging
-
-# Seed remote dev database (via SSH) - copies script to remote and executes it.
-# Seeds the same comprehensive data as local seed-dev but on NAS.local axiaops-dev-db.
-seed-remote-dev:
-	@echo "Seeding remote dev database on NAS.local..."
-	./scripts/seed_remote_dbs.sh dev
-
-# Seed remote staging database (via SSH) - copies script to remote and executes it.
-# Seeds the same comprehensive data as local seed-staging but on NAS.local axiaops-staging-db.
-seed-remote-staging:
-	@echo "Seeding remote staging database on NAS.local..."
-	./scripts/seed_remote_dbs.sh staging
+# Seed with realistic trend data for chart development (90 days with gradual trends + weekly patterns).
+# Use this when developing time-series charts and graphs.
+seed-trends:
+	./scripts/seed_test_data.sh --with-trends
 
 inspect-db:
 	./scripts/inspect_db.sh
