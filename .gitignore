@@ -79,3 +79,10 @@ logs/
 !*.tfvars.example
 .dev-pids
 .aider*
+
+# Go compiled binaries (service-specific)
+services/api/api
+services/ingestion/ingestion
+services/migrate/migrate
+services/*/test-*
+services/*/*-test
