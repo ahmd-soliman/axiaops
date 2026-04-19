@@ -55,6 +55,23 @@ cd services/ingestion
 go test ./internal/provider/fake/
 ```
 
+**Scale tests:**
+```bash
+# 10,000 records across 100 accounts
+go test -v -run=TestLargeScale_10k ./internal/provider/fake/
+
+# 100,000 records across 500 accounts
+go test -v -run=TestLargeScale_100k ./internal/provider/fake/
+
+# All scale tests
+go test -v -run=TestLargeScale ./internal/provider/fake/
+```
+
+**Performance benchmarks:**
+```bash
+go test -bench=. -benchmem ./internal/provider/fake/
+```
+
 **Test coverage:**
 
 | Test | Purpose |
@@ -68,6 +85,16 @@ go test ./internal/provider/fake/
 | `TestAllGhosts_AllUsageIsZero` | "all-ghosts" scenario has zero usage for all resources |
 | `TestNoGhosts_AllUsageAboveThreshold` | "no-ghosts" scenario has usage above detection thresholds |
 | `TestScenarioNames_ReturnsAllFour` | Helper returns all 4 scenario names |
+| `TestLargeScale_10kRecords` | Scale test with 10,000 records across 100 accounts (~2.4ms) |
+| `TestLargeScale_100kRecords` | Scale test with 100,000 records across 500 accounts (~30ms, 3.3M records/sec) |
+
+**Benchmarks:**
+| Benchmark | Purpose |
+|-----------|---------|
+| `BenchmarkFullPipeline_Enterprise` | Complete ingestion pipeline (~2.7μs/op) |
+| `BenchmarkFetchCosts` | Cost fetching performance (~775ns/op) |
+| `BenchmarkFetchUsage` | Usage fetching performance (~6.8ns/op) |
+| `BenchmarkDetection` | Ghost detection algorithm (~1.7μs/op) |
 
 **Scenarios:**
 - `startup` — 2 accounts, mix of active and idle resources
