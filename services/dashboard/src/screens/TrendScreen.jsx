@@ -30,7 +30,7 @@ function FullTrendChart({ snaps, selectedId, onSelect, theme, scrollRef, page = 
           const barH = Math.max(4, Math.round((s.total_monthly_cost / maxVal) * CHART_HEIGHT));
           const isSelected = selectedId === s.snapshot_at;
           const isLast = i === pageSnaps.length - 1 && page === 0;
-          const bgColor = isSelected ? theme.accent : isLast ? theme.accent : 'rgba(249,115,22,0.45)';
+          const bgColor = isSelected ? theme.accent : isLast ? theme.accent : `${theme.accent}73`;
 
           return (
             <button
