@@ -10,40 +10,59 @@ The dashboard currently uses in-memory state (`useState`) for navigation, preven
 - Support shareable links to specific resources
 - Maintain current UI/UX improvements
 - Prepare for potential native mobile support
-- Don't change the API
+- **Don't change the API** — the backend has no `GET /v1/resources/:id` endpoint and we won't add one in this migration
 
 ## Background
 
 ### Current Architecture
 
-- **Entry:** `App.js` with nested `<AuthenticatedApp>` component
-- **Navigation:** `useState` hooks manage screen visibility (`selectedGhost`, `showConnect`, `showTrend`, etc.)
+- **Entry:** `App.js` → `registerRootComponent(App)` via `index.js`
+- **Navigation:** `useState` hooks in `AuthenticatedApp` manage screen visibility (`selectedGhost`, `showConnect`, `showTrend`, `showAccountSettings`, `editAccount`, `selectedAccount`)
 - **Screens:** 6 main screens (Login, Dashboard, Detail, Trend, Connect, AccountSettings)
-- **Auth:** Kinde OAuth with token storage
-- **State:** Props drilling for navigation callbacks (`onBack`, `onSelectGhost`, etc.)
+- **Auth:** Kinde OAuth PKCE with token in `expo-secure-store` (native) / `localStorage` (web), plus a `DEV_MODE` shortcut that mints a fake JWT
+- **State:** Prop drilling for navigation callbacks (`onBack`, `onSelectGhost`, `onConnectAccount`, etc.)
+- **Providers:** `QueryClientProvider` and `ThemeProvider` in `App.js`; `ThemedApp` wraps everything with a theme-aware `SafeAreaView` + `StatusBar`
+- **Remount trick:** `<AuthenticatedApp key={token}>` forces a full tree remount when the token changes
+
+### Pre-migration Audit (April 2026)
+
+Items **already done** (do not redo):
+
+- `app.json` already declares `"scheme": "axiaops"` — Task 1's deep-linking config is partially complete
+- `nginx.conf` already does SPA fallback (`try_files $uri $uri/ /index.html`) — no server config changes needed
+
+Items that are **dead code** (do not propagate):
+
+- `editAccount` state in `App.js` (lines 34, 62–72) is declared but `setEditAccount` is never called anywhere in `src/`. The `<ConnectScreen>` edit-mode branch (`account={editAccount}`) is unreachable. **Do not migrate `/connect?edit=acc_123` unless a UI trigger is added** (e.g., a "Change credentials" button in `AccountSettingsScreen`). If that trigger isn't in scope, drop the edit-mode route from this migration.
 
 ### Key Migration Challenges
 
-1. Auth flow: Need `_layout.js` to guard routes
-2. Query params: Resource IDs, account filters need URL encoding
-3. Modal routes: Connect/Settings screens should be modals
-4. State persistence: `selectedAccount` filter needs URL sync
+1. **Auth flow.** Need a `_layout.js` guard that redirects unauthenticated users to `/login`, plus a path that handles the `DEV_MODE` auto-login (which currently runs in `Root`, not in a login screen).
+2. **Detail-route identity.** `DetailScreen` receives the whole `ghost` object today. The composite key is `(internal_account_id, provider, service, region, resource_id)` — `resource_id` alone isn't unique. Since we can't add an API endpoint, the detail screen must reconstruct the object from the cached `resources` list (see Task 6 for the exact strategy).
+3. **Query params.** Account filter (`selectedAccount`) and the zero-account Connect-screen auto-open need to be expressed via URL state.
+4. **Cold-entry back navigation.** Bookmarked URLs have no history, so every `router.back()` must fall back to `router.replace('/')` when `!router.canGoBack()`.
+5. **Zero-account redirect.** Current UX auto-opens `ConnectScreen` when `accounts.data.length === 0`. In the new flow, the dashboard route should emit `<Redirect href="/connect">` under the same condition.
+6. **Theme wrapping.** `ThemedApp`'s theme-aware `SafeAreaView` + `StatusBar` currently wraps the whole app. Move this into `app/_layout.js` so it applies to both authenticated and login routes.
+7. **Modal on web.** Expo Router's `presentation: 'modal'` is a native-only concept; on web it renders as a regular route. Current UX uses full-screen `ConnectScreen` / `AccountSettingsScreen` anyway, so this is acceptable.
+8. **`key={token}` remount.** The current remount trick is replaced naturally by the auth guard: when `clearToken()` + `router.replace('/login')` runs, the `(auth)` layout unmounts and `QueryClient` cache can be cleared explicitly.
 
 ## Proposed Route Structure
 
 ```
 app/
-├── _layout.js              # Root layout (QueryClient, Theme)
-├── (auth)/
-│   ├── _layout.js          # Auth guard + shared navbar
-│   ├── index.js            # Dashboard (/)
-│   ├── detail/[id].js      # Detail screen (/detail/i-1234)
-│   ├── trend.js            # Trend screen (/trend)
-│   └── +not-found.js       # 404 page
+├── _layout.js              # Root layout: QueryClient, Theme, SafeAreaView, StatusBar, DEV_MODE bootstrap
+├── +not-found.js           # Top-level 404 (unauthenticated-safe)
 ├── login.js                # Login screen (/login)
-├── connect.js              # Connect modal (/connect?edit=acc_123)
-└── settings/[accountId].js # Account settings modal
+├── (auth)/
+│   ├── _layout.js          # Auth guard (Redirect to /login if no token)
+│   ├── index.js            # Dashboard (/)
+│   ├── detail/[id].js      # Detail screen (/detail/<resource_id>?account=…&region=…&service=…)
+│   ├── trend.js            # Trend screen (/trend)
+│   ├── connect.js          # Connect screen (/connect)  — first-account + add-account
+│   └── settings/[accountId].js  # Account settings (/settings/acc_123)
 ```
+
+Note: `connect.js` and `settings/[accountId].js` live inside `(auth)/` because both require a token. They will look like full-screen routes on web regardless of any `presentation: 'modal'` option (see Challenge 7).
 
 ### URL Examples
 
@@ -51,34 +70,43 @@ app/
 |-----|--------|
 | `/` | Dashboard (all accounts) |
 | `/?account=acc_123` | Dashboard filtered to one account |
-| `/detail/i-1234abcd` | Resource detail view |
+| `/detail/i-1234abcd?account=acc_123&region=eu-central-1&service=AmazonEC2` | Resource detail view (composite-key qs) |
 | `/trend` | Savings trend screen |
 | `/login` | Login screen |
 | `/connect` | Connect new AWS account |
-| `/connect?edit=acc_123` | Edit existing account |
-| `/settings/acc_123` | Account settings |
+| `/settings/acc_123` | Account settings (interval, name, delete) |
+
+**Why the extra query params on `/detail`?** `resource_id` alone isn't globally unique, and there's no API endpoint to fetch a single resource by ID. The detail route uses the query params to locate the ghost in the cached `['resources', accountId]` list (see Task 6).
 
 ## Task Breakdown
 
 ### Task 1: Install expo-router and configure project
 
 **Implementation:**
-- `npx expo install expo-router react-native-safe-area-context react-native-screens expo-linking expo-constants expo-status-bar`
-- Update `package.json`: Set `"main": "expo-router/entry"`
-- Update `app.json`: Add `scheme` for deep linking
+- `npx expo install expo-router react-native-safe-area-context react-native-screens expo-linking expo-constants`
+  - `expo-status-bar` is already installed
+  - Verify the installed `expo-router` version matches Expo SDK 54 (Expo Router ~6.x at the time of writing)
+- Update `package.json`: set `"main": "expo-router/entry"` (replaces `registerRootComponent` in `index.js`)
+- Delete or repurpose `index.js` (no longer the entry)
+- `app.json`: scheme already present; no change required here
+- Add `babel.config.js` plugin entry for `expo-router` if not auto-added by `npx expo install`
 
-**Test:** Run `npm start`, verify Metro recognises `app/` directory.
+**Test:** Run `npm run web`, verify Metro recognises `app/` directory and no errors in the console.
 
 ---
 
 ### Task 2: Create root layout with providers
 
 **Implementation:**
-- Create `app/_layout.js`
-- Move `QueryClientProvider`, `ThemeProvider` from `App.js`
-- Add `<Stack>` navigator with `headerShown: false`
+- Create `app/_layout.js` containing, in order:
+  - `<QueryClientProvider client={queryClient}>` (move `queryClient` singleton from `App.js`)
+  - `<ThemeProvider>` wrapped around a `<ThemedShell>` component that renders:
+    - Theme-aware `<SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>`
+    - Theme-aware `<StatusBar barStyle=… backgroundColor=…>`
+    - `<Stack screenOptions={{ headerShown: false }}>` (or `<Slot>` if no stack chrome is needed)
+- Add a `DEV_MODE` bootstrap `useEffect` at this level: when `DEV_MODE` is true and no token is set, mint the dev JWT (`dev.<base64(org)>.dev`) and persist it via `saveToken` + `setAuthToken` before children mount. This replaces the equivalent block in `Root`.
 
-**Test:** Theme and React Query work across navigation.
+**Test:** Theme, React Query, and dev-mode bootstrap all survive navigation between routes.
 
 ---
 
@@ -86,10 +114,12 @@ app/
 
 **Implementation:**
 - Create `app/login.js`
-- Move login logic from `Root` component
-- Use `router.replace('/')` after successful login
+- Move the Kinde PKCE flow (`useKindeAuth`, `exchangeCodeAsync`, `saveToken`, `setAuthToken`) out of `Root` and into this route
+- On successful token exchange: `router.replace('/')`
+- Export default function `Login()` that renders the existing `LoginScreen` component with `onLogin={handleLogin}` and `loading={signingIn}`
+- Keep the signing-in state inside this component
 
-**Test:** Login flow completes and redirects to dashboard.
+**Test:** Real Kinde login completes and redirects to dashboard. Dev mode skips this screen entirely (handled in `_layout.js`).
 
 ---
 
@@ -97,11 +127,13 @@ app/
 
 **Implementation:**
 - Create `app/(auth)/_layout.js`
-- Check for token with `getToken()` on mount
-- Use `<Redirect href="/login">` if no token
-- Render `<Slot>` for authenticated routes
+- Read token via `useEffect` + `getToken()` (async) into local state, plus a `loading` flag for the first tick
+- While loading, render `null` (matches current behaviour)
+- If no token after load, render `<Redirect href="/login" />`
+- Otherwise render `<Stack screenOptions={{ headerShown: false }} />` (or `<Slot>`)
+- This guard replaces the `key={token}` remount trick: logging out + `router.replace('/login')` unmounts the entire `(auth)` subtree automatically
 
-**Test:** Unauthenticated users redirect to login.
+**Test:** Unauthenticated users visiting `/`, `/detail/…`, `/trend`, `/connect`, `/settings/…` all redirect to `/login`.
 
 ---
 
@@ -109,12 +141,13 @@ app/
 
 **Implementation:**
 - Create `app/(auth)/index.js`
-- Move `DashboardScreen` component
-- Read `account` query param with `useLocalSearchParams()`
-- Replace `onSelectGhost` with `router.push(\`/detail/\${id}\`)`
-- Replace `onShowTrend` with `router.push('/trend')`
+- Inline the `AuthenticatedApp` glue that's still useful: fetch `accounts` via `useQuery`, parse JWT for `orgName`
+- Read `account` query param via `useLocalSearchParams()`; write it back with `router.setParams({ account: id })` when the user changes the filter
+- If `accounts.data?.length === 0`, emit `<Redirect href="/connect" />` (replaces current auto-open effect)
+- Wire navigation: `onSelectGhost={(g) => router.push({ pathname: '/detail/[id]', params: { id: g.resource_id, account: g.internal_account_id, region: g.region, service: g.service } })}`, `onShowTrend={() => router.push('/trend')}`, `onConnectAccount={() => router.push('/connect')}`, `onEditAccount={(acc) => router.push(\`/settings/\${acc.id}\`)}`, `onLogout={handleLogout}`
+- `handleLogout`: `clearToken()` + `setAuthToken(null)` + `queryClient.clear()` + `router.replace('/login')`
 
-**Test:** Dashboard renders, account filter persists in URL.
+**Test:** Dashboard renders; account filter round-trips through the URL; zero-account state redirects to `/connect`.
 
 ---
 
@@ -122,10 +155,20 @@ app/
 
 **Implementation:**
 - Create `app/(auth)/detail/[id].js`
-- Read `id` param with `useLocalSearchParams()`
-- Use `router.back()` for back navigation
+- Read `id` plus `account`, `region`, `service` from `useLocalSearchParams()`
+- Reconstruct the ghost object from the `['resources', account]` React Query cache:
+  1. Call `useQuery({ queryKey: ['resources', account], queryFn: () => fetchResources(account) })` — this is usually a cache hit when navigating from the dashboard
+  2. Find the matching entry by `(resource_id, service, region)` tuple
+  3. If found, render `<DetailScreen ghost={found} …>`
+  4. If the query is loading, render a spinner
+  5. If loading finishes and no match is found, render `<NotFound />` (or `router.replace('/+not-found')`)
+- Replace the `onBack` prop:
+  ```
+  const goBack = () => router.canGoBack() ? router.back() : router.replace('/');
+  ```
+- Replace the `onDismissed` parent callback with a direct `queryClient.invalidateQueries({ queryKey: ['ghosts'] })` inside `DetailScreen`'s dismiss/restore handlers (or keep the prop and wire it here)
 
-**Test:** Navigate to `/detail/i-1234`, resource loads. URL is bookmarkable.
+**Test:** Navigate to `/detail/i-1234?account=acc_1&region=eu-central-1&service=AmazonEC2` directly (cold entry); the resources query runs, resource loads, URL is bookmarkable. Unknown resource IDs show 404.
 
 ---
 
@@ -133,114 +176,131 @@ app/
 
 **Implementation:**
 - Create `app/(auth)/trend.js`
-- Move `TrendScreen` component
-- Use `router.back()` for back navigation
+- Wrap existing `TrendScreen` component
+- Pass `onBack={() => router.canGoBack() ? router.back() : router.replace('/')}`
 
-**Test:** Navigate to `/trend`, chart renders.
-
----
-
-### Task 8: Create connect modal route
-
-**Implementation:**
-- Create `app/connect.js`
-- Move `ConnectScreen` component
-- Read `edit` query param for edit mode
-- Configure as `presentation: 'modal'` in Stack.Screen
-
-**Test:** `/connect` opens as modal, saves and closes.
+**Test:** `/trend` renders the chart; back button returns to the dashboard (or replaces with `/` on cold entry).
 
 ---
 
-### Task 9: Create account settings modal route
+### Task 8: Create connect route
 
 **Implementation:**
-- Create `app/settings/[accountId].js`
-- Move `AccountSettingsScreen` component
-- Configure as `presentation: 'modal'`
+- Create `app/(auth)/connect.js`
+- Wrap existing `ConnectScreen`
+- `onConnected={() => { queryClient.invalidateQueries(); router.replace('/'); }}`
+- `onSkip` and `onCancel` both: `router.canGoBack() ? router.back() : router.replace('/')`
+- **Do not** implement `/connect?edit=…` unless a UI trigger is added to `AccountSettingsScreen` in a separate task — see Pre-migration Audit
+- Omit `presentation: 'modal'` or document it as native-only (no effect on web)
 
-**Test:** `/settings/acc_123` opens as modal, updates work.
+**Test:** `/connect` loads, saves, and returns to dashboard. Zero-account redirect path from Task 5 lands here cleanly.
 
 ---
 
-### Task 10: Update all navigation calls
+### Task 9: Create account settings route
 
 **Implementation:**
-- Replace all `onBack` props with `router.back()`
-- Replace all `onConnectAccount` with `router.push('/connect')`
-- Replace all `onEditAccount` with `router.push(\`/settings/\${id}\`)`
-- Remove all navigation callback props from component signatures
+- Create `app/(auth)/settings/[accountId].js`
+- Read `accountId` via `useLocalSearchParams()`
+- Look up the account from the `['accounts']` React Query cache (fetch if missing)
+- Wrap existing `AccountSettingsScreen`
+- `onBack`: `router.canGoBack() ? router.back() : router.replace('/')`
+- `onAccountUpdated` / `onAccountDeleted`: `queryClient.invalidateQueries({ queryKey: ['accounts'] })` + `router.replace('/')`
 
-**Test:** All navigation flows work, no broken navigation.
+**Test:** `/settings/acc_123` loads, save/delete flow works, URL is bookmarkable.
+
+---
+
+### Task 10: Update all navigation calls in screens
+
+**Implementation:**
+- Screen components keep their callback props (`onBack`, `onSelectGhost`, `onConnectAccount`, `onEditAccount`, `onShowTrend`, `onLogout`, `onSelectAccount`, `onConnected`, `onSkip`, `onCancel`, `onAccountUpdated`, `onAccountDeleted`, `onDismissed`) — those are the clean abstraction layer. **The route files** are what wire those callbacks to `router.*` calls (already covered by Tasks 5–9)
+- Alternative (optional cleanup, can defer): replace callbacks with `useRouter()` directly inside screens. Not recommended in this migration because it couples presentational components to navigation
+
+**Test:** All existing navigation flows work from end-to-end.
 
 ---
 
 ### Task 11: Handle logout
 
 **Implementation:**
-- Clear token with `clearToken()`
-- Use `router.replace('/login')` (replace prevents back navigation to authenticated screens)
+- `handleLogout` in `app/(auth)/index.js` (and any other authenticated routes that expose logout): `clearToken()` + `setAuthToken(null)` + `queryClient.clear()` + `router.replace('/login')`
+- `router.replace` (not `push`) prevents back-navigation into an unauthenticated state
 
-**Test:** Logout redirects to login, back button doesn't return to dashboard.
-
----
-
-### Task 12: Add 404 page
-
-**Implementation:**
-- Create `app/(auth)/+not-found.js`
-- Handle invalid resource IDs in detail screen
-
-**Test:** Invalid URLs show friendly error page.
+**Test:** Logout redirects to login; browser back button doesn't return to an authenticated screen; no stale cached data leaks across sessions.
 
 ---
 
-### Task 13: Clean up App.js
+### Task 12: Add 404 pages
 
 **Implementation:**
-- Remove `AuthenticatedApp` component
-- Remove all `useState` navigation state
-- Remove prop drilling for navigation callbacks
+- Top-level `app/+not-found.js` — generic "page not found" for any unmatched route (works without auth)
+- Optionally `app/(auth)/+not-found.js` — authenticated 404 with app chrome; only needed if we want the auth guard to apply
 
-**Test:** App works without old navigation code, no regressions.
+**Test:** Typing an invalid URL shows the friendly error page. Invalid resource IDs from Task 6 end up here.
+
+---
+
+### Task 13: Clean up App.js / index.js
+
+**Implementation:**
+- Delete `App.js` (its logic is now distributed across `app/_layout.js`, `app/login.js`, `app/(auth)/_layout.js`, and `app/(auth)/index.js`)
+- Replace `index.js` contents: with `"main": "expo-router/entry"` in `package.json`, this file is no longer the entry. Either delete it or leave a one-line stub; do not keep the old `registerRootComponent(App)` call
+- Remove `editAccount` state entirely (dead code — see Pre-migration Audit)
+- Remove `selectedAccount` state from `App.js` (now a URL param)
+
+**Test:** App boots, no references to removed state, no regressions.
 
 ---
 
 ### Task 14: Test deep linking and bookmarking
 
 **Checklist:**
-- [ ] Direct navigation to `/detail/i-1234` by typing URL
+- [ ] Direct navigation to `/detail/i-1234?account=…&region=…&service=…` by typing URL
 - [ ] Browser back/forward buttons work
-- [ ] Bookmark a detail page and return to it
-- [ ] Share URL, open in new tab
+- [ ] Bookmark a detail page and return to it after a full page reload
+- [ ] Share URL, open in new tab while logged in
+- [ ] Share URL, open in new tab while logged out → redirects to `/login`, then after login lands back on the target (note: this requires either a `returnTo` query param or accepting that login always lands on `/` — pick one and document)
 - [ ] Account filter persists in URL on refresh
-- [ ] Modal routes open and close correctly
+- [ ] `/connect` auto-redirect triggers on 0-account state and goes away after first connect
+- [ ] DEV_MODE (`EXPO_PUBLIC_DEV_MODE=true`) bypasses `/login` entirely
+- [ ] Invalid resource ID shows 404, not a blank screen
+- [ ] Logout clears React Query cache (no stale data visible after re-login as a different org)
 
 ---
+
+## Out of Scope
+
+- Adding `GET /v1/resources/:id` or any other API endpoint
+- Implementing `/connect?edit=acc_123` credentials-edit flow (requires a new UI trigger; track separately)
+- Unit/integration test suite for navigation (dashboard has no test infra today — separate initiative)
+- Native mobile deep-linking QA (web-first)
 
 ## Migration Checklist
 
 - [ ] Task 1: Install expo-router and configure project
-- [ ] Task 2: Create root layout with providers
+- [ ] Task 2: Create root layout with providers (including DEV_MODE bootstrap and theme-aware shell)
 - [ ] Task 3: Create login route
 - [ ] Task 4: Create auth layout guard
-- [ ] Task 5: Create dashboard route
-- [ ] Task 6: Create detail route with dynamic ID
+- [ ] Task 5: Create dashboard route (with account-query-param + zero-account redirect)
+- [ ] Task 6: Create detail route with composite-key lookup from cache
 - [ ] Task 7: Create trend route
-- [ ] Task 8: Create connect modal route
-- [ ] Task 9: Create account settings modal route
+- [ ] Task 8: Create connect route
+- [ ] Task 9: Create account settings route
 - [ ] Task 10: Update navigation calls throughout app
-- [ ] Task 11: Handle logout and auth state
-- [ ] Task 12: Add 404 page
-- [ ] Task 13: Clean up App.js
-- [ ] Task 14: Test deep linking and bookmarking
+- [ ] Task 11: Handle logout + clear query cache
+- [ ] Task 12: Add 404 page(s)
+- [ ] Task 13: Clean up App.js / index.js, remove dead `editAccount` state
+- [ ] Task 14: Test deep linking and bookmarking (including cold-entry, DEV_MODE, logged-out share)
 
 ## Success Criteria
 
 - All screens accessible via URLs
-- Bookmarking specific resources works
-- Browser back/forward buttons work
-- Auth flow works with redirects
+- Bookmarking specific resources works (cold-entry via composite-key query params)
+- Browser back/forward buttons work; cold-entry back falls back to `/` via `canGoBack()`
+- Auth flow works with redirects; DEV_MODE continues to bypass login
+- Zero-account state continues to auto-route to `/connect`
+- Logout clears the React Query cache
 - No regressions in existing functionality
-- Code is cleaner (no prop drilling)
-- Ready for native mobile deep linking
+- Code is cleaner (no prop drilling for navigation, no `key={token}` remount trick, no dead `editAccount` state)
+- Ready for native mobile deep linking in Phase 4
