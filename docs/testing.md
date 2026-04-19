@@ -17,8 +17,11 @@ AxiaOps uses a two-tier test strategy:
 make test          # All unit tests
 make test-shared   # Shared module tests
 make test-api      # API service tests
-make test-ingestion # Ingestion service tests
+make test-ingestion # Ingestion service tests (includes fake provider)
 make test-all      # Unit + integration
+
+# Fake provider tests only
+cd services/ingestion && go test ./internal/provider/fake/
 ```
 
 ### Integration Tests
@@ -41,6 +44,38 @@ make test-integration
 ```
 
 ## Test Categories
+
+### Fake Provider Tests (`services/ingestion/internal/provider/fake/`)
+
+The fake provider enables testing without AWS credentials. It simulates AWS Cost Explorer and CloudWatch with predefined scenarios.
+
+**Run tests:**
+```bash
+cd services/ingestion
+go test ./internal/provider/fake/
+```
+
+**Test coverage:**
+
+| Test | Purpose |
+|------|---------|
+| `TestE2E_BusinessScenarios` | Validates all 4 scenarios (startup, enterprise, all-ghosts, no-ghosts) return expected cost and usage data |
+| `TestE2E_DetectionRules` | Verifies analyzer correctly identifies ghosts from fake provider data |
+| `TestNew_UnknownScenario_FallsBackToStartup` | Unknown scenario names default to "startup" |
+| `TestNew_EmptyScenario_FallsBackToStartup` | Empty scenario string defaults to "startup" |
+| `TestFetchCosts_SetsTimestamps` | Cost records have valid timestamps within last 30 days |
+| `TestScenarios` | All scenario JSON files load without errors |
+| `TestAllGhosts_AllUsageIsZero` | "all-ghosts" scenario has zero usage for all resources |
+| `TestNoGhosts_AllUsageAboveThreshold` | "no-ghosts" scenario has usage above detection thresholds |
+| `TestScenarioNames_ReturnsAllFour` | Helper returns all 4 scenario names |
+
+**Scenarios:**
+- `startup` — 2 accounts, mix of active and idle resources
+- `enterprise` — 5 accounts, realistic production workload
+- `all-ghosts` — All resources idle (zero usage)
+- `no-ghosts` — All resources active (usage above thresholds)
+
+Set `DEV_SCENARIO=all-ghosts` in `services/ingestion/.env` to use a specific scenario.
 
 ### Integration Tests (`test/integration/`)
 
