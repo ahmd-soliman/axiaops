@@ -338,15 +338,11 @@ function CLICommand({ cmd, styles }) {
 
   return (
     <View style={styles.cliBox}>
-      <View style={styles.cliHeader}>
-        <Text style={styles.cliLabel}>CLI COMMAND</Text>
-        <TouchableOpacity style={styles.copyBtn} onPress={handleCopy}>
-          <Text style={styles.copyIcon}>{copied ? '✓' : '⧉'}</Text>
-          <Text style={styles.copyBtnText}>{copied ? 'Copied' : 'Copy'}</Text>
-        </TouchableOpacity>
-      </View>
       <View style={styles.cliCodeBox}>
         <Text style={styles.cliText} selectable>{cmd}</Text>
+        <TouchableOpacity style={styles.copyIconBtn} onPress={handleCopy}>
+          <Text style={styles.copyIcon}>{copied ? '✓' : '⧉'}</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -434,26 +430,14 @@ const createStyles = (theme) => StyleSheet.create({
   // ── CLI command block ──────────────────────────────────────────────────────
   cliBox: {
     marginTop: 10,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0d1117',
     borderRadius: 10,
-    padding: 16,
     borderWidth: 1,
-    borderColor: '#1e293b',
-  },
-  cliHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  cliLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#64748b',
-    letterSpacing: 1.2,
+    borderColor: '#30363d',
   },
   cliCodeBox: {
-    backgroundColor: '#1e293b',
+    position: 'relative',
+    backgroundColor: '#0f172a',
     borderRadius: 6,
     padding: 12,
     borderWidth: 1,
@@ -465,25 +449,15 @@ const createStyles = (theme) => StyleSheet.create({
     color: '#e2e8f0',
     lineHeight: 20,
   },
-  copyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#1e293b',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#334155',
+  copyIconBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    padding: 4,
   },
   copyIcon: {
-    fontSize: 14,
-    color: '#94a3b8',
-  },
-  copyBtnText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#94a3b8',
+    fontSize: 16,
+    color: '#ffffff',
   },
 
   // ── Dismiss / Snooze action row in header ──────────────────────────────────
