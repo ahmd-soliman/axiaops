@@ -103,16 +103,19 @@ export default function TrendScreen({ onBack }) {
     const indexInPage = globalIndex - pageStart;
     const doScroll = () => {
       if (!chartScrollRef.current) return;
-      const barLeft = CHART_PADDING + indexInPage * (BAR_W + CHART_GAP);
+      const pageSnaps = snaps.slice(pageStart, pageStart + PAGE_SIZE);
+      const barsWidth = pageSnaps.length * BAR_W + Math.max(0, pageSnaps.length - 1) * CHART_GAP;
+      const horizontalPadding = Math.max(CHART_PADDING, (screenWidth - barsWidth) / 2);
+      const barLeft = horizontalPadding + indexInPage * (BAR_W + CHART_GAP);
       const barCenter = barLeft + BAR_W / 2;
       const offset = Math.max(0, barCenter - screenWidth / 2);
-      chartScrollRef.current.scrollLeft = offset;
+      chartScrollRef.current.scrollTo({ left: offset, behavior: 'smooth' });
     };
     if (targetPage !== chartPage) {
       setChartPage(targetPage);
-      setTimeout(doScroll, 120);
+      setTimeout(doScroll, 100);
     } else {
-      setTimeout(doScroll, 50);
+      doScroll();
     }
   };
 
@@ -160,7 +163,17 @@ export default function TrendScreen({ onBack }) {
           onSelect={(s) => {
             const newSelection = s.snapshot_at === selectedSnap?.snapshot_at ? null : s;
             setSelectedSnap(newSelection);
-            if (newSelection) scrollChartToSnap(newSelection);
+            if (newSelection && listRef.current) {
+              const snapIndex = reversedSnaps.findIndex((snap) => snap.snapshot_at === newSelection.snapshot_at);
+              if (snapIndex >= 0) {
+                setTimeout(() => {
+                  const listItems = listRef.current?.querySelectorAll('button');
+                  if (listItems && listItems[snapIndex]) {
+                    listItems[snapIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }
+                }, 50);
+              }
+            }
           }}
           theme={t}
           scrollRef={chartScrollRef}
