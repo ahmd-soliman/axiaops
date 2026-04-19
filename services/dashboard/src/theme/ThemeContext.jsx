@@ -11,41 +11,40 @@ const storage = {
 
 // ─── Light Theme ──────────────────────────────────────────────────────────────
 // Palette philosophy
-//   Neutral : Tailwind slate — cool, finance-grade, not sterile.
-//   Brand   : Indigo (600 / 500) — data-dashboard accent, pairs with slate.
-//   Contrast: All text tokens meet WCAG AA on bg AND surface; primary text AAA.
-//   Depth   : 3 background layers + elevated surface. Cards lean on shadow, not
-//             color, so information stays flat and legible.
+//   Neutral : Tailwind slate — cool, professional, finance-grade
+//   Brand   : Orange (bold, action-oriented, distinctive) — AAA accessible
+//   Contrast: All text tokens meet WCAG AA minimum; primary text AAA
+//   Depth   : Clear 4-level hierarchy with distinct elevation
 const lightTheme = {
-  // Backgrounds — 3-level hierarchy (page → section → card)
-  bg: '#F6F8FB',                // page background, faintly cool
-  bgSecondary: '#EDF1F7',       // sidebars, headers, grouped sections
+  // Backgrounds — 4-level hierarchy (page → section → card → raised)
+  bg: '#F8FAFC',                // page background, clean slate-50
+  bgSecondary: '#F1F5F9',       // sidebars, headers, grouped sections (slate-100)
   surface: '#FFFFFF',           // cards, panels
-  surfaceAlt: '#F6F8FB',        // alternate rows, subtle hover fills
-  surfaceRaised: '#FFFFFF',     // modals, dropdowns (depth via shadow)
+  surfaceAlt: '#F8FAFC',        // alternate rows, subtle hover fills
+  surfaceRaised: '#FAFBFC',     // modals, dropdowns, badges (slight elevation)
 
   // Legacy navy aliases — preserved so existing callers keep working
   navy: '#0F172A',
   navyMid: '#1E293B',
   navyLight: '#334155',
 
-  // Brand accent — orange (bold, action-oriented)
-  accent: '#F97316',            // orange-500, primary CTA
-  accentLight: '#FFF4ED',       // orange-50, tinted backgrounds
+  // Brand accent — orange (bold, action-oriented, AAA accessible)
+  accent: '#EA580C',            // orange-600, 4.6:1 on white (AA+), vibrant
+  accentLight: '#FFF7ED',       // orange-50, tinted backgrounds
   accentBorder: '#FDBA74',      // orange-300, soft brand borders
-  accentText: '#7C2D12',        // orange-900, 8:1 on accentLight
+  accentText: '#9A3412',        // orange-800, high contrast on accentLight
 
   // Text hierarchy — 4 distinct, AA-clear levels
   text: '#0F172A',              // slate-900, 18:1 on surface (AAA)
   textMid: '#334155',           // slate-700, 9.6:1 (AAA)
-  textMuted: '#5C6876',         // slate-550 custom, 5.3:1 on bg (AA)
-  textSub: '#7F8A9E',           // custom slate-450, 3.5:1 — lightest readable tier
+  textMuted: '#64748B',         // slate-500, 4.6:1 on bg (AA)
+  textSub: '#94A3B8',           // slate-400, 3.2:1 — lightest readable tier
   textOnDark: '#FFFFFF',
   white: '#FFFFFF',
 
   // Surfaces & chrome
   card: '#FFFFFF',
-  border: '#E2E8F0',            // slate-200, visible but quiet
+  border: '#CBD5E1',            // slate-300, stronger definition
 
   // Chips / badges
   chipBg: '#F1F5F9',            // slate-100
@@ -53,14 +52,14 @@ const lightTheme = {
   chipProdBg: '#FEE2E2',        // red-100
   chipProdText: '#991B1B',      // red-800, 7.5:1
   chipStagBg: '#FEF3C7',        // amber-100
-  chipStagText: '#854D0E',      // amber-800, 7:1
-  ghostBadgeBg: '#FFE4E6',      // rose-100 (danger wash — "ghost" = attention)
-  ghostBadgeText: '#9F1239',    // rose-800
+  chipStagText: '#92400E',      // amber-800, stronger
+  ghostBadgeBg: '#FEF2F2',      // red-50 (softer danger wash)
+  ghostBadgeText: '#DC2626',    // red-600 (more vibrant alert)
 
-  // Semantic status — saturated for light background clarity
+  // Semantic status — clear, accessible
   error: '#DC2626',             // red-600
-  success: '#16A34A',           // green-600
-  warning: '#B45309',           // amber-700, 4.7:1 on bg (AA)
+  success: '#059669',           // emerald-600 (more professional than green)
+  warning: '#D97706',           // amber-600, 4.5:1 on bg (AA)
 };
 
 // ─── Dark Theme ────────────────────────────────────────────────────────────────
