@@ -1,4 +1,4 @@
-.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-dev seed-staging seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-trends seed-remote-dev seed-remote-staging seed-remote-dev-trends seed-remote-staging-trends inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -47,8 +47,7 @@ migrate:
 	docker-compose up -d postgres
 	@echo "Waiting for PostgreSQL to be ready..."
 	@until docker-compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
-	cd test-infra/integration && docker-compose run --rm migrate
-	cd test-infra/integration && docker-compose rm -f migrate 2>/dev/null || true
+	./scripts/migrate.sh
 
 # Test the migration container (uses test-infra compose — no host port binding)
 test-migrate:
@@ -77,29 +76,26 @@ test-migrate:
 seed:
 	./scripts/seed_test_data.sh
 
-# Seed dev environment via exposed port (localhost:5432).
-# Uses direct psql connection instead of docker exec.
-seed-dev:
-	DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5432/axiaops?sslmode=disable" \
-	./scripts/seed_test_data.sh dev
+# Seed with realistic trend data for chart development (90 days with gradual trends + weekly patterns).
+# Use this when developing time-series charts and graphs.
+seed-trends:
+	./scripts/seed_test_data.sh --with-trends
 
-# Seed staging environment via exposed port (localhost:5432).
-# Uses direct psql connection instead of docker exec.
-seed-staging:
-	DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5432/axiaops?sslmode=disable" \
-	./scripts/seed_test_data.sh staging
-
-# Seed remote dev database (via SSH) - copies script to remote and executes it.
-# Seeds the same comprehensive data as local seed-dev but on NAS.local axiaops-dev-db.
+# Seed remote dev database (192.168.1.100:5432)
 seed-remote-dev:
-	@echo "Seeding remote dev database on NAS.local..."
-	./scripts/seed_remote_dbs.sh dev
+	./scripts/seed_test_data.sh --remote dev
 
-# Seed remote staging database (via SSH) - copies script to remote and executes it.
-# Seeds the same comprehensive data as local seed-staging but on NAS.local axiaops-staging-db.
+# Seed remote staging database (192.168.1.100:5433)
 seed-remote-staging:
-	@echo "Seeding remote staging database on NAS.local..."
-	./scripts/seed_remote_dbs.sh staging
+	./scripts/seed_test_data.sh --remote staging
+
+# Seed remote dev with trends
+seed-remote-dev-trends:
+	./scripts/seed_test_data.sh --remote dev --with-trends
+
+# Seed remote staging with trends
+seed-remote-staging-trends:
+	./scripts/seed_test_data.sh --remote staging --with-trends
 
 inspect-db:
 	./scripts/inspect_db.sh
@@ -108,38 +104,29 @@ inspect-db:
 
 # Clean local dev database (truncate tables, preserve schema).
 clean-db:
-	docker-compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
-		"TRUNCATE TABLE axiaops.ghost_snapshots, axiaops.resource_records, axiaops.ghost_records, axiaops.cost_records, axiaops.accounts, axiaops.users, axiaops.tenants CASCADE RESTART IDENTITY; DROP TABLE IF EXISTS public.schema_migrations;" \
-		2>/dev/null || true
+	./scripts/clean_db.sh
 
 # Clean local dev database (drop schema and user — destructive).
 clean-db-drop:
-	docker-compose exec -T postgres psql -U axiaops_owner -d axiaops -c \
-		"DROP SCHEMA IF EXISTS axiaops CASCADE; DROP USER IF EXISTS axiaops;" \
-		2>/dev/null || true
-	@echo "Local dev schema and user dropped. Run migrations to recreate."
+	./scripts/clean_db.sh --drop-schema
 
 # ── Remote Database Cleanup ───────────────────────────────────────────────────
 
 # Clean remote dev database (truncate tables, preserve schema).
 clean-remote-dev:
-	@echo "Cleaning remote dev database on NAS.local..."
-	./scripts/clean_remote_dbs.sh dev
+	./scripts/clean_db.sh --remote dev
 
 # Clean remote staging database (truncate tables, preserve schema).
 clean-remote-staging:
-	@echo "Cleaning remote staging database on NAS.local..."
-	./scripts/clean_remote_dbs.sh staging
+	./scripts/clean_db.sh --remote staging
 
 # Clean remote dev database (drop schema and user — destructive).
 clean-remote-dev-drop:
-	@echo "Dropping remote dev schema on NAS.local..."
-	./scripts/clean_remote_dbs.sh dev --drop-schema
+	./scripts/clean_db.sh --remote dev --drop-schema
 
 # Clean remote staging database (drop schema and user — destructive).
 clean-remote-staging-drop:
-	@echo "Dropping remote staging schema on NAS.local..."
-	./scripts/clean_remote_dbs.sh staging --drop-schema
+	./scripts/clean_db.sh --remote staging --drop-schema
 
 # Per-service test targets — each mirrors the matching CI job (test:shared, test:api, test:ingestion).
 # Running one target locally reproduces exactly what CI runs for that job.

@@ -124,7 +124,8 @@ function Root() {
   const [loading, setLoading]   = useState(true);
   const [signingIn, setSigningIn] = useState(false);
 
-  const { request, response, promptAsync, discovery } = useKindeAuth();
+  const kindeAuth = DEV_MODE ? null : useKindeAuth();
+  const { request, response, promptAsync, discovery } = kindeAuth || {};
 
   useEffect(() => {
     if (DEV_MODE) {
