@@ -5,7 +5,7 @@ import { Spinner } from '../components/primitives';
 const C = {
   bg: '#0B1220',
   navyMid: '#182031',
-  accent: '#818CF8',        // indigo-400, matches dark brand accent
+  accent: '#FB923C',        // orange-400, matches dark brand accent
   textMuted: '#8497B2',
   white: '#FFFFFF',
 };

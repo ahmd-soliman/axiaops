@@ -4,8 +4,10 @@ This file is the **single source of truth** for the dashboard palette. If you
 change a value here, also change it in [`ThemeContext.jsx`](./ThemeContext.jsx)
 — the tokens there are the live values React reads at runtime.
 
-Brand: **indigo** on **Tailwind-slate** neutrals. Both themes target WCAG AA
+Brand: **orange** on **Tailwind-slate** neutrals. Both themes target WCAG AA
 or better for every text-on-background pairing actually rendered in the app.
+
+**Updated Apr 2026:** Switched from indigo to orange for bold, action-oriented branding.
 
 ## Quick edit guide
 
@@ -25,17 +27,23 @@ Local palettes in screens that render pre-ThemeProvider
 
 | Token           | Light      | Dark       | Purpose                                   |
 | --------------- | ---------- | ---------- | ----------------------------------------- |
-| `accent`        | `#4F46E5`  | `#818CF8`  | Primary CTA, logo, active bar, spinner    |
-| `accentLight`   | `#EEF2FF`  | `#1E1B4B`  | Tinted background wash (stat chips, etc.) |
-| `accentBorder`  | `#C7D2FE`  | `#4338CA`  | Border on accent-tinted surfaces          |
-| `accentText`    | `#3730A3`  | `#C7D2FE`  | Text on top of `accentLight`              |
+| `accent`        | `#F97316`  | `#FB923C`  | Primary CTA, logo, active bar, spinner    |
+| `accentLight`   | `#FFF4ED`  | `#2D1200`  | Tinted background wash (stat chips, etc.) |
+| `accentBorder`  | `#FDBA74`  | `#7C3200`  | Border on accent-tinted surfaces          |
+| `accentText`    | `#7C2D12`  | `#FBBF24`  | Text on top of `accentLight`              |
 
 ### Swap recipes
 
 Only four tokens × two themes to change the brand. Drop one of these blocks
 into `ThemeContext.jsx` and into this file.
 
-**Indigo (current):**
+**Orange (current — Apr 2026):**
+```
+light: accent #F97316  accentLight #FFF4ED  accentBorder #FDBA74  accentText #7C2D12
+dark:  accent #FB923C  accentLight #2D1200  accentBorder #7C3200  accentText #FBBF24
+```
+
+**Indigo (previous):**
 ```
 light: accent #4F46E5  accentLight #EEF2FF  accentBorder #C7D2FE  accentText #3730A3
 dark:  accent #818CF8  accentLight #1E1B4B  accentBorder #4338CA  accentText #C7D2FE
@@ -45,12 +53,6 @@ dark:  accent #818CF8  accentLight #1E1B4B  accentBorder #4338CA  accentText #C7
 ```
 light: accent #0D9488  accentLight #CCFBF1  accentBorder #99F6E4  accentText #115E59
 dark:  accent #2DD4BF  accentLight #042F2E  accentBorder #0F766E  accentText #99F6E4
-```
-
-**Orange (legacy):**
-```
-light: accent #F97316  accentLight #FFF4ED  accentBorder #FDBA74  accentText #7C2D12
-dark:  accent #F97316  accentLight #2D1200  accentBorder #7C3200  accentText #FB923C
 ```
 
 ## Light theme

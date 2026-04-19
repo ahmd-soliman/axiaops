@@ -8,7 +8,7 @@ const C = {
   bg: '#F6F8FB',
   navy: '#0B1220',
   navyMid: '#182031',
-  accent: '#818CF8',        // indigo-400 (dark-context brand)
+  accent: '#FB923C',        // orange-400 (dark-context brand)
   text: '#0F172A',
   textMid: '#475569',
   textMuted: '#94A3B8',
