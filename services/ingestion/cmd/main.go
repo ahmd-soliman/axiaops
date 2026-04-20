@@ -407,6 +407,14 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		slog.Info("fetched resource-level costs", "count", len(resourceCosts))
 	}
 
+	// Fetch Cost Explorer API costs (from Cost & Usage API).
+	// This tracks the cost of AxiaOps's own Cost Explorer API calls.
+	apiCosts, _ := awsClient.FetchCostExplorerAPICosts(ctx, start, end)
+	if len(apiCosts) > 0 {
+		slog.Info("fetched Cost Explorer API costs", "count", len(apiCosts))
+		allRecords = append(allRecords, apiCosts...)
+	}
+
 	var usage []analyzer.UsageRecord
 	var usageErr error
 	if len(allRecords) > 0 {
