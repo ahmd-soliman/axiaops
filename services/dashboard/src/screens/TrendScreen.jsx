@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueries } from '@tanstack/react-query';
 import { fetchTrend, fetchTrendServices, fetchTrendResourceTypes } from '../api/client';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import { useTheme } from '../theme/ThemeContext';
@@ -78,6 +78,28 @@ function formatDateTime(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
     + ' · ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ─── Snapshot merge ──────────────────────────────────────────────────────────
+// When multiple filter buckets are active (e.g. EC2 + RDS, or EC2 · Volumes +
+// EC2 · Snapshots), we fetch one time series per bucket and sum them here by
+// snapshot_at. Works because all buckets for a single tenant share the same
+// snapshot timestamps.
+function mergeSnapshotSeries(seriesList) {
+  const byTimestamp = new Map();
+  for (const series of seriesList) {
+    if (!Array.isArray(series)) continue;
+    for (const snap of series) {
+      const existing = byTimestamp.get(snap.snapshot_at);
+      if (!existing) {
+        byTimestamp.set(snap.snapshot_at, { ...snap });
+      } else {
+        existing.total_monthly_cost += snap.total_monthly_cost;
+        existing.ghost_count       += snap.ghost_count;
+      }
+    }
+  }
+  return [...byTimestamp.values()].sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
 }
 
 // ─── SVG Area Chart ──────────────────────────────────────────────────────────
@@ -300,18 +322,47 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
 export default function TrendScreen({ onBack }) {
   const { theme, isDark } = useTheme();
   const screenWidth = useWindowWidth();
-  const [filterService, setFilterService] = useState(null);
-  const [filterResourceType, setFilterResourceType] = useState(null);
+  const [filterServices, setFilterServices]         = useState(() => new Set());
+  const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
   const trendServices = useQuery({ queryKey: ['trend-services'], queryFn: fetchTrendServices });
+
+  // Sub-types only make sense under a single service, so we only fetch & render
+  // the sub-filter when exactly one service is selected.
+  const singleService = filterServices.size === 1 ? [...filterServices][0] : null;
   const trendResourceTypes = useQuery({
-    queryKey: ['trend-resource-types', filterService],
-    queryFn: () => fetchTrendResourceTypes(filterService),
-    enabled: !!filterService,
+    queryKey: ['trend-resource-types', singleService],
+    queryFn: () => fetchTrendResourceTypes(singleService),
+    enabled: !!singleService,
   });
-  const trend = useQuery({
-    queryKey: ['trend', filterService, filterResourceType],
-    queryFn: () => fetchTrend(null, filterService, filterResourceType),
+
+  // Build the set of trend queries to run. Each "bucket" produces its own time
+  // series; we sum them below.
+  //  - nothing selected            → one query, no filter (all services)
+  //  - N services, no sub-types    → N queries, one per service
+  //  - 1 service, M sub-types      → M queries, one per service/sub-type combo
+  const filterBuckets = (() => {
+    if (filterServices.size === 0) {
+      return [{ service: null, resourceType: null }];
+    }
+    if (filterServices.size === 1 && filterResourceTypes.size > 0) {
+      const [svc] = filterServices;
+      return [...filterResourceTypes].map(rt => ({ service: svc, resourceType: rt }));
+    }
+    return [...filterServices].map(svc => ({ service: svc, resourceType: null }));
+  })();
+
+  const trendQueries = useQueries({
+    queries: filterBuckets.map(b => ({
+      queryKey: ['trend', b.service, b.resourceType],
+      queryFn: () => fetchTrend(null, b.service, b.resourceType),
+    })),
   });
+
+  // Aggregate query state across all buckets
+  const trendIsLoading = trendQueries.some(q => q.isLoading);
+  const trendIsError   = trendQueries.length > 0 && trendQueries.every(q => q.isError);
+  const trendHasData   = trendQueries.some(q => Array.isArray(q.data));
+  const mergedSnaps    = mergeSnapshotSeries(trendQueries.map(q => q.data));
   const [selectedSnap, setSelectedSnap] = useState(null);
   const [period, setPeriod]             = useState(30);
   const [listPage, setListPage]         = useState(1);
@@ -329,7 +380,7 @@ export default function TrendScreen({ onBack }) {
   }, []);
 
   // Derive data — raw snaps for history list, downsampled for chart
-  const allSnaps      = trend.data ?? [];
+  const allSnaps      = mergedSnaps;
   const filteredSnaps = allSnaps.slice(-period);
   const chartSnaps    = downsample(filteredSnaps, period);
   const reversedSnaps = [...filteredSnaps].reverse();
@@ -357,14 +408,34 @@ export default function TrendScreen({ onBack }) {
   }
 
   function toggleServiceFilter(svc) {
-    setFilterService(prev => prev === svc ? null : svc);
-    setFilterResourceType(null);
+    const next = new Set(filterServices);
+    next.has(svc) ? next.delete(svc) : next.add(svc);
+    setFilterServices(next);
+    // Sub-types only make sense under a single service; clear them otherwise.
+    if (next.size !== 1) setFilterResourceTypes(new Set());
+    setSelectedSnap(null);
+    setListPage(1);
+  }
+
+  function clearServiceFilter() {
+    setFilterServices(new Set());
+    setFilterResourceTypes(new Set());
     setSelectedSnap(null);
     setListPage(1);
   }
 
   function toggleResourceTypeFilter(rt) {
-    setFilterResourceType(prev => prev === rt ? null : rt);
+    setFilterResourceTypes(prev => {
+      const next = new Set(prev);
+      next.has(rt) ? next.delete(rt) : next.add(rt);
+      return next;
+    });
+    setSelectedSnap(null);
+    setListPage(1);
+  }
+
+  function clearResourceTypeFilter() {
+    setFilterResourceTypes(new Set());
     setSelectedSnap(null);
     setListPage(1);
   }
@@ -373,7 +444,7 @@ export default function TrendScreen({ onBack }) {
     setSelectedSnap(prev => prev?.snapshot_at === s.snapshot_at ? null : s);
   }
 
-  if (trend.isLoading) {
+  if (trendIsLoading && !trendHasData) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', backgroundColor: t.bg, flexDirection: 'column', gap: 14 }}>
         <Spinner size={32} color={t.accent} />
@@ -382,7 +453,7 @@ export default function TrendScreen({ onBack }) {
     );
   }
 
-  if (trend.isError || !trend.data) {
+  if (trendIsError || !trendHasData) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', backgroundColor: t.bg, flexDirection: 'column', gap: 16 }}>
         <span style={{ color: t.textMid, fontSize: 16 }}>Failed to load trend data.</span>
@@ -414,10 +485,20 @@ export default function TrendScreen({ onBack }) {
         </button>
 
         <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>
-          {selectedSnap
-            ? `Snapshot · ${new Date(selectedSnap.snapshot_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
-            : filterResourceType ? `${serviceConfig(filterService).label} · ${resourceTypeConfig(filterResourceType).label}`
-            : filterService ? `${serviceConfig(filterService).label} Trend` : 'Savings Trend'}
+          {(() => {
+            if (selectedSnap) {
+              return `Snapshot · ${new Date(selectedSnap.snapshot_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+            }
+            const svcLabels = [...filterServices].map(s => serviceConfig(s).label);
+            if (filterServices.size === 1 && filterResourceTypes.size > 0) {
+              const rtLabels = [...filterResourceTypes].map(rt => resourceTypeConfig(rt).label).join(' + ');
+              return `${svcLabels[0]} · ${rtLabels}`;
+            }
+            if (filterServices.size >= 1) {
+              return `${svcLabels.join(' + ')} Trend`;
+            }
+            return 'Savings Trend';
+          })()}
         </span>
         <span style={{ fontSize: 32, fontWeight: 800, color: t.accent, letterSpacing: -0.5, display: 'block' }}>
           {displaySnap?.currency ?? '$'} {displaySnap ? displaySnap.total_monthly_cost.toFixed(2) : '0.00'}
@@ -474,21 +555,21 @@ export default function TrendScreen({ onBack }) {
             style={{ display: 'flex', gap: 6, padding: '0 16px 12px', overflowX: 'auto' }}
           >
             <button
-              onClick={() => toggleServiceFilter(null)}
-              aria-pressed={!filterService}
+              onClick={clearServiceFilter}
+              aria-pressed={filterServices.size === 0}
               style={{
                 padding: '4px 10px', borderRadius: 20, cursor: 'pointer', flexShrink: 0,
-                backgroundColor: !filterService ? t.accent : t.surfaceRaised,
-                border: `1px solid ${!filterService ? t.accent : t.border}`,
+                backgroundColor: filterServices.size === 0 ? t.accent : t.surfaceRaised,
+                border: `1px solid ${filterServices.size === 0 ? t.accent : t.border}`,
                 fontSize: 12, fontWeight: 700,
-                color: !filterService ? '#fff' : t.textMid,
+                color: filterServices.size === 0 ? '#fff' : t.textMid,
               }}
             >
               All Services
             </button>
             {trendServices.data.map(svc => {
               const cfg = serviceConfig(svc);
-              const active = filterService === svc;
+              const active = filterServices.has(svc);
               return (
                 <button
                   key={svc}
@@ -509,29 +590,29 @@ export default function TrendScreen({ onBack }) {
           </div>
         )}
 
-        {/* Resource type sub-filter pills (shown when a service is selected and has sub-types) */}
-        {filterService && (trendResourceTypes.data?.length ?? 0) > 0 && (
+        {/* Resource type sub-filter pills (shown when exactly one service is selected and has sub-types) */}
+        {filterServices.size === 1 && (trendResourceTypes.data?.length ?? 0) > 0 && (
           <div
             role="group"
             aria-label="Filter by resource type"
             style={{ display: 'flex', gap: 6, padding: '0 16px 12px', overflowX: 'auto' }}
           >
             <button
-              onClick={() => toggleResourceTypeFilter(null)}
-              aria-pressed={!filterResourceType}
+              onClick={clearResourceTypeFilter}
+              aria-pressed={filterResourceTypes.size === 0}
               style={{
                 padding: '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
-                backgroundColor: !filterResourceType ? t.textMid : t.surfaceRaised,
-                border: `1px solid ${!filterResourceType ? t.textMid : t.border}`,
+                backgroundColor: filterResourceTypes.size === 0 ? t.textMid : t.surfaceRaised,
+                border: `1px solid ${filterResourceTypes.size === 0 ? t.textMid : t.border}`,
                 fontSize: 11, fontWeight: 600,
-                color: !filterResourceType ? '#fff' : t.textMuted,
+                color: filterResourceTypes.size === 0 ? '#fff' : t.textMuted,
               }}
             >
               All Types
             </button>
             {trendResourceTypes.data.map(rt => {
               const cfg = resourceTypeConfig(rt);
-              const active = filterResourceType === rt;
+              const active = filterResourceTypes.has(rt);
               return (
                 <button
                   key={rt}
