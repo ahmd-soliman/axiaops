@@ -13,3 +13,14 @@ type GhostSnapshot struct {
 	TotalMonthlyCost float64   `json:"total_monthly_cost"`
 	Currency         string    `json:"currency"`
 }
+
+// SnapshotService records per-service breakdown for a single ghost snapshot.
+type SnapshotService struct {
+	ID           string  `json:"id"`
+	SnapshotID   string  `json:"snapshot_id"`
+	Service      string  `json:"service"`
+	ResourceType string  `json:"resource_type"` // sub-classification (e.g. "volume", "snapshot", "ami")
+	GhostCount   int     `json:"ghost_count"`
+	MonthlyCost  float64 `json:"monthly_cost"`
+	Currency     string  `json:"currency"`
+}

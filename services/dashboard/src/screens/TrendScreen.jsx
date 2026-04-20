@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchTrend } from '../api/client';
+import { fetchTrend, fetchTrendServices, fetchTrendResourceTypes } from '../api/client';
+import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import { useTheme } from '../theme/ThemeContext';
 import { useWindowWidth } from '../components/primitives';
 import { Spinner } from '../components/primitives';
@@ -297,9 +298,20 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function TrendScreen({ onBack }) {
-  const { theme }   = useTheme();
+  const { theme, isDark } = useTheme();
   const screenWidth = useWindowWidth();
-  const trend       = useQuery({ queryKey: ['trend'], queryFn: () => fetchTrend(null) });
+  const [filterService, setFilterService] = useState(null);
+  const [filterResourceType, setFilterResourceType] = useState(null);
+  const trendServices = useQuery({ queryKey: ['trend-services'], queryFn: fetchTrendServices });
+  const trendResourceTypes = useQuery({
+    queryKey: ['trend-resource-types', filterService],
+    queryFn: () => fetchTrendResourceTypes(filterService),
+    enabled: !!filterService,
+  });
+  const trend = useQuery({
+    queryKey: ['trend', filterService, filterResourceType],
+    queryFn: () => fetchTrend(null, filterService, filterResourceType),
+  });
   const [selectedSnap, setSelectedSnap] = useState(null);
   const [period, setPeriod]             = useState(30);
   const [listPage, setListPage]         = useState(1);
@@ -340,6 +352,19 @@ export default function TrendScreen({ onBack }) {
 
   function changePeriod(days) {
     setPeriod(days);
+    setSelectedSnap(null);
+    setListPage(1);
+  }
+
+  function toggleServiceFilter(svc) {
+    setFilterService(prev => prev === svc ? null : svc);
+    setFilterResourceType(null);
+    setSelectedSnap(null);
+    setListPage(1);
+  }
+
+  function toggleResourceTypeFilter(rt) {
+    setFilterResourceType(prev => prev === rt ? null : rt);
     setSelectedSnap(null);
     setListPage(1);
   }
@@ -391,7 +416,8 @@ export default function TrendScreen({ onBack }) {
         <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>
           {selectedSnap
             ? `Snapshot · ${new Date(selectedSnap.snapshot_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
-            : 'Savings Trend'}
+            : filterResourceType ? `${serviceConfig(filterService).label} · ${resourceTypeConfig(filterResourceType).label}`
+            : filterService ? `${serviceConfig(filterService).label} Trend` : 'Savings Trend'}
         </span>
         <span style={{ fontSize: 32, fontWeight: 800, color: t.accent, letterSpacing: -0.5, display: 'block' }}>
           {displaySnap?.currency ?? '$'} {displaySnap ? displaySnap.total_monthly_cost.toFixed(2) : '0.00'}
@@ -439,6 +465,92 @@ export default function TrendScreen({ onBack }) {
             })}
           </div>
         </div>
+
+        {/* Service filter pills */}
+        {(trendServices.data?.length ?? 0) > 0 && (
+          <div
+            role="group"
+            aria-label="Filter by service"
+            style={{ display: 'flex', gap: 6, padding: '0 16px 12px', overflowX: 'auto' }}
+          >
+            <button
+              onClick={() => toggleServiceFilter(null)}
+              aria-pressed={!filterService}
+              style={{
+                padding: '4px 10px', borderRadius: 20, cursor: 'pointer', flexShrink: 0,
+                backgroundColor: !filterService ? t.accent : t.surfaceRaised,
+                border: `1px solid ${!filterService ? t.accent : t.border}`,
+                fontSize: 12, fontWeight: 700,
+                color: !filterService ? '#fff' : t.textMid,
+              }}
+            >
+              All Services
+            </button>
+            {trendServices.data.map(svc => {
+              const cfg = serviceConfig(svc);
+              const active = filterService === svc;
+              return (
+                <button
+                  key={svc}
+                  onClick={() => toggleServiceFilter(svc)}
+                  aria-pressed={active}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '4px 10px', borderRadius: 20, cursor: 'pointer', flexShrink: 0,
+                    backgroundColor: active ? t.accent : t.surfaceRaised,
+                    border: `1px solid ${active ? t.accent : t.border}`,
+                  }}
+                >
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color }} />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: active ? '#fff' : t.textMid }}>{cfg.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Resource type sub-filter pills (shown when a service is selected and has sub-types) */}
+        {filterService && (trendResourceTypes.data?.length ?? 0) > 0 && (
+          <div
+            role="group"
+            aria-label="Filter by resource type"
+            style={{ display: 'flex', gap: 6, padding: '0 16px 12px', overflowX: 'auto' }}
+          >
+            <button
+              onClick={() => toggleResourceTypeFilter(null)}
+              aria-pressed={!filterResourceType}
+              style={{
+                padding: '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
+                backgroundColor: !filterResourceType ? t.textMid : t.surfaceRaised,
+                border: `1px solid ${!filterResourceType ? t.textMid : t.border}`,
+                fontSize: 11, fontWeight: 600,
+                color: !filterResourceType ? '#fff' : t.textMuted,
+              }}
+            >
+              All Types
+            </button>
+            {trendResourceTypes.data.map(rt => {
+              const cfg = resourceTypeConfig(rt);
+              const active = filterResourceType === rt;
+              return (
+                <button
+                  key={rt}
+                  onClick={() => toggleResourceTypeFilter(rt)}
+                  aria-pressed={active}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
+                    backgroundColor: active ? t.textMid : t.surfaceRaised,
+                    border: `1px solid ${active ? t.textMid : t.border}`,
+                  }}
+                >
+                  <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color }} />
+                  <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#fff' : t.textMuted }}>{cfg.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {chartSnaps.length < 2 ? (
           <div style={{ padding: '24px 16px', textAlign: 'center' }}>

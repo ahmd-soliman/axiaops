@@ -17,11 +17,18 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | GET | /metrics | No | Prometheus metrics (internal only) |
 | GET | /ghosts | Yes | List zombie resources for tenant |
 | GET | /summary | Yes | Aggregate savings + per-service breakdown |
+| GET | /trend | Yes | Ghost snapshots over time (?account_id, ?service, ?resource_type) |
+| GET | /trend/services | Yes | Distinct services available in trend data |
+| GET | /trend/resource-types | Yes | Distinct resource types for a service (?service) |
+| GET | /resources | Yes | All resource records (ghosts + active) |
 | GET | /accounts | Yes | List connected cloud accounts |
 | POST | /accounts | Yes | Connect new account (encrypts secret) |
 | PATCH | /accounts/{id} | Yes | Update label, region, secret_key, scan_interval_hours |
 | DELETE | /accounts/{id} | Yes | Remove account |
 | POST | /accounts/{id}/scan | Yes | Trigger on-demand ingestion scan |
+| POST | /dismissals | Yes | Dismiss or snooze a ghost resource |
+| GET | /dismissals | Yes | List active dismissals (?account_id) |
+| DELETE | /dismissals/{id} | Yes | Revoke a dismissal |
 
 ## Key Patterns
 

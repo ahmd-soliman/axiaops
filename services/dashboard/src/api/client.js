@@ -92,12 +92,27 @@ export async function scanAccount(id) {
   return res.json();
 }
 
-export async function fetchTrend(accountId) {
-  const url = accountId
-    ? `${BASE_URL}/v1/trend?account_id=${encodeURIComponent(accountId)}`
-    : `${BASE_URL}/v1/trend`;
+export async function fetchTrend(accountId, service, resourceType) {
+  const params = new URLSearchParams();
+  if (accountId) params.set('account_id', accountId);
+  if (service) params.set('service', service);
+  if (resourceType) params.set('resource_type', resourceType);
+  const qs = params.toString();
+  const url = qs ? `${BASE_URL}/v1/trend?${qs}` : `${BASE_URL}/v1/trend`;
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch trend');
+  return res.json();
+}
+
+export async function fetchTrendServices() {
+  const res = await fetch(`${BASE_URL}/v1/trend/services`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch trend services');
+  return res.json();
+}
+
+export async function fetchTrendResourceTypes(service) {
+  const res = await fetch(`${BASE_URL}/v1/trend/resource-types?service=${encodeURIComponent(service)}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch trend resource types');
   return res.json();
 }
 

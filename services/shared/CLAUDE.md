@@ -14,7 +14,7 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 
 | Package | Responsibility |
 |---------|---------------|
-| `model/` | Domain types: Tenant, User, Account, CostRecord, GhostResource, ResourceRecord |
+| `model/` | Domain types: Tenant, User, Account, CostRecord, GhostResource, ResourceRecord, GhostSnapshot, SnapshotService |
 | `storage/` | `Store` interface + `WithTenantID()` / `TenantIDFromCtx()` context helpers |
 | `storage/postgres/` | Production Store impl — PostgreSQL with RLS, migrations |
 | `analyzer/` | `Detect()`, `Summarize()`, `AnnotateAll()` — pure functions, no I/O |
@@ -32,7 +32,9 @@ any call. PostgreSQL RLS enforces this at the DB level.
 
 Key methods: `SaveCostRecords`, `SaveGhostRecords`, `LoadGhosts`, `Summary`,
 `SaveAccount`, `ListAccounts`, `GetAccount`, `DeleteAccount`, `TryMarkAccountScanning`,
-`UpsertTenant`, `UpsertUser`.
+`UpsertTenant`, `UpsertUser`, `SaveSnapshot`, `ListSnapshots`,
+`SaveSnapshotServices`, `ListSnapshotsByService`, `ListTrendServices`,
+`ListTrendResourceTypes`.
 
 When adding new data access, add to this interface first, then implement in
 `postgres/postgres.go`.
@@ -56,6 +58,9 @@ Resources with no matching rule or no usage data are skipped (not flagged).
 - RLS policy: `tenant_id = current_setting('app.tenant_id', true)` on all data tables
 - Connection pool: `pgxpool.Pool` — pass `DATABASE_URL` for app, `MIGRATION_DATABASE_URL` for migrations
 - Transactions: `BEGIN` → `SET app.tenant_id` → operations → `COMMIT`. Always `defer tx.Rollback()`.
+- Tables: `tenants`, `users`, `cost_records`, `ghost_records`, `resource_records`, `accounts`,
+  `ghost_snapshots` (aggregate per-scan), `ghost_snapshot_services` (per-service breakdown per snapshot),
+  `dismissed_ghosts`
 
 ## Adding New Tables
 
