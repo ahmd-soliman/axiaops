@@ -35,24 +35,36 @@ const SNOOZE_OPTIONS = [
 
 function SavingsSparkline({ snaps, color }) {
   if (!snaps || snaps.length < 2) return null;
-  const W = 80, H = 28, BAR_W = 3, GAP = 1;
-  const values = snaps.map(s => s.total_monthly_cost);
+  const W = 80, H = 28;
+  const maxPoints = 24;
+  const values = snaps.map(s => s.total_monthly_cost).slice(-maxPoints);
   const maxVal = Math.max(...values, 0.01);
-  const maxBars = Math.floor(W / (BAR_W + GAP));
-  const visible = values.slice(-maxBars);
+  const minVal = Math.min(...values, 0);
+  const range = maxVal - minVal || 1;
+  const pad = H * 0.08;
+
+  const points = values.map((v, i) => ({
+    x: (i / (values.length - 1)) * W,
+    y: pad + (H - pad * 2) - ((v - minVal) / range) * (H - pad * 2),
+  }));
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+  const areaPath = linePath + ` L${W},${H} L0,${H} Z`;
+  const last = points[points.length - 1];
+
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: GAP, width: W, height: H, marginTop: 6 }}>
-      {visible.map((v, i) => {
-        const barH = Math.max(2, Math.round((v / maxVal) * H));
-        const isLast = i === visible.length - 1;
-        return (
-          <div
-            key={i}
-            style={{ width: BAR_W, height: barH, backgroundColor: isLast ? color : `${color}66`, borderRadius: 1, flexShrink: 0 }}
-          />
-        );
-      })}
-    </div>
+    <svg width={W} height={H} style={{ marginTop: 6, display: 'block' }}>
+      <defs>
+        <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.04" />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill="url(#sparkGrad)" />
+      <path d={linePath} fill="none" stroke={color} strokeWidth="1.5"
+        strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={last.x} cy={last.y} r="2" fill={color} />
+    </svg>
   );
 }
 
