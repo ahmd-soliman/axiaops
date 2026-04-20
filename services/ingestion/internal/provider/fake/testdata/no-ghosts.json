@@ -1,10 +1,16 @@
 {
   "costs": [
-    {"provider": "aws", "account_id": "444444444444", "service": "AmazonEC2", "region": "eu-central-1", "resource_id": "i-active-01",  "amount": 200.00, "currency": "USD"},
-    {"provider": "aws", "account_id": "444444444444", "service": "AmazonRDS", "region": "eu-central-1", "resource_id": "db-active-01", "amount": 300.00, "currency": "USD"}
+    {"provider": "aws", "account_id": "444444444444", "service": "AmazonEC2",                  "region": "eu-central-1", "resource_id": "i-active-01",       "amount": 200.00, "currency": "USD"},
+    {"provider": "aws", "account_id": "444444444444", "service": "AmazonRDS",                  "region": "eu-central-1", "resource_id": "db-active-01",      "amount": 300.00, "currency": "USD"},
+    {"provider": "aws", "account_id": "444444444444", "service": "AWSLambda",                  "region": "eu-central-1", "resource_id": "fn-active-01",      "amount": 8.50,   "currency": "USD"},
+    {"provider": "aws", "account_id": "444444444444", "service": "AmazonElasticLoadBalancing", "region": "eu-central-1", "resource_id": "app/active-alb/ab", "amount": 22.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "444444444444", "service": "AmazonVPC",                  "region": "eu-central-1", "resource_id": "nat-active-01",     "amount": 45.00,  "currency": "USD"}
   ],
   "usage": [
-    {"resource_id": "i-active-01",  "metric": "CPUUtilization",      "unit": "Percent", "avg": 55.0, "period_days": 30},
-    {"resource_id": "db-active-01", "metric": "DatabaseConnections", "unit": "Count",   "avg": 12.0, "period_days": 30}
+    {"resource_id": "i-active-01",       "metric": "CPUUtilization",        "unit": "Percent", "avg": 55.0,   "period_days": 30},
+    {"resource_id": "db-active-01",      "metric": "DatabaseConnections",   "unit": "Count",   "avg": 12.0,   "period_days": 30},
+    {"resource_id": "fn-active-01",      "metric": "Invocations",           "unit": "Count",   "avg": 450.0,  "period_days": 30},
+    {"resource_id": "app/active-alb/ab", "metric": "RequestCount",          "unit": "Count",   "avg": 2400.0, "period_days": 30},
+    {"resource_id": "nat-active-01",     "metric": "BytesOutToDestination", "unit": "Bytes",   "avg": 800000.0, "period_days": 30}
   ]
 }

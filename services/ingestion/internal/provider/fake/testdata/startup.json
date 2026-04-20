@@ -1,14 +1,18 @@
 {
   "costs": [
-    {"provider": "aws", "account_id": "111111111111", "service": "AmazonEC2",  "region": "eu-central-1", "resource_id": "i-0aaaa1111",   "amount": 45.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "111111111111", "service": "AmazonEC2",  "region": "eu-central-1", "resource_id": "i-0bbbb2222",   "amount": 38.50,  "currency": "USD"},
-    {"provider": "aws", "account_id": "111111111111", "service": "AWSLambda",  "region": "eu-central-1", "resource_id": "fn-processor",  "amount": 2.10,   "currency": "USD"},
-    {"provider": "aws", "account_id": "111111111111", "service": "AmazonRDS",  "region": "eu-central-1", "resource_id": "db-legacy",     "amount": 120.00, "currency": "USD"}
+    {"provider": "aws", "account_id": "111111111111", "service": "AmazonEC2",  "region": "eu-central-1", "resource_id": "i-0aaaa1111",      "amount": 45.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "111111111111", "service": "AmazonEC2",  "region": "eu-central-1", "resource_id": "i-0bbbb2222",      "amount": 38.50,  "currency": "USD"},
+    {"provider": "aws", "account_id": "111111111111", "service": "AmazonEC2",  "region": "eu-central-1", "resource_id": "vol-stray-01",     "amount": 6.50,   "currency": "USD"},
+    {"provider": "aws", "account_id": "111111111111", "service": "AWSLambda",  "region": "eu-central-1", "resource_id": "fn-processor",     "amount": 2.10,   "currency": "USD"},
+    {"provider": "aws", "account_id": "111111111111", "service": "AmazonRDS",  "region": "eu-central-1", "resource_id": "db-legacy",        "amount": 120.00, "currency": "USD"},
+    {"provider": "aws", "account_id": "111111111111", "service": "AmazonVPC",  "region": "eu-central-1", "resource_id": "nat-01",           "amount": 45.00,  "currency": "USD"}
   ],
   "usage": [
-    {"resource_id": "i-0aaaa1111",  "metric": "CPUUtilization",       "unit": "Percent", "avg": 2.1,  "period_days": 30},
-    {"resource_id": "i-0bbbb2222",  "metric": "CPUUtilization",       "unit": "Percent", "avg": 42.0, "period_days": 30},
-    {"resource_id": "fn-processor", "metric": "Invocations",          "unit": "Count",   "avg": 0.0,  "period_days": 30},
-    {"resource_id": "db-legacy",    "metric": "DatabaseConnections",  "unit": "Count",   "avg": 8.0,  "period_days": 30}
+    {"resource_id": "i-0aaaa1111",   "metric": "CPUUtilization",        "unit": "Percent", "avg": 2.1,   "period_days": 30},
+    {"resource_id": "i-0bbbb2222",   "metric": "CPUUtilization",        "unit": "Percent", "avg": 42.0,  "period_days": 30},
+    {"resource_id": "vol-stray-01",  "metric": "VolumeState",           "unit": "State",   "avg": 0.0,   "period_days": 30},
+    {"resource_id": "fn-processor",  "metric": "Invocations",           "unit": "Count",   "avg": 0.0,   "period_days": 30},
+    {"resource_id": "db-legacy",     "metric": "DatabaseConnections",   "unit": "Count",   "avg": 8.0,   "period_days": 30},
+    {"resource_id": "nat-01",        "metric": "BytesOutToDestination", "unit": "Bytes",   "avg": 512000.0, "period_days": 30}
   ]
 }
