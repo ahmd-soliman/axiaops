@@ -53,6 +53,45 @@ var serviceMetrics = map[string]serviceMetric{
 		metricName:    "BytesOutToDestination",
 		unit:          "Bytes",
 	},
+	// Tier 2 — CloudWatch-based detection
+	"AmazonElastiCache": {
+		namespace:     "AWS/ElastiCache",
+		dimensionName: "CacheClusterId",
+		metricName:    "CurrConnections",
+		unit:          "Count",
+	},
+	"AmazonES": {
+		namespace:     "AWS/ES",
+		dimensionName: "DomainName",
+		metricName:    "SearchRate",
+		unit:          "Count",
+	},
+	"AmazonRedshift": {
+		namespace:     "AWS/Redshift",
+		dimensionName: "ClusterIdentifier",
+		metricName:    "DatabaseConnections",
+		unit:          "Count",
+	},
+	"AmazonSageMaker": {
+		namespace:     "AWS/SageMaker",
+		dimensionName: "EndpointName",
+		metricName:    "Invocations",
+		unit:          "Count",
+	},
+	"AmazonDynamoDB": {
+		namespace:     "AWS/DynamoDB",
+		dimensionName: "TableName",
+		metricName:    "ConsumedReadCapacityUnits",
+		unit:          "Count",
+	},
+	// EKS: requires Container Insights enabled on the cluster.
+	// Clusters without Container Insights will return no data and be skipped.
+	"AmazonEKS": {
+		namespace:     "ContainerInsights",
+		dimensionName: "ClusterName",
+		metricName:    "cluster_node_count",
+		unit:          "Count",
+	},
 }
 
 // FetchUsage queries CloudWatch for average usage metrics for each discovered

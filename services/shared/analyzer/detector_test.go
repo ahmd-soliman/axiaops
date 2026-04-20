@@ -162,6 +162,98 @@ func TestDetect_MultipleGhosts(t *testing.T) {
 	}
 }
 
+// ── Tier 2 CloudWatch rules ───────────────────────────────────────────────────
+
+func TestDetect_ElastiCache_ZeroConnections_FlagsGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonElastiCache", "cache-prod-01", 55.20)}
+	usage := []analyzer.UsageRecord{usageRecord("cache-prod-01", "CurrConnections", 0)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 1 {
+		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_ElastiCache_ActiveConnections_NoGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonElastiCache", "cache-prod-01", 55.20)}
+	usage := []analyzer.UsageRecord{usageRecord("cache-prod-01", "CurrConnections", 42)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 0 {
+		t.Errorf("expected 0 ghosts for active ElastiCache cluster, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_OpenSearch_ZeroSearchRate_FlagsGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonES", "search-logs-prod", 180.00)}
+	usage := []analyzer.UsageRecord{usageRecord("search-logs-prod", "SearchRate", 0)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 1 {
+		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_OpenSearch_ActiveSearches_NoGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonES", "search-logs-prod", 180.00)}
+	usage := []analyzer.UsageRecord{usageRecord("search-logs-prod", "SearchRate", 12.5)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 0 {
+		t.Errorf("expected 0 ghosts for active OpenSearch domain, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_Redshift_ZeroConnections_FlagsGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonRedshift", "dwh-analytics", 340.00)}
+	usage := []analyzer.UsageRecord{usageRecord("dwh-analytics", "DatabaseConnections", 0)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 1 {
+		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_Redshift_ActiveConnections_NoGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonRedshift", "dwh-analytics", 340.00)}
+	usage := []analyzer.UsageRecord{usageRecord("dwh-analytics", "DatabaseConnections", 7)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 0 {
+		t.Errorf("expected 0 ghosts for active Redshift cluster, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_SageMaker_ZeroInvocations_FlagsGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonSageMaker", "fraud-detection-v2", 210.00)}
+	usage := []analyzer.UsageRecord{usageRecord("fraud-detection-v2", "Invocations", 0)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 1 {
+		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_SageMaker_ActiveInvocations_NoGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonSageMaker", "fraud-detection-v2", 210.00)}
+	usage := []analyzer.UsageRecord{usageRecord("fraud-detection-v2", "Invocations", 884)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 0 {
+		t.Errorf("expected 0 ghosts for active SageMaker endpoint, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_DynamoDB_ZeroReads_FlagsGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonDynamoDB", "legacy-sessions", 28.40)}
+	usage := []analyzer.UsageRecord{usageRecord("legacy-sessions", "ConsumedReadCapacityUnits", 0)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 1 {
+		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_DynamoDB_ActiveReads_NoGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonDynamoDB", "legacy-sessions", 28.40)}
+	usage := []analyzer.UsageRecord{usageRecord("legacy-sessions", "ConsumedReadCapacityUnits", 1500)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 0 {
+		t.Errorf("expected 0 ghosts for active DynamoDB table, got %d", len(ghosts))
+	}
+}
+
 // ── Summarize ─────────────────────────────────────────────────────────────────
 
 func TestSummarize_Empty(t *testing.T) {

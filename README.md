@@ -309,14 +309,14 @@ API is available at `http://localhost/api/` when running with Docker Compose.
 
 | Service | Metric | Threshold | Typical Cost | Verdict |
 |---------|--------|-----------|--------------|---------|
-| ElastiCache | CurrConnections | = 0 | $25-100/mo | Idle cluster |
-| OpenSearch/ES | SearchRate | = 0 | $25+/mo | Unused cluster |
-| Redshift | DatabaseConnections | = 0 | $180+/mo | Abandoned cluster |
-| SageMaker | Invocations | = 0 | $100+/mo | Forgotten endpoint |
-| DynamoDB | ConsumedReadCapacityUnits | = 0 | Varies | Unused provisioned table |
-| EKS | cluster_node_count | = 0 | $73/mo | Control plane with no nodes |
+| ElastiCache | CurrConnections (`AWS/ElastiCache`) | = 0 | $25-100/mo | Idle cluster |
+| OpenSearch/ES | SearchRate (`AWS/ES`) | = 0 | $25+/mo | Unused cluster |
+| Redshift | DatabaseConnections (`AWS/Redshift`) | = 0 | $180+/mo | Abandoned cluster |
+| SageMaker | Invocations (`AWS/SageMaker`) | = 0 | $100+/mo | Forgotten endpoint |
+| DynamoDB | ConsumedReadCapacityUnits (`AWS/DynamoDB`) | = 0 | Varies | Unused provisioned table |
+| EKS | cluster_node_count (`ContainerInsights`) | = 0 | $73/mo | Control plane with no nodes |
 
-> **Tier 2 detections** use CloudWatch metrics and fit the existing rule framework. These catch expensive idle resources that are commonly forgotten.
+> **Tier 2 detections** use CloudWatch metrics and fit the existing rule framework. EKS detection requires [Container Insights](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Container-Insights-setup-EKS.html) to be enabled on the cluster — clusters without it are skipped rather than producing false positives.
 
 > Rules do not change without business justification. See `CLAUDE.md` for FinOps domain thresholds.
 
