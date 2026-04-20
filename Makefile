@@ -1,4 +1,4 @@
-.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-trends seed-remote-dev seed-remote-staging seed-remote-dev-trends seed-remote-staging-trends inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -84,13 +84,9 @@ test-migrate:
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.
 # Starts PostgreSQL automatically if not already running.
+# Includes 90 days of realistic trend data (upward trend + weekly patterns).
 seed:
 	./scripts/seed_test_data.sh
-
-# Seed with realistic trend data for chart development (90 days with gradual trends + weekly patterns).
-# Use this when developing time-series charts and graphs.
-seed-trends:
-	./scripts/seed_test_data.sh --with-trends
 
 # Seed remote dev database (NAS.local:5432)
 seed-remote-dev:
@@ -99,14 +95,6 @@ seed-remote-dev:
 # Seed remote staging database (NAS.local:5433)
 seed-remote-staging:
 	./scripts/seed_test_data.sh --remote staging
-
-# Seed remote dev with trends
-seed-remote-dev-trends:
-	./scripts/seed_test_data.sh --remote dev --with-trends
-
-# Seed remote staging with trends
-seed-remote-staging-trends:
-	./scripts/seed_test_data.sh --remote staging --with-trends
 
 inspect-db:
 	./scripts/inspect_db.sh

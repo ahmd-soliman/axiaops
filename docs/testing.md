@@ -189,10 +189,7 @@ Integration tests create their own test data (accounts, etc.) and clean up after
 For local development, use the seed scripts:
 
 ```bash
-make seed              # Basic seed: 12 ghosts, 19 resources, 1000 days
-make seed-trends       # Chart development: 90 days with realistic trends
+make seed              # 24 ghosts, 36 resources, 90 days of realistic trend data
 ```
-
-The `seed-trends` target generates time-series data with gradual growth, weekly patterns, and noise — ideal for developing trend charts and visualizations.
 
 No pre-seeded data required for tests.
