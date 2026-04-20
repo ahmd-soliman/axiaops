@@ -146,7 +146,7 @@ PostgreSQL (same DB)
 - Expo web built at Docker image build time — no Node.js runtime in production
 - `EXPO_PUBLIC_*` vars passed as Docker build args — baked into static bundle
 
-**Note:** Runtime uses PostgreSQL exclusively. Integration tests run against a real PostgreSQL instance via `make test-postgres`.
+**Note:** Runtime uses PostgreSQL exclusively. Integration tests run against a real PostgreSQL instance via `make test-storage`.
 
 #### 1.8 Storage Layer — PostgreSQL ✅
 
