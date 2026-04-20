@@ -17,3 +17,17 @@ export const SERVICE_CONFIG = {
 export function serviceConfig(service) {
   return SERVICE_CONFIG[service] ?? { label: service.slice(0, 3), color: '#718096', bg: '#F7FAFC', darkBg: '#1A2030' };
 }
+
+// Display configuration for resource sub-types within a service.
+// Used by the two-tier trend filter (e.g. EC2 → Instances / EBS Volumes / Snapshots).
+export const RESOURCE_TYPE_CONFIG = {
+  instance:         { label: 'Instances',   color: '#FF9900' },
+  volume:           { label: 'EBS Volumes', color: '#E07B39' },
+  snapshot:         { label: 'Snapshots',   color: '#D97706' },
+  ami:              { label: 'AMIs',        color: '#F97316' },
+  stopped_instance: { label: 'Stopped',     color: '#EF4444' },
+};
+
+export function resourceTypeConfig(rt) {
+  return RESOURCE_TYPE_CONFIG[rt] ?? { label: rt, color: '#718096' };
+}

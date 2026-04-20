@@ -628,8 +628,16 @@ echo ""
 
 # ── Ghost snapshots — historical trend data per account ───────────────────────
 # Creates snapshots per account simulating daily scans with realistic variation.
+# Also creates per-service breakdown rows in ghost_snapshot_services.
 # Use --with-trends for 90 days of realistic daily variation (for chart development)
 # Default: 1000 days of simple random data
+
+# Service cost distribution per account (fractions must sum to ~1.0):
+# Format: "service|resource_type:fraction" — pipe separates service from sub-type.
+# Plain "service:fraction" means resource_type is empty.
+#   ACCT1 (prod):    EC2|instance=0.16, RDS=0.42, ELB=0.04, VPC=0.01, EC2|volume=0.22, EC2|snapshot=0.15
+#   ACCT2 (staging): EC2|instance=0.46, Lambda=0.02, VPC=0.03, EC2|stopped_instance=0.33, EC2|ami=0.16
+#   ACCT3 (dev):     EC2|instance=0.22, RDS=0.30, Lambda=0.08, VPC=0.06, EC2|volume=0.20, EC2|ami=0.14
 
 generate_snapshots() {
   local acct_id=$1
@@ -637,39 +645,97 @@ generate_snapshots() {
   local base_savings=$3
   local days=$4
   local with_trends=$5
-  
-  local snap_insert="INSERT INTO ghost_snapshots (id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency) VALUES"
-  
-  for i in $(seq $days -1 1); do
-    local snap_date=$(date -u -v-${i}d +"%Y-%m-%dT12:00:00Z" 2>/dev/null || TZ=UTC date -d "$i days ago" +"%Y-%m-%dT12:00:00Z" 2>/dev/null)
-    
-    if [ "$with_trends" = "true" ]; then
-      # Realistic variation: gradual trend + weekly pattern + random noise
-      local trend_factor=$(awk -v days=$days -v i=$i "BEGIN {printf \"%.2f\", 1.0 + (($days - $i) / $days) * 0.3}")
-      local weekly_factor=$(awk -v i=$i "BEGIN {printf \"%.2f\", 1.0 + 0.1 * sin(($i / 7) * 3.14159)}")
-      local noise=$(awk -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", 0.9 + (rand() * 0.2)}")
-      
-      local ghosts=$(awk -v base=$base_ghosts -v trend=$trend_factor -v weekly=$weekly_factor -v noise=$noise \
-        "BEGIN {printf \"%d\", int(base * trend * weekly * noise)}")
-      local cost=$(awk -v base=$base_savings -v trend=$trend_factor -v weekly=$weekly_factor -v noise=$noise \
-        "BEGIN {printf \"%.2f\", base * trend * weekly * noise}")
-    else
-      # Simple random variation
-      local ghosts=$((base_ghosts + RANDOM % 5 - 2))
-      local cost=$(awk -v base=$base_savings -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", base * (0.8 + rand() * 0.4)}")
-    fi
-    
-    if [ $i -eq 1 ]; then
-      snap_insert="$snap_insert (gen_random_uuid()::text, '${TENANT_ID}', '$acct_id', '$snap_date', $ghosts, $cost, 'USD')"
-    else
-      snap_insert="$snap_insert (gen_random_uuid()::text, '${TENANT_ID}', '$acct_id', '$snap_date', $ghosts, $cost, 'USD'),"
-    fi
-  done
-  
-  snap_insert="$snap_insert ON CONFLICT DO NOTHING;"
-  psql_exec "$snap_insert"
-  echo "  Inserted $days snapshots for $acct_id."
+  # Service breakdown: "service:fraction service:fraction ..."
+  local services=$6
+
+  # Generate all SQL in a single awk invocation — avoids thousands of subshells.
+  local sql
+  sql=$(awk -v acct="$acct_id" -v tenant="$TENANT_ID" \
+    -v base_g="$base_ghosts" -v base_s="$base_savings" \
+    -v days="$days" -v trends="$with_trends" -v svcs="$services" \
+    'BEGIN {
+      srand()
+      pi = 3.14159265
+
+      # Parse services — format: "service|resource_type:fraction" or "service:fraction"
+      n_svc = split(svcs, svc_arr, " ")
+      for (s = 1; s <= n_svc; s++) {
+        split(svc_arr[s], parts, ":")
+        svc_fracs[s] = parts[2] + 0
+        # Split service|resource_type on pipe
+        n_pipe = split(parts[1], pipe_parts, "|")
+        svc_names[s] = pipe_parts[1]
+        svc_rtypes[s] = (n_pipe > 1) ? pipe_parts[2] : ""
+      }
+
+      # Get current epoch (approximate — good enough for seed data)
+      "date -u +%s" | getline epoch; close("date -u +%s")
+
+      # Snapshot INSERT
+      printf "INSERT INTO ghost_snapshots (id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency) VALUES\n"
+      for (i = days; i >= 1; i--) {
+        snap_epoch = epoch - (i * 86400)
+        # Format as ISO date (use shell date for portability)
+        cmd = "date -u -r " snap_epoch " +\"%Y-%m-%dT12:00:00Z\" 2>/dev/null || TZ=UTC date -u -d @" snap_epoch " +\"%Y-%m-%dT12:00:00Z\""
+        cmd | getline snap_date; close(cmd)
+
+        if (trends == "true") {
+          tf = 1.0 + ((days - i) / days) * 0.3
+          wf = 1.0 + 0.1 * sin((i / 7) * pi)
+          noise = 0.9 + rand() * 0.2
+          ghosts = int(base_g * tf * wf * noise)
+          cost = base_s * tf * wf * noise
+        } else {
+          ghosts = base_g + int(rand() * 5) - 2
+          cost = base_s * (0.8 + rand() * 0.4)
+        }
+        if (ghosts < 0) ghosts = 0
+
+        snap_id = "snap-" acct "-" i
+        comma = (i > 1) ? "," : ""
+        printf "  ('\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', %d, %.2f, '\''USD'\'')%s\n", snap_id, tenant, acct, snap_date, ghosts, cost, comma
+
+        # Store for service rows
+        snap_ids[i] = snap_id
+        snap_ghosts[i] = ghosts
+        snap_costs[i] = cost
+      }
+      printf "ON CONFLICT DO NOTHING;\n\n"
+
+      # Service INSERT
+      printf "INSERT INTO ghost_snapshot_services (id, snapshot_id, tenant_id, service, resource_type, ghost_count, monthly_cost, currency) VALUES\n"
+      first = 1
+      for (i = days; i >= 1; i--) {
+        for (s = 1; s <= n_svc; s++) {
+          svc_noise = 0.85 + rand() * 0.3
+          svc_cost = snap_costs[i] * svc_fracs[s] * svc_noise
+          svc_g = int(snap_ghosts[i] * svc_fracs[s] * svc_noise)
+          if (svc_g < 1) svc_g = 1
+          row_id = "svc-" acct "-" i "-" s
+
+          if (!first) printf ",\n"
+          first = 0
+          printf "  ('\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', %d, %.2f, '\''USD'\'')", row_id, snap_ids[i], tenant, svc_names[s], svc_rtypes[s], svc_g, svc_cost
+        }
+      }
+      printf "\nON CONFLICT DO NOTHING;\n"
+    }')
+
+  # Pipe both INSERT statements via stdin (psql_exec uses -c which only takes one statement).
+  if [ "$MODE" = "docker" ]; then
+    echo "$sql" | docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops --quiet 2>/dev/null || true
+  else
+    echo "$sql" | psql "$DATABASE_URL" --quiet 2>/dev/null || true
+  fi
+
+  local svc_count=$((days * $(echo "$services" | wc -w | tr -d ' ')))
+  echo "  Inserted $days snapshots + $svc_count service rows for $acct_id."
 }
+
+# Clean old seed snapshot data (deterministic IDs).
+# ghost_snapshot_services may not exist on older schemas — ignore errors.
+psql_exec "DELETE FROM ghost_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" 2>/dev/null || true
+psql_exec "DELETE FROM ghost_snapshots WHERE id LIKE 'snap-seed-account-%';"
 
 if [ "$WITH_TRENDS" = "true" ]; then
   DAYS=90
@@ -679,9 +745,12 @@ else
   echo "Inserting ghost snapshots (1000 days × 3 accounts)..."
 fi
 
-generate_snapshots "$ACCT1" 14 498.0 $DAYS $WITH_TRENDS  # Production  (+2 EBS vol/snapshot ghosts)
-generate_snapshots "$ACCT2" 10 330.4 $DAYS $WITH_TRENDS  # Staging     (+2 stopped instance/AMI ghosts)
-generate_snapshots "$ACCT3" 9  217.7 $DAYS $WITH_TRENDS  # Dev         (+4 Tier-1 ghosts)
+generate_snapshots "$ACCT1" 14 498.0 $DAYS $WITH_TRENDS \
+  "AmazonEC2|instance:0.16 AmazonRDS:0.42 AmazonElasticLoadBalancing:0.04 AmazonVPC:0.01 AmazonEC2|volume:0.22 AmazonEC2|snapshot:0.15"
+generate_snapshots "$ACCT2" 10 330.4 $DAYS $WITH_TRENDS \
+  "AmazonEC2|instance:0.46 AWSLambda:0.02 AmazonVPC:0.03 AmazonEC2|stopped_instance:0.33 AmazonEC2|ami:0.16"
+generate_snapshots "$ACCT3" 9  217.7 $DAYS $WITH_TRENDS \
+  "AmazonEC2|instance:0.22 AmazonRDS:0.30 AWSLambda:0.08 AmazonVPC:0.06 AmazonEC2|volume:0.20 AmazonEC2|ami:0.14"
 echo ""
 
 # ── RLS isolation check (using app user, not owner) ───────────────────────────
@@ -690,9 +759,11 @@ echo "=== Verifying dev tenant data ==="
 GHOST_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_records WHERE tenant_id = '${TENANT_ID}';")
 RESOURCE_COUNT=$(psql_query "SELECT COUNT(*) FROM resource_records WHERE tenant_id = '${TENANT_ID}';")
 SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshots WHERE tenant_id = '${TENANT_ID}';")
-echo "Dev tenant ghost records:     $GHOST_COUNT  (expected 24)"
-echo "Dev tenant resource records:  $RESOURCE_COUNT  (expected 36)"
-echo "Dev tenant ghost snapshots:   $SNAPSHOT_COUNT  (expected 3000)"
+SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshot_services WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
+echo "Dev tenant ghost records:       $GHOST_COUNT  (expected 24)"
+echo "Dev tenant resource records:    $RESOURCE_COUNT  (expected 36)"
+echo "Dev tenant ghost snapshots:     $SNAPSHOT_COUNT  (expected 3000)"
+echo "Dev tenant snapshot services:   $SVC_COUNT"
 echo ""
 
 echo "=== Done ==="
