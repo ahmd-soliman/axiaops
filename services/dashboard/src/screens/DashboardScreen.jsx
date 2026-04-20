@@ -334,7 +334,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
                   <span style={{ fontSize: 11, fontWeight: 800, color: cfg.color }}>{cfg.label}</span>
                 </div>
                 {item.is_ghost && (
-                  <div style={{ backgroundColor: t.ghostBadgeBg, paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
+                  <div style={{ backgroundColor: t.surfaceRaised, border: `1px solid ${t.border}`, paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
                     <span style={{ fontSize: 10, fontWeight: 700, color: t.ghostBadgeText }}>zombie</span>
                   </div>
                 )}
