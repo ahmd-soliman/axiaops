@@ -1,4 +1,4 @@
-.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-trends seed-remote-dev seed-remote-staging seed-remote-dev-trends seed-remote-staging-trends inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -84,29 +84,17 @@ test-migrate:
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.
 # Starts PostgreSQL automatically if not already running.
+# Includes 90 days of realistic trend data (upward trend + weekly patterns).
 seed:
 	./scripts/seed_test_data.sh
 
-# Seed with realistic trend data for chart development (90 days with gradual trends + weekly patterns).
-# Use this when developing time-series charts and graphs.
-seed-trends:
-	./scripts/seed_test_data.sh --with-trends
-
-# Seed remote dev database (192.168.1.100:5432)
+# Seed remote dev database (NAS.local:5432)
 seed-remote-dev:
 	./scripts/seed_test_data.sh --remote dev
 
-# Seed remote staging database (192.168.1.100:5433)
+# Seed remote staging database (NAS.local:5433)
 seed-remote-staging:
 	./scripts/seed_test_data.sh --remote staging
-
-# Seed remote dev with trends
-seed-remote-dev-trends:
-	./scripts/seed_test_data.sh --remote dev --with-trends
-
-# Seed remote staging with trends
-seed-remote-staging-trends:
-	./scripts/seed_test_data.sh --remote staging --with-trends
 
 inspect-db:
 	./scripts/inspect_db.sh
@@ -162,10 +150,37 @@ test: test-shared test-api test-ingestion
 #   • Real PostgreSQL database operations
 #   • Row-Level Security (RLS) policies
 #   • Schema migrations
+# Uses isolated container (not docker-compose) for hermetic test runs.
 test-storage:
-	docker-compose up -d --wait postgres
-	$(MAKE) clean-db
-	cd services/shared && MIGRATION_DATABASE_URL="$(MIGRATION_DATABASE_URL)" DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v -p=1 ./storage/postgres/...
+	@echo "Running storage tests with isolated PostgreSQL container..."
+	$(eval PG_CONTAINER := axiaops-storage-test-pg-$(shell date +%s))
+	$(eval TEST_NETWORK := $(if $(RUNNER_NETWORK),$(RUNNER_NETWORK),axiaops-storage-test-net))
+	docker rm -f $(PG_CONTAINER) 2>/dev/null || true
+	$(if $(RUNNER_NETWORK),,docker network create $(TEST_NETWORK) 2>/dev/null || true)
+	docker run -d --name $(PG_CONTAINER) --network $(TEST_NETWORK) -p 5433:5432 \
+		-e POSTGRES_DB=axiaops \
+		-e POSTGRES_USER=axiaops_owner \
+		-e POSTGRES_PASSWORD=$(POSTGRES_OWNER_PASSWORD) \
+		postgres:16-alpine
+	@echo "Waiting for PostgreSQL to be ready..."
+	@timeout=60; elapsed=0; \
+	until docker exec $(PG_CONTAINER) pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do \
+		if [ $$elapsed -ge $$timeout ]; then \
+			echo "PostgreSQL failed to start within $${timeout}s"; \
+			docker logs $(PG_CONTAINER); \
+			docker rm -f $(PG_CONTAINER); \
+			exit 1; \
+		fi; \
+		sleep 1; \
+		elapsed=$$((elapsed + 1)); \
+	done
+	@echo "PostgreSQL ready"
+	cd services/shared && \
+		MIGRATION_DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5433/axiaops?sslmode=disable" \
+		DATABASE_URL="postgres://axiaops:$(POSTGRES_PASSWORD)@localhost:5433/axiaops?sslmode=disable" \
+		go test -count=1 -v -p=1 ./storage/postgres/...
+	docker rm -f $(PG_CONTAINER)
+	$(if $(RUNNER_NETWORK),,docker network rm $(TEST_NETWORK) 2>/dev/null || true)
 
 # Full test suite: unit tests + API integration tests + storage tests.
 test-all: test test-storage
@@ -180,16 +195,20 @@ test-integration:
 test-integration-api:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
 	cd test-infra/integration && docker-compose build migrate api ingestion
-	cd test-infra/integration && docker-compose up -d postgres redis
+	cd test-infra/integration && docker-compose up -d postgres redis && \
+		docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
+		(for i in {1..30}; do docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)
 	cd test-infra/integration && docker-compose run --rm api-tests
 	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
 
-# Ingestion integration tests only  
+# Ingestion integration tests only
 test-integration-ingestion:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
 	cd test-infra/integration && docker-compose build migrate ingestion
-	cd test-infra/integration && docker-compose up -d postgres redis
+	cd test-infra/integration && docker-compose up -d postgres redis && \
+		docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
+		(for i in {1..30}; do docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)
 	cd test-infra/integration && docker-compose run --rm ingestion-tests
 	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
