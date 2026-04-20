@@ -319,6 +319,87 @@ func (c *Client) FetchResourceCosts(ctx context.Context, start, end time.Time) (
 	return records, nil
 }
 
+// FetchCostExplorerAPICosts queries for Cost Explorer API charges.
+// AWS bills these under "Amazon Cost Management APIs" in Cost Explorer.
+// This is non-fatal — if unavailable, returns empty slice.
+func (c *Client) FetchCostExplorerAPICosts(ctx context.Context, start, end time.Time) ([]model.CostRecord, error) {
+	// Filter for Cost Management APIs service (includes Cost Explorer API charges)
+	filter := &types.Expression{
+		Dimensions: &types.DimensionValues{
+			Key:    types.DimensionService,
+			Values: []string{"Amazon Cost Management APIs"},
+		},
+	}
+
+	input := &costexplorer.GetCostAndUsageInput{
+		TimePeriod: &types.DateInterval{
+			Start: aws.String(start.Format(dateLayout)),
+			End:   aws.String(end.Format(dateLayout)),
+		},
+		Granularity: types.GranularityDaily,
+		Metrics:     []string{"UnblendedCost"},
+		Filter:      filter,
+		GroupBy: []types.GroupDefinition{
+			{Type: types.GroupDefinitionTypeDimension, Key: aws.String("SERVICE")},
+			{Type: types.GroupDefinitionTypeDimension, Key: aws.String("REGION")},
+		},
+	}
+
+	var records []model.CostRecord
+
+	for {
+		var page *costexplorer.GetCostAndUsageOutput
+		err := retry.Do(ctx, retry.DefaultConfig(), func() error {
+			var err error
+			page, err = c.ce.GetCostAndUsage(ctx, input)
+			return err
+		})
+
+		if err != nil {
+			// Non-fatal: API cost tracking is supplemental
+			slog.Warn("aws: FetchCostExplorerAPICosts failed, continuing without API cost data", "error", err)
+			return nil, nil
+		}
+
+		for _, result := range page.ResultsByTime {
+			periodStart, _ := time.Parse(dateLayout, aws.ToString(result.TimePeriod.Start))
+			periodEnd, _ := time.Parse(dateLayout, aws.ToString(result.TimePeriod.End))
+
+			for _, group := range result.Groups {
+				region := group.Keys[1]
+
+				metric := group.Metrics["UnblendedCost"]
+				amount, _ := strconv.ParseFloat(aws.ToString(metric.Amount), 64)
+				if amount <= 0 {
+					continue
+				}
+
+				records = append(records, model.CostRecord{
+					Provider:    "aws",
+					AccountID:   c.accountID,
+					Service:     "AWSCostExplorer", // Normalize to internal name (Amazon Cost Management APIs)
+					Region:      region,
+					Amount:      amount,
+					Currency:    aws.ToString(metric.Unit),
+					PeriodStart: periodStart,
+					PeriodEnd:   periodEnd,
+					FetchedAt:   time.Now().UTC(),
+				})
+			}
+		}
+
+		if page.NextPageToken == nil {
+			break
+		}
+		input.NextPageToken = page.NextPageToken
+	}
+
+	if len(records) > 0 {
+		slog.Info("aws: fetched Cost Explorer API costs", "count", len(records))
+	}
+	return records, nil
+}
+
 // parseResourceID extracts the region and short resource ID from an ARN or
 // raw resource identifier returned by Cost Explorer.
 // For ARNs like "arn:aws:ec2:us-east-1:123456789:instance/i-0abc123" it returns
