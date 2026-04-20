@@ -93,13 +93,13 @@ services:
       context: ./services/dashboard
       dockerfile: Dockerfile
       args:
-        EXPO_PUBLIC_KINDE_ISSUER: ${EXPO_PUBLIC_KINDE_ISSUER:-https://axiaops.kinde.com}
-        EXPO_PUBLIC_KINDE_CLIENT_ID: ${EXPO_PUBLIC_KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
-        EXPO_PUBLIC_API_URL: /api
-        EXPO_PUBLIC_DEV_MODE: ${DEV_MODE:-true}
+        VITE_KINDE_ISSUER: ${VITE_KINDE_ISSUER:-https://axiaops.kinde.com}
+        VITE_KINDE_CLIENT_ID: ${VITE_KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
+        VITE_API_URL: /api
+        VITE_DEV_MODE: ${DEV_MODE:-true}
     container_name: axiaops-dashboard
     ports:
-      - "8081:80"
+      - "8082:80"
     depends_on:
       api:
         condition: service_healthy

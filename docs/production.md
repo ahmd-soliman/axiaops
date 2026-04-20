@@ -157,7 +157,7 @@ stay on HTTP internally; TLS is terminated at the App Runner edge.
 
 ## Hosting — AWS App Runner
 
-Both `api` and `ingestion` run on App Runner. The dashboard (Expo static build)
+Both `api` and `ingestion` run on App Runner. The dashboard (Vite static build)
 is served via CloudFront.
 
 ```
