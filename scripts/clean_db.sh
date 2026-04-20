@@ -121,13 +121,12 @@ fi
 
 if [[ "$DROP_SCHEMA" == "true" ]]; then
   echo "Dropping schema 'axiaops'..."
+  # schema_migrations lives inside axiaops now, so CASCADE handles it.
   psql_super "DROP SCHEMA IF EXISTS axiaops CASCADE;"
   echo "Revoking privileges from user 'axiaops'..."
   psql_super "REVOKE ALL PRIVILEGES ON DATABASE axiaops FROM axiaops;"
   echo "Dropping user 'axiaops'..."
   psql_super "DROP USER IF EXISTS axiaops;"
-  echo "Dropping public.schema_migrations..."
-  psql_super "DROP TABLE IF EXISTS public.schema_migrations;"
   echo ""
   echo "=== Schema dropped ==="
   echo "Run migrations to recreate the schema."
@@ -136,8 +135,8 @@ fi
 
 # ── Truncate all data ─────────────────────────────────────────────────────────
 
-echo "Dropping public.schema_migrations..."
-psql_super "DROP TABLE IF EXISTS public.schema_migrations;" 2>/dev/null || true
+echo "Resetting migration state (axiaops.schema_migrations)..."
+psql_super "DROP TABLE IF EXISTS axiaops.schema_migrations;" 2>/dev/null || true
 echo ""
 
 echo "Truncating all tables..."
