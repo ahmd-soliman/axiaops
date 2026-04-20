@@ -216,19 +216,19 @@ Create the following variables (all must be **Masked** and **Protected**):
 | Protect | ✓ Yes |
 | Mask | ✓ Yes |
 
-#### EXPO_PUBLIC_KINDE_ISSUER
+#### VITE_KINDE_ISSUER
 | Field | Value |
 |-------|-------|
-| Key | `EXPO_PUBLIC_KINDE_ISSUER` |
+| Key | `VITE_KINDE_ISSUER` |
 | Value | `https://YOUR_KINDE_DOMAIN.kinde.com` |
 | Type | Variable |
 | Protect | ✓ Yes |
 | Mask | ✓ No (not a secret, but safe to mask) |
 
-#### EXPO_PUBLIC_KINDE_CLIENT_ID
+#### VITE_KINDE_CLIENT_ID
 | Field | Value |
 |-------|-------|
-| Key | `EXPO_PUBLIC_KINDE_CLIENT_ID` |
+| Key | `VITE_KINDE_CLIENT_ID` |
 | Value | `your_client_id_here` |
 | Type | Variable |
 | Protect | ✓ Yes |
@@ -260,8 +260,8 @@ Create the following variables (all must be **Masked** and **Protected**):
 - [ ] `AWS_ACCESS_KEY_ID` — masked ✓, protected ✓
 - [ ] `AWS_SECRET_ACCESS_KEY` — masked ✓, protected ✓
 - [ ] `ENCRYPTION_KEY` — masked ✓, protected ✓
-- [ ] `EXPO_PUBLIC_KINDE_ISSUER` — masked ✓, protected ✓
-- [ ] `EXPO_PUBLIC_KINDE_CLIENT_ID` — masked ✓, protected ✓
+- [ ] `VITE_KINDE_ISSUER` — masked ✓, protected ✓
+- [ ] `VITE_KINDE_CLIENT_ID` — masked ✓, protected ✓
 - [ ] `CLOUDFRONT_DISTRIBUTION_ID` — masked ✓, protected ✓
 - [ ] `STAGING_API_URL` — protected ✓
 
@@ -296,7 +296,7 @@ Create the following variables (all must be **Masked** and **Protected**):
 | `AWS_ACCESS_KEY_ID` | 90 days | Create new key pair in AWS IAM; update GitLab variables; delete old keys |
 | `AWS_SECRET_ACCESS_KEY` | 90 days | Same as above |
 | `ENCRYPTION_KEY` | 12 months | Run `db/migrate-encryption-key.sql` (requires database downtime); then update GitLab variable |
-| `EXPO_PUBLIC_KINDE_*` | As per Kinde policy | Update when Kinde credentials change |
+| `VITE_KINDE_*` | As per Kinde policy | Update when Kinde credentials change |
 | `CLOUDFRONT_DISTRIBUTION_ID` | Never (unless distribution is replaced) | Only update if CloudFront distribution is recreated |
 
 ---

@@ -113,7 +113,7 @@ API service (always running on :8080)
   - Accounts bar — shows connected accounts with green/red status dot; Scan button triggers on-demand ingestion
   - Service pill filter — tap a service pill to filter the ghost list; tap again to clear
 - **Connect screen** — credential form (label, Access Key ID, Secret Access Key, region) with IAM permissions hint; auto-shown on first login when no accounts are connected
-- **Detail screen** — service-coloured header, stats grid, reason, remediation hint per service type
+- **Detail screen** — service-coloured header, stats with light orange labels (no borders), reason, remediation hint per service type
 - **Auth:** Kinde PKCE login screen → token stored in `localStorage` (web) / `SecureStore` (native)
 - **API client** — sends `Authorization: Bearer <token>` on every request
 

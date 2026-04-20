@@ -32,7 +32,7 @@ stop() {
   fi
 
   # Kill any leftover processes still bound to the service ports
-  for port in 8080 8081 3000; do
+  for port in 8080 8081 5173; do
     local pids
     pids=$(lsof -ti :"$port" 2>/dev/null || true)
     if [[ -n "$pids" ]]; then
@@ -114,14 +114,15 @@ disown $API_PID
 until curl -sf http://localhost:8080/health &>/dev/null; do sleep 1; done
 
 # Start Dashboard
-echo "Starting Dashboard (3000)..."
+echo "Starting Dashboard (5173)..."
 cd "$DASHBOARD_DIR"
-export EXPO_PUBLIC_KINDE_ISSUER="https://axiaops.kinde.com"
-export EXPO_PUBLIC_KINDE_CLIENT_ID="9fc9d3b7d0024947bd3c9fa253dfd28c"
-export EXPO_PUBLIC_DEV_MODE="$CALLER_DEV_MODE"
-export EXPO_PUBLIC_DEV_ORG_NAME="${DEV_ORG_NAME:-AxiaOps Dev}"
-export BROWSER="${BROWSER:-google chrome}"
-npx expo start --web --port 3000 --non-interactive --clear >> "$LOG_FILE" 2>&1 &
+echo "Installing dashboard dependencies..."
+npm install --silent --no-audit
+export VITE_KINDE_ISSUER="https://axiaops.kinde.com"
+export VITE_KINDE_CLIENT_ID="9fc9d3b7d0024947bd3c9fa253dfd28c"
+export VITE_DEV_MODE="$CALLER_DEV_MODE"
+export VITE_DEV_ORG_NAME="${DEV_ORG_NAME:-AxiaOps Dev}"
+npm run dev >> "$LOG_FILE" 2>&1 &
 DASHBOARD_PID=$!
 echo $DASHBOARD_PID >> "$PID_FILE"
 disown $DASHBOARD_PID
