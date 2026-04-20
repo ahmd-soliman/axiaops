@@ -257,17 +257,15 @@ For a mid-sized AWS account (10-20 engineers), Tier 1 detections alone often unc
 - [ ] Weekly email digest when new ghosts appear
 - [ ] Production deployment (App Runner + RDS + Terraform)
 
-**Phase 3 (Tier 2 detections):**
-- [ ] Underutilized RDS instances (CPU < 10% + connections < 5)
-- [ ] Idle NAT Gateways (bytes < 1 GB/day)
-- [ ] Unused Elastic Load Balancers (requests < 100/day)
-- [ ] Old CloudWatch Logs (retention > 90 days, no recent writes)
+**New Tier 1 API-only (shipped April 2026):**
+- [x] CloudWatch Log Groups — no retention or zero stored bytes
+- [x] Orphaned RDS Snapshots — manual, source DB deleted, > 30 days
+- [x] Stale ECR Images — untagged or > 90 days (per repo summary)
 
-**Phase 4 (Tier 3 detections):**
-- [ ] S3 buckets with no access logs
-- [ ] CloudFront distributions with no requests
-- [ ] Redshift clusters with low query volume
-- [ ] ElastiCache clusters with low hit rate
+**Phase 3 (remaining detections):**
+- [ ] Secrets Manager: unused secrets (last accessed > 90 days)
+- [ ] S3: buckets with zero requests over 60 days
+- [ ] CloudFront: distributions with zero requests over 30 days
 
 ---
 

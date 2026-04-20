@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -17,11 +20,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/eks"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/opensearch"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/redshift"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 
 	"axiaops.io/shared/model"
 )
@@ -49,6 +55,10 @@ func DiscoverResources(ctx context.Context, awsClient *Client, records []model.C
 	}
 
 	var discovered []DiscoveredResource
+
+	// Global services (CloudFront, S3) return the same results regardless of
+	// region. Track which have already been discovered to avoid duplicates.
+	globalDone := make(map[string]bool)
 
 	for k := range pairs {
 		cfg, err := awsClient.configForRegion(ctx, k.region)
@@ -81,6 +91,33 @@ func DiscoverResources(ctx context.Context, awsClient *Client, records []model.C
 			ids = discoverDynamoDB(ctx, cfg)
 		case "AmazonEKS":
 			ids = discoverEKS(ctx, cfg)
+		case "AmazonCloudFront":
+			// CloudFront is global — only discover once.
+			if globalDone[k.service] {
+				continue
+			}
+			globalDone[k.service] = true
+			ids = discoverCloudFront(ctx, cfg)
+		case "AmazonS3":
+			// S3 ListBuckets is global but CloudWatch metrics are regional.
+			// Discover once, then assign each bucket to its actual region.
+			if globalDone[k.service] {
+				continue
+			}
+			globalDone[k.service] = true
+			bucketsByRegion := discoverS3BucketsByRegion(ctx, cfg)
+			for bucketRegion, buckets := range bucketsByRegion {
+				for _, name := range buckets {
+					discovered = append(discovered, DiscoveredResource{
+						Service:    k.service,
+						Region:     bucketRegion,
+						ResourceID: name,
+					})
+				}
+			}
+			continue // skip the generic append below — already handled
+		case "AmazonKinesis":
+			ids = discoverKinesis(ctx, cfg)
 		default:
 			continue
 		}
@@ -99,50 +136,77 @@ func DiscoverResources(ctx context.Context, awsClient *Client, records []model.C
 
 func discoverEC2(ctx context.Context, cfg aws.Config) []string {
 	client := ec2.NewFromConfig(cfg)
-	out, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{})
-	if err != nil {
-		slog.Warn("discover: EC2 DescribeInstances", "error", err)
-		return nil
-	}
 	var ids []string
-	for _, r := range out.Reservations {
-		for _, i := range r.Instances {
-			if i.InstanceId != nil {
-				ids = append(ids, aws.ToString(i.InstanceId))
+	var nextToken *string
+	for {
+		out, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+			NextToken: nextToken,
+		})
+		if err != nil {
+			slog.Warn("discover: EC2 DescribeInstances", "error", err)
+			return nil
+		}
+		for _, r := range out.Reservations {
+			for _, i := range r.Instances {
+				if i.InstanceId != nil {
+					ids = append(ids, aws.ToString(i.InstanceId))
+				}
 			}
 		}
+		if out.NextToken == nil {
+			break
+		}
+		nextToken = out.NextToken
 	}
 	return ids
 }
 
 func discoverRDS(ctx context.Context, cfg aws.Config) []string {
 	client := rds.NewFromConfig(cfg)
-	out, err := client.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{})
-	if err != nil {
-		slog.Warn("discover: RDS DescribeDBInstances", "error", err)
-		return nil
-	}
 	var ids []string
-	for _, db := range out.DBInstances {
-		if db.DBInstanceIdentifier != nil {
-			ids = append(ids, aws.ToString(db.DBInstanceIdentifier))
+	var marker *string
+	for {
+		out, err := client.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{
+			Marker: marker,
+		})
+		if err != nil {
+			slog.Warn("discover: RDS DescribeDBInstances", "error", err)
+			return nil
 		}
+		for _, db := range out.DBInstances {
+			if db.DBInstanceIdentifier != nil {
+				ids = append(ids, aws.ToString(db.DBInstanceIdentifier))
+			}
+		}
+		if out.Marker == nil {
+			break
+		}
+		marker = out.Marker
 	}
 	return ids
 }
 
 func discoverLambda(ctx context.Context, cfg aws.Config) []string {
 	client := lambda.NewFromConfig(cfg)
-	out, err := client.ListFunctions(ctx, &lambda.ListFunctionsInput{})
-	if err != nil {
-		slog.Warn("discover: Lambda ListFunctions", "error", err)
-		return nil
-	}
 	var ids []string
-	for _, f := range out.Functions {
-		if f.FunctionName != nil {
-			ids = append(ids, aws.ToString(f.FunctionName))
+	var nextMarker *string
+	for {
+		out, err := client.ListFunctions(ctx, &lambda.ListFunctionsInput{
+			Marker: nextMarker,
+		})
+		if err != nil {
+			slog.Warn("discover: Lambda ListFunctions", "error", err)
+			return nil
 		}
+		for _, f := range out.Functions {
+			if f.FunctionName != nil {
+				ids = append(ids, aws.ToString(f.FunctionName))
+			}
+		}
+		if out.NextMarker == nil {
+			break
+		}
+		nextMarker = out.NextMarker
 	}
 	return ids
 }
@@ -621,24 +685,30 @@ func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecor
 		}
 
 		// Second pass: batch-fetch volume sizes for accurate cost estimation.
+		// DescribeVolumes accepts at most 200 IDs per call, so we chunk.
 		allVolIDs := make([]string, 0)
 		for _, c := range candidates {
 			allVolIDs = append(allVolIDs, c.volumeIDs...)
 		}
 		volSizes := make(map[string]int32) // volumeID → sizeGB
 		var volumeSizeFetchFailed bool
-		if len(allVolIDs) > 0 {
+		const describeVolBatch = 200
+		for i := 0; i < len(allVolIDs); i += describeVolBatch {
+			end := i + describeVolBatch
+			if end > len(allVolIDs) {
+				end = len(allVolIDs)
+			}
 			volOut, err := client.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
-				VolumeIds: allVolIDs,
+				VolumeIds: allVolIDs[i:end],
 			})
 			if err != nil {
 				slog.Warn("stopped-ec2: DescribeVolumes for attached volumes failed — skipping cost estimate for affected instances", "region", region, "error", err)
 				volumeSizeFetchFailed = true
-			} else {
-				for _, v := range volOut.Volumes {
-					if v.VolumeId != nil && v.Size != nil {
-						volSizes[aws.ToString(v.VolumeId)] = aws.ToInt32(v.Size)
-					}
+				break
+			}
+			for _, v := range volOut.Volumes {
+				if v.VolumeId != nil && v.Size != nil {
+					volSizes[aws.ToString(v.VolumeId)] = aws.ToInt32(v.Size)
 				}
 			}
 		}
@@ -822,6 +892,400 @@ func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient 
 	return ghosts, nil
 }
 
+// ── Wasteful CloudWatch Log Groups ──────────────────────────────────────────
+
+// cwLogStorageGBCost is the CloudWatch Logs storage cost per GB/month.
+// Source: AWS CloudWatch pricing ($0.03/GB standard, but stored bytes are
+// already compressed — effective rate is higher per raw GB).
+const cwLogStorageGBCost = 0.03
+
+// DiscoverWastefulLogGroups calls logs:DescribeLogGroups in each region present
+// in the cost records and returns a GhostResource for every log group that has
+// no retention policy set (logs stored indefinitely). Empty log groups with a
+// retention policy are harmless ($0 cost) and are not flagged. This is API-only
+// — no CloudWatch metrics needed because DescribeLogGroups includes both
+// retentionInDays and storedBytes.
+func DiscoverWastefulLogGroups(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+	regions := uniqueRegions(records)
+	accountID := awsClient.AccountID()
+	var ghosts []model.GhostResource
+
+	for region := range regions {
+		cfg, err := awsClient.configForRegion(ctx, region)
+		if err != nil {
+			slog.Warn("cw-logs: load config", "region", region, "error", err)
+			continue
+		}
+		client := cloudwatchlogs.NewFromConfig(cfg)
+
+		var nextToken *string
+		for {
+			out, err := client.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
+				NextToken: nextToken,
+			})
+			if err != nil {
+				slog.Warn("cw-logs: DescribeLogGroups failed", "region", region, "error", err)
+				break
+			}
+
+			for _, lg := range out.LogGroups {
+				name := aws.ToString(lg.LogGroupName)
+				if name == "" {
+					continue
+				}
+				storedBytes := aws.ToInt64(lg.StoredBytes)
+				storedGB := float64(storedBytes) / (1024 * 1024 * 1024)
+				monthlyCost := storedGB * cwLogStorageGBCost
+
+				// Flag 1: no retention policy — logs stored forever.
+				if lg.RetentionInDays == nil {
+					ghosts = append(ghosts, model.GhostResource{
+						Provider:          "aws",
+						AccountID:         accountID,
+						InternalAccountID: internalAccountID,
+						Service:           "AmazonCloudWatch",
+						Region:            region,
+						ResourceID:        name,
+						Tags:              map[string]string{},
+						MonthlyCost:       monthlyCost,
+						Currency:          "USD",
+						PeriodStart:       start,
+						PeriodEnd:         end,
+						UsageMetric:       "RetentionDays",
+						UsageAvg:          0,
+						UsageUnit:         "Days",
+						Reason:            fmt.Sprintf("CloudWatch log group has no retention policy — %.1f GB stored indefinitely accumulating charges", storedGB),
+						Owner:             "unknown",
+					})
+					slog.Info("cw-logs: no-retention log group flagged", "log_group", name, "stored_gb", fmt.Sprintf("%.1f", storedGB), "region", region)
+				}
+			}
+
+			if out.NextToken == nil {
+				break
+			}
+			nextToken = out.NextToken
+		}
+	}
+	return ghosts, nil
+}
+
+// ── Orphaned RDS snapshots ───────────────────────────────────────────────────
+
+// rdsSnapshotMonthlyGBCost is the RDS snapshot storage cost per GB/month.
+// Source: AWS RDS pricing.
+const rdsSnapshotMonthlyGBCost = 0.095
+
+// rdsSnapshotAgeThreshold is the minimum age for a manual RDS snapshot to be
+// considered stale. Snapshots younger than this are left alone — they may be
+// part of a recent migration or manual backup workflow.
+const rdsSnapshotAgeThreshold = 30 * 24 * time.Hour
+
+// DiscoverOrphanedRDSSnapshots calls rds:DescribeDBSnapshots (type=manual)
+// cross-referenced with rds:DescribeDBInstances to find manual snapshots whose
+// source DB instance no longer exists and that are older than 30 days. These
+// accumulate silently at $0.095/GB-month. Automated snapshots are excluded —
+// AWS manages their lifecycle via the retention setting.
+func DiscoverOrphanedRDSSnapshots(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+	regions := uniqueRegions(records)
+	accountID := awsClient.AccountID()
+	now := time.Now().UTC()
+	var ghosts []model.GhostResource
+
+	for region := range regions {
+		cfg, err := awsClient.configForRegion(ctx, region)
+		if err != nil {
+			slog.Warn("rds-snap: load config", "region", region, "error", err)
+			continue
+		}
+		client := rds.NewFromConfig(cfg)
+
+		// 1. Build the set of DB instance identifiers that currently exist.
+		//    If this call fails we cannot safely distinguish "orphaned" from
+		//    "source DB exists but DescribeDBInstances returned an error", so
+		//    skip the entire region rather than producing false positives.
+		existingDBs := make(map[string]struct{})
+		var dbFetchFailed bool
+		var dbMarker *string
+		for {
+			dbOut, err := client.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{
+				Marker: dbMarker,
+			})
+			if err != nil {
+				slog.Warn("rds-snap: DescribeDBInstances failed", "region", region, "error", err)
+				dbFetchFailed = true
+				break
+			}
+			for _, db := range dbOut.DBInstances {
+				if db.DBInstanceIdentifier != nil {
+					existingDBs[aws.ToString(db.DBInstanceIdentifier)] = struct{}{}
+				}
+			}
+			if dbOut.Marker == nil {
+				break
+			}
+			dbMarker = dbOut.Marker
+		}
+		if dbFetchFailed {
+			continue
+		}
+
+		// 2. Enumerate manual snapshots and flag orphans.
+		var snapMarker *string
+		for {
+			snapOut, err := client.DescribeDBSnapshots(ctx, &rds.DescribeDBSnapshotsInput{
+				SnapshotType: aws.String("manual"),
+				Marker:       snapMarker,
+			})
+			if err != nil {
+				slog.Warn("rds-snap: DescribeDBSnapshots failed", "region", region, "error", err)
+				break
+			}
+
+			for _, snap := range snapOut.DBSnapshots {
+				snapID := aws.ToString(snap.DBSnapshotIdentifier)
+				dbID := aws.ToString(snap.DBInstanceIdentifier)
+
+				_, sourceExists := existingDBs[dbID]
+				if snap.SnapshotCreateTime == nil {
+					continue
+				}
+				ageDays := isRDSSnapshotOrphaned(sourceExists, now.Sub(*snap.SnapshotCreateTime), rdsSnapshotAgeThreshold)
+				if ageDays < 0 {
+					continue
+				}
+
+				sizeGB := aws.ToInt32(snap.AllocatedStorage)
+				monthlyCost := float64(sizeGB) * rdsSnapshotMonthlyGBCost
+
+				ghosts = append(ghosts, model.GhostResource{
+					Provider:          "aws",
+					AccountID:         accountID,
+					InternalAccountID: internalAccountID,
+					Service:           "AmazonRDS",
+					Region:            region,
+					ResourceID:        snapID,
+					Tags:              map[string]string{},
+					MonthlyCost:       monthlyCost,
+					Currency:          "USD",
+					PeriodStart:       start,
+					PeriodEnd:         end,
+					UsageMetric:       "SourceDBExists",
+					UsageAvg:          float64(ageDays),
+					UsageUnit:         "Days",
+					Reason:            fmt.Sprintf("Manual RDS snapshot (%d GB, %d days old) is orphaned — source DB %q no longer exists, accumulating $%.2f/month in storage charges", sizeGB, ageDays, dbID, monthlyCost),
+					Owner:             "unknown",
+				})
+				slog.Info("rds-snap: orphaned snapshot flagged", "snapshot_id", snapID, "source_db", dbID, "size_gb", sizeGB, "age_days", ageDays, "region", region)
+			}
+
+			if snapOut.Marker == nil {
+				break
+			}
+			snapMarker = snapOut.Marker
+		}
+	}
+	return ghosts, nil
+}
+
+// ── Stale ECR images ──────────────────────────────────────��─────────────────
+
+// ecrStorageMonthlyGBCost is the ECR storage cost per GB/month.
+// Source: AWS ECR pricing.
+const ecrStorageMonthlyGBCost = 0.10
+
+// ecrStaleImageThreshold is the minimum age for a tagged image to be
+// considered stale. Only applies to images that are NOT the most recently
+// pushed in their repository — the latest push is always kept regardless of age.
+const ecrStaleImageThreshold = 90 * 24 * time.Hour
+
+// DiscoverStaleECRImages calls ecr:DescribeRepositories and ecr:DescribeImages
+// in each region present in the cost records. It flags repositories that contain
+// untagged images or tagged images older than 90 days (excluding the most
+// recently pushed image). Results are summarized per repository — one ghost per
+// repo with total waste across all stale images.
+func DiscoverStaleECRImages(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+	regions := uniqueRegions(records)
+	accountID := awsClient.AccountID()
+	now := time.Now().UTC()
+	var ghosts []model.GhostResource
+
+	for region := range regions {
+		cfg, err := awsClient.configForRegion(ctx, region)
+		if err != nil {
+			slog.Warn("ecr: load config", "region", region, "error", err)
+			continue
+		}
+		client := ecr.NewFromConfig(cfg)
+
+		// 1. List all repositories in the region.
+		var repos []string
+		var repoNextToken *string
+		for {
+			repoOut, err := client.DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{
+				NextToken: repoNextToken,
+			})
+			if err != nil {
+				slog.Warn("ecr: DescribeRepositories failed", "region", region, "error", err)
+				break
+			}
+			for _, r := range repoOut.Repositories {
+				if r.RepositoryName != nil {
+					repos = append(repos, aws.ToString(r.RepositoryName))
+				}
+			}
+			if repoOut.NextToken == nil {
+				break
+			}
+			repoNextToken = repoOut.NextToken
+		}
+
+		// 2. For each repository, describe images and find waste.
+		//    DescribeImages is 1 call per repo (up to 1000 images/page).
+		//    Cap at 500 repos to avoid throttling on very large accounts.
+		const maxECRRepos = 500
+		if len(repos) > maxECRRepos {
+			slog.Warn("ecr: capping repository scan", "total_repos", len(repos), "scanning", maxECRRepos, "region", region)
+			repos = repos[:maxECRRepos]
+		}
+		if len(repos) > 0 {
+			slog.Info("ecr: scanning repositories", "count", len(repos), "region", region)
+		}
+		for _, repoName := range repos {
+			// Fetch all images in this repository.
+			var imgNextToken *string
+			var allImages []ecrImageInfo
+
+			for {
+				imgOut, err := client.DescribeImages(ctx, &ecr.DescribeImagesInput{
+					RepositoryName: aws.String(repoName),
+					NextToken:      imgNextToken,
+				})
+				if err != nil {
+					slog.Warn("ecr: DescribeImages failed", "repo", repoName, "region", region, "error", err)
+					break
+				}
+				for _, img := range imgOut.ImageDetails {
+					pushed := time.Time{}
+					if img.ImagePushedAt != nil {
+						pushed = *img.ImagePushedAt
+					}
+					allImages = append(allImages, ecrImageInfo{
+						sizeBytes: aws.ToInt64(img.ImageSizeInBytes),
+						pushedAt:  pushed,
+						tagged:    len(img.ImageTags) > 0,
+					})
+				}
+				if imgOut.NextToken == nil {
+					break
+				}
+				imgNextToken = imgOut.NextToken
+			}
+
+			// Classify stale images using the extracted pure function.
+			staleCount, staleSizeBytes := classifyECRImages(allImages, ecrStaleImageThreshold, now)
+
+			if staleCount == 0 {
+				continue
+			}
+
+			staleGB := float64(staleSizeBytes) / (1024 * 1024 * 1024)
+			monthlyCost := staleGB * ecrStorageMonthlyGBCost
+
+			ghosts = append(ghosts, model.GhostResource{
+				Provider:          "aws",
+				AccountID:         accountID,
+				InternalAccountID: internalAccountID,
+				Service:           "AmazonECR",
+				Region:            region,
+				ResourceID:        repoName,
+				Tags:              map[string]string{},
+				MonthlyCost:       monthlyCost,
+				Currency:          "USD",
+				PeriodStart:       start,
+				PeriodEnd:         end,
+				UsageMetric:       "StaleImageCount",
+				UsageAvg:          float64(staleCount),
+				UsageUnit:         "Count",
+				Reason:            fmt.Sprintf("ECR repository has %d untagged/stale images totaling %.1f GB — accumulating $%.2f/month in storage", staleCount, staleGB, monthlyCost),
+				Owner:             "unknown",
+			})
+			slog.Info("ecr: stale images flagged", "repo", repoName, "stale_count", staleCount, "stale_gb", fmt.Sprintf("%.1f", staleGB), "region", region)
+		}
+	}
+	return ghosts, nil
+}
+
+// ── Classification helpers (pure functions, unit-testable) ───────────────────
+
+// ecrImageInfo holds the metadata needed to classify an ECR image as stale.
+type ecrImageInfo struct {
+	sizeBytes int64
+	pushedAt  time.Time
+	tagged    bool
+}
+
+// classifyECRImages returns the count and total size of stale images in a repo.
+// An image is stale if it is (a) untagged and not the latest push, or
+// (b) tagged, older than threshold, and not the latest push.
+func classifyECRImages(images []ecrImageInfo, threshold time.Duration, now time.Time) (staleCount int, staleSizeBytes int64) {
+	if len(images) == 0 {
+		return 0, 0
+	}
+	var latestPush time.Time
+	for _, img := range images {
+		if img.pushedAt.After(latestPush) {
+			latestPush = img.pushedAt
+		}
+	}
+	for _, img := range images {
+		isLatest := !img.pushedAt.IsZero() && img.pushedAt.Equal(latestPush)
+		if !img.tagged && !isLatest {
+			staleCount++
+			staleSizeBytes += img.sizeBytes
+			continue
+		}
+		if img.tagged && !isLatest && !img.pushedAt.IsZero() && now.Sub(img.pushedAt) > threshold {
+			staleCount++
+			staleSizeBytes += img.sizeBytes
+		}
+	}
+	return
+}
+
+// isSecretUnused returns the number of days since last access if the secret
+// should be flagged, or -1 if the secret is still in use.
+func isSecretUnused(lastAccessed, created *time.Time, threshold time.Duration, now time.Time) int {
+	if lastAccessed != nil {
+		age := now.Sub(*lastAccessed)
+		if age < threshold {
+			return -1
+		}
+		return int(age.Hours() / 24)
+	}
+	if created != nil {
+		age := now.Sub(*created)
+		if age < threshold {
+			return -1
+		}
+		return int(age.Hours() / 24)
+	}
+	return -1
+}
+
+// isRDSSnapshotOrphaned returns the age in days if the snapshot should be
+// flagged, or -1 if it's not a zombie. A snapshot is orphaned when its source
+// DB no longer exists and it's older than the threshold.
+func isRDSSnapshotOrphaned(sourceDBExists bool, snapshotAge time.Duration, threshold time.Duration) int {
+	if sourceDBExists {
+		return -1
+	}
+	if snapshotAge < threshold {
+		return -1
+	}
+	return int(snapshotAge.Hours() / 24)
+}
+
 // ── Tier 2 Discovery Functions ───────────────────────────────────────────────
 
 func discoverElastiCache(ctx context.Context, cfg aws.Config) []string {
@@ -957,6 +1421,190 @@ func discoverEKS(ctx context.Context, cfg aws.Config) []string {
 	return ids
 }
 
+func discoverCloudFront(ctx context.Context, cfg aws.Config) []string {
+	// CloudFront is a global service — ListDistributions works from any region
+	// and returns the same results. The globalDone guard in DiscoverResources
+	// ensures this only runs once per scan.
+	client := cloudfront.NewFromConfig(cfg)
+	var ids []string
+	var marker *string
+	for {
+		out, err := client.ListDistributions(ctx, &cloudfront.ListDistributionsInput{
+			Marker: marker,
+		})
+		if err != nil {
+			slog.Warn("discover: CloudFront ListDistributions", "error", err)
+			return nil
+		}
+		if out.DistributionList != nil {
+			for _, d := range out.DistributionList.Items {
+				if d.Id != nil {
+					ids = append(ids, aws.ToString(d.Id))
+				}
+			}
+			if out.DistributionList.IsTruncated != nil && *out.DistributionList.IsTruncated && out.DistributionList.NextMarker != nil {
+				marker = out.DistributionList.NextMarker
+			} else {
+				break
+			}
+		} else {
+			break
+		}
+	}
+	return ids
+}
+
+func discoverKinesis(ctx context.Context, cfg aws.Config) []string {
+	client := kinesis.NewFromConfig(cfg)
+	var ids []string
+	var nextToken *string
+	for {
+		out, err := client.ListStreams(ctx, &kinesis.ListStreamsInput{
+			NextToken: nextToken,
+		})
+		if err != nil {
+			slog.Warn("discover: Kinesis ListStreams", "error", err)
+			return nil
+		}
+		ids = append(ids, out.StreamNames...)
+		if out.NextToken == nil {
+			break
+		}
+		nextToken = out.NextToken
+	}
+	return ids
+}
+
+// discoverS3BucketsByRegion lists all S3 buckets and groups them by their
+// actual region via GetBucketLocation. This ensures CloudWatch metric queries
+// target the correct region. Buckets whose location cannot be determined are
+// skipped with a warning.
+func discoverS3BucketsByRegion(ctx context.Context, cfg aws.Config) map[string][]string {
+	client := s3.NewFromConfig(cfg)
+
+	// 1. List all buckets (global operation).
+	var allBuckets []string
+	var contToken *string
+	for {
+		out, err := client.ListBuckets(ctx, &s3.ListBucketsInput{
+			ContinuationToken: contToken,
+		})
+		if err != nil {
+			slog.Warn("discover: S3 ListBuckets", "error", err)
+			return nil
+		}
+		for _, b := range out.Buckets {
+			if b.Name != nil {
+				allBuckets = append(allBuckets, aws.ToString(b.Name))
+			}
+		}
+		if out.ContinuationToken == nil {
+			break
+		}
+		contToken = out.ContinuationToken
+	}
+
+	// 2. Determine each bucket's region.
+	byRegion := make(map[string][]string)
+	for _, name := range allBuckets {
+		locOut, err := client.GetBucketLocation(ctx, &s3.GetBucketLocationInput{
+			Bucket: aws.String(name),
+		})
+		if err != nil {
+			slog.Warn("discover: S3 GetBucketLocation", "bucket", name, "error", err)
+			continue
+		}
+		// AWS returns "" for us-east-1 (the default).
+		region := string(locOut.LocationConstraint)
+		if region == "" {
+			region = "us-east-1"
+		}
+		byRegion[region] = append(byRegion[region], name)
+	}
+	return byRegion
+}
+
+// ── Unused Secrets Manager secrets ──────────────────────────────────────────
+
+// secretMonthlyCost is the AWS Secrets Manager charge per secret per month.
+// Source: AWS Secrets Manager pricing.
+const secretMonthlyCost = 0.40
+
+// unusedSecretThreshold is the minimum time since a secret was last accessed
+// before it is flagged as unused. 90 days is conservative — secrets accessed
+// quarterly (e.g. rotation) are excluded.
+const unusedSecretThreshold = 90 * 24 * time.Hour
+
+// DiscoverUnusedSecrets calls secretsmanager:ListSecrets in each region present
+// in the cost records and returns a GhostResource for every secret whose
+// LastAccessedDate is older than 90 days (or was never accessed). Secrets are
+// billed at $0.40/month regardless of whether they are read, so forgotten
+// secrets accumulate charges silently after the service that used them is torn down.
+func DiscoverUnusedSecrets(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+	regions := uniqueRegions(records)
+	accountID := awsClient.AccountID()
+	now := time.Now().UTC()
+	var ghosts []model.GhostResource
+
+	for region := range regions {
+		cfg, err := awsClient.configForRegion(ctx, region)
+		if err != nil {
+			slog.Warn("secrets: load config", "region", region, "error", err)
+			continue
+		}
+		client := secretsmanager.NewFromConfig(cfg)
+
+		var nextToken *string
+		for {
+			out, err := client.ListSecrets(ctx, &secretsmanager.ListSecretsInput{
+				NextToken: nextToken,
+			})
+			if err != nil {
+				slog.Warn("secrets: ListSecrets failed", "region", region, "error", err)
+				break
+			}
+
+			for _, s := range out.SecretList {
+				name := aws.ToString(s.Name)
+				if name == "" {
+					continue
+				}
+
+				daysSinceAccess := isSecretUnused(s.LastAccessedDate, s.CreatedDate, unusedSecretThreshold, now)
+				if daysSinceAccess < 0 {
+					continue
+				}
+
+				ghosts = append(ghosts, model.GhostResource{
+					Provider:          "aws",
+					AccountID:         accountID,
+					InternalAccountID: internalAccountID,
+					Service:           "AWSSecretsManager",
+					Region:            region,
+					ResourceID:        name,
+					Tags:              map[string]string{},
+					MonthlyCost:       secretMonthlyCost,
+					Currency:          "USD",
+					PeriodStart:       start,
+					PeriodEnd:         end,
+					UsageMetric:       "DaysSinceAccess",
+					UsageAvg:          float64(daysSinceAccess),
+					UsageUnit:         "Days",
+					Reason:            fmt.Sprintf("Secret not accessed for %d days — still billing $0.40/month", daysSinceAccess),
+					Owner:             "unknown",
+				})
+				slog.Info("secrets: unused secret flagged", "name", name, "days_since_access", daysSinceAccess, "region", region)
+			}
+
+			if out.NextToken == nil {
+				break
+			}
+			nextToken = out.NextToken
+		}
+	}
+	return ghosts, nil
+}
+
 // ── CE Anomaly Detection monitors ────────────────────────────────────────────
 
 // ceAnomalyMonitorMonthlyCost is the charge per additional anomaly monitor per month.
@@ -973,7 +1621,8 @@ const ceAnomalyMonitorMonthlyCost = 3.00
 func DiscoverIdleCEAnomalyMonitors(ctx context.Context, _ []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
 	cfg, err := awsClient.configForRegion(ctx, "us-east-1")
 	if err != nil {
-		return nil, fmt.Errorf("ce-monitor: load config: %w", err)
+		slog.Warn("ce-monitor: load config", "error", err)
+		return nil, nil
 	}
 	client := costexplorer.NewFromConfig(cfg)
 	accountID := awsClient.AccountID()
@@ -986,7 +1635,8 @@ func DiscoverIdleCEAnomalyMonitors(ctx context.Context, _ []model.CostRecord, aw
 			NextPageToken: nextPage,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("ce-monitor: GetAnomalyMonitors: %w", err)
+			slog.Warn("ce-monitor: GetAnomalyMonitors", "error", err)
+			return nil, nil
 		}
 		monitors = append(monitors, out.AnomalyMonitors...)
 		if out.NextPageToken == nil {

@@ -178,7 +178,7 @@ Use `t.Fatalf` when a failure means subsequent checks would crash or be nonsensi
 
 ```bash
 make test           # All unit tests across all Go modules
-make test-postgres  # Integration tests needing a running Postgres
+make test-storage  # Integration tests needing a running Postgres
 make test-smoke     # E2E tests needing the full stack (make start-dev first)
 make test-all       # Unit + Postgres integration tests
 ```

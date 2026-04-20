@@ -18,7 +18,13 @@
     {"provider": "aws", "account_id": "222222222222", "service": "AmazonVPC",                  "region": "eu-central-1", "resource_id": "nat-0old222",             "amount": 45.00,  "currency": "USD"},
     {"provider": "aws", "account_id": "222222222222", "service": "AmazonVPC",                  "region": "us-east-1",    "resource_id": "eip-unattached-01",      "amount": 3.60,   "currency": "USD"},
     {"provider": "aws", "account_id": "222222222222", "service": "AmazonEKS",                  "region": "eu-central-1", "resource_id": "prod-platform-cluster",   "amount": 73.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEKS",                  "region": "eu-central-1", "resource_id": "staging-empty-cluster",   "amount": 73.00,  "currency": "USD"}
+    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEKS",                  "region": "eu-central-1", "resource_id": "staging-empty-cluster",   "amount": 73.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "222222222222", "service": "AmazonCloudFront",           "region": "us-east-1",    "resource_id": "E1ACTIVE001",            "amount": 25.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "222222222222", "service": "AmazonCloudFront",           "region": "us-east-1",    "resource_id": "E1GHOST001",             "amount": 12.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "222222222222", "service": "AmazonKinesis",              "region": "eu-central-1", "resource_id": "events-active",          "amount": 32.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "222222222222", "service": "AmazonKinesis",              "region": "eu-central-1", "resource_id": "logs-abandoned",         "amount": 32.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "222222222222", "service": "AmazonS3",                   "region": "eu-central-1", "resource_id": "data-lake-active",       "amount": 45.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "222222222222", "service": "AmazonS3",                   "region": "eu-central-1", "resource_id": "old-backup-bucket",      "amount": 18.00,  "currency": "USD"}
   ],
   "usage": [
     {"resource_id": "i-prod-web-01",          "metric": "CPUUtilization",         "unit": "Percent", "avg": 68.0,     "period_days": 30},
@@ -39,6 +45,12 @@
     {"resource_id": "nat-0old222",            "metric": "BytesOutToDestination",  "unit": "Bytes",   "avg": 0.0,      "period_days": 30},
     {"resource_id": "eip-unattached-01",      "metric": "NetworkInterfaceAttachment", "unit": "Count", "avg": 0.0,   "period_days": 30},
     {"resource_id": "prod-platform-cluster",  "metric": "cluster_node_count",     "unit": "Count",   "avg": 6.0,      "period_days": 30},
-    {"resource_id": "staging-empty-cluster",  "metric": "cluster_node_count",     "unit": "Count",   "avg": 0.0,      "period_days": 30}
+    {"resource_id": "staging-empty-cluster",  "metric": "cluster_node_count",     "unit": "Count",   "avg": 0.0,      "period_days": 30},
+    {"resource_id": "E1ACTIVE001",           "metric": "Requests",               "unit": "Count",   "avg": 52000.0,  "period_days": 30},
+    {"resource_id": "E1GHOST001",            "metric": "Requests",               "unit": "Count",   "avg": 0.0,      "period_days": 30},
+    {"resource_id": "events-active",         "metric": "IncomingRecords",        "unit": "Count",   "avg": 14200.0,  "period_days": 30},
+    {"resource_id": "logs-abandoned",        "metric": "IncomingRecords",        "unit": "Count",   "avg": 0.0,      "period_days": 30},
+    {"resource_id": "data-lake-active",      "metric": "AllRequests",            "unit": "Count",   "avg": 8500.0,   "period_days": 30},
+    {"resource_id": "old-backup-bucket",     "metric": "AllRequests",            "unit": "Count",   "avg": 0.0,      "period_days": 30}
   ]
 }

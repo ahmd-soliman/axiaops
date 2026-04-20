@@ -149,3 +149,188 @@ func TestCEAnomalyMonitorMonthlyCost_IsThreeDollars(t *testing.T) {
 		t.Errorf("ceAnomalyMonitorMonthlyCost = %v; want %v", ceAnomalyMonitorMonthlyCost, want)
 	}
 }
+
+// ── cwLogStorageGBCost sanity check ──────────────────────────────────────────
+
+func TestCWLogStorageGBCost_Is003(t *testing.T) {
+	want := 0.03
+	if cwLogStorageGBCost != want {
+		t.Errorf("cwLogStorageGBCost = %v; want %v", cwLogStorageGBCost, want)
+	}
+}
+
+// ── rdsSnapshotMonthlyGBCost + rdsSnapshotAgeThreshold sanity checks ────────
+
+func TestRDSSnapshotMonthlyGBCost_Is0095(t *testing.T) {
+	want := 0.095
+	if rdsSnapshotMonthlyGBCost != want {
+		t.Errorf("rdsSnapshotMonthlyGBCost = %v; want %v", rdsSnapshotMonthlyGBCost, want)
+	}
+}
+
+func TestRDSSnapshotAgeThreshold_Is30Days(t *testing.T) {
+	want := 30 * 24 * time.Hour
+	if rdsSnapshotAgeThreshold != want {
+		t.Errorf("rdsSnapshotAgeThreshold = %v; want %v", rdsSnapshotAgeThreshold, want)
+	}
+}
+
+// ── ecrStorageMonthlyGBCost + ecrStaleImageThreshold sanity checks ──────────
+
+func TestECRStorageMonthlyGBCost_Is010(t *testing.T) {
+	want := 0.10
+	if ecrStorageMonthlyGBCost != want {
+		t.Errorf("ecrStorageMonthlyGBCost = %v; want %v", ecrStorageMonthlyGBCost, want)
+	}
+}
+
+func TestECRStaleImageThreshold_Is90Days(t *testing.T) {
+	want := 90 * 24 * time.Hour
+	if ecrStaleImageThreshold != want {
+		t.Errorf("ecrStaleImageThreshold = %v; want %v", ecrStaleImageThreshold, want)
+	}
+}
+
+// ── secretMonthlyCost + unusedSecretThreshold sanity checks ─────────────────
+
+func TestSecretMonthlyCost_Is040(t *testing.T) {
+	want := 0.40
+	if secretMonthlyCost != want {
+		t.Errorf("secretMonthlyCost = %v; want %v", secretMonthlyCost, want)
+	}
+}
+
+func TestUnusedSecretThreshold_Is90Days(t *testing.T) {
+	want := 90 * 24 * time.Hour
+	if unusedSecretThreshold != want {
+		t.Errorf("unusedSecretThreshold = %v; want %v", unusedSecretThreshold, want)
+	}
+}
+
+// ── classifyECRImages ────────────────────────────────────────────────────────
+
+func TestClassifyECRImages_AllFresh_NoStale(t *testing.T) {
+	now := time.Now()
+	images := []ecrImageInfo{
+		{sizeBytes: 100_000_000, pushedAt: now.Add(-24 * time.Hour), tagged: true},
+		{sizeBytes: 200_000_000, pushedAt: now.Add(-48 * time.Hour), tagged: true},
+	}
+	count, size := classifyECRImages(images, 90*24*time.Hour, now)
+	if count != 0 || size != 0 {
+		t.Errorf("expected 0 stale, got count=%d size=%d", count, size)
+	}
+}
+
+func TestClassifyECRImages_UntaggedFlagged(t *testing.T) {
+	now := time.Now()
+	images := []ecrImageInfo{
+		{sizeBytes: 100_000_000, pushedAt: now.Add(-24 * time.Hour), tagged: true},  // latest, keep
+		{sizeBytes: 50_000_000, pushedAt: now.Add(-48 * time.Hour), tagged: false},  // untagged, stale
+	}
+	count, size := classifyECRImages(images, 90*24*time.Hour, now)
+	if count != 1 {
+		t.Errorf("expected 1 stale untagged image, got %d", count)
+	}
+	if size != 50_000_000 {
+		t.Errorf("expected 50MB stale, got %d", size)
+	}
+}
+
+func TestClassifyECRImages_OldTaggedFlagged(t *testing.T) {
+	now := time.Now()
+	images := []ecrImageInfo{
+		{sizeBytes: 100_000_000, pushedAt: now.Add(-1 * time.Hour), tagged: true},        // latest, keep
+		{sizeBytes: 200_000_000, pushedAt: now.Add(-120 * 24 * time.Hour), tagged: true}, // >90 days, stale
+	}
+	count, _ := classifyECRImages(images, 90*24*time.Hour, now)
+	if count != 1 {
+		t.Errorf("expected 1 stale old tagged image, got %d", count)
+	}
+}
+
+func TestClassifyECRImages_LatestProtected(t *testing.T) {
+	now := time.Now()
+	// Only one image — even if old + untagged, it's the latest and should be kept.
+	images := []ecrImageInfo{
+		{sizeBytes: 100_000_000, pushedAt: now.Add(-200 * 24 * time.Hour), tagged: false},
+	}
+	count, _ := classifyECRImages(images, 90*24*time.Hour, now)
+	if count != 0 {
+		t.Errorf("expected 0 stale (latest must be protected), got %d", count)
+	}
+}
+
+func TestClassifyECRImages_Empty(t *testing.T) {
+	count, size := classifyECRImages(nil, 90*24*time.Hour, time.Now())
+	if count != 0 || size != 0 {
+		t.Errorf("expected 0/0 for empty, got %d/%d", count, size)
+	}
+}
+
+// ── isSecretUnused ───────────────────────────────────────────────────────────
+
+func TestIsSecretUnused_RecentAccess_NotUnused(t *testing.T) {
+	now := time.Now()
+	accessed := now.Add(-30 * 24 * time.Hour) // 30 days ago
+	days := isSecretUnused(&accessed, nil, 90*24*time.Hour, now)
+	if days != -1 {
+		t.Errorf("expected -1 (not unused), got %d", days)
+	}
+}
+
+func TestIsSecretUnused_OldAccess_Unused(t *testing.T) {
+	now := time.Now()
+	accessed := now.Add(-120 * 24 * time.Hour) // 120 days ago
+	days := isSecretUnused(&accessed, nil, 90*24*time.Hour, now)
+	if days != 120 {
+		t.Errorf("expected 120, got %d", days)
+	}
+}
+
+func TestIsSecretUnused_NeverAccessed_UsesCreatedDate(t *testing.T) {
+	now := time.Now()
+	created := now.Add(-180 * 24 * time.Hour) // created 180 days ago, never accessed
+	days := isSecretUnused(nil, &created, 90*24*time.Hour, now)
+	if days != 180 {
+		t.Errorf("expected 180, got %d", days)
+	}
+}
+
+func TestIsSecretUnused_NeverAccessed_RecentlyCreated(t *testing.T) {
+	now := time.Now()
+	created := now.Add(-10 * 24 * time.Hour) // 10 days old
+	days := isSecretUnused(nil, &created, 90*24*time.Hour, now)
+	if days != -1 {
+		t.Errorf("expected -1 (recently created), got %d", days)
+	}
+}
+
+func TestIsSecretUnused_NoDates_Skip(t *testing.T) {
+	days := isSecretUnused(nil, nil, 90*24*time.Hour, time.Now())
+	if days != -1 {
+		t.Errorf("expected -1 (no dates), got %d", days)
+	}
+}
+
+// ── isRDSSnapshotOrphaned ────────────────────────────────────────────────────
+
+func TestIsRDSSnapshotOrphaned_SourceExists_NotOrphaned(t *testing.T) {
+	days := isRDSSnapshotOrphaned(true, 60*24*time.Hour, 30*24*time.Hour)
+	if days != -1 {
+		t.Errorf("expected -1 (source exists), got %d", days)
+	}
+}
+
+func TestIsRDSSnapshotOrphaned_YoungSnapshot_NotOrphaned(t *testing.T) {
+	days := isRDSSnapshotOrphaned(false, 15*24*time.Hour, 30*24*time.Hour)
+	if days != -1 {
+		t.Errorf("expected -1 (too young), got %d", days)
+	}
+}
+
+func TestIsRDSSnapshotOrphaned_OldOrphan_Flagged(t *testing.T) {
+	days := isRDSSnapshotOrphaned(false, 45*24*time.Hour, 30*24*time.Hour)
+	if days != 45 {
+		t.Errorf("expected 45, got %d", days)
+	}
+}

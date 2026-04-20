@@ -92,6 +92,27 @@ var serviceMetrics = map[string]serviceMetric{
 		metricName:    "cluster_node_count",
 		unit:          "Count",
 	},
+	// Tier 3 — CloudWatch-based detection
+	"AmazonCloudFront": {
+		namespace:     "AWS/CloudFront",
+		dimensionName: "DistributionId",
+		metricName:    "Requests",
+		unit:          "Count",
+	},
+	"AmazonKinesis": {
+		namespace:     "AWS/Kinesis",
+		dimensionName: "StreamName",
+		metricName:    "IncomingRecords",
+		unit:          "Count",
+	},
+	// S3: requires request metrics enabled on the bucket (not default).
+	// Buckets without request metrics will return no data and be skipped.
+	"AmazonS3": {
+		namespace:     "AWS/S3",
+		dimensionName: "BucketName",
+		metricName:    "AllRequests",
+		unit:          "Count",
+	},
 }
 
 // FetchUsage queries CloudWatch for average usage metrics for each discovered
