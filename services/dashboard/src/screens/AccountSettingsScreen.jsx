@@ -1,59 +1,58 @@
 import { useState } from 'react';
 import { updateAccount, deleteAccount, scanAccount } from '../api/client';
-import { Spinner } from '../components/primitives';
-import { Overlay } from '../components/primitives';
+import { useTheme } from '../theme/ThemeContext';
+import { useToast } from '../context/ToastContext';
+import { Spinner, Overlay } from '../components/primitives';
 
-// Local palette — kept in sync with ThemeContext.jsx tokens.
-const C = {
-  bg: '#F6F8FB',
-  navy: '#0B1220',
-  navyMid: '#182031',
-  accent: '#FB923C',        // orange-400 (dark-context brand)
-  text: '#0F172A',
-  textMid: '#475569',
-  textMuted: '#94A3B8',
-  white: '#FFFFFF',
-  border: '#E2E8F0',
-  error: '#DC2626',
-  success: '#16A34A',
-};
+function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, theme }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <label style={{ fontSize: 13, fontWeight: 600, color: theme.textMid }}>{label}</label>
+      <input
+        style={{
+          backgroundColor: theme.surfaceAlt,
+          border: `1px solid ${theme.border}`,
+          borderRadius: 8,
+          padding: '10px 12px',
+          fontSize: 14,
+          color: theme.text,
+          outline: 'none',
+          fontFamily: mono ? 'monospace' : undefined,
+        }}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoCapitalize="none"
+        autoCorrect="off"
+        type={type}
+      />
+      {hint && <span style={{ fontSize: 12, color: theme.textMuted, fontStyle: 'italic' }}>{hint}</span>}
+    </div>
+  );
+}
 
-const s = {
-  container: { flex: 1, backgroundColor: C.navy, minHeight: '100vh' },
-  content: { paddingBottom: 48 },
-  header: { display: 'flex', flexDirection: 'row', alignItems: 'center', paddingLeft: 20, paddingRight: 20, paddingTop: 16, paddingBottom: 16, borderBottom: `1px solid ${C.navyMid}` },
-  backBtn: { padding: 4, background: 'none', border: 'none', cursor: 'pointer' },
-  backText: { color: C.accent, fontSize: 16, fontWeight: 600 },
-  title: { color: C.white, fontSize: 18, fontWeight: 700, flex: 1, textAlign: 'center' },
-  headerSpacer: { width: 60 },
-  card: { backgroundColor: C.white, margin: 20, borderRadius: 16, padding: 24, display: 'flex', flexDirection: 'column', gap: 24 },
-  statusSection: { display: 'flex', flexDirection: 'column', gap: 8 },
-  statusRow: { display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8 },
-  statusDot: { width: 8, height: 8, borderRadius: '50%' },
-  statusText: { fontSize: 14, fontWeight: 600, color: C.text },
-  lastScanned: { fontSize: 12, color: C.textMuted, marginLeft: 16 },
-  actionsSection: { display: 'flex', flexDirection: 'row', gap: 12 },
-  actionBtn: { flex: 1, paddingTop: 12, paddingBottom: 12, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer' },
-  actionBtnText: { color: C.white, fontSize: 14, fontWeight: 600 },
-  formSection: { display: 'flex', flexDirection: 'column', gap: 16 },
-  sectionTitle: { fontSize: 16, fontWeight: 700, color: C.text },
-  field: { display: 'flex', flexDirection: 'column', gap: 6 },
-  fieldLabel: { fontSize: 13, fontWeight: 600, color: C.textMid },
-  input: { backgroundColor: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, paddingLeft: 12, paddingRight: 12, paddingTop: 10, paddingBottom: 10, fontSize: 14, color: C.text, outline: 'none' },
-  inputMono: { fontFamily: 'monospace', fontSize: 13 },
-  fieldHint: { fontSize: 12, color: C.textMuted, fontStyle: 'italic' },
-  error: { fontSize: 13, color: C.error, fontWeight: 500 },
-  saveBtn: { backgroundColor: C.accent, borderRadius: 10, paddingTop: 14, paddingBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 8, border: 'none', cursor: 'pointer', width: '100%' },
-  saveBtnText: { color: C.white, fontSize: 16, fontWeight: 700 },
-  // Modal
-  modalContent: { backgroundColor: C.white, borderRadius: 12, padding: 24, margin: 20, maxWidth: 400, width: '90%' },
-  modalTitle: { fontSize: 18, fontWeight: 700, color: C.navy, marginBottom: 12 },
-  modalMessage: { fontSize: 14, color: C.textMid, lineHeight: '20px', marginBottom: 24 },
-  modalButtons: { display: 'flex', flexDirection: 'row', gap: 12 },
-  modalBtn: { flex: 1, paddingTop: 12, paddingBottom: 12, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: 'none' },
-};
+function StatusBadge({ status, theme }) {
+  const config = {
+    connected:            { color: theme.success, label: 'Connected',            bg: `${theme.success}18` },
+    error:                { color: theme.error,   label: 'Connection Error',      bg: `${theme.error}18` },
+    scan_timeout:         { color: theme.warning, label: 'Scan Timeout',          bg: `${theme.warning}18` },
+    circuit_breaker_open: { color: theme.warning, label: 'Circuit Breaker Open',  bg: `${theme.warning}18` },
+    scanning:             { color: theme.accent,  label: 'Scanning…',             bg: `${theme.accent}18` },
+  };
+  const c = config[status] ?? { color: theme.textMuted, label: 'Unknown', bg: theme.surfaceRaised };
+
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 12px', borderRadius: 8, backgroundColor: c.bg, border: `1px solid ${c.color}33` }}>
+      <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: c.color, flexShrink: 0 }} />
+      <span style={{ fontSize: 13, fontWeight: 700, color: c.color }}>{c.label}</span>
+    </div>
+  );
+}
 
 export default function AccountSettingsScreen({ account, onBack, onAccountUpdated, onAccountDeleted }) {
+  const { theme } = useTheme();
+  const { toast } = useToast();
+
   const [label, setLabel]             = useState(account?.label ?? '');
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
   const [secretKey, setSecretKey]     = useState('');
@@ -68,7 +67,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   async function handleSave() {
     if (!accessKeyId.trim()) { setError('Access Key ID is required.'); return; }
     const scanInterval = parseInt(scanIntervalHours, 10);
-    if (isNaN(scanInterval) || scanInterval < 0) { setError('Scan interval must be a number >= 0.'); return; }
+    if (isNaN(scanInterval) || scanInterval < 0) { setError('Scan interval must be a number ≥ 0.'); return; }
     setError('');
     setLoading(true);
     try {
@@ -79,6 +78,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
         region: region.trim() || 'eu-central-1',
         scan_interval_hours: scanInterval,
       });
+      toast('Account settings saved', 'success');
       onAccountUpdated(result);
     } catch {
       setError('Failed to update. Check your credentials and try again.');
@@ -91,9 +91,10 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
     setScanning(true);
     try {
       await scanAccount(account.id);
-      setTimeout(() => { onAccountUpdated(account); setScanning(false); }, 3000);
+      toast('Scan started — results will appear shortly', 'info');
+      setTimeout(() => { onAccountUpdated(account); setScanning(false); }, 5000);
     } catch {
-      setError('Scan failed. Please try again.');
+      toast('Scan failed. Please try again.', 'error');
       setScanning(false);
     }
   }
@@ -103,117 +104,197 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
     setDeleting(true);
     try {
       await deleteAccount(account.id);
+      toast('Account deleted', 'success');
       onAccountDeleted(account.id);
     } catch {
-      setError('Failed to delete account. Please try again.');
+      toast('Failed to delete account. Please try again.', 'error');
       setDeleting(false);
     }
   }
 
-  const statusColor = account.status === 'error' ? C.error
-    : account.status === 'scan_timeout' || account.status === 'circuit_breaker_open' ? '#F59E0B'
-    : C.success;
+  const t = theme;
+  const accountName = account.label || account.access_key_id.slice(0, 8) + '…';
 
   return (
-    <div style={s.container}>
-      <div style={s.content}>
-        <div style={s.header}>
-          <button style={s.backBtn} onClick={onBack}>
-            <span style={s.backText}>← Back</span>
+    <div style={{ minHeight: '100%', backgroundColor: t.bg }}>
+      <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 0 64px' }}>
+
+        {/* Header */}
+        <div style={{ padding: '20px 20px 16px', borderBottom: `1px solid ${t.border}` }}>
+          <button onClick={onBack} style={{ padding: '4px 0', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 12 }}>
+            <span style={{ color: t.accent, fontSize: 14, fontWeight: 600 }}>← Back</span>
           </button>
-          <span style={s.title}>Account Settings</span>
-          <div style={s.headerSpacer} />
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: t.text, margin: '0 0 4px' }}>{accountName}</h1>
+          <p style={{ fontSize: 13, color: t.textMuted, margin: 0 }}>{account.region}</p>
         </div>
 
-        <div style={s.card}>
-          {/* Status */}
-          <div style={s.statusSection}>
-            <div style={s.statusRow}>
-              <div style={{ ...s.statusDot, backgroundColor: statusColor }} />
-              <span style={s.statusText}>
-                {account.status === 'connected' ? 'Connected'
-                  : account.status === 'error' ? 'Connection Error'
-                  : account.status === 'scan_timeout' ? 'Scan Timeout'
-                  : account.status === 'circuit_breaker_open' ? 'Circuit Breaker Open'
-                  : 'Unknown'}
-              </span>
+        <div style={{ padding: '20px' }}>
+          {/* Status + quick actions */}
+          <div style={{
+            backgroundColor: t.surface,
+            border: `1px solid ${t.border}`,
+            borderRadius: 12,
+            padding: 20,
+            marginBottom: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <StatusBadge status={account.status} theme={t} />
+              {account.last_scanned_at && (
+                <span style={{ fontSize: 12, color: t.textMuted }}>
+                  Last scan: {new Date(account.last_scanned_at).toLocaleString()}
+                </span>
+              )}
             </div>
-            {account.last_scanned_at && (
-              <span style={s.lastScanned}>Last scanned: {new Date(account.last_scanned_at).toLocaleString()}</span>
+
+            {account.status === 'circuit_breaker_open' && (
+              <div style={{ backgroundColor: `${t.warning}18`, border: `1px solid ${t.warning}40`, borderRadius: 8, padding: '10px 12px' }}>
+                <span style={{ fontSize: 13, color: t.warning, lineHeight: '20px', display: 'block' }}>
+                  Too many consecutive scan failures. Wait a few minutes before retrying, or check your IAM credentials.
+                </span>
+              </div>
             )}
+
+            {/* Actions row */}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={handleScan}
+                disabled={scanning || account.status === 'circuit_breaker_open'}
+                aria-label="Run scan now"
+                style={{
+                  flex: 1,
+                  padding: '11px',
+                  borderRadius: 8,
+                  backgroundColor: t.accent,
+                  border: 'none',
+                  cursor: scanning || account.status === 'circuit_breaker_open' ? 'not-allowed' : 'pointer',
+                  opacity: scanning || account.status === 'circuit_breaker_open' ? 0.6 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                {scanning ? <Spinner size={16} color="#fff" /> : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                    </svg>
+                    <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>Scan Now</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={deleting}
+                aria-label="Delete account"
+                style={{
+                  padding: '11px 16px',
+                  borderRadius: 8,
+                  backgroundColor: `${t.error}18`,
+                  border: `1px solid ${t.error}40`,
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  opacity: deleting ? 0.6 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                {deleting ? <Spinner size={16} color={t.error} /> : (
+                  <span style={{ color: t.error, fontSize: 14, fontWeight: 700 }}>Delete</span>
+                )}
+              </button>
+            </div>
           </div>
 
-          {/* Quick actions */}
-          <div style={s.actionsSection}>
+          {/* Edit form */}
+          <div style={{
+            backgroundColor: t.surface,
+            border: `1px solid ${t.border}`,
+            borderRadius: 12,
+            padding: 20,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 18,
+          }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>Account Details</span>
+
+            <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production AWS" theme={t} />
+            <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono theme={t} />
+            <Field label="AWS Secret Access Key" value={secretKey} onChange={setSecretKey} placeholder="Leave blank to keep existing" mono type="password" theme={t} />
+            <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono theme={t} />
+            <Field
+              label="Auto-scan interval (hours)"
+              value={scanIntervalHours}
+              onChange={setScanIntervalHours}
+              placeholder="24"
+              type="number"
+              hint="0 = on-demand only, or enter hours between automatic scans"
+              theme={t}
+            />
+
+            {error && (
+              <div style={{ backgroundColor: `${t.error}18`, border: `1px solid ${t.error}40`, borderRadius: 8, padding: '10px 12px' }}>
+                <span style={{ fontSize: 13, color: t.error, fontWeight: 500 }}>{error}</span>
+              </div>
+            )}
+
             <button
-              style={{ ...s.actionBtn, backgroundColor: C.accent, opacity: scanning || account.status === 'circuit_breaker_open' ? 0.6 : 1 }}
-              onClick={handleScan}
-              disabled={scanning || account.status === 'circuit_breaker_open'}
+              onClick={handleSave}
+              disabled={loading}
+              style={{
+                backgroundColor: t.accent,
+                borderRadius: 10,
+                padding: '14px',
+                border: 'none',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.65 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              {scanning ? <Spinner size={18} color={C.white} /> : <span style={s.actionBtnText}>Scan Now</span>}
-            </button>
-            <button
-              style={{ ...s.actionBtn, backgroundColor: C.error, opacity: deleting ? 0.6 : 1 }}
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={deleting}
-            >
-              {deleting ? <Spinner size={18} color={C.white} /> : <span style={s.actionBtnText}>Delete Account</span>}
-            </button>
-          </div>
-
-          {/* Form */}
-          <div style={s.formSection}>
-            <span style={s.sectionTitle}>Account Details</span>
-            <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production AWS" />
-            <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
-            <Field label="AWS Secret Access Key" value={secretKey} onChange={setSecretKey} placeholder="Leave blank to keep existing" mono type="password" />
-            <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
-            <Field label="Auto-scan interval (hours)" value={scanIntervalHours} onChange={setScanIntervalHours} placeholder="24" type="number" hint="0 = on-demand only, or enter hours between automatic scans" />
-
-            {error ? <span style={s.error}>{error}</span> : null}
-
-            <button style={{ ...s.saveBtn, opacity: loading ? 0.6 : 1 }} onClick={handleSave} disabled={loading}>
-              {loading ? <Spinner size={20} color={C.white} /> : <span style={s.saveBtnText}>Save Changes</span>}
+              {loading ? <Spinner size={20} color="#fff" /> : <span style={{ color: '#fff', fontSize: 15, fontWeight: 700 }}>Save Changes</span>}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Delete confirmation */}
+      {/* Delete confirmation modal */}
       <Overlay visible={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}>
-        <div style={s.modalContent}>
-          <span style={{ ...s.modalTitle, display: 'block' }}>Delete Account</span>
-          <span style={{ ...s.modalMessage, display: 'block' }}>
-            Are you sure you want to delete "{account.label || account.access_key_id.slice(0, 8) + '…'}"? This action cannot be undone.
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm account deletion"
+          onClick={e => e.stopPropagation()}
+          style={{ backgroundColor: t.surface, borderRadius: 16, padding: 24, maxWidth: 400, width: '90vw', boxShadow: '0 16px 40px rgba(0,0,0,0.3)' }}
+        >
+          <span style={{ fontSize: 18, fontWeight: 800, color: t.text, display: 'block', marginBottom: 10 }}>
+            Delete Account
           </span>
-          <div style={s.modalButtons}>
-            <button style={{ ...s.modalBtn, backgroundColor: C.bg, border: `1px solid ${C.border}` }} onClick={() => setShowDeleteConfirm(false)}>
-              <span style={{ color: C.text, fontSize: 14, fontWeight: 600 }}>Cancel</span>
+          <span style={{ fontSize: 14, color: t.textMid, lineHeight: '21px', display: 'block', marginBottom: 24 }}>
+            Are you sure you want to delete <strong>"{accountName}"</strong>? All scan history and resource data for this account will be permanently removed.
+          </span>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              style={{ flex: 1, padding: '12px', borderRadius: 10, border: `1px solid ${t.border}`, backgroundColor: t.surfaceRaised, cursor: 'pointer' }}
+            >
+              <span style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>Cancel</span>
             </button>
-            <button style={{ ...s.modalBtn, backgroundColor: C.error }} onClick={confirmDelete}>
-              <span style={{ color: C.white, fontSize: 14, fontWeight: 600 }}>Delete</span>
+            <button
+              onClick={confirmDelete}
+              style={{ flex: 1, padding: '12px', borderRadius: 10, backgroundColor: t.error, border: 'none', cursor: 'pointer' }}
+            >
+              <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>Delete</span>
             </button>
           </div>
         </div>
       </Overlay>
-    </div>
-  );
-}
-
-function Field({ label, value, onChange, placeholder, mono, type = 'text', hint }) {
-  return (
-    <div style={s.field}>
-      <span style={s.fieldLabel}>{label}</span>
-      <input
-        style={{ ...s.input, ...(mono ? s.inputMono : {}) }}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        autoCapitalize="none"
-        autoCorrect="off"
-        type={type}
-      />
-      {hint && <span style={s.fieldHint}>{hint}</span>}
     </div>
   );
 }
