@@ -4,14 +4,16 @@ import ConnectScreen from '../screens/ConnectScreen';
 
 export default function Connect() {
   const navigate = useNavigate();
+  const goToDashboard = () => navigate('/?skip_connect=1', { replace: true });
+
   return (
     <ConnectScreen
       onConnected={() => {
         queryClient.invalidateQueries({ queryKey: ['accounts'] });
         navigate('/', { replace: true });
       }}
-      onSkip={() => navigate('/', { replace: true })}
-      onCancel={() => navigate(-1)}
+      onSkip={goToDashboard}
+      onCancel={goToDashboard}
     />
   );
 }
