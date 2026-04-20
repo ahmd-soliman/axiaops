@@ -85,25 +85,7 @@ var serviceRules = map[string]rule{
 		unit:      "Count",
 		reason:    "EKS cluster has zero nodes — control plane ($73/mo) billing with no workload",
 	},
-	// Tier 3 — CloudWatch-based detection (Phase 2, April 2026)
-	"AmazonCloudFront": {
-		metric:    "Requests",
-		threshold: 0.0,
-		unit:      "Count",
-		reason:    "CloudFront distribution has zero requests — likely abandoned",
-	},
-	"AmazonKinesis": {
-		metric:    "IncomingRecords",
-		threshold: 0.0,
-		unit:      "Count",
-		reason:    "Kinesis data stream has zero incoming records — likely unused",
-	},
-	// Requires S3 request metrics to be enabled on the bucket (not default).
-	// Buckets without request metrics return no CloudWatch data and are skipped.
-	"AmazonS3": {
-		metric:    "AllRequests",
-		threshold: 0.0,
-		unit:      "Count",
-		reason:    "S3 bucket has zero requests — likely abandoned (requires request metrics enabled)",
-	},
+	// NOTE: CloudFront, Kinesis, and S3 use Tier 1-style direct detection
+	// (DiscoverIdle* functions in ingestion/provider/aws/discover.go) instead
+	// of flowing through Detect(). They are NOT in this map.
 }
