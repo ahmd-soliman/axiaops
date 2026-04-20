@@ -210,13 +210,13 @@ VALUES
    'CPUUtilization', 1.2, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', '', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'primary', 'eu-central-1',
    'db-prod-legacy-reporting', '{\"env\":\"prod\",\"team\":\"data\"}',
    210.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count',
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', '', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'alb', 'eu-central-1',
    'app/legacy-api/abc123prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 0, 'Count',
@@ -260,7 +260,7 @@ VALUES
    'CPUUtilization', 0.3, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', '', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'primary', 'eu-west-1',
    'db-dev-abandoned', '{\"env\":\"dev\",\"team\":\"data\"}',
    89.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count',
@@ -416,13 +416,13 @@ VALUES
    'CPUUtilization', 71.5, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy RDS
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', '', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'primary', 'eu-central-1',
    'db-production-main', '{\"env\":\"prod\",\"team\":\"data\"}',
    312.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 284, 'Count', false, '', 'data', '$NOW'),
 
   -- Active: healthy ELB
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', '', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'alb', 'eu-central-1',
    'app/prod-api/xyz789prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    24.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 94200, 'Count', false, '', 'platform', '$NOW'),
@@ -463,7 +463,7 @@ VALUES
    'CPUUtilization', 48.2, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy RDS
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', '', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'read_replica', 'us-east-1',
    'db-staging-main', '{\"env\":\"staging\",\"team\":\"data\"}',
    98.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 37, 'Count', false, '', 'data', '$NOW'),
@@ -504,7 +504,7 @@ VALUES
    'CPUUtilization', 34.7, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy Lambda
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
    'dev-auth-handler', '{\"env\":\"dev\",\"team\":\"backend\"}',
    1.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 1840, 'Count', false, '', 'backend', '$NOW'),
@@ -512,21 +512,21 @@ VALUES
   -- ── CE Anomaly Detection monitor ghost resources ───────────────────────────
 
   -- Account 1: idle paid CE anomaly monitor (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', '', 'us-east-1',
    'arn:aws:ce::123456789012:anomalymonitor/prod-service-monitor', '{}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AnomalyCount', 0, 'Count', true,
    'Cost Anomaly Detection monitor "prod-service-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
 
   -- Account 2: idle paid CE anomaly monitor (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', '', 'us-east-1',
    'arn:aws:ce::987654321098:anomalymonitor/stg-cost-monitor', '{}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AnomalyCount', 0, 'Count', true,
    'Cost Anomaly Detection monitor "stg-cost-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
 
   -- Account 3: active CE anomaly monitor (for contrast — has anomalies)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSCostExplorer', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSCostExplorer', '', 'us-east-1',
    'arn:aws:ce::111222333444:anomalymonitor/dev-cost-monitor', '{}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AnomalyCount', 4, 'Count', false, '', 'unknown', '$NOW'),
@@ -534,14 +534,14 @@ VALUES
   -- ── EKS ghost resources ────────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', '', 'eu-central-1',
    'prod-analytics-cluster', '{\"env\":\"prod\",\"team\":\"data\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 0, 'Count', true,
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'data', '$NOW'),
 
   -- Account 2: empty EKS cluster (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', '', 'us-east-1',
    'stg-ml-pipeline', '{\"env\":\"staging\",\"team\":\"platform\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 0, 'Count', true,

@@ -33,3 +33,7 @@ UPDATE resource_records SET resource_type = 'instance'         WHERE service = '
 -- VPC resource types
 UPDATE ghost_records SET resource_type = 'eip' WHERE service = 'AmazonVPC' AND usage_metric = 'NetworkInterfaceAttachment';
 UPDATE resource_records SET resource_type = 'eip' WHERE service = 'AmazonVPC' AND usage_metric = 'NetworkInterfaceAttachment';
+
+-- RDS resource types (primary by default; detection would distinguish read replicas)
+UPDATE ghost_records SET resource_type = 'primary' WHERE service = 'AmazonRDS';
+UPDATE resource_records SET resource_type = 'primary' WHERE service = 'AmazonRDS';
