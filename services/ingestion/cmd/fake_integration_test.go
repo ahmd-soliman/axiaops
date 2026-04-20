@@ -56,11 +56,10 @@ func TestFakeProvider_FullPipeline(t *testing.T) {
 				if summary.TotalGhosts == 0 {
 					t.Error("all-ghosts scenario should have ghosts")
 				}
-				// CloudFront, Kinesis, S3 use Tier 1 direct detection (not Detect()),
-				// so they won't be flagged here. Expect 9 out of 12.
-				expectedGhosts := len(records) - 3
-				if summary.TotalGhosts != expectedGhosts {
-					t.Errorf("all-ghosts: expected %d resources to be ghosts, got %d", expectedGhosts, summary.TotalGhosts)
+				// CloudFront/Kinesis/S3 removed from fake provider test data since they require
+				// real AWS APIs for detection. All 9 remaining resources should be ghosts.
+				if summary.TotalGhosts != len(records) {
+					t.Errorf("all-ghosts: expected all %d resources to be ghosts, got %d", len(records), summary.TotalGhosts)
 				}
 			case "no-ghosts":
 				if summary.TotalGhosts != 0 {
