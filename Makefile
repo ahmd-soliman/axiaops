@@ -92,11 +92,11 @@ seed:
 seed-trends:
 	./scripts/seed_test_data.sh --with-trends
 
-# Seed remote dev database (192.168.1.100:5432)
+# Seed remote dev database (NAS.local:5432)
 seed-remote-dev:
 	./scripts/seed_test_data.sh --remote dev
 
-# Seed remote staging database (192.168.1.100:5433)
+# Seed remote staging database (NAS.local:5433)
 seed-remote-staging:
 	./scripts/seed_test_data.sh --remote staging
 
