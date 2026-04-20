@@ -13,7 +13,7 @@
 
 | Dimension | Score (0–10) | One-line verdict |
 |---|---|---|
-| Core product (detection + workflow) | **8** | Best-in-class for the SMB/MSP niche |
+| Core product (detection + workflow) | **7** | Best-in-class detection + dismiss/snooze; audit-trail UI still missing actor attribution |
 | Engineering quality & test coverage | **8** | 44% test LOC ratio, clean code, RLS done right |
 | Production deployment readiness | **4** | CI exists, IaC partial, no live staging yet |
 | Commercial plumbing (billing/trial/invoice) | **2** | Designed in `tmp/3.1-stripe-billing.md`, zero code shipped |
@@ -35,7 +35,9 @@
 
 The detection engine covers 15 AWS resource types across two tiers. Tier 1 (CloudWatch-based) handles EC2 idle instances, RDS abandoned databases, unused Lambda functions, abandoned ELBs, and unused NAT Gateways. Tier 2 (API-only, no CloudWatch cost) catches unattached Elastic IPs, unattached EBS volumes, orphaned snapshots, long-stopped instances, and unused AMIs, plus ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, and EKS. This is a genuinely broad surface area for an MVP — broader than Unusd, comparable to the detection subset of Vantage's Autopilot.
 
-The remediation workflow is the strongest differentiator. Dismiss-with-reason (intentional idle, scheduled deletion, false positive, cost accepted, other), snooze (1/7/30/90 days), revoke, and an immutable audit trail are all shipped and tested. This is the feature AWS Trusted Advisor and GCP Recommender don't have, and it's the one that converts "interesting dashboard" into "workflow tool we can't live without."
+The remediation workflow is the strongest differentiator. Dismiss-with-reason (intentional idle, scheduled deletion, false positive, cost accepted, other), snooze (1/7/30/90 days), and revoke are all shipped and tested. This is the feature AWS Trusted Advisor and GCP Recommender don't have, and it's the one that converts "interesting dashboard" into "workflow tool we can't live without."
+
+**Caveat — actor attribution is not yet wired end-to-end.** The `dismissed_ghosts` table has `dismissed_by` and `revoked_by` columns, but the API handler currently writes the tenant ID into those fields instead of the authenticated user's email (see `services/api/internal/api/handler.go:565` and `:595`, both flagged with a `// swap for user email when available` comment). The dashboard also does not render actor info anywhere — there's no "dismissed by X on Y" line in the detail view, and no per-resource history modal. Net effect: the schema supports a full audit trail, but today a customer cannot see who on their team approved what. The selling point "MSP shows the client a report proving who approved each dismissal" is not true in the product as it ships right now. Fix is small (see §6.2 and Week 1 of §7): ~4 hours of backend + UI work.
 
 The dashboard has 6 screens (Login, Connect AWS, Dashboard, Trend, Detail, Account Settings), is responsive, has dark-mode support, and has loading/error states. UX polish is respectable but not exceptional — sufficient for paid launch, would benefit from a second design pass before a wider public launch.
 
@@ -46,6 +48,7 @@ The dashboard has 6 screens (Login, Connect AWS, Dashboard, Trend, Detail, Accou
 - **CSV export** — A Team-tier feature in the pricing plan that doesn't exist in code. ~0.5 day.
 - **In-product IAM setup wizard** — The "paste your AWS access key" flow works but is not how security-aware customers want to connect. An IAM role with a cross-account AssumeRole + external ID is the industry norm; needs a guided wizard. ~2 days.
 - **Empty-state messaging** — New accounts with zero ghosts see a blank list, not "nice work, no waste detected" or "scanning in progress." ~0.5 day.
+- **Actor attribution on dismissals** — The schema stores `dismissed_by` and `revoked_by`, but the API writes tenant ID instead of user email, and the dashboard doesn't display these fields at all. This breaks the audit-trail pitch. Fix: pull user email from JWT claims in `handler.go:565` and `:595`, surface it in the detail view, optionally add a per-resource history modal. ~4 hours end-to-end.
 
 ### 2.2 Engineering quality
 
@@ -98,7 +101,7 @@ Gaps:
 
 - **No SOC 2 roadmap publicly visible.** Business plan targets SOC 2 Type II in Q4 2027 but there is no Vanta/Drata/Secureframe vendor selected, no evidence collection, and no policy documentation. For SMB/MSP sales this is fine in 2026; for any enterprise conversation in 2027 it will be asked on day one.
 - **No GDPR data-export or right-to-erasure endpoints.** Business plan and `tmp/3.10-gdpr.md` design it; nothing is shipped. For EU customers this is a real legal exposure if you start taking revenue before it exists. ~1 day to implement a basic export (JSON dump of tenant data) and a deletion endpoint that cascades through foreign keys.
-- **No audit log for account creation/modification/deletion.** Dismissals have an audit trail; account connect/disconnect does not. ~0.5 day.
+- **No audit log for account creation/modification/deletion.** Dismissals have an audit-trail schema (but see §2.1 caveat — actor is not populated correctly yet); account connect/disconnect has no audit log at all. ~0.5 day.
 - **No credential rotation process documented.** If a customer's encrypted AWS secret is compromised (unlikely given AES-256-GCM, but still), there's no documented rotation procedure. ~0.5 day to write the runbook.
 - **Encryption key in docker-compose.yml** is hardcoded for dev only, which is correct — but make sure the prod deploy reads `ENCRYPTION_KEY` exclusively from Secrets Manager and never from env-var injection that could leak into logs.
 
@@ -172,7 +175,7 @@ The business plan lists MSPs, FinOps consultants, and mid-market DevOps teams. I
 
 ### ICP-2: Independent FinOps consultants
 
-- **Why they work:** They need a reporting tool that makes their hourly work visible and provable. AxiaOps's audit trail is the pitch — "your client sees exactly what you dismissed, snoozed, and remediated."
+- **Why they work:** They need a reporting tool that makes their hourly work visible and provable. The audit-trail pitch — "your client sees exactly who on your team dismissed, snoozed, and remediated each ghost" — is the hook, but it depends on fixing the actor-attribution gap called out in §2.1 before any demo to this ICP. Until then, lean on dismiss-with-reason + trend chart instead.
 - **Deal size:** €149–€399/mo (Growth or Team).
 - **Sales motion:** Community-led (FinOps Foundation, LinkedIn thought-leader outreach).
 
@@ -262,6 +265,7 @@ Items required **before** the first invoice is issued. This is the "done means d
 ### Technical (blocks customer activation)
 
 - Rate limiter memory leak fixed (P1 from code review)
+- Dismissal actor attribution wired end-to-end (API writes user email to `dismissed_by`/`revoked_by`; dashboard displays it; optional per-resource history modal)
 - App Runner production services deployed with Terraform
 - RDS Postgres production instance with automated backups enabled
 - ElastiCache Redis production cluster
@@ -308,6 +312,7 @@ This is the concrete sequence for a paid-launch by mid-June 2026.
 
 **Week 1 (Apr 21–27): Unblock production**
 - Fix rate limiter memory leak (0.5d)
+- Fix dismissal actor attribution: write user email (not tenant ID) to `dismissed_by`/`revoked_by`, surface "Dismissed by X on Y" in detail view, optional per-resource history modal (0.5d)
 - Write Terraform for RDS, ElastiCache, App Runner (1d)
 - Provision production infra, move secrets to Secrets Manager (1d)
 - Wire axiaops.io domain + ACM + Route 53 (0.5d)
@@ -378,6 +383,7 @@ This is the concrete sequence for a paid-launch by mid-June 2026.
 | Pricing set too low, leaves money on table | Medium | Medium | This doc's recommended pricing (§6) is ~30% above business plan; raise further after 20 customers if conversion stays strong | Founder |
 | Pricing set too high, conversion collapses | Medium | Medium | Track free→paid conversion weekly; if < 2% at week 8, test 20% price cut for 30 days | Founder |
 | Churn from first cohort due to missing alerts feature | Medium | Medium | Email/Slack digest is in Week 3 of the 8-week plan; do not skip | Engineering |
+| Demoing audit trail before actor attribution is wired undermines the workflow-tool pitch | Medium | High | Actor-attribution fix is in Week 1; do not show the dismiss flow to an MSP prospect before it lands | Engineering |
 | MSP partner asks for white-label before it's built | Medium | Low | White-label is Team+ tier spec; can ship basic version (logo + custom domain on reports) in 2 days when needed | Engineering |
 | Kinde OAuth provider has an outage | Low | High | Add Kinde status page to incident response runbook; evaluate Auth0/WorkOS as backup in 2027 | Engineering |
 | Founder burns out on 8-week sprint | Medium | High | Hard-cap work at 50 hours/week; pre-commit to a 4-day week in Week 7 after soft launch | Founder |
