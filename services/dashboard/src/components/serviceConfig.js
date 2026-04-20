@@ -8,6 +8,7 @@ export const SERVICE_CONFIG = {
   AmazonElasticLoadBalancing: { label: 'ELB', color: '#C4B5FD', bg: '#F5F3FF', darkBg: '#1A0D36' },
   AmazonVPC:                  { label: 'VPC', color: '#10B981', bg: '#ECFDF5', darkBg: '#042B1F' },
   AmazonEKS:                  { label: 'EKS', color: '#3B82F6', bg: '#EFF6FF', darkBg: '#0D1F40' },
+  AWSCostExplorer:            { label: 'CE',  color: '#8B5CF6', bg: '#F5F3FF', darkBg: '#1A0D40' },
   AmazonS3:                   { label: 'S3',  color: '#06B6D4', bg: '#ECFEFF', darkBg: '#032830' },
   AmazonCloudFront:           { label: 'CF',  color: '#EC4899', bg: '#FDF2F8', darkBg: '#2A0620' },
   AmazonCloudWatch:           { label: 'CW',  color: '#64748B', bg: '#F8FAFC', darkBg: '#1A2030' },
