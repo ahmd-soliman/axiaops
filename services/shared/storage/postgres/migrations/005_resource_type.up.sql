@@ -29,3 +29,7 @@ UPDATE resource_records SET resource_type = 'snapshot'         WHERE service = '
 UPDATE resource_records SET resource_type = 'stopped_instance' WHERE service = 'AmazonEC2' AND usage_metric = 'DaysStopped';
 UPDATE resource_records SET resource_type = 'ami'              WHERE service = 'AmazonEC2' AND usage_metric = 'DaysSinceCreation';
 UPDATE resource_records SET resource_type = 'instance'         WHERE service = 'AmazonEC2' AND usage_metric = 'CPUUtilization';
+
+-- VPC resource types
+UPDATE ghost_records SET resource_type = 'eip' WHERE service = 'AmazonVPC' AND usage_metric = 'NetworkInterfaceAttachment';
+UPDATE resource_records SET resource_type = 'eip' WHERE service = 'AmazonVPC' AND usage_metric = 'NetworkInterfaceAttachment';

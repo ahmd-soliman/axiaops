@@ -26,6 +26,8 @@ export const RESOURCE_TYPE_CONFIG = {
   snapshot:         { label: 'Snapshots',   color: '#D97706' },
   ami:              { label: 'AMIs',        color: '#F97316' },
   stopped_instance: { label: 'Stopped',     color: '#EF4444' },
+  nat_gateway:      { label: 'NAT Gateway', color: '#10B981' },
+  eip:              { label: 'Elastic IP',  color: '#14B8A6' },
 };
 
 export function resourceTypeConfig(rt) {

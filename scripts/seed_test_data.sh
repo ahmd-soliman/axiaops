@@ -200,79 +200,79 @@ echo "Inserting ghost records..."
 psql_exec "DELETE FROM ghost_records WHERE tenant_id = '${TENANT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_exec "INSERT INTO ghost_records
-  (tenant_id, provider, account_id, internal_account_id, service, region, resource_id, tags, monthly_cost, currency,
+  (tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
    period_start, period_end, usage_metric, usage_avg, usage_unit, reason, owner, detected_at)
 VALUES
   -- Account 1 ghosts
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'instance', 'eu-central-1',
    'i-0abc123prod0001', '{\"env\":\"prod\",\"team\":\"backend\"}',
    45.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 1.2, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', '', 'eu-central-1',
    'db-prod-legacy-reporting', '{\"env\":\"prod\",\"team\":\"data\"}',
    210.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count',
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', '', 'eu-central-1',
    'app/legacy-api/abc123prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 0, 'Count',
    'Zero requests — likely abandoned', 'platform', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonVPC', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonVPC', 'eip', 'eu-central-1',
    'eipalloc-prod00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count',
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
   -- Account 2 ghosts
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 0.8, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0002', '{\"env\":\"staging\",\"team\":\"platform\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 2.1, 'Percent',
    'Instance CPU below 5% — likely idle', 'platform', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', '', 'us-east-1',
    'stg-image-resizer', '{\"env\":\"staging\",\"team\":\"backend\"}',
    4.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count',
    'Zero invocations — likely unused', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonVPC', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonVPC', 'eip', 'us-east-1',
    'eipalloc-stg00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count',
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
   -- Account 3 ghosts
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'instance', 'eu-west-1',
    'i-0abc123dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    22.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 0.3, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', '', 'eu-west-1',
    'db-dev-abandoned', '{\"env\":\"dev\",\"team\":\"data\"}',
    89.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count',
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
    'dev-unused-email-sender', '{\"env\":\"dev\",\"team\":\"backend\"}',
    2.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count',
    'Zero invocations — likely unused', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonVPC', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonVPC', 'eip', 'eu-west-1',
    'eipalloc-dev00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count',
@@ -281,14 +281,14 @@ VALUES
   -- ── CE Anomaly Detection monitor ghosts ───────────────────────────────────
 
   -- Account 1: idle paid CE anomaly monitor (zero anomalies in 30 days)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', '', 'us-east-1',
    'arn:aws:ce::123456789012:anomalymonitor/prod-service-monitor', '{}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AnomalyCount', 0, 'Count',
    'Cost Anomaly Detection monitor "prod-service-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
 
   -- Account 2: idle paid CE anomaly monitor
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', '', 'us-east-1',
    'arn:aws:ce::987654321098:anomalymonitor/stg-cost-monitor', '{}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AnomalyCount', 0, 'Count',
@@ -297,14 +297,14 @@ VALUES
   -- ── EKS ghosts ────────────────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (control plane billed, zero nodes)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', '', 'eu-central-1',
    'prod-analytics-cluster', '{\"env\":\"prod\",\"team\":\"data\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 0, 'Count',
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'data', '$NOW'),
 
   -- Account 2: empty EKS cluster
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', '', 'us-east-1',
    'stg-ml-pipeline', '{\"env\":\"staging\",\"team\":\"platform\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 0, 'Count',
@@ -313,56 +313,56 @@ VALUES
   -- ── Tier 1 API-only ghosts ─────────────────────────────────────────────────
 
   -- Account 1: unattached EBS volume (100 GB gp3, $0.08/GB-month)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'volume', 'eu-central-1',
    'vol-0prod00000001', '{\"env\":\"prod\",\"team\":\"platform\"}',
    8.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 0, 'State',
    'EBS volume (100 GB gp3) is unattached — not mounted to any instance but still incurring storage charges', 'platform', '$NOW'),
 
   -- Account 1: orphaned snapshot (source volume deleted, not backing any AMI)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'snapshot', 'eu-central-1',
    'snap-0prod00000001', '{\"env\":\"prod\",\"team\":\"data\"}',
    10.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceVolumeExists', 0, 'Boolean',
    'EBS snapshot (200 GB) source volume vol-0prod-deleted-001 no longer exists — orphaned storage accumulating charges', 'data', '$NOW'),
 
   -- Account 2: long-stopped EC2 instance (45 days, 80 GB attached EBS)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'stopped_instance', 'us-east-1',
    'i-0stopped-stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    6.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysStopped', 45, 'Days',
    'EC2 instance stopped for 45 days — attached EBS storage (80 GB) continues to bill at no compute benefit', 'backend', '$NOW'),
 
   -- Account 2: old AMI (120 days old, 80 GB backing snapshots, $0.05/GB-month)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'ami', 'us-east-1',
    'ami-0stg00000001', '{\"env\":\"staging\",\"team\":\"platform\"}',
    4.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 120, 'Days',
    'AMI is 120 days old and not referenced by any instance — backing snapshots (80 GB) accumulate storage charges', 'platform', '$NOW'),
 
   -- Account 3: unattached EBS volume (50 GB gp3)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'volume', 'eu-west-1',
    'vol-0dev00000001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    4.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 0, 'State',
    'EBS volume (50 GB gp3) is unattached — not mounted to any instance but still incurring storage charges', 'backend', '$NOW'),
 
   -- Account 3: orphaned snapshot (150 GB)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'snapshot', 'eu-west-1',
    'snap-0dev00000001', '{\"env\":\"dev\",\"team\":\"data\"}',
    7.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceVolumeExists', 0, 'Boolean',
    'EBS snapshot (150 GB) source volume vol-0dev-deleted-001 no longer exists — orphaned storage accumulating charges', 'data', '$NOW'),
 
   -- Account 3: long-stopped EC2 instance (60 days, 40 GB attached EBS)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'stopped_instance', 'eu-west-1',
    'i-0stopped-dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    3.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysStopped', 60, 'Days',
    'EC2 instance stopped for 60 days — attached EBS storage (40 GB) continues to bill at no compute benefit', 'backend', '$NOW'),
 
   -- Account 3: old AMI (180 days old, 60 GB backing snapshots)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'ami', 'eu-west-1',
    'ami-0dev00000001', '{\"env\":\"dev\",\"team\":\"platform\"}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 180, 'Days',
@@ -377,128 +377,128 @@ echo "Inserting resource records..."
 psql_exec "DELETE FROM resource_records WHERE tenant_id = '${TENANT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_exec "INSERT INTO resource_records
-  (tenant_id, provider, account_id, internal_account_id, service, region, resource_id, tags, monthly_cost, currency,
+  (tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
    period_start, period_end, usage_metric, usage_avg, usage_unit, is_ghost, reason, owner, detected_at)
 VALUES
   -- ── Production (${ACCT1}) ──────────────────────────────────────────
   -- Ghost: idle EC2
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'instance', 'eu-central-1',
    'i-0abc123prod0001', '{\"env\":\"prod\",\"team\":\"backend\"}',
    45.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 1.2, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
   -- Ghost: abandoned RDS
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', '', 'eu-central-1',
    'db-prod-legacy-reporting', '{\"env\":\"prod\",\"team\":\"data\"}',
    210.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count', true,
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
   -- Ghost: unused ELB
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', '', 'eu-central-1',
    'app/legacy-api/abc123prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 0, 'Count', true,
    'Zero requests — likely abandoned', 'platform', '$NOW'),
 
   -- Ghost: unattached EIP
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonVPC', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonVPC', 'eip', 'eu-central-1',
    'eipalloc-prod00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count', true,
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
   -- Active: healthy EC2
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'instance', 'eu-central-1',
    'i-0abc123prod0099', '{\"env\":\"prod\",\"team\":\"backend\"}',
    182.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 71.5, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy RDS
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', '', 'eu-central-1',
    'db-production-main', '{\"env\":\"prod\",\"team\":\"data\"}',
    312.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 284, 'Count', false, '', 'data', '$NOW'),
 
   -- Active: healthy ELB
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', '', 'eu-central-1',
    'app/prod-api/xyz789prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    24.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 94200, 'Count', false, '', 'platform', '$NOW'),
 
   -- ── Staging (${ACCT2}) ─────────────────────────────────────────────
   -- Ghost: idle EC2 #1
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 0.8, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
   -- Ghost: idle EC2 #2
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0002', '{\"env\":\"staging\",\"team\":\"platform\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 2.1, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'platform', '$NOW'),
 
   -- Ghost: unused Lambda
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', '', 'us-east-1',
    'stg-image-resizer', '{\"env\":\"staging\",\"team\":\"backend\"}',
    4.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count', true,
    'Zero invocations — likely unused', 'backend', '$NOW'),
 
   -- Ghost: unattached EIP
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonVPC', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonVPC', 'eip', 'us-east-1',
    'eipalloc-stg00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count', true,
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
   -- Active: healthy EC2
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0099', '{\"env\":\"staging\",\"team\":\"backend\"}',
    76.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 48.2, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy RDS
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', '', 'us-east-1',
    'db-staging-main', '{\"env\":\"staging\",\"team\":\"data\"}',
    98.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 37, 'Count', false, '', 'data', '$NOW'),
 
   -- ── Development (${ACCT3}) ────────────────────────────────────────
   -- Ghost: idle EC2
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'instance', 'eu-west-1',
    'i-0abc123dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    22.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 0.3, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
   -- Ghost: abandoned RDS
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', '', 'eu-west-1',
    'db-dev-abandoned', '{\"env\":\"dev\",\"team\":\"data\"}',
    89.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count', true,
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
   -- Ghost: unused Lambda
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
    'dev-unused-email-sender', '{\"env\":\"dev\",\"team\":\"backend\"}',
    2.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count', true,
    'Zero invocations — likely unused', 'backend', '$NOW'),
 
   -- Ghost: unattached EIP
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonVPC', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonVPC', 'eip', 'eu-west-1',
    'eipalloc-dev00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count', true,
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
   -- Active: healthy EC2
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'instance', 'eu-west-1',
    'i-0abc123dev0099', '{\"env\":\"dev\",\"team\":\"backend\"}',
    22.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 34.7, 'Percent', false, '', 'backend', '$NOW'),
@@ -746,11 +746,11 @@ else
 fi
 
 generate_snapshots "$ACCT1" 14 498.0 $DAYS $WITH_TRENDS \
-  "AmazonEC2|instance:0.16 AmazonRDS:0.42 AmazonElasticLoadBalancing:0.04 AmazonVPC:0.01 AmazonEC2|volume:0.22 AmazonEC2|snapshot:0.15"
+  "AmazonEC2|instance:0.16 AmazonRDS:0.42 AmazonElasticLoadBalancing:0.04 AmazonVPC|nat_gateway:0.005 AmazonVPC|eip:0.005 AmazonEC2|volume:0.22 AmazonEC2|snapshot:0.15"
 generate_snapshots "$ACCT2" 10 330.4 $DAYS $WITH_TRENDS \
-  "AmazonEC2|instance:0.46 AWSLambda:0.02 AmazonVPC:0.03 AmazonEC2|stopped_instance:0.33 AmazonEC2|ami:0.16"
+  "AmazonEC2|instance:0.46 AWSLambda:0.02 AmazonVPC|nat_gateway:0.015 AmazonVPC|eip:0.015 AmazonEC2|stopped_instance:0.33 AmazonEC2|ami:0.16"
 generate_snapshots "$ACCT3" 9  217.7 $DAYS $WITH_TRENDS \
-  "AmazonEC2|instance:0.22 AmazonRDS:0.30 AWSLambda:0.08 AmazonVPC:0.06 AmazonEC2|volume:0.20 AmazonEC2|ami:0.14"
+  "AmazonEC2|instance:0.22 AmazonRDS:0.30 AWSLambda:0.08 AmazonVPC|nat_gateway:0.03 AmazonVPC|eip:0.03 AmazonEC2|volume:0.20 AmazonEC2|ami:0.14"
 echo ""
 
 # ── RLS isolation check (using app user, not owner) ───────────────────────────
