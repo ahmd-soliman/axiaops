@@ -63,7 +63,7 @@ For now, just focus on passing CI tests!
 **Pipeline fails with "postgres connection refused"?**
 - The `test:postgres` job starts its own Postgres container
 - This is normal in GitLab CI
-- Make sure you have `make test-postgres` working locally first
+- Make sure you have `make test-storage` working locally first
 
 **Docker image build fails?**
 - Check that Dockerfiles exist: `services/api/Dockerfile`, `services/ingestion/Dockerfile`, etc.

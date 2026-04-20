@@ -77,10 +77,13 @@ if [[ -n "$REMOTE_ENV" ]]; then
   fi
   echo " Connected."
   echo ""
-  
+
+
   # Look up tenant ID for staging
   if [[ "$REMOTE_ENV" == "staging" ]]; then
+    echo "aaaa"
     LOOKED_UP=$(psql "$MIGRATION_DATABASE_URL" -t -c "SELECT id FROM axiaops.tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d ' \n')
+    echo "bbbb" $LOOKED_UP
     if [[ -n "$LOOKED_UP" ]]; then
       export TENANT_ID="$LOOKED_UP"
       echo "Using tenant ID from DB: $TENANT_ID"
@@ -380,9 +383,146 @@ VALUES
    'ami-0dev00000001', '{\"env\":\"dev\",\"team\":\"platform\"}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 180, 'Days',
-   'AMI is 180 days old and not referenced by any instance — backing snapshots (60 GB) accumulate storage charges', 'platform', '$NOW')
+   'AMI is 180 days old and not referenced by any instance — backing snapshots (60 GB) accumulate storage charges', 'platform', '$NOW'),
+
+  -- ── CloudWatch Log Group ghosts ───────────────────────────────────────────
+
+  -- Account 1: log group with no retention policy (2.5 GB stored indefinitely)
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonCloudWatch', 'log_group', 'eu-central-1',
+   '/aws/lambda/prod-legacy-processor', '{}',
+   0.08, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'RetentionDays', 0, 'Days',
+   'CloudWatch log group has no retention policy — 2.5 GB stored indefinitely accumulating charges', 'unknown', '$NOW'),
+
+  -- Account 2: log group with no retention policy (5.0 GB stored indefinitely)
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonCloudWatch', 'log_group', 'us-east-1',
+   '/ecs/stg-api-service', '{}',
+   0.15, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'RetentionDays', 0, 'Days',
+   'CloudWatch log group has no retention policy — 5.0 GB stored indefinitely accumulating charges', 'unknown', '$NOW'),
+
+  -- Account 3: log group with no retention policy (1.2 GB stored indefinitely)
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonCloudWatch', 'log_group', 'eu-west-1',
+   '/aws/rds/dev-abandoned-db', '{}',
+   0.04, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'RetentionDays', 0, 'Days',
+   'CloudWatch log group has no retention policy — 1.2 GB stored indefinitely accumulating charges', 'unknown', '$NOW'),
+
+  -- ── Orphaned RDS snapshot ghosts ──────────────────────────────────────────
+
+  -- Account 1: orphaned manual RDS snapshot (100 GB, source DB deleted, 45 days old)
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'snapshot', 'eu-central-1',
+   'rds:prod-legacy-reporting-final-2026-02', '{}',
+   9.50, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'SourceDBExists', 45, 'Days',
+   'Manual RDS snapshot (100 GB, 45 days old) is orphaned — source DB "prod-legacy-reporting" no longer exists, accumulating \$9.50/month in storage charges', 'unknown', '$NOW'),
+
+  -- Account 2: orphaned manual RDS snapshot (200 GB, source DB deleted, 90 days old)
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'snapshot', 'us-east-1',
+   'rds:stg-analytics-db-pre-migration', '{}',
+   19.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'SourceDBExists', 90, 'Days',
+   'Manual RDS snapshot (200 GB, 90 days old) is orphaned — source DB "stg-analytics-db" no longer exists, accumulating \$19.00/month in storage charges', 'unknown', '$NOW'),
+
+  -- Account 3: orphaned manual RDS snapshot (50 GB, source DB deleted, 60 days old)
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'snapshot', 'eu-west-1',
+   'rds:dev-test-db-backup-2026-01', '{}',
+   4.75, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'SourceDBExists', 60, 'Days',
+   'Manual RDS snapshot (50 GB, 60 days old) is orphaned — source DB "dev-test-db" no longer exists, accumulating \$4.75/month in storage charges', 'unknown', '$NOW'),
+
+  -- ── Stale ECR image ghosts ────────────────────────────────────────────────
+
+  -- Account 1: ECR repo with stale images (12 stale, 8.5 GB)
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonECR', 'repository', 'eu-central-1',
+   'prod-api-service', '{}',
+   0.85, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'StaleImageCount', 12, 'Count',
+   'ECR repository has 12 untagged/stale images totaling 8.5 GB — accumulating \$0.85/month in storage', 'unknown', '$NOW'),
+
+  -- Account 2: ECR repo with stale images (25 stale, 15.0 GB)
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonECR', 'repository', 'us-east-1',
+   'stg-worker', '{}',
+   1.50, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'StaleImageCount', 25, 'Count',
+   'ECR repository has 25 untagged/stale images totaling 15.0 GB — accumulating \$1.50/month in storage', 'unknown', '$NOW'),
+
+  -- Account 3: ECR repo with stale images (8 stale, 3.2 GB)
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonECR', 'repository', 'eu-west-1',
+   'dev-frontend', '{}',
+   0.32, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'StaleImageCount', 8, 'Count',
+   'ECR repository has 8 untagged/stale images totaling 3.2 GB — accumulating \$0.32/month in storage', 'unknown', '$NOW'),
+
+  -- ── Unused Secrets Manager ghosts ─────────────────────────────────────────
+
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSSecretsManager', '', 'eu-central-1',
+   'prod/legacy-api/db-password', '{}',
+   0.40, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'DaysSinceAccess', 180, 'Days',
+   'Secret not accessed for 180 days — still billing \$0.40/month', 'unknown', '$NOW'),
+
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSSecretsManager', '', 'us-east-1',
+   'stg/old-service/api-key', '{}',
+   0.40, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'DaysSinceAccess', 120, 'Days',
+   'Secret not accessed for 120 days — still billing \$0.40/month', 'unknown', '$NOW'),
+
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSSecretsManager', '', 'eu-west-1',
+   'dev/abandoned-project/token', '{}',
+   0.40, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'DaysSinceAccess', 95, 'Days',
+   'Secret not accessed for 95 days — still billing \$0.40/month', 'unknown', '$NOW'),
+
+  -- ── CloudFront distribution ghosts ────────────────────────────────────────
+
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonCloudFront', '', 'us-east-1',
+   'E1PROD0ABANDONED', '{}',
+   15.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'Requests', 0, 'Count',
+   'CloudFront distribution has zero requests — likely abandoned', 'unknown', '$NOW'),
+
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonCloudFront', '', 'us-east-1',
+   'E2STG0OLDSITE', '{}',
+   8.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'Requests', 0, 'Count',
+   'CloudFront distribution has zero requests — likely abandoned', 'unknown', '$NOW'),
+
+  -- ── Kinesis stream ghosts ─────────────────────────────────────────────────
+
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonKinesis', '', 'eu-central-1',
+   'prod-event-ingestion-v1', '{}',
+   32.40, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'IncomingRecords', 0, 'Count',
+   'Kinesis data stream has zero incoming records — likely unused', 'unknown', '$NOW'),
+
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonKinesis', '', 'eu-west-1',
+   'dev-clickstream', '{}',
+   16.20, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'IncomingRecords', 0, 'Count',
+   'Kinesis data stream has zero incoming records — likely unused', 'unknown', '$NOW'),
+
+  -- ── S3 bucket ghosts (requires request metrics enabled) ───────────────────
+
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonS3', '', 'eu-central-1',
+   'prod-old-data-export-2024', '{}',
+   22.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'AllRequests', 0, 'Count',
+   'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW'),
+
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonS3', '', 'us-east-1',
+   'stg-terraform-state-old', '{}',
+   5.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'AllRequests', 0, 'Count',
+   'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW'),
+
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonS3', '', 'eu-west-1',
+   'dev-test-uploads-2023', '{}',
+   3.50, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'AllRequests', 0, 'Count',
+   'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW')
 ;"
-echo "  Inserted 24 ghost records (8 prod, 8 staging, 8 dev — includes CE monitors, EKS, and Tier 1 API-only types)."
+echo "  Inserted 43 ghost records (15 acct1, 14 acct2, 14 acct3 — includes all detection types)."
 echo ""
 
 # ── Resource records ──────────────────────────────────────────────────────────
@@ -763,7 +903,7 @@ GHOST_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_records WHERE tenant_id = '
 RESOURCE_COUNT=$(psql_query "SELECT COUNT(*) FROM resource_records WHERE tenant_id = '${TENANT_ID}';")
 SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshots WHERE tenant_id = '${TENANT_ID}';")
 SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshot_services WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
-echo "Dev tenant ghost records:       $GHOST_COUNT  (expected 24)"
+echo "Dev tenant ghost records:       $GHOST_COUNT  (expected 43)"
 echo "Dev tenant resource records:    $RESOURCE_COUNT  (expected 36)"
 echo "Dev tenant ghost snapshots:     $SNAPSHOT_COUNT  (expected 270)"
 echo "Dev tenant snapshot services:   $SVC_COUNT"

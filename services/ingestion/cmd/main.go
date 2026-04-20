@@ -481,6 +481,54 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		ghosts = append(ghosts, amiGhosts...)
 	}
 
+	// Wasteful CloudWatch Log Groups (no retention policy or zero stored bytes).
+	logGroupGhosts, logGroupErr := aws.DiscoverWastefulLogGroups(ctx, allRecords, awsClient, start, end, accountID)
+	if logGroupErr != nil {
+		catErr := errors.Categorize(logGroupErr, "discover_log_groups")
+		slog.Error("discover wasteful CloudWatch log groups failed, continuing",
+			"error", logGroupErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, logGroupGhosts...)
+	}
+
+	// Orphaned manual RDS snapshots (source DB deleted, older than 30 days).
+	rdsSnapGhosts, rdsSnapErr := aws.DiscoverOrphanedRDSSnapshots(ctx, allRecords, awsClient, start, end, accountID)
+	if rdsSnapErr != nil {
+		catErr := errors.Categorize(rdsSnapErr, "discover_rds_snapshots")
+		slog.Error("discover orphaned RDS snapshots failed, continuing",
+			"error", rdsSnapErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, rdsSnapGhosts...)
+	}
+
+	// Stale ECR images (untagged or older than 90 days, summarized per repository).
+	ecrGhosts, ecrErr := aws.DiscoverStaleECRImages(ctx, allRecords, awsClient, start, end, accountID)
+	if ecrErr != nil {
+		catErr := errors.Categorize(ecrErr, "discover_ecr_images")
+		slog.Error("discover stale ECR images failed, continuing",
+			"error", ecrErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, ecrGhosts...)
+	}
+
+	// Unused Secrets Manager secrets (not accessed for >90 days, $0.40/secret/month).
+	secretGhosts, secretErr := aws.DiscoverUnusedSecrets(ctx, allRecords, awsClient, start, end, accountID)
+	if secretErr != nil {
+		catErr := errors.Categorize(secretErr, "discover_unused_secrets")
+		slog.Error("discover unused secrets failed, continuing",
+			"error", secretErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, secretGhosts...)
+	}
+
 	// Idle CE Anomaly Detection monitors (paid monitors with zero anomalies in lookback window).
 	ceMonitorGhosts, ceMonitorErr := aws.DiscoverIdleCEAnomalyMonitors(ctx, allRecords, awsClient, start, end, accountID)
 	if ceMonitorErr != nil {
