@@ -150,7 +150,7 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 			periodEnd, _ := time.Parse(dateLayout, aws.ToString(result.TimePeriod.End))
 
 			for _, group := range result.Groups {
-				service := group.Keys[0]
+				ceService := group.Keys[0]
 				region := group.Keys[1]
 
 				metric := group.Metrics["UnblendedCost"]
@@ -159,7 +159,7 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 				records = append(records, model.CostRecord{
 					Provider:    "aws",
 					AccountID:   c.accountID,
-					Service:     service,
+					Service:     normalizeService(ceService),
 					Region:      region,
 					Amount:      amount,
 					Currency:    aws.ToString(metric.Unit),
@@ -209,6 +209,18 @@ var ceServiceToInternal = map[string]string{
 	"Amazon SageMaker":                       "AmazonSageMaker",
 	"Amazon DynamoDB":                        "AmazonDynamoDB",
 	"Amazon Elastic Kubernetes Service":      "AmazonEKS",
+	"Amazon Cost Explorer":                   "AWSCostExplorer",
+	"Amazon CloudWatch":                      "AmazonCloudWatch",
+}
+
+// normalizeService maps Cost Explorer service names to internal names.
+// Unknown services are logged as warnings and returned as-is.
+func normalizeService(ceService string) string {
+	if mapped, ok := ceServiceToInternal[ceService]; ok {
+		return mapped
+	}
+	slog.Warn("unknown AWS service from Cost Explorer", "service", ceService)
+	return ceService
 }
 
 // FetchResourceCosts calls GetCostAndUsage grouped by SERVICE and RESOURCE_ID
@@ -271,19 +283,13 @@ func (c *Client) FetchResourceCosts(ctx context.Context, start, end time.Time) (
 					continue
 				}
 
-				// Map CE service name to internal name.
-				service := ceService
-				if mapped, ok := ceServiceToInternal[ceService]; ok {
-					service = mapped
-				}
-
 				// Extract region and short resource ID from ARN if possible.
 				region, shortID := parseResourceID(resourceID)
 
 				records = append(records, model.CostRecord{
 					Provider:    "aws",
 					AccountID:   c.accountID,
-					Service:     service,
+					Service:     normalizeService(ceService),
 					Region:      region,
 					ResourceID:  shortID,
 					Amount:      amount,

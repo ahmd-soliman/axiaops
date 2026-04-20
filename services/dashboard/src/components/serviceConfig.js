@@ -12,6 +12,9 @@ export const SERVICE_CONFIG = {
   AmazonS3:                   { label: 'S3',  color: '#06B6D4', bg: '#ECFEFF', darkBg: '#032830' },
   AmazonCloudFront:           { label: 'CF',  color: '#EC4899', bg: '#FDF2F8', darkBg: '#2A0620' },
   AmazonCloudWatch:           { label: 'CW',  color: '#64748B', bg: '#F8FAFC', darkBg: '#1A2030' },
+  AmazonECR:                  { label: 'ECR', color: '#EF4444', bg: '#FEF2F2', darkBg: '#3D0D0D' },
+  AWSSecretsManager:          { label: 'SM',  color: '#F97316', bg: '#FFFBF0', darkBg: '#3D1F0D' },
+  AmazonKinesis:              { label: 'KIN', color: '#06B6D4', bg: '#ECFEFF', darkBg: '#032830' },
 };
 
 export function serviceConfig(service) {
