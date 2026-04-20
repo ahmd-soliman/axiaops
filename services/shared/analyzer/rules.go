@@ -77,10 +77,12 @@ var serviceRules = map[string]rule{
 		unit:      "Count",
 		reason:    "DynamoDB table (provisioned mode) has zero read capacity consumed — likely unused",
 	},
+	// Requires Container Insights enabled on the cluster (namespace: ContainerInsights).
+	// Clusters without Container Insights return no CloudWatch data and are skipped.
 	"AmazonEKS": {
 		metric:    "cluster_node_count",
 		threshold: 0.0,
 		unit:      "Count",
-		reason:    "EKS cluster has zero nodes — control plane billing with no workload",
+		reason:    "EKS cluster has zero nodes — control plane ($73/mo) billing with no workload",
 	},
 }

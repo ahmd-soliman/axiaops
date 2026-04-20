@@ -85,6 +85,15 @@ Zombie detection thresholds — do not change without business justification:
 | VPC (NAT) | BytesOutToDestination | = 0 | Unused NAT GW |
 | VPC (EIP) | NetworkInterfaceAttachment | = 0 | Unattached EIP |
 
+API-only rules (no CloudWatch — state derived directly from AWS Describe APIs):
+
+| Service | Detection Method | Threshold | Verdict | Cost |
+|---------|-----------------|-----------|---------|------|
+| AmazonEC2 (EBS vol) | ec2:DescribeVolumes | state = "available" | Unattached volume | $0.08–0.125/GB-month |
+| AmazonEC2 (snapshot) | ec2:DescribeSnapshots + DescribeVolumes | source volume gone, not backing any AMI | Orphaned snapshot | $0.05/GB-month |
+| AmazonEC2 (stopped) | ec2:DescribeInstances StateTransitionReason | stopped > 30 days | Long-stopped instance (EBS still bills) | $0.08/GB-month on attached volumes |
+| AmazonEC2 (AMI) | ec2:DescribeImages + DescribeInstances | age > 90 days, no instance references it | Unused AMI + backing snapshots | $0.05/GB-month on backing snapshots |
+
 ## Security
 
 - AES-256-GCM encrypts AWS secrets before DB storage (`ENCRYPTION_KEY` env var, 32-byte hex)
