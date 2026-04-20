@@ -19,10 +19,10 @@ func TestE2E_BusinessScenarios(t *testing.T) {
 		expectActive  int
 		minSavings    float64
 	}{
-		{"startup", 2, 2, 40.0},      // Small account, some waste
-		{"enterprise", 7, 7, 300.0},  // Large account, significant waste
-		{"all-ghosts", 4, 0, 200.0},  // Everything idle
-		{"no-ghosts", 0, 2, 0.0},     // Everything active
+		{"startup", 3, 3, 50.0},       // Small account with EC2, RDS, Lambda, VPC
+		{"enterprise", 10, 9, 400.0},  // Large account with all resource types (volumes, snapshots, read replicas, ELB types)
+		{"all-ghosts", 9, 0, 250.0},   // Everything idle (now includes volumes, snapshots, read replicas, ELBs, EIPs)
+		{"no-ghosts", 0, 5, 0.0},      // Everything active across major services
 	}
 
 	for _, tt := range tests {
