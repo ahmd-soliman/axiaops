@@ -124,7 +124,7 @@ if [[ "$DROP_SCHEMA" == "true" ]]; then
   # schema_migrations lives inside axiaops now, so CASCADE handles it.
   psql_super "DROP SCHEMA IF EXISTS axiaops CASCADE;"
   echo "Revoking privileges from user 'axiaops'..."
-  psql_super "REVOKE ALL PRIVILEGES ON DATABASE axiaops FROM axiaops;"
+  psql_super "REVOKE ALL PRIVILEGES ON DATABASE axiaops FROM axiaops;" 2>/dev/null || true
   echo "Dropping user 'axiaops'..."
   psql_super "DROP USER IF EXISTS axiaops;"
   echo ""
