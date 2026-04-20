@@ -22,7 +22,8 @@ export default function Dashboard() {
   const claims   = parseJwt(getToken() ?? '');
   const orgName  = claims.org_name || claims.org_code || '';
 
-  if (accounts.data?.length === 0) return <Navigate to="/connect" replace />;
+  const skipConnect = params.get('skip_connect') === '1';
+  if (accounts.data?.length === 0 && !skipConnect) return <Navigate to="/connect?onboarding=1" replace />;
 
   return (
     <DashboardScreen
