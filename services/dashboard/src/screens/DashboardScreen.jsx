@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchSummary, fetchResources, fetchTrend, fetchDismissals, scanAccount, dismissGhost } from '../api/client';
-import { serviceConfig } from '../components/serviceConfig';
+import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
@@ -251,7 +251,13 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
 
 // ─── Service + owner pill rows ────────────────────────────────────────────────
 
-function FilterPills({ byService, owners, filterSvc, filterOwner, onFilterSvc, onFilterOwner, currency, theme, isDark }) {
+function FilterPills({
+  byService, owners, resourceTypes,
+  filterSvc, filterOwner, filterResourceTypes,
+  onFilterSvc, onFilterOwner, onToggleResourceType, onClearResourceTypes,
+  currency, theme, isDark,
+}) {
+  const noneSelected = filterResourceTypes.size === 0;
   return (
     <div style={{ padding: '0 16px 12px' }}>
       {/* Service pills */}
@@ -284,6 +290,49 @@ function FilterPills({ byService, owners, filterSvc, filterOwner, onFilterSvc, o
                 <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? '#ffffff' : cfg.color }} />
                 <span style={{ fontSize: 12, fontWeight: 700, color: active ? '#ffffff' : theme.text }}>{cfg.label}</span>
                 <span style={{ fontSize: 11, color: active ? 'rgba(255,255,255,0.8)' : theme.textMuted }}>{currency}{data.savings.toFixed(0)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Resource type sub-filter pills (shown when a service is selected and has sub-types) */}
+      {filterSvc && resourceTypes.length > 0 && (
+        <div
+          role="group"
+          aria-label="Filter by resource type"
+          style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6, marginBottom: 6 }}
+        >
+          <button
+            onClick={onClearResourceTypes}
+            aria-pressed={noneSelected}
+            style={{
+              padding: '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
+              backgroundColor: noneSelected ? theme.textMid : theme.surfaceRaised,
+              border: `1px solid ${noneSelected ? theme.textMid : theme.border}`,
+              fontSize: 11, fontWeight: 600,
+              color: noneSelected ? '#fff' : theme.textMuted,
+            }}
+          >
+            All Types
+          </button>
+          {resourceTypes.map(rt => {
+            const cfg = resourceTypeConfig(rt);
+            const active = filterResourceTypes.has(rt);
+            return (
+              <button
+                key={rt}
+                onClick={() => onToggleResourceType(rt)}
+                aria-pressed={active}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
+                  backgroundColor: active ? theme.textMid : theme.surfaceRaised,
+                  border: `1px solid ${active ? theme.textMid : theme.border}`,
+                }}
+              >
+                <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#fff' : theme.textMuted }}>{cfg.label}</span>
               </button>
             );
           })}
@@ -692,8 +741,9 @@ export default function DashboardScreen({
   const queryClient       = useQueryClient();
   const t = theme;
 
-  const [filterSvc, setFilterSvc]       = useState(null);
-  const [filterOwner, setFilterOwner]   = useState(null);
+  const [filterSvc, setFilterSvc]                   = useState(null);
+  const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
+  const [filterOwner, setFilterOwner]               = useState(null);
   const [ghostOnly, setGhostOnly]       = useState(true);
   const [showDismissed, setShowDismissed] = useState(false);
   const [scanning, setScanning]         = useState(null);
@@ -726,6 +776,36 @@ export default function DashboardScreen({
     () => Object.entries(summary.data?.by_service ?? {}).sort((a, b) => b[1].savings - a[1].savings),
     [summary.data],
   );
+
+  // Distinct resource sub-types within the currently selected service.
+  // Computed locally from the loaded resources so the pills always match what's visible.
+  const resourceTypes = useMemo(() => {
+    if (!filterSvc) return [];
+    const set = new Set();
+    for (const r of resources.data ?? []) {
+      if (r.service !== filterSvc) continue;
+      if (dismissedSet.has(r.resource_id)) continue;
+      if (r.resource_type) set.add(r.resource_type);
+    }
+    return [...set].sort();
+  }, [resources.data, filterSvc, dismissedSet]);
+
+  function handleFilterSvc(svc) {
+    setFilterSvc(svc);
+    setFilterResourceTypes(new Set());
+  }
+
+  function toggleResourceType(rt) {
+    setFilterResourceTypes(prev => {
+      const next = new Set(prev);
+      next.has(rt) ? next.delete(rt) : next.add(rt);
+      return next;
+    });
+  }
+
+  function clearResourceTypes() {
+    setFilterResourceTypes(new Set());
+  }
 
   function refresh() {
     summary.refetch(); resources.refetch(); trend.refetch(); dismissals.refetch();
@@ -786,12 +866,21 @@ export default function DashboardScreen({
 
   const activeFilters = [
     filterSvc   && { key: 'svc',   label: serviceConfig(filterSvc).label },
+    ...[...filterResourceTypes].map(rt => ({ key: `rt:${rt}`, label: resourceTypeConfig(rt).label })),
     filterOwner && { key: 'owner', label: filterOwner },
   ].filter(Boolean);
 
   function clearFilter(key) {
-    if (key === 'svc') setFilterSvc(null);
+    if (key === 'svc')   { setFilterSvc(null); setFilterResourceTypes(new Set()); }
     if (key === 'owner') setFilterOwner(null);
+    if (key.startsWith('rt:')) {
+      const rt = key.slice(3);
+      setFilterResourceTypes(prev => {
+        const next = new Set(prev);
+        next.delete(rt);
+        return next;
+      });
+    }
   }
 
   // ── Loading state ──────────────────────────────────────────────────────────
@@ -828,8 +917,9 @@ export default function DashboardScreen({
     let list = resources.data ?? [];
     if (ghostOnly) list = list.filter(r => r.is_ghost);
     list = list.filter(r => !dismissedSet.has(r.resource_id));
-    if (filterSvc)   list = list.filter(r => r.service === filterSvc);
-    if (filterOwner) list = list.filter(r => r.owner === filterOwner);
+    if (filterSvc)                  list = list.filter(r => r.service === filterSvc);
+    if (filterResourceTypes.size > 0) list = list.filter(r => filterResourceTypes.has(r.resource_type));
+    if (filterOwner)                list = list.filter(r => r.owner === filterOwner);
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(r =>
@@ -899,10 +989,14 @@ export default function DashboardScreen({
         <FilterPills
           byService={byService}
           owners={owners}
+          resourceTypes={resourceTypes}
           filterSvc={filterSvc}
           filterOwner={filterOwner}
-          onFilterSvc={setFilterSvc}
+          filterResourceTypes={filterResourceTypes}
+          onFilterSvc={handleFilterSvc}
           onFilterOwner={setFilterOwner}
+          onToggleResourceType={toggleResourceType}
+          onClearResourceTypes={clearResourceTypes}
           currency={summary.data?.currency ?? '$'}
           theme={t}
           isDark={isDark}
