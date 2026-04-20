@@ -746,11 +746,11 @@ else
 fi
 
 generate_snapshots "$ACCT1" 14 498.0 $DAYS $WITH_TRENDS \
-  "AmazonEC2|instance:0.16 AmazonRDS:0.42 AmazonElasticLoadBalancing:0.04 AmazonVPC|nat_gateway:0.005 AmazonVPC|eip:0.005 AmazonEC2|volume:0.22 AmazonEC2|snapshot:0.15"
+  "AmazonEC2|instance:0.16 AmazonRDS|primary:0.42 AmazonElasticLoadBalancing|alb:0.04 AmazonVPC|nat_gateway:0.005 AmazonVPC|eip:0.005 AmazonEC2|volume:0.22 AmazonEC2|snapshot:0.15"
 generate_snapshots "$ACCT2" 10 330.4 $DAYS $WITH_TRENDS \
-  "AmazonEC2|instance:0.46 AWSLambda:0.02 AmazonVPC|nat_gateway:0.015 AmazonVPC|eip:0.015 AmazonEC2|stopped_instance:0.33 AmazonEC2|ami:0.16"
+  "AmazonEC2|instance:0.46 AWSLambda:0.02 AmazonRDS|read_replica:0.20 AmazonVPC|nat_gateway:0.015 AmazonVPC|eip:0.015 AmazonEC2|stopped_instance:0.33 AmazonEC2|ami:0.16"
 generate_snapshots "$ACCT3" 9  217.7 $DAYS $WITH_TRENDS \
-  "AmazonEC2|instance:0.22 AmazonRDS:0.30 AWSLambda:0.08 AmazonVPC|nat_gateway:0.03 AmazonVPC|eip:0.03 AmazonEC2|volume:0.20 AmazonEC2|ami:0.14"
+  "AmazonEC2|instance:0.22 AmazonRDS|primary:0.30 AWSLambda:0.08 AmazonElasticLoadBalancing|nlb:0.05 AmazonVPC|nat_gateway:0.03 AmazonVPC|eip:0.03 AmazonEC2|volume:0.20 AmazonEC2|ami:0.14"
 echo ""
 
 # ── RLS isolation check (using app user, not owner) ───────────────────────────

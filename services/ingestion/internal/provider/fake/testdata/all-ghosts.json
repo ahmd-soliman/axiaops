@@ -1,14 +1,24 @@
 {
   "costs": [
-    {"provider": "aws", "account_id": "333333333333", "service": "AmazonEC2",   "region": "eu-central-1", "resource_id": "i-ghost-01",      "amount": 80.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "333333333333", "service": "AmazonRDS",   "region": "eu-central-1", "resource_id": "db-ghost-01",     "amount": 150.00, "currency": "USD"},
-    {"provider": "aws", "account_id": "333333333333", "service": "AWSLambda",   "region": "eu-central-1", "resource_id": "fn-ghost-01",     "amount": 5.00,   "currency": "USD"},
-    {"provider": "aws", "account_id": "333333333333", "service": "AmazonEKS",   "region": "eu-central-1", "resource_id": "empty-cluster-01","amount": 73.00,  "currency": "USD"}
+    {"provider": "aws", "account_id": "333333333333", "service": "AmazonEC2",   "region": "eu-central-1", "resource_id": "i-ghost-01",        "amount": 80.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "333333333333", "service": "AmazonEC2",   "region": "eu-central-1", "resource_id": "vol-ghost-01",     "amount": 10.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "333333333333", "service": "AmazonEC2",   "region": "eu-central-1", "resource_id": "snap-ghost-01",    "amount": 15.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "333333333333", "service": "AmazonRDS",   "region": "eu-central-1", "resource_id": "db-ghost-01",      "amount": 150.00, "currency": "USD"},
+    {"provider": "aws", "account_id": "333333333333", "service": "AmazonRDS",   "region": "eu-central-1", "resource_id": "db-replica-ghost", "amount": 140.00, "currency": "USD"},
+    {"provider": "aws", "account_id": "333333333333", "service": "AWSLambda",   "region": "eu-central-1", "resource_id": "fn-ghost-01",      "amount": 5.00,   "currency": "USD"},
+    {"provider": "aws", "account_id": "333333333333", "service": "AmazonElasticLoadBalancing", "region": "eu-central-1", "resource_id": "net/ghost-nlb/x01", "amount": 16.00, "currency": "USD"},
+    {"provider": "aws", "account_id": "333333333333", "service": "AmazonVPC",   "region": "eu-central-1", "resource_id": "eip-ghost-01",     "amount": 3.60,   "currency": "USD"},
+    {"provider": "aws", "account_id": "333333333333", "service": "AmazonEKS",   "region": "eu-central-1", "resource_id": "empty-cluster-01", "amount": 73.00,  "currency": "USD"}
   ],
   "usage": [
-    {"resource_id": "i-ghost-01",       "metric": "CPUUtilization",      "unit": "Percent", "avg": 0.0, "period_days": 30},
-    {"resource_id": "db-ghost-01",      "metric": "DatabaseConnections",  "unit": "Count",   "avg": 0.0, "period_days": 30},
-    {"resource_id": "fn-ghost-01",      "metric": "Invocations",          "unit": "Count",   "avg": 0.0, "period_days": 30},
-    {"resource_id": "empty-cluster-01", "metric": "cluster_node_count",   "unit": "Count",   "avg": 0.0, "period_days": 30}
+    {"resource_id": "i-ghost-01",         "metric": "CPUUtilization",          "unit": "Percent", "avg": 0.0, "period_days": 30},
+    {"resource_id": "vol-ghost-01",       "metric": "VolumeState",             "unit": "State",   "avg": 0.0, "period_days": 30},
+    {"resource_id": "snap-ghost-01",      "metric": "SourceVolumeExists",      "unit": "Boolean", "avg": 0.0, "period_days": 30},
+    {"resource_id": "db-ghost-01",        "metric": "DatabaseConnections",     "unit": "Count",   "avg": 0.0, "period_days": 30},
+    {"resource_id": "db-replica-ghost",   "metric": "DatabaseConnections",     "unit": "Count",   "avg": 0.0, "period_days": 30},
+    {"resource_id": "fn-ghost-01",        "metric": "Invocations",             "unit": "Count",   "avg": 0.0, "period_days": 30},
+    {"resource_id": "net/ghost-nlb/x01",  "metric": "RequestCount",            "unit": "Count",   "avg": 0.0, "period_days": 30},
+    {"resource_id": "eip-ghost-01",       "metric": "NetworkInterfaceAttachment", "unit": "Count", "avg": 0.0, "period_days": 30},
+    {"resource_id": "empty-cluster-01",   "metric": "cluster_node_count",      "unit": "Count",   "avg": 0.0, "period_days": 30}
   ]
 }
