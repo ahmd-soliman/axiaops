@@ -400,6 +400,13 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	default:
 	}
 
+	// Fetch resource-level costs for services that support per-resource CE data.
+	// These records have ResourceID populated, enabling Detect() to join with usage.
+	resourceCosts, _ := awsClient.FetchResourceCosts(ctx, start, end)
+	if len(resourceCosts) > 0 {
+		slog.Info("fetched resource-level costs", "count", len(resourceCosts))
+	}
+
 	var usage []analyzer.UsageRecord
 	var usageErr error
 	if len(allRecords) > 0 {
@@ -416,7 +423,14 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		}
 	}
 
-	ghosts := analyzer.Detect(allRecords, usage, accountID)
+	// Use resource-level costs for Detect() — these have ResourceID populated
+	// so they can be joined with usage data. Fall back to aggregate records if
+	// resource-level fetch returned nothing.
+	detectRecords := resourceCosts
+	if len(detectRecords) == 0 {
+		detectRecords = allRecords
+	}
+	ghosts := analyzer.Detect(detectRecords, usage, accountID)
 
 	// API-only zombie checks — each is non-fatal; a failure is logged and the
 	// scan continues so that a single permissions gap doesn't block all findings.
@@ -541,6 +555,42 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		ghosts = append(ghosts, ceMonitorGhosts...)
 	}
 
+	// Idle CloudFront distributions (zero requests in lookback window).
+	cfGhosts, cfErr := aws.DiscoverIdleCloudFrontDistributions(ctx, allRecords, awsClient, start, end, accountID)
+	if cfErr != nil {
+		catErr := errors.Categorize(cfErr, "discover_cloudfront")
+		slog.Error("discover idle CloudFront distributions failed, continuing",
+			"error", cfErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, cfGhosts...)
+	}
+
+	// Idle Kinesis data streams (zero incoming records in lookback window).
+	kinesisGhosts, kinesisErr := aws.DiscoverIdleKinesisStreams(ctx, allRecords, awsClient, start, end, accountID)
+	if kinesisErr != nil {
+		catErr := errors.Categorize(kinesisErr, "discover_kinesis")
+		slog.Error("discover idle Kinesis streams failed, continuing",
+			"error", kinesisErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, kinesisGhosts...)
+	}
+
+	// Idle S3 buckets (zero requests, requires request metrics enabled).
+	s3Ghosts, s3Err := aws.DiscoverIdleS3Buckets(ctx, allRecords, awsClient, start, end, accountID)
+	if s3Err != nil {
+		catErr := errors.Categorize(s3Err, "discover_s3")
+		slog.Error("discover idle S3 buckets failed, continuing",
+			"error", s3Err,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, s3Ghosts...)
+	}
+
 	summary := analyzer.Summarize(ghosts)
 	slog.Info("analysis: detected ghost resources", "total", summary.TotalGhosts, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
 	ingestionGhostsDetectedTotal.WithLabelValues(tenantID, awsClient.Name()).Set(float64(summary.TotalGhosts))
@@ -587,7 +637,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		}
 	}
 
-	resources := analyzer.AnnotateAll(allRecords, usage, ghosts)
+	// Use resource-level costs for AnnotateAll so individual resources appear
+	// in the /resources endpoint. Append aggregate records for services without
+	// resource-level data.
+	annotateRecords := append(resourceCosts, allRecords...)
+	resources := analyzer.AnnotateAll(annotateRecords, usage, ghosts)
 	// Set internal_account_id on all resources
 	for i := range resources {
 		resources[i].InternalAccountID = accountID

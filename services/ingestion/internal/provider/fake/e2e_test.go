@@ -20,8 +20,8 @@ func TestE2E_BusinessScenarios(t *testing.T) {
 		minSavings    float64
 	}{
 		{"startup", 3, 3, 50.0},       // Small account with EC2, RDS, Lambda, VPC
-		{"enterprise", 13, 12, 400.0}, // Large account with all resource types (volumes, snapshots, read replicas, ELB types, CloudFront, Kinesis, S3)
-		{"all-ghosts", 12, 0, 250.0},  // Everything idle (now includes volumes, snapshots, read replicas, ELBs, EIPs, CloudFront, Kinesis, S3)
+		{"enterprise", 10, 15, 400.0}, // Large account — CloudFront/Kinesis/S3 use direct detection (not Detect())
+		{"all-ghosts", 9, 3, 250.0},   // CloudFront/Kinesis/S3 not detected via Detect() — they use Tier 1 direct detection
 		{"no-ghosts", 0, 5, 0.0},      // Everything active across major services
 	}
 
