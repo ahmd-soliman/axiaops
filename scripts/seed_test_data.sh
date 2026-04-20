@@ -7,11 +7,10 @@
 #     echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 #
 # Usage:
-#   ./scripts/seed_test_data.sh                                    # Local docker, 1000 days
-#   ./scripts/seed_test_data.sh --with-trends                      # Local docker, 90 days with trends
+#   ./scripts/seed_test_data.sh                                    # Local docker
 #   ./scripts/seed_test_data.sh --remote dev                       # Remote dev (NAS.local:5432)
-#   ./scripts/seed_test_data.sh --remote staging --with-trends     # Remote staging with trends
-#   DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom remote URL
+#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (NAS.local:5433)
+#   MIGRATION_DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom connection (owner user, bypasses RLS)
 #
 # Supports both local (docker) and remote database connections.
 # Safe to re-run — all inserts are idempotent (ON CONFLICT DO NOTHING / DO UPDATE).
@@ -20,13 +19,11 @@ set -euo pipefail
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
-WITH_TRENDS=false
 REMOTE_ENV=""
 AUTO_YES=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --with-trends) WITH_TRENDS=true ;;
     --remote)
       shift
       REMOTE_ENV="${1:-}"
@@ -42,6 +39,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Remote connection setup ───────────────────────────────────────────────────
+# When --remote is passed, build a MIGRATION_DATABASE_URL pointing to the remote host.
+# For staging, look up the real tenant ID from the DB (created by Kinde auth).
+# Prompts for confirmation unless --yes/-y is passed.
 
 if [[ -n "$REMOTE_ENV" ]]; then
   HOSTNAME="NAS.local"
@@ -52,11 +52,11 @@ if [[ -n "$REMOTE_ENV" ]]; then
     DB_PORT=5433
   fi
   
-  export DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
+  export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
   
   echo "=== Seeding AxiaOps $REMOTE_ENV database ==="
   echo "Target:    $HOSTNAME:$DB_PORT"
-  echo "URL:       $DATABASE_URL"
+  echo "URL:       $MIGRATION_DATABASE_URL"
   echo ""
   
   if [[ "$AUTO_YES" != "true" ]]; then
@@ -70,7 +70,7 @@ if [[ -n "$REMOTE_ENV" ]]; then
   
   # Verify connection
   echo -n "Checking connection to $HOSTNAME..."
-  if ! psql "$DATABASE_URL" -c 'SELECT 1' > /dev/null 2>&1; then
+  if ! psql "$MIGRATION_DATABASE_URL" -c 'SELECT 1' > /dev/null 2>&1; then
     echo " Failed."
     echo "Error: Cannot reach PostgreSQL at $HOSTNAME:$DB_PORT"
     exit 1
@@ -80,7 +80,7 @@ if [[ -n "$REMOTE_ENV" ]]; then
   
   # Look up tenant ID for staging
   if [[ "$REMOTE_ENV" == "staging" ]]; then
-    LOOKED_UP=$(psql "$DATABASE_URL" -t -c "SELECT id FROM axiaops.tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d ' \n')
+    LOOKED_UP=$(psql "$MIGRATION_DATABASE_URL" -t -c "SELECT id FROM axiaops.tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d ' \n')
     if [[ -n "$LOOKED_UP" ]]; then
       export TENANT_ID="$LOOKED_UP"
       echo "Using tenant ID from DB: $TENANT_ID"
@@ -91,27 +91,34 @@ fi
 # Default Tenant ID (can be overridden by environment variable)
 TENANT_ID="${TENANT_ID:-dev-tenant-axiaops}"
 
-# ── Determine connection mode (local docker or remote) ──────────────────────────
+# ── Determine connection mode (local docker or remote) ────────────────────────
+# If MIGRATION_DATABASE_URL is set (by --remote or the caller), connect directly as schema owner.
+# Otherwise, shell into the local docker container.
 
-if [ -z "${DATABASE_URL:-}" ]; then
+if [ -z "${MIGRATION_DATABASE_URL:-}" ]; then
   # Local mode: use docker container
   MODE="docker"
-  echo "DATABASE_URL not set — using local docker container (axiaops-postgres)"
+  echo "MIGRATION_DATABASE_URL not set — using local docker container (axiaops-postgres)"
 else
   # Remote mode: use direct psql connection
   MODE="remote"
-  echo "DATABASE_URL set — connecting to remote postgres"
+  echo "MIGRATION_DATABASE_URL set — connecting to remote postgres"
 fi
 
-# Use axiaops_owner for direct DB access (bypasses RLS — owner privilege)
+# ── psql helpers ──────────────────────────────────────────────────────────────
+# All DB access goes through psql_base, which handles connection details and
+# sets search_path=axiaops so unqualified table names resolve correctly.
+# We connect as axiaops_owner (bypasses RLS) since this is a seed script.
+
 if [ "$MODE" = "docker" ]; then
-  psql_exec()  { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops --quiet -c "$1"; }
-  psql_query() { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops -t --no-align -c "$1"; }
+  psql_base() { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops "$@"; }
 else
-  # Remote: parse DATABASE_URL and connect directly
-  psql_exec()  { PGOPTIONS="-c search_path=axiaops" psql "$DATABASE_URL" --quiet -c "$1"; }
-  psql_query() { PGOPTIONS="-c search_path=axiaops" psql "$DATABASE_URL" -t --no-align -c "$1"; }
+  psql_base() { PGOPTIONS="-c search_path=axiaops" psql "$MIGRATION_DATABASE_URL" "$@"; }
 fi
+
+psql_exec()  { psql_base --quiet -c "$1"; }           # Run single statement, no output (writes)
+psql_query() { psql_base -t --no-align -c "$1"; }    # Run single statement, return raw value (reads)
+psql_pipe()  { psql_base --quiet; }                   # Read multi-statement SQL from stdin (bulk inserts)
 
 # ── Ensure postgres is running ────────────────────────────────────────────────
 
@@ -132,7 +139,7 @@ if [ "$MODE" = "docker" ]; then
 else
   echo -n "Waiting for remote PostgreSQL to be ready..."
   for i in {1..30}; do
-    if psql "$DATABASE_URL" -c "SELECT 1" &>/dev/null; then
+    if psql "$MIGRATION_DATABASE_URL" -c "SELECT 1" &>/dev/null; then
       echo " Ready."
       break
     fi
@@ -149,6 +156,8 @@ PERIOD_START=$(date -u -v-30d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d '3
 PERIOD_END="$NOW"
 
 # ── Resolve tenant ID from DB, fall back to default ──────────────────────────
+# On staging/remote, a real tenant already exists (created by Kinde login).
+# On fresh local DBs, we create a placeholder dev tenant.
 
 EXISTING_TENANT=$(psql_query "SELECT id FROM tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
 if [ -n "$EXISTING_TENANT" ]; then
@@ -177,9 +186,9 @@ if [ "$MODE" = "docker" ]; then
   echo ""
 fi
 
-# ── Seed AWS accounts for the dev tenant ─────────────────────────────────────
-# If real accounts already exist for this tenant (e.g. on staging), use them.
-# Otherwise insert placeholder accounts so the dashboard shows something.
+# ── Seed AWS accounts ────────────────────────────────────────────────────────
+# Three dummy accounts (prod/staging/dev) with empty credentials.
+# ON CONFLICT DO NOTHING so re-runs are safe and real accounts aren't overwritten.
 
 echo "Creating seed accounts for tenant ${TENANT_ID}..."
 ACCT1="seed-account-001"
@@ -194,7 +203,12 @@ psql_exec "INSERT INTO accounts (id, tenant_id, provider, label, access_key_id, 
 echo "  Done."
 echo ""
 
-# ── Ghost records — zombie resources spread across all 3 accounts ─────────────
+# ── Ghost records ─────────────────────────────────────────────────────────────
+# 24 zombie resources across all 3 accounts (8 each):
+#   - Tier 2 (CloudWatch): idle EC2, abandoned RDS, unused Lambda/ELB, unattached EIP
+#   - Tier 1 (API-only):   unattached EBS, orphaned snapshots, long-stopped EC2, old AMIs
+#   - Other:               idle CE anomaly monitors, empty EKS clusters
+# Deletes existing seed data first, then re-inserts (idempotent on re-run).
 
 echo "Inserting ghost records..."
 psql_exec "DELETE FROM ghost_records WHERE tenant_id = '${TENANT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
@@ -371,7 +385,10 @@ VALUES
 echo "  Inserted 24 ghost records (8 prod, 8 staging, 8 dev — includes CE monitors, EKS, and Tier 1 API-only types)."
 echo ""
 
-# ── Resource records — ghosts + active resources across all 3 accounts ────────
+# ── Resource records ──────────────────────────────────────────────────────────
+# 36 records: the same 24 ghosts above plus 12 active (healthy) resources.
+# Active resources provide contrast in the dashboard — they show up in the
+# "all resources" view but NOT in the ghosts view.
 
 echo "Inserting resource records..."
 psql_exec "DELETE FROM resource_records WHERE tenant_id = '${TENANT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
@@ -627,10 +644,9 @@ echo "  Inserted 36 resource records (24 ghosts, 12 active) across 3 accounts."
 echo ""
 
 # ── Ghost snapshots — historical trend data per account ───────────────────────
-# Creates snapshots per account simulating daily scans with realistic variation.
+# Creates 90 days of snapshots per account simulating daily scans with realistic
+# variation (upward trend + weekly sine wave + noise).
 # Also creates per-service breakdown rows in ghost_snapshot_services.
-# Use --with-trends for 90 days of realistic daily variation (for chart development)
-# Default: 1000 days of simple random data
 
 # Service cost distribution per account (fractions must sum to ~1.0):
 # Format: "service|resource_type:fraction" — pipe separates service from sub-type.
@@ -640,19 +656,18 @@ echo ""
 #   ACCT3 (dev):     EC2|instance=0.22, RDS=0.30, Lambda=0.08, VPC=0.06, EC2|volume=0.20, EC2|ami=0.14
 
 generate_snapshots() {
-  local acct_id=$1
-  local base_ghosts=$2
-  local base_savings=$3
-  local days=$4
-  local with_trends=$5
-  # Service breakdown: "service:fraction service:fraction ..."
-  local services=$6
+  local acct_id=$1       # e.g. "seed-account-001"
+  local base_ghosts=$2   # baseline ghost count (e.g. 14)
+  local base_savings=$3  # baseline monthly savings in USD (e.g. 498.0)
+  local days=$4          # number of daily snapshots to generate
+  local services=$5      # service cost distribution: "Service|type:fraction ..."
 
-  # Generate all SQL in a single awk invocation — avoids thousands of subshells.
+  # Uses a single awk invocation to build two INSERT statements (snapshots + services).
+  # This avoids spawning thousands of subshells for date math.
   local sql
   sql=$(awk -v acct="$acct_id" -v tenant="$TENANT_ID" \
     -v base_g="$base_ghosts" -v base_s="$base_savings" \
-    -v days="$days" -v trends="$with_trends" -v svcs="$services" \
+    -v days="$days" -v svcs="$services" \
     'BEGIN {
       srand()
       pi = 3.14159265
@@ -679,16 +694,12 @@ generate_snapshots() {
         cmd = "date -u -r " snap_epoch " +\"%Y-%m-%dT12:00:00Z\" 2>/dev/null || TZ=UTC date -u -d @" snap_epoch " +\"%Y-%m-%dT12:00:00Z\""
         cmd | getline snap_date; close(cmd)
 
-        if (trends == "true") {
-          tf = 1.0 + ((days - i) / days) * 0.3
-          wf = 1.0 + 0.1 * sin((i / 7) * pi)
-          noise = 0.9 + rand() * 0.2
-          ghosts = int(base_g * tf * wf * noise)
-          cost = base_s * tf * wf * noise
-        } else {
-          ghosts = base_g + int(rand() * 5) - 2
-          cost = base_s * (0.8 + rand() * 0.4)
-        }
+        # Realistic variation: upward trend + weekly sine wave + random noise
+        tf = 1.0 + ((days - i) / days) * 0.3
+        wf = 1.0 + 0.1 * sin((i / 7) * pi)
+        noise = 0.9 + rand() * 0.2
+        ghosts = int(base_g * tf * wf * noise)
+        cost = base_s * tf * wf * noise
         if (ghosts < 0) ghosts = 0
 
         snap_id = "snap-" acct "-" i
@@ -722,11 +733,7 @@ generate_snapshots() {
     }')
 
   # Pipe both INSERT statements via stdin (psql_exec uses -c which only takes one statement).
-  if [ "$MODE" = "docker" ]; then
-    echo "$sql" | docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops --quiet 2>/dev/null || true
-  else
-    echo "$sql" | psql "$DATABASE_URL" --quiet 2>/dev/null || true
-  fi
+  echo "$sql" | psql_pipe || echo "  Warning: snapshot insert failed for $acct_id"
 
   local svc_count=$((days * $(echo "$services" | wc -w | tr -d ' ')))
   echo "  Inserted $days snapshots + $svc_count service rows for $acct_id."
@@ -737,23 +744,19 @@ generate_snapshots() {
 psql_exec "DELETE FROM ghost_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" 2>/dev/null || true
 psql_exec "DELETE FROM ghost_snapshots WHERE id LIKE 'snap-seed-account-%';"
 
-if [ "$WITH_TRENDS" = "true" ]; then
-  DAYS=90
-  echo "Inserting ghost snapshots with realistic trends (90 days × 3 accounts)..."
-else
-  DAYS=1000
-  echo "Inserting ghost snapshots (1000 days × 3 accounts)..."
-fi
+DAYS=90
+echo "Inserting ghost snapshots with realistic trends (90 days × 3 accounts)..."
 
-generate_snapshots "$ACCT1" 14 498.0 $DAYS $WITH_TRENDS \
+generate_snapshots "$ACCT1" 14 498.0 $DAYS \
   "AmazonEC2|instance:0.16 AmazonRDS|primary:0.42 AmazonElasticLoadBalancing|alb:0.04 AmazonVPC|nat_gateway:0.005 AmazonVPC|eip:0.005 AmazonEC2|volume:0.22 AmazonEC2|snapshot:0.15"
-generate_snapshots "$ACCT2" 10 330.4 $DAYS $WITH_TRENDS \
+generate_snapshots "$ACCT2" 10 330.4 $DAYS \
   "AmazonEC2|instance:0.46 AWSLambda:0.02 AmazonRDS|read_replica:0.20 AmazonVPC|nat_gateway:0.015 AmazonVPC|eip:0.015 AmazonEC2|stopped_instance:0.33 AmazonEC2|ami:0.16"
-generate_snapshots "$ACCT3" 9  217.7 $DAYS $WITH_TRENDS \
+generate_snapshots "$ACCT3" 9  217.7 $DAYS \
   "AmazonEC2|instance:0.22 AmazonRDS|primary:0.30 AWSLambda:0.08 AmazonElasticLoadBalancing|nlb:0.05 AmazonVPC|nat_gateway:0.03 AmazonVPC|eip:0.03 AmazonEC2|volume:0.20 AmazonEC2|ami:0.14"
 echo ""
 
-# ── RLS isolation check (using app user, not owner) ───────────────────────────
+# ── Verify seeded data ────────────────────────────────────────────────────────
+# Quick sanity check: count rows per table for the dev tenant.
 
 echo "=== Verifying dev tenant data ==="
 GHOST_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_records WHERE tenant_id = '${TENANT_ID}';")
@@ -762,7 +765,7 @@ SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshots WHERE tenant_i
 SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshot_services WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
 echo "Dev tenant ghost records:       $GHOST_COUNT  (expected 24)"
 echo "Dev tenant resource records:    $RESOURCE_COUNT  (expected 36)"
-echo "Dev tenant ghost snapshots:     $SNAPSHOT_COUNT  (expected 3000)"
+echo "Dev tenant ghost snapshots:     $SNAPSHOT_COUNT  (expected 270)"
 echo "Dev tenant snapshot services:   $SVC_COUNT"
 echo ""
 
