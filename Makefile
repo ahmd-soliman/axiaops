@@ -207,16 +207,20 @@ test-integration:
 test-integration-api:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
 	cd test-infra/integration && docker-compose build migrate api ingestion
-	cd test-infra/integration && docker-compose up -d postgres redis
+	cd test-infra/integration && docker-compose up -d postgres redis && \
+		docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
+		(for i in {1..30}; do docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)
 	cd test-infra/integration && docker-compose run --rm api-tests
 	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
 
-# Ingestion integration tests only  
+# Ingestion integration tests only
 test-integration-ingestion:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
 	cd test-infra/integration && docker-compose build migrate ingestion
-	cd test-infra/integration && docker-compose up -d postgres redis
+	cd test-infra/integration && docker-compose up -d postgres redis && \
+		docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
+		(for i in {1..30}; do docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)
 	cd test-infra/integration && docker-compose run --rm ingestion-tests
 	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
