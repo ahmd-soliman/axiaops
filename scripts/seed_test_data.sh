@@ -548,7 +548,7 @@ VALUES
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'platform', '$NOW'),
 
   -- Account 3: active EKS cluster (for contrast)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEKS', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEKS', '', 'eu-west-1',
    'dev-app-cluster', '{\"env\":\"dev\",\"team\":\"backend\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 3, 'Count', false, '', 'backend', '$NOW'),
@@ -556,68 +556,68 @@ VALUES
   -- ── Tier 1 API-only ghost resources ───────────────────────────────────────
 
   -- Account 1: unattached EBS volume (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'volume', 'eu-central-1',
    'vol-0prod00000001', '{\"env\":\"prod\",\"team\":\"platform\"}',
    8.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 0, 'State', true,
    'EBS volume (100 GB gp3) is unattached — not mounted to any instance but still incurring storage charges', 'platform', '$NOW'),
 
   -- Account 1: active EBS volume (in use — for dashboard contrast)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'volume', 'eu-central-1',
    'vol-0prod00000099', '{\"env\":\"prod\",\"team\":\"backend\"}',
    24.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 1, 'State', false, '', 'backend', '$NOW'),
 
   -- Account 1: orphaned snapshot (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'snapshot', 'eu-central-1',
    'snap-0prod00000001', '{\"env\":\"prod\",\"team\":\"data\"}',
    10.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceVolumeExists', 0, 'Boolean', true,
    'EBS snapshot (200 GB) source volume vol-0prod-deleted-001 no longer exists — orphaned storage accumulating charges', 'data', '$NOW'),
 
   -- Account 2: long-stopped EC2 instance (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'stopped_instance', 'us-east-1',
    'i-0stopped-stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    6.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysStopped', 45, 'Days', true,
    'EC2 instance stopped for 45 days — attached EBS storage (80 GB) continues to bill at no compute benefit', 'backend', '$NOW'),
 
   -- Account 2: old AMI (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'ami', 'us-east-1',
    'ami-0stg00000001', '{\"env\":\"staging\",\"team\":\"platform\"}',
    4.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 120, 'Days', true,
    'AMI is 120 days old and not referenced by any instance — backing snapshots (80 GB) accumulate storage charges', 'platform', '$NOW'),
 
   -- Account 2: active recent AMI (in use — for dashboard contrast)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'ami', 'us-east-1',
    'ami-0stg00000099', '{\"env\":\"staging\",\"team\":\"platform\"}',
    2.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 14, 'Days', false, '', 'platform', '$NOW'),
 
   -- Account 3: unattached EBS volume (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'volume', 'eu-west-1',
    'vol-0dev00000001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    4.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 0, 'State', true,
    'EBS volume (50 GB gp3) is unattached — not mounted to any instance but still incurring storage charges', 'backend', '$NOW'),
 
   -- Account 3: orphaned snapshot (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'snapshot', 'eu-west-1',
    'snap-0dev00000001', '{\"env\":\"dev\",\"team\":\"data\"}',
    7.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceVolumeExists', 0, 'Boolean', true,
    'EBS snapshot (150 GB) source volume vol-0dev-deleted-001 no longer exists — orphaned storage accumulating charges', 'data', '$NOW'),
 
   -- Account 3: long-stopped EC2 instance (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'stopped_instance', 'eu-west-1',
    'i-0stopped-dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    3.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysStopped', 60, 'Days', true,
    'EC2 instance stopped for 60 days — attached EBS storage (40 GB) continues to bill at no compute benefit', 'backend', '$NOW'),
 
   -- Account 3: old AMI (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'ami', 'eu-west-1',
    'ami-0dev00000001', '{\"env\":\"dev\",\"team\":\"platform\"}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 180, 'Days', true,
