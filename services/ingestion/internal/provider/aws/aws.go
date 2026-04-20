@@ -211,6 +211,14 @@ var ceServiceToInternal = map[string]string{
 	"Amazon Elastic Kubernetes Service":      "AmazonEKS",
 	"Amazon Cost Explorer":                   "AWSCostExplorer",
 	"Amazon CloudWatch":                      "AmazonCloudWatch",
+	"Amazon Simple Storage Service":          "AmazonS3",
+	"AWS Glue":                               "AWSGlue",
+	"Amazon Simple Notification Service":     "AmazonSNS",
+	"Amazon Simple Queue Service":            "AmazonSQS",
+	"AWS Secrets Manager":                    "AWSSecretsManager",
+	"AWS Key Management Service":             "AWSKms",
+	"Amazon Glacier":                         "AmazonGlacier",
+	"AWS CloudFormation":                     "AWSCloudFormation",
 }
 
 // normalizeService maps Cost Explorer service names to internal names.

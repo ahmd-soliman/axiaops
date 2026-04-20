@@ -86,5 +86,57 @@ UPDATE axiaops.resource_records SET service = 'Amazon Cost Explorer'
   WHERE service = 'AWSCostExplorer';
 UPDATE axiaops.resource_records SET service = 'Amazon CloudWatch'
   WHERE service = 'AmazonCloudWatch';
+UPDATE axiaops.resource_records SET service = 'Amazon Simple Storage Service'
+  WHERE service = 'AmazonS3';
+UPDATE axiaops.resource_records SET service = 'AWS Glue'
+  WHERE service = 'AWSGlue';
+UPDATE axiaops.resource_records SET service = 'Amazon Simple Notification Service'
+  WHERE service = 'AmazonSNS';
+UPDATE axiaops.resource_records SET service = 'Amazon Simple Queue Service'
+  WHERE service = 'AmazonSQS';
+UPDATE axiaops.resource_records SET service = 'AWS Secrets Manager'
+  WHERE service = 'AWSSecretsManager';
+UPDATE axiaops.resource_records SET service = 'AWS Key Management Service'
+  WHERE service = 'AWSKms';
+UPDATE axiaops.resource_records SET service = 'Amazon Glacier'
+  WHERE service = 'AmazonGlacier';
+UPDATE axiaops.resource_records SET service = 'AWS CloudFormation'
+  WHERE service = 'AWSCloudFormation';
+
+-- Revert cost_records
+UPDATE axiaops.cost_records SET service = 'Amazon Simple Storage Service'
+  WHERE service = 'AmazonS3';
+UPDATE axiaops.cost_records SET service = 'AWS Glue'
+  WHERE service = 'AWSGlue';
+UPDATE axiaops.cost_records SET service = 'Amazon Simple Notification Service'
+  WHERE service = 'AmazonSNS';
+UPDATE axiaops.cost_records SET service = 'Amazon Simple Queue Service'
+  WHERE service = 'AmazonSQS';
+UPDATE axiaops.cost_records SET service = 'AWS Secrets Manager'
+  WHERE service = 'AWSSecretsManager';
+UPDATE axiaops.cost_records SET service = 'AWS Key Management Service'
+  WHERE service = 'AWSKms';
+UPDATE axiaops.cost_records SET service = 'Amazon Glacier'
+  WHERE service = 'AmazonGlacier';
+UPDATE axiaops.cost_records SET service = 'AWS CloudFormation'
+  WHERE service = 'AWSCloudFormation';
+
+-- Revert ghost_records
+UPDATE axiaops.ghost_records SET service = 'Amazon Simple Storage Service'
+  WHERE service = 'AmazonS3';
+UPDATE axiaops.ghost_records SET service = 'AWS Glue'
+  WHERE service = 'AWSGlue';
+UPDATE axiaops.ghost_records SET service = 'Amazon Simple Notification Service'
+  WHERE service = 'AmazonSNS';
+UPDATE axiaops.ghost_records SET service = 'Amazon Simple Queue Service'
+  WHERE service = 'AmazonSQS';
+UPDATE axiaops.ghost_records SET service = 'AWS Secrets Manager'
+  WHERE service = 'AWSSecretsManager';
+UPDATE axiaops.ghost_records SET service = 'AWS Key Management Service'
+  WHERE service = 'AWSKms';
+UPDATE axiaops.ghost_records SET service = 'Amazon Glacier'
+  WHERE service = 'AmazonGlacier';
+UPDATE axiaops.ghost_records SET service = 'AWS CloudFormation'
+  WHERE service = 'AWSCloudFormation';
 
 COMMIT;
