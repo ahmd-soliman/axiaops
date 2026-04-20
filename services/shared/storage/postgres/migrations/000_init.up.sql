@@ -1,18 +1,14 @@
 -- 000_init.up.sql
--- One-time infrastructure setup: schema and default grants.
--- The axiaops user is created and its password synced by postgres.Bootstrap()
--- before this migration runs — no hardcoded credentials here.
+-- One-time infrastructure setup: grants on the axiaops schema.
+-- postgres.Bootstrap() runs before this migration and is responsible for:
+--   - creating the axiaops user and syncing its password
+--   - creating the axiaops schema (so schema_migrations can live inside it)
 -- Runs as axiaops_owner (superuser) via MIGRATION_DATABASE_URL.
 
 -- Grant database connection permission (user already exists via Bootstrap).
 GRANT CONNECT ON DATABASE axiaops TO axiaops;
 
 -- ── Schema ────────────────────────────────────────────────────────────────────
-
--- Revoke app user access to public schema (schema_migrations lives there).
-REVOKE ALL ON SCHEMA public FROM axiaops;
-
-CREATE SCHEMA IF NOT EXISTS axiaops;
 
 GRANT USAGE ON SCHEMA axiaops TO axiaops;
 
