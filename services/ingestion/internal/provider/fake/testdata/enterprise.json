@@ -11,7 +11,9 @@
     {"provider": "aws", "account_id": "222222222222", "service": "AmazonElasticLoadBalancing", "region": "eu-central-1", "resource_id": "app/prod-alb/abc123",   "amount": 22.00,  "currency": "USD"},
     {"provider": "aws", "account_id": "222222222222", "service": "AmazonElasticLoadBalancing", "region": "eu-central-1", "resource_id": "app/staging-alb/def456","amount": 22.00,  "currency": "USD"},
     {"provider": "aws", "account_id": "222222222222", "service": "AmazonVPC",                  "region": "eu-central-1", "resource_id": "nat-0prod111",          "amount": 45.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonVPC",                  "region": "eu-central-1", "resource_id": "nat-0old222",           "amount": 45.00,  "currency": "USD"}
+    {"provider": "aws", "account_id": "222222222222", "service": "AmazonVPC",                  "region": "eu-central-1", "resource_id": "nat-0old222",           "amount": 45.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEKS",                  "region": "eu-central-1", "resource_id": "prod-platform-cluster", "amount": 73.00,  "currency": "USD"},
+    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEKS",                  "region": "eu-central-1", "resource_id": "staging-empty-cluster", "amount": 73.00,  "currency": "USD"}
   ],
   "usage": [
     {"resource_id": "i-prod-web-01",          "metric": "CPUUtilization",         "unit": "Percent", "avg": 68.0,    "period_days": 30},
@@ -25,6 +27,8 @@
     {"resource_id": "app/prod-alb/abc123",    "metric": "RequestCount",           "unit": "Count",   "avg": 5200.0,  "period_days": 30},
     {"resource_id": "app/staging-alb/def456", "metric": "RequestCount",           "unit": "Count",   "avg": 0.0,     "period_days": 30},
     {"resource_id": "nat-0prod111",           "metric": "BytesOutToDestination",  "unit": "Bytes",   "avg": 982000.0,"period_days": 30},
-    {"resource_id": "nat-0old222",            "metric": "BytesOutToDestination",  "unit": "Bytes",   "avg": 0.0,     "period_days": 30}
+    {"resource_id": "nat-0old222",            "metric": "BytesOutToDestination",  "unit": "Bytes",   "avg": 0.0,     "period_days": 30},
+    {"resource_id": "prod-platform-cluster",  "metric": "cluster_node_count",     "unit": "Count",   "avg": 6.0,     "period_days": 30},
+    {"resource_id": "staging-empty-cluster",  "metric": "cluster_node_count",     "unit": "Count",   "avg": 0.0,     "period_days": 30}
   ]
 }

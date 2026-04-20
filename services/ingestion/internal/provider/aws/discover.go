@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
+	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -413,7 +416,11 @@ func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecor
 		client := ec2.NewFromConfig(cfg)
 
 		// 1. Build the set of volume IDs that currently exist in this region.
+		//    If this call fails we cannot safely distinguish "orphaned" from
+		//    "source volume exists but DescribeVolumes returned an error", so
+		//    skip the entire region rather than producing false positives.
 		existingVolumes := make(map[string]struct{})
+		var volumeFetchFailed bool
 		var volNextToken *string
 		for {
 			volOut, err := client.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
@@ -421,6 +428,7 @@ func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecor
 			})
 			if err != nil {
 				slog.Warn("ebs-snap: DescribeVolumes failed", "region", region, "error", err)
+				volumeFetchFailed = true
 				break
 			}
 			for _, v := range volOut.Volumes {
@@ -433,8 +441,8 @@ func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecor
 			}
 			volNextToken = volOut.NextToken
 		}
-		if len(existingVolumes) == 0 && err != nil {
-			continue // DescribeVolumes failed, skip this region
+		if volumeFetchFailed {
+			continue // Cannot safely determine orphan status without the volume list
 		}
 
 		// 2. Build the set of snapshot IDs referenced by registered AMIs.
@@ -618,13 +626,14 @@ func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecor
 			allVolIDs = append(allVolIDs, c.volumeIDs...)
 		}
 		volSizes := make(map[string]int32) // volumeID → sizeGB
+		var volumeSizeFetchFailed bool
 		if len(allVolIDs) > 0 {
 			volOut, err := client.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
 				VolumeIds: allVolIDs,
 			})
 			if err != nil {
-				slog.Warn("stopped-ec2: DescribeVolumes for attached volumes failed", "region", region, "error", err)
-				// Continue with zero-cost estimate rather than skipping the check.
+				slog.Warn("stopped-ec2: DescribeVolumes for attached volumes failed — skipping cost estimate for affected instances", "region", region, "error", err)
+				volumeSizeFetchFailed = true
 			} else {
 				for _, v := range volOut.Volumes {
 					if v.VolumeId != nil && v.Size != nil {
@@ -638,6 +647,12 @@ func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecor
 			totalGB := int32(0)
 			for _, vid := range c.volumeIDs {
 				totalGB += volSizes[vid]
+			}
+			// Skip if volume sizes are unknown and the instance has attached volumes —
+			// reporting $0 cost would be misleading and erode trust in the findings.
+			if volumeSizeFetchFailed && len(c.volumeIDs) > 0 {
+				slog.Warn("stopped-ec2: skipping instance — volume sizes unknown", "instance_id", c.instanceID)
+				continue
 			}
 			monthlyCost := float64(totalGB) * ebsVolumeMonthlyGBCost
 			daysStop := int(now.Sub(c.stoppedAt).Hours() / 24)
@@ -811,16 +826,25 @@ func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient 
 
 func discoverElastiCache(ctx context.Context, cfg aws.Config) []string {
 	client := elasticache.NewFromConfig(cfg)
-	out, err := client.DescribeCacheClusters(ctx, &elasticache.DescribeCacheClustersInput{})
-	if err != nil {
-		slog.Warn("discover: ElastiCache DescribeCacheClusters", "error", err)
-		return nil
-	}
 	var ids []string
-	for _, c := range out.CacheClusters {
-		if c.CacheClusterId != nil {
-			ids = append(ids, aws.ToString(c.CacheClusterId))
+	var marker *string
+	for {
+		out, err := client.DescribeCacheClusters(ctx, &elasticache.DescribeCacheClustersInput{
+			Marker: marker,
+		})
+		if err != nil {
+			slog.Warn("discover: ElastiCache DescribeCacheClusters", "error", err)
+			return nil
 		}
+		for _, c := range out.CacheClusters {
+			if c.CacheClusterId != nil {
+				ids = append(ids, aws.ToString(c.CacheClusterId))
+			}
+		}
+		if out.Marker == nil {
+			break
+		}
+		marker = out.Marker
 	}
 	return ids
 }
@@ -843,52 +867,200 @@ func discoverOpenSearch(ctx context.Context, cfg aws.Config) []string {
 
 func discoverRedshift(ctx context.Context, cfg aws.Config) []string {
 	client := redshift.NewFromConfig(cfg)
-	out, err := client.DescribeClusters(ctx, &redshift.DescribeClustersInput{})
-	if err != nil {
-		slog.Warn("discover: Redshift DescribeClusters", "error", err)
-		return nil
-	}
 	var ids []string
-	for _, c := range out.Clusters {
-		if c.ClusterIdentifier != nil {
-			ids = append(ids, aws.ToString(c.ClusterIdentifier))
+	var marker *string
+	for {
+		out, err := client.DescribeClusters(ctx, &redshift.DescribeClustersInput{
+			Marker: marker,
+		})
+		if err != nil {
+			slog.Warn("discover: Redshift DescribeClusters", "error", err)
+			return nil
 		}
+		for _, c := range out.Clusters {
+			if c.ClusterIdentifier != nil {
+				ids = append(ids, aws.ToString(c.ClusterIdentifier))
+			}
+		}
+		if out.Marker == nil {
+			break
+		}
+		marker = out.Marker
 	}
 	return ids
 }
 
 func discoverSageMaker(ctx context.Context, cfg aws.Config) []string {
 	client := sagemaker.NewFromConfig(cfg)
-	out, err := client.ListEndpoints(ctx, &sagemaker.ListEndpointsInput{})
-	if err != nil {
-		slog.Warn("discover: SageMaker ListEndpoints", "error", err)
-		return nil
-	}
 	var ids []string
-	for _, e := range out.Endpoints {
-		if e.EndpointName != nil {
-			ids = append(ids, aws.ToString(e.EndpointName))
+	var nextToken *string
+	for {
+		out, err := client.ListEndpoints(ctx, &sagemaker.ListEndpointsInput{
+			NextToken: nextToken,
+		})
+		if err != nil {
+			slog.Warn("discover: SageMaker ListEndpoints", "error", err)
+			return nil
 		}
+		for _, e := range out.Endpoints {
+			if e.EndpointName != nil {
+				ids = append(ids, aws.ToString(e.EndpointName))
+			}
+		}
+		if out.NextToken == nil {
+			break
+		}
+		nextToken = out.NextToken
 	}
 	return ids
 }
 
 func discoverDynamoDB(ctx context.Context, cfg aws.Config) []string {
 	client := dynamodb.NewFromConfig(cfg)
-	out, err := client.ListTables(ctx, &dynamodb.ListTablesInput{})
-	if err != nil {
-		slog.Warn("discover: DynamoDB ListTables", "error", err)
-		return nil
+	var ids []string
+	var startTable *string
+	for {
+		out, err := client.ListTables(ctx, &dynamodb.ListTablesInput{
+			ExclusiveStartTableName: startTable,
+		})
+		if err != nil {
+			slog.Warn("discover: DynamoDB ListTables", "error", err)
+			return nil
+		}
+		ids = append(ids, out.TableNames...)
+		if out.LastEvaluatedTableName == nil {
+			break
+		}
+		startTable = out.LastEvaluatedTableName
 	}
-	return out.TableNames
+	return ids
 }
 
 func discoverEKS(ctx context.Context, cfg aws.Config) []string {
 	client := eks.NewFromConfig(cfg)
-	out, err := client.ListClusters(ctx, &eks.ListClustersInput{})
-	if err != nil {
-		slog.Warn("discover: EKS ListClusters", "error", err)
-		return nil
+	var ids []string
+	var nextToken *string
+	for {
+		out, err := client.ListClusters(ctx, &eks.ListClustersInput{
+			NextToken: nextToken,
+		})
+		if err != nil {
+			slog.Warn("discover: EKS ListClusters", "error", err)
+			return nil
+		}
+		ids = append(ids, out.Clusters...)
+		if out.NextToken == nil {
+			break
+		}
+		nextToken = out.NextToken
 	}
-	return out.Clusters
+	return ids
+}
+
+// ── CE Anomaly Detection monitors ────────────────────────────────────────────
+
+// ceAnomalyMonitorMonthlyCost is the charge per additional anomaly monitor per month.
+// The first monitor per account is free; each additional costs $0.10/day (~$3.00/month).
+// Source: AWS Cost Explorer pricing.
+const ceAnomalyMonitorMonthlyCost = 3.00
+
+// DiscoverIdleCEAnomalyMonitors calls ce:GetAnomalyMonitors to enumerate all Cost
+// Anomaly Detection monitors and flags any paid monitor (beyond the first, which is
+// free) that detected zero anomalies during the lookback window. Such monitors
+// accumulate ~$3/month while providing no signal.
+//
+// CE is a global service — a single us-east-1 request covers all regions.
+func DiscoverIdleCEAnomalyMonitors(ctx context.Context, _ []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+	cfg, err := awsClient.configForRegion(ctx, "us-east-1")
+	if err != nil {
+		return nil, fmt.Errorf("ce-monitor: load config: %w", err)
+	}
+	client := costexplorer.NewFromConfig(cfg)
+	accountID := awsClient.AccountID()
+
+	// Collect all monitors with pagination.
+	var monitors []cetypes.AnomalyMonitor
+	var nextPage *string
+	for {
+		out, err := client.GetAnomalyMonitors(ctx, &costexplorer.GetAnomalyMonitorsInput{
+			NextPageToken: nextPage,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("ce-monitor: GetAnomalyMonitors: %w", err)
+		}
+		monitors = append(monitors, out.AnomalyMonitors...)
+		if out.NextPageToken == nil {
+			break
+		}
+		nextPage = out.NextPageToken
+	}
+
+	if len(monitors) <= 1 {
+		// Zero or one monitor — the first is free, nothing to flag.
+		return nil, nil
+	}
+
+	// Sort by creation date ascending so monitors[0] is the oldest (free) one.
+	sort.Slice(monitors, func(i, j int) bool {
+		return aws.ToString(monitors[i].CreationDate) < aws.ToString(monitors[j].CreationDate)
+	})
+
+	// Skip the first monitor (free tier); check the rest.
+	paidMonitors := monitors[1:]
+	startStr := start.Format("2006-01-02")
+	endStr := end.Format("2006-01-02")
+
+	var ghosts []model.GhostResource
+	for _, m := range paidMonitors {
+		monitorARN := aws.ToString(m.MonitorArn)
+		monitorName := aws.ToString(m.MonitorName)
+
+		// Count anomalies detected in the lookback window.
+		anomalyCount := 0
+		var anomalyPage *string
+		errored := false
+		for {
+			aOut, err := client.GetAnomalies(ctx, &costexplorer.GetAnomaliesInput{
+				MonitorArn:    aws.String(monitorARN),
+				DateInterval:  &cetypes.AnomalyDateInterval{StartDate: aws.String(startStr), EndDate: aws.String(endStr)},
+				NextPageToken: anomalyPage,
+			})
+			if err != nil {
+				slog.Warn("ce-monitor: GetAnomalies failed", "monitor_arn", monitorARN, "error", err)
+				errored = true
+				break
+			}
+			anomalyCount += len(aOut.Anomalies)
+			if aOut.NextPageToken == nil {
+				break
+			}
+			anomalyPage = aOut.NextPageToken
+		}
+
+		if errored || anomalyCount > 0 {
+			continue
+		}
+
+		slog.Info("ce-monitor: idle anomaly monitor flagged", "monitor_arn", monitorARN, "monitor_name", monitorName)
+		ghosts = append(ghosts, model.GhostResource{
+			Provider:          "aws",
+			AccountID:         accountID,
+			InternalAccountID: internalAccountID,
+			Service:           "AWSCostExplorer",
+			Region:            "us-east-1",
+			ResourceID:        monitorARN,
+			Tags:              map[string]string{},
+			MonthlyCost:       ceAnomalyMonitorMonthlyCost,
+			Currency:          "USD",
+			PeriodStart:       start,
+			PeriodEnd:         end,
+			UsageMetric:       "AnomalyCount",
+			UsageAvg:          0,
+			UsageUnit:         "Count",
+			Reason:            fmt.Sprintf("Cost Anomaly Detection monitor %q detected zero anomalies in the last 30 days — paying ~$3/mo for no signal", monitorName),
+			Owner:             "",
+		})
+	}
+
+	return ghosts, nil
 }
