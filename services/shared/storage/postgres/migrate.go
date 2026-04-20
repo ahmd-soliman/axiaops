@@ -18,10 +18,14 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// Bootstrap ensures the application database user exists and its password matches
-// the one in appURL. Must be called before Migrate on every startup.
-// Connects as the owner (ownerURL) to create/update the user, then syncs the
-// password from DATABASE_URL — enabling credential rotation without manual steps.
+// Bootstrap ensures the prerequisites for Migrate are in place:
+//   - the application database user exists and its password matches appURL
+//   - the axiaops schema exists so golang-migrate can create its
+//     schema_migrations tracking table inside it
+//
+// Must be called before Migrate on every startup. Connects as the owner
+// (ownerURL) to create/update the user and schema, then syncs the password
+// from DATABASE_URL — enabling credential rotation without manual steps.
 // Uses advisory lock to prevent concurrent bootstrap calls.
 func Bootstrap(ownerURL, appURL string) error {
 	// Parse the app user's password out of DATABASE_URL.
@@ -72,6 +76,15 @@ func Bootstrap(ownerURL, appURL string) error {
 		return fmt.Errorf("bootstrap: set password: %w", err)
 	}
 
+	// Create the axiaops schema if it does not exist yet. This must happen
+	// before Migrate() runs, because golang-migrate creates its
+	// schema_migrations tracking table inside this schema before applying the
+	// first migration — chicken-and-egg otherwise.
+	// Owned by the connecting role (axiaops_owner), not the app user.
+	if _, err := db.Exec(`CREATE SCHEMA IF NOT EXISTS axiaops`); err != nil {
+		return fmt.Errorf("bootstrap: create schema: %w", err)
+	}
+
 	return nil
 }
 
@@ -95,7 +108,7 @@ func Migrate(dbURL string) error {
 	}
 
 	driver, err := migratepg.WithInstance(db, &migratepg.Config{
-		SchemaName:      "public",
+		SchemaName:      "axiaops",
 		MigrationsTable: "schema_migrations",
 	})
 	if err != nil {

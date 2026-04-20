@@ -255,18 +255,7 @@ echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc && source ~/.
 make seed
 ```
 
-**Realistic trends for chart development (90 days with patterns):**
-```bash
-make seed-trends
-```
-
-The trends version generates:
-- Gradual 30% increase over time (simulating growth)
-- Weekly patterns (±10% cycle)
-- Random noise (±10%)
-- Account-specific baselines (prod: 12 ghosts, staging: 8, dev: 5)
-
-Use `make seed-trends` when developing time-series charts and graphs.
+Seed data includes 90 days of realistic trend snapshots (gradual growth, weekly patterns, random noise) for chart development.
 
 ---
 

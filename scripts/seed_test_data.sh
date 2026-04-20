@@ -7,11 +7,10 @@
 #     echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 #
 # Usage:
-#   ./scripts/seed_test_data.sh                                    # Local docker, 1000 days
-#   ./scripts/seed_test_data.sh --with-trends                      # Local docker, 90 days with trends
-#   ./scripts/seed_test_data.sh --remote dev                       # Remote dev (192.168.1.100:5432)
-#   ./scripts/seed_test_data.sh --remote staging --with-trends     # Remote staging with trends
-#   DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom remote URL
+#   ./scripts/seed_test_data.sh                                    # Local docker
+#   ./scripts/seed_test_data.sh --remote dev                       # Remote dev (NAS.local:5432)
+#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (NAS.local:5433)
+#   MIGRATION_DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom connection (owner user, bypasses RLS)
 #
 # Supports both local (docker) and remote database connections.
 # Safe to re-run — all inserts are idempotent (ON CONFLICT DO NOTHING / DO UPDATE).
@@ -20,13 +19,11 @@ set -euo pipefail
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
-WITH_TRENDS=false
 REMOTE_ENV=""
 AUTO_YES=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --with-trends) WITH_TRENDS=true ;;
     --remote)
       shift
       REMOTE_ENV="${1:-}"
@@ -42,6 +39,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Remote connection setup ───────────────────────────────────────────────────
+# When --remote is passed, build a MIGRATION_DATABASE_URL pointing to the remote host.
+# For staging, look up the real tenant ID from the DB (created by Kinde auth).
+# Prompts for confirmation unless --yes/-y is passed.
 
 if [[ -n "$REMOTE_ENV" ]]; then
   HOSTNAME="NAS.local"
@@ -52,11 +52,11 @@ if [[ -n "$REMOTE_ENV" ]]; then
     DB_PORT=5433
   fi
   
-  export DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
+  export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
   
   echo "=== Seeding AxiaOps $REMOTE_ENV database ==="
   echo "Target:    $HOSTNAME:$DB_PORT"
-  echo "URL:       $DATABASE_URL"
+  echo "URL:       $MIGRATION_DATABASE_URL"
   echo ""
   
   if [[ "$AUTO_YES" != "true" ]]; then
@@ -70,7 +70,7 @@ if [[ -n "$REMOTE_ENV" ]]; then
   
   # Verify connection
   echo -n "Checking connection to $HOSTNAME..."
-  if ! psql "$DATABASE_URL" -c 'SELECT 1' > /dev/null 2>&1; then
+  if ! psql "$MIGRATION_DATABASE_URL" -c 'SELECT 1' > /dev/null 2>&1; then
     echo " Failed."
     echo "Error: Cannot reach PostgreSQL at $HOSTNAME:$DB_PORT"
     exit 1
@@ -80,7 +80,7 @@ if [[ -n "$REMOTE_ENV" ]]; then
   
   # Look up tenant ID for staging
   if [[ "$REMOTE_ENV" == "staging" ]]; then
-    LOOKED_UP=$(psql "$DATABASE_URL" -t -c "SELECT id FROM axiaops.tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d ' \n')
+    LOOKED_UP=$(psql "$MIGRATION_DATABASE_URL" -t -c "SELECT id FROM axiaops.tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d ' \n')
     if [[ -n "$LOOKED_UP" ]]; then
       export TENANT_ID="$LOOKED_UP"
       echo "Using tenant ID from DB: $TENANT_ID"
@@ -91,27 +91,34 @@ fi
 # Default Tenant ID (can be overridden by environment variable)
 TENANT_ID="${TENANT_ID:-dev-tenant-axiaops}"
 
-# ── Determine connection mode (local docker or remote) ──────────────────────────
+# ── Determine connection mode (local docker or remote) ────────────────────────
+# If MIGRATION_DATABASE_URL is set (by --remote or the caller), connect directly as schema owner.
+# Otherwise, shell into the local docker container.
 
-if [ -z "${DATABASE_URL:-}" ]; then
+if [ -z "${MIGRATION_DATABASE_URL:-}" ]; then
   # Local mode: use docker container
   MODE="docker"
-  echo "DATABASE_URL not set — using local docker container (axiaops-postgres)"
+  echo "MIGRATION_DATABASE_URL not set — using local docker container (axiaops-postgres)"
 else
   # Remote mode: use direct psql connection
   MODE="remote"
-  echo "DATABASE_URL set — connecting to remote postgres"
+  echo "MIGRATION_DATABASE_URL set — connecting to remote postgres"
 fi
 
-# Use axiaops_owner for direct DB access (bypasses RLS — owner privilege)
+# ── psql helpers ──────────────────────────────────────────────────────────────
+# All DB access goes through psql_base, which handles connection details and
+# sets search_path=axiaops so unqualified table names resolve correctly.
+# We connect as axiaops_owner (bypasses RLS) since this is a seed script.
+
 if [ "$MODE" = "docker" ]; then
-  psql_exec()  { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops --quiet -c "$1"; }
-  psql_query() { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops -t --no-align -c "$1"; }
+  psql_base() { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops "$@"; }
 else
-  # Remote: parse DATABASE_URL and connect directly
-  psql_exec()  { PGOPTIONS="-c search_path=axiaops" psql "$DATABASE_URL" --quiet -c "$1"; }
-  psql_query() { PGOPTIONS="-c search_path=axiaops" psql "$DATABASE_URL" -t --no-align -c "$1"; }
+  psql_base() { PGOPTIONS="-c search_path=axiaops" psql "$MIGRATION_DATABASE_URL" "$@"; }
 fi
+
+psql_exec()  { psql_base --quiet -c "$1"; }           # Run single statement, no output (writes)
+psql_query() { psql_base -t --no-align -c "$1"; }    # Run single statement, return raw value (reads)
+psql_pipe()  { psql_base --quiet; }                   # Read multi-statement SQL from stdin (bulk inserts)
 
 # ── Ensure postgres is running ────────────────────────────────────────────────
 
@@ -132,7 +139,7 @@ if [ "$MODE" = "docker" ]; then
 else
   echo -n "Waiting for remote PostgreSQL to be ready..."
   for i in {1..30}; do
-    if psql "$DATABASE_URL" -c "SELECT 1" &>/dev/null; then
+    if psql "$MIGRATION_DATABASE_URL" -c "SELECT 1" &>/dev/null; then
       echo " Ready."
       break
     fi
@@ -149,6 +156,8 @@ PERIOD_START=$(date -u -v-30d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d '3
 PERIOD_END="$NOW"
 
 # ── Resolve tenant ID from DB, fall back to default ──────────────────────────
+# On staging/remote, a real tenant already exists (created by Kinde login).
+# On fresh local DBs, we create a placeholder dev tenant.
 
 EXISTING_TENANT=$(psql_query "SELECT id FROM tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
 if [ -n "$EXISTING_TENANT" ]; then
@@ -177,9 +186,9 @@ if [ "$MODE" = "docker" ]; then
   echo ""
 fi
 
-# ── Seed AWS accounts for the dev tenant ─────────────────────────────────────
-# If real accounts already exist for this tenant (e.g. on staging), use them.
-# Otherwise insert placeholder accounts so the dashboard shows something.
+# ── Seed AWS accounts ────────────────────────────────────────────────────────
+# Three dummy accounts (prod/staging/dev) with empty credentials.
+# ON CONFLICT DO NOTHING so re-runs are safe and real accounts aren't overwritten.
 
 echo "Creating seed accounts for tenant ${TENANT_ID}..."
 ACCT1="seed-account-001"
@@ -194,85 +203,90 @@ psql_exec "INSERT INTO accounts (id, tenant_id, provider, label, access_key_id, 
 echo "  Done."
 echo ""
 
-# ── Ghost records — zombie resources spread across all 3 accounts ─────────────
+# ── Ghost records ─────────────────────────────────────────────────────────────
+# 24 zombie resources across all 3 accounts (8 each):
+#   - Tier 2 (CloudWatch): idle EC2, abandoned RDS, unused Lambda/ELB, unattached EIP
+#   - Tier 1 (API-only):   unattached EBS, orphaned snapshots, long-stopped EC2, old AMIs
+#   - Other:               idle CE anomaly monitors, empty EKS clusters
+# Deletes existing seed data first, then re-inserts (idempotent on re-run).
 
 echo "Inserting ghost records..."
 psql_exec "DELETE FROM ghost_records WHERE tenant_id = '${TENANT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_exec "INSERT INTO ghost_records
-  (tenant_id, provider, account_id, internal_account_id, service, region, resource_id, tags, monthly_cost, currency,
+  (tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
    period_start, period_end, usage_metric, usage_avg, usage_unit, reason, owner, detected_at)
 VALUES
   -- Account 1 ghosts
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'instance', 'eu-central-1',
    'i-0abc123prod0001', '{\"env\":\"prod\",\"team\":\"backend\"}',
    45.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 1.2, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'primary', 'eu-central-1',
    'db-prod-legacy-reporting', '{\"env\":\"prod\",\"team\":\"data\"}',
    210.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count',
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'alb', 'eu-central-1',
    'app/legacy-api/abc123prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 0, 'Count',
    'Zero requests — likely abandoned', 'platform', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonVPC', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonVPC', 'eip', 'eu-central-1',
    'eipalloc-prod00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count',
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
   -- Account 2 ghosts
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 0.8, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0002', '{\"env\":\"staging\",\"team\":\"platform\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 2.1, 'Percent',
    'Instance CPU below 5% — likely idle', 'platform', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', '', 'us-east-1',
    'stg-image-resizer', '{\"env\":\"staging\",\"team\":\"backend\"}',
    4.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count',
    'Zero invocations — likely unused', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonVPC', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonVPC', 'eip', 'us-east-1',
    'eipalloc-stg00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count',
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
   -- Account 3 ghosts
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'instance', 'eu-west-1',
    'i-0abc123dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    22.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 0.3, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'primary', 'eu-west-1',
    'db-dev-abandoned', '{\"env\":\"dev\",\"team\":\"data\"}',
    89.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count',
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
    'dev-unused-email-sender', '{\"env\":\"dev\",\"team\":\"backend\"}',
    2.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count',
    'Zero invocations — likely unused', 'backend', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonVPC', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonVPC', 'eip', 'eu-west-1',
    'eipalloc-dev00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count',
@@ -281,14 +295,14 @@ VALUES
   -- ── CE Anomaly Detection monitor ghosts ───────────────────────────────────
 
   -- Account 1: idle paid CE anomaly monitor (zero anomalies in 30 days)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', '', 'us-east-1',
    'arn:aws:ce::123456789012:anomalymonitor/prod-service-monitor', '{}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AnomalyCount', 0, 'Count',
    'Cost Anomaly Detection monitor "prod-service-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
 
   -- Account 2: idle paid CE anomaly monitor
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', '', 'us-east-1',
    'arn:aws:ce::987654321098:anomalymonitor/stg-cost-monitor', '{}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AnomalyCount', 0, 'Count',
@@ -297,14 +311,14 @@ VALUES
   -- ── EKS ghosts ────────────────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (control plane billed, zero nodes)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', '', 'eu-central-1',
    'prod-analytics-cluster', '{\"env\":\"prod\",\"team\":\"data\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 0, 'Count',
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'data', '$NOW'),
 
   -- Account 2: empty EKS cluster
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', '', 'us-east-1',
    'stg-ml-pipeline', '{\"env\":\"staging\",\"team\":\"platform\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 0, 'Count',
@@ -313,56 +327,56 @@ VALUES
   -- ── Tier 1 API-only ghosts ─────────────────────────────────────────────────
 
   -- Account 1: unattached EBS volume (100 GB gp3, $0.08/GB-month)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'volume', 'eu-central-1',
    'vol-0prod00000001', '{\"env\":\"prod\",\"team\":\"platform\"}',
    8.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 0, 'State',
    'EBS volume (100 GB gp3) is unattached — not mounted to any instance but still incurring storage charges', 'platform', '$NOW'),
 
   -- Account 1: orphaned snapshot (source volume deleted, not backing any AMI)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'snapshot', 'eu-central-1',
    'snap-0prod00000001', '{\"env\":\"prod\",\"team\":\"data\"}',
    10.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceVolumeExists', 0, 'Boolean',
    'EBS snapshot (200 GB) source volume vol-0prod-deleted-001 no longer exists — orphaned storage accumulating charges', 'data', '$NOW'),
 
   -- Account 2: long-stopped EC2 instance (45 days, 80 GB attached EBS)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'stopped_instance', 'us-east-1',
    'i-0stopped-stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    6.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysStopped', 45, 'Days',
    'EC2 instance stopped for 45 days — attached EBS storage (80 GB) continues to bill at no compute benefit', 'backend', '$NOW'),
 
   -- Account 2: old AMI (120 days old, 80 GB backing snapshots, $0.05/GB-month)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'ami', 'us-east-1',
    'ami-0stg00000001', '{\"env\":\"staging\",\"team\":\"platform\"}',
    4.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 120, 'Days',
    'AMI is 120 days old and not referenced by any instance — backing snapshots (80 GB) accumulate storage charges', 'platform', '$NOW'),
 
   -- Account 3: unattached EBS volume (50 GB gp3)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'volume', 'eu-west-1',
    'vol-0dev00000001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    4.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 0, 'State',
    'EBS volume (50 GB gp3) is unattached — not mounted to any instance but still incurring storage charges', 'backend', '$NOW'),
 
   -- Account 3: orphaned snapshot (150 GB)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'snapshot', 'eu-west-1',
    'snap-0dev00000001', '{\"env\":\"dev\",\"team\":\"data\"}',
    7.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceVolumeExists', 0, 'Boolean',
    'EBS snapshot (150 GB) source volume vol-0dev-deleted-001 no longer exists — orphaned storage accumulating charges', 'data', '$NOW'),
 
   -- Account 3: long-stopped EC2 instance (60 days, 40 GB attached EBS)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'stopped_instance', 'eu-west-1',
    'i-0stopped-dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    3.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysStopped', 60, 'Days',
    'EC2 instance stopped for 60 days — attached EBS storage (40 GB) continues to bill at no compute benefit', 'backend', '$NOW'),
 
   -- Account 3: old AMI (180 days old, 60 GB backing snapshots)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'ami', 'eu-west-1',
    'ami-0dev00000001', '{\"env\":\"dev\",\"team\":\"platform\"}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 180, 'Days',
@@ -371,140 +385,143 @@ VALUES
 echo "  Inserted 24 ghost records (8 prod, 8 staging, 8 dev — includes CE monitors, EKS, and Tier 1 API-only types)."
 echo ""
 
-# ── Resource records — ghosts + active resources across all 3 accounts ────────
+# ── Resource records ──────────────────────────────────────────────────────────
+# 36 records: the same 24 ghosts above plus 12 active (healthy) resources.
+# Active resources provide contrast in the dashboard — they show up in the
+# "all resources" view but NOT in the ghosts view.
 
 echo "Inserting resource records..."
 psql_exec "DELETE FROM resource_records WHERE tenant_id = '${TENANT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_exec "INSERT INTO resource_records
-  (tenant_id, provider, account_id, internal_account_id, service, region, resource_id, tags, monthly_cost, currency,
+  (tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
    period_start, period_end, usage_metric, usage_avg, usage_unit, is_ghost, reason, owner, detected_at)
 VALUES
   -- ── Production (${ACCT1}) ──────────────────────────────────────────
   -- Ghost: idle EC2
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'instance', 'eu-central-1',
    'i-0abc123prod0001', '{\"env\":\"prod\",\"team\":\"backend\"}',
    45.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 1.2, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
   -- Ghost: abandoned RDS
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', '', 'eu-central-1',
    'db-prod-legacy-reporting', '{\"env\":\"prod\",\"team\":\"data\"}',
    210.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count', true,
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
   -- Ghost: unused ELB
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', '', 'eu-central-1',
    'app/legacy-api/abc123prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 0, 'Count', true,
    'Zero requests — likely abandoned', 'platform', '$NOW'),
 
   -- Ghost: unattached EIP
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonVPC', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonVPC', 'eip', 'eu-central-1',
    'eipalloc-prod00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count', true,
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
   -- Active: healthy EC2
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'instance', 'eu-central-1',
    'i-0abc123prod0099', '{\"env\":\"prod\",\"team\":\"backend\"}',
    182.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 71.5, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy RDS
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'primary', 'eu-central-1',
    'db-production-main', '{\"env\":\"prod\",\"team\":\"data\"}',
    312.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 284, 'Count', false, '', 'data', '$NOW'),
 
   -- Active: healthy ELB
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'alb', 'eu-central-1',
    'app/prod-api/xyz789prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    24.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 94200, 'Count', false, '', 'platform', '$NOW'),
 
   -- ── Staging (${ACCT2}) ─────────────────────────────────────────────
   -- Ghost: idle EC2 #1
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 0.8, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
   -- Ghost: idle EC2 #2
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0002', '{\"env\":\"staging\",\"team\":\"platform\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 2.1, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'platform', '$NOW'),
 
   -- Ghost: unused Lambda
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', '', 'us-east-1',
    'stg-image-resizer', '{\"env\":\"staging\",\"team\":\"backend\"}',
    4.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count', true,
    'Zero invocations — likely unused', 'backend', '$NOW'),
 
   -- Ghost: unattached EIP
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonVPC', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonVPC', 'eip', 'us-east-1',
    'eipalloc-stg00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count', true,
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
   -- Active: healthy EC2
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0099', '{\"env\":\"staging\",\"team\":\"backend\"}',
    76.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 48.2, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy RDS
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'read_replica', 'us-east-1',
    'db-staging-main', '{\"env\":\"staging\",\"team\":\"data\"}',
    98.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 37, 'Count', false, '', 'data', '$NOW'),
 
   -- ── Development (${ACCT3}) ────────────────────────────────────────
   -- Ghost: idle EC2
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'instance', 'eu-west-1',
    'i-0abc123dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    22.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 0.3, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
   -- Ghost: abandoned RDS
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', '', 'eu-west-1',
    'db-dev-abandoned', '{\"env\":\"dev\",\"team\":\"data\"}',
    89.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count', true,
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
   -- Ghost: unused Lambda
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
    'dev-unused-email-sender', '{\"env\":\"dev\",\"team\":\"backend\"}',
    2.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count', true,
    'Zero invocations — likely unused', 'backend', '$NOW'),
 
   -- Ghost: unattached EIP
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonVPC', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonVPC', 'eip', 'eu-west-1',
    'eipalloc-dev00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count', true,
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
   -- Active: healthy EC2
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'instance', 'eu-west-1',
    'i-0abc123dev0099', '{\"env\":\"dev\",\"team\":\"backend\"}',
    22.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 34.7, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy Lambda
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
    'dev-auth-handler', '{\"env\":\"dev\",\"team\":\"backend\"}',
    1.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 1840, 'Count', false, '', 'backend', '$NOW'),
@@ -512,21 +529,21 @@ VALUES
   -- ── CE Anomaly Detection monitor ghost resources ───────────────────────────
 
   -- Account 1: idle paid CE anomaly monitor (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', '', 'us-east-1',
    'arn:aws:ce::123456789012:anomalymonitor/prod-service-monitor', '{}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AnomalyCount', 0, 'Count', true,
    'Cost Anomaly Detection monitor "prod-service-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
 
   -- Account 2: idle paid CE anomaly monitor (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', '', 'us-east-1',
    'arn:aws:ce::987654321098:anomalymonitor/stg-cost-monitor', '{}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AnomalyCount', 0, 'Count', true,
    'Cost Anomaly Detection monitor "stg-cost-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
 
   -- Account 3: active CE anomaly monitor (for contrast — has anomalies)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSCostExplorer', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSCostExplorer', '', 'us-east-1',
    'arn:aws:ce::111222333444:anomalymonitor/dev-cost-monitor', '{}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AnomalyCount', 4, 'Count', false, '', 'unknown', '$NOW'),
@@ -534,21 +551,21 @@ VALUES
   -- ── EKS ghost resources ────────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', '', 'eu-central-1',
    'prod-analytics-cluster', '{\"env\":\"prod\",\"team\":\"data\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 0, 'Count', true,
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'data', '$NOW'),
 
   -- Account 2: empty EKS cluster (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', '', 'us-east-1',
    'stg-ml-pipeline', '{\"env\":\"staging\",\"team\":\"platform\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 0, 'Count', true,
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'platform', '$NOW'),
 
   -- Account 3: active EKS cluster (for contrast)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEKS', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEKS', '', 'eu-west-1',
    'dev-app-cluster', '{\"env\":\"dev\",\"team\":\"backend\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 3, 'Count', false, '', 'backend', '$NOW'),
@@ -556,68 +573,68 @@ VALUES
   -- ── Tier 1 API-only ghost resources ───────────────────────────────────────
 
   -- Account 1: unattached EBS volume (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'volume', 'eu-central-1',
    'vol-0prod00000001', '{\"env\":\"prod\",\"team\":\"platform\"}',
    8.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 0, 'State', true,
    'EBS volume (100 GB gp3) is unattached — not mounted to any instance but still incurring storage charges', 'platform', '$NOW'),
 
   -- Account 1: active EBS volume (in use — for dashboard contrast)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'volume', 'eu-central-1',
    'vol-0prod00000099', '{\"env\":\"prod\",\"team\":\"backend\"}',
    24.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 1, 'State', false, '', 'backend', '$NOW'),
 
   -- Account 1: orphaned snapshot (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'eu-central-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'snapshot', 'eu-central-1',
    'snap-0prod00000001', '{\"env\":\"prod\",\"team\":\"data\"}',
    10.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceVolumeExists', 0, 'Boolean', true,
    'EBS snapshot (200 GB) source volume vol-0prod-deleted-001 no longer exists — orphaned storage accumulating charges', 'data', '$NOW'),
 
   -- Account 2: long-stopped EC2 instance (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'stopped_instance', 'us-east-1',
    'i-0stopped-stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    6.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysStopped', 45, 'Days', true,
    'EC2 instance stopped for 45 days — attached EBS storage (80 GB) continues to bill at no compute benefit', 'backend', '$NOW'),
 
   -- Account 2: old AMI (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'ami', 'us-east-1',
    'ami-0stg00000001', '{\"env\":\"staging\",\"team\":\"platform\"}',
    4.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 120, 'Days', true,
    'AMI is 120 days old and not referenced by any instance — backing snapshots (80 GB) accumulate storage charges', 'platform', '$NOW'),
 
   -- Account 2: active recent AMI (in use — for dashboard contrast)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'ami', 'us-east-1',
    'ami-0stg00000099', '{\"env\":\"staging\",\"team\":\"platform\"}',
    2.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 14, 'Days', false, '', 'platform', '$NOW'),
 
   -- Account 3: unattached EBS volume (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'volume', 'eu-west-1',
    'vol-0dev00000001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    4.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 0, 'State', true,
    'EBS volume (50 GB gp3) is unattached — not mounted to any instance but still incurring storage charges', 'backend', '$NOW'),
 
   -- Account 3: orphaned snapshot (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'snapshot', 'eu-west-1',
    'snap-0dev00000001', '{\"env\":\"dev\",\"team\":\"data\"}',
    7.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceVolumeExists', 0, 'Boolean', true,
    'EBS snapshot (150 GB) source volume vol-0dev-deleted-001 no longer exists — orphaned storage accumulating charges', 'data', '$NOW'),
 
   -- Account 3: long-stopped EC2 instance (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'stopped_instance', 'eu-west-1',
    'i-0stopped-dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    3.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysStopped', 60, 'Days', true,
    'EC2 instance stopped for 60 days — attached EBS storage (40 GB) continues to bill at no compute benefit', 'backend', '$NOW'),
 
   -- Account 3: old AMI (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'eu-west-1',
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'ami', 'eu-west-1',
    'ami-0dev00000001', '{\"env\":\"dev\",\"team\":\"platform\"}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 180, 'Days', true,
@@ -627,72 +644,129 @@ echo "  Inserted 36 resource records (24 ghosts, 12 active) across 3 accounts."
 echo ""
 
 # ── Ghost snapshots — historical trend data per account ───────────────────────
-# Creates snapshots per account simulating daily scans with realistic variation.
-# Use --with-trends for 90 days of realistic daily variation (for chart development)
-# Default: 1000 days of simple random data
+# Creates 90 days of snapshots per account simulating daily scans with realistic
+# variation (upward trend + weekly sine wave + noise).
+# Also creates per-service breakdown rows in ghost_snapshot_services.
+
+# Service cost distribution per account (fractions must sum to ~1.0):
+# Format: "service|resource_type:fraction" — pipe separates service from sub-type.
+# Plain "service:fraction" means resource_type is empty.
+#   ACCT1 (prod):    EC2|instance=0.16, RDS=0.42, ELB=0.04, VPC=0.01, EC2|volume=0.22, EC2|snapshot=0.15
+#   ACCT2 (staging): EC2|instance=0.46, Lambda=0.02, VPC=0.03, EC2|stopped_instance=0.33, EC2|ami=0.16
+#   ACCT3 (dev):     EC2|instance=0.22, RDS=0.30, Lambda=0.08, VPC=0.06, EC2|volume=0.20, EC2|ami=0.14
 
 generate_snapshots() {
-  local acct_id=$1
-  local base_ghosts=$2
-  local base_savings=$3
-  local days=$4
-  local with_trends=$5
-  
-  local snap_insert="INSERT INTO ghost_snapshots (id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency) VALUES"
-  
-  for i in $(seq $days -1 1); do
-    local snap_date=$(date -u -v-${i}d +"%Y-%m-%dT12:00:00Z" 2>/dev/null || TZ=UTC date -d "$i days ago" +"%Y-%m-%dT12:00:00Z" 2>/dev/null)
-    
-    if [ "$with_trends" = "true" ]; then
-      # Realistic variation: gradual trend + weekly pattern + random noise
-      local trend_factor=$(awk -v days=$days -v i=$i "BEGIN {printf \"%.2f\", 1.0 + (($days - $i) / $days) * 0.3}")
-      local weekly_factor=$(awk -v i=$i "BEGIN {printf \"%.2f\", 1.0 + 0.1 * sin(($i / 7) * 3.14159)}")
-      local noise=$(awk -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", 0.9 + (rand() * 0.2)}")
-      
-      local ghosts=$(awk -v base=$base_ghosts -v trend=$trend_factor -v weekly=$weekly_factor -v noise=$noise \
-        "BEGIN {printf \"%d\", int(base * trend * weekly * noise)}")
-      local cost=$(awk -v base=$base_savings -v trend=$trend_factor -v weekly=$weekly_factor -v noise=$noise \
-        "BEGIN {printf \"%.2f\", base * trend * weekly * noise}")
-    else
-      # Simple random variation
-      local ghosts=$((base_ghosts + RANDOM % 5 - 2))
-      local cost=$(awk -v base=$base_savings -v seed=$RANDOM "BEGIN {srand(seed); printf \"%.2f\", base * (0.8 + rand() * 0.4)}")
-    fi
-    
-    if [ $i -eq 1 ]; then
-      snap_insert="$snap_insert (gen_random_uuid()::text, '${TENANT_ID}', '$acct_id', '$snap_date', $ghosts, $cost, 'USD')"
-    else
-      snap_insert="$snap_insert (gen_random_uuid()::text, '${TENANT_ID}', '$acct_id', '$snap_date', $ghosts, $cost, 'USD'),"
-    fi
-  done
-  
-  snap_insert="$snap_insert ON CONFLICT DO NOTHING;"
-  psql_exec "$snap_insert"
-  echo "  Inserted $days snapshots for $acct_id."
+  local acct_id=$1       # e.g. "seed-account-001"
+  local base_ghosts=$2   # baseline ghost count (e.g. 14)
+  local base_savings=$3  # baseline monthly savings in USD (e.g. 498.0)
+  local days=$4          # number of daily snapshots to generate
+  local services=$5      # service cost distribution: "Service|type:fraction ..."
+
+  # Uses a single awk invocation to build two INSERT statements (snapshots + services).
+  # This avoids spawning thousands of subshells for date math.
+  local sql
+  sql=$(awk -v acct="$acct_id" -v tenant="$TENANT_ID" \
+    -v base_g="$base_ghosts" -v base_s="$base_savings" \
+    -v days="$days" -v svcs="$services" \
+    'BEGIN {
+      srand()
+      pi = 3.14159265
+
+      # Parse services — format: "service|resource_type:fraction" or "service:fraction"
+      n_svc = split(svcs, svc_arr, " ")
+      for (s = 1; s <= n_svc; s++) {
+        split(svc_arr[s], parts, ":")
+        svc_fracs[s] = parts[2] + 0
+        # Split service|resource_type on pipe
+        n_pipe = split(parts[1], pipe_parts, "|")
+        svc_names[s] = pipe_parts[1]
+        svc_rtypes[s] = (n_pipe > 1) ? pipe_parts[2] : ""
+      }
+
+      # Get current epoch (approximate — good enough for seed data)
+      "date -u +%s" | getline epoch; close("date -u +%s")
+
+      # Snapshot INSERT
+      printf "INSERT INTO ghost_snapshots (id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency) VALUES\n"
+      for (i = days; i >= 1; i--) {
+        snap_epoch = epoch - (i * 86400)
+        # Format as ISO date (use shell date for portability)
+        cmd = "date -u -r " snap_epoch " +\"%Y-%m-%dT12:00:00Z\" 2>/dev/null || TZ=UTC date -u -d @" snap_epoch " +\"%Y-%m-%dT12:00:00Z\""
+        cmd | getline snap_date; close(cmd)
+
+        # Realistic variation: upward trend + weekly sine wave + random noise
+        tf = 1.0 + ((days - i) / days) * 0.3
+        wf = 1.0 + 0.1 * sin((i / 7) * pi)
+        noise = 0.9 + rand() * 0.2
+        ghosts = int(base_g * tf * wf * noise)
+        cost = base_s * tf * wf * noise
+        if (ghosts < 0) ghosts = 0
+
+        snap_id = "snap-" acct "-" i
+        comma = (i > 1) ? "," : ""
+        printf "  ('\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', %d, %.2f, '\''USD'\'')%s\n", snap_id, tenant, acct, snap_date, ghosts, cost, comma
+
+        # Store for service rows
+        snap_ids[i] = snap_id
+        snap_ghosts[i] = ghosts
+        snap_costs[i] = cost
+      }
+      printf "ON CONFLICT DO NOTHING;\n\n"
+
+      # Service INSERT
+      printf "INSERT INTO ghost_snapshot_services (id, snapshot_id, tenant_id, service, resource_type, ghost_count, monthly_cost, currency) VALUES\n"
+      first = 1
+      for (i = days; i >= 1; i--) {
+        for (s = 1; s <= n_svc; s++) {
+          svc_noise = 0.85 + rand() * 0.3
+          svc_cost = snap_costs[i] * svc_fracs[s] * svc_noise
+          svc_g = int(snap_ghosts[i] * svc_fracs[s] * svc_noise)
+          if (svc_g < 1) svc_g = 1
+          row_id = "svc-" acct "-" i "-" s
+
+          if (!first) printf ",\n"
+          first = 0
+          printf "  ('\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', %d, %.2f, '\''USD'\'')", row_id, snap_ids[i], tenant, svc_names[s], svc_rtypes[s], svc_g, svc_cost
+        }
+      }
+      printf "\nON CONFLICT DO NOTHING;\n"
+    }')
+
+  # Pipe both INSERT statements via stdin (psql_exec uses -c which only takes one statement).
+  echo "$sql" | psql_pipe || echo "  Warning: snapshot insert failed for $acct_id"
+
+  local svc_count=$((days * $(echo "$services" | wc -w | tr -d ' ')))
+  echo "  Inserted $days snapshots + $svc_count service rows for $acct_id."
 }
 
-if [ "$WITH_TRENDS" = "true" ]; then
-  DAYS=90
-  echo "Inserting ghost snapshots with realistic trends (90 days × 3 accounts)..."
-else
-  DAYS=1000
-  echo "Inserting ghost snapshots (1000 days × 3 accounts)..."
-fi
+# Clean old seed snapshot data (deterministic IDs).
+# ghost_snapshot_services may not exist on older schemas — ignore errors.
+psql_exec "DELETE FROM ghost_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" 2>/dev/null || true
+psql_exec "DELETE FROM ghost_snapshots WHERE id LIKE 'snap-seed-account-%';"
 
-generate_snapshots "$ACCT1" 14 498.0 $DAYS $WITH_TRENDS  # Production  (+2 EBS vol/snapshot ghosts)
-generate_snapshots "$ACCT2" 10 330.4 $DAYS $WITH_TRENDS  # Staging     (+2 stopped instance/AMI ghosts)
-generate_snapshots "$ACCT3" 9  217.7 $DAYS $WITH_TRENDS  # Dev         (+4 Tier-1 ghosts)
+DAYS=90
+echo "Inserting ghost snapshots with realistic trends (90 days × 3 accounts)..."
+
+generate_snapshots "$ACCT1" 14 498.0 $DAYS \
+  "AmazonEC2|instance:0.16 AmazonRDS|primary:0.42 AmazonElasticLoadBalancing|alb:0.04 AmazonVPC|nat_gateway:0.005 AmazonVPC|eip:0.005 AmazonEC2|volume:0.22 AmazonEC2|snapshot:0.15"
+generate_snapshots "$ACCT2" 10 330.4 $DAYS \
+  "AmazonEC2|instance:0.46 AWSLambda:0.02 AmazonRDS|read_replica:0.20 AmazonVPC|nat_gateway:0.015 AmazonVPC|eip:0.015 AmazonEC2|stopped_instance:0.33 AmazonEC2|ami:0.16"
+generate_snapshots "$ACCT3" 9  217.7 $DAYS \
+  "AmazonEC2|instance:0.22 AmazonRDS|primary:0.30 AWSLambda:0.08 AmazonElasticLoadBalancing|nlb:0.05 AmazonVPC|nat_gateway:0.03 AmazonVPC|eip:0.03 AmazonEC2|volume:0.20 AmazonEC2|ami:0.14"
 echo ""
 
-# ── RLS isolation check (using app user, not owner) ───────────────────────────
+# ── Verify seeded data ────────────────────────────────────────────────────────
+# Quick sanity check: count rows per table for the dev tenant.
 
 echo "=== Verifying dev tenant data ==="
 GHOST_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_records WHERE tenant_id = '${TENANT_ID}';")
 RESOURCE_COUNT=$(psql_query "SELECT COUNT(*) FROM resource_records WHERE tenant_id = '${TENANT_ID}';")
 SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshots WHERE tenant_id = '${TENANT_ID}';")
-echo "Dev tenant ghost records:     $GHOST_COUNT  (expected 24)"
-echo "Dev tenant resource records:  $RESOURCE_COUNT  (expected 36)"
-echo "Dev tenant ghost snapshots:   $SNAPSHOT_COUNT  (expected 3000)"
+SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshot_services WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
+echo "Dev tenant ghost records:       $GHOST_COUNT  (expected 24)"
+echo "Dev tenant resource records:    $RESOURCE_COUNT  (expected 36)"
+echo "Dev tenant ghost snapshots:     $SNAPSHOT_COUNT  (expected 270)"
+echo "Dev tenant snapshot services:   $SVC_COUNT"
 echo ""
 
 echo "=== Done ==="

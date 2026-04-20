@@ -23,17 +23,7 @@ make seed              # 12 ghosts, 19 resources, 1000 days of snapshots
 make start-dev
 ```
 
-**For chart/graph development:**
-```bash
-make seed-trends       # 90 days with realistic trends + patterns
-make start-dev
-```
-
-The `seed-trends` target generates time-series data with:
-- Gradual 30% growth trend over 90 days
-- Weekly patterns (±10% cycle)
-- Random noise (±10%)
-- Account-specific baselines (prod: 12 ghosts, staging: 8, dev: 5)
+Seed data includes 90 days of realistic trend snapshots (gradual growth, weekly patterns, random noise).
 
 ## Scenarios
 

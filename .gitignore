@@ -87,3 +87,6 @@ services/migrate/migrate
 services/*/test-*
 services/*/*-test
 /services/ingestion/main
+
+# Excel
+~$*.xl*

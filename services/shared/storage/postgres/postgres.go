@@ -169,12 +169,12 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO ghost_records
-				(tenant_id, provider, account_id, internal_account_id, service, region, resource_id, arn, tags,
+				(tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
 				 monthly_cost, currency, period_start, period_end,
 				 usage_metric, usage_avg, usage_unit, reason, owner, detected_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
 			tenantID,
-			g.Provider, g.AccountID, g.InternalAccountID, g.Service, g.Region, g.ResourceID, g.ARN, string(tags),
+			g.Provider, g.AccountID, g.InternalAccountID, g.Service, g.ResourceType, g.Region, g.ResourceID, g.ARN, string(tags),
 			g.MonthlyCost, g.Currency, g.PeriodStart, g.PeriodEnd,
 			g.UsageMetric, g.UsageAvg, g.UsageUnit, g.Reason, g.Owner, now,
 		)
@@ -204,7 +204,7 @@ func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT provider, account_id, internal_account_id, service, region, resource_id, arn, tags,
+		SELECT provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
 		       monthly_cost, currency, period_start, period_end,
 		       usage_metric, usage_avg, usage_unit, reason, owner
 		FROM ghost_records
@@ -220,7 +220,7 @@ func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
 		var tagsJSON []byte
 		var internalAccountID *string
 		if err := rows.Scan(
-			&g.Provider, &g.AccountID, &internalAccountID, &g.Service, &g.Region, &g.ResourceID, &g.ARN, &tagsJSON,
+			&g.Provider, &g.AccountID, &internalAccountID, &g.Service, &g.ResourceType, &g.Region, &g.ResourceID, &g.ARN, &tagsJSON,
 			&g.MonthlyCost, &g.Currency, &g.PeriodStart, &g.PeriodEnd,
 			&g.UsageMetric, &g.UsageAvg, &g.UsageUnit, &g.Reason, &g.Owner,
 		); err != nil {
@@ -531,12 +531,12 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO resource_records
-				(tenant_id, provider, account_id, internal_account_id, service, region, resource_id, arn, tags,
+				(tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
 				 monthly_cost, currency, period_start, period_end,
 				 usage_metric, usage_avg, usage_unit, is_ghost, reason, owner, detected_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
 			tenantID,
-			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID, r.ARN, string(tags),
+			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.ResourceType, r.Region, r.ResourceID, r.ARN, string(tags),
 			r.MonthlyCost, r.Currency, r.PeriodStart, r.PeriodEnd,
 			r.UsageMetric, r.UsageAvg, r.UsageUnit, r.IsGhost, r.Reason, r.Owner, now,
 		)
@@ -566,7 +566,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT provider, account_id, internal_account_id, service, region, resource_id, arn, tags,
+		SELECT provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
 		       monthly_cost, currency, period_start, period_end,
 		       usage_metric, usage_avg, usage_unit, is_ghost, reason, owner
 		FROM resource_records
@@ -582,7 +582,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 		var tagsJSON []byte
 		var internalAccountID *string
 		if err := rows.Scan(
-			&r.Provider, &r.AccountID, &internalAccountID, &r.Service, &r.Region, &r.ResourceID, &r.ARN, &tagsJSON,
+			&r.Provider, &r.AccountID, &internalAccountID, &r.Service, &r.ResourceType, &r.Region, &r.ResourceID, &r.ARN, &tagsJSON,
 			&r.MonthlyCost, &r.Currency, &r.PeriodStart, &r.PeriodEnd,
 			&r.UsageMetric, &r.UsageAvg, &r.UsageUnit, &r.IsGhost, &r.Reason, &r.Owner,
 		); err != nil {
@@ -686,6 +686,191 @@ func (s *Store) ListSnapshots(ctx context.Context, accountID string) ([]model.Gh
 		return nil, err
 	}
 	return snaps, tx.Commit(ctx)
+}
+
+// SaveSnapshotServices writes per-service breakdown rows for a snapshot.
+func (s *Store) SaveSnapshotServices(ctx context.Context, services []model.SnapshotService) error {
+	if len(services) == 0 {
+		return nil
+	}
+
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	for _, svc := range services {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO ghost_snapshot_services
+				(id, snapshot_id, tenant_id, service, resource_type, ghost_count, monthly_cost, currency)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			svc.ID, svc.SnapshotID, tenantID, svc.Service, svc.ResourceType,
+			svc.GhostCount, svc.MonthlyCost, svc.Currency,
+		)
+		if err != nil {
+			return fmt.Errorf("postgres: insert snapshot_service: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// ListSnapshotsByService returns snapshots filtered by service, oldest-first.
+// Each snapshot's cost/count reflects only the given service.
+// When resourceType is non-empty, only that sub-type is returned; otherwise
+// all resource types for the service are aggregated (SUM).
+func (s *Store) ListSnapshotsByService(ctx context.Context, service, resourceType, accountID string) ([]model.GhostSnapshot, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setTenant(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	// Build query dynamically based on filters.
+	// When no resource_type is specified we GROUP BY snapshot to aggregate
+	// across all resource types for the service.
+	query := `
+		SELECT gs.id, gs.account_id, gs.snapshot_at,
+		       SUM(gss.ghost_count)::int, SUM(gss.monthly_cost), gss.currency
+		FROM ghost_snapshots gs
+		JOIN ghost_snapshot_services gss ON gss.snapshot_id = gs.id
+		WHERE gss.service = $1`
+
+	args := []any{service}
+	argN := 2
+
+	if resourceType != "" {
+		query += fmt.Sprintf(" AND gss.resource_type = $%d", argN)
+		args = append(args, resourceType)
+		argN++
+	}
+	if accountID != "" {
+		query += fmt.Sprintf(" AND gs.account_id = $%d", argN)
+		args = append(args, accountID)
+	}
+
+	query += `
+		GROUP BY gs.id, gs.account_id, gs.snapshot_at, gss.currency
+		ORDER BY gs.snapshot_at ASC`
+
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: query snapshots by service: %w", err)
+	}
+	defer rows.Close()
+
+	var snaps []model.GhostSnapshot
+	for rows.Next() {
+		var snap model.GhostSnapshot
+		if err := rows.Scan(
+			&snap.ID, &snap.AccountID, &snap.SnapshotAt,
+			&snap.GhostCount, &snap.TotalMonthlyCost, &snap.Currency,
+		); err != nil {
+			return nil, fmt.Errorf("postgres: scan snapshot_by_service: %w", err)
+		}
+		snaps = append(snaps, snap)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return snaps, tx.Commit(ctx)
+}
+
+// ListTrendServices returns distinct services that have snapshot data for the tenant.
+func (s *Store) ListTrendServices(ctx context.Context) ([]string, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setTenant(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT DISTINCT service FROM ghost_snapshot_services ORDER BY service`)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: query trend services: %w", err)
+	}
+	defer rows.Close()
+
+	var services []string
+	for rows.Next() {
+		var svc string
+		if err := rows.Scan(&svc); err != nil {
+			return nil, fmt.Errorf("postgres: scan trend service: %w", err)
+		}
+		services = append(services, svc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return services, tx.Commit(ctx)
+}
+
+// ListTrendResourceTypes returns distinct resource types for a given service
+// that have snapshot data for the tenant.
+func (s *Store) ListTrendResourceTypes(ctx context.Context, service string) ([]string, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setTenant(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT DISTINCT resource_type FROM ghost_snapshot_services
+		WHERE service = $1 AND resource_type != ''
+		ORDER BY resource_type`, service)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: query trend resource types: %w", err)
+	}
+	defer rows.Close()
+
+	var types []string
+	for rows.Next() {
+		var rt string
+		if err := rows.Scan(&rt); err != nil {
+			return nil, fmt.Errorf("postgres: scan trend resource type: %w", err)
+		}
+		types = append(types, rt)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return types, tx.Commit(ctx)
 }
 
 // DeleteOldCostRecords deletes cost records with period_end before cutoff across all tenants.

@@ -377,6 +377,25 @@ func (m *MockStore) ListSnapshots(_ context.Context, accountID string) ([]model.
 	return snapshots, nil
 }
 
+func (m *MockStore) SaveSnapshotServices(_ context.Context, _ []model.SnapshotService) error {
+	return nil
+}
+
+func (m *MockStore) ListSnapshotsByService(_ context.Context, _, _, _ string) ([]model.GhostSnapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Return all snapshots — mock doesn't filter by service or resource type.
+	return append([]model.GhostSnapshot(nil), m.snapshots...), nil
+}
+
+func (m *MockStore) ListTrendServices(_ context.Context) ([]string, error) {
+	return []string{}, nil
+}
+
+func (m *MockStore) ListTrendResourceTypes(_ context.Context, _ string) ([]string, error) {
+	return []string{}, nil
+}
+
 func (m *MockStore) Close() error {
 	return nil
 }

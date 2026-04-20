@@ -1,48 +1,41 @@
 import { useState } from 'react';
 import { connectAccount, updateAccount } from '../api/client';
+import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
 
-// Local palette — kept in sync with darkTheme/lightTheme in ThemeContext.jsx.
-// This screen uses the dark navy frame for chrome, light surfaces for cards.
-const C = {
-  bg: '#F6F8FB',
-  navy: '#0B1220',
-  navyMid: '#182031',
-  accent: '#FB923C',        // orange-400 (dark-context brand)
-  text: '#0F172A',
-  textMid: '#475569',
-  textMuted: '#94A3B8',
-  white: '#FFFFFF',
-  border: '#E2E8F0',
-  error: '#DC2626',
-};
-
-const styles = {
-  container: { flex: 1, backgroundColor: C.navy, minHeight: '100vh' },
-  content: { padding: 20, paddingBottom: 48 },
-  header: { paddingTop: 20, paddingBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  brand: { color: C.accent, fontSize: 24, fontWeight: 800, letterSpacing: -0.5 },
-  card: { backgroundColor: C.white, borderRadius: 16, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 },
-  title: { fontSize: 20, fontWeight: 800, color: C.text },
-  subtitle: { fontSize: 14, color: C.textMid, lineHeight: '21px' },
-  infoBox: { backgroundColor: C.bg, borderRadius: 8, padding: 14, border: `1px solid ${C.border}` },
-  infoText: { fontSize: 13, color: C.textMid, lineHeight: '22px' },
-  infoMono: { fontFamily: 'monospace', fontSize: 12, color: C.text },
-  field: { display: 'flex', flexDirection: 'column', gap: 6 },
-  fieldLabel: { fontSize: 13, fontWeight: 600, color: C.textMid },
-  input: { backgroundColor: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, paddingLeft: 12, paddingRight: 12, paddingTop: 10, paddingBottom: 10, fontSize: 14, color: C.text, outline: 'none' },
-  inputMono: { fontFamily: 'monospace', fontSize: 13 },
-  fieldHint: { fontSize: 12, color: C.textMuted, fontStyle: 'italic', marginTop: 2 },
-  error: { fontSize: 13, color: C.error, fontWeight: 500 },
-  btn: { backgroundColor: C.accent, borderRadius: 10, paddingTop: 14, paddingBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 4, border: 'none', cursor: 'pointer', width: '100%' },
-  btnDisabled: { opacity: 0.6 },
-  btnText: { color: C.white, fontSize: 16, fontWeight: 700 },
-  skipBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 8, paddingBottom: 8, background: 'none', border: 'none', cursor: 'pointer', width: '100%' },
-  skipText: { fontSize: 14, color: C.textMuted },
-};
+function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, theme }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <label style={{ fontSize: 13, fontWeight: 600, color: theme.textMid }}>
+        {label}
+      </label>
+      <input
+        style={{
+          backgroundColor: theme.surfaceAlt,
+          border: `1px solid ${theme.border}`,
+          borderRadius: 8,
+          padding: '10px 12px',
+          fontSize: 14,
+          color: theme.text,
+          outline: 'none',
+          fontFamily: mono ? 'monospace' : undefined,
+        }}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoCapitalize="none"
+        autoCorrect="off"
+        type={type}
+      />
+      {hint && <span style={{ fontSize: 12, color: theme.textMuted, fontStyle: 'italic' }}>{hint}</span>}
+    </div>
+  );
+}
 
 export default function ConnectScreen({ onConnected, onSkip, onCancel, account }) {
+  const { theme, isDark } = useTheme();
   const isEdit = !!account;
+
   const [label, setLabel]             = useState(account?.label ?? '');
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
   const [secretKey, setSecretKey]     = useState('');
@@ -67,7 +60,7 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
       if (isEdit) {
         const scanInterval = parseInt(scanIntervalHours, 10);
         if (isNaN(scanInterval) || scanInterval < 0) {
-          setError('Scan interval must be a number >= 0.');
+          setError('Scan interval must be a number ≥ 0.');
           setLoading(false);
           return;
         }
@@ -96,34 +89,65 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.content}>
-        <div style={styles.header}>
-          <span style={styles.brand}>AxiaOps</span>
-        </div>
+    <div style={{ minHeight: '100%', backgroundColor: theme.bg }}>
+      <div style={{ maxWidth: 520, margin: '0 auto', padding: '32px 20px 64px' }}>
 
-        <div style={styles.card}>
-          <span style={styles.title}>{isEdit ? 'Edit AWS Account' : 'Connect AWS Account'}</span>
-          <span style={styles.subtitle}>
+        {/* Header */}
+        <div style={{ marginBottom: 28 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: theme.text, margin: '0 0 6px' }}>
+            {isEdit ? 'Edit AWS Account' : 'Connect AWS Account'}
+          </h1>
+          <p style={{ fontSize: 14, color: theme.textMid, lineHeight: '21px', margin: 0 }}>
             {isEdit
               ? 'Update credentials or settings. Leave the secret key blank to keep the existing one.'
               : 'Create a read-only IAM user in your AWS account and paste the credentials below.'}
-          </span>
+          </p>
+        </div>
 
-          <div style={styles.infoBox}>
-            <span style={styles.infoText}>
-              Minimum IAM permissions required:{'\n'}
-              <span style={styles.infoMono}>ReadOnlyAccess</span> or{'\n'}
-              <span style={styles.infoMono}>ce:GetCostAndUsage</span>{'\n'}
-              <span style={styles.infoMono}>cloudwatch:GetMetricStatistics</span>{'\n'}
-              <span style={styles.infoMono}>ec2:DescribeAddresses</span>
+        {/* IAM permissions info box */}
+        {!isEdit && (
+          <div style={{
+            backgroundColor: isDark ? theme.surfaceRaised : '#EFF6FF',
+            border: `1px solid ${isDark ? theme.border : '#BFDBFE'}`,
+            borderRadius: 10,
+            padding: '14px 16px',
+            marginBottom: 24,
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? theme.textMid : '#1D4ED8', display: 'block', marginBottom: 6 }}>
+              Required IAM permissions
             </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {['ReadOnlyAccess (or below)', 'ce:GetCostAndUsage', 'cloudwatch:GetMetricStatistics', 'ec2:DescribeAddresses'].map(p => (
+                <code key={p} style={{ fontSize: 12, color: theme.textMid, fontFamily: 'monospace', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', padding: '2px 6px', borderRadius: 4, display: 'inline-block', width: 'fit-content' }}>
+                  {p}
+                </code>
+              ))}
+            </div>
           </div>
+        )}
 
-          <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" />
-          <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
-          <Field label="AWS Secret Access Key" value={secretKey} onChange={setSecretKey} placeholder={isEdit ? 'Leave blank to keep existing' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'} mono type="password" />
-          <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
+        {/* Form card */}
+        <div style={{
+          backgroundColor: theme.surface,
+          border: `1px solid ${theme.border}`,
+          borderRadius: 16,
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 18,
+        }}>
+          <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" theme={theme} />
+          <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono theme={theme} />
+          <Field
+            label="AWS Secret Access Key"
+            value={secretKey}
+            onChange={setSecretKey}
+            placeholder={isEdit ? 'Leave blank to keep existing' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'}
+            mono
+            type="password"
+            theme={theme}
+          />
+          <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono theme={theme} />
           {isEdit && (
             <Field
               label="Auto-scan interval (hours)"
@@ -131,50 +155,52 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
               onChange={setScanIntervalHours}
               placeholder="24"
               type="number"
-              hint="0 = on-demand (always eligible per 60-min check), or enter hours between scans"
+              hint="0 = on-demand only, or enter hours between automatic scans"
+              theme={theme}
             />
           )}
 
-          {error ? <span style={styles.error}>{error}</span> : null}
+          {error && (
+            <div style={{ backgroundColor: `${theme.error}18`, border: `1px solid ${theme.error}40`, borderRadius: 8, padding: '10px 12px' }}>
+              <span style={{ fontSize: 13, color: theme.error, fontWeight: 500 }}>{error}</span>
+            </div>
+          )}
 
           <button
-            style={{ ...styles.btn, ...(loading ? styles.btnDisabled : {}) }}
             onClick={handleSubmit}
             disabled={loading}
+            style={{
+              backgroundColor: theme.accent,
+              borderRadius: 10,
+              padding: '14px',
+              border: 'none',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.65 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '100%',
+              marginTop: 4,
+            }}
           >
-            {loading ? <Spinner size={20} color={C.white} /> : <span style={styles.btnText}>{isEdit ? 'Save Changes' : 'Connect Account'}</span>}
+            {loading
+              ? <Spinner size={20} color="#fff" />
+              : <span style={{ color: '#fff', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Save Changes' : 'Connect Account'}</span>
+            }
           </button>
 
           {onSkip && (
-            <button style={styles.skipBtn} onClick={onSkip}>
-              <span style={styles.skipText}>Skip for now</span>
+            <button onClick={onSkip} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', textAlign: 'center', width: '100%' }}>
+              <span style={{ fontSize: 14, color: theme.textMuted }}>Skip for now</span>
             </button>
           )}
           {onCancel && (
-            <button style={styles.skipBtn} onClick={onCancel}>
-              <span style={styles.skipText}>Cancel</span>
+            <button onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', textAlign: 'center', width: '100%' }}>
+              <span style={{ fontSize: 14, color: theme.textMuted }}>Cancel</span>
             </button>
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Field({ label, value, onChange, placeholder, mono, type = 'text', hint }) {
-  return (
-    <div style={styles.field}>
-      <span style={styles.fieldLabel}>{label}</span>
-      <input
-        style={{ ...styles.input, ...(mono ? styles.inputMono : {}) }}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        autoCapitalize="none"
-        autoCorrect="off"
-        type={type}
-      />
-      {hint && <span style={styles.fieldHint}>{hint}</span>}
     </div>
   );
 }
