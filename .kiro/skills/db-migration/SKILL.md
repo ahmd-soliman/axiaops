@@ -128,7 +128,7 @@ Use `DEFAULT` values so existing rows don't break. For NOT NULL columns without 
 4. **Test the migration** by running:
 
 ```bash
-make test-postgres
+make test-storage
 ```
 
 This runs the full migration suite and RLS tests against a real PostgreSQL instance.

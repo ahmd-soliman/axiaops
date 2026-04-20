@@ -45,7 +45,7 @@
 - [x] Create `services/shared/storage/postgres/migrations/001_initial.up.sql` — baseline schema + RLS policies
 - [x] Wire migration runner into `services/api/cmd/main.go` and `services/ingestion/cmd/main.go` — run on startup using `MIGRATION_DATABASE_URL`
 - [x] Remove inline `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` calls from application code
-- [x] Test: run `make test-postgres` and verify `schema_migrations` table is populated correctly
+- [x] Test: run `make test-storage` and verify `schema_migrations` table is populated correctly
 - [x] Test: run migrations from scratch on a clean PostgreSQL container
 
 #### 2.5 Savings History / Trend ✅
@@ -385,10 +385,18 @@ Already shipped as Tier 1/2 (see 2.Tier1 and 2.Tier2 above):
 - [x] DynamoDB unused provisioned tables (CloudWatch, Tier 2)
 - [x] EKS control plane with no nodes (CloudWatch/Container Insights, Tier 2)
 
+Shipped — Tier 2 API-only (high impact, low effort):
+- [x] CloudWatch Log Groups: `logs:DescribeLogGroups` — flag groups with no retention policy or zero stored bytes (wasteful log retention)
+- [x] RDS Snapshots: `rds:DescribeDBSnapshots` (type=manual) — flag snapshots > 30 days old whose source DB no longer exists ($0.095/GB-mo)
+- [x] ECR Images: `ecr:DescribeRepositories` + `ecr:DescribeImages` — flag untagged images or images > 90 days old ($0.10/GB-mo)
+
+Shipped — Tier 3 CloudWatch + API-only (April 2026):
+- [x] Secrets Manager: `secretsmanager:ListSecrets` — flag secrets with `LastAccessedDate > 90 days` ($0.40/secret/mo)
+- [x] CloudFront: `Requests = 0` — `cloudfront:ListDistributions` + CloudWatch AWS/CloudFront
+- [x] Kinesis: `IncomingRecords = 0` — `kinesis:ListStreams` + CloudWatch AWS/Kinesis
+- [x] S3: `AllRequests = 0` — `s3:ListBuckets` + CloudWatch AWS/S3 (requires request metrics enabled on bucket)
+
 Remaining for Phase 3:
-- [ ] Secrets Manager: `GetSecretValue = 0` over 90 days — `secretsmanager:ListSecrets` + CloudWatch
-- [ ] S3: `GetRequests = 0` over 60 days — `s3:ListBuckets` + CloudWatch, skip if tagged `archival=true`
-- [ ] CloudFront: `Requests = 0` over 30 days — `cloudfront:ListDistributions` + CloudWatch
 - [ ] Custom per-tenant thresholds: write migration `012_add_detection_rules.sql`, create `detection_rules(id, tenant_id, service, metric, threshold, enabled)` table
 - [ ] Add `PATCH /v1/settings/rules` endpoint — allow tenants to override thresholds
 - [ ] Fall back to built-in defaults when no custom rule exists

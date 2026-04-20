@@ -253,10 +253,11 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
 
 function FilterPills({
   byService, owners, resourceTypes,
-  filterSvc, filterOwner, filterResourceTypes,
-  onFilterSvc, onFilterOwner, onToggleResourceType, onClearResourceTypes,
+  filterSvcs, filterOwner, filterResourceTypes,
+  onToggleSvc, onFilterOwner, onToggleResourceType, onClearResourceTypes,
   currency, theme, isDark,
 }) {
+  const showSubfilter = filterSvcs.size === 1 && resourceTypes.length > 0;
   const noneSelected = filterResourceTypes.size === 0;
   return (
     <div style={{ padding: '0 16px 12px' }}>
@@ -269,11 +270,11 @@ function FilterPills({
         >
           {byService.map(([svc, data]) => {
             const cfg = serviceConfig(svc);
-            const active = filterSvc === svc;
+            const active = filterSvcs.has(svc);
             return (
               <button
                 key={svc}
-                onClick={() => onFilterSvc(active ? null : svc)}
+                onClick={() => onToggleSvc(svc)}
                 aria-pressed={active}
                 style={{
                   display: 'flex',
@@ -296,8 +297,8 @@ function FilterPills({
         </div>
       )}
 
-      {/* Resource type sub-filter pills (shown when a service is selected and has sub-types) */}
-      {filterSvc && resourceTypes.length > 0 && (
+      {/* Resource type sub-filter pills (shown when exactly one service is selected and has sub-types) */}
+      {showSubfilter && (
         <div
           role="group"
           aria-label="Filter by resource type"
@@ -741,9 +742,9 @@ export default function DashboardScreen({
   const queryClient       = useQueryClient();
   const t = theme;
 
-  const [filterSvc, setFilterSvc]                   = useState(null);
+  const [filterSvcs, setFilterSvcs]                   = useState(() => new Set());
   const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
-  const [filterOwner, setFilterOwner]               = useState(null);
+  const [filterOwner, setFilterOwner]                 = useState(null);
   const [ghostOnly, setGhostOnly]       = useState(true);
   const [showDismissed, setShowDismissed] = useState(false);
   const [scanning, setScanning]         = useState(null);
@@ -778,21 +779,26 @@ export default function DashboardScreen({
   );
 
   // Distinct resource sub-types within the currently selected service.
-  // Computed locally from the loaded resources so the pills always match what's visible.
+  // Sub-types are service-scoped, so we only surface them when exactly one
+  // service is selected — otherwise the labels would collide across services.
   const resourceTypes = useMemo(() => {
-    if (!filterSvc) return [];
+    if (filterSvcs.size !== 1) return [];
+    const [svc] = filterSvcs;
     const set = new Set();
     for (const r of resources.data ?? []) {
-      if (r.service !== filterSvc) continue;
+      if (r.service !== svc) continue;
       if (dismissedSet.has(r.resource_id)) continue;
       if (r.resource_type) set.add(r.resource_type);
     }
     return [...set].sort();
-  }, [resources.data, filterSvc, dismissedSet]);
+  }, [resources.data, filterSvcs, dismissedSet]);
 
-  function handleFilterSvc(svc) {
-    setFilterSvc(svc);
-    setFilterResourceTypes(new Set());
+  function toggleService(svc) {
+    const next = new Set(filterSvcs);
+    next.has(svc) ? next.delete(svc) : next.add(svc);
+    setFilterSvcs(next);
+    // Sub-types only make sense when exactly one service is selected.
+    if (next.size !== 1) setFilterResourceTypes(new Set());
   }
 
   function toggleResourceType(rt) {
@@ -865,14 +871,20 @@ export default function DashboardScreen({
   }
 
   const activeFilters = [
-    filterSvc   && { key: 'svc',   label: serviceConfig(filterSvc).label },
+    ...[...filterSvcs].map(svc => ({ key: `svc:${svc}`, label: serviceConfig(svc).label })),
     ...[...filterResourceTypes].map(rt => ({ key: `rt:${rt}`, label: resourceTypeConfig(rt).label })),
     filterOwner && { key: 'owner', label: filterOwner },
   ].filter(Boolean);
 
   function clearFilter(key) {
-    if (key === 'svc')   { setFilterSvc(null); setFilterResourceTypes(new Set()); }
     if (key === 'owner') setFilterOwner(null);
+    if (key.startsWith('svc:')) {
+      const svc = key.slice(4);
+      const next = new Set(filterSvcs);
+      next.delete(svc);
+      setFilterSvcs(next);
+      if (next.size !== 1) setFilterResourceTypes(new Set());
+    }
     if (key.startsWith('rt:')) {
       const rt = key.slice(3);
       setFilterResourceTypes(prev => {
@@ -917,9 +929,9 @@ export default function DashboardScreen({
     let list = resources.data ?? [];
     if (ghostOnly) list = list.filter(r => r.is_ghost);
     list = list.filter(r => !dismissedSet.has(r.resource_id));
-    if (filterSvc)                  list = list.filter(r => r.service === filterSvc);
+    if (filterSvcs.size > 0)          list = list.filter(r => filterSvcs.has(r.service));
     if (filterResourceTypes.size > 0) list = list.filter(r => filterResourceTypes.has(r.resource_type));
-    if (filterOwner)                list = list.filter(r => r.owner === filterOwner);
+    if (filterOwner)                  list = list.filter(r => r.owner === filterOwner);
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(r =>
@@ -990,10 +1002,10 @@ export default function DashboardScreen({
           byService={byService}
           owners={owners}
           resourceTypes={resourceTypes}
-          filterSvc={filterSvc}
+          filterSvcs={filterSvcs}
           filterOwner={filterOwner}
           filterResourceTypes={filterResourceTypes}
-          onFilterSvc={handleFilterSvc}
+          onToggleSvc={toggleService}
           onFilterOwner={setFilterOwner}
           onToggleResourceType={toggleResourceType}
           onClearResourceTypes={clearResourceTypes}

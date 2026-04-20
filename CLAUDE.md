@@ -30,7 +30,7 @@ make start-staging  # Real AWS + Kinde auth
 make stop           # Kill all services, free ports
 make seed           # Populate dummy tenant/user/ghost records
 make test           # All Go unit tests
-make test-postgres  # PostgreSQL tests (RLS, migrations) — needs running postgres
+make test-storage   # PostgreSQL tests (RLS, migrations) — needs running postgres
 make test-smoke     # Smoke tests — needs full stack running (make start-dev in a separate terminal)
                     # Uses GOWORK=off so tests don't recompile services and kill running processes
 make test-all       # Unit + postgres tests
@@ -84,6 +84,9 @@ Zombie detection thresholds — do not change without business justification:
 | ELB | RequestCount | = 0 | Abandoned LB |
 | VPC (NAT) | BytesOutToDestination | = 0 | Unused NAT GW |
 | VPC (EIP) | NetworkInterfaceAttachment | = 0 | Unattached EIP |
+| CloudFront | Requests | = 0 | Abandoned distribution |
+| Kinesis | IncomingRecords | = 0 | Unused data stream |
+| S3 | AllRequests | = 0 | Abandoned bucket (requires request metrics) |
 
 API-only rules (no CloudWatch — state derived directly from AWS Describe APIs):
 
@@ -93,6 +96,10 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 | AmazonEC2 (snapshot) | ec2:DescribeSnapshots + DescribeVolumes | source volume gone, not backing any AMI | Orphaned snapshot | $0.05/GB-month |
 | AmazonEC2 (stopped) | ec2:DescribeInstances StateTransitionReason | stopped > 30 days | Long-stopped instance (EBS still bills) | $0.08/GB-month on attached volumes |
 | AmazonEC2 (AMI) | ec2:DescribeImages + DescribeInstances | age > 90 days, no instance references it | Unused AMI + backing snapshots | $0.05/GB-month on backing snapshots |
+| AmazonCloudWatch (Log Group) | logs:DescribeLogGroups | retentionInDays = null (logs stored forever) | Wasteful log group | $0.03/GB-month |
+| AmazonRDS (snapshot) | rds:DescribeDBSnapshots + DescribeDBInstances | manual, age > 30 days, source DB gone | Orphaned RDS snapshot | $0.095/GB-month |
+| AmazonECR (images) | ecr:DescribeRepositories + DescribeImages | untagged or age > 90 days (not latest) | Stale container images | $0.10/GB-month |
+| AWSSecretsManager | secretsmanager:ListSecrets | LastAccessedDate > 90 days | Unused secret | $0.40/secret-month |
 
 ## Security
 
