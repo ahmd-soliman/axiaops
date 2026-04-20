@@ -55,7 +55,7 @@ function FullTrendChart({ snaps, selectedId, onSelect, theme, scrollRef, screenW
 
           return (
             <button
-              key={s.snapshot_at}
+              key={`${s.snapshot_at}-${i}`}
               onClick={() => onSelect(s)}
               aria-label={`${new Date(s.snapshot_at).toLocaleDateString('en-GB')}: ${s.currency} ${s.total_monthly_cost.toFixed(2)}`}
               aria-pressed={isSelect}
@@ -131,12 +131,41 @@ export default function TrendScreen({ onBack }) {
   const chartScrollRef = useRef(null);
   const t = theme;
 
+  // Derive data unconditionally (safe to do before early returns — defaults to [] while loading)
+  const allSnaps      = trend.data ?? [];
+  const filteredSnaps = period === Infinity ? allSnaps : allSnaps.slice(-period);
+  const reversedSnaps = [...filteredSnaps].reverse();
+
+  // Hooks must all be called before any conditional return (Rules of Hooks)
+  // When selectedSnap or listPage changes: expand list if needed, then scroll to the row.
+  useEffect(() => {
+    if (!selectedSnap) return;
+    const idx = reversedSnaps.findIndex(r => r.snapshot_at === selectedSnap.snapshot_at);
+    if (idx < 0) return;
+
+    // If the row isn't rendered yet, expand the list — effect will re-run after re-render
+    const pageNeeded = Math.ceil((idx + 1) / LIST_PAGE_SIZE);
+    if (listPage < pageNeeded) {
+      setListPage(pageNeeded);
+      return;
+    }
+
+    // Row is in the DOM — scroll to it
+    const el = listRef.current?.querySelectorAll('[data-snap]')?.[idx];
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [selectedSnap, listPage]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Reset pagination when period changes
   function changePeriod(days) {
     setPeriod(days);
     setSelectedSnap(null);
     setChartPage(0);
     setListPage(1);
+  }
+
+  function handleSelectBar(s) {
+    const newSel = s.snapshot_at === selectedSnap?.snapshot_at ? null : s;
+    setSelectedSnap(newSel);
   }
 
   if (trend.isLoading) {
@@ -159,10 +188,6 @@ export default function TrendScreen({ onBack }) {
     );
   }
 
-  const allSnaps      = trend.data;
-  const filteredSnaps = period === Infinity ? allSnaps : allSnaps.slice(-period);
-  const reversedSnaps = [...filteredSnaps].reverse();
-
   const totalChartPages = Math.max(1, Math.ceil(filteredSnaps.length / PAGE_SIZE));
   const canGoOlder      = chartPage < totalChartPages - 1;
   const canGoNewer      = chartPage > 0;
@@ -174,31 +199,6 @@ export default function TrendScreen({ onBack }) {
   const delta = latestSnap && firstSnap && firstSnap !== latestSnap
     ? ((latestSnap.total_monthly_cost - firstSnap.total_monthly_cost) / Math.max(firstSnap.total_monthly_cost, 0.01)) * 100
     : null;
-
-  // When selectedSnap or listPage changes: expand list if needed, then scroll to the row.
-  // Depending on [selectedSnap, listPage] means: if we had to expand the list first,
-  // the effect re-runs after the re-render when listPage updates and the row is in the DOM.
-  useEffect(() => {
-    if (!selectedSnap) return;
-    const idx = reversedSnaps.findIndex(r => r.snapshot_at === selectedSnap.snapshot_at);
-    if (idx < 0) return;
-
-    // If the row isn't rendered yet, expand the list — effect will re-run after re-render
-    const pageNeeded = Math.ceil((idx + 1) / LIST_PAGE_SIZE);
-    if (listPage < pageNeeded) {
-      setListPage(pageNeeded);
-      return;
-    }
-
-    // Row is in the DOM — scroll to it
-    const el = listRef.current?.querySelectorAll('[data-snap]')?.[idx];
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [selectedSnap, listPage]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function handleSelectBar(s) {
-    const newSel = s.snapshot_at === selectedSnap?.snapshot_at ? null : s;
-    setSelectedSnap(newSel);
-  }
 
   function handleSelectRow(item) {
     const newSel = item.snapshot_at === selectedSnap?.snapshot_at ? null : item;
