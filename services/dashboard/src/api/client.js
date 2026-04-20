@@ -1,13 +1,12 @@
 // API client.
 //
-// EXPO_PUBLIC_API_URL is set at build time:
+// VITE_API_URL is set at build time:
 //   - Docker:   /api  (nginx proxies to the api container — no CORS issues)
 //   - Local dev: not set → falls back to http://localhost:8080 (direct)
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 let authToken = null;
 
-// setAuthToken is called by App.js after login / on startup token restore.
 export function setAuthToken(token) {
   authToken = token;
 }
@@ -102,12 +101,6 @@ export async function fetchTrend(accountId) {
   return res.json();
 }
 
-// ── Track C: Dismiss / Snooze ─────────────────────────────────────────────────
-
-/**
- * Fetch active dismissals for a tenant (optionally filtered by account).
- * @param {string|null} accountId — internal account UUID, or null for all accounts
- */
 export async function fetchDismissals(accountId) {
   const url = accountId
     ? `${BASE_URL}/v1/dismissals?account_id=${encodeURIComponent(accountId)}`
@@ -117,19 +110,6 @@ export async function fetchDismissals(accountId) {
   return res.json();
 }
 
-/**
- * Dismiss or snooze a ghost resource.
- * @param {object} opts
- * @param {string} opts.accountId   — internal account UUID
- * @param {string} opts.provider    — e.g. "aws"
- * @param {string} opts.service     — e.g. "AmazonEC2"
- * @param {string} opts.region      — e.g. "eu-central-1"
- * @param {string} opts.resourceId  — resource identifier
- * @param {string} opts.action      — "dismiss" | "snooze"
- * @param {string} opts.reason      — reason code
- * @param {string} [opts.note]      — required when reason="other"
- * @param {string} [opts.snoozeUntil] — ISO 8601 timestamp, required for snooze
- */
 export async function dismissGhost({ accountId, provider, service, region, resourceId, action, reason, note, snoozeUntil }) {
   const body = {
     account_id: accountId,
@@ -153,10 +133,6 @@ export async function dismissGhost({ accountId, provider, service, region, resou
   return res.json();
 }
 
-/**
- * Revoke an active dismissal by its ID (restores the ghost to the active list).
- * @param {number} dismissalId
- */
 export async function revokeDismissal(dismissalId) {
   const res = await fetch(`${BASE_URL}/v1/dismissals/${dismissalId}`, {
     method: 'DELETE',
@@ -165,10 +141,6 @@ export async function revokeDismissal(dismissalId) {
   if (!res.ok) throw new Error('Failed to revoke dismissal');
 }
 
-/**
- * Fetch ghosts including dismissed/snoozed ones.
- * @param {string|null} accountId
- */
 export async function fetchGhostsWithDismissed(accountId) {
   const params = new URLSearchParams({ include_dismissed: 'true' });
   if (accountId) params.set('account_id', accountId);

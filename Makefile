@@ -61,7 +61,18 @@ test-migrate:
 		-e POSTGRES_USER=axiaops_owner \
 		-e POSTGRES_PASSWORD=$(POSTGRES_OWNER_PASSWORD) \
 		postgres:16-alpine
-	@until docker exec $(PG_CONTAINER) pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
+	@echo "Waiting for PostgreSQL to be ready..."
+	@timeout=60; elapsed=0; \
+	until docker exec $(PG_CONTAINER) pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do \
+		if [ $$elapsed -ge $$timeout ]; then \
+			echo "PostgreSQL failed to start within $${timeout}s"; \
+			docker logs $(PG_CONTAINER); \
+			exit 1; \
+		fi; \
+		sleep 1; \
+		elapsed=$$((elapsed + 1)); \
+	done
+	@echo "PostgreSQL ready"
 	docker build -t axiaops-migrate-test -f services/migrate/Dockerfile .
 	docker run --rm --network $(TEST_NETWORK) \
 		-e MIGRATION_DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@$(PG_CONTAINER):5432/axiaops?sslmode=disable" \
@@ -169,6 +180,7 @@ test-integration:
 test-integration-api:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
 	cd test-infra/integration && docker-compose build migrate api ingestion
+	cd test-infra/integration && docker-compose up -d postgres redis
 	cd test-infra/integration && docker-compose run --rm api-tests
 	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
@@ -177,6 +189,7 @@ test-integration-api:
 test-integration-ingestion:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
 	cd test-infra/integration && docker-compose build migrate ingestion
+	cd test-infra/integration && docker-compose up -d postgres redis
 	cd test-infra/integration && docker-compose run --rm ingestion-tests
 	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true

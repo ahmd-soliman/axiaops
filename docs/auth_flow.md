@@ -79,7 +79,7 @@ credentials are required to fetch it.
 `KINDE_CLIENT_ID` lives in `services/api/.env` purely as a convenience so `start.sh`
 can source one file and pass it to the dashboard. The dashboard reads both vars via
 `src/config.js`, which checks `window.__ENV__` first (nginx envsubst at runtime)
-then falls back to `EXPO_PUBLIC_*` build-time vars.
+then falls back to `VITE_*` build-time vars.
 
 ### Staging deployment
 
