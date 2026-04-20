@@ -10,9 +10,10 @@ export default function Callback() {
   useEffect(() => {
     (async () => {
       try {
+        // createKindeClient() auto-handles the ?code= redirect internally
         const client = await getKindeClient();
-        await client.handleRedirectCallback();
         const token = await client.getToken();
+        if (!token) throw new Error('No token received');
         saveToken(token);
         setAuthToken(token);
         navigate('/', { replace: true });

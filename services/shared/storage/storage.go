@@ -100,6 +100,24 @@ type Store interface {
 	// are returned.
 	ListSnapshots(ctx context.Context, accountID string) ([]model.GhostSnapshot, error)
 
+	// SaveSnapshotServices writes per-service breakdown rows for a snapshot.
+	SaveSnapshotServices(ctx context.Context, services []model.SnapshotService) error
+
+	// ListSnapshotsByService returns ghost snapshots filtered by service,
+	// ordered oldest-first. Each snapshot's cost/count reflects only the given
+	// service. If resourceType is non-empty, further filters to that sub-type;
+	// otherwise aggregates all resource types for the service.
+	// If accountID is non-empty, also filters by account.
+	ListSnapshotsByService(ctx context.Context, service, resourceType, accountID string) ([]model.GhostSnapshot, error)
+
+	// ListTrendServices returns the distinct services that have snapshot data
+	// for the tenant, useful for populating filter UI.
+	ListTrendServices(ctx context.Context) ([]string, error)
+
+	// ListTrendResourceTypes returns distinct resource types for a given service
+	// that have snapshot data for the tenant.
+	ListTrendResourceTypes(ctx context.Context, service string) ([]string, error)
+
 	// DeleteOldCostRecords removes cost records older than the given cutoff for all tenants.
 	// Returns the number of rows deleted.
 	DeleteOldCostRecords(ctx context.Context, cutoff time.Time) (int64, error)

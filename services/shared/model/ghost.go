@@ -15,6 +15,7 @@ type GhostResource struct {
 	AccountID         string            `json:"account_id"`          // AWS account number, GCP project, etc.
 	InternalAccountID string            `json:"internal_account_id"` // UUID from accounts table
 	Service           string            `json:"service"`
+	ResourceType      string            `json:"resource_type,omitempty"` // sub-classification (e.g. "volume", "snapshot", "ami")
 	Region            string            `json:"region"`
 	ResourceID        string            `json:"resource_id"`
 	ARN               string            `json:"arn,omitempty"` // Amazon Resource Name (AWS only)
