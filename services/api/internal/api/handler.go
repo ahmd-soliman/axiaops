@@ -42,6 +42,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/ghosts", h.listGhosts)
 	mux.HandleFunc("GET /v1/summary", h.getSummary)
 	mux.HandleFunc("GET /v1/trend", h.getTrend)
+	mux.HandleFunc("GET /v1/trend/services", h.getTrendServices)
+	mux.HandleFunc("GET /v1/trend/resource-types", h.getTrendResourceTypes)
 	mux.HandleFunc("GET /v1/resources", h.listResources)
 	mux.HandleFunc("GET /v1/accounts", h.listAccounts)
 	mux.HandleFunc("GET /v1/accounts/{id}", h.getAccount)
@@ -223,11 +225,22 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 // getTrend returns ghost snapshots for the tenant, ordered oldest-first.
-// Optional query param: ?account_id=<id> to filter to a single account.
+// Optional query params: ?account_id=<id>, ?service=<name>.
+// When service is set, returns per-service data from ghost_snapshot_services.
 func (h *Handler) getTrend(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	accountID := r.URL.Query().Get("account_id")
-	snaps, err := h.store.ListSnapshots(ctx, accountID)
+	service := r.URL.Query().Get("service")
+	resourceType := r.URL.Query().Get("resource_type")
+
+	var snaps []model.GhostSnapshot
+	var err error
+
+	if service != "" {
+		snaps, err = h.store.ListSnapshotsByService(ctx, service, resourceType, accountID)
+	} else {
+		snaps, err = h.store.ListSnapshots(ctx, accountID)
+	}
 	if err != nil {
 		slog.Error("getTrend: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -237,6 +250,41 @@ func (h *Handler) getTrend(w http.ResponseWriter, r *http.Request) {
 		snaps = []model.GhostSnapshot{}
 	}
 	writeJSON(w, snaps)
+}
+
+// getTrendServices returns distinct services available in snapshot data.
+func (h *Handler) getTrendServices(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	services, err := h.store.ListTrendServices(ctx)
+	if err != nil {
+		slog.Error("getTrendServices: load failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if services == nil {
+		services = []string{}
+	}
+	writeJSON(w, services)
+}
+
+// getTrendResourceTypes returns distinct resource types for a given service.
+func (h *Handler) getTrendResourceTypes(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	service := r.URL.Query().Get("service")
+	if service == "" {
+		writeJSON(w, []string{})
+		return
+	}
+	types, err := h.store.ListTrendResourceTypes(ctx, service)
+	if err != nil {
+		slog.Error("getTrendResourceTypes: load failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if types == nil {
+		types = []string{}
+	}
+	writeJSON(w, types)
 }
 
 // Pinger is satisfied by *postgres.Store (which embeds pgxpool.Pool).

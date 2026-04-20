@@ -59,6 +59,18 @@ func (m *mockStoreForScheduler) SaveSnapshot(context.Context, model.GhostSnapsho
 func (m *mockStoreForScheduler) ListSnapshots(context.Context, string) ([]model.GhostSnapshot, error) {
 	return nil, nil
 }
+func (m *mockStoreForScheduler) SaveSnapshotServices(context.Context, []model.SnapshotService) error {
+	return nil
+}
+func (m *mockStoreForScheduler) ListSnapshotsByService(context.Context, string, string, string) ([]model.GhostSnapshot, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) ListTrendServices(context.Context) ([]string, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) ListTrendResourceTypes(context.Context, string) ([]string, error) {
+	return nil, nil
+}
 func (m *mockStoreForScheduler) DismissGhost(context.Context, model.DismissAction) (int64, error) {
 	return 0, nil
 }
