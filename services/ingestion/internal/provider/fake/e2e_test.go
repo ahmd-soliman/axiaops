@@ -20,8 +20,8 @@ func TestE2E_BusinessScenarios(t *testing.T) {
 		minSavings    float64
 	}{
 		{"startup", 2, 2, 40.0},      // Small account, some waste
-		{"enterprise", 6, 6, 300.0},  // Large account, significant waste
-		{"all-ghosts", 3, 0, 200.0},  // Everything idle
+		{"enterprise", 7, 7, 300.0},  // Large account, significant waste
+		{"all-ghosts", 4, 0, 200.0},  // Everything idle
 		{"no-ghosts", 0, 2, 0.0},     // Everything active
 	}
 

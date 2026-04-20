@@ -167,6 +167,26 @@
 - [x] Dashboard: show next scheduled scan time per account in accounts bar
 - [x] Integration test: create an account with `scan_interval_hours=0`, wait up to 90s, verify a scan is triggered (last_scanned_at updated)
 
+#### 2.Tier 1 — API-Only Detection Rules ✅
+
+- [x] `DiscoverUnattachedEIPs` — `ec2:DescribeAddresses`, flags EIPs with no attached network interface ($3.60/mo)
+- [x] `DiscoverUnattachedEBSVolumes` — `ec2:DescribeVolumes` filtered to `state=available`; cost = `sizeGB × $0.08/mo`
+- [x] `DiscoverOrphanedEBSSnapshots` — `ec2:DescribeSnapshots` cross-referenced against existing volume IDs and AMI-backing snapshots; cost = `sizeGB × $0.05/mo`
+- [x] `DiscoverLongStoppedInstances` — `ec2:DescribeInstances` + `StateTransitionReason` timestamp; flags instances stopped > 30 days; cost from attached EBS
+- [x] `DiscoverOldAMIs` — `ec2:DescribeImages` cross-referenced against `ec2:DescribeInstances`; flags AMIs > 90 days old not referenced by any instance
+- [x] All five wired into `runIngestionCore` in `services/ingestion/cmd/main.go` — each is non-fatal (permission gap skips that check, scan continues)
+- [x] Unit tests: `discover_test.go` — `parseStopTime`, `isAWSRegion`, `arnSuffix`, threshold constants
+- [x] Seed data extended with all four new types across all three seed accounts
+
+#### 2.Tier 2 — CloudWatch Detection Rules ✅
+
+- [x] Rules added to `services/shared/analyzer/rules.go`: ElastiCache (`CurrConnections`), OpenSearch (`SearchRate`), Redshift (`DatabaseConnections`), SageMaker (`Invocations`), DynamoDB (`ConsumedReadCapacityUnits`), EKS (`cluster_node_count` via Container Insights)
+- [x] CloudWatch namespace/dimension mapping added for all six services in `services/ingestion/internal/provider/aws/cloudwatch.go`
+- [x] Resource discovery functions with full pagination: `discoverElastiCache`, `discoverOpenSearch`, `discoverRedshift`, `discoverSageMaker`, `discoverDynamoDB`, `discoverEKS`
+- [x] All six registered in `DiscoverResources` switch statement
+- [x] Unit tests: 10 new test cases in `services/shared/analyzer/detector_test.go` (zero-usage flags ghost + above-threshold no-ghost for each service)
+- [x] README and CLAUDE.md updated with new IAM permissions and detection rule tables
+
 #### 2.13 cost_records Retention
 
 - [x] Add `COST_RECORDS_RETENTION_DAYS` env var (default `90`)
@@ -342,22 +362,36 @@
 - [ ] Document data retention policy: what is stored, for how long, in which region
 - [ ] Test: create tenant, add data, call DELETE, verify all rows cascade-deleted from all tables
 
+### 3.Fake AWS Client for Tier 1 Testing
+
+- [ ] Define a `AWSClientAPI` interface in `services/ingestion/internal/provider/aws/` — wraps all methods called by Tier 1 `Discover*` functions (`DescribeVolumes`, `DescribeSnapshots`, `DescribeInstances`, `DescribeImages`, `DescribeAddresses`, `GetAnomalyMonitors`, `GetAnomalies`, etc.)
+- [ ] Refactor real `Client` to satisfy this interface
+- [ ] Implement `FakeAWSClient` in `services/ingestion/internal/provider/aws/fake_client_test.go` — returns canned responses loaded from JSON fixtures
+- [ ] Write scenario fixtures in `testdata/tier1/` — one JSON file per Discover function with both ghost and active examples
+- [ ] Write table-driven tests for each `Discover*` function using `FakeAWSClient`
+- [ ] Benefit: Tier 1 logic is tested end-to-end without real AWS calls, covering ghost construction, cost calculation, and reason strings
+
 ### 3.11 Expanded Detection Rules (November 2026)
 
-- [ ] Add rules to `services/shared/analyzer/analyzer.go`:
-  - EBS: `VolumeReadOps + VolumeWriteOps = 0` (unattached volume)
-  - Secrets Manager: `GetSecretValue = 0` over 90 days
-  - Redshift: `DatabaseConnections = 0`
-  - ElastiCache: `CurrConnections = 0`
-  - S3: `GetRequests = 0` over 60 days, skip if tagged `archival=true`
-  - CloudFront: `Requests = 0` over 30 days
-- [ ] Add corresponding resource discovery in `services/ingestion/internal/provider/aws/discover.go`
-  - `ec2:DescribeVolumes`, `secretsmanager:ListSecrets`, `redshift:DescribeClusters`, `elasticache:DescribeCacheClusters`, `s3:ListBuckets`, `cloudfront:ListDistributions`
-- [ ] Update IAM policy doc in `docs/deployment.md` with new required permissions
-- [ ] Write migration `012_add_detection_rules.sql` — create `detection_rules(id, tenant_id, service, metric, threshold, enabled)` table
-- [ ] Add `PATCH /v1/settings/rules` endpoint — allow tenants to override thresholds (e.g. EC2 CPU from 5% to 10%)
-- [ ] Fall back to built-in defaults when no custom rule exists for a service
-- [ ] Test: add rule for EC2 with 10% threshold; verify analyzer uses custom threshold
+Already shipped as Tier 1/2 (see 2.Tier1 and 2.Tier2 above):
+- [x] EBS unattached volumes (API-only, Tier 1)
+- [x] Orphaned EBS snapshots (API-only, Tier 1)
+- [x] Long-stopped EC2 instances (API-only, Tier 1)
+- [x] Old unused AMIs (API-only, Tier 1)
+- [x] ElastiCache idle clusters (CloudWatch, Tier 2)
+- [x] OpenSearch/ES unused domains (CloudWatch, Tier 2)
+- [x] Redshift abandoned clusters (CloudWatch, Tier 2)
+- [x] SageMaker forgotten endpoints (CloudWatch, Tier 2)
+- [x] DynamoDB unused provisioned tables (CloudWatch, Tier 2)
+- [x] EKS control plane with no nodes (CloudWatch/Container Insights, Tier 2)
+
+Remaining for Phase 3:
+- [ ] Secrets Manager: `GetSecretValue = 0` over 90 days — `secretsmanager:ListSecrets` + CloudWatch
+- [ ] S3: `GetRequests = 0` over 60 days — `s3:ListBuckets` + CloudWatch, skip if tagged `archival=true`
+- [ ] CloudFront: `Requests = 0` over 30 days — `cloudfront:ListDistributions` + CloudWatch
+- [ ] Custom per-tenant thresholds: write migration `012_add_detection_rules.sql`, create `detection_rules(id, tenant_id, service, metric, threshold, enabled)` table
+- [ ] Add `PATCH /v1/settings/rules` endpoint — allow tenants to override thresholds
+- [ ] Fall back to built-in defaults when no custom rule exists
 
 ### 3.12 Legal Entity (September 2026)
 

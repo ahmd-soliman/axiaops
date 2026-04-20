@@ -278,6 +278,22 @@ VALUES
    'NetworkInterfaceAttachment', 0, 'Count',
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
+  -- ── CE Anomaly Detection monitor ghosts ───────────────────────────────────
+
+  -- Account 1: idle paid CE anomaly monitor (zero anomalies in 30 days)
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', 'us-east-1',
+   'arn:aws:ce::123456789012:anomalymonitor/prod-service-monitor', '{}',
+   3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'AnomalyCount', 0, 'Count',
+   'Cost Anomaly Detection monitor "prod-service-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
+
+  -- Account 2: idle paid CE anomaly monitor
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', 'us-east-1',
+   'arn:aws:ce::987654321098:anomalymonitor/stg-cost-monitor', '{}',
+   3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'AnomalyCount', 0, 'Count',
+   'Cost Anomaly Detection monitor "stg-cost-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
+
   -- ── EKS ghosts ────────────────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (control plane billed, zero nodes)
@@ -352,7 +368,7 @@ VALUES
    'DaysSinceCreation', 180, 'Days',
    'AMI is 180 days old and not referenced by any instance — backing snapshots (60 GB) accumulate storage charges', 'platform', '$NOW')
 ;"
-echo "  Inserted 22 ghost records (7 prod, 7 staging, 8 dev — includes EKS and Tier 1 API-only types)."
+echo "  Inserted 24 ghost records (8 prod, 8 staging, 8 dev — includes CE monitors, EKS, and Tier 1 API-only types)."
 echo ""
 
 # ── Resource records — ghosts + active resources across all 3 accounts ────────
@@ -493,6 +509,28 @@ VALUES
    1.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 1840, 'Count', false, '', 'backend', '$NOW'),
 
+  -- ── CE Anomaly Detection monitor ghost resources ───────────────────────────
+
+  -- Account 1: idle paid CE anomaly monitor (ghost)
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', 'us-east-1',
+   'arn:aws:ce::123456789012:anomalymonitor/prod-service-monitor', '{}',
+   3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'AnomalyCount', 0, 'Count', true,
+   'Cost Anomaly Detection monitor "prod-service-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
+
+  -- Account 2: idle paid CE anomaly monitor (ghost)
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', 'us-east-1',
+   'arn:aws:ce::987654321098:anomalymonitor/stg-cost-monitor', '{}',
+   3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'AnomalyCount', 0, 'Count', true,
+   'Cost Anomaly Detection monitor "stg-cost-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
+
+  -- Account 3: active CE anomaly monitor (for contrast — has anomalies)
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSCostExplorer', 'us-east-1',
+   'arn:aws:ce::111222333444:anomalymonitor/dev-cost-monitor', '{}',
+   3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'AnomalyCount', 4, 'Count', false, '', 'unknown', '$NOW'),
+
   -- ── EKS ghost resources ────────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (ghost)
@@ -585,7 +623,7 @@ VALUES
    'DaysSinceCreation', 180, 'Days', true,
    'AMI is 180 days old and not referenced by any instance — backing snapshots (60 GB) accumulate storage charges', 'platform', '$NOW')
 ;"
-echo "  Inserted 33 resource records (22 ghosts, 11 active) across 3 accounts."
+echo "  Inserted 36 resource records (24 ghosts, 12 active) across 3 accounts."
 echo ""
 
 # ── Ghost snapshots — historical trend data per account ───────────────────────
@@ -652,8 +690,8 @@ echo "=== Verifying dev tenant data ==="
 GHOST_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_records WHERE tenant_id = '${TENANT_ID}';")
 RESOURCE_COUNT=$(psql_query "SELECT COUNT(*) FROM resource_records WHERE tenant_id = '${TENANT_ID}';")
 SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshots WHERE tenant_id = '${TENANT_ID}';")
-echo "Dev tenant ghost records:     $GHOST_COUNT  (expected 22)"
-echo "Dev tenant resource records:  $RESOURCE_COUNT  (expected 33)"
+echo "Dev tenant ghost records:     $GHOST_COUNT  (expected 24)"
+echo "Dev tenant resource records:  $RESOURCE_COUNT  (expected 36)"
 echo "Dev tenant ghost snapshots:   $SNAPSHOT_COUNT  (expected 3000)"
 echo ""
 

@@ -481,6 +481,18 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		ghosts = append(ghosts, amiGhosts...)
 	}
 
+	// Idle CE Anomaly Detection monitors (paid monitors with zero anomalies in lookback window).
+	ceMonitorGhosts, ceMonitorErr := aws.DiscoverIdleCEAnomalyMonitors(ctx, allRecords, awsClient, start, end, accountID)
+	if ceMonitorErr != nil {
+		catErr := errors.Categorize(ceMonitorErr, "discover_ce_anomaly_monitors")
+		slog.Error("discover idle CE anomaly monitors failed, continuing",
+			"error", ceMonitorErr,
+			"category", catErr.Category,
+		)
+	} else {
+		ghosts = append(ghosts, ceMonitorGhosts...)
+	}
+
 	summary := analyzer.Summarize(ghosts)
 	slog.Info("analysis: detected ghost resources", "total", summary.TotalGhosts, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
 	ingestionGhostsDetectedTotal.WithLabelValues(tenantID, awsClient.Name()).Set(float64(summary.TotalGhosts))
