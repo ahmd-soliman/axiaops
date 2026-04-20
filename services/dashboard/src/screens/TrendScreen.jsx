@@ -15,8 +15,51 @@ const PERIOD_OPTIONS = [
   { label: '7d',  days: 7 },
   { label: '30d', days: 30 },
   { label: '90d', days: 90 },
-  { label: 'All', days: Infinity },
+  { label: '6m',  days: 180 },
+  { label: '1y',  days: 365 },
 ];
+
+// ─── Downsampling ────────────────────────────────────────────────────────────
+// 7d/30d: every scan. 90d/6m: weekly avg. 1y: monthly avg.
+
+function downsample(snaps, periodDays) {
+  if (periodDays <= 30 || snaps.length <= 30) return snaps;
+
+  // Group by bucket key (ISO week or month)
+  const bucketKey = periodDays <= 180
+    ? (iso) => {
+        // Week bucket: Monday of the ISO week
+        const d = new Date(iso);
+        const day = d.getUTCDay();
+        const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+        const mon = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff));
+        return mon.toISOString().slice(0, 10);
+      }
+    : (iso) => {
+        // Month bucket
+        return new Date(iso).toISOString().slice(0, 7);
+      };
+
+  const buckets = new Map();
+  for (const s of snaps) {
+    const key = bucketKey(s.snapshot_at);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(s);
+  }
+
+  // Take the average per bucket, keep the latest snapshot_at as the representative timestamp
+  return [...buckets.values()].map(group => {
+    const latest = group[group.length - 1];
+    const avgCost = group.reduce((sum, s) => sum + s.total_monthly_cost, 0) / group.length;
+    const avgGhosts = Math.round(group.reduce((sum, s) => sum + s.ghost_count, 0) / group.length);
+    return {
+      ...latest,
+      total_monthly_cost: Math.round(avgCost * 100) / 100,
+      ghost_count: avgGhosts,
+      _scanCount: group.length,
+    };
+  });
+}
 
 // ─── Format helpers ──────────────────────────────────────────────────────────
 
@@ -260,12 +303,23 @@ export default function TrendScreen({ onBack }) {
   const [selectedSnap, setSelectedSnap] = useState(null);
   const [period, setPeriod]             = useState(30);
   const [listPage, setListPage]         = useState(1);
-  const listRef = useRef(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const listRef      = useRef(null);
+  const topRef       = useRef(null);
+  const loadMoreRef  = useRef(null);
   const t = theme;
 
-  // Derive data
+  // Show "scroll to top" button when page is scrolled past the chart
+  useEffect(() => {
+    function onScroll() { setShowScrollTop(window.scrollY > 350); }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Derive data — raw snaps for history list, downsampled for chart
   const allSnaps      = trend.data ?? [];
-  const filteredSnaps = period === Infinity ? allSnaps : allSnaps.slice(-period);
+  const filteredSnaps = allSnaps.slice(-period);
+  const chartSnaps    = downsample(filteredSnaps, period);
   const reversedSnaps = [...filteredSnaps].reverse();
 
   // Scroll to selected row in history list
@@ -326,7 +380,7 @@ export default function TrendScreen({ onBack }) {
   const hasMoreRows = visibleRows.length < reversedSnaps.length;
 
   return (
-    <div style={{ backgroundColor: t.bg, minHeight: '100%' }}>
+    <div ref={topRef} style={{ backgroundColor: t.bg, minHeight: '100%' }}>
 
       {/* Page header */}
       <div style={{ backgroundColor: t.surfaceAlt, borderBottom: `1px solid ${t.border}`, padding: '14px 20px 20px' }}>
@@ -386,7 +440,7 @@ export default function TrendScreen({ onBack }) {
           </div>
         </div>
 
-        {filteredSnaps.length < 2 ? (
+        {chartSnaps.length < 2 ? (
           <div style={{ padding: '24px 16px', textAlign: 'center' }}>
             <span style={{ fontSize: 13, color: t.textMuted }}>
               Not enough data for this period. Try a longer range or run more scans.
@@ -395,7 +449,7 @@ export default function TrendScreen({ onBack }) {
         ) : (
           <>
             <AreaChart
-              snaps={filteredSnaps}
+              snaps={chartSnaps}
               selectedId={selectedSnap?.snapshot_at}
               onSelect={handleSelect}
               theme={t}
@@ -404,7 +458,9 @@ export default function TrendScreen({ onBack }) {
 
             <div style={{ padding: '8px 16px 0', textAlign: 'center' }}>
               <span style={{ fontSize: 11, color: t.textMuted }}>
-                {filteredSnaps.length} scan{filteredSnaps.length !== 1 ? 's' : ''} · click to inspect
+                {filteredSnaps.length} scan{filteredSnaps.length !== 1 ? 's' : ''}
+                {chartSnaps.length < filteredSnaps.length && ` · ${chartSnaps.length} points (averaged)`}
+                {' · click to inspect'}
               </span>
             </div>
           </>
@@ -433,7 +489,18 @@ export default function TrendScreen({ onBack }) {
 
           {hasMoreRows && (
             <button
-              onClick={() => setListPage(p => p + 1)}
+              ref={loadMoreRef}
+              onClick={() => {
+                const btn = loadMoreRef.current;
+                const btnTop = btn?.getBoundingClientRect().top ?? 0;
+                setListPage(p => p + 1);
+                // After React re-renders, keep the button in the same viewport position
+                requestAnimationFrame(() => {
+                  if (!btn) return;
+                  const newTop = btn.getBoundingClientRect().top;
+                  window.scrollBy(0, newTop - btnTop);
+                });
+              }}
               style={{
                 display: 'block',
                 width: '100%',
@@ -453,6 +520,35 @@ export default function TrendScreen({ onBack }) {
           )}
         </div>
       </div>
+
+      {/* Scroll to top */}
+      {showScrollTop && (
+        <button
+          onClick={() => topRef.current?.scrollIntoView({ behavior: 'smooth' })}
+          aria-label="Scroll to top"
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: t.surface,
+            border: `1px solid ${t.border}`,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke={t.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="18 15 12 9 6 15" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
