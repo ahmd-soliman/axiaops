@@ -41,11 +41,11 @@ function SavingsSparkline({ snaps, theme }) {
 }
 
 function Chip({ label, variant, theme }) {
-  const bg = variant === 'prod' ? theme.chipProdBg : variant === 'stag' ? theme.chipStagBg : theme.chipBg;
-  const color = variant === 'prod' ? theme.chipProdText : variant === 'stag' ? theme.chipStagText : theme.chipText;
+  const color = variant === 'prod' ? '#EF4444' : theme.chipText;
+  const weight = variant === 'prod' ? 700 : 500;
   return (
-    <div style={{ backgroundColor: bg, paddingLeft: 8, paddingRight: 8, paddingTop: 3, paddingBottom: 3, borderRadius: 4 }}>
-      <span style={{ fontSize: 11, color, fontWeight: 500 }}>{label}</span>
+    <div style={{ backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, paddingLeft: 8, paddingRight: 8, paddingTop: 3, paddingBottom: 3, borderRadius: 4 }}>
+      <span style={{ fontSize: 11, color, fontWeight: weight }}>{label}</span>
     </div>
   );
 }
@@ -319,7 +319,10 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
           }
 
           const cfg = serviceConfig(item.service);
-          const isProd = item.tags?.env === 'production';
+          const env = item.tags?.env ?? 'unknown';
+          const envVariant = ['prod', 'production'].includes(env) ? 'prod'
+            : ['staging', 'stg'].includes(env) ? 'stag'
+            : null;
           return (
             <button
               key={item.resource_id}
@@ -331,7 +334,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
                   <span style={{ fontSize: 11, fontWeight: 800, color: cfg.color }}>{cfg.label}</span>
                 </div>
                 {item.is_ghost && (
-                  <div style={{ backgroundColor: t.surfaceRaised, border: `1px solid ${t.border}`, paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
+                  <div style={{ backgroundColor: t.ghostBadgeBg, paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 4 }}>
                     <span style={{ fontSize: 10, fontWeight: 700, color: t.ghostBadgeText }}>zombie</span>
                   </div>
                 )}
@@ -341,7 +344,7 @@ export default function DashboardScreen({ onShowTrend, onSelectGhost, onLogout, 
               <span style={{ fontSize: 11, color: t.textMuted, fontFamily: 'monospace', marginBottom: 10, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.resource_id}</span>
               <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
                 <Chip label={item.region} theme={t} />
-                <Chip label={item.tags?.env ?? 'unknown'} variant={isProd ? 'prod' : 'stag'} theme={t} />
+                <Chip label={env} variant={envVariant} theme={t} />
                 <span style={{ fontSize: 11, color: t.textMuted, marginLeft: 'auto' }}>👤 {item.owner}</span>
               </div>
               {item.is_ghost
