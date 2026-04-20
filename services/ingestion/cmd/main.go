@@ -519,6 +519,24 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		slog.Error("storage: save snapshot failed", "error", err)
 	} else {
 		slog.Info("storage: saved ghost snapshot", "ghost_count", snap.GhostCount, "total_monthly_cost", snap.TotalMonthlyCost)
+
+		// Persist per-service breakdown for trend filtering.
+		var svcRows []model.SnapshotService
+		for svcName, svcData := range summary.ByService {
+			svcRows = append(svcRows, model.SnapshotService{
+				ID:          uuid.New().String(),
+				SnapshotID:  snap.ID,
+				Service:     svcName,
+				GhostCount:  svcData.Ghosts,
+				MonthlyCost: svcData.Savings,
+				Currency:    snap.Currency,
+			})
+		}
+		if err := store.SaveSnapshotServices(ctx, svcRows); err != nil {
+			slog.Error("storage: save snapshot services failed", "error", err)
+		} else {
+			slog.Info("storage: saved snapshot services", "count", len(svcRows))
+		}
 	}
 
 	resources := analyzer.AnnotateAll(allRecords, usage, ghosts)
