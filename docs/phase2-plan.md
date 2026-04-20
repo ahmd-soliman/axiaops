@@ -617,7 +617,7 @@ Dependencies worth naming:
 - All new endpoints sit behind existing auth middleware. No changes to auth.
 - Feature flag: none. Each track is small enough and well-tested; rolling back means
   reverting the migration + code.
-- `make test` must pass; `make test-postgres` covers the new RLS policies.
+- `make test` must pass; `make test-storage` covers the new RLS policies.
 
 ### Open questions
 
@@ -713,7 +713,7 @@ docs/TASKS.md                                             # reconcile 2.12 check
 
 ## Acceptance criteria
 
-- [ ] `make test && make test-postgres` green.
+- [ ] `make test && make test-storage` green.
 - [ ] `make test-integration` green against a live `make start-dev`.
 - [ ] A user can PATCH `scan_interval_hours`, see the next scan fire, and read its
       history via a new "Scans" tab on the account settings screen.

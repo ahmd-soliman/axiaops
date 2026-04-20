@@ -188,7 +188,7 @@ curl -X PATCH http://localhost:8080/v1/accounts/acc-1 \
 
 ### Database Migration Tests
 ```bash
-make test-postgres
+make test-storage
 ```
 Tests verify account fields are persisted and retrieved correctly.
 

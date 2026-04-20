@@ -170,4 +170,4 @@ cd services/shared && go test ./storage/postgres/... -count=1    # integration (
 ```
 
 Integration tests require env vars: `MIGRATION_DATABASE_URL` and `DATABASE_URL`.
-The Makefile handles this: `make test-postgres`.
+The Makefile handles this: `make test-storage`.

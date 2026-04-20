@@ -220,7 +220,7 @@ You ran without `DEV_MODE=true` but forgot to set `AWS_ACCOUNT_ID`.
 
 ```bash
 make test              # All Go unit tests
-make test-postgres     # PostgreSQL integration tests (RLS, migrations)
+make test-storage      # PostgreSQL integration tests (RLS, migrations)
 make test-integration  # Full stack integration tests (Docker Compose)
 make test-all          # Unit + postgres integration
 ```

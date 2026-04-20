@@ -122,7 +122,7 @@ cd services/shared && go test ./... -count=1 -parallel 4
 
 ### Integration Tests Only
 ```bash
-make test-postgres
+make test-storage
 
 # Or manually (with postgres running)
 docker compose up -d postgres
@@ -202,5 +202,5 @@ func TestSaveWithComplexQuery(t *testing.T) {
 | Scenario | Command | Time | Parallel? |
 |----------|---------|------|-----------|
 | **Unit tests only** | `make test` | ~5s | Yes |
-| **Integration tests only** | `make test-postgres` | ~10s | No (sequential) |
+| **Integration tests only** | `make test-storage` | ~10s | No (sequential) |
 | **All tests** | `make test-all` | ~20s | Mixed |
