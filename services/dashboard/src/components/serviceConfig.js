@@ -13,8 +13,14 @@ export const SERVICE_CONFIG = {
   AmazonCloudFront:           { label: 'CF',  color: '#EC4899', bg: '#FDF2F8', darkBg: '#2A0620' },
   AmazonCloudWatch:           { label: 'CW',  color: '#64748B', bg: '#F8FAFC', darkBg: '#1A2030' },
   AmazonECR:                  { label: 'ECR', color: '#EF4444', bg: '#FEF2F2', darkBg: '#3D0D0D' },
-  AWSSecretsManager:          { label: 'SM',  color: '#F97316', bg: '#FFFBF0', darkBg: '#3D1F0D' },
-  AmazonKinesis:              { label: 'KIN', color: '#06B6D4', bg: '#ECFEFF', darkBg: '#032830' },
+  AWSSecretsManager:          { label: 'Secrets', color: '#F97316', bg: '#FFFBF0', darkBg: '#3D1F0D' },
+  AmazonKinesis:              { label: 'Kinesis', color: '#06B6D4', bg: '#ECFEFF', darkBg: '#032830' },
+  AWSGlue:                    { label: 'Glue', color: '#8B5CF6', bg: '#F5F3FF', darkBg: '#1A0D40' },
+  AmazonSNS:                  { label: 'SNS', color: '#F59E0B', bg: '#FFFBEB', darkBg: '#231800' },
+  AmazonSQS:                  { label: 'SQS', color: '#10B981', bg: '#ECFDF5', darkBg: '#042B1F' },
+  AWSKms:                     { label: 'KMS', color: '#EC4899', bg: '#FDF2F8', darkBg: '#2A0620' },
+  AmazonGlacier:              { label: 'Glacier', color: '#0EA5E9', bg: '#F0F9FF', darkBg: '#0C2E3F' },
+  AWSCloudFormation:          { label: 'CFN', color: '#A855F7', bg: '#F9F5FF', darkBg: '#2D0A4D' },
 };
 
 export function serviceConfig(service) {
