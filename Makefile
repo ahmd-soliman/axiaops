@@ -57,6 +57,7 @@ test-migrate:
 	docker rm -f $(PG_CONTAINER) 2>/dev/null || true
 	$(if $(RUNNER_NETWORK),,docker network create $(TEST_NETWORK) 2>/dev/null || true)
 	docker run -d --name $(PG_CONTAINER) --network $(TEST_NETWORK) \
+		--shm-size=256m \
 		-e POSTGRES_DB=axiaops \
 		-e POSTGRES_USER=axiaops_owner \
 		-e POSTGRES_PASSWORD=$(POSTGRES_OWNER_PASSWORD) \
@@ -64,9 +65,15 @@ test-migrate:
 	@echo "Waiting for PostgreSQL to be ready..."
 	@timeout=60; elapsed=0; \
 	until docker exec $(PG_CONTAINER) pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do \
+		if ! docker inspect --format='{{.State.Running}}' $(PG_CONTAINER) 2>/dev/null | grep -q true; then \
+			echo "Container $(PG_CONTAINER) is not running:"; \
+			docker inspect --format='{{.State.Status}} exit={{.State.ExitCode}}' $(PG_CONTAINER) 2>/dev/null || echo "(container not found)"; \
+			docker logs $(PG_CONTAINER) 2>/dev/null || true; \
+			exit 1; \
+		fi; \
 		if [ $$elapsed -ge $$timeout ]; then \
 			echo "PostgreSQL failed to start within $${timeout}s"; \
-			docker logs $(PG_CONTAINER); \
+			docker logs $(PG_CONTAINER) 2>/dev/null || true; \
 			exit 1; \
 		fi; \
 		sleep 1; \

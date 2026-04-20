@@ -96,12 +96,12 @@ func TestDetect_FlagsEC2BelowThreshold(t *testing.T) {
 }
 
 func TestDetect_SkipsUnknownService(t *testing.T) {
-	// AmazonS3 has no detection rule in MVP
+	// AmazonMQ has no detection rule — should be skipped
 	costs := []model.CostRecord{
-		costRecord("AmazonS3", "arn:aws:s3:::my-bucket", 134.10),
+		costRecord("AmazonMQ", "broker-id-001", 134.10),
 	}
 	usage := []analyzer.UsageRecord{
-		usageRecord("arn:aws:s3:::my-bucket", "NumberOfObjects", 0),
+		usageRecord("broker-id-001", "QueueDepth", 0),
 	}
 
 	ghosts := analyzer.Detect(costs, usage, "")
@@ -251,6 +251,62 @@ func TestDetect_DynamoDB_ActiveReads_NoGhost(t *testing.T) {
 	ghosts := analyzer.Detect(costs, usage, "")
 	if len(ghosts) != 0 {
 		t.Errorf("expected 0 ghosts for active DynamoDB table, got %d", len(ghosts))
+	}
+}
+
+// ── Tier 3 CloudWatch rules ───────────────────────────────────────────────────
+
+func TestDetect_CloudFront_ZeroRequests_FlagsGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonCloudFront", "E1A2B3C4D5E6F7", 15.00)}
+	usage := []analyzer.UsageRecord{usageRecord("E1A2B3C4D5E6F7", "Requests", 0)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 1 {
+		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_CloudFront_ActiveRequests_NoGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonCloudFront", "E1A2B3C4D5E6F7", 15.00)}
+	usage := []analyzer.UsageRecord{usageRecord("E1A2B3C4D5E6F7", "Requests", 50000)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 0 {
+		t.Errorf("expected 0 ghosts for active CloudFront distribution, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_Kinesis_ZeroRecords_FlagsGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonKinesis", "click-stream-prod", 32.40)}
+	usage := []analyzer.UsageRecord{usageRecord("click-stream-prod", "IncomingRecords", 0)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 1 {
+		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_Kinesis_ActiveRecords_NoGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonKinesis", "click-stream-prod", 32.40)}
+	usage := []analyzer.UsageRecord{usageRecord("click-stream-prod", "IncomingRecords", 14200)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 0 {
+		t.Errorf("expected 0 ghosts for active Kinesis stream, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_S3_ZeroRequests_FlagsGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonS3", "old-archive-bucket", 8.50)}
+	usage := []analyzer.UsageRecord{usageRecord("old-archive-bucket", "AllRequests", 0)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 1 {
+		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	}
+}
+
+func TestDetect_S3_ActiveRequests_NoGhost(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonS3", "active-data-bucket", 42.00)}
+	usage := []analyzer.UsageRecord{usageRecord("active-data-bucket", "AllRequests", 5000)}
+	ghosts := analyzer.Detect(costs, usage, "")
+	if len(ghosts) != 0 {
+		t.Errorf("expected 0 ghosts for active S3 bucket, got %d", len(ghosts))
 	}
 }
 
