@@ -1499,12 +1499,6 @@ func discoverS3BucketsByRegion(ctx context.Context, cfg aws.Config) map[string][
 
 // ── Idle CloudFront distributions ───────────────────────────────────────────
 
-// cloudFrontMinMonthlyCost is a conservative minimum monthly cost for an active
-// CloudFront distribution (Class 100, minimum fixed fees). The real cost depends
-// on traffic which is zero for idle distributions, but AWS still charges for
-// SSL certificates and some fixed costs.
-const cloudFrontMinMonthlyCost = 0.0
-
 // DiscoverIdleCloudFrontDistributions lists all CloudFront distributions and
 // queries CloudWatch for the Requests metric. Distributions with zero requests
 // over the lookback period are flagged as idle.
