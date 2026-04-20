@@ -9,7 +9,7 @@
 # Usage:
 #   ./scripts/seed_test_data.sh                                    # Local docker, 1000 days
 #   ./scripts/seed_test_data.sh --with-trends                      # Local docker, 90 days with trends
-#   ./scripts/seed_test_data.sh --remote dev                       # Remote dev (192.168.1.100:5432)
+#   ./scripts/seed_test_data.sh --remote dev                       # Remote dev (NAS.local:5432)
 #   ./scripts/seed_test_data.sh --remote staging --with-trends     # Remote staging with trends
 #   DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom remote URL
 #
