@@ -190,15 +190,31 @@ func UserID(ctx context.Context) string {
 	return id
 }
 
-// DevBypass injects a fixed tenant ID into every request context.
+// DevBypass injects a fixed tenant ID into every request context and ensures the tenant exists in the database.
 // Only active when KINDE_ISSUER is unset — local development without auth.
-func DevBypass(tenantID string, next http.Handler) http.Handler {
+func DevBypass(orgCode string, store storage.Store, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions || r.URL.Path == "/health" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		ctx := context.WithValue(r.Context(), tenantIDKey, tenantID)
+
+		ctx := r.Context()
+
+		var tenantID string = orgCode // Default to orgCode if store is nil
+
+		// Ensure the dev tenant exists in the database and get its UUID.
+		if store != nil {
+			tenant, err := store.UpsertTenant(ctx, orgCode, orgCode)
+			if err != nil {
+				slog.Error("auth: UpsertTenant failed in dev mode", "error", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			tenantID = tenant.ID // Use the returned UUID, not the orgCode string
+		}
+
+		ctx = context.WithValue(ctx, tenantIDKey, tenantID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
