@@ -1,15 +1,23 @@
 {
   "version": "0.2.0",
 
-  // All Go service debug configs run on the host under Delve (matches `make start-dev`).
-  // Auth-on / Kinde debugging is done through the full Docker stack via `make start-staging`
-  // (not wired for step-debugging — attach your debugger of choice to container logs instead).
+  // All Go service debug configs run on the host under Delve.
+  //
+  //   Debug Full Stack         → DEV_MODE=true,  pairs with `make start-dev`
+  //                              (Postgres container only; auth bypassed).
+  //   Debug Full Stack (auth)  → DEV_MODE=false, pairs with `make start-staging`
+  //                              after `docker stop axiaops-api axiaops-ingestion`
+  //                              to free host ports. Docker deps (Postgres + Redis)
+  //                              stay up; you debug host binaries against real Kinde.
+  //
+  // The per-service entries (Debug API, Debug Ingestion, and their auth twins)
+  // back the compounds and are hidden from the F5 picker. Unhide by flipping
+  // `presentation.hidden` to false if you ever need to debug one service alone.
   //
   // Prereqs for F5:
-  //   - Postgres running:       `docker compose up -d postgres` (or first hit `make start-dev`
-  //                              once and then kill just the Go process you want to debug)
-  //   - Env vars populated in:  services/api/.env, services/ingestion/.env
-  //     (DATABASE_URL, ENCRYPTION_KEY, AWS creds, etc.)
+  //   - Dependencies running (at minimum Postgres; Redis + Ingestion too for the auth variants)
+  //   - Env vars populated in services/api/.env and services/ingestion/.env
+  //     (DATABASE_URL, ENCRYPTION_KEY, AWS creds; plus KINDE_* for the auth variants)
   "configurations": [
     {
       "name": "Debug API",
@@ -22,7 +30,22 @@
       "env": {
         "DEV_MODE": "true"
       },
-      "showLog": true
+      "showLog": true,
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "Debug API (auth)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/services/api/cmd/main.go",
+      "cwd": "${workspaceFolder}/services/api",
+      "envFile": "${workspaceFolder}/services/api/.env",
+      "env": {
+        "DEV_MODE": "false"
+      },
+      "showLog": true,
+      "presentation": { "hidden": true }
     },
     {
       "name": "Debug Ingestion",
@@ -35,7 +58,22 @@
       "env": {
         "DEV_MODE": "true"
       },
-      "showLog": true
+      "showLog": true,
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "Debug Ingestion (auth)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/services/ingestion/cmd/main.go",
+      "cwd": "${workspaceFolder}/services/ingestion",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DEV_MODE": "false"
+      },
+      "showLog": true,
+      "presentation": { "hidden": true }
     },
     {
       "name": "Debug Migrate CLI",
@@ -70,6 +108,11 @@
     {
       "name": "Debug Full Stack",
       "configurations": ["Debug API", "Debug Ingestion"],
+      "stopAll": true
+    },
+    {
+      "name": "Debug Full Stack (auth)",
+      "configurations": ["Debug API (auth)", "Debug Ingestion (auth)"],
       "stopAll": true
     }
   ]
