@@ -141,7 +141,7 @@ func main() {
 			die("auth: DEV_MODE=true requires DEV_TENANT_ID to be set")
 		}
 		slog.Warn("auth: DEV_MODE — bypassing auth", "tenant", devTenantID)
-		root = middleware.DevBypass(devTenantID, root)
+		root = middleware.DevBypass(devTenantID, store, root)
 	} else {
 		kindeIssuer := os.Getenv("KINDE_ISSUER")
 		if kindeIssuer == "" {
