@@ -28,9 +28,12 @@
       "cwd": "${workspaceFolder}/services/api",
       "envFile": "${workspaceFolder}/services/api/.env",
       "env": {
-        "DEV_MODE": "true"
+        "DEV_MODE": "true",
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
+        "MIGRATION_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
       },
       "showLog": true,
+      "preLaunchTask": "start-debug",
       "presentation": { "hidden": true }
     },
     {
@@ -42,9 +45,12 @@
       "cwd": "${workspaceFolder}/services/api",
       "envFile": "${workspaceFolder}/services/api/.env",
       "env": {
-        "DEV_MODE": "false"
+        "DEV_MODE": "false",
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
+        "MIGRATION_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
       },
       "showLog": true,
+      "preLaunchTask": "start-debug",
       "presentation": { "hidden": true }
     },
     {
@@ -56,9 +62,12 @@
       "cwd": "${workspaceFolder}/services/ingestion",
       "envFile": "${workspaceFolder}/services/ingestion/.env",
       "env": {
-        "DEV_MODE": "true"
+        "DEV_MODE": "true",
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
+        "MIGRATION_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
       },
       "showLog": true,
+      "preLaunchTask": "start-debug",
       "presentation": { "hidden": true }
     },
     {
@@ -70,9 +79,12 @@
       "cwd": "${workspaceFolder}/services/ingestion",
       "envFile": "${workspaceFolder}/services/ingestion/.env",
       "env": {
-        "DEV_MODE": "false"
+        "DEV_MODE": "false",
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
+        "MIGRATION_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
       },
       "showLog": true,
+      "preLaunchTask": "start-debug",
       "presentation": { "hidden": true }
     },
     {
@@ -97,11 +109,17 @@
       "request": "launch",
       "url": "http://localhost:5173",
       "webRoot": "${workspaceFolder}/services/dashboard",
-      "sourceMapPathOverrides": {
-        "webpack:///./src/*": "${workspaceFolder}/services/dashboard/src/*",
-        "webpack:///src/*":   "${workspaceFolder}/services/dashboard/src/*"
-      },
-      "presentation": { "hidden": true }   
+      "preLaunchTask": "vite-dev",
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "Debug Dashboard (auth)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/services/dashboard",
+      "preLaunchTask": "vite-dev-auth",
+      "presentation": { "hidden": true }
     }
   ],
 
@@ -113,7 +131,7 @@
     },
     {
       "name": "Debug Full Stack (auth)",
-      "configurations": ["Debug API (auth)", "Debug Ingestion (auth)", "Debug Dashboard"],
+      "configurations": ["Debug API (auth)", "Debug Ingestion (auth)", "Debug Dashboard (auth)"],
       "stopAll": true
     }
   ]
