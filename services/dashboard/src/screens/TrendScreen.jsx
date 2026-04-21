@@ -64,6 +64,27 @@ function downsample(snaps, periodDays) {
   });
 }
 
+// Group snapshots by calendar month — sum costs, sum ghost counts.
+function downsampleByMonth(snaps) {
+  if (!snaps || snaps.length === 0) return [];
+  const buckets = new Map();
+  for (const s of snaps) {
+    const key = new Date(s.snapshot_at).toISOString().slice(0, 7);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(s);
+  }
+  return [...buckets.values()].map(group => {
+    const latest = group[group.length - 1];
+    const avgCost = group.reduce((sum, s) => sum + s.total_monthly_cost, 0) / group.length;
+    const avgGhosts = Math.round(group.reduce((sum, s) => sum + s.ghost_count, 0) / group.length);
+    return {
+      ...latest,
+      total_monthly_cost: Math.round(avgCost * 100) / 100,
+      ghost_count: avgGhosts,
+    };
+  });
+}
+
 // ─── Format helpers ──────────────────────────────────────────────────────────
 
 function formatCost(val) {
@@ -191,6 +212,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const mergedSnaps    = mergeSnapshotSeries(trendQueries.map(q => q.data));
   const [selectedSnap, setSelectedSnap] = useState(null);
   const [period, setPeriod]             = useState(30);
+  const [granularity, setGranularity]   = useState('daily');
   const [listPage, setListPage]         = useState(1);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const listRef      = useRef(null);
@@ -205,10 +227,16 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Derive data — raw snaps for history list, downsampled for chart
+  // Auto-select granularity when period changes
+  const effectiveGranularity = period <= 30 ? 'daily' : granularity;
+  const showGranularityToggle = period >= 90;
+
+  // Derive data — raw snaps for history list, aggregated for chart
   const allSnaps      = mergedSnaps;
   const filteredSnaps = allSnaps.slice(-period);
-  const chartSnaps    = downsample(filteredSnaps, period);
+  const chartSnaps    = effectiveGranularity === 'monthly'
+    ? downsampleByMonth(filteredSnaps)
+    : downsample(filteredSnaps, period);
   const reversedSnaps = [...filteredSnaps].reverse();
 
   // Scroll to selected row in history list
@@ -350,9 +378,29 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
       {/* Chart section */}
       <div style={{ backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, paddingTop: 16, paddingBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 12px', flexWrap: 'wrap', gap: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Waste Over Time
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Waste Over Time
+            </span>
+            {showGranularityToggle && (
+              <div style={{ display: 'flex', gap: 2, backgroundColor: t.surfaceRaised, borderRadius: 6, padding: 2 }}>
+                {['daily', 'monthly'].map(g => (
+                  <button
+                    key={g}
+                    onClick={() => { setGranularity(g); setSelectedSnap(null); }}
+                    style={{
+                      padding: '3px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
+                      backgroundColor: effectiveGranularity === g ? t.accent : 'transparent',
+                      color: effectiveGranularity === g ? '#fff' : t.textMuted,
+                      fontSize: 11, fontWeight: 600, textTransform: 'capitalize',
+                    }}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div role="group" aria-label="Select time period" style={{ display: 'flex', gap: 4 }}>
             {PERIOD_OPTIONS.map(p => {
               const active = period === p.days;
@@ -482,7 +530,6 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               <span style={{ fontSize: 11, color: t.textMuted }}>
                 {filteredSnaps.length} scan{filteredSnaps.length !== 1 ? 's' : ''}
                 {chartSnaps.length < filteredSnaps.length && ` · ${chartSnaps.length} points (averaged)`}
-                {' · click to inspect'}
               </span>
             </div>
           </>
