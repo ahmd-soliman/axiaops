@@ -8,6 +8,7 @@ import (
 
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
+	"axiaops.io/shared/storage"
 )
 
 // mockStoreForScheduler is a minimal mock store for testing the scheduler.
@@ -53,6 +54,9 @@ func (m *mockStoreForScheduler) SaveResources(context.Context, []model.ResourceR
 	return nil
 }
 func (m *mockStoreForScheduler) LoadResources(context.Context) ([]model.ResourceRecord, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) ListCostRecords(context.Context, storage.CostFilter) ([]model.CostRecord, error) {
 	return nil, nil
 }
 func (m *mockStoreForScheduler) SaveSnapshot(context.Context, model.GhostSnapshot) error { return nil }

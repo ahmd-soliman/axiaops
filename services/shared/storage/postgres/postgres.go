@@ -307,16 +307,17 @@ func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO accounts
-			(id, tenant_id, provider, label, access_key_id, secret_encrypted, region, status, scan_interval_hours, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			(id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted, region, status, scan_interval_hours, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (id) DO UPDATE SET
 			label               = EXCLUDED.label,
+			account_id          = EXCLUDED.account_id,
 			access_key_id       = EXCLUDED.access_key_id,
 			secret_encrypted    = EXCLUDED.secret_encrypted,
 			region              = EXCLUDED.region,
 			status              = EXCLUDED.status,
 			scan_interval_hours = EXCLUDED.scan_interval_hours`,
-		a.ID, a.TenantID, a.Provider, a.Label,
+		a.ID, a.TenantID, a.Provider, a.Label, a.AccountID,
 		a.AccessKeyID, a.SecretEncrypted, a.Region, a.Status, a.ScanIntervalHours, a.CreatedAt,
 	)
 	if err != nil {
@@ -338,7 +339,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT id, tenant_id, provider, label, access_key_id, secret_encrypted,
+		SELECT id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted,
 		       region, status, last_scanned_at, scan_interval_hours, created_at
 		FROM accounts ORDER BY created_at`)
 	if err != nil {
@@ -350,7 +351,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	for rows.Next() {
 		var a model.Account
 		if err := rows.Scan(
-			&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccessKeyID, &a.SecretEncrypted,
+			&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
 			&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -377,7 +378,7 @@ func (s *Store) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
 	// Only use this method for trusted internal operations (scheduler, background jobs).
 
 	rows, err := tx.Query(ctx, `
-		SELECT id, tenant_id, provider, label, access_key_id, secret_encrypted,
+		SELECT id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted,
 		       region, status, last_scanned_at, scan_interval_hours, created_at
 		FROM accounts ORDER BY created_at`)
 	if err != nil {
@@ -389,7 +390,7 @@ func (s *Store) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
 	for rows.Next() {
 		var a model.Account
 		if err := rows.Scan(
-			&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccessKeyID, &a.SecretEncrypted,
+			&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
 			&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -416,10 +417,10 @@ func (s *Store) GetAccount(ctx context.Context, id string) (model.Account, error
 
 	var a model.Account
 	err = tx.QueryRow(ctx, `
-		SELECT id, tenant_id, provider, label, access_key_id, secret_encrypted,
+		SELECT id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted,
 		       region, status, last_scanned_at, scan_interval_hours, created_at
 		FROM accounts WHERE id = $1`, id,
-	).Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccessKeyID, &a.SecretEncrypted,
+	).Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
 		&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt)
 	if err != nil {
 		return model.Account{}, err
@@ -600,6 +601,77 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 		return nil, err
 	}
 	return resources, tx.Commit(ctx)
+}
+
+// ListCostRecords returns cost records for the tenant in ctx, filtered by the given criteria.
+// Records with amount > 0 are returned, ordered by period_start (newest first) then amount (largest first).
+func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) ([]model.CostRecord, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setTenant(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	days := filter.Days
+	if days <= 0 {
+		days = 30
+	}
+
+	query := `SELECT provider, account_id, service, region, resource_id,
+	                 amount, currency, period_start, period_end, tags, fetched_at
+	          FROM cost_records
+	          WHERE amount > 0 AND period_end >= NOW() - make_interval(days => $1)`
+	args := []any{days}
+	argN := 2
+
+	if filter.InternalAccountID != "" {
+		query += fmt.Sprintf(" AND internal_account_id = $%d", argN)
+		args = append(args, filter.InternalAccountID)
+		argN++
+	}
+	if filter.Service != "" {
+		query += fmt.Sprintf(" AND service = $%d", argN)
+		args = append(args, filter.Service)
+		argN++
+	}
+
+	query += " ORDER BY period_start DESC, amount DESC"
+
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: query cost_records: %w", err)
+	}
+	defer rows.Close()
+
+	var records []model.CostRecord
+	for rows.Next() {
+		var r model.CostRecord
+		var tagsJSON []byte
+		if err := rows.Scan(
+			&r.Provider, &r.AccountID, &r.Service, &r.Region, &r.ResourceID,
+			&r.Amount, &r.Currency, &r.PeriodStart, &r.PeriodEnd, &tagsJSON, &r.FetchedAt,
+		); err != nil {
+			return nil, fmt.Errorf("postgres: scan cost_record: %w", err)
+		}
+		if err := json.Unmarshal(tagsJSON, &r.Tags); err != nil {
+			r.Tags = map[string]string{}
+		}
+		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return records, tx.Commit(ctx)
 }
 
 // SaveSnapshot writes a ghost snapshot record (one per scan run).
