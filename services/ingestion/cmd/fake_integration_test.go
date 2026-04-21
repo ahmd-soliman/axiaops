@@ -56,6 +56,8 @@ func TestFakeProvider_FullPipeline(t *testing.T) {
 				if summary.TotalGhosts == 0 {
 					t.Error("all-ghosts scenario should have ghosts")
 				}
+				// CloudFront/Kinesis/S3 removed from fake provider test data since they require
+				// real AWS APIs for detection. All 9 remaining resources should be ghosts.
 				if summary.TotalGhosts != len(records) {
 					t.Errorf("all-ghosts: expected all %d resources to be ghosts, got %d", len(records), summary.TotalGhosts)
 				}
