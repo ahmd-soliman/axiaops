@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging stop migrate seed seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -48,6 +48,25 @@ start-staging: stop migrate
 	@echo "  Dashboard:  http://localhost:8082"
 	@echo "  Logs:       docker compose logs -f"
 	@echo "  Stop:       make stop"
+
+# Start only the infrastructure (Postgres + migrations) needed to debug
+# Go services under VS Code F5 / Delve. Does NOT start API, Ingestion, or
+# Vite — F5 launches Go under Delve; run Vite separately for frontend work.
+# Clears any process (host or container) bound to :8080/:8081 so Delve can
+# bind those ports. Postgres stays up if already running.
+start-debug: migrate
+	@echo "Clearing Go service ports for F5..."
+	@docker rm -f axiaops-api axiaops-ingestion 2>/dev/null || true
+	@for port in 8080 8081; do \
+		pids=$$(lsof -ti :$$port 2>/dev/null || true); \
+		if [ -n "$$pids" ]; then \
+			echo "  Killing process(es) on port $$port: $$pids"; \
+			echo "$$pids" | xargs kill -9 2>/dev/null || true; \
+		fi; \
+	done
+	@echo ""
+	@echo "Postgres up and migrated. Hit F5 in VS Code to debug Go services."
+	@echo "For dashboard: cd services/dashboard && npm run dev"
 
 # Run database migrations using dedicated migration container
 migrate:
