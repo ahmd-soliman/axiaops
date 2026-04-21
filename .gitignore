@@ -93,3 +93,6 @@ services/*/*-test
 services/api/cmd/__debug*
 services/ingestion/cmd/__debug*
 services/migrate/migrate/cmd/__debug*
+/services/api/__debug*
+/services/ingestion/__debug*
+/services/migrate/__debug*
