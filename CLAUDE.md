@@ -121,6 +121,12 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 - RDS Multi-AZ doubles cost — defer until necessary
 - App Runner scales to zero — no idle compute cost
 
+## Agent Delegation
+
+- **Committing** — always delegate to the `commit` agent
+- **Code review before committing** — delegate to the `code-reviewer` agent
+- **Planning non-trivial features** that affect multiple services or the data model — delegate to the `architect` agent
+
 ## Service-Specific Instructions
 
 @services/api/CLAUDE.md
