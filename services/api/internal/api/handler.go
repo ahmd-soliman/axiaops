@@ -300,6 +300,19 @@ func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 		Days:              days,
 	}
 
+	// If filtering by account, also get the AWS account ID for backward compatibility with old records
+	if filter.InternalAccountID != "" {
+		account, err := h.store.GetAccount(ctx, filter.InternalAccountID)
+		if err == nil {
+			// Use account_id if available, otherwise fall back to label (for manually created accounts)
+			if account.AccountID != "" {
+				filter.AWSAccountID = account.AccountID
+			} else if account.Label != "" {
+				filter.AWSAccountID = account.Label
+			}
+		}
+	}
+
 	records, err := h.store.ListCostRecords(ctx, filter)
 	if err != nil {
 		slog.Error("listCosts: load failed", "error", err)
