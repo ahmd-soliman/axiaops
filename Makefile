@@ -1,4 +1,4 @@
-.PHONY: start-dev start-dev-redis start-staging stop migrate test-migrate seed seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-dev-redis start-staging stop migrate seed seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -48,45 +48,6 @@ migrate:
 	@echo "Waiting for PostgreSQL to be ready..."
 	@until docker-compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
 	./scripts/migrate.sh
-
-# Test the migration container (uses test-infra compose — no host port binding)
-test-migrate:
-	@echo "Testing migration container..."
-	$(eval PG_CONTAINER := axiaops-migrate-test-pg-$(shell date +%s))
-	$(eval TEST_NETWORK := $(if $(RUNNER_NETWORK),$(RUNNER_NETWORK),axiaops-migrate-test-net))
-	docker rm -f $(PG_CONTAINER) 2>/dev/null || true
-	$(if $(RUNNER_NETWORK),,docker network create $(TEST_NETWORK) 2>/dev/null || true)
-	docker run -d --name $(PG_CONTAINER) --network $(TEST_NETWORK) \
-		--shm-size=256m \
-		-e POSTGRES_DB=axiaops \
-		-e POSTGRES_USER=axiaops_owner \
-		-e POSTGRES_PASSWORD=$(POSTGRES_OWNER_PASSWORD) \
-		postgres:16-alpine
-	@echo "Waiting for PostgreSQL to be ready..."
-	@timeout=60; elapsed=0; \
-	until docker exec $(PG_CONTAINER) pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do \
-		if ! docker inspect --format='{{.State.Running}}' $(PG_CONTAINER) 2>/dev/null | grep -q true; then \
-			echo "Container $(PG_CONTAINER) is not running:"; \
-			docker inspect --format='{{.State.Status}} exit={{.State.ExitCode}}' $(PG_CONTAINER) 2>/dev/null || echo "(container not found)"; \
-			docker logs $(PG_CONTAINER) 2>/dev/null || true; \
-			exit 1; \
-		fi; \
-		if [ $$elapsed -ge $$timeout ]; then \
-			echo "PostgreSQL failed to start within $${timeout}s"; \
-			docker logs $(PG_CONTAINER) 2>/dev/null || true; \
-			exit 1; \
-		fi; \
-		sleep 1; \
-		elapsed=$$((elapsed + 1)); \
-	done
-	@echo "PostgreSQL ready"
-	docker build -t axiaops-migrate-test -f services/migrate/Dockerfile .
-	docker run --rm --network $(TEST_NETWORK) \
-		-e MIGRATION_DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@$(PG_CONTAINER):5432/axiaops?sslmode=disable" \
-		-e DATABASE_URL="postgres://axiaops:$(POSTGRES_PASSWORD)@$(PG_CONTAINER):5432/axiaops?sslmode=disable" \
-		axiaops-migrate-test
-	docker rm -f $(PG_CONTAINER)
-	$(if $(RUNNER_NETWORK),,docker network rm $(TEST_NETWORK) 2>/dev/null || true)
 
 # Seed the dev tenant with dummy ghost + resource records.
 # Safe to re-run — all inserts are idempotent.
