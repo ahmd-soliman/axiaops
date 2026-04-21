@@ -474,21 +474,27 @@ VALUES
    'DaysSinceAccess', 95, 'Days',
    'Secret not accessed for 95 days — still billing \$0.40/month', 'unknown', '$NOW'),
 
-  -- ── CloudFront distribution ghosts ────────────────────────────────────────
+  -- ── CloudFront distribution ghosts (zero requests) ─────────────────────────
 
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonCloudFront', '', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonCloudFront', 'global', 'us-east-1',
    'E1PROD0ABANDONED', '{}',
-   15.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Requests', 0, 'Count',
    'CloudFront distribution has zero requests — likely abandoned', 'unknown', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonCloudFront', '', 'us-east-1',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonCloudFront', 'global', 'us-east-1',
    'E2STG0OLDSITE', '{}',
-   8.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   8.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Requests', 0, 'Count',
    'CloudFront distribution has zero requests — likely abandoned', 'unknown', '$NOW'),
 
-  -- ── Kinesis stream ghosts ─────────────────────────────────────────────────
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonCloudFront', 'global', 'us-east-1',
+   'E3UAT0PREVIEW', '{}',
+   6.25, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'Requests', 0, 'Count',
+   'CloudFront distribution has zero requests — likely abandoned', 'unknown', '$NOW'),
+
+  -- ── Kinesis data streams (zero incoming records, provisioned mode) ────────
 
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonKinesis', '', 'eu-central-1',
    'prod-event-ingestion-v1', '{}',
@@ -496,33 +502,43 @@ VALUES
    'IncomingRecords', 0, 'Count',
    'Kinesis data stream has zero incoming records — likely unused', 'unknown', '$NOW'),
 
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonKinesis', '', 'eu-west-1',
-   'dev-clickstream', '{}',
-   16.20, 'USD', '$PERIOD_START', '$PERIOD_END',
+  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonKinesis', '', 'us-east-1',
+   'stg-monitoring-stream', '{}',
+   10.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'IncomingRecords', 0, 'Count',
    'Kinesis data stream has zero incoming records — likely unused', 'unknown', '$NOW'),
 
-  -- ── S3 bucket ghosts (requires request metrics enabled) ───────────────────
+  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonKinesis', '', 'eu-west-1',
+   'dev-clickstream', '{}',
+   5.40, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'IncomingRecords', 0, 'Count',
+   'Kinesis data stream has zero incoming records — likely unused', 'unknown', '$NOW'),
+
+  -- ── S3 buckets (zero requests, requires request metrics enabled) ──────────
 
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonS3', '', 'eu-central-1',
    'prod-old-data-export-2024', '{}',
-   22.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   25.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AllRequests', 0, 'Count',
    'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW'),
 
   ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonS3', '', 'us-east-1',
-   'stg-terraform-state-old', '{}',
-   5.00, 'USD', '$PERIOD_START', '$PERIOD_END',
+   'stg-terraform-state-backup', '{}',
+   8.75, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AllRequests', 0, 'Count',
    'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW'),
 
   ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonS3', '', 'eu-west-1',
    'dev-test-uploads-2023', '{}',
-   3.50, 'USD', '$PERIOD_START', '$PERIOD_END',
+   4.25, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AllRequests', 0, 'Count',
    'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW')
 ;"
-echo "  Inserted 43 ghost records (15 acct1, 14 acct2, 14 acct3 — includes all detection types)."
+echo "  Inserted ghost records including:"
+echo "    - 3 CloudFront distributions (zero requests each)"
+echo "    - 3 Kinesis streams (zero incoming records each, provisioned mode)"
+echo "    - 3 S3 buckets (zero requests each, requires metrics enabled)"
+echo "    - Plus all other resource types (EC2, RDS, Lambda, ELB, VPC, EBS, EKS, etc.)"
 echo ""
 
 # ── Resource records ──────────────────────────────────────────────────────────

@@ -174,3 +174,113 @@ func TestFetchCosts_APIError(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestFetchCostExplorerAPICosts_SinglePage(t *testing.T) {
+	mock := &mockCEClient{
+		pages: []costexplorer.GetCostAndUsageOutput{
+			{
+				ResultsByTime: []types.ResultByTime{
+					{
+						TimePeriod: &types.DateInterval{
+							Start: ceaws.String("2026-04-01"),
+							End:   ceaws.String("2026-04-30"),
+						},
+						Groups: []types.Group{
+							{
+								Keys: []string{"Amazon Cost Management APIs", "us-east-1"},
+								Metrics: map[string]types.MetricValue{
+									"UnblendedCost": {
+										Amount: ceaws.String("0.47"),
+										Unit:   ceaws.String("USD"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
+	records, err := client.FetchCostExplorerAPICosts(context.Background(), time.Now(), time.Now())
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+
+	r := records[0]
+	if r.Provider != "aws" {
+		t.Errorf("expected provider aws, got %s", r.Provider)
+	}
+	if r.Service != "AWSCostExplorer" {
+		t.Errorf("expected service AWSCostExplorer, got %s", r.Service)
+	}
+	if r.Region != "us-east-1" {
+		t.Errorf("expected region us-east-1, got %s", r.Region)
+	}
+	if r.Amount != 0.47 {
+		t.Errorf("expected amount 0.47, got %f", r.Amount)
+	}
+	if r.Currency != "USD" {
+		t.Errorf("expected currency USD, got %s", r.Currency)
+	}
+}
+
+func TestFetchCostExplorerAPICosts_SkipsZeroAmount(t *testing.T) {
+	mock := &mockCEClient{
+		pages: []costexplorer.GetCostAndUsageOutput{
+			{
+				ResultsByTime: []types.ResultByTime{
+					{
+						TimePeriod: &types.DateInterval{
+							Start: ceaws.String("2026-04-01"),
+							End:   ceaws.String("2026-04-30"),
+						},
+						Groups: []types.Group{
+							{
+								Keys: []string{"Amazon Cost Management APIs", "us-east-1"},
+								Metrics: map[string]types.MetricValue{
+									"UnblendedCost": {
+										Amount: ceaws.String("0.00"),
+										Unit:   ceaws.String("USD"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
+	records, err := client.FetchCostExplorerAPICosts(context.Background(), time.Now(), time.Now())
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected 0 records for zero amount, got %d", len(records))
+	}
+}
+
+func TestFetchCostExplorerAPICosts_APIError_NonFatal(t *testing.T) {
+	mock := &mockCEClient{
+		err: fmt.Errorf("ServiceUnavailableException"),
+	}
+
+	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
+	records, err := client.FetchCostExplorerAPICosts(context.Background(), time.Now(), time.Now())
+
+	// Should be non-fatal: returns nil, nil
+	if err != nil {
+		t.Errorf("expected non-fatal error handling, got error: %v", err)
+	}
+	if len(records) != 0 {
+		t.Errorf("expected nil records on error, got %d", len(records))
+	}
+}

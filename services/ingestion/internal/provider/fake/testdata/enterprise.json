@@ -1,56 +1,317 @@
 {
   "costs": [
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEC2",                  "region": "eu-central-1", "resource_id": "i-prod-web-01",           "amount": 210.00, "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEC2",                  "region": "eu-central-1", "resource_id": "i-prod-web-02",           "amount": 210.00, "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEC2",                  "region": "eu-central-1", "resource_id": "i-staging-old",           "amount": 95.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEC2",                  "region": "us-east-1",    "resource_id": "i-us-idle",              "amount": 55.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEC2",                  "region": "eu-central-1", "resource_id": "vol-orphaned-01",        "amount": 8.50,   "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEC2",                  "region": "eu-central-1", "resource_id": "snap-orphaned-01",       "amount": 12.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonRDS",                  "region": "eu-central-1", "resource_id": "db-prod",                 "amount": 340.00, "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonRDS",                  "region": "eu-central-1", "resource_id": "db-test-abandoned",       "amount": 180.00, "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonRDS",                  "region": "eu-central-1", "resource_id": "db-read-replica-01",     "amount": 200.00, "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AWSLambda",                  "region": "eu-central-1", "resource_id": "fn-api-handler",          "amount": 12.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AWSLambda",                  "region": "eu-central-1", "resource_id": "fn-old-cron",             "amount": 3.50,   "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonElasticLoadBalancing", "region": "eu-central-1", "resource_id": "app/prod-alb/abc123",     "amount": 22.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonElasticLoadBalancing", "region": "eu-central-1", "resource_id": "app/staging-alb/def456",  "amount": 22.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonElasticLoadBalancing", "region": "us-east-1",    "resource_id": "net/us-nlb/ghi789",      "amount": 18.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonVPC",                  "region": "eu-central-1", "resource_id": "nat-0prod111",            "amount": 45.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonVPC",                  "region": "eu-central-1", "resource_id": "nat-0old222",             "amount": 45.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonVPC",                  "region": "us-east-1",    "resource_id": "eip-unattached-01",      "amount": 3.60,   "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEKS",                  "region": "eu-central-1", "resource_id": "prod-platform-cluster",   "amount": 73.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonEKS",                  "region": "eu-central-1", "resource_id": "staging-empty-cluster",   "amount": 73.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonCloudFront",           "region": "us-east-1",    "resource_id": "E1ACTIVE001",            "amount": 25.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonCloudFront",           "region": "us-east-1",    "resource_id": "E1GHOST001",             "amount": 12.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonKinesis",              "region": "eu-central-1", "resource_id": "events-active",          "amount": 32.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonKinesis",              "region": "eu-central-1", "resource_id": "logs-abandoned",         "amount": 32.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonS3",                   "region": "eu-central-1", "resource_id": "data-lake-active",       "amount": 45.00,  "currency": "USD"},
-    {"provider": "aws", "account_id": "222222222222", "service": "AmazonS3",                   "region": "eu-central-1", "resource_id": "old-backup-bucket",      "amount": 18.00,  "currency": "USD"}
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonEC2",
+      "region": "eu-central-1",
+      "resource_id": "i-prod-web-01",
+      "amount": 210.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonEC2",
+      "region": "eu-central-1",
+      "resource_id": "i-prod-web-02",
+      "amount": 210.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonEC2",
+      "region": "eu-central-1",
+      "resource_id": "i-staging-old",
+      "amount": 95.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonEC2",
+      "region": "us-east-1",
+      "resource_id": "i-us-idle",
+      "amount": 55.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonEC2",
+      "region": "eu-central-1",
+      "resource_id": "vol-orphaned-01",
+      "amount": 8.50,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonEC2",
+      "region": "eu-central-1",
+      "resource_id": "snap-orphaned-01",
+      "amount": 12.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonRDS",
+      "region": "eu-central-1",
+      "resource_id": "db-prod",
+      "amount": 340.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonRDS",
+      "region": "eu-central-1",
+      "resource_id": "db-test-abandoned",
+      "amount": 180.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonRDS",
+      "region": "eu-central-1",
+      "resource_id": "db-read-replica-01",
+      "amount": 200.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AWSLambda",
+      "region": "eu-central-1",
+      "resource_id": "fn-api-handler",
+      "amount": 12.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AWSLambda",
+      "region": "eu-central-1",
+      "resource_id": "fn-old-cron",
+      "amount": 3.50,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonElasticLoadBalancing",
+      "region": "eu-central-1",
+      "resource_id": "app/prod-alb/abc123",
+      "amount": 22.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonElasticLoadBalancing",
+      "region": "eu-central-1",
+      "resource_id": "app/staging-alb/def456",
+      "amount": 22.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonElasticLoadBalancing",
+      "region": "us-east-1",
+      "resource_id": "net/us-nlb/ghi789",
+      "amount": 18.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonVPC",
+      "region": "eu-central-1",
+      "resource_id": "nat-0prod111",
+      "amount": 45.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonVPC",
+      "region": "eu-central-1",
+      "resource_id": "nat-0old222",
+      "amount": 45.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonVPC",
+      "region": "us-east-1",
+      "resource_id": "eip-unattached-01",
+      "amount": 3.60,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonEKS",
+      "region": "eu-central-1",
+      "resource_id": "prod-platform-cluster",
+      "amount": 73.00,
+      "currency": "USD"
+    },
+    {
+      "provider": "aws",
+      "account_id": "222222222222",
+      "service": "AmazonEKS",
+      "region": "eu-central-1",
+      "resource_id": "staging-empty-cluster",
+      "amount": 73.00,
+      "currency": "USD"
+    }
   ],
   "usage": [
-    {"resource_id": "i-prod-web-01",          "metric": "CPUUtilization",         "unit": "Percent", "avg": 68.0,     "period_days": 30},
-    {"resource_id": "i-prod-web-02",          "metric": "CPUUtilization",         "unit": "Percent", "avg": 71.0,     "period_days": 30},
-    {"resource_id": "i-staging-old",          "metric": "CPUUtilization",         "unit": "Percent", "avg": 1.2,      "period_days": 30},
-    {"resource_id": "i-us-idle",              "metric": "CPUUtilization",         "unit": "Percent", "avg": 0.8,      "period_days": 30},
-    {"resource_id": "vol-orphaned-01",        "metric": "VolumeState",            "unit": "State",   "avg": 0.0,      "period_days": 30},
-    {"resource_id": "snap-orphaned-01",       "metric": "SourceVolumeExists",     "unit": "Boolean", "avg": 0.0,      "period_days": 30},
-    {"resource_id": "db-prod",                "metric": "DatabaseConnections",    "unit": "Count",   "avg": 24.0,     "period_days": 30},
-    {"resource_id": "db-test-abandoned",      "metric": "DatabaseConnections",    "unit": "Count",   "avg": 0.0,      "period_days": 30},
-    {"resource_id": "db-read-replica-01",     "metric": "DatabaseConnections",    "unit": "Count",   "avg": 12.0,     "period_days": 30},
-    {"resource_id": "fn-api-handler",         "metric": "Invocations",            "unit": "Count",   "avg": 1840.0,   "period_days": 30},
-    {"resource_id": "fn-old-cron",            "metric": "Invocations",            "unit": "Count",   "avg": 0.0,      "period_days": 30},
-    {"resource_id": "app/prod-alb/abc123",    "metric": "RequestCount",           "unit": "Count",   "avg": 5200.0,   "period_days": 30},
-    {"resource_id": "app/staging-alb/def456", "metric": "RequestCount",           "unit": "Count",   "avg": 0.0,      "period_days": 30},
-    {"resource_id": "net/us-nlb/ghi789",      "metric": "RequestCount",           "unit": "Count",   "avg": 3100.0,   "period_days": 30},
-    {"resource_id": "nat-0prod111",           "metric": "BytesOutToDestination",  "unit": "Bytes",   "avg": 982000.0, "period_days": 30},
-    {"resource_id": "nat-0old222",            "metric": "BytesOutToDestination",  "unit": "Bytes",   "avg": 0.0,      "period_days": 30},
-    {"resource_id": "eip-unattached-01",      "metric": "NetworkInterfaceAttachment", "unit": "Count", "avg": 0.0,   "period_days": 30},
-    {"resource_id": "prod-platform-cluster",  "metric": "cluster_node_count",     "unit": "Count",   "avg": 6.0,      "period_days": 30},
-    {"resource_id": "staging-empty-cluster",  "metric": "cluster_node_count",     "unit": "Count",   "avg": 0.0,      "period_days": 30},
-    {"resource_id": "E1ACTIVE001",           "metric": "Requests",               "unit": "Count",   "avg": 52000.0,  "period_days": 30},
-    {"resource_id": "E1GHOST001",            "metric": "Requests",               "unit": "Count",   "avg": 0.0,      "period_days": 30},
-    {"resource_id": "events-active",         "metric": "IncomingRecords",        "unit": "Count",   "avg": 14200.0,  "period_days": 30},
-    {"resource_id": "logs-abandoned",        "metric": "IncomingRecords",        "unit": "Count",   "avg": 0.0,      "period_days": 30},
-    {"resource_id": "data-lake-active",      "metric": "AllRequests",            "unit": "Count",   "avg": 8500.0,   "period_days": 30},
-    {"resource_id": "old-backup-bucket",     "metric": "AllRequests",            "unit": "Count",   "avg": 0.0,      "period_days": 30}
+    {
+      "resource_id": "i-prod-web-01",
+      "metric": "CPUUtilization",
+      "unit": "Percent",
+      "avg": 68.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "i-prod-web-02",
+      "metric": "CPUUtilization",
+      "unit": "Percent",
+      "avg": 71.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "i-staging-old",
+      "metric": "CPUUtilization",
+      "unit": "Percent",
+      "avg": 1.2,
+      "period_days": 30
+    },
+    {
+      "resource_id": "i-us-idle",
+      "metric": "CPUUtilization",
+      "unit": "Percent",
+      "avg": 0.8,
+      "period_days": 30
+    },
+    {
+      "resource_id": "vol-orphaned-01",
+      "metric": "VolumeState",
+      "unit": "State",
+      "avg": 0.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "snap-orphaned-01",
+      "metric": "SourceVolumeExists",
+      "unit": "Boolean",
+      "avg": 0.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "db-prod",
+      "metric": "DatabaseConnections",
+      "unit": "Count",
+      "avg": 24.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "db-test-abandoned",
+      "metric": "DatabaseConnections",
+      "unit": "Count",
+      "avg": 0.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "db-read-replica-01",
+      "metric": "DatabaseConnections",
+      "unit": "Count",
+      "avg": 12.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "fn-api-handler",
+      "metric": "Invocations",
+      "unit": "Count",
+      "avg": 1840.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "fn-old-cron",
+      "metric": "Invocations",
+      "unit": "Count",
+      "avg": 0.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "app/prod-alb/abc123",
+      "metric": "RequestCount",
+      "unit": "Count",
+      "avg": 5200.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "app/staging-alb/def456",
+      "metric": "RequestCount",
+      "unit": "Count",
+      "avg": 0.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "net/us-nlb/ghi789",
+      "metric": "RequestCount",
+      "unit": "Count",
+      "avg": 3100.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "nat-0prod111",
+      "metric": "BytesOutToDestination",
+      "unit": "Bytes",
+      "avg": 982000.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "nat-0old222",
+      "metric": "BytesOutToDestination",
+      "unit": "Bytes",
+      "avg": 0.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "eip-unattached-01",
+      "metric": "NetworkInterfaceAttachment",
+      "unit": "Count",
+      "avg": 0.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "prod-platform-cluster",
+      "metric": "cluster_node_count",
+      "unit": "Count",
+      "avg": 6.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "staging-empty-cluster",
+      "metric": "cluster_node_count",
+      "unit": "Count",
+      "avg": 0.0,
+      "period_days": 30
+    },
+    {
+      "resource_id": "events-active",
+      "metric": "IncomingRecords",
+      "unit": "Count",
+      "avg": 14200.0,
+      "period_days": 30
+    }
   ]
 }
