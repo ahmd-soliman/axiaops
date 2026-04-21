@@ -1,5 +1,13 @@
 import { useEffect } from 'react';
 
+// Inject keyframes once at module load — avoids re-creating <style> on every render.
+if (typeof document !== 'undefined' && !document.getElementById('toast-keyframes')) {
+  const style = document.createElement('style');
+  style.id = 'toast-keyframes';
+  style.textContent = `@keyframes toastSlideIn{from{transform:translateX(400px);opacity:0}to{transform:translateX(0);opacity:1}}`;
+  document.head.appendChild(style);
+}
+
 export default function Toast({ message, type = 'info', onDismiss, duration = 3000 }) {
   useEffect(() => {
     if (!message) return;
@@ -32,22 +40,10 @@ export default function Toast({ message, type = 'info', onDismiss, duration = 30
         fontWeight: 500,
         zIndex: 9999,
         boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-        animation: 'slideIn 0.3s ease-out',
+        animation: 'toastSlideIn 0.3s ease-out',
       }}
     >
       {message}
-      <style>{`
-        @keyframes slideIn {
-          from {
-            transform: translateX(400px);
-            opacity: 0;
-          }
-          to {
-            transform: translateX(0);
-            opacity: 1;
-          }
-        }
-      `}</style>
     </div>
   );
 }
