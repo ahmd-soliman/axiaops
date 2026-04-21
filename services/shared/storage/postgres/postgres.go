@@ -105,13 +105,13 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 		}
 		res, err := tx.Exec(ctx, `
 			INSERT INTO cost_records
-				(tenant_id, provider, account_id, service, region, resource_id, amount, currency,
+				(tenant_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency,
 				 period_start, period_end, tags, fetched_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 			ON CONFLICT (tenant_id, provider, account_id, service, region, period_start, period_end)
 			DO NOTHING`,
 			tenantID,
-			r.Provider, r.AccountID, r.Service, r.Region, r.ResourceID,
+			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID,
 			r.Amount, r.Currency,
 			r.PeriodStart, r.PeriodEnd,
 			string(tags), r.FetchedAt,
@@ -626,7 +626,7 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 		days = 30
 	}
 
-	query := `SELECT provider, account_id, service, region, resource_id,
+	query := `SELECT provider, account_id, internal_account_id, service, region, resource_id,
 	                 amount, currency, period_start, period_end, tags, fetched_at
 	          FROM cost_records
 	          WHERE amount > 0 AND period_end >= NOW() - make_interval(days => $1)`
@@ -657,7 +657,7 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 		var r model.CostRecord
 		var tagsJSON []byte
 		if err := rows.Scan(
-			&r.Provider, &r.AccountID, &r.Service, &r.Region, &r.ResourceID,
+			&r.Provider, &r.AccountID, &r.InternalAccountID, &r.Service, &r.Region, &r.ResourceID,
 			&r.Amount, &r.Currency, &r.PeriodStart, &r.PeriodEnd, &tagsJSON, &r.FetchedAt,
 		); err != nil {
 			return nil, fmt.Errorf("postgres: scan cost_record: %w", err)

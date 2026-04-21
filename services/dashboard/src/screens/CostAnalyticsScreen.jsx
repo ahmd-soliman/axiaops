@@ -1,11 +1,11 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
-import { fetchCosts, fetchTrend, fetchAccounts } from '../api/client';
+import { fetchCosts, fetchTrend, fetchAccounts, scanAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
 import { useTheme } from '../theme/ThemeContext';
-import { Spinner } from '../components/primitives';
+import { Spinner, Toast } from '../components/primitives';
 import { useWindowWidth } from '../components/primitives';
 
 const PERIOD_OPTIONS = [
@@ -39,6 +39,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const [filterServices, setFilterServices] = useState(() => new Set());
   const [selectedCost, setSelectedCost] = useState(null);
   const [selectedTrendDate, setSelectedTrendDate] = useState(null);
+  const [scanning, setScanning] = useState(null);
+  const [notification, setNotification] = useState(null);
 
   // Use passed accounts or fetch if not provided
   const accountsQuery = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
@@ -78,6 +80,22 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const totalCost = useMemo(() => {
     return filteredCosts.reduce((sum, r) => sum + (r.amount || 0), 0);
   }, [filteredCosts]);
+
+  // Scan account
+  const handleScanAccount = useCallback(async (accountId) => {
+    const accountLabel = accounts.find(a => a.id === accountId)?.label || accountId.slice(0, 8);
+    setScanning(accountId);
+    setNotification({ message: `Scan started for ${accountLabel}...`, type: 'info' });
+    try {
+      await scanAccount(accountId);
+      setNotification({ message: `Scan completed for ${accountLabel}!`, type: 'success' });
+    } catch (err) {
+      console.error('Failed to scan account:', err);
+      setNotification({ message: `Scan failed for ${accountLabel}`, type: 'error' });
+    } finally {
+      setScanning(null);
+    }
+  }, [accounts]);
 
   // Toggle service filter
   const toggleServiceFilter = (svc) => {
@@ -143,6 +161,11 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
   return (
     <div style={{ backgroundColor: t.bg, minHeight: '100vh' }}>
+      <Toast
+        message={notification?.message}
+        type={notification?.type}
+        onDismiss={() => setNotification(null)}
+      />
       {/* Header */}
       <div style={{ backgroundColor: t.surface, borderBottom: `1px solid ${t.border}`, padding: '16px' }}>
         <AccountSelector
@@ -151,6 +174,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
           onSelectAccount={onSelectAccount}
           onConnectAccount={onConnectAccount}
           onEditAccount={onEditAccount}
+          onScanAccount={handleScanAccount}
+          scanning={scanning}
         />
       </div>
 
