@@ -363,7 +363,6 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
         alignItems: 'stretch',
         overflow: 'hidden',
         border: isSelected ? `1px solid ${theme.accent}` : `1px solid ${theme.border}`,
-        borderLeft: `4px solid ${cfg.color}`,
         transition: 'border-color 0.15s',
       }}
     >
@@ -394,17 +393,10 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
           minWidth: 0,
         }}
       >
-        {/* Row 1: badges + cost */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-          <div style={{
-            padding: '2px 7px',
-            borderRadius: 5,
-            backgroundColor: isDark ? cfg.darkBg : cfg.bg,
-            border: `1px solid ${cfg.color}33`,
-            flexShrink: 0,
-          }}>
-            <span style={{ fontSize: 11, fontWeight: 800, color: cfg.color }}>{cfg.label}</span>
-          </div>
+        {/* Row 1: service dot + label + cost */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
 
           {item.is_ghost && (
             <div style={{
@@ -503,13 +495,11 @@ function DismissedCard({ item, theme, isDark }) {
       borderRadius: 10,
       padding: '12px 14px',
       border: `1px solid ${theme.border}`,
-      borderLeft: `4px solid ${cfg.color}`,
       opacity: 0.75,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-        <div style={{ padding: '2px 7px', borderRadius: 5, backgroundColor: isDark ? cfg.darkBg : cfg.bg }}>
-          <span style={{ fontSize: 11, fontWeight: 800, color: cfg.color }}>{cfg.label}</span>
-        </div>
+        <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
         <div style={{
           padding: '2px 6px', borderRadius: 4,
           backgroundColor: isSnoozed ? (isDark ? '#1e3a5f' : '#DBEAFE') : (isDark ? '#374151' : '#F3F4F6'),
@@ -923,7 +913,7 @@ export default function DashboardScreen({
       <div style={{
         backgroundColor: t.surface,
         borderBottom: `1px solid ${t.border}`,
-        padding: '10px 16px',
+        padding: '16px',
         display: 'flex',
         alignItems: 'center',
         gap: 10,

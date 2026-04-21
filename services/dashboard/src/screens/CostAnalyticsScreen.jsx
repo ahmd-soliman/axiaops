@@ -194,35 +194,6 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
         />
       </div>
 
-      {/* Period selector */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
-          Timeline
-        </span>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {PERIOD_OPTIONS.map(p => (
-            <button
-              key={p.days}
-              onClick={() => { setPeriod(p.days); setSelectedCost(null); }}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 6,
-                border: `1px solid ${period === p.days ? t.accent : t.border}`,
-                backgroundColor: period === p.days ? t.accent : t.surfaceRaised,
-                color: period === p.days ? '#fff' : t.textMid,
-                fontWeight: 700,
-                fontSize: 12,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Total cost hero */}
       <div style={{ backgroundColor: t.surfaceAlt || t.surface, borderBottom: `1px solid ${t.border}`, padding: '20px 20px 16px' }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
@@ -238,10 +209,32 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
       {/* Cost chart section */}
       <div style={{ backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
-        <div style={{ padding: '20px 20px 0' }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px 0', flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             Daily Spend
           </span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {PERIOD_OPTIONS.map(p => (
+              <button
+                key={p.days}
+                onClick={() => { setPeriod(p.days); setSelectedCost(null); }}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: `1px solid ${period === p.days ? t.accent : t.border}`,
+                  backgroundColor: period === p.days ? t.accent : t.surfaceRaised,
+                  color: period === p.days ? '#fff' : t.textMid,
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Service filter pills */}
