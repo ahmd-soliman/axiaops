@@ -200,20 +200,29 @@
 
 ### Milestone: July 2026
 
-#### 2.14 Redis
+#### 2.14 Redis ✅
 
-- [ ] Add Redis container to `docker-compose.yml` (image: `redis:7-alpine`)
-- [ ] Add `REDIS_URL` env var to all service configs (default: `redis://localhost:6379`)
-- [ ] Create `services/shared/cache/cache.go` — `Cache` interface (`Get`, `Set`, `Del`)
-- [ ] Create `services/shared/cache/redis/redis.go` — Redis implementation using `github.com/redis/go-redis/v9`
-- [ ] Create `services/shared/cache/memory/memory.go` — in-memory fallback (used when `REDIS_URL` is unset)
-- [ ] Update `services/api/internal/middleware/auth.go` — inject cache for JWKS lookup (1h TTL); fall back to in-memory fetch if cache miss
-- [ ] Create `services/ingestion/cmd/worker.go` — Redis queue consumer
+- [x] Add Redis container to `docker-compose.yml` (image: `redis:7-alpine`)
+- [x] Add `REDIS_URL` env var to all service configs (default: `redis://localhost:6379`)
+- [x] Create `services/shared/cache/cache.go` — `Cache` interface (`Get`, `Set`, `Del`)
+- [x] Create `services/shared/cache/redis/redis.go` — Redis implementation using `github.com/redis/go-redis/v9`
+- [x] Create `services/shared/cache/memory/memory.go` — in-memory fallback (used when `REDIS_URL` is unset)
+- [x] Update `services/api/internal/middleware/auth.go` — inject cache for JWKS lookup (1h TTL); fall back to in-memory fetch if cache miss
+- [x] Create `services/ingestion/cmd/worker.go` — Redis queue consumer
   - API pushes scan jobs onto a Redis list (`LPUSH axiaops:scan_queue`)
   - Worker pops (`BRPOP`) and executes ingestion
   - Falls back to synchronous execution if `REDIS_URL` is unset
-- [ ] Replace in-memory rate limiter (2.9) with Redis `INCR` + `EXPIRE` counter — survives API restarts
-- [ ] Test: run with and without `REDIS_URL` — verify fallback behaviour works correctly
+- [x] Replace in-memory rate limiter (2.9) with Redis `INCR` + `EXPIRE` counter — survives API restarts
+- [x] Test: run with and without `REDIS_URL` — verify fallback behaviour works correctly
+
+#### 2.UX Scan Completion Polling
+
+- [ ] Create shared `useScanStatus(accountId)` hook — polls `GET /v1/accounts` every 3-5s after scan trigger, compares `last_scanned_at` timestamp to detect completion
+- [ ] Show "Scan completed" toast when status flips from `scanning` → `idle` and `last_scanned_at` has changed
+- [ ] Auto-refetch ghost/cost/summary data on scan completion
+- [ ] Stop polling after 2 minutes with "Scan is taking longer than expected" warning
+- [ ] Clean up polling interval on component unmount (abort controller or useEffect cleanup)
+- [ ] Apply to all three screens: DashboardScreen, AccountSettingsScreen, CostAnalyticsScreen
 
 #### 2.15 Weekly Email Digest + Slack Alerts
 
