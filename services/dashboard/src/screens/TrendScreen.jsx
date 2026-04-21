@@ -137,7 +137,7 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
           )}
         </span>
       </div>
-      <span style={{ fontSize: 15, fontWeight: 700, color: isSelected ? t.accent : t.text, flexShrink: 0, marginLeft: 16 }}>
+      <span style={{ fontSize: 15, fontWeight: 700, color: t.accent, flexShrink: 0, marginLeft: 16 }}>
         {item.currency} {item.total_monthly_cost.toFixed(2)}
       </span>
     </button>
@@ -145,7 +145,7 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
 }
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
-export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onConnectAccount, onEditAccount, onBack }) {
+export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
   const { theme, isDark } = useTheme();
   const screenWidth = useWindowWidth();
   const [filterServices, setFilterServices]         = useState(() => new Set());
@@ -284,9 +284,6 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', backgroundColor: t.bg, flexDirection: 'column', gap: 16 }}>
         <span style={{ color: t.textMid, fontSize: 16 }}>Failed to load trend data.</span>
-        <button onClick={onBack} style={{ padding: '10px 20px', backgroundColor: t.accent, borderRadius: 8, border: 'none', cursor: 'pointer' }}>
-          <span style={{ color: '#fff', fontWeight: 600 }}>Go Back</span>
-        </button>
       </div>
     );
   }
@@ -317,12 +314,8 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
       </div>
 
       {/* Page header */}
-      <div style={{ backgroundColor: t.surfaceAlt, borderBottom: `1px solid ${t.border}`, padding: '14px 20px 20px' }}>
-        <button onClick={onBack} style={{ padding: '4px 0', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 12 }}>
-          <span style={{ color: t.textMuted, fontWeight: 600, fontSize: 14 }}>← Back</span>
-        </button>
-
-        <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>
+      <div style={{ backgroundColor: t.surfaceAlt, borderBottom: `1px solid ${t.border}`, padding: '20px 20px 16px' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
           {(() => {
             if (selectedSnap) {
               return `Snapshot · ${new Date(selectedSnap.snapshot_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
@@ -356,11 +349,10 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
       </div>
 
       {/* Chart section */}
-      <div style={{ backgroundColor: t.surface, borderBottom: `1px solid ${t.border}`, paddingTop: 16, paddingBottom: 16 }}>
-        {/* Period selector */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 14px', flexWrap: 'wrap', gap: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
-            Timeline
+      <div style={{ backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, paddingTop: 16, paddingBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 12px', flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Waste Over Time
           </span>
           <div role="group" aria-label="Select time period" style={{ display: 'flex', gap: 4 }}>
             {PERIOD_OPTIONS.map(p => {
