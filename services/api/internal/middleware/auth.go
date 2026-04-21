@@ -201,7 +201,7 @@ func DevBypass(orgCode string, store storage.Store, next http.Handler) http.Hand
 
 		ctx := r.Context()
 
-		var tenantID string = orgCode // Default to orgCode if store is nil
+		tenantID := orgCode // Default to orgCode if store is nil
 
 		// Ensure the dev tenant exists in the database and get its UUID.
 		if store != nil {
