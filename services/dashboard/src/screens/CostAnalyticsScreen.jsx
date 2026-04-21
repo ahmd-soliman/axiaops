@@ -3,8 +3,10 @@ import { useQuery, useQueries } from '@tanstack/react-query';
 import { fetchCosts, fetchTrend, fetchAccounts } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
+import AreaChart from '../components/AreaChart';
 import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
+import { useWindowWidth } from '../components/primitives';
 
 const PERIOD_OPTIONS = [
   { label: '7d',  days: 7 },
@@ -28,85 +30,13 @@ function formatDateShort(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-// Simple chart renderer for cost trends
-function CostTrendChart({ data, theme, height = 320 }) {
-  if (!data || data.length === 0) return null;
-
-  const width = 1200;
-  const padding = { top: 20, right: 20, bottom: 60, left: 60 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-
-  const costs = data.map(d => d.total_monthly_cost);
-  const maxCost = Math.max(...costs, 1);
-  const minCost = Math.min(...costs);
-  const range = maxCost - minCost || maxCost * 0.1;
-
-  const points = data.map((d, i) => {
-    const x = padding.left + (i / (data.length - 1 || 1)) * chartWidth;
-    const y = padding.top + chartHeight - ((d.total_monthly_cost - minCost) / range) * chartHeight;
-    return { x, y, cost: d.total_monthly_cost, date: d.snapshot_at };
-  });
-
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-
-  // Generate X-axis date labels at regular intervals (every 10 points or fewer for small datasets)
-  const labelInterval = Math.max(1, Math.ceil(data.length / 6));
-  const dateLabels = points
-    .map((p, i) => i % labelInterval === 0 ? { ...p, index: i } : null)
-    .filter(Boolean);
-
-  return (
-    <div style={{ width: '100%', overflow: 'auto' }}>
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ backgroundColor: theme.surface, borderRadius: 8, display: 'block', minWidth: '100%' }}>
-      {/* Y axis */}
-      <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke={theme.border} strokeWidth="1" />
-      {/* X axis */}
-      <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke={theme.border} strokeWidth="1" />
-
-      {/* Y axis labels */}
-      <text x={padding.left - 10} y={padding.top + 5} fontSize="12" fill={theme.textMuted} textAnchor="end">
-        ${formatCost(maxCost)}
-      </text>
-      <text x={padding.left - 10} y={height - padding.bottom + 5} fontSize="12" fill={theme.textMuted} textAnchor="end">
-        ${formatCost(minCost)}
-      </text>
-
-      {/* X axis date labels */}
-      {dateLabels.map((label, i) => {
-        const date = new Date(label.date);
-        const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        return (
-          <text
-            key={i}
-            x={label.x}
-            y={height - padding.bottom + 25}
-            fontSize="11"
-            fill={theme.textMuted}
-            textAnchor="middle"
-          >
-            {dateStr}
-          </text>
-        );
-      })}
-
-      {/* Line */}
-      <path d={pathD} stroke={theme.accent} strokeWidth="2" fill="none" />
-
-      {/* Points */}
-      {points.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r="3" fill={theme.accent} />
-      ))}
-      </svg>
-    </div>
-  );
-}
-
 export default function CostAnalyticsScreen({ accounts: passedAccounts, selectedAccount: passedSelectedAccount, onSelectAccount }) {
   const { theme } = useTheme();
+  const screenWidth = useWindowWidth();
   const [period, setPeriod] = useState(30);
   const [filterService, setFilterService] = useState(null);
   const [selectedCost, setSelectedCost] = useState(null);
+  const [selectedTrendDate, setSelectedTrendDate] = useState(null);
 
   // Use passed accounts or fetch if not provided
   const accountsQuery = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
@@ -206,11 +136,15 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
       {trends.length > 0 && (
         <div style={{ padding: '20px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 16 }}>
-            Cost Trend (30 Days)
+            Cost Trend (Last 30 Days)
           </span>
-          <div style={{ width: '100%', minHeight: 320 }}>
-            <CostTrendChart data={trends} theme={t} height={320} />
-          </div>
+          <AreaChart
+            data={trends}
+            selectedId={selectedTrendDate}
+            onSelect={(snap) => setSelectedTrendDate(snap.snapshot_at)}
+            theme={t}
+            screenWidth={screenWidth}
+          />
         </div>
       )}
 
