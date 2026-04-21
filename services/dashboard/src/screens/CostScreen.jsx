@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchCosts } from '../api/client';
+import { fetchCosts, scanAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
-import { Spinner } from '../components/primitives';
+import { Spinner, Toast } from '../components/primitives';
 
 // ─── Format helpers ──────────────────────────────────────────────────────────
 
@@ -25,11 +25,29 @@ export default function CostScreen({ accounts, selectedAccount, selectedAwsAccou
   const { theme } = useTheme();
   const [period, setPeriod] = useState(30);
   const [filterService, setFilterService] = useState(null);
+  const [scanning, setScanning] = useState(null);
+  const [notification, setNotification] = useState(null);
 
   const costsQuery = useQuery({
     queryKey: ['costs', selectedAwsAccount, filterService, period],
     queryFn: () => fetchCosts(selectedAwsAccount, filterService, period),
   });
+
+  // Scan account
+  const handleScanAccount = useCallback(async (accountId) => {
+    const accountLabel = accounts.find(a => a.id === accountId)?.label || accountId.slice(0, 8);
+    setScanning(accountId);
+    setNotification({ message: `Scan started for ${accountLabel}...`, type: 'info' });
+    try {
+      await scanAccount(accountId);
+      setNotification({ message: `Scan completed for ${accountLabel}!`, type: 'success' });
+    } catch (err) {
+      console.error('Failed to scan account:', err);
+      setNotification({ message: `Scan failed for ${accountLabel}`, type: 'error' });
+    } finally {
+      setScanning(null);
+    }
+  }, [accounts]);
 
   // Derive distinct services from fetched data
   const allServices = useMemo(() => {
@@ -72,6 +90,11 @@ export default function CostScreen({ accounts, selectedAccount, selectedAwsAccou
 
   return (
     <div style={{ backgroundColor: t.bg, minHeight: '100vh' }}>
+      <Toast
+        message={notification?.message}
+        type={notification?.type}
+        onDismiss={() => setNotification(null)}
+      />
       {/* Header */}
       <div style={{ backgroundColor: t.surface, borderBottom: `1px solid ${t.border}`, padding: '16px' }}>
         <AccountSelector
@@ -80,6 +103,8 @@ export default function CostScreen({ accounts, selectedAccount, selectedAwsAccou
           onSelectAccount={onSelectAccount}
           onConnectAccount={onConnectAccount}
           onEditAccount={onEditAccount}
+          onScanAccount={handleScanAccount}
+          scanning={scanning}
         />
       </div>
 
