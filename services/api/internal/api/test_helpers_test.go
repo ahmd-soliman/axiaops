@@ -45,6 +45,7 @@ type MockStore struct {
 	}
 	capturedTenantIDs          []string
 	lastListSnapshotsAccountID string
+	lastCostFilter             storage.CostFilter
 
 	// ── Error Injection (optional, for failure testing) ──
 	errLoadGhosts         error
@@ -55,6 +56,7 @@ type MockStore struct {
 	errTryMarkScanning    error
 	errDismissGhost       error
 	errListActiveDismiss  error
+	errListCostRecords    error
 
 	// ── Account Status (for concurrency testing) ──
 	accountScanning map[string]bool // account ID → is scanning
@@ -369,8 +371,26 @@ func (m *MockStore) LoadResources(_ context.Context) ([]model.ResourceRecord, er
 func (m *MockStore) ListCostRecords(_ context.Context, filter storage.CostFilter) ([]model.CostRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// Mock doesn't filter by account_id, service, or days — just returns all records.
+	m.lastCostFilter = filter
+	if m.errListCostRecords != nil {
+		return nil, m.errListCostRecords
+	}
 	return append([]model.CostRecord(nil), m.costs...), nil
+}
+
+// WithListCostRecordsError makes ListCostRecords return an error.
+func (m *MockStore) WithListCostRecordsError(err error) *MockStore {
+	m.mu.Lock()
+	m.errListCostRecords = err
+	m.mu.Unlock()
+	return m
+}
+
+// GetLastCostFilter returns the filter from the most recent ListCostRecords call.
+func (m *MockStore) GetLastCostFilter() storage.CostFilter {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastCostFilter
 }
 
 func (m *MockStore) SaveSnapshot(_ context.Context, s model.GhostSnapshot) error {

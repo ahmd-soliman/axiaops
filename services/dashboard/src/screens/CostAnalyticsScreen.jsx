@@ -140,7 +140,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
     const rows = filteredCosts.map(r => [
       r.service,
       r.region || 'N/A',
-      r.amount.toFixed(2),
+      (r.amount ?? 0).toFixed(2),
       r.currency,
       new Date(r.period_start).toISOString().split('T')[0],
       new Date(r.period_end).toISOString().split('T')[0],
