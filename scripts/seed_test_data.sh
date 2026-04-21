@@ -923,49 +923,49 @@ psql_exec "DELETE FROM cost_records WHERE tenant_id = '${TENANT_ID}' AND account
 
 psql_pipe << EOF
 INSERT INTO cost_records
-  (tenant_id, provider, account_id, service, region, resource_id, amount, currency, period_start, period_end, tags, fetched_at)
+  (tenant_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency, period_start, period_end, tags, fetched_at)
 VALUES
   -- Daily EC2 costs (3 samples from last 30 days)
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 45.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 47.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 46.80, 'USD', NOW() - interval '1 day', NOW(), '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonEC2', 'us-east-1', 'i-0abc123stg0001', 38.20, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonEC2', 'us-east-1', 'i-0abc123stg0001', 39.10, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonEC2', 'eu-west-1', 'i-0abc123dev0001', 22.80, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 45.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 47.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 46.80, 'USD', NOW() - interval '1 day', NOW(), '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonEC2', 'us-east-1', 'i-0abc123stg0001', 38.20, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonEC2', 'us-east-1', 'i-0abc123stg0001', 39.10, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AmazonEC2', 'eu-west-1', 'i-0abc123dev0001', 22.80, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
 
   -- Daily RDS costs
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonRDS', 'eu-central-1', 'db-prod-legacy-reporting', 210.40, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonRDS', 'eu-central-1', 'db-prod-legacy-reporting', 212.10, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonRDS', 'eu-west-1', 'db-dev-abandoned', 89.10, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonRDS', 'eu-central-1', 'db-prod-legacy-reporting', 210.40, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonRDS', 'eu-central-1', 'db-prod-legacy-reporting', 212.10, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AmazonRDS', 'eu-west-1', 'db-dev-abandoned', 89.10, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
 
   -- S3 costs
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonS3', 'eu-central-1', 'prod-data-lake-bucket', 23.75, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonS3', 'eu-central-1', 'prod-data-lake-bucket', 24.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonS3', 'us-east-1', 'staging-backups', 15.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonS3', 'eu-central-1', 'prod-data-lake-bucket', 23.75, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonS3', 'eu-central-1', 'prod-data-lake-bucket', 24.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonS3', 'us-east-1', 'staging-backups', 15.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
 
   -- CloudFront costs
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonCloudFront', 'us-east-1', 'E1PROD0ABANDONED', 18.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonCloudFront', 'us-east-1', 'E1PROD0ABANDONED', 19.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonCloudFront', 'us-east-1', 'E2STG0OLDSITE', 8.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonCloudFront', 'us-east-1', 'E1PROD0ABANDONED', 18.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonCloudFront', 'us-east-1', 'E1PROD0ABANDONED', 19.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonCloudFront', 'us-east-1', 'E2STG0OLDSITE', 8.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
 
   -- Lambda costs
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AWSLambda', 'us-east-1', 'stg-image-resizer', 4.10, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AWSLambda', 'us-east-1', 'stg-image-resizer', 4.35, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AWSLambda', 'eu-west-1', 'dev-unused-email-sender', 2.30, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSLambda', 'us-east-1', 'stg-image-resizer', 4.10, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSLambda', 'us-east-1', 'stg-image-resizer', 4.35, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AWSLambda', 'eu-west-1', 'dev-unused-email-sender', 2.30, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
 
   -- ELB costs
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod', 18.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod', 18.75, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod', 18.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod', 18.75, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
 
   -- VPC NAT Gateway costs
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonVPC', 'eu-central-1', 'nat-abc123prod', 32.40, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AmazonVPC', 'eu-central-1', 'nat-abc123prod', 31.80, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonVPC', 'eu-central-1', 'nat-abc123prod', 32.40, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonVPC', 'eu-central-1', 'nat-abc123prod', 31.80, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
 
   -- Data Transfer costs
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'AWSDataTransfer', 'us-east-1', 'data-transfer-out', 12.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSDataTransfer', 'us-east-1', 'data-transfer-out', 12.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
 
   -- Tax (simulated)
-  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', 'Tax', 'NoRegion', 'vat', 1.42, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW')
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'Tax', 'NoRegion', 'vat', 1.42, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW')
 ON CONFLICT DO NOTHING;
 EOF
 
