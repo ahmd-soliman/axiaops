@@ -49,7 +49,7 @@ function StatusBadge({ status, theme }) {
   );
 }
 
-export default function AccountSettingsScreen({ account, onBack, onAccountUpdated, onAccountDeleted }) {
+export default function AccountSettingsScreen({ account, onBack, onConnectAccount, onAccountUpdated, onAccountDeleted }) {
   const { theme } = useTheme();
   const { toast } = useToast();
 

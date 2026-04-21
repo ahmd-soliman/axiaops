@@ -35,6 +35,7 @@ export default function Settings() {
     <AccountSettingsScreen
       account={account}
       onBack={() => navigate(-1)}
+      onConnectAccount={() => navigate('/connect')}
       onAccountUpdated={() => {
         queryClient.invalidateQueries({ queryKey: ['accounts'] });
         navigate('/', { replace: true });
