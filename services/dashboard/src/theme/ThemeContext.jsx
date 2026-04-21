@@ -30,7 +30,7 @@ const lightTheme = {
 
   // Brand accent — orange (bold, action-oriented, AAA accessible)
   accent: '#EA580C',            // orange-600, 4.6:1 on white (AA+), vibrant
-  accentMuted: '#C2410C',       // orange-700, 6.5:1 — inactive clickable items
+  accentMuted: '#92400E',       // copper/amber-800, warm — inactive clickable items
   accentLight: '#FFF7ED',       // orange-50, tinted backgrounds
   accentBorder: '#FDBA74',      // orange-300, soft brand borders
   accentText: '#9A3412',        // orange-800, high contrast on accentLight
