@@ -129,6 +129,38 @@
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "start-dev",
+      "type": "shell",
+      "command": "make start-dev",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": [{ "regexp": ".", "file": 1, "location": 2, "message": 3 }],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "listening|Listening",
+          "endsPattern": "listening|Listening"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "start-staging",
+      "type": "shell",
+      "command": "make start-staging",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": [{ "regexp": ".", "file": 1, "location": 2, "message": 3 }],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "listening|Listening",
+          "endsPattern": "listening|Listening"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "shared" }
     }
   ]
 }

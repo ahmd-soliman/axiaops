@@ -120,7 +120,7 @@
       "webRoot": "${workspaceFolder}/services/dashboard",
       "preLaunchTask": "vite-dev-auth",
       "presentation": { "hidden": true }
-    }
+    },
   ],
 
   "compounds": [
