@@ -1,35 +1,76 @@
 {
   "version": "0.2.0",
+
+  // All Go service debug configs run on the host under Delve (matches `make start-dev`).
+  // Auth-on / Kinde debugging is done through the full Docker stack via `make start-staging`
+  // (not wired for step-debugging — attach your debugger of choice to container logs instead).
+  //
+  // Prereqs for F5:
+  //   - Postgres running:       `docker compose up -d postgres` (or first hit `make start-dev`
+  //                              once and then kill just the Go process you want to debug)
+  //   - Env vars populated in:  services/api/.env, services/ingestion/.env
+  //     (DATABASE_URL, ENCRYPTION_KEY, AWS creds, etc.)
   "configurations": [
     {
-      "name": "Start Dev Environment",
-      "type": "node",
+      "name": "Debug API",
+      "type": "go",
       "request": "launch",
-      "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "make",
-      "runtimeArgs": ["start-dev"],
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen"
+      "mode": "debug",
+      "program": "${workspaceFolder}/services/api/cmd/main.go",
+      "cwd": "${workspaceFolder}/services/api",
+      "envFile": "${workspaceFolder}/services/api/.env",
+      "env": {
+        "DEV_MODE": "true"
+      },
+      "showLog": true
     },
     {
-      "name": "Start Staging Environment",
-      "type": "node",
+      "name": "Debug Ingestion",
+      "type": "go",
       "request": "launch",
-      "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "make",
-      "runtimeArgs": ["start-staging"],
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen"
+      "mode": "debug",
+      "program": "${workspaceFolder}/services/ingestion/cmd/main.go",
+      "cwd": "${workspaceFolder}/services/ingestion",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DEV_MODE": "true"
+      },
+      "showLog": true
     },
     {
-      "name": "Debug Dashboard (Expo)",
-      "type": "node",
+      "name": "Debug Migrate CLI",
+      "type": "go",
       "request": "launch",
-      "cwd": "${workspaceFolder}/services/dashboard",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "web"],
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen"
+      "mode": "debug",
+      "program": "${workspaceFolder}/services/shared/cmd/migrate/main.go",
+      "cwd": "${workspaceFolder}/services/shared",
+      "envFile": "${workspaceFolder}/services/api/.env"
+    },
+    {
+      "name": "Debug Tests",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}"
+    },
+    {
+      "name": "Debug Dashboard",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/services/dashboard",
+      "sourceMapPathOverrides": {
+        "webpack:///./src/*": "${workspaceFolder}/services/dashboard/src/*",
+        "webpack:///src/*":   "${workspaceFolder}/services/dashboard/src/*"
+      }
+    }
+  ],
+
+  "compounds": [
+    {
+      "name": "Debug Full Stack",
+      "configurations": ["Debug API", "Debug Ingestion"],
+      "stopAll": true
     }
   ]
 }
