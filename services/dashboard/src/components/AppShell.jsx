@@ -60,9 +60,9 @@ function IconCost({ color, size = 18 }) {
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { label: 'Dashboard',       path: '/',      Icon: IconDashboard },
-  { label: 'Idle Resources',  path: '/trend', Icon: IconTrend },
-  { label: 'Billing',         path: '/cost',  Icon: IconCost },
+  { label: 'Dashboard',        path: '/',      Icon: IconDashboard },
+  { label: 'Idle Resources',   path: '/trend', Icon: IconTrend },
+  { label: 'Cost Breakdown',   path: '/cost',  Icon: IconCost },
 ];
 
 // ─── Top navbar ───────────────────────────────────────────────────────────────
