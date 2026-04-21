@@ -29,11 +29,11 @@ function formatDateShort(iso) {
 }
 
 // Simple chart renderer for cost trends
-function CostTrendChart({ data, theme, height = 150 }) {
+function CostTrendChart({ data, theme, height = 320 }) {
   if (!data || data.length === 0) return null;
 
-  const width = 800;
-  const padding = { top: 20, right: 20, bottom: 30, left: 50 };
+  const width = 1200;
+  const padding = { top: 20, right: 20, bottom: 40, left: 60 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
@@ -51,7 +51,7 @@ function CostTrendChart({ data, theme, height = 150 }) {
   const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
 
   return (
-    <svg width={width} height={height} style={{ backgroundColor: theme.surface, borderRadius: 8 }}>
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ backgroundColor: theme.surface, borderRadius: 8, display: 'block' }}>
       {/* Y axis */}
       <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} stroke={theme.border} strokeWidth="1" />
       {/* X axis */}
@@ -178,12 +178,12 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
       {/* Trends chart section */}
       {trends.length > 0 && (
-        <div style={{ padding: '16px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 12 }}>
-            Cost Trend
+        <div style={{ padding: '20px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 16 }}>
+            Cost Trend (30 Days)
           </span>
-          <div style={{ overflowX: 'auto' }}>
-            <CostTrendChart data={trends} theme={t} height={150} />
+          <div style={{ width: '100%', minHeight: 320 }}>
+            <CostTrendChart data={trends} theme={t} height={320} />
           </div>
         </div>
       )}
