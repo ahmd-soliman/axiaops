@@ -116,11 +116,11 @@ export default function AppShell() {
                   cursor: 'pointer',
                 }}
               >
-                <Icon color={isActive ? t.accent : t.textMuted} />
+                <Icon color={isActive ? t.accent : t.accentMuted} />
                 <span style={{
                   fontSize: 13,
                   fontWeight: isActive ? 700 : 500,
-                  color: isActive ? t.accent : t.textMuted,
+                  color: isActive ? t.accent : t.accentMuted,
                 }}>
                   {label}
                 </span>
@@ -145,7 +145,7 @@ export default function AppShell() {
               alignItems: 'center',
             }}
           >
-            {isDark ? <IconSun color={t.textMuted} /> : <IconMoon color={t.textMuted} />}
+            {isDark ? <IconSun color={t.accentMuted} /> : <IconMoon color={t.accentMuted} />}
           </button>
 
           {/* Org badge */}
@@ -172,7 +172,7 @@ export default function AppShell() {
               cursor: 'pointer',
             }}
           >
-            <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted }}>Sign out</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: t.accentMuted }}>Sign out</span>
           </button>
         </div>
       </header>
