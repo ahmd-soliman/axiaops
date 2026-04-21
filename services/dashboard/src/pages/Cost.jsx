@@ -21,6 +21,7 @@ export default function Cost() {
       selectedAccount={selectedAccountId}
       selectedAwsAccount={selectedAccount}
       onSelectAccount={(id) => id ? setParams({ account: id }) : setParams({})}
+      onConnectAccount={() => navigate('/connect')}
     />
   );
 }

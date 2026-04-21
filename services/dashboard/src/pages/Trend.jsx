@@ -16,6 +16,7 @@ export default function Trend() {
       selectedAccount={selectedAccountId}
       selectedAwsAccount={selectedAccountId}
       onSelectAccount={(id) => id ? setParams({ account: id }) : setParams({})}
+      onConnectAccount={() => navigate('/connect')}
       onBack={() => navigate(-1)}
     />
   );
