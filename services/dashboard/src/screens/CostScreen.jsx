@@ -21,7 +21,7 @@ function formatDate(iso) {
 }
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
-export default function CostScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount }) {
+export default function CostScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onConnectAccount }) {
   const { theme } = useTheme();
   const [period, setPeriod] = useState(30);
   const [filterService, setFilterService] = useState(null);
@@ -78,6 +78,7 @@ export default function CostScreen({ accounts, selectedAccount, selectedAwsAccou
           accounts={accounts}
           selectedAccount={selectedAccount}
           onSelectAccount={onSelectAccount}
+          onConnectAccount={onConnectAccount}
         />
       </div>
 

@@ -32,7 +32,7 @@ function formatDateShort(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-export default function CostAnalyticsScreen({ accounts: passedAccounts, selectedAccount: passedSelectedAccount, onSelectAccount }) {
+export default function CostAnalyticsScreen({ accounts: passedAccounts, selectedAccount: passedSelectedAccount, onSelectAccount, onConnectAccount }) {
   const { theme } = useTheme();
   const screenWidth = useWindowWidth();
   const [period, setPeriod] = useState(30);
@@ -149,6 +149,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
           accounts={accounts}
           selectedAccount={selectedAccount}
           onSelectAccount={onSelectAccount}
+          onConnectAccount={onConnectAccount}
         />
       </div>
 
