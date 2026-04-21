@@ -100,6 +100,7 @@ export default function AppShell() {
         <nav aria-label="Main navigation" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
           {NAV_ITEMS.map(({ label, path, Icon }) => {
             const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
+            const activeBg = isDark ? t.bg : t.accentLight;
             return (
               <button
                 key={path}
@@ -112,7 +113,7 @@ export default function AppShell() {
                   padding: '5px 10px',
                   borderRadius: 7,
                   border: 'none',
-                  backgroundColor: isActive ? t.accentLight : 'transparent',
+                  backgroundColor: isActive ? activeBg : 'transparent',
                   cursor: 'pointer',
                 }}
               >
