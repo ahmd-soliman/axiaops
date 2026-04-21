@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchSummary, fetchResources, fetchTrend, fetchDismissals, scanAccount, dismissGhost } from '../api/client';
+import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissGhost } from '../api/client';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
@@ -31,50 +31,14 @@ const SNOOZE_OPTIONS = [
   { label: '90 days', days: 90 },
 ];
 
-// ─── Sparkline ────────────────────────────────────────────────────────────────
+// ─── Overview section ─────────────────────────────────────────────────────────
 
-function SavingsSparkline({ snaps, color }) {
-  if (!snaps || snaps.length < 2) return null;
-  const W = 80, H = 28;
-  const maxPoints = 24;
-  const values = snaps.map(s => s.total_monthly_cost).slice(-maxPoints);
-  const maxVal = Math.max(...values, 0.01);
-  const minVal = Math.min(...values, 0);
-  const range = maxVal - minVal || 1;
-  const pad = H * 0.08;
-
-  const points = values.map((v, i) => ({
-    x: (i / (values.length - 1)) * W,
-    y: pad + (H - pad * 2) - ((v - minVal) / range) * (H - pad * 2),
-  }));
-
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-  const areaPath = linePath + ` L${W},${H} L0,${H} Z`;
-  const last = points[points.length - 1];
-
-  return (
-    <svg width={W} height={H} style={{ marginTop: 6, display: 'block' }}>
-      <defs>
-        <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0.04" />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill="url(#sparkGrad)" />
-      <path d={linePath} fill="none" stroke={color} strokeWidth="1.5"
-        strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={last.x} cy={last.y} r="2" fill={color} />
-    </svg>
-  );
-}
-
-// ─── Summary hero ─────────────────────────────────────────────────────────────
-
-function SummaryHero({ summary, trend, onShowTrend, theme }) {
+function OverviewHero({ summary, totalSpend, trend, onShowTrend, theme }) {
   const data = summary.data;
-  const savings = data?.potential_monthly_savings ?? 0;
+  const waste = data?.potential_monthly_savings ?? 0;
   const ghostCount = data?.total_ghosts ?? 0;
-  const serviceCount = Object.keys(data?.by_service ?? {}).length;
+  const currency = data?.currency || '$';
+  const wastePercent = totalSpend > 0 ? (waste / totalSpend) * 100 : 0;
 
   const latestSnap = trend.data?.[trend.data.length - 1];
   const prevSnap   = trend.data?.[trend.data.length - 2];
@@ -83,37 +47,103 @@ function SummaryHero({ summary, trend, onShowTrend, theme }) {
     : null;
 
   return (
-    <button
-      onClick={onShowTrend}
-      aria-label="View savings trend"
-      style={{
-        display: 'block',
-        width: '100%',
-        backgroundColor: theme.surfaceAlt || theme.surface,
-        borderBottom: `1px solid ${theme.border}`,
-        padding: '20px 20px 16px',
-        cursor: 'pointer',
-        textAlign: 'left',
-        border: 'none',
-        borderBlockEnd: `1px solid ${theme.border}`,
-      }}
-    >
-      <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
-        Monthly Waste
-      </span>
-      <span style={{ fontSize: 32, fontWeight: 800, color: theme.accent, letterSpacing: -0.5, display: 'block' }}>
-        {data?.currency} {savings.toFixed(2)}
-      </span>
-      <span style={{ fontSize: 13, color: theme.textMid, marginTop: 4, display: 'block' }}>
-        {ghostCount} zombie{ghostCount !== 1 ? 's' : ''} across {serviceCount} service{serviceCount !== 1 ? 's' : ''}
-      </span>
-      {delta !== null && (
-        <span style={{ fontSize: 12, color: delta > 0 ? theme.error : theme.success, fontWeight: 700, marginTop: 4, display: 'block' }}>
-          {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}% vs last scan
-        </span>
+    <div style={{ backgroundColor: theme.surfaceAlt || theme.surface, borderBottom: `1px solid ${theme.border}`, padding: '20px' }}>
+      {/* Two-stat row */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+        {/* Total Spend */}
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+            Total Spend
+          </span>
+          <span style={{ fontSize: 28, fontWeight: 800, color: theme.text, letterSpacing: -0.5, display: 'block' }}>
+            {currency} {totalSpend.toFixed(2)}
+          </span>
+          <span style={{ fontSize: 12, color: theme.textMuted, marginTop: 2, display: 'block' }}>
+            last 30 days
+          </span>
+        </div>
+
+        {/* Monthly Waste */}
+        <button
+          onClick={onShowTrend}
+          style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
+          <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+            Monthly Waste
+          </span>
+          <span style={{ fontSize: 28, fontWeight: 800, color: theme.accent, letterSpacing: -0.5, display: 'block' }}>
+            {currency} {waste.toFixed(2)}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+            <span style={{ fontSize: 12, color: theme.textMuted }}>
+              {ghostCount} zombie{ghostCount !== 1 ? 's' : ''}
+            </span>
+            {delta !== null && (
+              <span style={{ fontSize: 11, color: delta > 0 ? theme.error : theme.success, fontWeight: 700 }}>
+                {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
+              </span>
+            )}
+          </div>
+        </button>
+      </div>
+
+      {/* Waste bar */}
+      {totalSpend > 0 && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted }}>Waste ratio</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: wastePercent > 20 ? theme.error : wastePercent > 10 ? theme.warning : theme.success }}>
+              {wastePercent.toFixed(1)}%
+            </span>
+          </div>
+          <div style={{ height: 6, backgroundColor: theme.border, borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${Math.min(wastePercent, 100)}%`,
+              backgroundColor: wastePercent > 20 ? theme.error : wastePercent > 10 ? theme.warning : theme.success,
+              borderRadius: 3,
+              transition: 'width 0.3s',
+            }} />
+          </div>
+        </div>
       )}
-      <SavingsSparkline snaps={trend.data} color={theme.accent} />
-    </button>
+    </div>
+  );
+}
+
+// ─── Service breakdown ───────────────────────────────────────────────────────
+
+function ServiceBreakdown({ byService, currency, theme }) {
+  if (byService.length === 0) return null;
+  const maxSavings = Math.max(...byService.map(([, d]) => d.savings), 0.01);
+
+  return (
+    <div style={{ padding: '16px 20px', borderBottom: `1px solid ${theme.border}` }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 12 }}>
+        Waste by Service
+      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {byService.map(([svc, data]) => {
+          const cfg = serviceConfig(svc);
+          const barWidth = (data.savings / maxSavings) * 100;
+          return (
+            <div key={svc}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
+                  <span style={{ fontSize: 11, color: theme.textMuted }}>{data.ghosts} resource{data.ghosts !== 1 ? 's' : ''}</span>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: theme.accent }}>{currency}{data.savings.toFixed(2)}</span>
+              </div>
+              <div style={{ height: 4, backgroundColor: theme.border, borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${barWidth}%`, backgroundColor: cfg.color, borderRadius: 2, transition: 'width 0.3s' }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -712,8 +742,14 @@ export default function DashboardScreen({
 
   const summary    = useQuery({ queryKey: ['summary', selectedAccount],    queryFn: () => fetchSummary(selectedAccount) });
   const resources  = useQuery({ queryKey: ['resources', selectedAccount],  queryFn: () => fetchResources(selectedAccount) });
+  const costs      = useQuery({ queryKey: ['costs', selectedAccount, 30], queryFn: () => fetchCosts(selectedAccount, null, 30) });
   const trend      = useQuery({ queryKey: ['trend'],                       queryFn: () => fetchTrend(null) });
   const dismissals = useQuery({ queryKey: ['dismissals', selectedAccount], queryFn: () => fetchDismissals(selectedAccount) });
+
+  const totalSpend = useMemo(() => {
+    if (!costs.data) return 0;
+    return costs.data.reduce((sum, r) => sum + (r.amount || 0), 0);
+  }, [costs.data]);
 
   const isLoading    = summary.isLoading || resources.isLoading;
   const isError      = summary.isError   || resources.isError;
@@ -771,7 +807,7 @@ export default function DashboardScreen({
   }
 
   function refresh() {
-    summary.refetch(); resources.refetch(); trend.refetch(); dismissals.refetch();
+    summary.refetch(); resources.refetch(); costs.refetch(); trend.refetch(); dismissals.refetch();
   }
 
   function toggleSelect(id) {
@@ -950,8 +986,11 @@ export default function DashboardScreen({
         </button>
       </div>
 
-      {/* Summary hero */}
-      <SummaryHero summary={summary} trend={trend} onShowTrend={onShowTrend} theme={t} />
+      {/* Overview hero */}
+      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} theme={t} />
+
+      {/* Service breakdown */}
+      <ServiceBreakdown byService={byService} currency={summary.data?.currency ?? '$'} theme={t} />
 
       {/* Filter pills */}
       <div style={{ padding: '12px 16px 0' }}>

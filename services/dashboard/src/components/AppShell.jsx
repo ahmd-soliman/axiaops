@@ -4,13 +4,11 @@ import { useApp } from '../context/AppContext';
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
 
-function IconDashboard({ color, size = 18 }) {
+function IconGhost({ color, size = 18 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <path d="M9 10h.01M15 10h.01" />
+      <path d="M12 2a8 8 0 0 0-8 8v12l3-3 2 3 3-3 3 3 2-3 3 3V10a8 8 0 0 0-8-8z" />
     </svg>
   );
 }
@@ -60,9 +58,9 @@ function IconCost({ color, size = 18 }) {
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { label: 'Dashboard',        path: '/',      Icon: IconDashboard },
-  { label: 'Idle Resources',   path: '/trend', Icon: IconTrend },
-  { label: 'Cost Breakdown',   path: '/cost',  Icon: IconCost },
+  { label: 'Zombies',          path: '/',      Icon: IconGhost },
+  { label: 'Trends',           path: '/trend', Icon: IconTrend },
+  { label: 'Costs',            path: '/cost',  Icon: IconCost },
 ];
 
 // ─── Top navbar ───────────────────────────────────────────────────────────────
