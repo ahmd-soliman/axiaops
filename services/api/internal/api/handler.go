@@ -376,8 +376,7 @@ func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	account, err := h.store.GetAccount(ctx, r.PathValue("id"))
 	if err != nil {
-		slog.Error("getAccount: load failed", "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		http.Error(w, "account not found", http.StatusNotFound)
 		return
 	}
 	writeJSON(w, account)

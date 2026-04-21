@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useId } from 'react';
 
 const CHART_HEIGHT = 200;
 const MARGIN = { top: 16, right: 20, bottom: 32, left: 56 };
@@ -25,7 +25,8 @@ function formatDate(iso) {
 export default function AreaChart({ data, selectedId, onSelect, theme, screenWidth }) {
   const [hoverIdx, setHoverIdx] = useState(null);
   const svgRef = useRef(null);
-  const gradientId = 'area-chart-grad';
+  const reactId = useId();
+  const gradientId = `area-chart-grad-${reactId}`;
 
   if (!data || data.length < 2) return null;
 
@@ -70,7 +71,7 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
   }
 
   // Find nearest data point to cursor
-  const handleMouseMove = useCallback((e) => {
+  function handleMouseMove(e) {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return;
     const mouseX = e.clientX - rect.left;
@@ -81,7 +82,7 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
       if (dist < minDist) { minDist = dist; closest = i; }
     }
     setHoverIdx(closest);
-  }, [data.length, width]);
+  }
 
   function handleClick() {
     if (hoverIdx !== null) onSelect(data[hoverIdx]);
