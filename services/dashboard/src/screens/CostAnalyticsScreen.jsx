@@ -44,7 +44,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const [notification, setNotification] = useState(null);
 
   // Use passed accounts or fetch if not provided
-  const accountsQuery = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
+  const accountsQuery = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts, enabled: !passedAccounts?.length });
   const accounts = passedAccounts?.length > 0 ? passedAccounts : (accountsQuery.data ?? []);
   const selectedAccount = passedSelectedAccount;
 
@@ -111,9 +111,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
     setNotification({ message: `Scan started for ${accountLabel}...`, type: 'info' });
     try {
       await scanAccount(accountId);
-      setNotification({ message: `Scan completed for ${accountLabel}!`, type: 'success' });
+      setNotification({ message: `Scan started for ${accountLabel} — results will appear shortly`, type: 'success' });
     } catch (err) {
-      console.error('Failed to scan account:', err);
       setNotification({ message: `Scan failed for ${accountLabel}`, type: 'error' });
     } finally {
       setScanning(null);
