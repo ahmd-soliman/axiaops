@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { fetchTrend, fetchTrendServices, fetchTrendResourceTypes } from '../api/client';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
+import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
 import { useWindowWidth } from '../components/primitives';
 import { Spinner } from '../components/primitives';
@@ -319,11 +320,12 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
 }
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
-export default function TrendScreen({ onBack }) {
+export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onBack }) {
   const { theme, isDark } = useTheme();
   const screenWidth = useWindowWidth();
   const [filterServices, setFilterServices]         = useState(() => new Set());
   const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
+
   const trendServices = useQuery({ queryKey: ['trend-services'], queryFn: fetchTrendServices });
 
   // Sub-types only make sense under a single service, so we only fetch & render
@@ -353,8 +355,8 @@ export default function TrendScreen({ onBack }) {
 
   const trendQueries = useQueries({
     queries: filterBuckets.map(b => ({
-      queryKey: ['trend', b.service, b.resourceType],
-      queryFn: () => fetchTrend(null, b.service, b.resourceType),
+      queryKey: ['trend', selectedAwsAccount, b.service, b.resourceType],
+      queryFn: () => fetchTrend(selectedAwsAccount, b.service, b.resourceType),
     })),
   });
 
@@ -477,6 +479,15 @@ export default function TrendScreen({ onBack }) {
 
   return (
     <div ref={topRef} style={{ backgroundColor: t.bg, minHeight: '100%' }}>
+
+      {/* Account selector header */}
+      <div style={{ backgroundColor: t.surface, borderBottom: `1px solid ${t.border}`, padding: '16px' }}>
+        <AccountSelector
+          accounts={accounts}
+          selectedAccount={selectedAccount}
+          onSelectAccount={onSelectAccount}
+        />
+      </div>
 
       {/* Page header */}
       <div style={{ backgroundColor: t.surfaceAlt, borderBottom: `1px solid ${t.border}`, padding: '14px 20px 20px' }}>

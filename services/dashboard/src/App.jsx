@@ -12,6 +12,7 @@ import AuthGuard  from './components/AuthGuard';
 import Dashboard  from './pages/Dashboard';
 import Detail     from './pages/Detail';
 import Trend      from './pages/Trend';
+import CostAnalytics from './pages/CostAnalytics';
 import Connect    from './pages/Connect';
 import Settings   from './pages/Settings';
 import Login      from './pages/Login';
@@ -46,6 +47,7 @@ function AuthenticatedApp() {
             <Route path="/"                    element={<Dashboard />} />
             <Route path="/detail/:id"          element={<Detail />} />
             <Route path="/trend"               element={<Trend />} />
+            <Route path="/cost"                element={<CostAnalytics />} />
             <Route path="/connect"             element={<Connect />} />
             <Route path="/settings/:accountId" element={<Settings />} />
           </Route>

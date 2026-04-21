@@ -44,6 +44,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/trend", h.getTrend)
 	mux.HandleFunc("GET /v1/trend/services", h.getTrendServices)
 	mux.HandleFunc("GET /v1/trend/resource-types", h.getTrendResourceTypes)
+	mux.HandleFunc("GET /v1/costs", h.listCosts)
 	mux.HandleFunc("GET /v1/resources", h.listResources)
 	mux.HandleFunc("GET /v1/accounts", h.listAccounts)
 	mux.HandleFunc("GET /v1/accounts/{id}", h.getAccount)
@@ -285,6 +286,30 @@ func (h *Handler) getTrendResourceTypes(w http.ResponseWriter, r *http.Request) 
 		types = []string{}
 	}
 	writeJSON(w, types)
+}
+
+// listCosts returns cost records for the tenant, filtered by account, service, and time window.
+// Optional query params: ?account_id=<id>, ?service=<name>, ?days=<int> (default 30).
+func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+
+	filter := storage.CostFilter{
+		InternalAccountID: r.URL.Query().Get("account_id"),
+		Service:           r.URL.Query().Get("service"),
+		Days:              days,
+	}
+
+	records, err := h.store.ListCostRecords(ctx, filter)
+	if err != nil {
+		slog.Error("listCosts: load failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if records == nil {
+		records = []model.CostRecord{}
+	}
+	writeJSON(w, records)
 }
 
 // Pinger is satisfied by *postgres.Store (which embeds pgxpool.Pool).

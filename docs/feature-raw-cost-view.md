@@ -57,10 +57,11 @@ ListCostRecords(ctx context.Context, filter CostFilter) ([]model.CostRecord, err
 - Account selector (same as DashboardScreen)
 
 **Display:**
-- Cost cards grouped by service → region → period
-- Total cost summary + record count
+- Cost records in table view grouped by service
+- Total cost summary + record count  
 - Service color indicators
 - Loading/error/empty states
+- Note: Account filtering is not supported in this phase because the Account model lacks AWS account ID field. To add account filtering in the future, extend the Account model with the AWS account ID.
 
 ---
 

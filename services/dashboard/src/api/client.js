@@ -163,3 +163,15 @@ export async function fetchGhostsWithDismissed(accountId) {
   if (!res.ok) throw new Error('Failed to fetch ghosts');
   return res.json();
 }
+
+export async function fetchCosts(accountId, service, days = 30) {
+  const params = new URLSearchParams();
+  if (accountId) params.set('account_id', accountId);
+  if (service) params.set('service', service);
+  params.set('days', String(days));
+  const qs = params.toString();
+  const url = qs ? `${BASE_URL}/v1/costs?${qs}` : `${BASE_URL}/v1/costs`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch costs');
+  return res.json();
+}

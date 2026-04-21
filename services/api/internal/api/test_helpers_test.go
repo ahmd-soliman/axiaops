@@ -34,6 +34,7 @@ type MockStore struct {
 	accounts   []model.Account
 	snapshots  []model.GhostSnapshot
 	resources  []model.ResourceRecord
+	costs      []model.CostRecord
 	dismissals []model.DismissAction
 	nextDismID int64
 
@@ -93,6 +94,14 @@ func (m *MockStore) WithAccounts(accounts []model.Account) *MockStore {
 func (m *MockStore) WithSnapshots(snapshots []model.GhostSnapshot) *MockStore {
 	m.mu.Lock()
 	m.snapshots = snapshots
+	m.mu.Unlock()
+	return m
+}
+
+// WithCostRecords pre-populates the mock with cost records.
+func (m *MockStore) WithCostRecords(costs []model.CostRecord) *MockStore {
+	m.mu.Lock()
+	m.costs = costs
 	m.mu.Unlock()
 	return m
 }
@@ -355,6 +364,13 @@ func (m *MockStore) LoadResources(_ context.Context) ([]model.ResourceRecord, er
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]model.ResourceRecord(nil), m.resources...), nil
+}
+
+func (m *MockStore) ListCostRecords(_ context.Context, filter storage.CostFilter) ([]model.CostRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Mock doesn't filter by account_id, service, or days — just returns all records.
+	return append([]model.CostRecord(nil), m.costs...), nil
 }
 
 func (m *MockStore) SaveSnapshot(_ context.Context, s model.GhostSnapshot) error {
