@@ -17,7 +17,7 @@ services/
   api/        — HTTP server (:8080), auth middleware, reads from DB
   ingestion/  — Long-lived HTTP server (:8081), fetches AWS data, writes to DB
   shared/     — Domain models, Store interface, PostgreSQL, analyzer, crypto, logging
-  dashboard/  — React Native (Expo) web app, served via nginx
+  dashboard/  — Vite + React web app, served via nginx
 ```
 
 Go workspace (`go.work`) links all three Go modules. Import paths: `axiaops.io/api`, `axiaops.io/ingestion`, `axiaops.io/shared`.

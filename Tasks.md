@@ -64,6 +64,6 @@ _Last updated: 2026-04-19_
 ## Phase 4+ (2027)
 
 - Multi-cloud (Azure, GCP)
-- Mobile app (iOS + Android via Expo)
+- Mobile app (iOS + Android)
 - Cost forecasting (linear regression over snapshot history)
 - IaC plan parser (Terraform / CDK) + CI/CD budget gate
