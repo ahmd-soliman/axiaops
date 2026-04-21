@@ -256,8 +256,8 @@ func (m *MockStore) LoadGhosts(ctx context.Context) ([]model.GhostResource, erro
 	return ghosts, nil
 }
 
-func (m *MockStore) UpsertTenant(_ context.Context, _, _ string) (model.Tenant, error) {
-	return model.Tenant{}, nil
+func (m *MockStore) UpsertTenant(_ context.Context, externalID, name string) (model.Tenant, error) {
+	return model.Tenant{ID: externalID, Name: name}, nil
 }
 
 func (m *MockStore) UpsertUser(_ context.Context, _, _, _, _ string) (model.User, error) {
