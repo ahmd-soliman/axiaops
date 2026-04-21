@@ -18,7 +18,6 @@ export default function Trend() {
       onSelectAccount={(id) => id ? setParams({ account: id }) : setParams({})}
       onConnectAccount={() => navigate('/connect')}
       onEditAccount={(acc) => navigate(`/settings/${acc.id}`)}
-      onBack={() => navigate(-1)}
     />
   );
 }
