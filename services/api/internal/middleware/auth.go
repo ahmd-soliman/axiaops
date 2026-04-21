@@ -207,7 +207,7 @@ func DevBypass(orgCode string, store storage.Store, next http.Handler) http.Hand
 		if store != nil {
 			tenant, err := store.UpsertTenant(ctx, orgCode, orgCode)
 			if err != nil {
-				slog.Error("auth: UpsertTenant failed in dev mode", "error", err)
+				slog.Error("auth: UpsertTenant failed in dev mode", "org_code", orgCode, "error", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
