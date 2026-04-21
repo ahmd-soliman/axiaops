@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	cloudwatchTypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -56,10 +58,6 @@ func DiscoverResources(ctx context.Context, awsClient *Client, records []model.C
 
 	var discovered []DiscoveredResource
 
-	// Global services (CloudFront, S3) return the same results regardless of
-	// region. Track which have already been discovered to avoid duplicates.
-	globalDone := make(map[string]bool)
-
 	for k := range pairs {
 		cfg, err := awsClient.configForRegion(ctx, k.region)
 		if err != nil {
@@ -91,33 +89,8 @@ func DiscoverResources(ctx context.Context, awsClient *Client, records []model.C
 			ids = discoverDynamoDB(ctx, cfg)
 		case "AmazonEKS":
 			ids = discoverEKS(ctx, cfg)
-		case "AmazonCloudFront":
-			// CloudFront is global — only discover once.
-			if globalDone[k.service] {
-				continue
-			}
-			globalDone[k.service] = true
-			ids = discoverCloudFront(ctx, cfg)
-		case "AmazonS3":
-			// S3 ListBuckets is global but CloudWatch metrics are regional.
-			// Discover once, then assign each bucket to its actual region.
-			if globalDone[k.service] {
-				continue
-			}
-			globalDone[k.service] = true
-			bucketsByRegion := discoverS3BucketsByRegion(ctx, cfg)
-			for bucketRegion, buckets := range bucketsByRegion {
-				for _, name := range buckets {
-					discovered = append(discovered, DiscoveredResource{
-						Service:    k.service,
-						Region:     bucketRegion,
-						ResourceID: name,
-					})
-				}
-			}
-			continue // skip the generic append below — already handled
-		case "AmazonKinesis":
-			ids = discoverKinesis(ctx, cfg)
+		// NOTE: CloudFront, Kinesis, and S3 are handled by dedicated Discover*
+		// functions that do their own CloudWatch queries. They are NOT discovered here.
 		default:
 			continue
 		}
@@ -1522,6 +1495,304 @@ func discoverS3BucketsByRegion(ctx context.Context, cfg aws.Config) map[string][
 		byRegion[region] = append(byRegion[region], name)
 	}
 	return byRegion
+}
+
+// ── Idle CloudFront distributions ───────────────────────────────────────────
+
+// DiscoverIdleCloudFrontDistributions lists all CloudFront distributions and
+// queries CloudWatch for the Requests metric. Distributions with zero requests
+// over the lookback period are flagged as idle.
+func DiscoverIdleCloudFrontDistributions(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+	cfg, err := awsClient.configForRegion(ctx, "us-east-1")
+	if err != nil {
+		return nil, fmt.Errorf("cloudfront: load config: %w", err)
+	}
+
+	ids := discoverCloudFront(ctx, cfg)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	// Estimate per-distribution cost from aggregate CE data.
+	totalCFCost := serviceCostFromRecords(records, "AmazonCloudFront")
+	perDistCost := 0.0
+	if len(ids) > 0 && totalCFCost > 0 {
+		perDistCost = totalCFCost / float64(len(ids))
+	}
+
+	// CloudFront metrics live in us-east-1 with Region=Global dimension.
+	cwCfg, err := awsClient.configForRegion(ctx, "us-east-1")
+	if err != nil {
+		return nil, fmt.Errorf("cloudfront: cw config: %w", err)
+	}
+	cw := newCloudWatchClient(cwCfg)
+
+	periodSecs := int32(end.Sub(start).Seconds())
+	if periodSecs < 60 {
+		periodSecs = 60
+	}
+
+	accountID := awsClient.AccountID()
+	var ghosts []model.GhostResource
+
+	for _, distID := range ids {
+		avg, err := getMetricAvg(ctx, cw, "AWS/CloudFront", "Requests", "DistributionId", distID, start, end, periodSecs,
+			[]cloudwatchTypes.Dimension{{Name: aws.String("Region"), Value: aws.String("Global")}})
+		if err != nil {
+			slog.Warn("cloudfront: GetMetricStatistics", "distribution_id", distID, "error", err)
+			continue
+		}
+
+		if avg > 0 {
+			continue
+		}
+
+		ghosts = append(ghosts, model.GhostResource{
+			Provider:          "aws",
+			AccountID:         accountID,
+			InternalAccountID: internalAccountID,
+			Service:           "AmazonCloudFront",
+			Region:            "global",
+			ResourceID:        distID,
+			Tags:              map[string]string{},
+			MonthlyCost:       perDistCost,
+			Currency:          "USD",
+			PeriodStart:       start,
+			PeriodEnd:         end,
+			UsageMetric:       "Requests",
+			UsageAvg:          0,
+			UsageUnit:         "Count",
+			Reason:            "CloudFront distribution has zero requests — likely abandoned",
+			Owner:             "unknown",
+		})
+		slog.Info("cloudfront: idle distribution flagged", "distribution_id", distID)
+	}
+
+	return ghosts, nil
+}
+
+// ── Idle Kinesis data streams ───────────────────────────────────────────────
+
+// kinesisShardHourlyCost is the provisioned-mode cost per shard-hour.
+// Source: AWS Kinesis Data Streams pricing (us-east-1).
+const kinesisShardHourlyCost = 0.015
+
+// DiscoverIdleKinesisStreams lists Kinesis streams in all regions found in cost
+// records and queries CloudWatch for IncomingRecords. Streams with zero incoming
+// records are flagged, with cost estimated from shard count.
+func DiscoverIdleKinesisStreams(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+	regions := uniqueRegions(records)
+	accountID := awsClient.AccountID()
+	var ghosts []model.GhostResource
+
+	for region := range regions {
+		cfg, err := awsClient.configForRegion(ctx, region)
+		if err != nil {
+			slog.Warn("kinesis: load config", "region", region, "error", err)
+			continue
+		}
+
+		streamNames := discoverKinesis(ctx, cfg)
+		if len(streamNames) == 0 {
+			continue
+		}
+
+		cw := newCloudWatchClient(cfg)
+		kinesisClient := kinesis.NewFromConfig(cfg)
+
+		periodSecs := int32(end.Sub(start).Seconds())
+		if periodSecs < 60 {
+			periodSecs = 60
+		}
+
+		for _, name := range streamNames {
+			avg, err := getMetricAvg(ctx, cw, "AWS/Kinesis", "IncomingRecords", "StreamName", name, start, end, periodSecs, nil)
+			if err != nil {
+				slog.Warn("kinesis: GetMetricStatistics", "stream", name, "region", region, "error", err)
+				continue
+			}
+
+			if avg > 0 {
+				continue
+			}
+
+			// Estimate cost from shard count.
+			monthlyCost := kinesisShardHourlyCost * 730 // 1 shard default
+			desc, descErr := kinesisClient.DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
+				StreamName: aws.String(name),
+			})
+			if descErr == nil && desc.StreamDescriptionSummary != nil {
+				shards := aws.ToInt32(desc.StreamDescriptionSummary.OpenShardCount)
+				if shards > 0 {
+					monthlyCost = float64(shards) * kinesisShardHourlyCost * 730
+				}
+			}
+
+			ghosts = append(ghosts, model.GhostResource{
+				Provider:          "aws",
+				AccountID:         accountID,
+				InternalAccountID: internalAccountID,
+				Service:           "AmazonKinesis",
+				Region:            region,
+				ResourceID:        name,
+				Tags:              map[string]string{},
+				MonthlyCost:       monthlyCost,
+				Currency:          "USD",
+				PeriodStart:       start,
+				PeriodEnd:         end,
+				UsageMetric:       "IncomingRecords",
+				UsageAvg:          0,
+				UsageUnit:         "Count",
+				Reason:            "Kinesis data stream has zero incoming records — likely unused",
+				Owner:             "unknown",
+			})
+			slog.Info("kinesis: idle stream flagged", "stream", name, "region", region)
+		}
+	}
+
+	return ghosts, nil
+}
+
+// ── Idle S3 buckets ─────────────────────────────────────────────────────────
+
+// DiscoverIdleS3Buckets lists all S3 buckets and queries CloudWatch for the
+// AllRequests metric (requires S3 request metrics to be enabled on the bucket).
+// Buckets with zero requests are flagged. Buckets without request metrics
+// configured are skipped (no CloudWatch data available).
+func DiscoverIdleS3Buckets(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+	cfg, err := awsClient.configForRegion(ctx, "us-east-1")
+	if err != nil {
+		return nil, fmt.Errorf("s3: load config: %w", err)
+	}
+
+	bucketsByRegion := discoverS3BucketsByRegion(ctx, cfg)
+	if len(bucketsByRegion) == 0 {
+		return nil, nil
+	}
+
+	// Estimate per-bucket cost from aggregate CE data.
+	totalS3Cost := serviceCostFromRecords(records, "AmazonS3")
+	totalBuckets := 0
+	for _, buckets := range bucketsByRegion {
+		totalBuckets += len(buckets)
+	}
+	perBucketCost := 0.0
+	if totalBuckets > 0 && totalS3Cost > 0 {
+		perBucketCost = totalS3Cost / float64(totalBuckets)
+	}
+
+	accountID := awsClient.AccountID()
+	var ghosts []model.GhostResource
+
+	for region, buckets := range bucketsByRegion {
+		regionCfg, err := awsClient.configForRegion(ctx, region)
+		if err != nil {
+			slog.Warn("s3: load config for region", "region", region, "error", err)
+			continue
+		}
+		cw := newCloudWatchClient(regionCfg)
+
+		periodSecs := int32(end.Sub(start).Seconds())
+		if periodSecs < 60 {
+			periodSecs = 60
+		}
+
+		for _, bucketName := range buckets {
+			// S3 metrics require FilterId dimension. "EntireBucket" is the default
+			// filter ID when request metrics are enabled without a custom filter.
+			avg, err := getMetricAvg(ctx, cw, "AWS/S3", "AllRequests", "BucketName", bucketName, start, end, periodSecs,
+				[]cloudwatchTypes.Dimension{{Name: aws.String("FilterId"), Value: aws.String("EntireBucket")}})
+			if err != nil {
+				// No request metrics configured — skip silently.
+				continue
+			}
+
+			// If CloudWatch returned no datapoints, the bucket likely doesn't have
+			// request metrics enabled. Skip rather than false-positive.
+			// (getMetricAvg returns -1 for no datapoints)
+			if avg < 0 {
+				continue
+			}
+
+			if avg > 0 {
+				continue
+			}
+
+			ghosts = append(ghosts, model.GhostResource{
+				Provider:          "aws",
+				AccountID:         accountID,
+				InternalAccountID: internalAccountID,
+				Service:           "AmazonS3",
+				Region:            region,
+				ResourceID:        bucketName,
+				Tags:              map[string]string{},
+				MonthlyCost:       perBucketCost,
+				Currency:          "USD",
+				PeriodStart:       start,
+				PeriodEnd:         end,
+				UsageMetric:       "AllRequests",
+				UsageAvg:          0,
+				UsageUnit:         "Count",
+				Reason:            "S3 bucket has zero requests — likely abandoned (requires request metrics enabled)",
+				Owner:             "unknown",
+			})
+			slog.Info("s3: idle bucket flagged", "bucket", bucketName, "region", region)
+		}
+	}
+
+	return ghosts, nil
+}
+
+// ── Shared helpers for Tier 1 CloudWatch-based detection ────────────────────
+
+// newCloudWatchClient creates a CloudWatch client from an AWS config.
+func newCloudWatchClient(cfg aws.Config) CloudWatchAPI {
+	return cloudwatchsdk.NewFromConfig(cfg)
+}
+
+// getMetricAvg queries CloudWatch for a single metric/resource and returns the
+// average value. Returns -1 if no datapoints are available (metric not configured).
+func getMetricAvg(ctx context.Context, cw CloudWatchAPI, namespace, metricName, dimensionName, dimensionValue string, start, end time.Time, periodSecs int32, extraDimensions []cloudwatchTypes.Dimension) (float64, error) {
+	dimensions := []cloudwatchTypes.Dimension{
+		{Name: aws.String(dimensionName), Value: aws.String(dimensionValue)},
+	}
+	dimensions = append(dimensions, extraDimensions...)
+
+	out, err := cw.GetMetricStatistics(ctx, &cloudwatchsdk.GetMetricStatisticsInput{
+		Namespace:  aws.String(namespace),
+		MetricName: aws.String(metricName),
+		Dimensions: dimensions,
+		StartTime:  aws.Time(start),
+		EndTime:    aws.Time(end),
+		Period:     aws.Int32(periodSecs),
+		Statistics: []cloudwatchTypes.Statistic{cloudwatchTypes.StatisticSum},
+	})
+	if err != nil {
+		return -1, err
+	}
+
+	if len(out.Datapoints) == 0 {
+		return -1, nil
+	}
+
+	total := 0.0
+	for _, dp := range out.Datapoints {
+		total += aws.ToFloat64(dp.Sum)
+	}
+	return total, nil
+}
+
+// serviceCostFromRecords sums the monthly cost for a given service across all
+// cost records. Used to estimate per-resource cost when CE doesn't provide
+// resource-level breakdown.
+func serviceCostFromRecords(records []model.CostRecord, service string) float64 {
+	total := 0.0
+	for _, r := range records {
+		if r.Service == service {
+			total += r.Amount
+		}
+	}
+	return total
 }
 
 // ── Unused Secrets Manager secrets ──────────────────────────────────────────
