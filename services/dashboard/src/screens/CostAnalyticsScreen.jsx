@@ -12,6 +12,8 @@ const PERIOD_OPTIONS = [
   { label: '7d',  days: 7 },
   { label: '30d', days: 30 },
   { label: '90d', days: 90 },
+  { label: '6m',  days: 180 },
+  { label: '1y',  days: 365 },
 ];
 
 function formatCost(val) {
@@ -132,22 +134,6 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
         ))}
       </div>
 
-      {/* Trends chart section */}
-      {trends.length > 0 && (
-        <div style={{ padding: '20px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 16 }}>
-            Cost Trend (Last 30 Days)
-          </span>
-          <AreaChart
-            data={trends}
-            selectedId={selectedTrendDate}
-            onSelect={(snap) => setSelectedTrendDate(snap.snapshot_at)}
-            theme={t}
-            screenWidth={screenWidth}
-          />
-        </div>
-      )}
-
       {/* Service filter pills */}
       {allServices.length > 0 && (
         <div style={{ display: 'flex', gap: 6, padding: '16px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, overflowX: 'auto' }}>
@@ -195,6 +181,22 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Trends chart section */}
+      {trends.length > 0 && (
+        <div style={{ padding: '20px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 16 }}>
+            Cost Trend (Last 30 Days)
+          </span>
+          <AreaChart
+            data={trends}
+            selectedId={selectedTrendDate}
+            onSelect={(snap) => setSelectedTrendDate(snap.snapshot_at)}
+            theme={t}
+            screenWidth={screenWidth}
+          />
         </div>
       )}
 
