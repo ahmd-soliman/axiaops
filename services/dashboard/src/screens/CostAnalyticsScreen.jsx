@@ -139,41 +139,26 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
         </div>
       </div>
 
-      {/* Service filter pills */}
-      {allServices.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, padding: '16px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, overflowX: 'auto' }}>
-          <button
-            onClick={() => setFilterService(null)}
-            style={{
-              padding: '4px 10px',
-              borderRadius: 20,
-              border: `1px solid ${!filterService ? t.accent : t.border}`,
-              backgroundColor: !filterService ? t.accent : t.surfaceRaised,
-              color: !filterService ? '#fff' : t.textMid,
-              fontWeight: 700,
-              fontSize: 12,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-            }}
-          >
-            All
-          </button>
-          {allServices.map(svc => {
-            const cfg = serviceConfig(svc);
-            return (
+      {/* Trends chart section */}
+      {trends.length > 0 && (
+        <div style={{ backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
+          <div style={{ padding: '20px' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 16 }}>
+              Cost Trend (Last 30 Days)
+            </span>
+          </div>
+
+          {/* Service filter pills */}
+          {allServices.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, padding: '0 16px 16px', overflowX: 'auto' }}>
               <button
-                key={svc}
-                onClick={() => setFilterService(filterService === svc ? null : svc)}
+                onClick={() => setFilterService(null)}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
                   padding: '4px 10px',
                   borderRadius: 20,
-                  border: `1px solid ${filterService === svc ? t.accent : t.border}`,
-                  backgroundColor: filterService === svc ? t.accent : t.surfaceRaised,
-                  color: filterService === svc ? '#fff' : t.textMid,
+                  border: `1px solid ${!filterService ? t.accent : t.border}`,
+                  backgroundColor: !filterService ? t.accent : t.surfaceRaised,
+                  color: !filterService ? '#fff' : t.textMid,
                   fontWeight: 700,
                   fontSize: 12,
                   cursor: 'pointer',
@@ -181,27 +166,47 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                   flexShrink: 0,
                 }}
               >
-                <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: filterService === svc ? '#fff' : cfg.color, flexShrink: 0 }} />
-                {cfg.label}
+                All
               </button>
-            );
-          })}
-        </div>
-      )}
+              {allServices.map(svc => {
+                const cfg = serviceConfig(svc);
+                return (
+                  <button
+                    key={svc}
+                    onClick={() => setFilterService(filterService === svc ? null : svc)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      padding: '4px 10px',
+                      borderRadius: 20,
+                      border: `1px solid ${filterService === svc ? t.accent : t.border}`,
+                      backgroundColor: filterService === svc ? t.accent : t.surfaceRaised,
+                      color: filterService === svc ? '#fff' : t.textMid,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: filterService === svc ? '#fff' : cfg.color, flexShrink: 0 }} />
+                    {cfg.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-      {/* Trends chart section */}
-      {trends.length > 0 && (
-        <div style={{ padding: '20px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 16 }}>
-            Cost Trend (Last 30 Days)
-          </span>
-          <AreaChart
-            data={trends}
-            selectedId={selectedTrendDate}
-            onSelect={(snap) => setSelectedTrendDate(snap.snapshot_at)}
-            theme={t}
-            screenWidth={screenWidth}
-          />
+          <div style={{ padding: '0 16px 16px' }}>
+            <AreaChart
+              data={trends}
+              selectedId={selectedTrendDate}
+              onSelect={(snap) => setSelectedTrendDate(snap.snapshot_at)}
+              theme={t}
+              screenWidth={screenWidth}
+            />
+          </div>
         </div>
       )}
 
