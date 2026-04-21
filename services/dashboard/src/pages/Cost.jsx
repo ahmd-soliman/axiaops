@@ -10,9 +10,10 @@ export default function Cost() {
 
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
 
-  // Resolve system account ID to AWS account ID for API filtering
-  const selectedAccount = selectedAccountId && accounts.data
-    ? accounts.data.find(a => a.id === selectedAccountId)?.account_id
+  // Resolve system account ID: try AWS account ID first, fallback to internal UUID
+  // Even while accounts are loading, pass the UUID to the API so filtering works
+  const selectedAccount = selectedAccountId
+    ? (accounts.data?.find(a => a.id === selectedAccountId)?.account_id || selectedAccountId)
     : null;
 
   return (

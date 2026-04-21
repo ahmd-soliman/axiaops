@@ -290,21 +290,40 @@ func (h *Handler) getTrendResourceTypes(w http.ResponseWriter, r *http.Request) 
 
 // listCosts returns cost records for the tenant, filtered by account, service, and time window.
 // Optional query params: ?account_id=<id>, ?service=<name>, ?days=<int> (default 30).
+// account_id can be either the internal AxiaOps account UUID or the AWS account ID.
 func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
 
+	accountIDParam := r.URL.Query().Get("account_id")
 	filter := storage.CostFilter{
-		InternalAccountID: r.URL.Query().Get("account_id"),
-		Service:           r.URL.Query().Get("service"),
-		Days:              days,
+		Service: r.URL.Query().Get("service"),
+		Days:    days,
 	}
 
-	// If filtering by account, also get the AWS account ID for backward compatibility with old records
-	if filter.InternalAccountID != "" {
-		account, err := h.store.GetAccount(ctx, filter.InternalAccountID)
-		if err == nil && account.AccountID != "" {
-			filter.AWSAccountID = account.AccountID
+	// account_id parameter can be either the internal UUID or the AWS account ID.
+	// Strategy:
+	// 1. If it looks like a UUID, try to look it up as internal account ID first
+	// 2. If found, use both internal_account_id and account_id for filtering
+	// 3. If not found or looks like AWS ID, use as account_id filter
+	if accountIDParam != "" {
+		// Try to look it up as an internal account ID (UUID)
+		account, err := h.store.GetAccount(ctx, accountIDParam)
+		if err == nil {
+			// Found by internal UUID
+			filter.InternalAccountID = accountIDParam
+			if account.AccountID != "" {
+				filter.AWSAccountID = account.AccountID
+			}
+			slog.Info("listCosts: filtered by internal account UUID", "internal_id", accountIDParam, "aws_id", account.AccountID)
+		} else {
+			// Account not found - it could be:
+			// 1. An internal UUID that hasn't been added to accounts table yet (newly created)
+			// 2. An AWS account ID
+			// Try both approaches:
+			filter.InternalAccountID = accountIDParam  // Try as internal UUID
+			filter.AWSAccountID = accountIDParam       // Also try as AWS account ID
+			slog.Info("listCosts: filtered by parameter (either internal UUID or AWS ID)", "account_id", accountIDParam)
 		}
 	}
 
