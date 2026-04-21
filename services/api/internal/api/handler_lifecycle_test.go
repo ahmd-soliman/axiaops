@@ -482,7 +482,7 @@ func TestTenantIsolation_LoadGhosts_ReceivesContextTenantID(t *testing.T) {
 	// DevBypass injects the tenant ID via the middleware context key, exactly
 	// as the real auth middleware does. Without it, middleware.TenantID returns ""
 	// because the middleware and storage packages use distinct context key types.
-	handler := middleware.DevBypass("tenant-alpha-uuid", mux)
+	handler := middleware.DevBypass("tenant-alpha-uuid", mockStore, mux)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil))
 
@@ -506,7 +506,7 @@ func TestTenantIsolation_ListAccounts_ReceivesContextTenantID(t *testing.T) {
 	mockStore := NewMockStore()
 	_, mux := newTrackingHandler(mockStore)
 
-	handler := middleware.DevBypass("tenant-beta-uuid", mux)
+	handler := middleware.DevBypass("tenant-beta-uuid", mockStore, mux)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/accounts", nil))
 
