@@ -36,6 +36,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const { theme } = useTheme();
   const screenWidth = useWindowWidth();
   const [period, setPeriod] = useState(30);
+  const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
   const [filterServices, setFilterServices] = useState(() => new Set());
   const [selectedCost, setSelectedCost] = useState(null);
   const [selectedChartDate, setSelectedChartDate] = useState(null);
@@ -76,27 +77,32 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
     return filteredCosts.reduce((sum, r) => sum + (r.amount || 0), 0);
   }, [filteredCosts]);
 
-  // Aggregate cost records by date for the chart.
-  // Groups by period_start date, sums amounts, and maps to the shape AreaChart expects.
+  // Auto-select granularity when period changes
+  const effectiveGranularity = period <= 30 ? 'daily' : granularity;
+  const showGranularityToggle = period >= 90;
+
+  // Aggregate cost records for the chart — daily or monthly.
   const costChartData = useMemo(() => {
     if (filteredCosts.length === 0) return [];
-    const byDate = new Map();
+    const byKey = new Map();
     for (const r of filteredCosts) {
-      const day = new Date(r.period_start).toISOString().slice(0, 10);
-      const entry = byDate.get(day);
+      const key = effectiveGranularity === 'monthly'
+        ? new Date(r.period_start).toISOString().slice(0, 7)
+        : new Date(r.period_start).toISOString().slice(0, 10);
+      const entry = byKey.get(key);
       if (entry) {
         entry.total_monthly_cost += r.amount || 0;
       } else {
-        byDate.set(day, {
+        byKey.set(key, {
           snapshot_at: r.period_start,
           total_monthly_cost: r.amount || 0,
           currency: r.currency || 'USD',
         });
       }
     }
-    return [...byDate.values()]
+    return [...byKey.values()]
       .sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
-  }, [filteredCosts]);
+  }, [filteredCosts, effectiveGranularity]);
 
   // Scan account
   const handleScanAccount = useCallback(async (accountId) => {
@@ -210,14 +216,34 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
       {/* Cost chart section */}
       <div style={{ backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px 0', flexWrap: 'wrap', gap: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Daily Spend
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              {effectiveGranularity === 'monthly' ? 'Monthly Spend' : 'Daily Spend'}
+            </span>
+            {showGranularityToggle && (
+              <div style={{ display: 'flex', gap: 2, backgroundColor: t.surfaceRaised, borderRadius: 6, padding: 2 }}>
+                {['daily', 'monthly'].map(g => (
+                  <button
+                    key={g}
+                    onClick={() => { setGranularity(g); setSelectedChartDate(null); }}
+                    style={{
+                      padding: '3px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
+                      backgroundColor: effectiveGranularity === g ? t.accent : 'transparent',
+                      color: effectiveGranularity === g ? '#fff' : t.textMuted,
+                      fontSize: 11, fontWeight: 600, textTransform: 'capitalize',
+                    }}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div style={{ display: 'flex', gap: 4 }}>
             {PERIOD_OPTIONS.map(p => (
               <button
                 key={p.days}
-                onClick={() => { setPeriod(p.days); setSelectedCost(null); }}
+                onClick={() => { setPeriod(p.days); setSelectedCost(null); setSelectedChartDate(null); }}
                 style={{
                   padding: '4px 10px',
                   borderRadius: 6,
@@ -305,7 +331,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
             />
             <div style={{ padding: '8px 0 0', textAlign: 'center' }}>
               <span style={{ fontSize: 11, color: t.textMuted }}>
-                {costChartData.length} day{costChartData.length !== 1 ? 's' : ''} · {records.length} record{records.length !== 1 ? 's' : ''}
+                {costChartData.length} {effectiveGranularity === 'monthly' ? 'month' : 'day'}{costChartData.length !== 1 ? 's' : ''} · {records.length} record{records.length !== 1 ? 's' : ''}
               </span>
             </div>
           </div>
