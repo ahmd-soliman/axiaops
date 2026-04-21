@@ -100,19 +100,20 @@
       "sourceMapPathOverrides": {
         "webpack:///./src/*": "${workspaceFolder}/services/dashboard/src/*",
         "webpack:///src/*":   "${workspaceFolder}/services/dashboard/src/*"
-      }
+      },
+      "presentation": { "hidden": true }   
     }
   ],
 
   "compounds": [
     {
       "name": "Debug Full Stack",
-      "configurations": ["Debug API", "Debug Ingestion"],
+      "configurations": ["Debug API", "Debug Ingestion", "Debug Dashboard"],
       "stopAll": true
     },
     {
       "name": "Debug Full Stack (auth)",
-      "configurations": ["Debug API (auth)", "Debug Ingestion (auth)"],
+      "configurations": ["Debug API (auth)", "Debug Ingestion (auth)", "Debug Dashboard"],
       "stopAll": true
     }
   ]
