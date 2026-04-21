@@ -325,10 +325,9 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 		if err == nil {
 			account.AccountID = awsClient.AccountID()
 			if err := store.SaveAccount(ctx, account); err != nil {
-				slog.Warn("runScan: failed to update account_id", "account_id", accountID, "error", err)
-			} else {
-				slog.Info("runScan: populated account_id", "account_id", accountID, "aws_account_id", account.AccountID)
+				return fmt.Errorf("runScan: failed to persist account_id for %s: %w", accountID, err)
 			}
+			slog.Info("runScan: populated account_id", "account_id", accountID, "aws_account_id", account.AccountID)
 		}
 	}
 
