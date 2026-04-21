@@ -656,7 +656,6 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 	if filter.Service != "" {
 		query += fmt.Sprintf(" AND service = $%d", argN)
 		args = append(args, filter.Service)
-		argN++
 	}
 
 	query += " ORDER BY period_start DESC, amount DESC"
