@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -57,7 +56,13 @@ func keyfuncFromCache(ctx context.Context, issuer, jwksURL string, c cache.Cache
 	cacheKey := "jwks:" + issuer
 
 	fetchAndCache := func() (jwt.Keyfunc, error) {
-		resp, err := http.Get(jwksURL) //nolint:noctx
+		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, jwksURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return nil, err
 		}
@@ -116,7 +121,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 
 		raw, ok := bearerToken(r)
 		if !ok {
-			log.Printf("auth: missing or malformed Authorization header: %s %s", r.Method, r.URL.Path)
+			slog.Warn("auth: missing or malformed Authorization header", "method", r.Method, "path", r.URL.Path)
 			http.Error(w, "missing or malformed Authorization header", http.StatusUnauthorized)
 			return
 		}
@@ -124,7 +129,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 		claims := jwt.MapClaims{}
 		_, err := jwt.ParseWithClaims(raw, claims, a.keyfunc, jwt.WithIssuer(a.issuer))
 		if err != nil {
-			log.Printf("auth: invalid token: %s %s: %v", r.Method, r.URL.Path, err)
+			slog.Warn("auth: invalid token", "method", r.Method, "path", r.URL.Path, "error", err)
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
@@ -132,7 +137,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 		// Extract org_code — Kinde's organisation identifier
 		orgCode, _ := claims["org_code"].(string)
 		if orgCode == "" {
-			log.Printf("auth: token missing org_code claim: %s %s", r.Method, r.URL.Path)
+			slog.Warn("auth: token missing org_code claim", "method", r.Method, "path", r.URL.Path)
 			http.Error(w, "token missing org_code claim", http.StatusUnauthorized)
 			return
 		}
@@ -149,14 +154,14 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 		if a.store != nil {
 			tenant, err := a.store.UpsertTenant(ctx, orgCode, orgName)
 			if err != nil {
-				log.Printf("auth: UpsertTenant error: %v", err)
+				slog.Error("auth: UpsertTenant failed", "error", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 
 			user, err := a.store.UpsertUser(ctx, tenant.ID, sub, email, name)
 			if err != nil {
-				log.Printf("auth: UpsertUser error: %v", err)
+				slog.Error("auth: UpsertUser failed", "error", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}

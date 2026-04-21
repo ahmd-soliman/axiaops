@@ -10,5 +10,5 @@ ALTER TABLE ghost_records           ADD COLUMN resource_type TEXT DEFAULT '';
 ALTER TABLE resource_records        ADD COLUMN resource_type TEXT DEFAULT '';
 
 -- Composite index for filtered trend queries (created here for early availability)
-CREATE INDEX idx_snapshot_services_tenant_service_rt
+CREATE INDEX IF NOT EXISTS idx_snapshot_services_tenant_service_rt
     ON ghost_snapshot_services (tenant_id, service, resource_type);

@@ -156,7 +156,7 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 
 	// Delete existing ghost records only for the accounts being updated
 	for accountID := range accountIDs {
-		if _, err := tx.Exec(ctx, `DELETE FROM ghost_records WHERE internal_account_id = $1`, accountID); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM ghost_records WHERE tenant_id = $1 AND internal_account_id = $2`, tenantID, accountID); err != nil {
 			return fmt.Errorf("postgres: clear ghosts for account %s: %w", accountID, err)
 		}
 	}
