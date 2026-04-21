@@ -145,7 +145,7 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
 }
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
-export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onBack }) {
+export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onConnectAccount, onBack }) {
   const { theme, isDark } = useTheme();
   const screenWidth = useWindowWidth();
   const [filterServices, setFilterServices]         = useState(() => new Set());
@@ -311,6 +311,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
           accounts={accounts}
           selectedAccount={selectedAccount}
           onSelectAccount={onSelectAccount}
+          onConnectAccount={onConnectAccount}
         />
       </div>
 
