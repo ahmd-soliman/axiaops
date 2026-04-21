@@ -297,9 +297,11 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 	}
 
 	var keys *scanAWS
+	var account model.Account
 
 	if accountID != "" {
-		account, err := store.GetAccount(ctx, accountID)
+		var err error
+		account, err = store.GetAccount(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("get account: %w", err)
 		}
@@ -314,6 +316,19 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 			AccessKeyID: account.AccessKeyID,
 			SecretKey:   secret,
 			Region:      account.Region,
+		}
+	}
+
+	// Before scanning, update account_id if empty by connecting to AWS and getting the account ID
+	if accountID != "" && account.AccountID == "" && keys != nil {
+		awsClient, err := aws.NewWithStaticCredentials(ctx, keys.AccessKeyID, keys.SecretKey, keys.Region)
+		if err == nil {
+			account.AccountID = awsClient.AccountID()
+			if err := store.SaveAccount(ctx, account); err != nil {
+				slog.Warn("runScan: failed to update account_id", "account_id", accountID, "error", err)
+			} else {
+				slog.Info("runScan: populated account_id", "account_id", accountID, "aws_account_id", account.AccountID)
+			}
 		}
 	}
 
