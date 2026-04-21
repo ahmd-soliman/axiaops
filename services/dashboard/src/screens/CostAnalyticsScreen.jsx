@@ -109,18 +109,18 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
       </div>
 
       {/* Period selector */}
-      <div style={{ display: 'flex', gap: 8, padding: '16px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: 4, padding: '16px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, overflowX: 'auto' }}>
         {PERIOD_OPTIONS.map(p => (
           <button
             key={p.days}
             onClick={() => { setPeriod(p.days); setFilterService(null); setSelectedCost(null); }}
             style={{
-              padding: '6px 12px',
-              borderRadius: 4,
+              padding: '4px 10px',
+              borderRadius: 6,
               border: `1px solid ${period === p.days ? t.accent : t.border}`,
-              backgroundColor: period === p.days ? t.accent : t.surface,
-              color: period === p.days ? t.bg : t.text,
-              fontWeight: 600,
+              backgroundColor: period === p.days ? t.accent : t.surfaceRaised,
+              color: period === p.days ? '#fff' : t.textMid,
+              fontWeight: 700,
               fontSize: 12,
               cursor: 'pointer',
               whiteSpace: 'nowrap',
@@ -150,17 +150,17 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
       {/* Service filter pills */}
       {allServices.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, padding: '12px 16px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, overflowX: 'auto', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, padding: '16px', backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, overflowX: 'auto' }}>
           <button
             onClick={() => setFilterService(null)}
             style={{
               padding: '4px 10px',
-              borderRadius: 12,
+              borderRadius: 20,
               border: `1px solid ${!filterService ? t.accent : t.border}`,
-              backgroundColor: !filterService ? t.accent : t.surface,
-              color: !filterService ? t.bg : t.text,
-              fontWeight: 600,
-              fontSize: 11,
+              backgroundColor: !filterService ? t.accent : t.surfaceRaised,
+              color: !filterService ? '#fff' : t.textMid,
+              fontWeight: 700,
+              fontSize: 12,
               cursor: 'pointer',
               whiteSpace: 'nowrap',
               flexShrink: 0,
@@ -175,22 +175,22 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                 key={svc}
                 onClick={() => setFilterService(filterService === svc ? null : svc)}
                 style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
                   padding: '4px 10px',
-                  borderRadius: 12,
+                  borderRadius: 20,
                   border: `1px solid ${filterService === svc ? t.accent : t.border}`,
-                  backgroundColor: filterService === svc ? t.accent : t.surface,
-                  color: filterService === svc ? t.bg : t.text,
-                  fontWeight: 600,
-                  fontSize: 11,
+                  backgroundColor: filterService === svc ? t.accent : t.surfaceRaised,
+                  color: filterService === svc ? '#fff' : t.textMid,
+                  fontWeight: 700,
+                  fontSize: 12,
                   cursor: 'pointer',
                   whiteSpace: 'nowrap',
                   flexShrink: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
                 }}
               >
-                <div style={{ width: 4, height: 4, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+                <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: filterService === svc ? '#fff' : cfg.color, flexShrink: 0 }} />
                 {cfg.label}
               </button>
             );
