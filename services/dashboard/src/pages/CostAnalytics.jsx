@@ -16,6 +16,7 @@ export default function CostAnalytics() {
       selectedAccount={selectedAccountId}
       onSelectAccount={(id) => id ? setParams({ account: id }) : setParams({})}
       onConnectAccount={() => navigate('/connect')}
+      onEditAccount={(acc) => navigate(`/settings/${acc.id}`)}
     />
   );
 }
