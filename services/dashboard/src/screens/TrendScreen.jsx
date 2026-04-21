@@ -109,38 +109,37 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
   const costDelta = prevItem ? item.total_monthly_cost - prevItem.total_monthly_cost : null;
   const t = theme;
   return (
-    <button
+    <div
       data-snap=""
       onClick={onClick}
       style={{
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '13px 16px',
-        borderBottom: `1px solid ${t.border}`,
-        width: '100%',
-        background: isSelected ? t.accentLight : 'none',
+        gap: 12,
+        padding: '12px 14px',
+        backgroundColor: isSelected ? t.surfaceRaised : t.surface,
+        border: `1px solid ${isSelected ? t.accent : t.border}`,
+        borderRadius: 8,
         cursor: 'pointer',
-        textAlign: 'left',
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <span style={{ fontSize: 14, color: t.text, fontWeight: 600 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
           {formatDateTime(item.snapshot_at)}
-        </span>
-        <span style={{ fontSize: 12, color: t.textMuted }}>
+        </div>
+        <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
           {item.ghost_count === 0 ? 'No zombies found' : `${item.ghost_count} zombie${item.ghost_count !== 1 ? 's' : ''}`}
           {costDelta !== null && Math.abs(costDelta) >= 0.01 && (
             <span style={{ marginLeft: 8, color: costDelta > 0 ? t.error : t.success, fontWeight: 600 }}>
               {costDelta > 0 ? '+' : ''}{costDelta.toFixed(2)}
             </span>
           )}
-        </span>
+        </div>
       </div>
-      <span style={{ fontSize: 15, fontWeight: 700, color: t.accent, flexShrink: 0, marginLeft: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: t.accent, textAlign: 'right', flexShrink: 0 }}>
         {item.currency} {item.total_monthly_cost.toFixed(2)}
-      </span>
-    </button>
+      </div>
+    </div>
   );
 }
 
@@ -498,7 +497,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
           </span>
         </div>
 
-        <div style={{ paddingBottom: 48 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 16px 48px' }}>
           {visibleRows.map((item, idx) => (
             <HistoryRow
               key={item.snapshot_at + idx}
@@ -527,10 +526,10 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               style={{
                 display: 'block',
                 width: '100%',
-                padding: '14px 16px',
-                background: 'none',
-                border: 'none',
-                borderTop: `1px solid ${t.border}`,
+                padding: '12px 14px',
+                backgroundColor: t.surface,
+                border: `1px solid ${t.border}`,
+                borderRadius: 8,
                 cursor: 'pointer',
                 color: t.accent,
                 fontSize: 13,
