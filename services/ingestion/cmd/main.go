@@ -380,6 +380,12 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			}
 			continue
 		}
+
+		// Populate internal_account_id for filtering on dashboard
+		for i := range records {
+			records[i].InternalAccountID = &accountID
+		}
+
 		inserted, saveErr := store.Save(ctx, records)
 		if saveErr != nil {
 			return fmt.Errorf("[%s] save failed: %w", p.Name(), saveErr)
