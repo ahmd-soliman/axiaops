@@ -90,3 +90,6 @@ services/*/*-test
 
 # Excel
 ~$*.xl*
+services/api/cmd/__debug*
+services/ingestion/cmd/__debug*
+services/migrate/migrate/cmd/__debug*

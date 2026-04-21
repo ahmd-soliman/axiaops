@@ -5,7 +5,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    open: true,
+    // Respect VITE_NO_OPEN=true to suppress auto-open (used by VS Code debug
+    // tasks, where Chrome is launched separately by the debugger).
+    open: process.env.VITE_NO_OPEN !== 'true',
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
