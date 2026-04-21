@@ -68,13 +68,13 @@ function SavingsSparkline({ snaps, color }) {
   );
 }
 
-// ─── Summary cards ────────────────────────────────────────────────────────────
+// ─── Summary hero ─────────────────────────────────────────────────────────────
 
-function SummaryCards({ summary, trend, onShowTrend, theme }) {
+function SummaryHero({ summary, trend, onShowTrend, theme }) {
   const data = summary.data;
-  const byService = Object.entries(data?.by_service ?? {})
-    .sort((a, b) => b[1].savings - a[1].savings)
-    .slice(0, 3);
+  const savings = data?.potential_monthly_savings ?? 0;
+  const ghostCount = data?.total_ghosts ?? 0;
+  const serviceCount = Object.keys(data?.by_service ?? {}).length;
 
   const latestSnap = trend.data?.[trend.data.length - 1];
   const prevSnap   = trend.data?.[trend.data.length - 2];
@@ -82,71 +82,38 @@ function SummaryCards({ summary, trend, onShowTrend, theme }) {
     ? ((latestSnap.total_monthly_cost - prevSnap.total_monthly_cost) / Math.max(prevSnap.total_monthly_cost, 0.01)) * 100
     : null;
 
-  const cardStyle = {
-    backgroundColor: theme.surface,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 12,
-    padding: '16px 18px',
-    flex: 1,
-    minWidth: 0,
-  };
-
   return (
-    <div style={{ display: 'flex', gap: 12, padding: '16px 16px 0', flexWrap: 'wrap' }}>
-      {/* Total Waste */}
-      <button
-        onClick={onShowTrend}
-        aria-label="View savings trend"
-        style={{ backgroundColor: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 12, padding: '16px 18px', flex: 1, minWidth: 160, cursor: 'pointer', textAlign: 'left' }}
-      >
-        <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
-          Monthly Waste
+    <button
+      onClick={onShowTrend}
+      aria-label="View savings trend"
+      style={{
+        display: 'block',
+        width: '100%',
+        backgroundColor: theme.surfaceAlt || theme.surface,
+        borderBottom: `1px solid ${theme.border}`,
+        padding: '20px 20px 16px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        border: 'none',
+        borderBlockEnd: `1px solid ${theme.border}`,
+      }}
+    >
+      <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+        Monthly Waste
+      </span>
+      <span style={{ fontSize: 32, fontWeight: 800, color: theme.accent, letterSpacing: -0.5, display: 'block' }}>
+        {data?.currency} {savings.toFixed(2)}
+      </span>
+      <span style={{ fontSize: 13, color: theme.textMid, marginTop: 4, display: 'block' }}>
+        {ghostCount} zombie{ghostCount !== 1 ? 's' : ''} across {serviceCount} service{serviceCount !== 1 ? 's' : ''}
+      </span>
+      {delta !== null && (
+        <span style={{ fontSize: 12, color: delta > 0 ? theme.error : theme.success, fontWeight: 700, marginTop: 4, display: 'block' }}>
+          {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}% vs last scan
         </span>
-        <span style={{ fontSize: 26, fontWeight: 800, color: theme.accent, letterSpacing: -0.5, display: 'block' }}>
-          {data?.currency} {(data?.potential_monthly_savings ?? 0).toFixed(2)}
-        </span>
-        {delta !== null && (
-          <span style={{ fontSize: 12, color: delta > 0 ? theme.error : theme.success, fontWeight: 600, marginTop: 2, display: 'block' }}>
-            {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}% vs last scan
-          </span>
-        )}
-        <SavingsSparkline snaps={trend.data} color={theme.accent} />
-      </button>
-
-      {/* Ghost count */}
-      <div style={{ ...cardStyle, minWidth: 140 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
-          Zombies
-        </span>
-        <span style={{ fontSize: 26, fontWeight: 800, color: theme.text, display: 'block' }}>
-          {data?.total_ghosts ?? 0}
-        </span>
-        <span style={{ fontSize: 12, color: theme.textMuted, display: 'block', marginTop: 2 }}>
-          {data?.total_ghosts === 1 ? 'resource' : 'resources'} wasting budget
-        </span>
-      </div>
-
-      {/* Top offenders */}
-      <div style={{ ...cardStyle, minWidth: 160 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>
-          By Service
-        </span>
-        {byService.length > 0 ? byService.map(([svc, d]) => {
-          const cfg = serviceConfig(svc);
-          return (
-            <div key={svc} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: theme.textMid, flex: 1 }}>{cfg.label}</span>
-              <span style={{ fontSize: 12, color: theme.accent, fontWeight: 700 }}>
-                {data?.currency}{d.savings.toFixed(0)}
-              </span>
-            </div>
-          );
-        }) : (
-          <span style={{ fontSize: 13, color: theme.textMuted }}>No data yet</span>
-        )}
-      </div>
-    </div>
+      )}
+      <SavingsSparkline snaps={trend.data} color={theme.accent} />
+    </button>
   );
 }
 
@@ -993,8 +960,8 @@ export default function DashboardScreen({
         </button>
       </div>
 
-      {/* Summary cards */}
-      <SummaryCards summary={summary} trend={trend} onShowTrend={onShowTrend} theme={t} />
+      {/* Summary hero */}
+      <SummaryHero summary={summary} trend={trend} onShowTrend={onShowTrend} theme={t} />
 
       {/* Filter pills */}
       <div style={{ padding: '12px 16px 0' }}>
