@@ -641,7 +641,7 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
           {modalAction === 'dismiss' ? `Dismiss ${count} resources` : `Snooze ${count} resources`}
         </span>
         <span style={{ fontSize: 13, color: theme.textMuted, display: 'block', marginBottom: 16 }}>
-          {modalAction === 'dismiss' ? 'These resources will be hidden from the ghost list.' : 'These resources will be hidden for 7 days.'}
+          {modalAction === 'dismiss' ? 'These resources will be hidden from the zombie list.' : 'These resources will be hidden for 7 days.'}
         </span>
 
         <span style={{ fontSize: 11, fontWeight: 700, color: theme.textMuted, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Reason</span>
@@ -1067,7 +1067,7 @@ export default function DashboardScreen({
           />
         )}
         <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
-          {showDismissed ? 'Dismissed Resources' : ghostOnly ? `Ghost Resources` : 'All Resources'}
+          {showDismissed ? 'Dismissed Resources' : ghostOnly ? `Zombie Resources` : 'All Resources'}
           {!showDismissed && ` · ${listData.length}`}
         </span>
         {!showDismissed && (
