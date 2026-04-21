@@ -440,6 +440,18 @@ Remaining for Phase 3:
 - [ ] Add integration test: connect as `axiaops_ingestion`, assert it cannot SELECT from `tenants` or `users`
 - [ ] Add integration test: connect as `axiaops_api`, assert it cannot INSERT into `cost_records` directly
 
+### 3.15 Migration History Log (pre-launch)
+
+> Context: golang-migrate's `schema_migrations` keeps only the latest applied version (single row). We want a per-migration audit log with filename + checksum (Flyway-style) so we can see when each migration was applied and detect in-place edits of already-applied migration files. Keeps golang-migrate as the engine — adds a sibling table populated by `migrate.go`.
+
+- [ ] Write migration `NNN_migration_history.up.sql` / `.down.sql` — create `axiaops.migration_history (version BIGINT PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`; grant `SELECT` to `axiaops` app user, writes stay with `axiaops_owner`
+- [ ] Extend `services/shared/storage/postgres/migrate.go` — after `m.Up()` succeeds, enumerate embedded `migrations/*.up.sql` files, compute SHA-256 of each body, `INSERT ... ON CONFLICT (version) DO NOTHING` into `migration_history`
+- [ ] Checksum drift detection: for rows that already exist with a different checksum, emit `slog.Warn("migration checksum mismatch", "version", v, "file", name, "db_checksum", ..., "file_checksum", ...)` — catches anyone editing an applied migration file in-place
+- [ ] Document backfill behaviour: on existing DBs, migrations 000–NNN-1 get recorded with `applied_at = NOW()` on first upgrade (not their true original apply time). Future migrations get accurate `applied_at` because they're recorded in the same run they're applied. Add a comment in `migrate.go` explaining this tradeoff
+- [ ] Integration test in `services/shared/storage/postgres/postgres_test.go` — after `Migrate()` runs on a clean DB, assert `migration_history` contains one row per embedded `*.up.sql` file with matching SHA-256 checksum
+- [ ] Integration test — simulate tampering: run migrations, manually `UPDATE migration_history SET checksum = 'bogus' WHERE version = 1`, run `Migrate()` again, assert a warning is logged (capture via `slog` handler)
+- [ ] Update `docs/migrations.md` — document the new table, how to read it, and the checksum drift warning
+
 ---
 
 ## 🔮 Phase 4 — Scale & Expand (Q1–Q2 2027)
