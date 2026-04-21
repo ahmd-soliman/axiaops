@@ -36,7 +36,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const { theme } = useTheme();
   const screenWidth = useWindowWidth();
   const [period, setPeriod] = useState(30);
-  const [filterService, setFilterService] = useState(null);
+  const [filterServices, setFilterServices] = useState(() => new Set());
   const [selectedCost, setSelectedCost] = useState(null);
   const [selectedTrendDate, setSelectedTrendDate] = useState(null);
 
@@ -48,8 +48,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   // Fetch costs and trends
   // Cost records now filter by internal_account_id directly (no resolution needed)
   const costsQuery = useQuery({
-    queryKey: ['costs', selectedAccount, filterService, period],
-    queryFn: () => fetchCosts(selectedAccount, filterService, period),
+    queryKey: ['costs', selectedAccount, period],
+    queryFn: () => fetchCosts(selectedAccount, null, period),
   });
 
   const trendQuery = useQuery({
@@ -67,13 +67,55 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
     return Array.from(services).sort();
   }, [costsQuery.data]);
 
+  // Filter records client-side by selected services
+  const filteredCosts = useMemo(() => {
+    if (!costsQuery.data) return [];
+    if (filterServices.size === 0) return costsQuery.data;
+    return costsQuery.data.filter(r => filterServices.has(r.service));
+  }, [costsQuery.data, filterServices]);
+
   // Calculate totals
   const totalCost = useMemo(() => {
-    if (!costsQuery.data) return 0;
-    return costsQuery.data.reduce((sum, r) => sum + (r.amount || 0), 0);
-  }, [costsQuery.data]);
+    return filteredCosts.reduce((sum, r) => sum + (r.amount || 0), 0);
+  }, [filteredCosts]);
 
-  const records = costsQuery.data || [];
+  // Toggle service filter
+  const toggleServiceFilter = (svc) => {
+    const next = new Set(filterServices);
+    next.has(svc) ? next.delete(svc) : next.add(svc);
+    setFilterServices(next);
+    setSelectedCost(null);
+  };
+
+  const clearServiceFilter = () => {
+    setFilterServices(new Set());
+    setSelectedCost(null);
+  };
+
+  // CSV export
+  const exportToCSV = () => {
+    if (filteredCosts.length === 0) return;
+    const headers = ['Service', 'Region', 'Amount', 'Currency', 'Period Start', 'Period End', 'Resource ID'];
+    const rows = filteredCosts.map(r => [
+      r.service,
+      r.region || 'N/A',
+      r.amount.toFixed(2),
+      r.currency,
+      new Date(r.period_start).toISOString().split('T')[0],
+      new Date(r.period_end).toISOString().split('T')[0],
+      r.resource_id || '',
+    ]);
+    const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cost-breakdown-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const records = filteredCosts;
   const trends = trendQuery.data || [];
   const trendIsLoading = trendQuery.isLoading;
   const costsIsLoading = costsQuery.isLoading;
@@ -119,7 +161,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
           {PERIOD_OPTIONS.map(p => (
             <button
               key={p.days}
-              onClick={() => { setPeriod(p.days); setFilterService(null); setSelectedCost(null); }}
+              onClick={() => { setPeriod(p.days); setSelectedCost(null); }}
               style={{
                 padding: '4px 10px',
                 borderRadius: 6,
@@ -152,13 +194,13 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
           {allServices.length > 0 && (
             <div style={{ display: 'flex', gap: 6, padding: '0 16px 16px', overflowX: 'auto' }}>
               <button
-                onClick={() => setFilterService(null)}
+                onClick={clearServiceFilter}
                 style={{
                   padding: '4px 10px',
                   borderRadius: 20,
-                  border: `1px solid ${!filterService ? t.accent : t.border}`,
-                  backgroundColor: !filterService ? t.accent : t.surfaceRaised,
-                  color: !filterService ? '#fff' : t.textMid,
+                  border: `1px solid ${filterServices.size === 0 ? t.accent : t.border}`,
+                  backgroundColor: filterServices.size === 0 ? t.accent : t.surfaceRaised,
+                  color: filterServices.size === 0 ? '#fff' : t.textMid,
                   fontWeight: 700,
                   fontSize: 12,
                   cursor: 'pointer',
@@ -166,23 +208,24 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                   flexShrink: 0,
                 }}
               >
-                All
+                All Services
               </button>
               {allServices.map(svc => {
                 const cfg = serviceConfig(svc);
+                const active = filterServices.has(svc);
                 return (
                   <button
                     key={svc}
-                    onClick={() => setFilterService(filterService === svc ? null : svc)}
+                    onClick={() => toggleServiceFilter(svc)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       gap: 5,
                       padding: '4px 10px',
                       borderRadius: 20,
-                      border: `1px solid ${filterService === svc ? t.accent : t.border}`,
-                      backgroundColor: filterService === svc ? t.accent : t.surfaceRaised,
-                      color: filterService === svc ? '#fff' : t.textMid,
+                      border: `1px solid ${active ? t.accent : t.border}`,
+                      backgroundColor: active ? t.accent : t.surfaceRaised,
+                      color: active ? '#fff' : t.textMid,
                       fontWeight: 700,
                       fontSize: 12,
                       cursor: 'pointer',
@@ -190,7 +233,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                       flexShrink: 0,
                     }}
                   >
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: filterService === svc ? '#fff' : cfg.color, flexShrink: 0 }} />
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color, flexShrink: 0 }} />
                     {cfg.label}
                   </button>
                 );
@@ -224,10 +267,26 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
           {/* Records list */}
           <div style={{ flex: 1 }}>
             {/* Summary header */}
-            <div style={{ marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${t.border}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${t.border}` }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Total Cost · ${totalCost.toFixed(2)} · {records.length} records
               </span>
+              <button
+                onClick={exportToCSV}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  border: `1px solid ${t.border}`,
+                  backgroundColor: t.surfaceRaised,
+                  color: t.textMid,
+                  fontWeight: 600,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                ⬇ Export CSV
+              </button>
             </div>
 
             {/* Records table-like view */}
