@@ -210,6 +210,8 @@ var ceServiceToInternal = map[string]string{
 	"Amazon DynamoDB":                        "AmazonDynamoDB",
 	"Amazon Elastic Kubernetes Service":      "AmazonEKS",
 	"Amazon Cost Explorer":                   "AWSCostExplorer",
+	"AWS Cost Explorer":                     "AWSCostExplorer",
+	"AWS Data Transfer":                     "AWSDataTransfer",
 	"Amazon CloudWatch":                      "AmazonCloudWatch",
 	"Amazon Simple Storage Service":          "AmazonS3",
 	"AWS Glue":                               "AWSGlue",
