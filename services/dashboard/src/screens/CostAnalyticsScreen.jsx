@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useQuery, useQueries } from '@tanstack/react-query';
-import { fetchCosts, fetchTrend, fetchAccounts, scanAccount } from '../api/client';
+import { useQuery } from '@tanstack/react-query';
+import { fetchCosts, fetchAccounts, scanAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
@@ -38,7 +38,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const [period, setPeriod] = useState(30);
   const [filterServices, setFilterServices] = useState(() => new Set());
   const [selectedCost, setSelectedCost] = useState(null);
-  const [selectedTrendDate, setSelectedTrendDate] = useState(null);
+  const [selectedChartDate, setSelectedChartDate] = useState(null);
   const [scanning, setScanning] = useState(null);
   const [notification, setNotification] = useState(null);
 
@@ -52,11 +52,6 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const costsQuery = useQuery({
     queryKey: ['costs', selectedAccount, period],
     queryFn: () => fetchCosts(selectedAccount, null, period),
-  });
-
-  const trendQuery = useQuery({
-    queryKey: ['trend', selectedAccount],
-    queryFn: () => fetchTrend(selectedAccount, null, null),
   });
 
   // Derive distinct services from costs
@@ -79,6 +74,28 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   // Calculate totals
   const totalCost = useMemo(() => {
     return filteredCosts.reduce((sum, r) => sum + (r.amount || 0), 0);
+  }, [filteredCosts]);
+
+  // Aggregate cost records by date for the chart.
+  // Groups by period_start date, sums amounts, and maps to the shape AreaChart expects.
+  const costChartData = useMemo(() => {
+    if (filteredCosts.length === 0) return [];
+    const byDate = new Map();
+    for (const r of filteredCosts) {
+      const day = new Date(r.period_start).toISOString().slice(0, 10);
+      const entry = byDate.get(day);
+      if (entry) {
+        entry.total_monthly_cost += r.amount || 0;
+      } else {
+        byDate.set(day, {
+          snapshot_at: r.period_start,
+          total_monthly_cost: r.amount || 0,
+          currency: r.currency || 'USD',
+        });
+      }
+    }
+    return [...byDate.values()]
+      .sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
   }, [filteredCosts]);
 
   // Scan account
@@ -134,14 +151,12 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   };
 
   const records = filteredCosts;
-  const trends = trendQuery.data || [];
-  const trendIsLoading = trendQuery.isLoading;
   const costsIsLoading = costsQuery.isLoading;
 
   const t = theme;
 
   // Loading state
-  if (costsIsLoading || trendIsLoading) {
+  if (costsIsLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', backgroundColor: t.bg, flexDirection: 'column', gap: 14 }}>
         <Spinner />
@@ -151,7 +166,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   }
 
   // Error state
-  if (costsQuery.isError || trendQuery.isError) {
+  if (costsQuery.isError) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', backgroundColor: t.bg, flexDirection: 'column', gap: 14 }}>
         <span style={{ fontSize: 14, color: t.error }}>Failed to load cost analytics</span>
@@ -208,77 +223,101 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
         </div>
       </div>
 
-      {/* Trends chart section */}
-      {trends.length > 0 && (
-        <div style={{ backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
-          <div style={{ padding: '20px' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 16 }}>
-              Cost Trend (Last 30 Days)
+      {/* Total cost hero */}
+      <div style={{ backgroundColor: t.surfaceAlt || t.surface, borderBottom: `1px solid ${t.border}`, padding: '20px 20px 16px' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+          Total Spend · {PERIOD_OPTIONS.find(p => p.days === period)?.label || `${period}d`}
+        </span>
+        <span style={{ fontSize: 32, fontWeight: 800, color: t.accent, letterSpacing: -0.5, display: 'block' }}>
+          ${totalCost.toFixed(2)}
+        </span>
+        <span style={{ fontSize: 13, color: t.textMid, marginTop: 4, display: 'block' }}>
+          {records.length} record{records.length !== 1 ? 's' : ''} across {allServices.length} service{allServices.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {/* Cost chart section */}
+      <div style={{ backgroundColor: t.bg, borderBottom: `1px solid ${t.border}` }}>
+        <div style={{ padding: '20px 20px 0' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>
+            Daily Spend
+          </span>
+        </div>
+
+        {/* Service filter pills */}
+        {allServices.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, padding: '8px 16px 16px', overflowX: 'auto' }}>
+            <button
+              onClick={clearServiceFilter}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 20,
+                border: `1px solid ${filterServices.size === 0 ? t.accent : t.border}`,
+                backgroundColor: filterServices.size === 0 ? t.accent : t.surfaceRaised,
+                color: filterServices.size === 0 ? '#fff' : t.textMid,
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              All Services
+            </button>
+            {allServices.map(svc => {
+              const cfg = serviceConfig(svc);
+              const active = filterServices.has(svc);
+              return (
+                <button
+                  key={svc}
+                  onClick={() => toggleServiceFilter(svc)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '4px 10px',
+                    borderRadius: 20,
+                    border: `1px solid ${active ? t.accent : t.border}`,
+                    backgroundColor: active ? t.accent : t.surfaceRaised,
+                    color: active ? '#fff' : t.textMid,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color, flexShrink: 0 }} />
+                  {cfg.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {costChartData.length < 2 ? (
+          <div style={{ padding: '24px 16px', textAlign: 'center' }}>
+            <span style={{ fontSize: 13, color: t.textMuted }}>
+              {records.length === 0 ? 'No cost data yet — run a scan first.' : 'Not enough data points to chart. Try a longer time period.'}
             </span>
           </div>
-
-          {/* Service filter pills */}
-          {allServices.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, padding: '0 16px 16px', overflowX: 'auto' }}>
-              <button
-                onClick={clearServiceFilter}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 20,
-                  border: `1px solid ${filterServices.size === 0 ? t.accent : t.border}`,
-                  backgroundColor: filterServices.size === 0 ? t.accent : t.surfaceRaised,
-                  color: filterServices.size === 0 ? '#fff' : t.textMid,
-                  fontWeight: 700,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                }}
-              >
-                All Services
-              </button>
-              {allServices.map(svc => {
-                const cfg = serviceConfig(svc);
-                const active = filterServices.has(svc);
-                return (
-                  <button
-                    key={svc}
-                    onClick={() => toggleServiceFilter(svc)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 5,
-                      padding: '4px 10px',
-                      borderRadius: 20,
-                      border: `1px solid ${active ? t.accent : t.border}`,
-                      backgroundColor: active ? t.accent : t.surfaceRaised,
-                      color: active ? '#fff' : t.textMid,
-                      fontWeight: 700,
-                      fontSize: 12,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color, flexShrink: 0 }} />
-                    {cfg.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
+        ) : (
           <div style={{ padding: '0 16px 16px' }}>
             <AreaChart
-              data={trends}
-              selectedId={selectedTrendDate}
-              onSelect={(snap) => setSelectedTrendDate(snap.snapshot_at)}
+              data={costChartData}
+              selectedId={selectedChartDate}
+              onSelect={(point) => setSelectedChartDate(point.snapshot_at)}
               theme={t}
               screenWidth={screenWidth}
             />
+            <div style={{ padding: '8px 0 0', textAlign: 'center' }}>
+              <span style={{ fontSize: 11, color: t.textMuted }}>
+                {costChartData.length} day{costChartData.length !== 1 ? 's' : ''} · {records.length} record{records.length !== 1 ? 's' : ''}
+              </span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Empty state */}
       {records.length === 0 && (
@@ -296,7 +335,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
             {/* Summary header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${t.border}` }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Total Cost · ${totalCost.toFixed(2)} · {records.length} records
+                Cost Records · {records.length}
               </span>
               <button
                 onClick={exportToCSV}
