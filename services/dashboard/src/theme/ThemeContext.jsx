@@ -30,6 +30,7 @@ const lightTheme = {
 
   // Brand accent — orange (bold, action-oriented, AAA accessible)
   accent: '#EA580C',            // orange-600, 4.6:1 on white (AA+), vibrant
+  accentMuted: '#C2410C',       // orange-700, 6.5:1 — inactive clickable items
   accentLight: '#FFF7ED',       // orange-50, tinted backgrounds
   accentBorder: '#FDBA74',      // orange-300, soft brand borders
   accentText: '#9A3412',        // orange-800, high contrast on accentLight
@@ -37,8 +38,8 @@ const lightTheme = {
   // Text hierarchy — 4 distinct, AA-clear levels
   text: '#0F172A',              // slate-900, 18:1 on surface (AAA)
   textMid: '#334155',           // slate-700, 9.6:1 (AAA)
-  textMuted: '#64748B',         // slate-500, 4.6:1 on bg (AA)
-  textSub: '#94A3B8',           // slate-400, 3.2:1 — lightest readable tier
+  textMuted: '#64748B',         // slate-500, 4.6:1 on bg (AA) — non-interactive labels
+  textSub: '#94A3B8',           // slate-400, 3.2:1 — non-interactive hints
   textOnDark: '#FFFFFF',
   white: '#FFFFFF',
 
@@ -83,6 +84,7 @@ const darkTheme = {
 
   // Brand accent — orange tuned for dark readability
   accent: '#FB923C',            // orange-400, 8:1 on bg (AAA)
+  accentMuted: '#D97706',       // amber-600, softer — inactive clickable items
   accentLight: '#2D1200',       // orange-950 wash
   accentBorder: '#7C3200',      // orange-800, visible border
   accentText: '#FBBF24',        // amber-400, 10:1 on accentLight
