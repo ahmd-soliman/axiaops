@@ -100,7 +100,7 @@ export default function AppShell() {
         <nav aria-label="Main navigation" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
           {NAV_ITEMS.map(({ label, path, Icon }) => {
             const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
-            const activeBg = isDark ? t.bg : t.accentLight;
+            const activeBg = isDark ? 'rgba(255, 255, 255, 0.05)' : t.accentLight;
             return (
               <button
                 key={path}
