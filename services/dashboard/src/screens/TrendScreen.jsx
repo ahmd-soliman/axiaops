@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { fetchTrend, fetchTrendServices, fetchTrendResourceTypes } from '../api/client';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
+import AccountSelector from '../components/AccountSelector';
+import AreaChart from '../components/AreaChart';
 import { useTheme } from '../theme/ThemeContext';
 import { useWindowWidth } from '../components/primitives';
 import { Spinner } from '../components/primitives';
@@ -62,6 +64,27 @@ function downsample(snaps, periodDays) {
   });
 }
 
+// Group snapshots by calendar month — sum costs, sum ghost counts.
+function downsampleByMonth(snaps) {
+  if (!snaps || snaps.length === 0) return [];
+  const buckets = new Map();
+  for (const s of snaps) {
+    const key = new Date(s.snapshot_at).toISOString().slice(0, 7);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(s);
+  }
+  return [...buckets.values()].map(group => {
+    const latest = group[group.length - 1];
+    const avgCost = group.reduce((sum, s) => sum + s.total_monthly_cost, 0) / group.length;
+    const avgGhosts = Math.round(group.reduce((sum, s) => sum + s.ghost_count, 0) / group.length);
+    return {
+      ...latest,
+      total_monthly_cost: Math.round(avgCost * 100) / 100,
+      ghost_count: avgGhosts,
+    };
+  });
+}
+
 // ─── Format helpers ──────────────────────────────────────────────────────────
 
 function formatCost(val) {
@@ -102,228 +125,52 @@ function mergeSnapshotSeries(seriesList) {
   return [...byTimestamp.values()].sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
 }
 
-// ─── SVG Area Chart ──────────────────────────────────────────────────────────
-
-function AreaChart({ snaps, selectedId, onSelect, theme, screenWidth }) {
-  const [hoverIdx, setHoverIdx] = useState(null);
-  const svgRef = useRef(null);
-  const gradientId = 'trend-area-grad';
-
-  if (!snaps || snaps.length < 2) return null;
-
-  const t = theme;
-  const width = Math.max(320, screenWidth - 32);
-  const plotW = width - MARGIN.left - MARGIN.right;
-  const plotH = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
-
-  const values = snaps.map(s => s.total_monthly_cost);
-  const rawMax = Math.max(...values);
-  const rawMin = Math.min(...values);
-  const range = rawMax - rawMin || rawMax * 0.1 || 1;
-  const maxVal = rawMax + range * 0.08;
-  const minVal = Math.max(0, rawMin - range * 0.05);
-  const valRange = maxVal - minVal || 1;
-
-  // Map data to pixel coordinates
-  const points = snaps.map((s, i) => ({
-    x: MARGIN.left + (i / (snaps.length - 1)) * plotW,
-    y: MARGIN.top + plotH - ((s.total_monthly_cost - minVal) / valRange) * plotH,
-  }));
-
-  // SVG paths
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-  const areaPath = linePath
-    + ` L${points[points.length - 1].x},${MARGIN.top + plotH}`
-    + ` L${points[0].x},${MARGIN.top + plotH} Z`;
-
-  // Y-axis: 4 ticks
-  const yTicks = [0, 1, 2, 3].map(i => {
-    const val = minVal + valRange * (i / 3);
-    const y = MARGIN.top + plotH - (i / 3) * plotH;
-    return { val, y };
-  });
-
-  // X-axis: ~5 evenly spaced labels
-  const xLabelCount = Math.min(6, snaps.length);
-  const xLabels = [];
-  for (let i = 0; i < xLabelCount; i++) {
-    const idx = Math.round(i * (snaps.length - 1) / (xLabelCount - 1));
-    xLabels.push({ x: points[idx].x, label: formatDate(snaps[idx].snapshot_at) });
-  }
-
-  // Find nearest data point to cursor
-  const handleMouseMove = useCallback((e) => {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const mouseX = e.clientX - rect.left;
-    let closest = 0;
-    let minDist = Infinity;
-    for (let i = 0; i < points.length; i++) {
-      const dist = Math.abs(points[i].x - mouseX);
-      if (dist < minDist) { minDist = dist; closest = i; }
-    }
-    setHoverIdx(closest);
-  }, [snaps.length, width]);
-
-  function handleClick() {
-    if (hoverIdx !== null) onSelect(snaps[hoverIdx]);
-  }
-
-  const hoverPoint = hoverIdx !== null ? points[hoverIdx] : null;
-  const hoverSnap = hoverIdx !== null ? snaps[hoverIdx] : null;
-  const selectedPointIdx = selectedId ? snaps.findIndex(s => s.snapshot_at === selectedId) : -1;
-  const selectedPoint = selectedPointIdx >= 0 ? points[selectedPointIdx] : null;
-
-  // Tooltip position — keep it within the chart bounds
-  const tooltipW = 140;
-  const tooltipLeft = hoverPoint
-    ? Math.max(0, Math.min(hoverPoint.x - tooltipW / 2, width - tooltipW))
-    : 0;
-
-  return (
-    <div style={{ padding: '0 16px', position: 'relative' }}>
-      <svg
-        ref={svgRef}
-        width={width}
-        height={CHART_HEIGHT}
-        style={{ display: 'block', cursor: 'crosshair' }}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={() => setHoverIdx(null)}
-        onClick={handleClick}
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={t.accent} stopOpacity="0.25" />
-            <stop offset="100%" stopColor={t.accent} stopOpacity="0.02" />
-          </linearGradient>
-        </defs>
-
-        {/* Horizontal grid lines */}
-        {yTicks.map((tick, i) => (
-          <line key={i} x1={MARGIN.left} y1={tick.y} x2={width - MARGIN.right} y2={tick.y}
-            stroke={t.border} strokeWidth="1" opacity="0.4" />
-        ))}
-
-        {/* Area fill */}
-        <path d={areaPath} fill={`url(#${gradientId})`} />
-
-        {/* Line */}
-        <path d={linePath} fill="none" stroke={t.accent} strokeWidth="2"
-          strokeLinecap="round" strokeLinejoin="round" />
-
-        {/* Y-axis labels */}
-        {yTicks.map((tick, i) => (
-          <text key={i} x={MARGIN.left - 10} y={tick.y + 4} textAnchor="end"
-            fontSize="10" fontFamily="system-ui, sans-serif" fill={t.textMuted}>
-            ${formatCost(tick.val)}
-          </text>
-        ))}
-
-        {/* X-axis labels */}
-        {xLabels.map((l, i) => (
-          <text key={i} x={l.x} y={CHART_HEIGHT - 8} textAnchor="middle"
-            fontSize="10" fontFamily="system-ui, sans-serif" fill={t.textMuted}>
-            {l.label}
-          </text>
-        ))}
-
-        {/* Selected point */}
-        {selectedPoint && (
-          <>
-            <line x1={selectedPoint.x} y1={MARGIN.top} x2={selectedPoint.x} y2={MARGIN.top + plotH}
-              stroke={t.accent} strokeWidth="1" strokeDasharray="4 3" opacity="0.6" />
-            <circle cx={selectedPoint.x} cy={selectedPoint.y} r="5"
-              fill={t.accent} stroke={t.surface} strokeWidth="2" />
-          </>
-        )}
-
-        {/* Hover crosshair + dot */}
-        {hoverPoint && hoverIdx !== selectedPointIdx && (
-          <>
-            <line x1={hoverPoint.x} y1={MARGIN.top} x2={hoverPoint.x} y2={MARGIN.top + plotH}
-              stroke={t.textMuted} strokeWidth="1" opacity="0.3" />
-            <circle cx={hoverPoint.x} cy={hoverPoint.y} r="4"
-              fill={t.accent} stroke={t.surface} strokeWidth="2" />
-          </>
-        )}
-      </svg>
-
-      {/* Hover tooltip */}
-      {hoverSnap && (
-        <div style={{
-          position: 'absolute',
-          top: 4,
-          left: tooltipLeft,
-          width: tooltipW,
-          backgroundColor: t.surface,
-          border: `1px solid ${t.border}`,
-          borderRadius: 8,
-          padding: '8px 10px',
-          pointerEvents: 'none',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          zIndex: 10,
-        }}>
-          <span style={{ fontSize: 11, color: t.textMuted, display: 'block', marginBottom: 2 }}>
-            {formatDate(hoverSnap.snapshot_at)}
-          </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: t.accent, display: 'block' }}>
-            {hoverSnap.currency} {hoverSnap.total_monthly_cost.toFixed(2)}
-          </span>
-          <span style={{ fontSize: 11, color: t.textMid, display: 'block', marginTop: 1 }}>
-            {hoverSnap.ghost_count} zombie{hoverSnap.ghost_count !== 1 ? 's' : ''}
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Scan history list row ────────────────────────────────────────────────────
 function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
   const costDelta = prevItem ? item.total_monthly_cost - prevItem.total_monthly_cost : null;
   const t = theme;
   return (
-    <button
+    <div
       data-snap=""
       onClick={onClick}
       style={{
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '13px 16px',
-        borderBottom: `1px solid ${t.border}`,
-        width: '100%',
-        background: isSelected ? t.accentLight : 'none',
+        gap: 12,
+        padding: '12px 14px',
+        backgroundColor: isSelected ? t.surfaceRaised : t.surface,
+        border: `1px solid ${isSelected ? t.accent : t.border}`,
+        borderRadius: 8,
         cursor: 'pointer',
-        textAlign: 'left',
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <span style={{ fontSize: 14, color: t.text, fontWeight: 600 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
           {formatDateTime(item.snapshot_at)}
-        </span>
-        <span style={{ fontSize: 12, color: t.textMuted }}>
+        </div>
+        <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
           {item.ghost_count === 0 ? 'No zombies found' : `${item.ghost_count} zombie${item.ghost_count !== 1 ? 's' : ''}`}
           {costDelta !== null && Math.abs(costDelta) >= 0.01 && (
             <span style={{ marginLeft: 8, color: costDelta > 0 ? t.error : t.success, fontWeight: 600 }}>
               {costDelta > 0 ? '+' : ''}{costDelta.toFixed(2)}
             </span>
           )}
-        </span>
+        </div>
       </div>
-      <span style={{ fontSize: 15, fontWeight: 700, color: isSelected ? t.accent : t.text, flexShrink: 0, marginLeft: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: t.accent, textAlign: 'right', flexShrink: 0 }}>
         {item.currency} {item.total_monthly_cost.toFixed(2)}
-      </span>
-    </button>
+      </div>
+    </div>
   );
 }
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
-export default function TrendScreen({ onBack }) {
+export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
   const { theme, isDark } = useTheme();
   const screenWidth = useWindowWidth();
   const [filterServices, setFilterServices]         = useState(() => new Set());
   const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
+
   const trendServices = useQuery({ queryKey: ['trend-services'], queryFn: fetchTrendServices });
 
   // Sub-types only make sense under a single service, so we only fetch & render
@@ -353,8 +200,8 @@ export default function TrendScreen({ onBack }) {
 
   const trendQueries = useQueries({
     queries: filterBuckets.map(b => ({
-      queryKey: ['trend', b.service, b.resourceType],
-      queryFn: () => fetchTrend(null, b.service, b.resourceType),
+      queryKey: ['trend', selectedAwsAccount, b.service, b.resourceType],
+      queryFn: () => fetchTrend(selectedAwsAccount, b.service, b.resourceType),
     })),
   });
 
@@ -365,6 +212,7 @@ export default function TrendScreen({ onBack }) {
   const mergedSnaps    = mergeSnapshotSeries(trendQueries.map(q => q.data));
   const [selectedSnap, setSelectedSnap] = useState(null);
   const [period, setPeriod]             = useState(30);
+  const [granularity, setGranularity]   = useState('daily');
   const [listPage, setListPage]         = useState(1);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const listRef      = useRef(null);
@@ -379,10 +227,16 @@ export default function TrendScreen({ onBack }) {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Derive data — raw snaps for history list, downsampled for chart
+  // Auto-select granularity when period changes
+  const effectiveGranularity = period <= 30 ? 'daily' : granularity;
+  const showGranularityToggle = period >= 90;
+
+  // Derive data — raw snaps for history list, aggregated for chart
   const allSnaps      = mergedSnaps;
   const filteredSnaps = allSnaps.slice(-period);
-  const chartSnaps    = downsample(filteredSnaps, period);
+  const chartSnaps    = effectiveGranularity === 'monthly'
+    ? downsampleByMonth(filteredSnaps)
+    : downsample(filteredSnaps, period);
   const reversedSnaps = [...filteredSnaps].reverse();
 
   // Scroll to selected row in history list
@@ -457,9 +311,6 @@ export default function TrendScreen({ onBack }) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', backgroundColor: t.bg, flexDirection: 'column', gap: 16 }}>
         <span style={{ color: t.textMid, fontSize: 16 }}>Failed to load trend data.</span>
-        <button onClick={onBack} style={{ padding: '10px 20px', backgroundColor: t.accent, borderRadius: 8, border: 'none', cursor: 'pointer' }}>
-          <span style={{ color: '#fff', fontWeight: 600 }}>Go Back</span>
-        </button>
       </div>
     );
   }
@@ -478,13 +329,20 @@ export default function TrendScreen({ onBack }) {
   return (
     <div ref={topRef} style={{ backgroundColor: t.bg, minHeight: '100%' }}>
 
-      {/* Page header */}
-      <div style={{ backgroundColor: t.surfaceAlt, borderBottom: `1px solid ${t.border}`, padding: '14px 20px 20px' }}>
-        <button onClick={onBack} style={{ padding: '4px 0', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 12 }}>
-          <span style={{ color: t.textMuted, fontWeight: 600, fontSize: 14 }}>← Back</span>
-        </button>
+      {/* Account selector header */}
+      <div style={{ backgroundColor: t.surface, borderBottom: `1px solid ${t.border}`, padding: '16px' }}>
+        <AccountSelector
+          accounts={accounts}
+          selectedAccount={selectedAccount}
+          onSelectAccount={onSelectAccount}
+          onConnectAccount={onConnectAccount}
+          onEditAccount={onEditAccount}
+        />
+      </div>
 
-        <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 3 }}>
+      {/* Page header */}
+      <div style={{ backgroundColor: t.surfaceAlt, borderBottom: `1px solid ${t.border}`, padding: '20px 20px 16px' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
           {(() => {
             if (selectedSnap) {
               return `Snapshot · ${new Date(selectedSnap.snapshot_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
@@ -518,12 +376,31 @@ export default function TrendScreen({ onBack }) {
       </div>
 
       {/* Chart section */}
-      <div style={{ backgroundColor: t.surface, borderBottom: `1px solid ${t.border}`, paddingTop: 16, paddingBottom: 16 }}>
-        {/* Period selector */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 14px', flexWrap: 'wrap', gap: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
-            Timeline
-          </span>
+      <div style={{ backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, paddingTop: 16, paddingBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 12px', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Waste Over Time
+            </span>
+            {showGranularityToggle && (
+              <div style={{ display: 'flex', gap: 2, backgroundColor: t.surfaceRaised, borderRadius: 6, padding: 2 }}>
+                {['daily', 'monthly'].map(g => (
+                  <button
+                    key={g}
+                    onClick={() => { setGranularity(g); setSelectedSnap(null); }}
+                    style={{
+                      padding: '3px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
+                      backgroundColor: effectiveGranularity === g ? t.accent : 'transparent',
+                      color: effectiveGranularity === g ? '#fff' : t.textMuted,
+                      fontSize: 11, fontWeight: 600, textTransform: 'capitalize',
+                    }}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div role="group" aria-label="Select time period" style={{ display: 'flex', gap: 4 }}>
             {PERIOD_OPTIONS.map(p => {
               const active = period === p.days;
@@ -642,7 +519,7 @@ export default function TrendScreen({ onBack }) {
         ) : (
           <>
             <AreaChart
-              snaps={chartSnaps}
+              data={chartSnaps}
               selectedId={selectedSnap?.snapshot_at}
               onSelect={handleSelect}
               theme={t}
@@ -653,7 +530,6 @@ export default function TrendScreen({ onBack }) {
               <span style={{ fontSize: 11, color: t.textMuted }}>
                 {filteredSnaps.length} scan{filteredSnaps.length !== 1 ? 's' : ''}
                 {chartSnaps.length < filteredSnaps.length && ` · ${chartSnaps.length} points (averaged)`}
-                {' · click to inspect'}
               </span>
             </div>
           </>
@@ -668,7 +544,7 @@ export default function TrendScreen({ onBack }) {
           </span>
         </div>
 
-        <div style={{ paddingBottom: 48 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 16px 48px' }}>
           {visibleRows.map((item, idx) => (
             <HistoryRow
               key={item.snapshot_at + idx}
@@ -697,10 +573,10 @@ export default function TrendScreen({ onBack }) {
               style={{
                 display: 'block',
                 width: '100%',
-                padding: '14px 16px',
-                background: 'none',
-                border: 'none',
-                borderTop: `1px solid ${t.border}`,
+                padding: '12px 14px',
+                backgroundColor: t.surface,
+                border: `1px solid ${t.border}`,
+                borderRadius: 8,
                 cursor: 'pointer',
                 color: t.accent,
                 fontSize: 13,

@@ -158,7 +158,7 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
     if (!ghost.dismissal_id) return;
     try {
       await revokeDismissal(ghost.dismissal_id);
-      toast('Resource restored to ghost list', 'success');
+      toast('Resource restored to zombie list', 'success');
       if (onDismissed) onDismissed();
       onBack();
     } catch {

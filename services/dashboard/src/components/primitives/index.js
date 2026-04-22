@@ -11,4 +11,5 @@ export { Text } from './Text';
 export { Pressable } from './Pressable';
 export { Spinner } from './Spinner';
 export { Overlay } from './Overlay';
+export { default as Toast } from './Toast';
 export { useWindowWidth } from './useWindowWidth';

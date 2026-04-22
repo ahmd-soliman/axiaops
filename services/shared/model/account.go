@@ -8,6 +8,7 @@ type Account struct {
 	TenantID          string     `json:"tenant_id"`
 	Provider          string     `json:"provider"`      // "aws", "azure", "gcp"
 	Label             string     `json:"label"`         // user-defined name
+	AccountID         string     `json:"account_id"`    // AWS account ID (e.g., "123456789012")
 	AccessKeyID       string     `json:"access_key_id"` // visible — not secret
 	SecretEncrypted   string     `json:"-"`             // never sent to client
 	Region            string     `json:"region"`

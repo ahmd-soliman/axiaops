@@ -17,7 +17,7 @@ services/
   api/        — HTTP server (:8080), auth middleware, reads from DB
   ingestion/  — Long-lived HTTP server (:8081), fetches AWS data, writes to DB
   shared/     — Domain models, Store interface, PostgreSQL, analyzer, crypto, logging
-  dashboard/  — React Native (Expo) web app, served via nginx
+  dashboard/  — Vite + React web app, served via nginx
 ```
 
 Go workspace (`go.work`) links all three Go modules. Import paths: `axiaops.io/api`, `axiaops.io/ingestion`, `axiaops.io/shared`.
@@ -25,9 +25,11 @@ Go workspace (`go.work`) links all three Go modules. Import paths: `axiaops.io/a
 ## Key Commands
 
 ```bash
-make start-dev      # Docker Compose with real AWS (from .env or env vars)
-make start-staging  # Real AWS + Kinde auth
-make stop           # Kill all services, free ports
+make start-dev      # Host-mode Go services + Postgres container. DEV_MODE=true
+                    # (auth bypass). Fast dev loop — the default for day-to-day work.
+make start-staging  # Full Docker stack (API, ingestion, dashboard, Redis, Postgres)
+                    # with DEV_MODE=false → Kinde JWT auth on. Mirrors deployed env.
+make stop           # Kill host-mode services AND `docker compose down` the stack.
 make seed           # Populate dummy tenant/user/ghost records
 make test           # All Go unit tests
 make test-storage   # PostgreSQL tests (RLS, migrations) — needs running postgres
@@ -38,11 +40,12 @@ make test-all       # Unit + postgres tests
 
 ## Dev Workflow
 
-- Docker Compose runs: postgres (5432), ingestion (8081), api (8080), dashboard (80→nginx)
-- All modes use real AWS Cost Explorer + CloudWatch data
-- `make start-dev` requires AWS credentials in `.env` or environment
-- `make start-staging` additionally requires Kinde JWT auth
-- Dashboard proxies `/api/*` through nginx to the API service
+- `start-dev` = host-mode Go (API :8080, ingestion :8081, Vite dashboard :5173) against a local Postgres container. No Redis, no auth. Use this for most coding.
+- `start-staging` = full docker-compose stack: Postgres + Redis + ingestion + API + dashboard (nginx :8082). Kinde auth enforced. Use when debugging auth flows, Redis features, or verifying container parity.
+- Both modes use real AWS Cost Explorer + CloudWatch data.
+- `start-dev` requires AWS credentials in `services/*/.env` or environment.
+- `start-staging` additionally requires `KINDE_*` env vars to be populated.
+- In `start-dev` the dashboard proxies `/api/*` through Vite → API on 8080. In `start-staging` nginx serves the built bundle and proxies `/api/*` to the containerised API.
 
 ## Database
 
@@ -117,6 +120,12 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 - Clean up old ECR images (€0.10/GB)
 - RDS Multi-AZ doubles cost — defer until necessary
 - App Runner scales to zero — no idle compute cost
+
+## Agent Delegation
+
+- **Committing** — always delegate to the `commit` agent
+- **Code review before committing** — delegate to the `code-reviewer` agent
+- **Planning non-trivial features** that affect multiple services or the data model — delegate to the `architect` agent
 
 ## Service-Specific Instructions
 

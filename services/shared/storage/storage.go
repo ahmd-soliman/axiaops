@@ -31,6 +31,14 @@ func TenantIDFromCtx(ctx context.Context) string {
 	return v
 }
 
+// CostFilter specifies criteria for listing cost records.
+type CostFilter struct {
+	InternalAccountID string // optional: filter by internal_account_id (system account ID)
+	AWSAccountID      string // optional: filter by account_id (AWS account ID) — for backward compatibility with old records
+	Service           string // optional: filter by service name
+	Days              int    // optional: lookback window in days (default: 30)
+}
+
 // Store persists and retrieves cost records, tenants, and users.
 type Store interface {
 	// Save inserts a batch of cost records, skipping duplicates.
@@ -50,6 +58,12 @@ type Store interface {
 	// UpsertTenant creates a tenant on first login or returns the existing one.
 	// Keyed on org_code — the Kinde organisation identifier.
 	UpsertTenant(ctx context.Context, orgCode, name string) (model.Tenant, error)
+
+	// EnsureTenant creates a tenant with a caller-supplied id if no row with
+	// that id exists yet. Unlike UpsertTenant, the id is pinned (not a UUID)
+	// and the row is never modified on conflict. Used by dev mode at startup
+	// to guarantee a known-id tenant row for FK references.
+	EnsureTenant(ctx context.Context, id, orgCode, name string) error
 
 	// UpsertUser creates a user on first login or updates last_seen.
 	// Keyed on kinde_sub — the stable Kinde user identifier.
@@ -89,6 +103,12 @@ type Store interface {
 	// Called by the API service per request.
 	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
 	LoadResources(ctx context.Context) ([]model.ResourceRecord, error)
+
+	// ListCostRecords returns cost records for the tenant in ctx, filtered by account, service, and time window.
+	// Records with amount > 0 are returned, ordered by period_start (newest first) then amount (largest first).
+	// If filter.Days is 0 or negative, defaults to 30 days.
+	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
+	ListCostRecords(ctx context.Context, filter CostFilter) ([]model.CostRecord, error)
 
 	// SaveSnapshot writes a ghost snapshot after each ingestion scan.
 	// Snapshots are never replaced — they accumulate to form the savings history.
