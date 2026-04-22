@@ -79,9 +79,10 @@ if [[ -n "$REMOTE_ENV" ]]; then
   echo ""
 fi
 
-# Dev-bypass tenant org_code — must match what the API's DevBypass middleware uses
-# (DEV_TENANT_ID env var, default "dev-tenant-axiaops").
-DEV_ORG_CODE="${DEV_TENANT_ID:-dev-tenant-axiaops}"
+# Dev tenant id — must match DEV_TENANT_ID env var used by the API's DevBypass
+# middleware. Stable string id (not a UUID), seeded once at API startup via
+# Store.EnsureTenant.
+DEV_TENANT_ID_VAL="${DEV_TENANT_ID:-dev-tenant-axiaops}"
 
 # ── Determine connection mode (local docker or remote) ────────────────────────
 # If MIGRATION_DATABASE_URL is set (by --remote or the caller), connect directly as schema owner.
@@ -150,9 +151,8 @@ PERIOD_END="$NOW"
 # ── Resolve tenant ID ─────────────────────────────────────────────────────────
 # Must match whatever tenant the API is serving data for:
 #   - Staging (Kinde auth): one real tenant created by Kinde login — pick the oldest.
-#   - Dev (DEV_MODE=true):  API's DevBypass upserts tenant keyed by org_code=DEV_TENANT_ID
-#     and returns a UUID id. Seed MUST align with that — look up (or create) by org_code,
-#     not by id, otherwise data lands under the wrong tenant and the dashboard shows nothing.
+#   - Dev (DEV_MODE=true):  tenant id == DEV_TENANT_ID (ensured by the API at
+#     startup via Store.EnsureTenant). Seed mirrors that — pin the same id.
 
 if [[ "$REMOTE_ENV" == "staging" ]]; then
   TENANT_ID=$(psql_query "SELECT id FROM tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
@@ -162,16 +162,11 @@ if [[ "$REMOTE_ENV" == "staging" ]]; then
   fi
   echo "Using staging tenant: ${TENANT_ID}"
 else
-  # Mirror services/api/internal/middleware/auth.go:DevBypass → UpsertTenant exactly.
-  TENANT_ID=$(psql_query "INSERT INTO tenants (id, org_code, name, created_at)
-    VALUES (gen_random_uuid()::text, '${DEV_ORG_CODE}', '${DEV_ORG_CODE}', NOW())
-    ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name
-    RETURNING id;" | tr -d '[:space:]')
-  if [ -z "$TENANT_ID" ]; then
-    echo "Error: failed to upsert dev tenant (org_code=${DEV_ORG_CODE})."
-    exit 1
-  fi
-  echo "Using dev tenant (org_code=${DEV_ORG_CODE}): ${TENANT_ID}"
+  TENANT_ID="$DEV_TENANT_ID_VAL"
+  psql_exec "INSERT INTO tenants (id, org_code, name, created_at)
+    VALUES ('${TENANT_ID}', '${TENANT_ID}', '${TENANT_ID}', NOW())
+    ON CONFLICT (id) DO NOTHING;"
+  echo "Using dev tenant: ${TENANT_ID}"
 fi
 
 # ── Additional tenants for RLS isolation testing (local only) ─────────────────
