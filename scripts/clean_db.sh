@@ -135,11 +135,10 @@ fi
 
 # ── Truncate all data ─────────────────────────────────────────────────────────
 
-echo "Resetting migration state (axiaops.schema_migrations)..."
-psql_super "DROP TABLE IF EXISTS axiaops.schema_migrations;" 2>/dev/null || true
-echo ""
-
 echo "Truncating all tables..."
+# schema_migrations is intentionally NOT truncated — that's what --drop-schema is for.
+# Truncating it would leave data tables intact but make golang-migrate think no
+# migrations have been applied, causing re-run failures on next service startup.
 psql_exec "TRUNCATE TABLE axiaops.ghost_snapshots, axiaops.resource_records, axiaops.ghost_records, axiaops.cost_records, axiaops.accounts, axiaops.users, axiaops.tenants RESTART IDENTITY CASCADE;" 2>/dev/null || true
 echo "  Done."
 echo ""
