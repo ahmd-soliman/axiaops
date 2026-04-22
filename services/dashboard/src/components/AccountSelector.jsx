@@ -101,9 +101,11 @@ export default function AccountSelector({
             );
           })}
 
-          <button style={s.connectBtn} onClick={() => { onConnectAccount(); setShowDropdown(false); }}>
-            <span style={s.connectText}>+ Connect New Account</span>
-          </button>
+          {onConnectAccount && (
+            <button style={s.connectBtn} onClick={() => { onConnectAccount(); setShowDropdown(false); }}>
+              <span style={s.connectText}>+ Connect New Account</span>
+            </button>
+          )}
         </div>
       </Overlay>
     </div>

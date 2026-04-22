@@ -24,7 +24,7 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 |-------|-----------|
 | Backend | Go 1.25+ |
 | Database | PostgreSQL 16 (with Row-Level Security) |
-| Frontend | React Native (Expo) — web |
+| Frontend | Vite + React — web |
 | Auth | Kinde OAuth 2.0 (PKCE + RS256 JWT) |
 | Hosting | AWS App Runner + RDS |
 | Cloud APIs | AWS Cost Explorer, CloudWatch |
@@ -346,7 +346,7 @@ axiaops/
 │   │   ├── crypto/                 # AES-256-GCM encryption
 │   │   ├── model/                  # Domain types
 │   │   └── logging/                # slog helpers
-│   └── dashboard/                  # React Native (Expo) web app (nginx :80)
+│   └── dashboard/                  # Vite + React web app (nginx :80)
 │       └── src/
 │           ├── screens/
 │           └── components/
@@ -362,7 +362,7 @@ axiaops/
 - [x] Go ingestion service with PostgreSQL and RLS
 - [x] Zombie detection with per-service threshold rules
 - [x] REST API (`/api/v1/ghosts`, `/api/v1/summary`, `/api/v1/resources`)
-- [x] React Native web dashboard
+- [x] React web dashboard
 - [x] Docker Compose setup
 - [x] Comprehensive test coverage (44+ tests across 6 packages)
 - [x] AWS Cost Explorer + CloudWatch integration
@@ -396,7 +396,7 @@ axiaops/
 
 ### Phase 4 — Scale (2027)
 - [ ] Multi-cloud (Azure, GCP)
-- [ ] Mobile app (iOS + Android via Expo)
+- [ ] Mobile app (iOS + Android)
 - [ ] Cost forecasting (linear regression over snapshot history)
 
 ### Phase 5 — Pre-deployment Simulation (2027+)

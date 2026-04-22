@@ -34,6 +34,7 @@ type MockStore struct {
 	accounts   []model.Account
 	snapshots  []model.GhostSnapshot
 	resources  []model.ResourceRecord
+	costs      []model.CostRecord
 	dismissals []model.DismissAction
 	nextDismID int64
 
@@ -44,6 +45,7 @@ type MockStore struct {
 	}
 	capturedTenantIDs          []string
 	lastListSnapshotsAccountID string
+	lastCostFilter             storage.CostFilter
 
 	// ── Error Injection (optional, for failure testing) ──
 	errLoadGhosts         error
@@ -54,6 +56,7 @@ type MockStore struct {
 	errTryMarkScanning    error
 	errDismissGhost       error
 	errListActiveDismiss  error
+	errListCostRecords    error
 
 	// ── Account Status (for concurrency testing) ──
 	accountScanning map[string]bool // account ID → is scanning
@@ -93,6 +96,14 @@ func (m *MockStore) WithAccounts(accounts []model.Account) *MockStore {
 func (m *MockStore) WithSnapshots(snapshots []model.GhostSnapshot) *MockStore {
 	m.mu.Lock()
 	m.snapshots = snapshots
+	m.mu.Unlock()
+	return m
+}
+
+// WithCostRecords pre-populates the mock with cost records.
+func (m *MockStore) WithCostRecords(costs []model.CostRecord) *MockStore {
+	m.mu.Lock()
+	m.costs = costs
 	m.mu.Unlock()
 	return m
 }
@@ -247,8 +258,12 @@ func (m *MockStore) LoadGhosts(ctx context.Context) ([]model.GhostResource, erro
 	return ghosts, nil
 }
 
-func (m *MockStore) UpsertTenant(_ context.Context, _, _ string) (model.Tenant, error) {
-	return model.Tenant{}, nil
+func (m *MockStore) UpsertTenant(_ context.Context, externalID, name string) (model.Tenant, error) {
+	return model.Tenant{ID: externalID, Name: name}, nil
+}
+
+func (m *MockStore) EnsureTenant(_ context.Context, _, _, _ string) error {
+	return nil
 }
 
 func (m *MockStore) UpsertUser(_ context.Context, _, _, _, _ string) (model.User, error) {
@@ -355,6 +370,31 @@ func (m *MockStore) LoadResources(_ context.Context) ([]model.ResourceRecord, er
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]model.ResourceRecord(nil), m.resources...), nil
+}
+
+func (m *MockStore) ListCostRecords(_ context.Context, filter storage.CostFilter) ([]model.CostRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastCostFilter = filter
+	if m.errListCostRecords != nil {
+		return nil, m.errListCostRecords
+	}
+	return append([]model.CostRecord(nil), m.costs...), nil
+}
+
+// WithListCostRecordsError makes ListCostRecords return an error.
+func (m *MockStore) WithListCostRecordsError(err error) *MockStore {
+	m.mu.Lock()
+	m.errListCostRecords = err
+	m.mu.Unlock()
+	return m
+}
+
+// GetLastCostFilter returns the filter from the most recent ListCostRecords call.
+func (m *MockStore) GetLastCostFilter() storage.CostFilter {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastCostFilter
 }
 
 func (m *MockStore) SaveSnapshot(_ context.Context, s model.GhostSnapshot) error {
