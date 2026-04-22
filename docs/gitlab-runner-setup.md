@@ -27,6 +27,95 @@ All other jobs are untagged and go to any runner that can pick them up.
 
 ---
 
+## DinD vs socket mount
+
+Two ways a CI job can get Docker daemon access. The pipeline uses DinD for the
+jobs that can tolerate fresh-daemon-per-job, and socket mount only for deploy
+jobs that must manage long-lived containers on the runner host.
+
+### What each is
+
+**Docker-in-Docker (DinD).** GitLab starts a second, ephemeral Docker daemon
+as a service container (`docker:24-dind`) alongside the job container. The job
+talks to this daemon via `DOCKER_HOST=tcp://docker:2375`. Daemon is destroyed
+when the job ends.
+
+**Socket mount.** The host's Docker daemon (`/var/run/docker.sock`) is bind-mounted
+into the job container. The job's `docker` commands go straight to the daemon
+that's already running on the runner host. Daemon and its state persist across
+jobs.
+
+### Comparison
+
+| | DinD | Socket mount |
+|---|---|---|
+| Isolation between jobs | Each job gets its own daemon — no state leak | Shared daemon — images, containers, networks persist between jobs |
+| Runner config | `services_privileged = true` (or `privileged = true`) | Mount `/var/run/docker.sock` into jobs |
+| Startup cost | ~3–5s per job to launch DinD | Instant |
+| Build cache reuse | Cold per job unless using BuildKit remote cache | Warm — previous layers stay on host daemon |
+| Runner compromise blast radius | Attacker gets the DinD service's capabilities (inside the runner) | Attacker gets the host Docker daemon — can read/write/run anything the host can |
+| Works on GitLab.com shared runners | **Yes** — their standard pattern | **No** — shared multi-tenant infra doesn't allow socket mount |
+| Works on self-hosted runners | Yes (needs privileged flag) | Yes |
+| Good for running long-lived containers on the runner host | No | Yes — the deploy pattern |
+| Suitable for multi-tenant CI | Yes | No |
+
+### When to pick which
+
+- **DinD** — when you want per-job daemon isolation, or when you might move to
+  GitLab.com shared runners later. This is the portable default.
+- **Socket mount** — when jobs legitimately need to manage containers on the
+  runner host itself (long-running dev/staging stacks), or on fully self-hosted
+  setups where you accept the shared-daemon risk as a simplicity win.
+
+### Why this pipeline uses DinD (mostly)
+
+The deciding factor is GitLab.com compatibility. If the pipeline used socket
+mount for test + build jobs, moving to shared runners later would require a CI
+rewrite. DinD works on both self-hosted (with `services_privileged`) and shared
+runners without changes.
+
+`deploy:dev` / `deploy:staging` genuinely need host Docker — they manage
+persistent containers on a specific runner host as part of the deploy model.
+They can't use DinD because the DinD daemon dies with the job.
+
+### Why DinD needs privileged
+
+A Docker daemon needs kernel capabilities that default (unprivileged)
+containers don't have:
+
+- manage cgroups,
+- create network namespaces and manipulate iptables,
+- set up overlayfs (image layer mounts),
+- mount tmpfs and `/sys/fs/cgroup`,
+- create device nodes.
+
+Without `privileged`, `docker:24-dind` fails at boot with "operation not
+permitted" errors setting up cgroups or iptables.
+
+`services_privileged = true` (GitLab Runner 15.0+) is preferred — it scopes
+privileged to the DinD service container only. The job container (running
+`docker build` / `go test`) stays unprivileged. Blast radius: a compromised
+DinD service could only break out to the runner host, which is already what's
+running `gitlab-runner`.
+
+### Daemonless alternatives
+
+If `services_privileged` still bothers you:
+
+- **Socket mount everywhere** — works but undoes isolation; not portable to
+  GitLab.com shared runners.
+- **Buildah** — daemonless image builder, Dockerfile-compatible, rootless-capable.
+  Replaces `docker build` in `build:images`. Doesn't help integration tests or
+  deploy jobs — they still need a container runtime.
+- **Sysbox runtime** — lets unprivileged containers run a Docker daemon.
+  Requires Sysbox installed on the runner host.
+- **Rootless DinD** — limited iptables/overlayfs support; integration tests
+  that use compose networking generally break.
+
+None are worth adopting at AxiaOps scale unless a specific policy demands it.
+
+---
+
 ## Option A — one unified self-hosted runner
 
 Simplest. One `[[runners]]` block handles everything.
@@ -77,38 +166,8 @@ Restart: `systemctl restart gitlab-runner`.
 
 If your GitLab Runner version predates `services_privileged` (added in 15.0),
 fall back to `privileged = true`. Worse scoping — job containers are also
-privileged — but still better than shell executor.
-
-### Why privileged is required
-
-DinD runs a second Docker daemon inside a service container. A Docker daemon
-needs kernel capabilities that a default (unprivileged) container doesn't have:
-
-- manage cgroups (resource isolation),
-- create network namespaces and manipulate iptables,
-- set up overlayfs (image layer mounts),
-- mount tmpfs, `/sys/fs/cgroup`, etc.,
-- create device nodes.
-
-`privileged = true` grants all kernel capabilities and disables seccomp /
-AppArmor confinement. Without it, `docker:24-dind` fails at boot with
-"operation not permitted" errors while setting up cgroups or iptables.
-
-`services_privileged = true` is preferred because it scopes privileged to the
-DinD service only. The job container (running `docker build` / `go test` / etc.)
-stays unprivileged. Blast radius: a compromised DinD service could only break
-out into the runner host — which is already what's running `gitlab-runner`.
-
-Alternatives, in order of effort:
-
-- **Socket mount only, no DinD** — share the runner's Docker daemon with jobs.
-  No privileged needed. Downside: images, containers, and networks leak between
-  jobs, which undoes most of the isolation benefit DinD gives you.
-- **Sysbox runtime** — unprivileged containers can run a Docker daemon safely,
-  but runner host needs Sysbox installed and containerd/Docker configured to
-  use it.
-- **Rootless DinD** — works but doesn't support iptables or overlayfs without
-  extra kernel config; AxiaOps integration tests depend on both.
+privileged — but still better than shell executor. See
+[DinD vs socket mount](#dind-vs-socket-mount) above for the rationale.
 
 ---
 
