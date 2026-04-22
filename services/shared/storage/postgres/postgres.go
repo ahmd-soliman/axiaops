@@ -265,6 +265,24 @@ func (s *Store) UpsertTenant(ctx context.Context, orgCode, name string) (model.T
 	return t, nil
 }
 
+// EnsureTenant inserts a tenant with a caller-supplied id if no row with that
+// id exists yet. Unlike UpsertTenant, the id is pinned and the row is never
+// modified on conflict. Used by dev mode to guarantee a known-id tenant row
+// so that FK references from accounts/ghosts/etc. resolve without requiring
+// a prior write path to have auto-created the row.
+func (s *Store) EnsureTenant(ctx context.Context, id, orgCode, name string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO tenants (id, org_code, name, created_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (id) DO NOTHING`,
+		id, orgCode, name, time.Now().UTC(),
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: ensure tenant: %w", err)
+	}
+	return nil
+}
+
 // UpsertUser creates a user on first login or updates email, name, and last_seen.
 func (s *Store) UpsertUser(ctx context.Context, tenantID, kindeSub, email, name string) (model.User, error) {
 	now := time.Now().UTC()

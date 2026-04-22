@@ -59,6 +59,12 @@ type Store interface {
 	// Keyed on org_code — the Kinde organisation identifier.
 	UpsertTenant(ctx context.Context, orgCode, name string) (model.Tenant, error)
 
+	// EnsureTenant creates a tenant with a caller-supplied id if no row with
+	// that id exists yet. Unlike UpsertTenant, the id is pinned (not a UUID)
+	// and the row is never modified on conflict. Used by dev mode at startup
+	// to guarantee a known-id tenant row for FK references.
+	EnsureTenant(ctx context.Context, id, orgCode, name string) error
+
 	// UpsertUser creates a user on first login or updates last_seen.
 	// Keyed on kinde_sub — the stable Kinde user identifier.
 	UpsertUser(ctx context.Context, tenantID, kindeSub, email, name string) (model.User, error)

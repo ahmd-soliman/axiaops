@@ -140,8 +140,14 @@ func main() {
 		if devTenantID == "" {
 			die("auth: DEV_MODE=true requires DEV_TENANT_ID to be set")
 		}
+		// Pin the dev tenant row at startup so DevBypass can inject a known id
+		// without doing any DB work per request. id = org_code = name here —
+		// dev mode uses DEV_TENANT_ID as the literal, stable tenant id.
+		if err := store.EnsureTenant(ctx, devTenantID, devTenantID, devTenantID); err != nil {
+			die("auth: failed to ensure dev tenant", "tenant", devTenantID, "error", err)
+		}
 		slog.Warn("auth: DEV_MODE — bypassing auth", "tenant", devTenantID)
-		root = middleware.DevBypass(devTenantID, store, root)
+		root = middleware.DevBypass(devTenantID, root)
 	} else {
 		kindeIssuer := os.Getenv("KINDE_ISSUER")
 		if kindeIssuer == "" {
