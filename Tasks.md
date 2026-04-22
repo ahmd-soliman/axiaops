@@ -67,3 +67,55 @@ _Last updated: 2026-04-19_
 - Mobile app (iOS + Android)
 - Cost forecasting (linear regression over snapshot history)
 - IaC plan parser (Terraform / CDK) + CI/CD budget gate
+
+---
+
+## CI — Containerize every job, drop custom runners
+
+Context: current CI uses a shell executor that assumes Go, golangci-lint, and Docker are
+pre-installed on the runner host, plus a shared `gitlab-cloud-runner-network` for service
+containers. This ties CI to bespoke runner images and broke on the new self-hosted runner (see
+commit `dafac6b`, IP-lookup workaround). Instead of owning a custom runner image, make
+every job self-contained by specifying `image:` + `services:` — then any generic Docker
+runner (GitLab.com shared or a vanilla self-hosted one) can run the pipeline.
+
+End state: the runner needs only Docker. CI YAML pins every tool version. Tests run
+identically locally and in CI.
+
+**Phase 1 — Containerize test jobs**
+
+- [ ] `test:unit` → add `image: golang:1.25`, drop `.go_setup` reliance.
+- [ ] `test:lint` → `image: golangci/golangci-lint:v2.1.0` (or matching version).
+- [ ] `test:storage` → `image: golang:1.25` + `services: [{ name: postgres:16-alpine, alias: postgres, variables: … }]`. Drop manual `docker run`, readiness probe, `after_script`, IP lookup.
+- [ ] `test:redis` → `image: golang:1.25` + `services: [{ name: redis:7-alpine, alias: redis }]`.
+- [ ] Remove `.go_setup` block once nothing references it.
+- [ ] Revert commit `dafac6b` (IP-lookup hack) — no longer needed.
+- [ ] Drop unused variables (`RUNNER_NETWORK`, `PG_CONTAINER`, `REDIS_CONTAINER`, `POSTGRES_PASSWORD`, `POSTGRES_OWNER_PASSWORD`) if nothing else uses them.
+
+**Phase 2 — Containerize infrastructure jobs**
+
+- [ ] `test:integration:*` → `image: docker:24` + `services: [docker:24-dind]`. Makefile target unchanged.
+- [ ] `build:images` → `image: docker:24` + DinD. Mostly already this.
+- [ ] `deploy:*` → `image: docker:24` + `apt-get install awscli` in `before_script`, or `image: amazon/aws-cli` with nested docker.
+
+**Phase 3 — Swap the runners**
+
+- [ ] Try GitLab.com shared runners on a test branch. Confirm all jobs green.
+- [ ] Decide: move everything to shared runners, or keep a minimal self-hosted runner for deploys that need VPC access (App Runner, RDS).
+- [ ] If mixed model: tag deploy jobs with `tags: [self-hosted]`, leave test/build on shared.
+- [ ] Decommission old socket-mount runner.
+- [ ] Decommission self-hosted runner (or repurpose with stock `gitlab-runner` image and docker executor, no custom image).
+
+**Phase 4 — Cleanup**
+
+- [ ] Pin service image tags (`postgres:16.4-alpine`, not `16-alpine`).
+- [ ] Pin Go image tag (`golang:1.25.3`, not `golang:1.25`).
+- [ ] Pin DinD tag.
+- [ ] Document the CI model in `docs/` — one page, "runners are disposable, images are pinned."
+- [ ] Add a `make test-ci` target that runs the exact same image invocations locally so engineers can reproduce CI failures.
+
+**Risks to watch**
+
+- First-job-on-runner image pull latency. Use GitLab's image caching or accept ~5-10s on cold runs.
+- Host-behavior-dependent tests (timezone, DNS, filesystem case sensitivity) may pass locally and fail in CI. Expect 1-2 surprises across a year.
+- Deploy jobs that need VPC/VPN access can't run on shared runners — requires a small self-hosted runner or ECS/Fargate one-off tasks for migrations (already the pattern for production).
