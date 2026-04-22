@@ -77,22 +77,12 @@ if [[ -n "$REMOTE_ENV" ]]; then
   fi
   echo " Connected."
   echo ""
-
-
-  # Look up tenant ID for staging
-  if [[ "$REMOTE_ENV" == "staging" ]]; then
-    echo "aaaa"
-    LOOKED_UP=$(psql "$MIGRATION_DATABASE_URL" -t -c "SELECT id FROM axiaops.tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d ' \n')
-    echo "bbbb" $LOOKED_UP
-    if [[ -n "$LOOKED_UP" ]]; then
-      export TENANT_ID="$LOOKED_UP"
-      echo "Using tenant ID from DB: $TENANT_ID"
-    fi
-  fi
 fi
 
-# Default Tenant ID (can be overridden by environment variable)
-TENANT_ID="${TENANT_ID:-dev-tenant-axiaops}"
+# Dev tenant id — must match DEV_TENANT_ID env var used by the API's DevBypass
+# middleware. Stable string id (not a UUID), seeded once at API startup via
+# Store.EnsureTenant.
+DEV_TENANT_ID_VAL="${DEV_TENANT_ID:-dev-tenant-axiaops}"
 
 # ── Determine connection mode (local docker or remote) ────────────────────────
 # If MIGRATION_DATABASE_URL is set (by --remote or the caller), connect directly as schema owner.
@@ -158,20 +148,25 @@ NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 PERIOD_START=$(date -u -v-30d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d '30 days ago' +"%Y-%m-%dT00:00:00Z")
 PERIOD_END="$NOW"
 
-# ── Resolve tenant ID from DB, fall back to default ──────────────────────────
-# On staging/remote, a real tenant already exists (created by Kinde login).
-# On fresh local DBs, we create a placeholder dev tenant.
+# ── Resolve tenant ID ─────────────────────────────────────────────────────────
+# Must match whatever tenant the API is serving data for:
+#   - Staging (Kinde auth): one real tenant created by Kinde login — pick the oldest.
+#   - Dev (DEV_MODE=true):  tenant id == DEV_TENANT_ID (ensured by the API at
+#     startup via Store.EnsureTenant). Seed mirrors that — pin the same id.
 
-EXISTING_TENANT=$(psql_query "SELECT id FROM tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
-if [ -n "$EXISTING_TENANT" ]; then
-  TENANT_ID="$EXISTING_TENANT"
-  echo "Using existing tenant from DB: ${TENANT_ID}"
+if [[ "$REMOTE_ENV" == "staging" ]]; then
+  TENANT_ID=$(psql_query "SELECT id FROM tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
+  if [ -z "$TENANT_ID" ]; then
+    echo "Error: no tenant found in staging DB — log into the dashboard first so Kinde creates one."
+    exit 1
+  fi
+  echo "Using staging tenant: ${TENANT_ID}"
 else
-  echo "No existing tenant found — creating dev tenant (id: ${TENANT_ID})..."
+  TENANT_ID="$DEV_TENANT_ID_VAL"
   psql_exec "INSERT INTO tenants (id, org_code, name, created_at)
-    VALUES ('${TENANT_ID}', 'org_dev_local', 'AxiaOps Dev', '$NOW')
-    ON CONFLICT DO NOTHING;"
-  echo "  Done."
+    VALUES ('${TENANT_ID}', '${TENANT_ID}', '${TENANT_ID}', NOW())
+    ON CONFLICT (id) DO NOTHING;"
+  echo "Using dev tenant: ${TENANT_ID}"
 fi
 
 # ── Additional tenants for RLS isolation testing (local only) ─────────────────
@@ -197,12 +192,15 @@ echo "Creating seed accounts for tenant ${TENANT_ID}..."
 ACCT1="seed-account-001"
 ACCT2="seed-account-002"
 ACCT3="seed-account-003"
-psql_exec "INSERT INTO accounts (id, tenant_id, provider, label, access_key_id, secret_encrypted, region, status, created_at)
+AWS_ACCT_ID="111111111111"
+# Wipe seed accounts from any tenant (cleans up orphans left by older seed runs
+# that wrote under the wrong tenant). Safe because seed-account-* IDs are seed-only.
+psql_exec "DELETE FROM accounts WHERE id IN ('${ACCT1}','${ACCT2}','${ACCT3}');"
+psql_exec "INSERT INTO accounts (id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted, region, status, created_at)
   VALUES
-    ('${ACCT1}', '${TENANT_ID}', 'aws', 'Seed Production AWS', '', '', 'eu-central-1', 'connected', '$NOW'),
-    ('${ACCT2}', '${TENANT_ID}', 'aws', 'Seed Staging AWS',    '', '', 'us-east-1',    'connected', '$NOW'),
-    ('${ACCT3}', '${TENANT_ID}', 'aws', 'Seed Dev AWS',        '', '', 'eu-west-1',    'connected', '$NOW')
-  ON CONFLICT (id) DO NOTHING;"
+    ('${ACCT1}', '${TENANT_ID}', 'aws', 'Seed Production AWS', '${AWS_ACCT_ID}', '', '', 'eu-central-1', 'connected', '$NOW'),
+    ('${ACCT2}', '${TENANT_ID}', 'aws', 'Seed Staging AWS',    '${AWS_ACCT_ID}', '', '', 'us-east-1',    'connected', '$NOW'),
+    ('${ACCT3}', '${TENANT_ID}', 'aws', 'Seed Dev AWS',        '${AWS_ACCT_ID}', '', '', 'eu-west-1',    'connected', '$NOW');"
 echo "  Done."
 echo ""
 
@@ -214,7 +212,7 @@ echo ""
 # Deletes existing seed data first, then re-inserts (idempotent on re-run).
 
 echo "Inserting ghost records..."
-psql_exec "DELETE FROM ghost_records WHERE tenant_id = '${TENANT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
+psql_exec "DELETE FROM ghost_records WHERE internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_exec "INSERT INTO ghost_records
   (tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
@@ -547,7 +545,7 @@ echo ""
 # "all resources" view but NOT in the ghosts view.
 
 echo "Inserting resource records..."
-psql_exec "DELETE FROM resource_records WHERE tenant_id = '${TENANT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
+psql_exec "DELETE FROM resource_records WHERE internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_exec "INSERT INTO resource_records
   (tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
@@ -911,6 +909,66 @@ generate_snapshots "$ACCT3" 9  217.7 $DAYS \
   "AmazonEC2|instance:0.22 AmazonRDS|primary:0.30 AWSLambda:0.08 AmazonElasticLoadBalancing|nlb:0.05 AmazonVPC|nat_gateway:0.03 AmazonVPC|eip:0.03 AmazonEC2|volume:0.20 AmazonEC2|ami:0.14"
 echo ""
 
+# ── Cost records ──────────────────────────────────────────────────────────────
+# Seed raw cost data (Cost Explorer API records) for testing cost filtering.
+# All accounts use the same AWS account ID (111111111111) matching seed script.
+# 23 realistic daily cost records across multiple services from the last 30 days.
+
+echo "Inserting cost records for all accounts (last 30 days of records)..."
+
+psql_exec "DELETE FROM cost_records WHERE account_id = '${AWS_ACCT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
+
+psql_pipe << EOF
+INSERT INTO cost_records
+  (tenant_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency, period_start, period_end, tags, fetched_at)
+VALUES
+  -- Daily EC2 costs (3 samples from last 30 days)
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 45.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 47.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 46.80, 'USD', NOW() - interval '1 day', NOW(), '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonEC2', 'us-east-1', 'i-0abc123stg0001', 38.20, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonEC2', 'us-east-1', 'i-0abc123stg0001', 39.10, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AmazonEC2', 'eu-west-1', 'i-0abc123dev0001', 22.80, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+
+  -- Daily RDS costs
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonRDS', 'eu-central-1', 'db-prod-legacy-reporting', 210.40, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonRDS', 'eu-central-1', 'db-prod-legacy-reporting', 212.10, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AmazonRDS', 'eu-west-1', 'db-dev-abandoned', 89.10, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+
+  -- S3 costs
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonS3', 'eu-central-1', 'prod-data-lake-bucket', 23.75, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonS3', 'eu-central-1', 'prod-data-lake-bucket', 24.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonS3', 'us-east-1', 'staging-backups', 15.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+
+  -- CloudFront costs
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonCloudFront', 'us-east-1', 'E1PROD0ABANDONED', 18.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonCloudFront', 'us-east-1', 'E1PROD0ABANDONED', 19.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonCloudFront', 'us-east-1', 'E2STG0OLDSITE', 8.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+
+  -- Lambda costs
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSLambda', 'us-east-1', 'stg-image-resizer', 4.10, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSLambda', 'us-east-1', 'stg-image-resizer', 4.35, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AWSLambda', 'eu-west-1', 'dev-unused-email-sender', 2.30, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+
+  -- ELB costs
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod', 18.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod', 18.75, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+
+  -- VPC NAT Gateway costs
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonVPC', 'eu-central-1', 'nat-abc123prod', 32.40, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonVPC', 'eu-central-1', 'nat-abc123prod', 31.80, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
+
+  -- Data Transfer costs
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSDataTransfer', 'us-east-1', 'data-transfer-out', 12.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
+
+  -- Tax (simulated)
+  ('${TENANT_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'Tax', 'NoRegion', 'vat', 1.42, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW')
+ON CONFLICT DO NOTHING;
+EOF
+
+echo "  Inserted cost records (EC2, RDS, S3, CloudFront, Lambda, ELB, VPC, Data Transfer, Tax)"
+echo ""
+
 # ── Verify seeded data ────────────────────────────────────────────────────────
 # Quick sanity check: count rows per table for the dev tenant.
 
@@ -919,10 +977,12 @@ GHOST_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_records WHERE tenant_id = '
 RESOURCE_COUNT=$(psql_query "SELECT COUNT(*) FROM resource_records WHERE tenant_id = '${TENANT_ID}';")
 SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshots WHERE tenant_id = '${TENANT_ID}';")
 SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshot_services WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
+COST_COUNT=$(psql_query "SELECT COUNT(*) FROM cost_records WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
 echo "Dev tenant ghost records:       $GHOST_COUNT  (expected 43)"
 echo "Dev tenant resource records:    $RESOURCE_COUNT  (expected 36)"
 echo "Dev tenant ghost snapshots:     $SNAPSHOT_COUNT  (expected 270)"
 echo "Dev tenant snapshot services:   $SVC_COUNT"
+echo "Dev tenant cost records:        $COST_COUNT  (expected 21)"
 echo ""
 
 echo "=== Done ==="

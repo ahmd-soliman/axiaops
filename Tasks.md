@@ -37,8 +37,9 @@ _Last updated: 2026-04-19_
 |---|------|-------|
 | 1 | **Wire Redis in API `main.go`** ✅ | `cache.New(REDIS_URL)` injected into `NewAuth` + `NewRateLimiter`; falls back to memory if unset |
 | 2 | **Production deployment** | App Runner (API + ingestion) + RDS + ElastiCache via Terraform. See `docs/production.md`. |
-| 3 | **Weekly email digest** | New ghosts after scan → Resend/SendGrid email. References `ghost_snapshots` for delta. |
-| 4 | **Slack webhook alert** | Notify channel when new ghosts appear post-scan. |
+| 3 | **Raw cost view** | Expose `cost_records` in `/v1/costs` endpoint + new "Cost" dashboard screen. See `tasks/raw-cost-view.md`. |
+| 4 | **Weekly email digest** | New ghosts after scan → Resend/SendGrid email. References `ghost_snapshots` for delta. |
+| 5 | **Slack webhook alert** | Notify channel when new ghosts appear post-scan. |
 
 ---
 
@@ -63,6 +64,6 @@ _Last updated: 2026-04-19_
 ## Phase 4+ (2027)
 
 - Multi-cloud (Azure, GCP)
-- Mobile app (iOS + Android via Expo)
+- Mobile app (iOS + Android)
 - Cost forecasting (linear regression over snapshot history)
 - IaC plan parser (Terraform / CDK) + CI/CD budget gate

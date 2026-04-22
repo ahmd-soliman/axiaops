@@ -1,4 +1,4 @@
-.PHONY: start-dev start-dev-redis start-staging stop migrate seed seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -18,28 +18,55 @@ INTEGRATION_API_URL ?= http://localhost:8080
 INTEGRATION_REDIS_URL ?= redis://localhost:6379
 INTEGRATION_INGESTION_URL ?= http://localhost:8081
 
-# Stop local processes, free ports, and stop Postgres if running.
+# Stop local processes, free ports, and stop the Docker stack.
+# Kills host-mode Go services from `start-dev` AND brings down any
+# docker-compose services from `start-staging`.
 stop:
 	docker rm -f axiaops-dev-redis 2>/dev/null || true
+	docker compose down 2>/dev/null || true
 	./scripts/start.sh stop
 
-# Start all services in dev mode (bypass auth with fixed tenant).
-# Always runs `stop` first so ports and stale processes are cleared.
+# Fast dev loop — host-mode Go services (API + ingestion + Vite dashboard)
+# against a local Postgres container. DEV_MODE=true → auth bypassed, fixed tenant.
+# This is the default for day-to-day coding; use `make start-staging` when you
+# need the full containerised stack with Kinde auth and Redis.
 # Run `make seed` once after first start to populate dummy data.
 start-dev: stop migrate
 	./scripts/start.sh
 
-# Like start-dev but also spins up a local Redis container and passes REDIS_URL.
-# Enables rate limiting and the scan queue worker locally.
-start-dev-redis: stop migrate
-	docker run -d --rm --name axiaops-dev-redis -p 6379:6379 redis:7-alpine 2>/dev/null || true
-	REDIS_URL=redis://localhost:6379 ./scripts/start.sh
-
-# Staging: real Kinde JWT auth + real AWS data (no seed needed).
-# Always runs `stop` first.
+# Full stack in Docker with Kinde JWT auth on and Redis (rate limiting +
+# scan queue worker). Mirrors the deployed environment — use this when
+# debugging auth flows, Redis-backed features, or container parity issues.
+# Dashboard is served by nginx on :8082 (the Vite dev server is not started).
+# Always runs `stop` first so host-mode services and stale containers are cleared.
 start-staging: stop migrate
-	docker run -d --rm --name axiaops-dev-redis -p 6379:6379 redis:7-alpine 2>/dev/null || true
-	DEV_MODE=false REDIS_URL=redis://localhost:6379 ./scripts/start.sh
+	DEV_MODE=false docker compose up --build -d
+	@echo ""
+	@echo "Full Docker stack starting (DEV_MODE=false, Kinde auth on)."
+	@echo "  API:        http://localhost:8080"
+	@echo "  Ingestion:  internal only (axiaops-ingestion:8081)"
+	@echo "  Dashboard:  http://localhost:8082"
+	@echo "  Logs:       docker compose logs -f"
+	@echo "  Stop:       make stop"
+
+# Start only the infrastructure (Postgres + migrations) needed to debug
+# Go services under VS Code F5 / Delve. Does NOT start API, Ingestion, or
+# Vite — F5 launches Go under Delve; run Vite separately for frontend work.
+# Clears any process (host or container) bound to :8080/:8081 so Delve can
+# bind those ports. Postgres stays up if already running.
+start-debug: migrate
+	@echo "Clearing Go service ports for F5..."
+	@docker rm -f axiaops-api axiaops-ingestion 2>/dev/null || true
+	@for port in 8080 8081; do \
+		pids=$$(lsof -ti :$$port 2>/dev/null || true); \
+		if [ -n "$$pids" ]; then \
+			echo "  Killing process(es) on port $$port: $$pids"; \
+			echo "$$pids" | xargs kill -9 2>/dev/null || true; \
+		fi; \
+	done
+	@echo ""
+	@echo "Postgres up and migrated. Hit F5 in VS Code to debug Go services."
+	@echo "For dashboard: cd services/dashboard && npm run dev"
 
 # Run database migrations using dedicated migration container
 migrate:
@@ -162,7 +189,7 @@ test-integration:
 # API integration tests only
 test-integration-api:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
-	cd test-infra/integration && docker-compose build migrate api ingestion
+	cd test-infra/integration && docker-compose build migrate init-tenant api ingestion
 	cd test-infra/integration && docker-compose up -d postgres redis && \
 		docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
 		(for i in {1..30}; do docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)
@@ -173,7 +200,7 @@ test-integration-api:
 # Ingestion integration tests only
 test-integration-ingestion:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
-	cd test-infra/integration && docker-compose build migrate ingestion
+	cd test-infra/integration && docker-compose build migrate init-tenant ingestion
 	cd test-infra/integration && docker-compose up -d postgres redis && \
 		docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
 		(for i in {1..30}; do docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)

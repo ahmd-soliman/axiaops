@@ -297,9 +297,11 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 	}
 
 	var keys *scanAWS
+	var account model.Account
 
 	if accountID != "" {
-		account, err := store.GetAccount(ctx, accountID)
+		var err error
+		account, err = store.GetAccount(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("get account: %w", err)
 		}
@@ -314,6 +316,18 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 			AccessKeyID: account.AccessKeyID,
 			SecretKey:   secret,
 			Region:      account.Region,
+		}
+	}
+
+	// Before scanning, update account_id if empty by connecting to AWS and getting the account ID
+	if accountID != "" && account.AccountID == "" && keys != nil {
+		awsClient, err := aws.NewWithStaticCredentials(ctx, keys.AccessKeyID, keys.SecretKey, keys.Region)
+		if err == nil {
+			account.AccountID = awsClient.AccountID()
+			if err := store.SaveAccount(ctx, account); err != nil {
+				return fmt.Errorf("runScan: failed to persist account_id for %s: %w", accountID, err)
+			}
+			slog.Info("runScan: populated account_id", "account_id", accountID, "aws_account_id", account.AccountID)
 		}
 	}
 
@@ -380,6 +394,12 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			}
 			continue
 		}
+
+		// Populate internal_account_id for filtering on dashboard
+		for i := range records {
+			records[i].InternalAccountID = &accountID
+		}
+
 		inserted, saveErr := store.Save(ctx, records)
 		if saveErr != nil {
 			return fmt.Errorf("[%s] save failed: %w", p.Name(), saveErr)

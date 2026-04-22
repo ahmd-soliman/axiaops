@@ -44,6 +44,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/trend", h.getTrend)
 	mux.HandleFunc("GET /v1/trend/services", h.getTrendServices)
 	mux.HandleFunc("GET /v1/trend/resource-types", h.getTrendResourceTypes)
+	mux.HandleFunc("GET /v1/costs", h.listCosts)
 	mux.HandleFunc("GET /v1/resources", h.listResources)
 	mux.HandleFunc("GET /v1/accounts", h.listAccounts)
 	mux.HandleFunc("GET /v1/accounts/{id}", h.getAccount)
@@ -287,6 +288,57 @@ func (h *Handler) getTrendResourceTypes(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, types)
 }
 
+// listCosts returns cost records for the tenant, filtered by account, service, and time window.
+// Optional query params: ?account_id=<id>, ?service=<name>, ?days=<int> (default 30).
+// account_id can be either the internal AxiaOps account UUID or the AWS account ID.
+func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+
+	accountIDParam := r.URL.Query().Get("account_id")
+	filter := storage.CostFilter{
+		Service: r.URL.Query().Get("service"),
+		Days:    days,
+	}
+
+	// account_id parameter can be either the internal UUID or the AWS account ID.
+	// Strategy:
+	// 1. If it looks like a UUID, try to look it up as internal account ID first
+	// 2. If found, use both internal_account_id and account_id for filtering
+	// 3. If not found or looks like AWS ID, use as account_id filter
+	if accountIDParam != "" {
+		// Try to look it up as an internal account ID (UUID)
+		account, err := h.store.GetAccount(ctx, accountIDParam)
+		if err == nil {
+			// Found by internal UUID
+			filter.InternalAccountID = accountIDParam
+			if account.AccountID != "" {
+				filter.AWSAccountID = account.AccountID
+			}
+			slog.Info("listCosts: filtered by internal account UUID", "internal_id", accountIDParam, "aws_id", account.AccountID)
+		} else {
+			// Account not found - it could be:
+			// 1. An internal UUID that hasn't been added to accounts table yet (newly created)
+			// 2. An AWS account ID
+			// Try both approaches:
+			filter.InternalAccountID = accountIDParam  // Try as internal UUID
+			filter.AWSAccountID = accountIDParam       // Also try as AWS account ID
+			slog.Info("listCosts: filtered by parameter (either internal UUID or AWS ID)", "account_id", accountIDParam)
+		}
+	}
+
+	records, err := h.store.ListCostRecords(ctx, filter)
+	if err != nil {
+		slog.Error("listCosts: load failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if records == nil {
+		records = []model.CostRecord{}
+	}
+	writeJSON(w, records)
+}
+
 // Pinger is satisfied by *postgres.Store (which embeds pgxpool.Pool).
 type Pinger interface {
 	Ping(ctx context.Context) error
@@ -324,8 +376,7 @@ func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	account, err := h.store.GetAccount(ctx, r.PathValue("id"))
 	if err != nil {
-		slog.Error("getAccount: load failed", "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		http.Error(w, "account not found", http.StatusNotFound)
 		return
 	}
 	writeJSON(w, account)

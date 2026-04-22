@@ -4,13 +4,13 @@ import { useApp } from '../context/AppContext';
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
 
-function IconDashboard({ color, size = 18 }) {
+function IconOverview({ color, size = 18 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <rect x="3" y="3" width="7" height="7" />
+      <rect x="14" y="3" width="7" height="7" />
+      <rect x="3" y="14" width="7" height="7" />
+      <rect x="14" y="14" width="7" height="7" />
     </svg>
   );
 }
@@ -48,11 +48,21 @@ function IconMoon({ color, size = 17 }) {
   );
 }
 
+function IconCost({ color, size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="1" x2="12" y2="23" />
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
+  );
+}
+
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { label: 'Dashboard', path: '/',      Icon: IconDashboard },
-  { label: 'Trend',     path: '/trend', Icon: IconTrend },
+  { label: 'Overview',         path: '/',      Icon: IconOverview },
+  { label: 'Trends',           path: '/trend', Icon: IconTrend },
+  { label: 'Costs',            path: '/cost',  Icon: IconCost },
 ];
 
 // ─── Top navbar ───────────────────────────────────────────────────────────────
@@ -92,6 +102,7 @@ export default function AppShell() {
         <nav aria-label="Main navigation" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
           {NAV_ITEMS.map(({ label, path, Icon }) => {
             const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
+            const activeBg = isDark ? 'rgba(255, 255, 255, 0.05)' : t.accentLight;
             return (
               <button
                 key={path}
@@ -104,15 +115,15 @@ export default function AppShell() {
                   padding: '5px 10px',
                   borderRadius: 7,
                   border: 'none',
-                  backgroundColor: isActive ? t.accentLight : 'transparent',
+                  backgroundColor: isActive ? activeBg : 'transparent',
                   cursor: 'pointer',
                 }}
               >
-                <Icon color={isActive ? t.accent : t.textMuted} />
+                <Icon color={isActive ? t.accent : t.accentMuted} />
                 <span style={{
                   fontSize: 13,
                   fontWeight: isActive ? 700 : 500,
-                  color: isActive ? t.accent : t.textMuted,
+                  color: isActive ? t.accent : t.accentMuted,
                 }}>
                   {label}
                 </span>
@@ -137,7 +148,7 @@ export default function AppShell() {
               alignItems: 'center',
             }}
           >
-            {isDark ? <IconSun color={t.textMuted} /> : <IconMoon color={t.textMuted} />}
+            {isDark ? <IconSun color={t.accentMuted} /> : <IconMoon color={t.accentMuted} />}
           </button>
 
           {/* Org badge */}
@@ -164,7 +175,7 @@ export default function AppShell() {
               cursor: 'pointer',
             }}
           >
-            <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted }}>Sign out</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: t.accentMuted }}>Sign out</span>
           </button>
         </div>
       </header>
