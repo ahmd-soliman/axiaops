@@ -22,6 +22,7 @@ export default function Dashboard() {
         navigate(`/detail/${g.resource_id}?account=${g.internal_account_id}&region=${g.region}&service=${g.service}`)
       }
       onShowTrend={() => navigate('/trend')}
+      onShowCosts={() => navigate(selectedAccount ? `/cost?account=${encodeURIComponent(selectedAccount)}` : '/cost')}
       onConnectAccount={() => navigate('/connect')}
       onEditAccount={(acc) => navigate(`/settings/${acc.id}`)}
     />

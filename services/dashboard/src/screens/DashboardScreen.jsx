@@ -33,7 +33,7 @@ const SNOOZE_OPTIONS = [
 
 // ─── Overview section ─────────────────────────────────────────────────────────
 
-function OverviewHero({ summary, totalSpend, trend, onShowTrend, theme }) {
+function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, theme }) {
   const data = summary.data;
   const waste = data?.potential_monthly_savings ?? 0;
   const ghostCount = data?.total_ghosts ?? 0;
@@ -51,7 +51,11 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, theme }) {
       {/* Two-stat row */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
         {/* Total Spend */}
-        <div style={{ flex: 1 }}>
+        <button
+          type="button"
+          onClick={onShowCosts}
+          style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
           <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
             Total Spend
           </span>
@@ -61,10 +65,11 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, theme }) {
           <span style={{ fontSize: 12, color: theme.textMuted, marginTop: 2, display: 'block' }}>
             last 30 days
           </span>
-        </div>
+        </button>
 
         {/* Monthly Waste */}
         <button
+          type="button"
           onClick={onShowTrend}
           style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
         >
@@ -721,7 +726,7 @@ function sortResources(list, sortBy) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function DashboardScreen({
-  onShowTrend, onSelectGhost, accounts = [], onConnectAccount, onEditAccount,
+  onShowTrend, onShowCosts, onSelectGhost, accounts = [], onConnectAccount, onEditAccount,
   selectedAccount, onSelectAccount,
 }) {
   const { theme, isDark } = useTheme();
@@ -987,7 +992,7 @@ export default function DashboardScreen({
       </div>
 
       {/* Overview hero */}
-      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} theme={t} />
+      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} onShowCosts={onShowCosts} theme={t} />
 
       {/* Service breakdown */}
       <ServiceBreakdown byService={byService} currency={summary.data?.currency ?? '$'} theme={t} />
