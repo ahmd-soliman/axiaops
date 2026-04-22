@@ -129,24 +129,43 @@ Simplest. One `[[runners]]` block handles everything.
   token = "<existing-token>"
   executor = "docker"
   [runners.docker]
-    image = "docker:24"                              # default for jobs without image:
-    services_privileged = true                       # DinD service needs privileged
+    image = "docker:24"                                   # default for jobs without image:
+    services_privileged = true                            # DinD service needs privileged
     volumes = [
-      "/var/run/docker.sock:/var/run/docker.sock",   # deploy:dev / deploy:staging
+      "/var/run/docker.sock:/var/run/host-docker.sock",   # rebound — see note below
       "/cache",
     ]
-    network_mode = "gitlab-cloud-runner-network"     # deploy:dev/staging reach DB by name
     pull_policy = "if-not-present"
 ```
 
-One-time bootstrap on the runner's Docker daemon:
+**Why the host socket is rebound to `/var/run/host-docker.sock`.** The volume
+list applies to *every* container the runner starts, including the
+`docker:24-dind` service container spawned for `.dind` jobs. If the host
+socket is mounted at the default `/var/run/docker.sock`, DinD can't create
+its own listener at that path and fails with `can't create unix socket
+/var/run/docker.sock: device or resource busy`. Rebinding to a
+non-conflicting path leaves DinD alone; deploy jobs reach the host daemon
+by setting `DOCKER_HOST=unix:///var/run/host-docker.sock` in their
+`variables:` block (see `deploy:dev` / `deploy:staging` in
+`.gitlab-ci.yml`).
+
+**Why there is no `network_mode`.** `gitlab-cloud-runner-network` is
+attached by the deploy compose files (`external: true`) and by explicit
+`--network` flags on one-off `docker run` commands. The runner itself does
+not need to be on that network, and setting `network_mode` here forces
+DinD services to share it — breaking per-build isolation and DinD's
+iptables setup.
+
+One-time bootstrap on the runner's Docker daemon (compose files and the
+migration `docker run` still require this network to exist):
 
 ```bash
 docker network inspect gitlab-cloud-runner-network >/dev/null 2>&1 \
   || docker network create gitlab-cloud-runner-network
 ```
 
-Register (or re-register) the runner with tags `self-hosted, docker-socket`:
+Register (or re-register) the runner — no tags needed for the unified
+single-runner setup:
 
 ```bash
 gitlab-runner register \
@@ -155,12 +174,11 @@ gitlab-runner register \
   --registration-token "<project-or-group-token>" \
   --executor docker \
   --docker-image "docker:24" \
-  --tag-list "self-hosted,docker-socket" \
   --description "axiaops-runner"
 ```
 
 Then edit `config.toml` to add the `[runners.docker]` settings shown above
-(registration doesn't set `services_privileged`, `volumes`, or `network_mode`).
+(registration doesn't set `services_privileged` or `volumes`).
 
 Restart: `systemctl restart gitlab-runner`.
 
@@ -238,7 +256,7 @@ Before merging `feature/containerized-ci`:
 
 - `test:storage` picks up the `postgres` service alias. First run confirms per-service `variables:` work (requires GitLab 14.5+).
 - `test:integration:*` runs `make test-integration-*` successfully under DinD. `before_script` installs `make` and `docker-cli-compose` via `apk`; if the package name differs on your alpine version, swap for `docker-compose` or `pip install docker-compose`.
-- `deploy:dev` reaches `axiaops-dev-db` by name — confirms the self-hosted runner is on `gitlab-cloud-runner-network`.
+- `deploy:dev` reaches `axiaops-dev-db` by name — confirms the deploy compose file's `gitlab-cloud-runner-network` attachment works and the host network exists.
 
 ---
 
@@ -254,17 +272,28 @@ Before merging `feature/containerized-ci`:
 
 ## Troubleshooting
 
-**DinD service fails to start.** Check that `services_privileged = true` (or
-`privileged = true`) is set. `docker:24-dind` cannot start without it.
+**DinD service fails to start with `services_privileged` set.** Look at the
+service container logs for `can't create unix socket /var/run/docker.sock:
+device or resource busy`. This means the runner's `volumes =` line mounts
+the host socket onto `/var/run/docker.sock` inside the DinD container,
+blocking DinD from creating its own. Rebind to a non-conflicting path:
+`/var/run/docker.sock:/var/run/host-docker.sock`, and set
+`DOCKER_HOST=unix:///var/run/host-docker.sock` in deploy jobs that need
+the host daemon.
+
+**DinD service fails to start otherwise.** Check that `services_privileged =
+true` (or `privileged = true`) is set. `docker:24-dind` cannot start
+without it.
 
 **`docker: not found` inside the job.** The job is using an image without the
 Docker CLI. For CI jobs that need `docker` commands, make sure `image:` is
 `docker:24` (directly or via `extends: .dind`).
 
-**`deploy:dev` fails with `unable to resolve axiaops-dev-db`.** The job container
-is not attached to `gitlab-cloud-runner-network`. Confirm `network_mode =
-"gitlab-cloud-runner-network"` in `config.toml` and that the network actually
-exists (`docker network ls`).
+**`deploy:dev` fails with `unable to resolve axiaops-dev-db`.** The DB
+container isn't on `gitlab-cloud-runner-network`, or the network doesn't
+exist on the runner host. Confirm `docker network ls` shows
+`gitlab-cloud-runner-network`, and that `deploy/dev.yml` declares it as
+`external: true` with every service attached.
 
 **`test:storage` fails with postgres connection refused.** The `postgres`
 alias isn't reachable. Check `services:` in the job has `alias: postgres` and
