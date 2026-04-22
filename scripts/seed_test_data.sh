@@ -77,22 +77,11 @@ if [[ -n "$REMOTE_ENV" ]]; then
   fi
   echo " Connected."
   echo ""
-
-
-  # Look up tenant ID for staging
-  if [[ "$REMOTE_ENV" == "staging" ]]; then
-    echo "aaaa"
-    LOOKED_UP=$(psql "$MIGRATION_DATABASE_URL" -t -c "SELECT id FROM axiaops.tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d ' \n')
-    echo "bbbb" $LOOKED_UP
-    if [[ -n "$LOOKED_UP" ]]; then
-      export TENANT_ID="$LOOKED_UP"
-      echo "Using tenant ID from DB: $TENANT_ID"
-    fi
-  fi
 fi
 
-# Default Tenant ID (can be overridden by environment variable)
-TENANT_ID="${TENANT_ID:-dev-tenant-axiaops}"
+# Dev-bypass tenant org_code — must match what the API's DevBypass middleware uses
+# (DEV_TENANT_ID env var, default "dev-tenant-axiaops").
+DEV_ORG_CODE="${DEV_TENANT_ID:-dev-tenant-axiaops}"
 
 # ── Determine connection mode (local docker or remote) ────────────────────────
 # If MIGRATION_DATABASE_URL is set (by --remote or the caller), connect directly as schema owner.
@@ -158,20 +147,31 @@ NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 PERIOD_START=$(date -u -v-30d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d '30 days ago' +"%Y-%m-%dT00:00:00Z")
 PERIOD_END="$NOW"
 
-# ── Resolve tenant ID from DB, fall back to default ──────────────────────────
-# On staging/remote, a real tenant already exists (created by Kinde login).
-# On fresh local DBs, we create a placeholder dev tenant.
+# ── Resolve tenant ID ─────────────────────────────────────────────────────────
+# Must match whatever tenant the API is serving data for:
+#   - Staging (Kinde auth): one real tenant created by Kinde login — pick the oldest.
+#   - Dev (DEV_MODE=true):  API's DevBypass upserts tenant keyed by org_code=DEV_TENANT_ID
+#     and returns a UUID id. Seed MUST align with that — look up (or create) by org_code,
+#     not by id, otherwise data lands under the wrong tenant and the dashboard shows nothing.
 
-EXISTING_TENANT=$(psql_query "SELECT id FROM tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
-if [ -n "$EXISTING_TENANT" ]; then
-  TENANT_ID="$EXISTING_TENANT"
-  echo "Using existing tenant from DB: ${TENANT_ID}"
+if [[ "$REMOTE_ENV" == "staging" ]]; then
+  TENANT_ID=$(psql_query "SELECT id FROM tenants ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
+  if [ -z "$TENANT_ID" ]; then
+    echo "Error: no tenant found in staging DB — log into the dashboard first so Kinde creates one."
+    exit 1
+  fi
+  echo "Using staging tenant: ${TENANT_ID}"
 else
-  echo "No existing tenant found — creating dev tenant (id: ${TENANT_ID})..."
-  psql_exec "INSERT INTO tenants (id, org_code, name, created_at)
-    VALUES ('${TENANT_ID}', 'org_dev_local', 'AxiaOps Dev', '$NOW')
-    ON CONFLICT DO NOTHING;"
-  echo "  Done."
+  # Mirror services/api/internal/middleware/auth.go:DevBypass → UpsertTenant exactly.
+  TENANT_ID=$(psql_query "INSERT INTO tenants (id, org_code, name, created_at)
+    VALUES (gen_random_uuid()::text, '${DEV_ORG_CODE}', '${DEV_ORG_CODE}', NOW())
+    ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name
+    RETURNING id;" | tr -d '[:space:]')
+  if [ -z "$TENANT_ID" ]; then
+    echo "Error: failed to upsert dev tenant (org_code=${DEV_ORG_CODE})."
+    exit 1
+  fi
+  echo "Using dev tenant (org_code=${DEV_ORG_CODE}): ${TENANT_ID}"
 fi
 
 # ── Additional tenants for RLS isolation testing (local only) ─────────────────
@@ -198,12 +198,14 @@ ACCT1="seed-account-001"
 ACCT2="seed-account-002"
 ACCT3="seed-account-003"
 AWS_ACCT_ID="111111111111"
+# Wipe seed accounts from any tenant (cleans up orphans left by older seed runs
+# that wrote under the wrong tenant). Safe because seed-account-* IDs are seed-only.
+psql_exec "DELETE FROM accounts WHERE id IN ('${ACCT1}','${ACCT2}','${ACCT3}');"
 psql_exec "INSERT INTO accounts (id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted, region, status, created_at)
   VALUES
     ('${ACCT1}', '${TENANT_ID}', 'aws', 'Seed Production AWS', '${AWS_ACCT_ID}', '', '', 'eu-central-1', 'connected', '$NOW'),
     ('${ACCT2}', '${TENANT_ID}', 'aws', 'Seed Staging AWS',    '${AWS_ACCT_ID}', '', '', 'us-east-1',    'connected', '$NOW'),
-    ('${ACCT3}', '${TENANT_ID}', 'aws', 'Seed Dev AWS',        '${AWS_ACCT_ID}', '', '', 'eu-west-1',    'connected', '$NOW')
-  ON CONFLICT (id) DO UPDATE SET account_id = '${AWS_ACCT_ID}';"
+    ('${ACCT3}', '${TENANT_ID}', 'aws', 'Seed Dev AWS',        '${AWS_ACCT_ID}', '', '', 'eu-west-1',    'connected', '$NOW');"
 echo "  Done."
 echo ""
 
@@ -215,7 +217,7 @@ echo ""
 # Deletes existing seed data first, then re-inserts (idempotent on re-run).
 
 echo "Inserting ghost records..."
-psql_exec "DELETE FROM ghost_records WHERE tenant_id = '${TENANT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
+psql_exec "DELETE FROM ghost_records WHERE internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_exec "INSERT INTO ghost_records
   (tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
@@ -548,7 +550,7 @@ echo ""
 # "all resources" view but NOT in the ghosts view.
 
 echo "Inserting resource records..."
-psql_exec "DELETE FROM resource_records WHERE tenant_id = '${TENANT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
+psql_exec "DELETE FROM resource_records WHERE internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_exec "INSERT INTO resource_records
   (tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
@@ -919,7 +921,7 @@ echo ""
 
 echo "Inserting cost records for all accounts (last 30 days of records)..."
 
-psql_exec "DELETE FROM cost_records WHERE tenant_id = '${TENANT_ID}' AND account_id = '${AWS_ACCT_ID}';"
+psql_exec "DELETE FROM cost_records WHERE account_id = '${AWS_ACCT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_pipe << EOF
 INSERT INTO cost_records
