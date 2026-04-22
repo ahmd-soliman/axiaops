@@ -2,28 +2,30 @@
 
 How to configure GitLab runners for the AxiaOps CI pipeline.
 
-The `.gitlab-ci.yml` is written so that every job carries its own `image:` and
-`services:` — no runner-host tooling is assumed. Any runner that can run
-Docker-executor jobs with DinD works. There is no custom runner image to build
-or maintain.
+The `.gitlab-ci.yml` is written so that every job carries its own `image:` —
+no runner-host toolchain is assumed. Every job that touches Docker (integration
+tests, builds, deploys) talks to the runner host's Docker daemon through a
+mounted `/var/run/docker.sock`. No DinD, no per-job daemon.
 
 ---
 
-## Runner capability profiles
+## Runner capability profile
 
-The pipeline has two runner profiles:
+One runner profile covers every job in the pipeline:
 
-| Jobs | Needs | Runs on |
-|---|---|---|
-| `test:*`, `build:images`, `deploy:production` | Docker executor + DinD service (privileged) | GitLab.com shared runners, or self-hosted |
-| `deploy:dev`, `deploy:staging` | Docker executor + mounted host socket + attached to `gitlab-cloud-runner-network` | Self-hosted only (tags: `self-hosted`, `docker-socket`) |
+| Jobs | Needs |
+|---|---|
+| `test:*`, `test:integration:*`, `build:images`, `deploy:*` | Docker executor + mounted `/var/run/docker.sock` + persistent Go cache bind mounts + `gitlab-cloud-runner-network` available on the host |
 
-`deploy:dev` / `deploy:staging` manage long-lived containers on a specific
-runner host via docker-compose. They need the host Docker daemon, not DinD, and
-must be on the same Docker network as the dev/staging DB container. They're
-routed via `tags:` in the CI file.
+`deploy:dev` / `deploy:staging` manage long-lived containers on the runner
+host via docker-compose (attached to `gitlab-cloud-runner-network`).
+`build:images` and `deploy:production` push images to registries. Everything
+shares the same host daemon, so no runner tagging is needed.
 
-All other jobs are untagged and go to any runner that can pick them up.
+The DinD vs socket mount section below is kept as background — the pipeline
+used DinD briefly on `feature/containerized-ci` but was switched to
+socket-mount-for-all because the self-hosted-hosted runner was already one level of
+Docker nesting deep and the per-job DinD boot was pure overhead.
 
 ---
 
@@ -129,37 +131,50 @@ Simplest. One `[[runners]]` block handles everything.
   token = "<existing-token>"
   executor = "docker"
   [runners.docker]
-    image = "docker:24"                                   # default for jobs without image:
-    services_privileged = true                            # DinD service needs privileged
+    image = "docker:24"                                       # default for jobs without image:
     volumes = [
-      "/var/run/docker.sock:/var/run/host-docker.sock",   # rebound — see note below
-      "/cache",
+      "/var/run/docker.sock:/var/run/docker.sock",            # host daemon for all jobs
+      "/cache/gomod:/gocache/mod",                            # persistent Go module cache
+      "/cache/gobuild:/gocache/build",                        # persistent Go build cache
+      "/cache/golangci-lint:/gocache/golangci-lint",          # persistent lint cache
+      "/cache",                                               # GitLab runner scratch
     ]
     pull_policy = "if-not-present"
 ```
 
-**Why the host socket is rebound to `/var/run/host-docker.sock`.** The volume
-list applies to *every* container the runner starts, including the
-`docker:24-dind` service container spawned for `.dind` jobs. If the host
-socket is mounted at the default `/var/run/docker.sock`, DinD can't create
-its own listener at that path and fails with `can't create unix socket
-/var/run/docker.sock: device or resource busy`. Rebinding to a
-non-conflicting path leaves DinD alone; deploy jobs reach the host daemon
-by setting `DOCKER_HOST=unix:///var/run/host-docker.sock` in their
-`variables:` block (see `deploy:dev` / `deploy:staging` in
-`.gitlab-ci.yml`).
+**Why the host Docker socket is mounted at the default path.** Every job
+(tests, build, deploy) uses the runner host's Docker daemon via this
+mount. No DinD service runs alongside the jobs — the previous `extends:
+.dind` anchor and `services_privileged` flag were removed to eliminate
+nested-Docker overhead on the self-hosted-hosted runner. Since nothing else
+competes for `/var/run/docker.sock` inside job containers, mounting it at
+the default path is simplest.
+
+**Why Go caches are persisted via bind mount, not GitLab's `cache:`
+mechanism.** GitLab Runner archives cached paths into a tarball at job
+end and extracts it at job start. For a Go module cache (~24k small files
+on a ZFS-backed self-hosted container), that's ~3 minutes of tar+gzip per job —
+pure overhead on a single-runner setup where the archive is written and
+read on the same machine. Bind-mounting persistent directories from the
+host skips the archive dance entirely: Go writes straight to the host
+path, next job sees the same files instantly. `.gitlab-ci.yml` sets
+`GOMODCACHE=/gocache/mod`, `GOCACHE=/gocache/build`, and
+`GOLANGCI_LINT_CACHE=/gocache/golangci-lint` to match these mounts.
 
 **Why there is no `network_mode`.** `gitlab-cloud-runner-network` is
 attached by the deploy compose files (`external: true`) and by explicit
 `--network` flags on one-off `docker run` commands. The runner itself does
-not need to be on that network, and setting `network_mode` here forces
-DinD services to share it — breaking per-build isolation and DinD's
-iptables setup.
+not need to be on that network.
 
-One-time bootstrap on the runner's Docker daemon (compose files and the
-migration `docker run` still require this network to exist):
+One-time bootstrap on the runner host — create the cache directories and
+the shared deploy network:
 
 ```bash
+# Persistent Go caches (777 so root-in-container jobs can write)
+sudo mkdir -p /cache/gomod /cache/gobuild /cache/golangci-lint
+sudo chmod 777 /cache/gomod /cache/gobuild /cache/golangci-lint
+
+# Shared network for deploy compose stacks and the migration docker run
 docker network inspect gitlab-cloud-runner-network >/dev/null 2>&1 \
   || docker network create gitlab-cloud-runner-network
 ```
