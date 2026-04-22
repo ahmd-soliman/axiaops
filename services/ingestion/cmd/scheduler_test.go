@@ -36,6 +36,9 @@ func (m *mockStoreForScheduler) LoadGhosts(context.Context) ([]model.GhostResour
 func (m *mockStoreForScheduler) UpsertTenant(context.Context, string, string) (model.Tenant, error) {
 	return model.Tenant{}, nil
 }
+func (m *mockStoreForScheduler) EnsureTenant(context.Context, string, string, string) error {
+	return nil
+}
 func (m *mockStoreForScheduler) UpsertUser(context.Context, string, string, string, string) (model.User, error) {
 	return model.User{}, nil
 }
