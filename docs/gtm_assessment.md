@@ -333,6 +333,54 @@ Komiser validates the category (cloud waste detection is a real problem), warms 
 
 **Qualifier:** rigorous data on Komiser's German-specific adoption is not publicly available. The assessment above is based on qualitative signals (FinOps Foundation DACH community discussions, Elastic License 2.0 review-board friction, absence from German Mittelstand case studies). If you need defensible market-research numbers for a fundraise or board deck, budget €3–5K for a Gartner/G2/specialist-analyst report. For day-to-day sales conversations, the three facts and the script above are sufficient.
 
+**How Komiser monetises — and why AxiaOps doesn't copy the playbook**
+
+Understanding Komiser's revenue model is useful both for "why not just be free like Komiser?" objection handling and for recognising which parts of their approach are worth copying. Short version: **open-core, via Komiser Cloud (hosted SaaS) plus enterprise support, run by Tailwarden as the commercial vehicle**. Same pattern as Sentry, Metabase, and most infra OSS-to-commercial transitions.
+
+What's confirmed:
+- Komiser OSS remains free under Elastic License 2.0
+- A hosted "Komiser Cloud" SaaS exists (in private beta per last public signals)
+- Pricing is not publicly listed — "contact sales" gate
+
+What is less clear (and should be verified via live lookup — `komiser.io`, `tailwarden.com`, Crunchbase — before citing in any deck):
+- Current Tailwarden corporate status, funding, and revenue scale as of 2026
+- Customer count and conversion rate
+
+Typical revenue mix for open-core FinOps / cloud tooling — whether Komiser fits this exactly or not:
+
+| Revenue source | Typical share | Notes |
+|---|---|---|
+| Paid SaaS tier (hosted + team/enterprise features) | 60–80% | Per-account or per-user subscription |
+| Enterprise support contracts | 10–20% | For customers still self-hosting OSS at scale |
+| Cloud Marketplace listings (AWS/Azure/GCP) | 5–10% | Customer burns committed-spend credits; vendor takes cut minus ~3% marketplace fee |
+| Professional services / consulting | 5–15% | FinOps onboarding, custom detection rules |
+
+**The structural challenge of this model:** free-tier cannibalisation. The delta between "run Komiser myself" and "pay for Komiser Cloud" is often narrow enough that cost-conscious teams stay on free indefinitely. Sentry and Grafana solved this with features the free tier genuinely lacks (managed uptime, team access, alerts). FinOps tooling has a harder time because FinOps is typically a 1–3 person function, so "team access control" isn't a compelling paywall. Net: open-core FinOps monetisation is slower and lower-conversion than open-core observability.
+
+**Why AxiaOps doesn't follow the same playbook** (elaborating on the Free Tier section above):
+
+1. **Timing mismatch.** Komiser spent ~5+ years building OSS community before meaningful commercial monetisation. AxiaOps is bootstrapped with an 8-week runway to first invoice. The long-ramp OSS-to-SaaS model requires VC runway to absorb the gap.
+2. **Community size mismatch.** Open-core converts at 1–3% of the community. That produces real revenue at Grafana's 10M+ users; at AxiaOps's realistic 2026 scale (hundreds of CLI downloads in year 1), 2% is ~4 paying customers. Not enough to justify the community-maintenance overhead.
+3. **Moat location mismatch.** Komiser's OSS gave away detection, which was already commodity. AxiaOps's moat is workflow + audit trail, which is *not* commodity. Open-sourcing it hands the differentiator to competitors with more distribution.
+
+**What IS worth copying from Komiser's playbook:**
+
+- **Adjacent free asset for top-of-funnel.** Komiser-the-OSS-tool generates brand and SEO for Komiser Cloud. AxiaOps's free Detection CLI plays the same role without open-sourcing the product. Already in the plan above.
+- **AWS Marketplace listing.** Cloud Marketplace distribution lets enterprise customers burn AWS committed-spend credits on our license — makes a €24K/yr invoice feel "pre-paid" to the buyer. Plan to list by end of Q4 2026; this is a real channel for Self-Hosted deals.
+- **Separation of "inspector" from "workflow product."** Komiser positioned OSS as an inspector and commercial product as a team tool. AxiaOps mirrors this: free CLI as inspector, SaaS/Self-Hosted as the workflow product.
+
+**What is NOT worth copying:**
+
+- **Elastic License 2.0 route.** OSI-friction in regulated DACH — if AxiaOps ever releases OSS code, use Apache 2.0 or MIT.
+- **Community-first sequencing.** Reversed for AxiaOps: commercial first, community-adjacent free assets second.
+- **Private-beta SaaS posture.** Signals either low velocity or excessive gating. AxiaOps publishes pricing from day one.
+
+**Sales script for "why don't you just be free like Komiser?":**
+
+> "Komiser monetises through a paid SaaS tier — Komiser Cloud — built on top of the free inspection tool. That works because they started five years ago, built a large OSS community, and raised venture funding to absorb the long ramp between 'big OSS project' and 'profitable SaaS.' AxiaOps is bootstrapped and targeting paying customers in eight weeks, not five years. We get the same 'free inspection tool' benefit through our free detection CLI — Go binary, MIT license, no signup — but the actual workflow product stays commercial because that's what pays the bills from day one. If five years from now we're Grafana-scale, revisit the open-core question then. Today it would be strategic suicide."
+
+Does three things: names Komiser's model accurately (no strawman), explains why timing/stage makes it the wrong fit for AxiaOps, and leaves the door open for future open-sourcing without committing to it.
+
 ### 4.5 Managed Private (Model C) — defer to 2027
 
 Model C is strategically attractive but engineering-heavy (cross-account IAM, remote upgrade orchestration, monitoring that survives being in someone else's VPC). Revisit once Models A and B have 3+ customers each. Not a 2026 play.
