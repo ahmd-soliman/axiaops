@@ -4,9 +4,9 @@ package model
 
 import "time"
 
-// GhostResource represents a cloud resource that is incurring cost but shows
+// ZombieResource represents a cloud resource that is incurring cost but shows
 // no meaningful usage — a zombie resource that is safe to review for removal.
-type GhostResource struct {
+type ZombieResource struct {
 	Provider          string            `json:"provider"`
 	AccountID         string            `json:"account_id"`          // AWS account number, GCP project, etc.
 	InternalAccountID string            `json:"internal_account_id"` // UUID from accounts table
@@ -16,8 +16,8 @@ type GhostResource struct {
 	Tags              map[string]string `json:"tags"`
 
 	// Cost fields
-	MonthlyCost float64 `json:"monthly_cost"`
-	Currency    string  `json:"currency"`
+	MonthlyCost float64   `json:"monthly_cost"`
+	Currency    string    `json:"currency"`
 	PeriodStart time.Time `json:"period_start"`
 	PeriodEnd   time.Time `json:"period_end"`
 

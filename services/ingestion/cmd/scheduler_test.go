@@ -29,8 +29,8 @@ func (m *mockStoreForScheduler) ListAllAccounts(ctx context.Context) ([]model.Ac
 func (m *mockStoreForScheduler) Save(context.Context, []model.CostRecord) (int64, error) {
 	return 0, nil
 }
-func (m *mockStoreForScheduler) SaveGhosts(context.Context, []model.GhostResource) error { return nil }
-func (m *mockStoreForScheduler) LoadGhosts(context.Context) ([]model.GhostResource, error) {
+func (m *mockStoreForScheduler) SaveZombies(context.Context, []model.ZombieResource) error { return nil }
+func (m *mockStoreForScheduler) LoadZombies(context.Context) ([]model.ZombieResource, error) {
 	return nil, nil
 }
 func (m *mockStoreForScheduler) UpsertTenant(context.Context, string, string) (model.Tenant, error) {
@@ -62,14 +62,14 @@ func (m *mockStoreForScheduler) LoadResources(context.Context) ([]model.Resource
 func (m *mockStoreForScheduler) ListCostRecords(context.Context, storage.CostFilter) ([]model.CostRecord, error) {
 	return nil, nil
 }
-func (m *mockStoreForScheduler) SaveSnapshot(context.Context, model.GhostSnapshot) error { return nil }
-func (m *mockStoreForScheduler) ListSnapshots(context.Context, string) ([]model.GhostSnapshot, error) {
+func (m *mockStoreForScheduler) SaveSnapshot(context.Context, model.ZombieSnapshot) error { return nil }
+func (m *mockStoreForScheduler) ListSnapshots(context.Context, string) ([]model.ZombieSnapshot, error) {
 	return nil, nil
 }
 func (m *mockStoreForScheduler) SaveSnapshotServices(context.Context, []model.SnapshotService) error {
 	return nil
 }
-func (m *mockStoreForScheduler) ListSnapshotsByService(context.Context, string, string, string) ([]model.GhostSnapshot, error) {
+func (m *mockStoreForScheduler) ListSnapshotsByService(context.Context, string, string, string) ([]model.ZombieSnapshot, error) {
 	return nil, nil
 }
 func (m *mockStoreForScheduler) ListTrendServices(context.Context) ([]string, error) {
@@ -78,7 +78,7 @@ func (m *mockStoreForScheduler) ListTrendServices(context.Context) ([]string, er
 func (m *mockStoreForScheduler) ListTrendResourceTypes(context.Context, string) ([]string, error) {
 	return nil, nil
 }
-func (m *mockStoreForScheduler) DismissGhost(context.Context, model.DismissAction) (int64, error) {
+func (m *mockStoreForScheduler) DismissZombie(context.Context, model.DismissAction) (int64, error) {
 	return 0, nil
 }
 func (m *mockStoreForScheduler) RevokeDismissal(context.Context, int64, string) error { return nil }
