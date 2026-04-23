@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { updateAccount, deleteAccount, scanAccount } from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
+import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner, Overlay } from '../components/primitives';
 
 function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, theme }) {
@@ -52,6 +53,7 @@ function StatusBadge({ status, theme }) {
 export default function AccountSettingsScreen({ account, onBack, onAccountUpdated, onAccountDeleted }) {
   const { theme } = useTheme();
   const { toast } = useToast();
+  const { watch } = useScanStatus();
 
   const [label, setLabel]             = useState(account?.label ?? '');
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
@@ -91,10 +93,16 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
     setScanning(true);
     try {
       await scanAccount(account.id);
-      toast('Scan started — results will appear shortly', 'info');
-      setTimeout(() => { onAccountUpdated(account); setScanning(false); }, 5000);
+      toast(`Scan started for ${account.label}`, 'info');
+      watch(account.id, {
+        label: account.label,
+        onEnd: () => {
+          setScanning(false);
+          onAccountUpdated(account);
+        },
+      });
     } catch {
-      toast('Scan failed. Please try again.', 'error');
+      toast('Scan failed to start. Please try again.', 'error');
       setScanning(false);
     }
   }
