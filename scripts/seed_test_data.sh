@@ -8,8 +8,8 @@
 #
 # Usage:
 #   ./scripts/seed_test_data.sh                                    # Local docker
-#   ./scripts/seed_test_data.sh --remote dev                       # Remote dev (NAS.local:5432)
-#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (NAS.local:5433)
+#   ./scripts/seed_test_data.sh --remote dev                       # Remote dev (axiaops.local:5432)
+#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (axiaops.local:5433)
 #   MIGRATION_DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom connection (owner user, bypasses RLS)
 #
 # Supports both local (docker) and remote database connections.
@@ -44,7 +44,7 @@ done
 # Prompts for confirmation unless --yes/-y is passed.
 
 if [[ -n "$REMOTE_ENV" ]]; then
-  HOSTNAME="NAS.local"
+  HOSTNAME="axiaops.local"
   
   if [[ "$REMOTE_ENV" == "dev" ]]; then
     DB_PORT=5432
@@ -992,4 +992,4 @@ echo ""
 echo "Workflow:"
 echo "  make start-dev   — start all services (dev mode, no auth)"
 echo "  make seed        — (re-)populate dummy data"
-echo "  open http://localhost:3000"
+echo "  open http://localhost:5173"
