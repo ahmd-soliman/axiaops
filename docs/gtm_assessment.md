@@ -193,15 +193,145 @@ Three mitigations:
 2. **Ship a single-node Compose image only, not Helm.** Keep the supported surface tiny for the first four customers. Kubernetes deployment = 2027.
 3. **Charge for setup.** €2K–€5K one-time onboarding fee for self-hosted. This filters out tire-kickers and funds the support time.
 
-### 4.4 Pricing model for self-hosted
+### 4.4 Pricing, competitive positioning, and code protection
 
-| Plan | Annual license | Includes | Terms |
-|---|---|---|---|
-| **Self-Hosted Starter** | €12,000/yr | Up to 5 AWS accounts, single-node Compose, email support (48h), 1 software update per quarter | 12-month minimum, €3K setup |
-| **Self-Hosted Pro** | €24,000/yr | Up to 25 AWS accounts, HA Compose, priority support (24h), monthly updates, slack channel | 12-month minimum, €5K setup |
-| **Self-Hosted Enterprise** | €48,000+/yr | Unlimited accounts, Helm chart (2027), custom SLA, dedicated engineer contact, air-gapped mode (2027), custom DPA | 24-month minimum, €10K setup |
+This subsection combines what would normally be four separate conversations: tier pricing, competitive benchmarking, free-tier strategy, and IP protection. They interact — dropping a tier changes the competitive frame; an open-source decision changes what the license key protects. Keeping them together prevents inconsistent answers.
 
-Two customers at Self-Hosted Pro = €48K ARR, €10K setup fees, invoiced once. That's equivalent to ~16 months of SaaS Growth-tier MRR in Model A, collected in a single invoice cycle. The path to the first €50K ARR is much shorter via Model B than via Model A.
+**Pricing tiers (revised)**
+
+The original draft included three tiers (Starter/Pro/Enterprise). After reviewing competitive positioning and ICP realism, the revised structure is:
+
+| Tier | Annual license | Setup (one-time) | Accounts | Ideal customer profile |
+|---|---|---|---|---|
+| **Pro** | €24,000 | €5,000 | Up to 25 AWS accounts | Mid-market, €80K+/mo AWS spend, 1 DevOps engineer |
+| **Enterprise (entry)** | €48,000 | €10,000 | Unlimited accounts, up to €2M/yr customer AWS spend | €2M/yr AWS spend, regulated industry or security-first |
+| **Enterprise (mid)** | €72,000 | €15,000 | Up to €5M/yr customer AWS spend | €2M–€5M/yr AWS spend |
+| **Enterprise (scale)** | €96,000+ | €20,000+ | €5M+/yr, custom SLA, named engineer | €5M+/yr AWS spend, Fortune 1000 DACH |
+
+Year-1 Pro invoice: €29K. Year-2+ recurring: €24K. All tiers: 12-month minimum (24 for Enterprise scale), quarterly security updates, signed container images, Compose distribution; Helm chart and air-gapped mode deferred to 2027.
+
+**Dropped: Self-Hosted Starter (€12K/yr for 5 accounts).** The target profile (5 AWS accounts + sufficient DevOps capacity to run self-hosted) barely exists in practice — customers with 5 accounts overwhelmingly prefer SaaS. The per-account rate (€200/month) was also 7x the SaaS-Starter equivalent, a gap outside industry norms (2–4x SaaS→self-hosted premium). Customers who would have bought Starter are steered to SaaS Growth (€249/mo = €2,988/yr).
+
+**Added: Enterprise spend-indexed ladder.** A flat €48K entry leaves 30–50% on the table for the largest customers. CloudHealth, Cloudability, and Flexera all price this segment indexed to tracked AWS spend; matching that pattern captures value at the top without complicating the Pro tier pitch.
+
+**Competitive positioning**
+
+The correct comparison set for a self-hosted prospect is not the SaaS competitors from §2 — it is the much smaller set of tools that actually offer self-hosted / on-prem. A mid-market DACH CTO evaluating AxiaOps Self-Hosted Pro is realistically comparing against:
+
+| Tool | Annual cost (25 accts, mid-market) | Remediation workflow | Audit trail | EU data residency |
+|---|---|---|---|---|
+| **Komiser (open source)** | €0 license + ~€80K/yr loaded internal engineer time to build workflow | No | No | Self-hosted |
+| **Kubecost Enterprise** | €6K–€24K/yr | Kubernetes-only | K8s only | Self-hosted |
+| **AxiaOps Self-Hosted Pro** | **€24K/yr + €5K setup** | **Yes — dismiss/snooze/audit** | **Yes (once actor attribution ships)** | **Yes** |
+| **Harness FinOps self-hosted** | ~€30K–€50K/yr | Yes | Partial | Yes |
+| **CloudHealth dedicated SaaS** | €45K+/yr | Yes (policy-automated) | Partial | US-primary |
+| **Flexera One on-prem** | €50K+/yr | Yes | Yes | Yes |
+| **DIY (Komiser + scripts + FinOps analyst)** | ~€80K+/yr all-in | Whatever you build | Typically no | Self-hosted |
+
+**AxiaOps Self-Hosted Pro is 20–50% cheaper than the closest workflow-capable competitor (Harness) and ~50% cheaper than Flexera/CloudHealth.** Against Komiser-plus-DIY, AxiaOps is technically more expensive on license alone but ~€45K/yr cheaper once internal engineer time is loaded-cost properly. The pricing is deliberately under the enterprise band — we win mid-market deals the incumbents overpriced themselves out of, not by undercutting the category but by not pricing for Fortune 500 deployment.
+
+**ROI math for the customer:**
+
+| Customer AWS spend/yr | Typical waste (10–15%) | AxiaOps Pro all-in Y1 | Tool cost as % of savings | Deal feel |
+|---|---|---|---|---|
+| €300K | €30–45K | €34.5K | 77–115% | **Too expensive — steer to SaaS** |
+| €600K | €60–90K | €34.5K | 38–58% | Stretched — only viable if security drives the decision |
+| €1M | €100–150K | €34.5K | 23–35% | **Sweet spot** |
+| €2M | €200–300K | €34.5K | 11–17% | Slam dunk |
+| €5M+ | €500K+ | €34.5K | <7% | Upsell to Enterprise |
+
+Rule: only sell Pro to customers with €80K+/mo AWS spend. Qualify others out early into SaaS.
+
+**Free tier and open-source strategy — should AxiaOps follow the Komiser playbook?**
+
+**Short answer: no.** The open-source-core + paid-enterprise playbook (Komiser, Grafana, Sentry, Metabase, GitLab) does not fit AxiaOps's specific situation. Three structural reasons:
+
+1. **The workflow layer is the moat, not the detection.** Komiser open-sourced detection — which is a commodity (AWS Trusted Advisor gives it away free). AxiaOps's defensible position is the dismiss/snooze/audit workflow per §2. Open-sourcing that hands Vantage (which raised $38M) or any well-funded competitor a free starting point they'd take to market inside 60 days with their distribution. The thing that would make AxiaOps defensible stops being defensible.
+2. **Open-source requires VC-scale runway.** Every successful open-core company (GitLab, Grafana, Sentry, Elastic, HashiCorp) spent 3–7 years of VC-funded low monetisation building community before enterprise revenue caught up. AxiaOps is bootstrapped, 1 founder, targeting revenue in 8 weeks. The community-maintenance burden — issue triage, PR review, release management, Slack/forum moderation — is 0.3–0.5 FTE minimum at any serious scale. That FTE does not exist.
+3. **The conversion math doesn't work at our scale.** Enterprise open-source conversion rates run 1–3%. That produces meaningful revenue at Grafana's 10M+ users; at AxiaOps's realistic 2026 scale (tens to low-hundreds of evaluators), a 2% conversion generates 2–6 paying customers per year while the free community costs more support time than those customers bring in.
+
+**What to do instead — a staged free-and-adjacent strategy:**
+
+- **Keep the SaaS Free tier already planned** (§5): 1 account, 7-day trend history, no alerts, AxiaOps branding on shareable reports. Captures curious evaluators at zero marginal cost.
+- **Add a 30-day self-hosted trial license:** time-boxed license key validates for 30 days, unlocks Pro features on up to 3 accounts. Lets enterprise security teams evaluate the binary inside their VPC before committing to an annual contract. Low abuse risk — renewal requires talking to sales.
+- **Release free *adjacent* assets to build brand without open-sourcing the product:**
+  - **Standalone detection CLI** (new Go binary, MIT-licensed): reads Cost Explorer + CloudWatch, outputs JSON of detected ghost resources. No workflow, no UI, no persistence — just a report generator. Positioned as "Komiser-for-AWS-cost." Community asset, SEO driver, lead generator; upgrade path to AxiaOps for workflow is obvious.
+  - **IAM policy templates** (CloudFormation + Terraform): fully open-source on GitHub. These are not defensible anyway — any competitor can read AWS IAM docs.
+  - **Detection rule specifications** (thresholds and verdicts): already documented in `docs/aws-coverage.md`. Publish publicly. Specifications are not code; any competitor can read AWS documentation and derive the same thresholds. Publishing transparently is a trust signal, not a give-away.
+  - **Content**: "State of Cloud Waste 2026" report, comparison posts, FinOps Foundation Slack contributions. Zero cost, high SEO value.
+
+Net effect: SEO, brand, and funnel benefits of "free and open" without open-sourcing the core product. The CLI + IAM + specs + content combination is what Komiser-style prospects will find when they search for "AWS ghost resource detection" — and the upgrade path they follow is into AxiaOps SaaS or Self-Hosted, not into a forked competitor.
+
+**Code protection posture**
+
+You are not trying to prevent decompilation — with Go binaries, determined reverse-engineering is possible with effort, and perfect protection is not achievable. You are trying to prevent **commercial reuse by a competitor**, which is a legal problem first and a technical problem second. The standard pattern for commercial self-hosted software (GitLab Enterprise, Sentry Business, Redis Enterprise, Harness) looks like:
+
+| Protection layer | AxiaOps posture | Implementation cost |
+|---|---|---|
+| Go binary with stripped debug symbols (`-ldflags="-s -w"`) | **Yes** — default build flag | 1-line build change |
+| License key validation (JWT signed by AxiaOps, validated on binary startup) | **Yes** — this is the real protection | ~2 engineering days |
+| Feature flags gated by license (account count, Pro-vs-Enterprise features) | **Yes** | ~1 day |
+| Commercial EULA (no redistribution, no reverse-engineering, no commercial reuse) | **Yes** — lawyer-drafted, ~€1,500 one-time | ~1 week elapsed |
+| Container image signing (Cosign / sigstore) | **Yes** — low cost, trust signal | ~0.5 day |
+| Go obfuscation (`garble`, `gobfuscate`) | **Skip for 2026.** Modest benefit, adds build complexity, none of the listed commercial peers bother. Reconsider at 50+ paying customers if reverse-engineering evidence appears. | 3–5 days if ever added |
+| Phone-home / license heartbeat | **Do not implement.** Enterprise-deal killer — security teams and air-gap-conscious buyers reject it. EULA protection is stronger than any phone-home at this price point. | N/A |
+
+**What this looks like in practice.** Customer runs:
+
+```
+docker run -e AXIAOPS_LICENSE_KEY=<jwt> axiaops/self-hosted:v1.0.0
+```
+
+On startup, the binary parses the JWT, verifies the signature with our embedded public key, checks expiry, and enforces feature flags (account count, feature set). If invalid or expired: startup refuses, prints a message pointing to `support@axiaops.io`. **No network call, no phone-home, no privacy surface.** Air-gapped deployments work identically.
+
+If a customer reverse-engineers the binary to patch out the license check, they've committed an EULA breach. At €24K–€96K/yr license value, that's a lawsuit worth pursuing — and the Steuerberater-referred IP lawyer sends the cease-and-desist. This has never happened in the commercial self-hosted FinOps space at this price band; the customer population is too small and the legal exposure too large.
+
+**The one thing not to overthink:** perfect code protection is neither possible nor the goal. Standard-practice protection (license key + EULA + signed images) combined with quarterly updates — each new release supersedes the last — is sufficient. A pirated copy running on v1.0.0 in 18 months is not a commercial threat.
+
+**Revenue implications of the revised pricing**
+
+With Starter dropped and the Enterprise ladder added, the Self-Hosted revenue model at scale looks like:
+
+| Customers at end of Q3 2026 | Typical mix | Year-1 invoices booked |
+|---|---|---|
+| 2 paying | 2 × Pro (discounted 30% as first-2 design partners) | ~€40K license + €10K setup = **€50K** |
+| 4 paying (end of Q4 2026) | 3 × Pro + 1 × Enterprise entry | ~€96K license + €25K setup = **€121K** |
+| 8 paying (end of Q2 2027) | 5 × Pro + 2 × Enterprise entry + 1 × Enterprise mid | ~€288K license + €50K setup = **€338K** |
+
+These are booked-revenue numbers for the Self-Hosted channel alone, independent of the SaaS path. Two-customer ARR (€48K/yr recurring) matches the business plan's Month 12 SaaS MRR target (€4K × 12 = €48K), collected annually rather than monthly and with substantially lower operational complexity for us.
+
+**Handling the "why not just use Komiser?" objection**
+
+Komiser is the most likely free-alternative objection in a DACH self-hosted sales conversation. The right stance: **don't attack Komiser — it is genuinely good software and the prospect may respect it or already use it.** Position AxiaOps as the workflow and accountability layer above detection, not as a "better Komiser."
+
+Three facts to bring into every such conversation:
+
+1. **Komiser's license (Elastic License 2.0) is source-available, not OSI-approved.** Several regulated DACH industries — banks, insurance, automotive, healthcare — have open-source review policies that allow only OSI-approved licenses (Apache 2.0, MIT, BSD, GPL family). The Elastic License 2.0 controversy (AWS forked Elasticsearch as OpenSearch partly because of it) put it on some enterprise legal teams' "avoid" lists. Worth raising if the prospect's legal or procurement function is in the loop.
+2. **Komiser's AWS detection coverage is narrower than AxiaOps's.** Komiser handles inventory and basic idle flagging. It does not detect orphaned snapshots whose source AMI was deleted, long-stopped instances still billing for EBS, unused Secrets Manager entries by LastAccessedDate, unused AMIs, stale ECR images, or unattached Elastic IPs missed by billing aggregations. These are the AxiaOps Tier 2 detections documented in `docs/aws-coverage.md`.
+3. **The real competitor is not Komiser — it is Komiser plus internal engineering.** German engineering teams often have the Go/Kubernetes skill to extend Komiser themselves. The procurement-spreadsheet alternative is "€0 license + ~0.5 FTE engineer indefinitely." AxiaOps's pitch has to beat that combined alternative, not Komiser in isolation.
+
+**Sales script for the objection:**
+
+> "Komiser is a great detection and inventory tool — we recommend it to teams who aren't ready for a paid tool yet. What Komiser doesn't give you is the workflow above detection: dismiss-with-reason, snooze, audit log of who on your team approved what, and the trend view that shows whether waste is actually dropping or you're re-surfacing the same resources every week.
+>
+> Most teams using Komiser end up writing 20–40 hours a month of internal tooling to track which ghost resources they've already reviewed, which are intentionally idle, which are scheduled for deletion. That's what AxiaOps replaces — not the detection, the accountability layer above it. If your team has 0.5 FTE to spare on that tooling indefinitely, Komiser is the right call. If not, €24K/yr is less than 0.25 FTE and you get the audit trail for free."
+
+Three things this script does: doesn't disparage Komiser (preserves trust), names the specific missing capability (workflow + audit trail, not generic "enterprise features"), converts to an engineer-time comparison where the math clearly favours us.
+
+**When to steer a prospect TOWARD Komiser and walk away:**
+
+- AWS spend under €300K/yr (Pro ROI doesn't work per the table above)
+- Multi-cloud workload where AWS is secondary
+- Customer explicitly wants Kubernetes asset inspection
+- Customer has genuine 0.5+ FTE of DevOps capacity for internal FinOps tooling indefinitely
+
+These are not deals worth fighting. Refer the prospect to Komiser, preserve the relationship, revisit when their situation changes.
+
+**Where Komiser helps AxiaOps strategically:**
+
+Komiser validates the category (cloud waste detection is a real problem), warms DACH prospects to self-hosted deployments, and handles the segment below our price floor. The free AxiaOps Detection CLI (per the Free Tier section above) is deliberately positioned as "Komiser's AWS subset, narrower, with an upgrade path to workflow." Prospects who find the CLI via SEO self-segment: detection-only users stay on the free CLI at zero cost to us; workflow-needing users convert to SaaS or Self-Hosted. We capture Komiser-style mindshare without the overhead of maintaining a multi-cloud OSS project.
+
+**Qualifier:** rigorous data on Komiser's German-specific adoption is not publicly available. The assessment above is based on qualitative signals (FinOps Foundation DACH community discussions, Elastic License 2.0 review-board friction, absence from German Mittelstand case studies). If you need defensible market-research numbers for a fundraise or board deck, budget €3–5K for a Gartner/G2/specialist-analyst report. For day-to-day sales conversations, the three facts and the script above are sufficient.
 
 ### 4.5 Managed Private (Model C) — defer to 2027
 
