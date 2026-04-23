@@ -19,7 +19,7 @@ export default function Dashboard() {
       selectedAccount={selectedAccount}
       onSelectAccount={(id) => id ? setParams({ account: id }) : setParams({})}
       onSelectGhost={(g) =>
-        navigate(`/detail/${g.resource_id}?account=${g.internal_account_id}&region=${g.region}&service=${g.service}`)
+        navigate(`/detail/${encodeURIComponent(g.resource_id)}?account=${encodeURIComponent(g.internal_account_id)}&region=${encodeURIComponent(g.region)}&service=${encodeURIComponent(g.service)}`)
       }
       onShowTrend={() => navigate('/trend')}
       onShowCosts={() => navigate(selectedAccount ? `/cost?account=${encodeURIComponent(selectedAccount)}` : '/cost')}

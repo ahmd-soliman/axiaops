@@ -208,7 +208,7 @@ echo ""
 # 24 zombie resources across all 3 accounts (8 each):
 #   - Tier 2 (CloudWatch): idle EC2, abandoned RDS, unused Lambda/ELB, unattached EIP
 #   - Tier 1 (API-only):   unattached EBS, orphaned snapshots, long-stopped EC2, old AMIs
-#   - Other:               idle CE anomaly monitors, empty EKS clusters
+#   - Other:               empty EKS clusters
 # Deletes existing seed data first, then re-inserts (idempotent on re-run).
 
 echo "Inserting ghost records..."
@@ -292,22 +292,6 @@ VALUES
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NetworkInterfaceAttachment', 0, 'Count',
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
-
-  -- ── CE Anomaly Detection monitor ghosts ───────────────────────────────────
-
-  -- Account 1: idle paid CE anomaly monitor (zero anomalies in 30 days)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', '', 'us-east-1',
-   'arn:aws:ce::123456789012:anomalymonitor/prod-service-monitor', '{}',
-   3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'AnomalyCount', 0, 'Count',
-   'Cost Anomaly Detection monitor "prod-service-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
-
-  -- Account 2: idle paid CE anomaly monitor
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', '', 'us-east-1',
-   'arn:aws:ce::987654321098:anomalymonitor/stg-cost-monitor', '{}',
-   3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'AnomalyCount', 0, 'Count',
-   'Cost Anomaly Detection monitor "stg-cost-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
 
   -- ── EKS ghosts ────────────────────────────────────────────────────────────
 
@@ -540,7 +524,7 @@ echo "    - Plus all other resource types (EC2, RDS, Lambda, ELB, VPC, EBS, EKS,
 echo ""
 
 # ── Resource records ──────────────────────────────────────────────────────────
-# 36 records: the same 24 ghosts above plus 12 active (healthy) resources.
+# 33 records: the same 22 ghosts above plus 11 active (healthy) resources.
 # Active resources provide contrast in the dashboard — they show up in the
 # "all resources" view but NOT in the ghosts view.
 
@@ -680,28 +664,6 @@ VALUES
    1.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 1840, 'Count', false, '', 'backend', '$NOW'),
 
-  -- ── CE Anomaly Detection monitor ghost resources ───────────────────────────
-
-  -- Account 1: idle paid CE anomaly monitor (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSCostExplorer', '', 'us-east-1',
-   'arn:aws:ce::123456789012:anomalymonitor/prod-service-monitor', '{}',
-   3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'AnomalyCount', 0, 'Count', true,
-   'Cost Anomaly Detection monitor "prod-service-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
-
-  -- Account 2: idle paid CE anomaly monitor (ghost)
-  ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSCostExplorer', '', 'us-east-1',
-   'arn:aws:ce::987654321098:anomalymonitor/stg-cost-monitor', '{}',
-   3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'AnomalyCount', 0, 'Count', true,
-   'Cost Anomaly Detection monitor "stg-cost-monitor" detected zero anomalies in the last 30 days — paying ~\$3/mo for no signal', 'unknown', '$NOW'),
-
-  -- Account 3: active CE anomaly monitor (for contrast — has anomalies)
-  ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSCostExplorer', '', 'us-east-1',
-   'arn:aws:ce::111222333444:anomalymonitor/dev-cost-monitor', '{}',
-   3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'AnomalyCount', 4, 'Count', false, '', 'unknown', '$NOW'),
-
   -- ── EKS ghost resources ────────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (ghost)
@@ -794,7 +756,7 @@ VALUES
    'DaysSinceCreation', 180, 'Days', true,
    'AMI is 180 days old and not referenced by any instance — backing snapshots (60 GB) accumulate storage charges', 'platform', '$NOW')
 ;"
-echo "  Inserted 36 resource records (24 ghosts, 12 active) across 3 accounts."
+echo "  Inserted 33 resource records (22 ghosts, 11 active) across 3 accounts."
 echo ""
 
 # ── Ghost snapshots — historical trend data per account ───────────────────────
@@ -978,8 +940,8 @@ RESOURCE_COUNT=$(psql_query "SELECT COUNT(*) FROM resource_records WHERE tenant_
 SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshots WHERE tenant_id = '${TENANT_ID}';")
 SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshot_services WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
 COST_COUNT=$(psql_query "SELECT COUNT(*) FROM cost_records WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
-echo "Dev tenant ghost records:       $GHOST_COUNT  (expected 43)"
-echo "Dev tenant resource records:    $RESOURCE_COUNT  (expected 36)"
+echo "Dev tenant ghost records:       $GHOST_COUNT  (expected 41)"
+echo "Dev tenant resource records:    $RESOURCE_COUNT  (expected 33)"
 echo "Dev tenant ghost snapshots:     $SNAPSHOT_COUNT  (expected 270)"
 echo "Dev tenant snapshot services:   $SVC_COUNT"
 echo "Dev tenant cost records:        $COST_COUNT  (expected 21)"
