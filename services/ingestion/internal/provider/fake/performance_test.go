@@ -20,8 +20,8 @@ func BenchmarkFullPipeline_Enterprise(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		records, _ := p.FetchCosts(ctx, start, end)
 		usage, _ := p.FetchUsage(ctx, records, start, end)
-		ghosts := analyzer.Detect(records, usage, "test-account")
-		_ = analyzer.Summarize(ghosts)
+		zombies := analyzer.Detect(records, usage, "test-account")
+		_ = analyzer.Summarize(zombies)
 	}
 }
 
@@ -53,7 +53,7 @@ func BenchmarkFetchUsage(b *testing.B) {
 	}
 }
 
-// BenchmarkDetection measures ghost detection performance.
+// BenchmarkDetection measures zombie detection performance.
 func BenchmarkDetection(b *testing.B) {
 	p := New("enterprise")
 	ctx := context.Background()

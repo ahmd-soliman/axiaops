@@ -57,12 +57,12 @@ var (
 		[]string{"provider", "tenant_id", "status"},
 	)
 
-	// axiaops_ghosts_detected_total: Total number of ghost resources detected in the current scan.
+	// axiaops_zombies_detected_total: Total number of zombie resources detected in the current scan.
 	// Labels: tenant_id, provider.
-	ingestionGhostsDetectedTotal = prometheus.NewGaugeVec(
+	ingestionZombiesDetectedTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "axiaops_ingestion_ghosts_detected_total",
-			Help: "Total number of ghost resources detected in the current scan.",
+			Name: "axiaops_ingestion_zombies_detected_total",
+			Help: "Total number of zombie resources detected in the current scan.",
 		},
 		[]string{"tenant_id", "provider"},
 	)
@@ -82,7 +82,7 @@ func init() {
 	// Register ingestion metrics with the default Prometheus registry.
 	prometheus.MustRegister(ingestionRecordsFetchedTotal)
 	prometheus.MustRegister(ingestionRecordsSavedTotal)
-	prometheus.MustRegister(ingestionGhostsDetectedTotal)
+	prometheus.MustRegister(ingestionZombiesDetectedTotal)
 	prometheus.MustRegister(ingestionPotentialMonthlySavings)
 }
 
@@ -187,7 +187,7 @@ func main() {
 		}
 	}()
 
-	// Background ticker: expire past snoozes so dismissed_ghosts stays accurate.
+	// Background ticker: expire past snoozes so dismissed_zombies stays accurate.
 	// Runs immediately on startup then every SNOOZE_EXPIRY_INTERVAL (default 10 min).
 	go func() {
 		snoozeInterval := 10 * time.Minute
@@ -283,7 +283,7 @@ type scanAWS struct {
 	Region      string
 }
 
-// runScan fetches costs, detects ghosts, and writes results to the store.
+// runScan fetches costs, detects zombies, and writes results to the store.
 // accountID is the internal DB account UUID; pass "" for one-shot/dev mode.
 // Credentials are loaded from the DB when accountID is non-empty.
 func runScan(ctx context.Context, store storage.Store, accountID string) error {
@@ -445,7 +445,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 				"error", usageErr,
 				"category", catErr.Category,
 			)
-			// Continue with empty usage - ghost detection will work with cost data only
+			// Continue with empty usage - zombie detection will work with cost data only
 		} else {
 			slog.Info("analysis: fetched usage records", "count", len(usage))
 		}
@@ -458,13 +458,13 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	if len(detectRecords) == 0 {
 		detectRecords = allRecords
 	}
-	ghosts := analyzer.Detect(detectRecords, usage, accountID)
+	zombies := analyzer.Detect(detectRecords, usage, accountID)
 
 	// API-only zombie checks — each is non-fatal; a failure is logged and the
 	// scan continues so that a single permissions gap doesn't block all findings.
 
 	// Unattached Elastic IPs ($0.005/hour idle charge).
-	eipGhosts, eipErr := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient, start, end, accountID)
+	eipZombies, eipErr := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient, start, end, accountID)
 	if eipErr != nil {
 		catErr := errors.Categorize(eipErr, "discover_eips")
 		slog.Error("discover unattached EIPs failed, continuing without EIP data",
@@ -472,11 +472,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, eipGhosts...)
+		zombies = append(zombies, eipZombies...)
 	}
 
 	// Unattached EBS volumes (state=available, $0.08/GB-month for gp3).
-	ebsVolGhosts, ebsVolErr := aws.DiscoverUnattachedEBSVolumes(ctx, allRecords, awsClient, start, end, accountID)
+	ebsVolZombies, ebsVolErr := aws.DiscoverUnattachedEBSVolumes(ctx, allRecords, awsClient, start, end, accountID)
 	if ebsVolErr != nil {
 		catErr := errors.Categorize(ebsVolErr, "discover_ebs_volumes")
 		slog.Error("discover unattached EBS volumes failed, continuing",
@@ -484,11 +484,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, ebsVolGhosts...)
+		zombies = append(zombies, ebsVolZombies...)
 	}
 
 	// Orphaned EBS snapshots (source volume deleted, not backing any AMI).
-	snapGhosts, snapErr := aws.DiscoverOrphanedEBSSnapshots(ctx, allRecords, awsClient, start, end, accountID)
+	snapZombies, snapErr := aws.DiscoverOrphanedEBSSnapshots(ctx, allRecords, awsClient, start, end, accountID)
 	if snapErr != nil {
 		catErr := errors.Categorize(snapErr, "discover_ebs_snapshots")
 		slog.Error("discover orphaned EBS snapshots failed, continuing",
@@ -496,11 +496,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, snapGhosts...)
+		zombies = append(zombies, snapZombies...)
 	}
 
 	// Stopped EC2 instances idle for more than 30 days (EBS storage still bills).
-	stoppedGhosts, stoppedErr := aws.DiscoverLongStoppedInstances(ctx, allRecords, awsClient, start, end, accountID)
+	stoppedZombies, stoppedErr := aws.DiscoverLongStoppedInstances(ctx, allRecords, awsClient, start, end, accountID)
 	if stoppedErr != nil {
 		catErr := errors.Categorize(stoppedErr, "discover_stopped_instances")
 		slog.Error("discover long-stopped EC2 instances failed, continuing",
@@ -508,11 +508,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, stoppedGhosts...)
+		zombies = append(zombies, stoppedZombies...)
 	}
 
 	// Old AMIs (>90 days, not in use) and their backing EBS snapshots.
-	amiGhosts, amiErr := aws.DiscoverOldAMIs(ctx, allRecords, awsClient, start, end, accountID)
+	amiZombies, amiErr := aws.DiscoverOldAMIs(ctx, allRecords, awsClient, start, end, accountID)
 	if amiErr != nil {
 		catErr := errors.Categorize(amiErr, "discover_old_amis")
 		slog.Error("discover old AMIs failed, continuing",
@@ -520,11 +520,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, amiGhosts...)
+		zombies = append(zombies, amiZombies...)
 	}
 
 	// Wasteful CloudWatch Log Groups (no retention policy or zero stored bytes).
-	logGroupGhosts, logGroupErr := aws.DiscoverWastefulLogGroups(ctx, allRecords, awsClient, start, end, accountID)
+	logGroupZombies, logGroupErr := aws.DiscoverWastefulLogGroups(ctx, allRecords, awsClient, start, end, accountID)
 	if logGroupErr != nil {
 		catErr := errors.Categorize(logGroupErr, "discover_log_groups")
 		slog.Error("discover wasteful CloudWatch log groups failed, continuing",
@@ -532,11 +532,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, logGroupGhosts...)
+		zombies = append(zombies, logGroupZombies...)
 	}
 
 	// Orphaned manual RDS snapshots (source DB deleted, older than 30 days).
-	rdsSnapGhosts, rdsSnapErr := aws.DiscoverOrphanedRDSSnapshots(ctx, allRecords, awsClient, start, end, accountID)
+	rdsSnapZombies, rdsSnapErr := aws.DiscoverOrphanedRDSSnapshots(ctx, allRecords, awsClient, start, end, accountID)
 	if rdsSnapErr != nil {
 		catErr := errors.Categorize(rdsSnapErr, "discover_rds_snapshots")
 		slog.Error("discover orphaned RDS snapshots failed, continuing",
@@ -544,11 +544,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, rdsSnapGhosts...)
+		zombies = append(zombies, rdsSnapZombies...)
 	}
 
 	// Stale ECR images (untagged or older than 90 days, summarized per repository).
-	ecrGhosts, ecrErr := aws.DiscoverStaleECRImages(ctx, allRecords, awsClient, start, end, accountID)
+	ecrZombies, ecrErr := aws.DiscoverStaleECRImages(ctx, allRecords, awsClient, start, end, accountID)
 	if ecrErr != nil {
 		catErr := errors.Categorize(ecrErr, "discover_ecr_images")
 		slog.Error("discover stale ECR images failed, continuing",
@@ -556,11 +556,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, ecrGhosts...)
+		zombies = append(zombies, ecrZombies...)
 	}
 
 	// Unused Secrets Manager secrets (not accessed for >90 days, $0.40/secret/month).
-	secretGhosts, secretErr := aws.DiscoverUnusedSecrets(ctx, allRecords, awsClient, start, end, accountID)
+	secretZombies, secretErr := aws.DiscoverUnusedSecrets(ctx, allRecords, awsClient, start, end, accountID)
 	if secretErr != nil {
 		catErr := errors.Categorize(secretErr, "discover_unused_secrets")
 		slog.Error("discover unused secrets failed, continuing",
@@ -568,11 +568,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, secretGhosts...)
+		zombies = append(zombies, secretZombies...)
 	}
 
 	// Idle CE Anomaly Detection monitors (paid monitors with zero anomalies in lookback window).
-	ceMonitorGhosts, ceMonitorErr := aws.DiscoverIdleCEAnomalyMonitors(ctx, allRecords, awsClient, start, end, accountID)
+	ceMonitorZombies, ceMonitorErr := aws.DiscoverIdleCEAnomalyMonitors(ctx, allRecords, awsClient, start, end, accountID)
 	if ceMonitorErr != nil {
 		catErr := errors.Categorize(ceMonitorErr, "discover_ce_anomaly_monitors")
 		slog.Error("discover idle CE anomaly monitors failed, continuing",
@@ -580,11 +580,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, ceMonitorGhosts...)
+		zombies = append(zombies, ceMonitorZombies...)
 	}
 
 	// Idle CloudFront distributions (zero requests in lookback window).
-	cfGhosts, cfErr := aws.DiscoverIdleCloudFrontDistributions(ctx, allRecords, awsClient, start, end, accountID)
+	cfZombies, cfErr := aws.DiscoverIdleCloudFrontDistributions(ctx, allRecords, awsClient, start, end, accountID)
 	if cfErr != nil {
 		catErr := errors.Categorize(cfErr, "discover_cloudfront")
 		slog.Error("discover idle CloudFront distributions failed, continuing",
@@ -592,11 +592,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, cfGhosts...)
+		zombies = append(zombies, cfZombies...)
 	}
 
 	// Idle Kinesis data streams (zero incoming records in lookback window).
-	kinesisGhosts, kinesisErr := aws.DiscoverIdleKinesisStreams(ctx, allRecords, awsClient, start, end, accountID)
+	kinesisZombies, kinesisErr := aws.DiscoverIdleKinesisStreams(ctx, allRecords, awsClient, start, end, accountID)
 	if kinesisErr != nil {
 		catErr := errors.Categorize(kinesisErr, "discover_kinesis")
 		slog.Error("discover idle Kinesis streams failed, continuing",
@@ -604,11 +604,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, kinesisGhosts...)
+		zombies = append(zombies, kinesisZombies...)
 	}
 
 	// Idle S3 buckets (zero requests, requires request metrics enabled).
-	s3Ghosts, s3Err := aws.DiscoverIdleS3Buckets(ctx, allRecords, awsClient, start, end, accountID)
+	s3Zombies, s3Err := aws.DiscoverIdleS3Buckets(ctx, allRecords, awsClient, start, end, accountID)
 	if s3Err != nil {
 		catErr := errors.Categorize(s3Err, "discover_s3")
 		slog.Error("discover idle S3 buckets failed, continuing",
@@ -616,24 +616,24 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			"category", catErr.Category,
 		)
 	} else {
-		ghosts = append(ghosts, s3Ghosts...)
+		zombies = append(zombies, s3Zombies...)
 	}
 
-	summary := analyzer.Summarize(ghosts)
-	slog.Info("analysis: detected ghost resources", "total", summary.TotalGhosts, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
-	ingestionGhostsDetectedTotal.WithLabelValues(tenantID, awsClient.Name()).Set(float64(summary.TotalGhosts))
+	summary := analyzer.Summarize(zombies)
+	slog.Info("analysis: detected zombie resources", "total", summary.TotalZombies, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
+	ingestionZombiesDetectedTotal.WithLabelValues(tenantID, awsClient.Name()).Set(float64(summary.TotalZombies))
 	ingestionPotentialMonthlySavings.WithLabelValues(tenantID, awsClient.Name()).Set(summary.PotentialMonthlySave)
 
-	if err := store.SaveGhosts(ctx, ghosts); err != nil {
-		return fmt.Errorf("save ghosts: %w", err)
+	if err := store.SaveZombies(ctx, zombies); err != nil {
+		return fmt.Errorf("save zombies: %w", err)
 	}
-	slog.Info("storage: saved ghost records", "count", len(ghosts))
+	slog.Info("storage: saved zombie records", "count", len(zombies))
 
-	snap := model.GhostSnapshot{
+	snap := model.ZombieSnapshot{
 		ID:               uuid.New().String(),
 		AccountID:        accountID,
 		SnapshotAt:       time.Now().UTC(),
-		GhostCount:       summary.TotalGhosts,
+		ZombieCount:      summary.TotalZombies,
 		TotalMonthlyCost: summary.PotentialMonthlySave,
 		Currency:         summary.Currency,
 	}
@@ -641,10 +641,10 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		snap.Currency = "USD"
 	}
 	if err := store.SaveSnapshot(ctx, snap); err != nil {
-		// Non-fatal: log and continue — ghost records are already saved.
+		// Non-fatal: log and continue — zombie records are already saved.
 		slog.Error("storage: save snapshot failed", "error", err)
 	} else {
-		slog.Info("storage: saved ghost snapshot", "ghost_count", snap.GhostCount, "total_monthly_cost", snap.TotalMonthlyCost)
+		slog.Info("storage: saved zombie snapshot", "zombie_count", snap.ZombieCount, "total_monthly_cost", snap.TotalMonthlyCost)
 
 		// Persist per-service breakdown for trend filtering.
 		var svcRows []model.SnapshotService
@@ -653,7 +653,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 				ID:          uuid.New().String(),
 				SnapshotID:  snap.ID,
 				Service:     svcName,
-				GhostCount:  svcData.Ghosts,
+				ZombieCount: svcData.Zombies,
 				MonthlyCost: svcData.Savings,
 				Currency:    snap.Currency,
 			})
@@ -669,7 +669,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	// in the /resources endpoint. Append aggregate records for services without
 	// resource-level data.
 	annotateRecords := append(resourceCosts, allRecords...)
-	resources := analyzer.AnnotateAll(annotateRecords, usage, ghosts)
+	resources := analyzer.AnnotateAll(annotateRecords, usage, zombies)
 	// Set internal_account_id on all resources
 	for i := range resources {
 		resources[i].InternalAccountID = accountID
@@ -677,7 +677,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	if err := store.SaveResources(ctx, resources); err != nil {
 		return fmt.Errorf("save resources: %w", err)
 	}
-	slog.Info("storage: saved resource records", "total", len(resources), "ghosts", len(ghosts))
+	slog.Info("storage: saved resource records", "total", len(resources), "zombies", len(zombies))
 	return nil
 }
 

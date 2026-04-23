@@ -62,8 +62,8 @@ func TestScenarios(t *testing.T) {
 	}{
 		{"startup", 4, 4},
 		{"enterprise", 12, 12},
-		{"all-ghosts", 3, 3},
-		{"no-ghosts", 2, 2},
+		{"all-zombies", 3, 3},
+		{"no-zombies", 2, 2},
 	}
 
 	for _, tt := range tests {
@@ -102,26 +102,26 @@ func TestScenarios(t *testing.T) {
 	}
 }
 
-func TestAllGhosts_AllUsageIsZero(t *testing.T) {
-	p := fake.New("all-ghosts")
+func TestAllZombies_AllUsageIsZero(t *testing.T) {
+	p := fake.New("all-zombies")
 	records, _ := p.FetchCosts(context.Background(), start, end)
 	usage, _ := p.FetchUsage(context.Background(), records, start, end)
 
 	for _, u := range usage {
 		if u.Avg != 0.0 {
-			t.Errorf("all-ghosts: expected zero usage for %s, got %f", u.ResourceID, u.Avg)
+			t.Errorf("all-zombies: expected zero usage for %s, got %f", u.ResourceID, u.Avg)
 		}
 	}
 }
 
-func TestNoGhosts_AllUsageAboveThreshold(t *testing.T) {
-	p := fake.New("no-ghosts")
+func TestNoZombies_AllUsageAboveThreshold(t *testing.T) {
+	p := fake.New("no-zombies")
 	records, _ := p.FetchCosts(context.Background(), start, end)
 	usage, _ := p.FetchUsage(context.Background(), records, start, end)
 
 	for _, u := range usage {
 		if u.Avg <= 0 {
-			t.Errorf("no-ghosts: expected positive usage for %s, got %f", u.ResourceID, u.Avg)
+			t.Errorf("no-zombies: expected positive usage for %s, got %f", u.ResourceID, u.Avg)
 		}
 	}
 }
