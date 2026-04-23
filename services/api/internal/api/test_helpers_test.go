@@ -18,7 +18,7 @@ import (
 
 // MockStore is a unified in-memory Store implementation for testing.
 // It provides:
-//   - Real data storage (ghosts, accounts, snapshots, dismissals)
+//   - Real data storage (zombies, accounts, snapshots, dismissals)
 //   - Method call tracking (who called what, in what order)
 //   - Per-method error injection (simulate failures)
 //   - Context value capture (verify tenant propagation)
@@ -30,9 +30,9 @@ type MockStore struct {
 	mu sync.Mutex
 
 	// ── Data Storage (used by all tests) ──
-	ghosts     []model.GhostResource
+	zombies    []model.ZombieResource
 	accounts   []model.Account
-	snapshots  []model.GhostSnapshot
+	snapshots  []model.ZombieSnapshot
 	resources  []model.ResourceRecord
 	costs      []model.CostRecord
 	dismissals []model.DismissAction
@@ -48,13 +48,13 @@ type MockStore struct {
 	lastCostFilter             storage.CostFilter
 
 	// ── Error Injection (optional, for failure testing) ──
-	errLoadGhosts         error
+	errLoadZombies        error
 	errListAccounts       error
 	errDeleteAccount      error
 	errGetAccount         error
 	errListSnapshots      error
 	errTryMarkScanning    error
-	errDismissGhost       error
+	errDismissZombie      error
 	errListActiveDismiss  error
 	errListCostRecords    error
 
@@ -76,10 +76,10 @@ func NewMockStore() *MockStore {
 
 // ── Data Mutators (for test setup) ──
 
-// WithGhosts pre-populates the mock with ghost records.
-func (m *MockStore) WithGhosts(ghosts []model.GhostResource) *MockStore {
+// WithZombies pre-populates the mock with zombie records.
+func (m *MockStore) WithZombies(zombies []model.ZombieResource) *MockStore {
 	m.mu.Lock()
-	m.ghosts = ghosts
+	m.zombies = zombies
 	m.mu.Unlock()
 	return m
 }
@@ -93,7 +93,7 @@ func (m *MockStore) WithAccounts(accounts []model.Account) *MockStore {
 }
 
 // WithSnapshots pre-populates the mock with snapshots.
-func (m *MockStore) WithSnapshots(snapshots []model.GhostSnapshot) *MockStore {
+func (m *MockStore) WithSnapshots(snapshots []model.ZombieSnapshot) *MockStore {
 	m.mu.Lock()
 	m.snapshots = snapshots
 	m.mu.Unlock()
@@ -110,10 +110,10 @@ func (m *MockStore) WithCostRecords(costs []model.CostRecord) *MockStore {
 
 // ── Error Injection (for failure testing) ──
 
-// WithLoadGhostsError makes LoadGhosts return an error.
-func (m *MockStore) WithLoadGhostsError(err error) *MockStore {
+// WithLoadZombiesError makes LoadZombies return an error.
+func (m *MockStore) WithLoadZombiesError(err error) *MockStore {
 	m.mu.Lock()
-	m.errLoadGhosts = err
+	m.errLoadZombies = err
 	m.mu.Unlock()
 	return m
 }
@@ -158,10 +158,10 @@ func (m *MockStore) WithTryMarkScanningError(err error) *MockStore {
 	return m
 }
 
-// WithDismissGhostError makes DismissGhost return an error.
-func (m *MockStore) WithDismissGhostError(err error) *MockStore {
+// WithDismissZombieError makes DismissZombie return an error.
+func (m *MockStore) WithDismissZombieError(err error) *MockStore {
 	m.mu.Lock()
-	m.errDismissGhost = err
+	m.errDismissZombie = err
 	m.mu.Unlock()
 	return m
 }
@@ -238,24 +238,24 @@ func (m *MockStore) Save(_ context.Context, _ []model.CostRecord) (int64, error)
 	return 0, nil
 }
 
-func (m *MockStore) SaveGhosts(_ context.Context, g []model.GhostResource) error {
+func (m *MockStore) SaveZombies(_ context.Context, z []model.ZombieResource) error {
 	m.mu.Lock()
-	m.ghosts = g
+	m.zombies = z
 	m.mu.Unlock()
 	return nil
 }
 
-func (m *MockStore) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
+func (m *MockStore) LoadZombies(ctx context.Context) ([]model.ZombieResource, error) {
 	m.mu.Lock()
 	m.capturedTenantIDs = append(m.capturedTenantIDs, storage.TenantIDFromCtx(ctx))
-	err := m.errLoadGhosts
-	ghosts := append([]model.GhostResource(nil), m.ghosts...)
+	err := m.errLoadZombies
+	zombies := append([]model.ZombieResource(nil), m.zombies...)
 	m.mu.Unlock()
 
 	if err != nil {
 		return nil, err
 	}
-	return ghosts, nil
+	return zombies, nil
 }
 
 func (m *MockStore) UpsertTenant(_ context.Context, externalID, name string) (model.Tenant, error) {
@@ -397,18 +397,18 @@ func (m *MockStore) GetLastCostFilter() storage.CostFilter {
 	return m.lastCostFilter
 }
 
-func (m *MockStore) SaveSnapshot(_ context.Context, s model.GhostSnapshot) error {
+func (m *MockStore) SaveSnapshot(_ context.Context, s model.ZombieSnapshot) error {
 	m.mu.Lock()
 	m.snapshots = append(m.snapshots, s)
 	m.mu.Unlock()
 	return nil
 }
 
-func (m *MockStore) ListSnapshots(_ context.Context, accountID string) ([]model.GhostSnapshot, error) {
+func (m *MockStore) ListSnapshots(_ context.Context, accountID string) ([]model.ZombieSnapshot, error) {
 	m.mu.Lock()
 	m.lastListSnapshotsAccountID = accountID
 	err := m.errListSnapshots
-	snapshots := append([]model.GhostSnapshot(nil), m.snapshots...)
+	snapshots := append([]model.ZombieSnapshot(nil), m.snapshots...)
 	m.mu.Unlock()
 
 	if err != nil {
@@ -421,11 +421,11 @@ func (m *MockStore) SaveSnapshotServices(_ context.Context, _ []model.SnapshotSe
 	return nil
 }
 
-func (m *MockStore) ListSnapshotsByService(_ context.Context, _, _, _ string) ([]model.GhostSnapshot, error) {
+func (m *MockStore) ListSnapshotsByService(_ context.Context, _, _, _ string) ([]model.ZombieSnapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// Return all snapshots — mock doesn't filter by service or resource type.
-	return append([]model.GhostSnapshot(nil), m.snapshots...), nil
+	return append([]model.ZombieSnapshot(nil), m.snapshots...), nil
 }
 
 func (m *MockStore) ListTrendServices(_ context.Context) ([]string, error) {
@@ -444,11 +444,11 @@ func (m *MockStore) DeleteOldCostRecords(_ context.Context, _ time.Time) (int64,
 	return 0, nil
 }
 
-func (m *MockStore) DismissGhost(_ context.Context, d model.DismissAction) (int64, error) {
+func (m *MockStore) DismissZombie(_ context.Context, d model.DismissAction) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.errDismissGhost != nil {
-		return 0, m.errDismissGhost
+	if m.errDismissZombie != nil {
+		return 0, m.errDismissZombie
 	}
 	m.nextDismID++
 	d.ID = m.nextDismID

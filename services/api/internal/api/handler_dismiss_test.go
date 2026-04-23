@@ -17,7 +17,7 @@ import (
 // ── POST /v1/dismissals ───────────────────────────────────────────────────────
 
 func TestCreateDismissal_Returns201(t *testing.T) {
-	store := NewMockStore().WithGhosts([]model.GhostResource{testGhost})
+	store := NewMockStore().WithZombies([]model.ZombieResource{testZombie})
 	h := newHandlerWith(store)
 	mux := newMux(h)
 
@@ -151,7 +151,7 @@ func TestCreateDismissal_SnoozeTooFar_Returns400(t *testing.T) {
 }
 
 func TestCreateDismissal_AlreadyDismissed_Returns409(t *testing.T) {
-	store := NewMockStore().WithDismissGhostError(storage.ErrAlreadyDismissed)
+	store := NewMockStore().WithDismissZombieError(storage.ErrAlreadyDismissed)
 	h := newHandlerWith(store)
 	mux := newMux(h)
 
@@ -254,20 +254,20 @@ func TestListDismissals_StoreError_Returns500(t *testing.T) {
 	}
 }
 
-// ── GET /v1/ghosts with dismissal filtering ───────────────────────────────────
+// ── GET /v1/zombies with dismissal filtering ──────────────────────────────────
 
-func TestListGhosts_ExcludesDismissedByDefault(t *testing.T) {
-	ghost := testGhost
+func TestListZombies_ExcludesDismissedByDefault(t *testing.T) {
+	zombie := testZombie
 	store := NewMockStore().
-		WithGhosts([]model.GhostResource{ghost}).
+		WithZombies([]model.ZombieResource{zombie}).
 		WithDismissals([]model.DismissAction{
 			{
 				ID:         1,
-				AccountID:  ghost.InternalAccountID,
-				Provider:   ghost.Provider,
-				Service:    ghost.Service,
-				Region:     ghost.Region,
-				ResourceID: ghost.ResourceID,
+				AccountID:  zombie.InternalAccountID,
+				Provider:   zombie.Provider,
+				Service:    zombie.Service,
+				Region:     zombie.Region,
+				ResourceID: zombie.ResourceID,
 				Action:     "dismiss",
 				Reason:     "intentional",
 			},
@@ -276,29 +276,29 @@ func TestListGhosts_ExcludesDismissedByDefault(t *testing.T) {
 	mux := newMux(h)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
 
-	var ghosts []model.GhostResource
-	if err := json.NewDecoder(w.Body).Decode(&ghosts); err != nil {
+	var zombies []model.ZombieResource
+	if err := json.NewDecoder(w.Body).Decode(&zombies); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(ghosts) != 0 {
-		t.Errorf("expected dismissed ghost to be filtered out, got %d ghosts", len(ghosts))
+	if len(zombies) != 0 {
+		t.Errorf("expected dismissed zombie to be filtered out, got %d zombies", len(zombies))
 	}
 }
 
-func TestListGhosts_IncludeDismissedQueryParam(t *testing.T) {
-	ghost := testGhost
+func TestListZombies_IncludeDismissedQueryParam(t *testing.T) {
+	zombie := testZombie
 	store := NewMockStore().
-		WithGhosts([]model.GhostResource{ghost}).
+		WithZombies([]model.ZombieResource{zombie}).
 		WithDismissals([]model.DismissAction{
 			{
 				ID:         1,
-				AccountID:  ghost.InternalAccountID,
-				Provider:   ghost.Provider,
-				Service:    ghost.Service,
-				Region:     ghost.Region,
-				ResourceID: ghost.ResourceID,
+				AccountID:  zombie.InternalAccountID,
+				Provider:   zombie.Provider,
+				Service:    zombie.Service,
+				Region:     zombie.Region,
+				ResourceID: zombie.ResourceID,
 				Action:     "dismiss",
 				Reason:     "intentional",
 			},
@@ -307,20 +307,20 @@ func TestListGhosts_IncludeDismissedQueryParam(t *testing.T) {
 	mux := newMux(h)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts?include_dismissed=true"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies?include_dismissed=true"))
 
-	var ghosts []model.GhostResource
-	if err := json.NewDecoder(w.Body).Decode(&ghosts); err != nil {
+	var zombies []model.ZombieResource
+	if err := json.NewDecoder(w.Body).Decode(&zombies); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(ghosts) != 1 {
-		t.Fatalf("expected 1 ghost with include_dismissed=true, got %d", len(ghosts))
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie with include_dismissed=true, got %d", len(zombies))
 	}
-	if ghosts[0].DismissAction != "dismiss" {
-		t.Errorf("expected dismiss_action=dismiss annotation, got %q", ghosts[0].DismissAction)
+	if zombies[0].DismissAction != "dismiss" {
+		t.Errorf("expected dismiss_action=dismiss annotation, got %q", zombies[0].DismissAction)
 	}
-	if ghosts[0].DismissalID == nil || *ghosts[0].DismissalID != 1 {
-		t.Errorf("expected dismissal_id=1, got %v", ghosts[0].DismissalID)
+	if zombies[0].DismissalID == nil || *zombies[0].DismissalID != 1 {
+		t.Errorf("expected dismissal_id=1, got %v", zombies[0].DismissalID)
 	}
 }
 
