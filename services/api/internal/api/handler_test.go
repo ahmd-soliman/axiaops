@@ -17,7 +17,7 @@ import (
 	"axiaops.io/shared/storage"
 )
 
-var testGhost = model.GhostResource{
+var testZombie = model.ZombieResource{
 	Provider:    "aws",
 	AccountID:   "000000000000",
 	Service:     "AmazonRDS",
@@ -36,7 +36,7 @@ var testGhost = model.GhostResource{
 }
 
 func testHandler() (*api.Handler, *http.ServeMux) {
-	store := NewMockStore().WithGhosts([]model.GhostResource{testGhost})
+	store := NewMockStore().WithZombies([]model.ZombieResource{testZombie})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -80,7 +80,7 @@ func TestHealth_Returns200(t *testing.T) {
 
 func TestHealth_DatabasePingFails_Returns503(t *testing.T) {
 	store := &mockStoreWithFailingPing{
-		MockStore: NewMockStore().WithGhosts([]model.GhostResource{testGhost}),
+		MockStore: NewMockStore().WithZombies([]model.ZombieResource{testZombie}),
 		pingErr:   errors.New("connection refused"),
 	}
 	h := api.New(store, noopQueue())
@@ -99,59 +99,59 @@ func TestHealth_DatabasePingFails_Returns503(t *testing.T) {
 	}
 }
 
-// ── GET /ghosts ───────────────────────────────────────────────────────────────
+// ── GET /zombies ──────────────────────────────────────────────────────────────
 
-func TestGetGhosts_Returns200(t *testing.T) {
+func TestGetZombies_Returns200(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 }
 
-func TestGetGhosts_ContentType(t *testing.T) {
+func TestGetZombies_ContentType(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("expected application/json, got %s", ct)
 	}
 }
 
-func TestGetGhosts_ReturnsGhostList(t *testing.T) {
+func TestGetZombies_ReturnsZombieList(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
 
-	var ghosts []model.GhostResource
-	if err := json.NewDecoder(w.Body).Decode(&ghosts); err != nil {
+	var zombies []model.ZombieResource
+	if err := json.NewDecoder(w.Body).Decode(&zombies); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if len(ghosts) != 1 {
-		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie, got %d", len(zombies))
 	}
-	if ghosts[0].ResourceID != "db-stag-01" {
-		t.Errorf("expected resource db-stag-01, got %s", ghosts[0].ResourceID)
+	if zombies[0].ResourceID != "db-stag-01" {
+		t.Errorf("expected resource db-stag-01, got %s", zombies[0].ResourceID)
 	}
-	if ghosts[0].MonthlyCost != 210.00 {
-		t.Errorf("expected cost 210.00, got %f", ghosts[0].MonthlyCost)
+	if zombies[0].MonthlyCost != 210.00 {
+		t.Errorf("expected cost 210.00, got %f", zombies[0].MonthlyCost)
 	}
 }
 
-func TestGetGhosts_CORSHeader(t *testing.T) {
+func TestGetZombies_CORSHeader(t *testing.T) {
 	h, mux := testHandler()
 	w := httptest.NewRecorder()
-	h.Handler(mux).ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
+	h.Handler(mux).ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
 	if w.Header().Get("Access-Control-Allow-Origin") != "*" {
 		t.Errorf("expected CORS header, got: %s", w.Header().Get("Access-Control-Allow-Origin"))
 	}
 }
 
-func TestGetGhosts_OPTIONSPreflight(t *testing.T) {
+func TestGetZombies_OPTIONSPreflight(t *testing.T) {
 	h, mux := testHandler()
 	w := httptest.NewRecorder()
-	h.Handler(mux).ServeHTTP(w, httptest.NewRequest(http.MethodOptions, "/v1/ghosts", nil))
+	h.Handler(mux).ServeHTTP(w, httptest.NewRequest(http.MethodOptions, "/v1/zombies", nil))
 	if w.Code != http.StatusNoContent {
 		t.Errorf("expected 204 for OPTIONS, got %d", w.Code)
 	}
@@ -177,8 +177,8 @@ func TestGetSummary_ReturnsSavings(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&summary); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if summary.TotalGhosts != 1 {
-		t.Errorf("expected 1 ghost, got %d", summary.TotalGhosts)
+	if summary.TotalZombies != 1 {
+		t.Errorf("expected 1 zombie, got %d", summary.TotalZombies)
 	}
 	if summary.PotentialMonthlySave != 210.00 {
 		t.Errorf("expected savings 210.00, got %f", summary.PotentialMonthlySave)
@@ -630,7 +630,7 @@ func TestGetTrend_EmptyStoreReturnsEmptyArray(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
 
-	var snaps []model.GhostSnapshot
+	var snaps []model.ZombieSnapshot
 	if err := json.NewDecoder(w.Body).Decode(&snaps); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -645,10 +645,10 @@ func TestGetTrend_EmptyStoreReturnsEmptyArray(t *testing.T) {
 func TestGetTrend_ReturnsSnapshots(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	store := NewMockStore().
-		WithGhosts([]model.GhostResource{testGhost}).
-		WithSnapshots([]model.GhostSnapshot{
-			{ID: "snap-1", AccountID: "acc-1", SnapshotAt: now.Add(-2 * time.Hour), GhostCount: 3, TotalMonthlyCost: 150.00, Currency: "USD"},
-			{ID: "snap-2", AccountID: "acc-1", SnapshotAt: now, GhostCount: 5, TotalMonthlyCost: 300.00, Currency: "USD"},
+		WithZombies([]model.ZombieResource{testZombie}).
+		WithSnapshots([]model.ZombieSnapshot{
+			{ID: "snap-1", AccountID: "acc-1", SnapshotAt: now.Add(-2 * time.Hour), ZombieCount: 3, TotalMonthlyCost: 150.00, Currency: "USD"},
+			{ID: "snap-2", AccountID: "acc-1", SnapshotAt: now, ZombieCount: 5, TotalMonthlyCost: 300.00, Currency: "USD"},
 		})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -661,7 +661,7 @@ func TestGetTrend_ReturnsSnapshots(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	var snaps []model.GhostSnapshot
+	var snaps []model.ZombieSnapshot
 	if err := json.NewDecoder(w.Body).Decode(&snaps); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -678,9 +678,9 @@ func TestGetTrend_ReturnsSnapshots(t *testing.T) {
 
 func TestGetTrend_SnapshotTenantIDNotExposed(t *testing.T) {
 	store := NewMockStore().
-		WithGhosts([]model.GhostResource{testGhost}).
-		WithSnapshots([]model.GhostSnapshot{
-			{ID: "snap-1", AccountID: "acc-1", TenantID: "secret-tenant", GhostCount: 1, TotalMonthlyCost: 50.00, Currency: "USD"},
+		WithZombies([]model.ZombieResource{testZombie}).
+		WithSnapshots([]model.ZombieSnapshot{
+			{ID: "snap-1", AccountID: "acc-1", TenantID: "secret-tenant", ZombieCount: 1, TotalMonthlyCost: 50.00, Currency: "USD"},
 		})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -696,7 +696,7 @@ func TestGetTrend_SnapshotTenantIDNotExposed(t *testing.T) {
 
 func TestGetTrend_StoreError_Returns500(t *testing.T) {
 	store := NewMockStore().
-		WithGhosts([]model.GhostResource{testGhost}).
+		WithZombies([]model.ZombieResource{testZombie}).
 		WithListSnapshotsError(errors.New("db connection lost"))
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -711,7 +711,7 @@ func TestGetTrend_StoreError_Returns500(t *testing.T) {
 }
 
 func TestGetTrend_AccountIDQueryParamPassedToStore(t *testing.T) {
-	store := NewMockStore().WithGhosts([]model.GhostResource{testGhost})
+	store := NewMockStore().WithZombies([]model.ZombieResource{testZombie})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -728,7 +728,7 @@ func TestGetTrend_AccountIDQueryParamPassedToStore(t *testing.T) {
 }
 
 func TestGetTrend_NoAccountIDQueryParam_PassesEmptyString(t *testing.T) {
-	store := NewMockStore().WithGhosts([]model.GhostResource{testGhost})
+	store := NewMockStore().WithZombies([]model.ZombieResource{testZombie})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
