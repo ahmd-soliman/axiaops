@@ -5,6 +5,7 @@ import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
 import { useTheme } from '../theme/ThemeContext';
+import { useToast } from '../context/ToastContext';
 import { useWindowWidth } from '../components/primitives';
 import { Spinner } from '../components/primitives';
 
@@ -125,6 +126,55 @@ function mergeSnapshotSeries(seriesList) {
   return [...byTimestamp.values()].sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
 }
 
+// ─── CSV export ──────────────────────────────────────────────────────────────
+
+// Walks per-bucket data (not the merged sum) so each row self-describes its
+// service / resource_type filter. When multiple services are selected, rows
+// are emitted per service per timestamp instead of being collapsed to a sum.
+function exportCSV(seriesByBucket, periodDays, toast) {
+  const services      = [...new Set(seriesByBucket.map(b => b.service).filter(Boolean))];
+  const resourceTypes = [...new Set(seriesByBucket.map(b => b.resourceType).filter(Boolean))];
+
+  const slugParts = [];
+  if (services.length)      slugParts.push(services.map(s => s.replace(/^Amazon|^AWS/, '').toLowerCase()).join('-'));
+  if (resourceTypes.length) slugParts.push(resourceTypes.map(rt => rt.toLowerCase()).join('-'));
+  const filterSlug = slugParts.length ? `-${slugParts.join('-')}` : '';
+  const filename = `axiaops-trend${filterSlug}-${periodDays}d-${new Date().toISOString().split('T')[0]}.csv`;
+
+  const headers = ['snapshot_at', 'service', 'resource_type', 'account_id', 'ghost_count', 'total_monthly_cost', 'currency'];
+  const rows = [];
+  for (const bucket of seriesByBucket) {
+    for (const s of bucket.snaps.slice(-periodDays)) {
+      rows.push([
+        s.snapshot_at,
+        bucket.service ?? '',
+        bucket.resourceType ?? '',
+        s.account_id,
+        s.ghost_count,
+        s.total_monthly_cost.toFixed(2),
+        s.currency,
+      ]);
+    }
+  }
+  rows.sort((a, b) =>
+    a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2])
+  );
+
+  const csv = [headers, ...rows]
+    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  toast(`Exported ${rows.length} row${rows.length !== 1 ? 's' : ''} to CSV`, 'success');
+}
+
 // ─── Scan history list row ────────────────────────────────────────────────────
 function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
   const costDelta = prevItem ? item.total_monthly_cost - prevItem.total_monthly_cost : null;
@@ -167,6 +217,7 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
   const { theme, isDark } = useTheme();
+  const { toast } = useToast();
   const screenWidth = useWindowWidth();
   const [filterServices, setFilterServices]         = useState(() => new Set());
   const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
@@ -238,6 +289,12 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
     ? downsampleByMonth(filteredSnaps)
     : downsample(filteredSnaps, period);
   const reversedSnaps = [...filteredSnaps].reverse();
+
+  // Total CSV rows across all buckets (one row per snap per bucket, period-windowed).
+  const exportRowCount = filterBuckets.reduce(
+    (sum, _, i) => sum + Math.min(trendQueries[i].data?.length ?? 0, period),
+    0,
+  );
 
   // Scroll to selected row in history list
   useEffect(() => {
@@ -538,10 +595,32 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
 
       {/* Scan history list */}
       <div ref={listRef}>
-        <div style={{ padding: '16px 16px 0' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '16px 16px 0' }}>
+          <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
             Scan History · {filteredSnaps.length}
           </span>
+          <button
+            onClick={() => {
+              const seriesByBucket = filterBuckets.map((b, i) => ({
+                service:      b.service,
+                resourceType: b.resourceType,
+                snaps:        Array.isArray(trendQueries[i].data) ? trendQueries[i].data : [],
+              }));
+              exportCSV(seriesByBucket, period, toast);
+            }}
+            disabled={exportRowCount === 0}
+            aria-label="Export to CSV"
+            style={{
+              padding: '4px 10px',
+              borderRadius: 6,
+              border: `1px solid ${t.border}`,
+              backgroundColor: t.surfaceRaised,
+              cursor: exportRowCount === 0 ? 'not-allowed' : 'pointer',
+              opacity: exportRowCount === 0 ? 0.5 : 1,
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 700, color: t.textMid }}>↓ CSV</span>
+          </button>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 16px 48px' }}>
