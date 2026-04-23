@@ -8,6 +8,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { useWindowWidth } from '../components/primitives';
 import { Spinner } from '../components/primitives';
+import { csvEncode, downloadCSV } from '../utils/csv';
 
 const CHART_HEIGHT = 200;
 const MARGIN = { top: 16, right: 20, bottom: 32, left: 56 };
@@ -131,7 +132,7 @@ function mergeSnapshotSeries(seriesList) {
 // Walks per-bucket data (not the merged sum) so each row self-describes its
 // service / resource_type filter. When multiple services are selected, rows
 // are emitted per service per timestamp instead of being collapsed to a sum.
-function exportCSV(seriesByBucket, periodDays, toast) {
+function exportCSV(seriesByBucket, { periodDays }, toast) {
   const services      = [...new Set(seriesByBucket.map(b => b.service).filter(Boolean))];
   const resourceTypes = [...new Set(seriesByBucket.map(b => b.resourceType).filter(Boolean))];
 
@@ -160,17 +161,7 @@ function exportCSV(seriesByBucket, periodDays, toast) {
     a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2])
   );
 
-  const csv = [headers, ...rows]
-    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadCSV(csvEncode(headers, rows), filename);
 
   toast(`Exported ${rows.length} row${rows.length !== 1 ? 's' : ''} to CSV`, 'success');
 }
@@ -606,7 +597,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                 resourceType: b.resourceType,
                 snaps:        Array.isArray(trendQueries[i].data) ? trendQueries[i].data : [],
               }));
-              exportCSV(seriesByBucket, period, toast);
+              exportCSV(seriesByBucket, { periodDays: period }, toast);
             }}
             disabled={exportRowCount === 0}
             aria-label="Export to CSV"
