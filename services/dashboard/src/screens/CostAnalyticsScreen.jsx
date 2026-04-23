@@ -5,6 +5,7 @@ import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
 import { useTheme } from '../theme/ThemeContext';
+import { useToast } from '../context/ToastContext';
 import { Spinner, Toast } from '../components/primitives';
 import { useWindowWidth } from '../components/primitives';
 
@@ -32,8 +33,43 @@ function formatDateShort(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+// ─── CSV export ──────────────────────────────────────────────────────────────
+
+function exportCSV(records, { services, periodDays }, toast) {
+  const filterSlug = services.length
+    ? '-' + services.map(s => s.replace(/^Amazon|^AWS/, '').toLowerCase()).join('-')
+    : '';
+  const filename = `axiaops-costs${filterSlug}-${periodDays}d-${new Date().toISOString().split('T')[0]}.csv`;
+
+  const headers = ['service', 'region', 'amount', 'currency', 'period_start', 'period_end', 'resource_id'];
+  const rows = records.map(r => [
+    r.service,
+    r.region,
+    r.amount.toFixed(2),
+    r.currency,
+    new Date(r.period_start).toISOString().split('T')[0],
+    new Date(r.period_end).toISOString().split('T')[0],
+    r.resource_id,
+  ]);
+
+  const csv = [headers, ...rows]
+    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  toast(`Exported ${records.length} cost record${records.length !== 1 ? 's' : ''} to CSV`, 'success');
+}
+
 export default function CostAnalyticsScreen({ accounts: passedAccounts, selectedAccount: passedSelectedAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
   const { theme } = useTheme();
+  const { toast } = useToast();
   const screenWidth = useWindowWidth();
   const [period, setPeriod] = useState(30);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
@@ -130,29 +166,6 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const clearServiceFilter = () => {
     setFilterServices(new Set());
     setSelectedCost(null);
-  };
-
-  // CSV export
-  const exportToCSV = () => {
-    if (filteredCosts.length === 0) return;
-    const headers = ['Service', 'Region', 'Amount', 'Currency', 'Period Start', 'Period End', 'Resource ID'];
-    const rows = filteredCosts.map(r => [
-      r.service,
-      r.region || 'N/A',
-      (r.amount ?? 0).toFixed(2),
-      r.currency,
-      new Date(r.period_start).toISOString().split('T')[0],
-      new Date(r.period_end).toISOString().split('T')[0],
-      r.resource_id || '',
-    ]);
-    const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cost-breakdown-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const records = filteredCosts;
@@ -356,20 +369,22 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                 Cost Records · {records.length}
               </span>
               <button
-                onClick={exportToCSV}
+                onClick={() => exportCSV(records, {
+                  services: [...filterServices],
+                  periodDays: period,
+                }, toast)}
+                disabled={records.length === 0}
+                aria-label="Export to CSV"
                 style={{
-                  padding: '6px 12px',
+                  padding: '4px 10px',
                   borderRadius: 6,
                   border: `1px solid ${t.border}`,
                   backgroundColor: t.surfaceRaised,
-                  color: t.textMid,
-                  fontWeight: 600,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
+                  cursor: records.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: records.length === 0 ? 0.5 : 1,
                 }}
               >
-                ⬇ Export CSV
+                <span style={{ fontSize: 11, fontWeight: 700, color: t.textMid }}>↓ CSV</span>
               </button>
             </div>
 
