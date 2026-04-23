@@ -691,22 +691,39 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
-function exportCSV(list, toast) {
+function exportCSV(list, { ghostOnly }, toast) {
+  const kind = ghostOnly ? 'zombies' : 'resources';
+  const filename = `axiaops-${kind}-${new Date().toISOString().split('T')[0]}.csv`;
+
   const headers = ['resource_id', 'service', 'region', 'monthly_cost', 'currency', 'usage_metric', 'usage_avg', 'usage_unit', 'owner', 'is_ghost', 'reason'];
   const rows = list.map(r => [
-    r.resource_id, r.service, r.region, r.monthly_cost.toFixed(2), r.currency,
-    r.usage_metric ?? '', r.usage_avg ?? '', r.usage_unit ?? '',
-    r.owner ?? '', r.is_ghost ? 'true' : 'false', r.reason ?? '',
-  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
-  const csv = [headers.join(','), ...rows].join('\n');
+    r.resource_id,
+    r.service,
+    r.region,
+    r.monthly_cost.toFixed(2),
+    r.currency,
+    r.usage_metric ?? '',
+    r.usage_avg ?? '',
+    r.usage_unit ?? '',
+    r.owner ?? '',
+    r.is_ghost ? 'true' : 'false',
+    r.reason ?? '',
+  ]);
+
+  const csv = [headers, ...rows]
+    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = `axiaops-ghosts-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-  toast(`Exported ${list.length} resource${list.length !== 1 ? 's' : ''} to CSV`, 'success');
+
+  const noun = ghostOnly ? 'zombie' : 'resource';
+  toast(`Exported ${list.length} ${noun}${list.length !== 1 ? 's' : ''} to CSV`, 'success');
 }
 
 // ─── Sort function ────────────────────────────────────────────────────────────
@@ -1077,9 +1094,17 @@ export default function DashboardScreen({
         </span>
         {!showDismissed && (
           <button
-            onClick={() => exportCSV(listData, toast)}
+            onClick={() => exportCSV(listData, { ghostOnly }, toast)}
+            disabled={listData.length === 0}
             aria-label="Export to CSV"
-            style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${t.border}`, backgroundColor: t.surfaceRaised, cursor: 'pointer' }}
+            style={{
+              padding: '4px 10px',
+              borderRadius: 6,
+              border: `1px solid ${t.border}`,
+              backgroundColor: t.surfaceRaised,
+              cursor: listData.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: listData.length === 0 ? 0.5 : 1,
+            }}
           >
             <span style={{ fontSize: 11, fontWeight: 700, color: t.textMid }}>↓ CSV</span>
           </button>
@@ -1122,7 +1147,7 @@ export default function DashboardScreen({
           count={selected.size}
           onDismiss={() => setBulkModal('dismiss')}
           onSnooze={() => setBulkModal('snooze')}
-          onExport={() => exportCSV(selectedItems, toast)}
+          onExport={() => exportCSV(selectedItems, { ghostOnly }, toast)}
           onClear={() => setSelected(new Set())}
           theme={t}
         />
