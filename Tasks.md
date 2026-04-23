@@ -38,9 +38,10 @@ _Last updated: 2026-04-23_
 | 1 | **Wire Redis in API `main.go`** ✅ | `cache.New(REDIS_URL)` injected into `NewAuth` + `NewRateLimiter`; falls back to memory if unset |
 | 2 | **CSV export — unified across screens** ✅ | TrendScreen added; DashboardScreen + CostAnalyticsScreen migrated to single convention defined in `csv-export` skill (`.claude/skills/csv-export/SKILL.md`). |
 | 3 | **Production deployment** | App Runner (API + ingestion) + RDS + ElastiCache via Terraform. See `docs/production.md`. |
-| 3 | **Raw cost view** | Expose `cost_records` in `/v1/costs` endpoint + new "Cost" dashboard screen. See `tasks/raw-cost-view.md`. |
-| 4 | **Weekly email digest** | New ghosts after scan → Resend/SendGrid email. References `ghost_snapshots` for delta. |
-| 5 | **Slack webhook alert** | Notify channel when new ghosts appear post-scan. |
+| 4 | **Raw cost view** | Expose `cost_records` in `/v1/costs` endpoint + new "Cost" dashboard screen. See `tasks/raw-cost-view.md`. |
+| 5 | **Weekly email digest** | New ghosts after scan → Resend/SendGrid email. References `ghost_snapshots` for delta. |
+| 6 | **Slack webhook alert** | Notify channel when new ghosts appear post-scan. |
+| 7 | **Rename ghost → zombie across the stack** | UI already says "zombie" (commit `1b292bd`) but DB, Go types, API JSON, and routes still say "ghost". Pre-alpha is the cheapest time to fix. Single PR: `ALTER TABLE … RENAME` (metadata-only in Postgres), Go symbol renames (`GhostResource` → `ZombieResource`, `LoadGhosts` → `LoadZombies`, etc.), API routes (`/ghosts` → `/zombies`), dashboard field reads. Acceptance: `grep -ri "ghost" services/` returns zero non-historical matches. Size: 1–2 days. |
 
 ---
 
