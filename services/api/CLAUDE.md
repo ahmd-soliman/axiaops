@@ -2,7 +2,7 @@
 
 ## Purpose
 
-REST API server for AxiaOps. Reads ghost/resource data from PostgreSQL, serves it to the
+REST API server for AxiaOps. Reads zombie/resource data from PostgreSQL, serves it to the
 dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to the ingestion service.
 
 ## Module
@@ -15,18 +15,18 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 |--------|------|------|---------|
 | GET | /health | No | Healthcheck (Docker depends_on) |
 | GET | /metrics | No | Prometheus metrics (internal only) |
-| GET | /ghosts | Yes | List zombie resources for tenant |
+| GET | /zombies | Yes | List zombie resources for tenant |
 | GET | /summary | Yes | Aggregate savings + per-service breakdown |
-| GET | /trend | Yes | Ghost snapshots over time (?account_id, ?service, ?resource_type) |
+| GET | /trend | Yes | Zombie snapshots over time (?account_id, ?service, ?resource_type) |
 | GET | /trend/services | Yes | Distinct services available in trend data |
 | GET | /trend/resource-types | Yes | Distinct resource types for a service (?service) |
-| GET | /resources | Yes | All resource records (ghosts + active) |
+| GET | /resources | Yes | All resource records (zombies + active) |
 | GET | /accounts | Yes | List connected cloud accounts |
 | POST | /accounts | Yes | Connect new account (encrypts secret) |
 | PATCH | /accounts/{id} | Yes | Update label, region, secret_key, scan_interval_hours |
 | DELETE | /accounts/{id} | Yes | Remove account |
 | POST | /accounts/{id}/scan | Yes | Trigger on-demand ingestion scan |
-| POST | /dismissals | Yes | Dismiss or snooze a ghost resource |
+| POST | /dismissals | Yes | Dismiss or snooze a zombie resource |
 | GET | /dismissals | Yes | List active dismissals (?account_id) |
 | DELETE | /dismissals/{id} | Yes | Revoke a dismissal |
 
@@ -80,9 +80,9 @@ Wrap database calls with `observability.DatabaseObserver`:
 ```go
 import "axiaops.io/shared/observability"
 
-observer := observability.NewDatabaseObserver("LOAD_GHOSTS")
+observer := observability.NewDatabaseObserver("LOAD_ZOMBIES")
 defer observer.Observe()
-ghosts, err := h.store.LoadGhosts(ctx)
+zombies, err := h.store.LoadZombies(ctx)
 if err != nil {
     observer.ObserveError()
     // ... handle error
@@ -98,8 +98,8 @@ import "axiaops.io/shared/observability"
 
 if err != nil {
     observability.LogError(r.Context(), err,
-        "operation", "list_ghosts",
-        "endpoint", "GET /v1/ghosts",
+        "operation", "list_zombies",
+        "endpoint", "GET /v1/zombies",
     )
 }
 ```
