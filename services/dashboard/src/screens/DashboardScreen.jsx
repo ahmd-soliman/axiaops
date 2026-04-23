@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissGhost } from '../api/client';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
@@ -749,7 +749,6 @@ export default function DashboardScreen({
   const [filterOwner, setFilterOwner]                 = useState(null);
   const [ghostOnly, setGhostOnly]       = useState(true);
   const [showDismissed, setShowDismissed] = useState(false);
-  const [scanning, setScanning]         = useState(null);
   const [search, setSearch]             = useState('');
   const [sortBy, setSortBy]             = useState('cost_desc');
   const [selected, setSelected]         = useState(new Set());
@@ -837,18 +836,38 @@ export default function DashboardScreen({
     setSelected(prev => ids.every(id => prev.has(id)) ? new Set() : new Set(ids));
   }
 
-  async function handleScan(accountId) {
-    const label = accounts.find(a => a.id === accountId)?.label;
-    setScanning(accountId);
-    try {
-      await scanAccount(accountId);
-      toast(`Scan started for ${label ?? accountId.slice(0, 8)}`, 'info');
-      watch(accountId, { label, onEnd: () => setScanning(null) });
-    } catch {
-      toast('Scan failed to start. Please try again.', 'error');
-      setScanning(null);
-    }
-  }
+  const scanMutation = useMutation({
+    mutationFn: scanAccount,
+    onMutate: async (accountId) => {
+      // Cancel in-flight refetches so they don't overwrite our optimistic state.
+      await queryClient.cancelQueries({ queryKey: ['accounts'] });
+      const previous = queryClient.getQueryData(['accounts']);
+      const label    = previous?.find(a => a.id === accountId)?.label;
+      const display  = label ?? accountId.slice(0, 8);
+
+      queryClient.setQueryData(['accounts'], (accs = []) =>
+        accs.map(a => a.id === accountId ? { ...a, status: 'scanning' } : a),
+      );
+      toast(`Starting scan for ${display}…`, 'info');
+      return { previous, label, display };
+    },
+    onError: (err, accountId, ctx) => {
+      // 409 means the server really is scanning — our optimistic state matches
+      // reality. Don't roll back; attach the watcher and inform the user.
+      if (err?.code === 'already_scanning') {
+        toast(`Scan already running for ${ctx?.display ?? 'account'}`, 'info');
+        watch(accountId, { label: ctx?.label });
+        return;
+      }
+      if (ctx?.previous) queryClient.setQueryData(['accounts'], ctx.previous);
+      toast(`Couldn't start scan for ${ctx?.display ?? 'account'}`, 'error');
+    },
+    onSuccess: (_data, accountId, ctx) => {
+      watch(accountId, { label: ctx?.label });
+    },
+  });
+
+  const handleScan = (accountId) => scanMutation.mutate(accountId);
 
   async function handleBulkAction({ reason, note }) {
     const ids = [...selected];
@@ -978,7 +997,6 @@ export default function DashboardScreen({
             onConnectAccount={onConnectAccount}
             onEditAccount={onEditAccount}
             onScanAccount={handleScan}
-            scanning={scanning}
           />
         ) : (
           <button

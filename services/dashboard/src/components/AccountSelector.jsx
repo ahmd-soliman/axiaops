@@ -3,6 +3,14 @@ import { useTheme } from '../theme/ThemeContext';
 import { Overlay } from '../components/primitives';
 import { Spinner } from '../components/primitives';
 
+const STATUS_LABEL = {
+  connected:            'Connected',
+  scanning:             'Scanning…',
+  error:                'Error',
+  scan_timeout:         'Timed out',
+  circuit_breaker_open: 'Unavailable',
+};
+
 export default function AccountSelector({
   accounts,
   selectedAccount,
@@ -10,7 +18,6 @@ export default function AccountSelector({
   onConnectAccount,
   onEditAccount,
   onScanAccount,
-  scanning,
 }) {
   const { theme } = useTheme();
   const [showDropdown, setShowDropdown] = useState(false);
@@ -79,16 +86,16 @@ export default function AccountSelector({
                     {account.label || account.access_key_id.slice(0, 8) + '…'}
                   </span>
                   <span style={s.accountDetail}>
-                    {account.region} • {account.status === 'connected' ? 'Connected' : 'Error'}
+                    {account.region} • {STATUS_LABEL[account.status] ?? 'Unknown'}
                   </span>
                 </div>
                 <div style={s.accountActions}>
                   <button
                     style={s.actionBtn}
-                    onClick={(e) => { e.stopPropagation(); onScanAccount(account.id); setShowDropdown(false); }}
-                    disabled={scanning === account.id}
+                    onClick={(e) => { e.stopPropagation(); onScanAccount?.(account.id); setShowDropdown(false); }}
+                    disabled={account.status === 'scanning' || !onScanAccount}
                   >
-                    {scanning === account.id ? <Spinner size={14} color={theme.accent} /> : <span style={s.actionText}>Scan</span>}
+                    {account.status === 'scanning' ? <Spinner size={14} color={theme.accent} /> : <span style={s.actionText}>Scan</span>}
                   </button>
                   <button
                     style={s.actionBtn}

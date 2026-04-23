@@ -88,6 +88,11 @@ export async function scanAccount(id) {
     method: 'POST',
     headers: authHeaders(),
   });
+  if (res.status === 409) {
+    const err = new Error('Scan already in progress');
+    err.code = 'already_scanning';
+    throw err;
+  }
   if (!res.ok) throw new Error('Failed to trigger scan');
   return res.json();
 }
