@@ -6,7 +6,8 @@ import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
-import { Spinner, Toast } from '../components/primitives';
+import { useScanStatus } from '../hooks/useScanStatus';
+import { Spinner } from '../components/primitives';
 import { useWindowWidth } from '../components/primitives';
 import { csvEncode, downloadCSV } from '../utils/csv';
 
@@ -61,6 +62,7 @@ function exportCSV(records, { services, periodDays }, toast) {
 export default function CostAnalyticsScreen({ accounts: passedAccounts, selectedAccount: passedSelectedAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
   const { theme } = useTheme();
   const { toast } = useToast();
+  const { watch } = useScanStatus();
   const screenWidth = useWindowWidth();
   const [period, setPeriod] = useState(30);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
@@ -68,7 +70,6 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const [selectedCost, setSelectedCost] = useState(null);
   const [selectedChartDate, setSelectedChartDate] = useState(null);
   const [scanning, setScanning] = useState(null);
-  const [notification, setNotification] = useState(null);
 
   // Use passed accounts or fetch if not provided
   const accountsQuery = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts, enabled: !passedAccounts?.length });
@@ -133,18 +134,18 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
   // Scan account
   const handleScanAccount = useCallback(async (accountId) => {
-    const accountLabel = accounts.find(a => a.id === accountId)?.label || accountId.slice(0, 8);
+    const label = accounts.find(a => a.id === accountId)?.label;
+    const displayLabel = label || accountId.slice(0, 8);
     setScanning(accountId);
-    setNotification({ message: `Scan started for ${accountLabel}...`, type: 'info' });
     try {
       await scanAccount(accountId);
-      setNotification({ message: `Scan started for ${accountLabel} — results will appear shortly`, type: 'success' });
-    } catch (err) {
-      setNotification({ message: `Scan failed for ${accountLabel}`, type: 'error' });
-    } finally {
+      toast(`Scan started for ${displayLabel}`, 'info');
+      watch(accountId, { label, onEnd: () => setScanning(null) });
+    } catch {
+      toast(`Scan failed to start for ${displayLabel}`, 'error');
       setScanning(null);
     }
-  }, [accounts]);
+  }, [accounts, toast, watch]);
 
   // Toggle service filter
   const toggleServiceFilter = (svc) => {
@@ -185,11 +186,6 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
   return (
     <div style={{ backgroundColor: t.bg, minHeight: '100vh' }}>
-      <Toast
-        message={notification?.message}
-        type={notification?.type}
-        onDismiss={() => setNotification(null)}
-      />
       {/* Header */}
       <div style={{ backgroundColor: t.surface, borderBottom: `1px solid ${t.border}`, padding: '16px' }}>
         <AccountSelector

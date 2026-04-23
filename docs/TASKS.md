@@ -215,14 +215,14 @@
 - [x] Replace in-memory rate limiter (2.9) with Redis `INCR` + `EXPIRE` counter — survives API restarts
 - [x] Test: run with and without `REDIS_URL` — verify fallback behaviour works correctly
 
-#### 2.UX Scan Completion Polling
+#### 2.UX Scan Completion Polling ✅
 
-- [ ] Create shared `useScanStatus(accountId)` hook — polls `GET /v1/accounts` every 3-5s after scan trigger, compares `last_scanned_at` timestamp to detect completion
-- [ ] Show "Scan completed" toast when status flips from `scanning` → `idle` and `last_scanned_at` has changed
-- [ ] Auto-refetch ghost/cost/summary data on scan completion
-- [ ] Stop polling after 2 minutes with "Scan is taking longer than expected" warning
-- [ ] Clean up polling interval on component unmount (abort controller or useEffect cleanup)
-- [ ] Apply to all three screens: DashboardScreen, AccountSettingsScreen, CostAnalyticsScreen
+- [x] Create shared `useScanStatus()` hook — polls `GET /v1/accounts` every 4s after scan trigger, detects when the account's `status` leaves `scanning` (`services/dashboard/src/hooks/useScanStatus.js`)
+- [x] Show toast when status flips from `scanning` → `connected` (success) or `scanning` → `error` / `scan_timeout` / `circuit_breaker_open` (failure). Note: terminal success status is `connected`, not `idle` as originally written here
+- [x] Auto-refetch `accounts`, `summary`, `ghosts`, `resources`, `costs`, `trend`, `dismissals` React Query keys on scan completion
+- [x] Stop polling after 2 minutes with "Scan for {label} is taking longer than expected" warning toast
+- [x] Clean up polling intervals + timeouts on component unmount (per-account poller map cleaned in `useEffect` teardown)
+- [x] Applied to DashboardScreen, AccountSettingsScreen, CostAnalyticsScreen. Replaced the previous optimistic `setTimeout(refresh, 5000)` pattern in all three. CostAnalyticsScreen also migrated from its local `notification` state + `<Toast>` primitive to the shared `useToast` context for consistency.
 
 #### 2.15 Weekly Email Digest + Slack Alerts
 
