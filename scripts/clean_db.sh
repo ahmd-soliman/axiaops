@@ -37,7 +37,7 @@ done
 if [[ -n "$REMOTE_ENV" ]]; then
   # Remote mode
   MODE="remote"
-  HOSTNAME="NAS.local"
+  HOSTNAME="axiaops.local"
   
   if [[ "$REMOTE_ENV" == "dev" ]]; then
     DB_PORT=5432
