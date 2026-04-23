@@ -19,14 +19,14 @@ type UsageRecord struct {
 // are incurring cost but show no meaningful activity according to the
 // per-service threshold rules in rules.go.
 // internalAccountID is the UUID from the accounts table, used for filtering.
-func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID string) []model.GhostResource {
+func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID string) []model.ZombieResource {
 	// Index usage by resource_id for O(1) lookup.
 	usageByID := make(map[string]UsageRecord, len(usage))
 	for _, u := range usage {
 		usageByID[u.ResourceID] = u
 	}
 
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 	for _, c := range costs {
 		r, hasRule := serviceRules[c.Service]
 		if !hasRule {
@@ -39,7 +39,7 @@ func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID str
 		}
 
 		if u.Avg <= r.threshold {
-			ghosts = append(ghosts, model.GhostResource{
+			zombies = append(zombies, model.ZombieResource{
 				Provider:          c.Provider,
 				AccountID:         c.AccountID,
 				InternalAccountID: internalAccountID,
@@ -59,36 +59,36 @@ func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID str
 			})
 		}
 	}
-	return ghosts
+	return zombies
 }
 
-// Summary holds aggregate savings figures across all detected ghost resources.
+// Summary holds aggregate savings figures across all detected zombie resources.
 type Summary struct {
-	TotalGhosts          int     `json:"total_ghosts"`
+	TotalZombies         int     `json:"total_zombies"`
 	PotentialMonthlySave float64 `json:"potential_monthly_savings"`
 	Currency             string  `json:"currency"`
 	ByService            map[string]ServiceSummary `json:"by_service"`
 }
 
-// ServiceSummary groups ghost counts and savings for one AWS service.
+// ServiceSummary groups zombie counts and savings for one AWS service.
 type ServiceSummary struct {
-	Ghosts  int     `json:"ghosts"`
+	Zombies int     `json:"zombies"`
 	Savings float64 `json:"savings"`
 }
 
-// Summarize computes aggregate savings from a slice of ghost resources.
-func Summarize(ghosts []model.GhostResource) Summary {
+// Summarize computes aggregate savings from a slice of zombie resources.
+func Summarize(zombies []model.ZombieResource) Summary {
 	s := Summary{
-		TotalGhosts: len(ghosts),
-		ByService:   make(map[string]ServiceSummary),
+		TotalZombies: len(zombies),
+		ByService:    make(map[string]ServiceSummary),
 	}
-	for _, g := range ghosts {
+	for _, g := range zombies {
 		s.PotentialMonthlySave += g.MonthlyCost
 		if s.Currency == "" {
 			s.Currency = g.Currency
 		}
 		svc := s.ByService[g.Service]
-		svc.Ghosts++
+		svc.Zombies++
 		svc.Savings += g.MonthlyCost
 		s.ByService[g.Service] = svc
 	}

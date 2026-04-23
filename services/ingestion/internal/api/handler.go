@@ -1,6 +1,6 @@
 // Package api exposes the analysis results over HTTP.
 // Endpoints:
-//   GET  /ghosts   — list of all detected zombie resources
+//   GET  /zombies  — list of all detected zombie resources
 //   GET  /summary  — aggregate savings figure and per-service breakdown
 //   POST /ingest   — trigger a fresh ingestion and analysis run
 package api
@@ -15,29 +15,29 @@ import (
 )
 
 // IngestFunc is called by the POST /ingest endpoint to trigger a fresh
-// ingestion and analysis run. It returns the updated ghosts and summary.
-type IngestFunc func() ([]model.GhostResource, analyzer.Summary, error)
+// ingestion and analysis run. It returns the updated zombies and summary.
+type IngestFunc func() ([]model.ZombieResource, analyzer.Summary, error)
 
 // Handler holds analysis results and serves them over HTTP.
 // Results are protected by a mutex so POST /ingest can update them safely
-// while GET /ghosts and GET /summary are being served.
+// while GET /zombies and GET /summary are being served.
 type Handler struct {
 	mu      sync.RWMutex
-	ghosts  []model.GhostResource
+	zombies []model.ZombieResource
 	summary analyzer.Summary
 	ingest  IngestFunc
 }
 
 // New creates a Handler from the results of a completed analysis run.
 // ingest is called on POST /ingest to refresh the results.
-func New(ghosts []model.GhostResource, summary analyzer.Summary, ingest IngestFunc) *Handler {
-	return &Handler{ghosts: ghosts, summary: summary, ingest: ingest}
+func New(zombies []model.ZombieResource, summary analyzer.Summary, ingest IngestFunc) *Handler {
+	return &Handler{zombies: zombies, summary: summary, ingest: ingest}
 }
 
 // Register attaches the routes to the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.health)
-	mux.HandleFunc("GET /ghosts", h.listGhosts)
+	mux.HandleFunc("GET /zombies", h.listZombies)
 	mux.HandleFunc("GET /summary", h.getSummary)
 	mux.HandleFunc("POST /ingest", h.triggerIngest)
 }
@@ -61,11 +61,11 @@ func (h *Handler) Handler(mux *http.ServeMux) http.Handler {
 	return cors(mux)
 }
 
-func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
-	ghosts := h.ghosts
+	zombies := h.zombies
 	h.mu.RUnlock()
-	writeJSON(w, ghosts)
+	writeJSON(w, zombies)
 }
 
 func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
@@ -76,13 +76,13 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) triggerIngest(w http.ResponseWriter, r *http.Request) {
-	ghosts, summary, err := h.ingest()
+	zombies, summary, err := h.ingest()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	h.mu.Lock()
-	h.ghosts = ghosts
+	h.zombies = zombies
 	h.summary = summary
 	h.mu.Unlock()
 	writeJSON(w, summary)
