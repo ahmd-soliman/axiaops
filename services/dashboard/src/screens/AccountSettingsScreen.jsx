@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { updateAccount, deleteAccount, scanAccount } from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
@@ -51,9 +52,10 @@ function StatusBadge({ status, theme }) {
 }
 
 export default function AccountSettingsScreen({ account, onBack, onAccountUpdated, onAccountDeleted }) {
-  const { theme } = useTheme();
-  const { toast } = useToast();
-  const { watch } = useScanStatus();
+  const { theme }   = useTheme();
+  const { toast }   = useToast();
+  const { watch }   = useScanStatus();
+  const queryClient = useQueryClient();
 
   const [label, setLabel]             = useState(account?.label ?? '');
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
@@ -61,10 +63,10 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   const [region, setRegion]           = useState(account?.region ?? 'eu-central-1');
   const [scanIntervalHours, setScanIntervalHours] = useState(account?.scan_interval_hours?.toString() ?? '24');
   const [loading, setLoading]         = useState(false);
-  const [scanning, setScanning]       = useState(false);
   const [deleting, setDeleting]       = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError]             = useState('');
+  const scanning = account?.status === 'scanning';
 
   async function handleSave() {
     if (!accessKeyId.trim()) { setError('Access Key ID is required.'); return; }
@@ -89,23 +91,34 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
     }
   }
 
-  async function handleScan() {
-    setScanning(true);
-    try {
-      await scanAccount(account.id);
-      toast(`Scan started for ${account.label}`, 'info');
-      watch(account.id, {
-        label: account.label,
-        onEnd: () => {
-          setScanning(false);
-          onAccountUpdated(account);
-        },
-      });
-    } catch {
-      toast('Scan failed to start. Please try again.', 'error');
-      setScanning(false);
-    }
-  }
+  const scanMutation = useMutation({
+    mutationFn: scanAccount,
+    onMutate: async (accountId) => {
+      await queryClient.cancelQueries({ queryKey: ['accounts'] });
+      const previous = queryClient.getQueryData(['accounts']);
+      const displayLabel = account.label ?? accountId.slice(0, 8);
+
+      queryClient.setQueryData(['accounts'], (accs = []) =>
+        accs.map(a => a.id === accountId ? { ...a, status: 'scanning' } : a),
+      );
+      toast(`Starting scan for ${displayLabel}…`, 'info');
+      return { previous, displayLabel };
+    },
+    onError: (err, accountId, ctx) => {
+      if (err?.code === 'already_scanning') {
+        toast(`Scan already running for ${ctx?.displayLabel ?? 'account'}`, 'info');
+        watch(accountId, { label: account.label, onEnd: () => onAccountUpdated(account) });
+        return;
+      }
+      if (ctx?.previous) queryClient.setQueryData(['accounts'], ctx.previous);
+      toast(`Couldn't start scan for ${ctx?.displayLabel ?? 'account'}`, 'error');
+    },
+    onSuccess: (_data, accountId) => {
+      watch(accountId, { label: account.label, onEnd: () => onAccountUpdated(account) });
+    },
+  });
+
+  const handleScan = () => scanMutation.mutate(account.id);
 
   async function confirmDelete() {
     setShowDeleteConfirm(false);

@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo } from 'react';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { fetchCosts, fetchAccounts, scanAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
@@ -60,16 +60,16 @@ function exportCSV(records, { services, periodDays }, toast) {
 }
 
 export default function CostAnalyticsScreen({ accounts: passedAccounts, selectedAccount: passedSelectedAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
-  const { theme } = useTheme();
-  const { toast } = useToast();
-  const { watch } = useScanStatus();
+  const { theme }     = useTheme();
+  const { toast }     = useToast();
+  const { watch }     = useScanStatus();
+  const queryClient   = useQueryClient();
   const screenWidth = useWindowWidth();
   const [period, setPeriod] = useState(30);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
   const [filterServices, setFilterServices] = useState(() => new Set());
   const [selectedCost, setSelectedCost] = useState(null);
   const [selectedChartDate, setSelectedChartDate] = useState(null);
-  const [scanning, setScanning] = useState(null);
 
   // Use passed accounts or fetch if not provided
   const accountsQuery = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts, enabled: !passedAccounts?.length });
@@ -133,19 +133,35 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   }, [filteredCosts, effectiveGranularity]);
 
   // Scan account
-  const handleScanAccount = useCallback(async (accountId) => {
-    const label = accounts.find(a => a.id === accountId)?.label;
-    const displayLabel = label || accountId.slice(0, 8);
-    setScanning(accountId);
-    try {
-      await scanAccount(accountId);
-      toast(`Scan started for ${displayLabel}`, 'info');
-      watch(accountId, { label, onEnd: () => setScanning(null) });
-    } catch {
-      toast(`Scan failed to start for ${displayLabel}`, 'error');
-      setScanning(null);
-    }
-  }, [accounts, toast, watch]);
+  const scanMutation = useMutation({
+    mutationFn: scanAccount,
+    onMutate: async (accountId) => {
+      await queryClient.cancelQueries({ queryKey: ['accounts'] });
+      const previous = queryClient.getQueryData(['accounts']);
+      const label    = previous?.find(a => a.id === accountId)?.label;
+      const display  = label ?? accountId.slice(0, 8);
+
+      queryClient.setQueryData(['accounts'], (accs = []) =>
+        accs.map(a => a.id === accountId ? { ...a, status: 'scanning' } : a),
+      );
+      toast(`Starting scan for ${display}…`, 'info');
+      return { previous, label, display };
+    },
+    onError: (err, accountId, ctx) => {
+      if (err?.code === 'already_scanning') {
+        toast(`Scan already running for ${ctx?.display ?? 'account'}`, 'info');
+        watch(accountId, { label: ctx?.label });
+        return;
+      }
+      if (ctx?.previous) queryClient.setQueryData(['accounts'], ctx.previous);
+      toast(`Couldn't start scan for ${ctx?.display ?? 'account'}`, 'error');
+    },
+    onSuccess: (_data, accountId, ctx) => {
+      watch(accountId, { label: ctx?.label });
+    },
+  });
+
+  const handleScanAccount = (accountId) => scanMutation.mutate(accountId);
 
   // Toggle service filter
   const toggleServiceFilter = (svc) => {
@@ -195,7 +211,6 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
           onConnectAccount={onConnectAccount}
           onEditAccount={onEditAccount}
           onScanAccount={handleScanAccount}
-          scanning={scanning}
         />
       </div>
 
