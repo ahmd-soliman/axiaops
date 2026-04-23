@@ -58,9 +58,9 @@ func setup(t *testing.T) *pgx.Conn {
 	t.Helper()
 	conn := connectTestDB(t)
 	const truncate = `TRUNCATE TABLE
-		axiaops.ghost_snapshots,
+		axiaops.zombie_snapshots,
 		axiaops.resource_records,
-		axiaops.ghost_records,
+		axiaops.zombie_records,
 		axiaops.cost_records,
 		axiaops.accounts,
 		axiaops.users,
@@ -236,16 +236,16 @@ func TestSave_MissingTenantID_Errors(t *testing.T) {
 	}
 }
 
-// ── SaveGhosts / LoadGhosts ───────────────────────────────────────────────────
+// ── SaveZombies / LoadZombies ─────────────────────────────────────────────────
 
-func ghostResource(service string, cost float64) model.GhostResource {
-	return model.GhostResource{
+func zombieResource(service string, cost float64) model.ZombieResource {
+	return model.ZombieResource{
 		Provider:          "aws",
 		AccountID:         "000000000000",
 		InternalAccountID: "test-account-id",
 		Service:           service,
 		Region:            "eu-central-1",
-		ResourceID:        "res-ghost-001",
+		ResourceID:        "res-zombie-001",
 		Tags:              map[string]string{"team": "platform"},
 		MonthlyCost:       cost,
 		Currency:          "USD",
@@ -259,77 +259,77 @@ func ghostResource(service string, cost float64) model.GhostResource {
 	}
 }
 
-func TestSaveGhosts_LoadGhosts_Roundtrip(t *testing.T) {
+func TestSaveZombies_LoadZombies_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx, _ := newTenantCtx(t, s)
 
-	ghosts := []model.GhostResource{
-		ghostResource("AmazonEC2", 100.00),
-		ghostResource("AmazonRDS", 200.00),
+	zombies := []model.ZombieResource{
+		zombieResource("AmazonEC2", 100.00),
+		zombieResource("AmazonRDS", 200.00),
 	}
 
-	if err := s.SaveGhosts(ctx, ghosts); err != nil {
-		t.Fatalf("SaveGhosts: %v", err)
+	if err := s.SaveZombies(ctx, zombies); err != nil {
+		t.Fatalf("SaveZombies: %v", err)
 	}
 
-	loaded, err := s.LoadGhosts(ctx)
+	loaded, err := s.LoadZombies(ctx)
 	if err != nil {
-		t.Fatalf("LoadGhosts: %v", err)
+		t.Fatalf("LoadZombies: %v", err)
 	}
 	if len(loaded) != 2 {
-		t.Errorf("expected 2 ghosts, got %d", len(loaded))
+		t.Errorf("expected 2 zombies, got %d", len(loaded))
 	}
 }
 
-func TestSaveGhosts_ReplacesOnSecondRun(t *testing.T) {
+func TestSaveZombies_ReplacesOnSecondRun(t *testing.T) {
 	s := newTestStore(t)
 	ctx, _ := newTenantCtx(t, s)
 
-	if err := s.SaveGhosts(ctx, []model.GhostResource{
-		ghostResource("AmazonEC2", 100.00),
-		ghostResource("AmazonRDS", 200.00),
+	if err := s.SaveZombies(ctx, []model.ZombieResource{
+		zombieResource("AmazonEC2", 100.00),
+		zombieResource("AmazonRDS", 200.00),
 	}); err != nil {
-		t.Fatalf("first SaveGhosts: %v", err)
+		t.Fatalf("first SaveZombies: %v", err)
 	}
 
-	// Second run with only one ghost — should replace, not append.
-	if err := s.SaveGhosts(ctx, []model.GhostResource{
-		ghostResource("AWSLambda", 50.00),
+	// Second run with only one zombie — should replace, not append.
+	if err := s.SaveZombies(ctx, []model.ZombieResource{
+		zombieResource("AWSLambda", 50.00),
 	}); err != nil {
-		t.Fatalf("second SaveGhosts: %v", err)
+		t.Fatalf("second SaveZombies: %v", err)
 	}
 
-	loaded, err := s.LoadGhosts(ctx)
+	loaded, err := s.LoadZombies(ctx)
 	if err != nil {
-		t.Fatalf("LoadGhosts: %v", err)
+		t.Fatalf("LoadZombies: %v", err)
 	}
 	if len(loaded) != 1 {
-		t.Errorf("expected 1 ghost after replacement, got %d", len(loaded))
+		t.Errorf("expected 1 zombie after replacement, got %d", len(loaded))
 	}
 	if loaded[0].Service != "AWSLambda" {
-		t.Errorf("expected AWSLambda ghost, got %s", loaded[0].Service)
+		t.Errorf("expected AWSLambda zombie, got %s", loaded[0].Service)
 	}
 }
 
-func TestLoadGhosts_EmptyWhenNoneSaved(t *testing.T) {
+func TestLoadZombies_EmptyWhenNoneSaved(t *testing.T) {
 	if !rlsEnforced() {
 		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to filter out other tenants' data")
 	}
 	s := newTestStore(t)
 	ctx, _ := newTenantCtx(t, s)
 
-	ghosts, err := s.LoadGhosts(ctx)
+	zombies, err := s.LoadZombies(ctx)
 	if err != nil {
-		t.Fatalf("LoadGhosts: %v", err)
+		t.Fatalf("LoadZombies: %v", err)
 	}
-	if len(ghosts) != 0 {
-		t.Errorf("expected 0 ghosts for new tenant, got %d", len(ghosts))
+	if len(zombies) != 0 {
+		t.Errorf("expected 0 zombies for new tenant, got %d", len(zombies))
 	}
 }
 
 // ── Tenant isolation (RLS) ────────────────────────────────────────────────────
 
-func TestGhosts_TenantIsolation(t *testing.T) {
+func TestZombies_TenantIsolation(t *testing.T) {
 	if !rlsEnforced() {
 		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS enforcement")
 	}
@@ -338,18 +338,18 @@ func TestGhosts_TenantIsolation(t *testing.T) {
 	ctxA, _ := newTenantCtx(t, s)
 	ctxB, _ := newTenantCtx(t, s)
 
-	// Tenant A saves ghosts.
-	if err := s.SaveGhosts(ctxA, []model.GhostResource{ghostResource("AmazonEC2", 100)}); err != nil {
-		t.Fatalf("SaveGhosts tenant A: %v", err)
+	// Tenant A saves zombies.
+	if err := s.SaveZombies(ctxA, []model.ZombieResource{zombieResource("AmazonEC2", 100)}); err != nil {
+		t.Fatalf("SaveZombies tenant A: %v", err)
 	}
 
 	// Tenant B should see none.
-	ghostsB, err := s.LoadGhosts(ctxB)
+	zombiesB, err := s.LoadZombies(ctxB)
 	if err != nil {
-		t.Fatalf("LoadGhosts tenant B: %v", err)
+		t.Fatalf("LoadZombies tenant B: %v", err)
 	}
-	if len(ghostsB) != 0 {
-		t.Errorf("tenant B should see 0 ghosts, got %d", len(ghostsB))
+	if len(zombiesB) != 0 {
+		t.Errorf("tenant B should see 0 zombies, got %d", len(zombiesB))
 	}
 }
 
@@ -641,7 +641,7 @@ func TestAccount_ScanIntervalHours(t *testing.T) {
 
 // ── SaveResources / LoadResources ─────────────────────────────────────────────
 
-func resourceRecord(service string, isGhost bool) model.ResourceRecord {
+func resourceRecord(service string, isZombie bool) model.ResourceRecord {
 	return model.ResourceRecord{
 		Provider:          "aws",
 		AccountID:         "000000000000",
@@ -657,7 +657,7 @@ func resourceRecord(service string, isGhost bool) model.ResourceRecord {
 		UsageMetric:       "CPUUtilization",
 		UsageAvg:          2.5,
 		UsageUnit:         "Percent",
-		IsGhost:           isGhost,
+		IsZombie:          isZombie,
 		Reason:            "idle",
 		Owner:             "platform",
 	}
@@ -713,13 +713,13 @@ func TestSaveResources_ReplacesOnSecondRun(t *testing.T) {
 
 // ── SaveSnapshot / ListSnapshots ──────────────────────────────────────────────
 
-func ghostSnapshot(tenantID, accountID string, cost float64, ghostCount int) model.GhostSnapshot {
-	return model.GhostSnapshot{
+func zombieSnapshot(tenantID, accountID string, cost float64, zombieCount int) model.ZombieSnapshot {
+	return model.ZombieSnapshot{
 		ID:               uuid.New().String(),
 		TenantID:         tenantID,
 		AccountID:        accountID,
 		SnapshotAt:       time.Now().UTC(),
-		GhostCount:       ghostCount,
+		ZombieCount:      zombieCount,
 		TotalMonthlyCost: cost,
 		Currency:         "USD",
 	}
@@ -729,7 +729,7 @@ func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx, tenant := newTenantCtx(t, s)
 
-	snap := ghostSnapshot(tenant.ID, "acc-001", 150.00, 3)
+	snap := zombieSnapshot(tenant.ID, "acc-001", 150.00, 3)
 	if err := s.SaveSnapshot(ctx, snap); err != nil {
 		t.Fatalf("SaveSnapshot: %v", err)
 	}
@@ -748,8 +748,8 @@ func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
 	if got.AccountID != "acc-001" {
 		t.Errorf("expected account_id acc-001, got %s", got.AccountID)
 	}
-	if got.GhostCount != 3 {
-		t.Errorf("expected ghost_count 3, got %d", got.GhostCount)
+	if got.ZombieCount != 3 {
+		t.Errorf("expected zombie_count 3, got %d", got.ZombieCount)
 	}
 	if got.TotalMonthlyCost != 150.00 {
 		t.Errorf("expected total_monthly_cost 150.00, got %f", got.TotalMonthlyCost)
@@ -765,10 +765,10 @@ func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 
 	// Insert three snapshots with explicit timestamps spread one hour apart.
 	base := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
-	snapsToSave := []model.GhostSnapshot{
-		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(2 * time.Hour), GhostCount: 5, TotalMonthlyCost: 500, Currency: "USD"},
-		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base, GhostCount: 1, TotalMonthlyCost: 100, Currency: "USD"},
-		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(time.Hour), GhostCount: 3, TotalMonthlyCost: 300, Currency: "USD"},
+	snapsToSave := []model.ZombieSnapshot{
+		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(2 * time.Hour), ZombieCount: 5, TotalMonthlyCost: 500, Currency: "USD"},
+		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base, ZombieCount: 1, TotalMonthlyCost: 100, Currency: "USD"},
+		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(time.Hour), ZombieCount: 3, TotalMonthlyCost: 300, Currency: "USD"},
 	}
 	for _, snap := range snapsToSave {
 		if err := s.SaveSnapshot(ctx, snap); err != nil {
@@ -791,12 +791,12 @@ func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 				i, loaded[i].SnapshotAt, i-1, loaded[i-1].SnapshotAt)
 		}
 	}
-	// Oldest-first: ghost_count should go 1 → 3 → 5.
-	if loaded[0].GhostCount != 1 {
-		t.Errorf("expected first (oldest) ghost_count 1, got %d", loaded[0].GhostCount)
+	// Oldest-first: zombie_count should go 1 → 3 → 5.
+	if loaded[0].ZombieCount != 1 {
+		t.Errorf("expected first (oldest) zombie_count 1, got %d", loaded[0].ZombieCount)
 	}
-	if loaded[2].GhostCount != 5 {
-		t.Errorf("expected last (newest) ghost_count 5, got %d", loaded[2].GhostCount)
+	if loaded[2].ZombieCount != 5 {
+		t.Errorf("expected last (newest) zombie_count 5, got %d", loaded[2].ZombieCount)
 	}
 }
 
@@ -805,13 +805,13 @@ func TestListSnapshots_FilterByAccountID(t *testing.T) {
 	ctx, tenant := newTenantCtx(t, s)
 
 	// Two snapshots for acc-A, one for acc-B.
-	if err := s.SaveSnapshot(ctx, ghostSnapshot(tenant.ID, "acc-A", 100, 2)); err != nil {
+	if err := s.SaveSnapshot(ctx, zombieSnapshot(tenant.ID, "acc-A", 100, 2)); err != nil {
 		t.Fatalf("SaveSnapshot acc-A first: %v", err)
 	}
-	if err := s.SaveSnapshot(ctx, ghostSnapshot(tenant.ID, "acc-A", 200, 4)); err != nil {
+	if err := s.SaveSnapshot(ctx, zombieSnapshot(tenant.ID, "acc-A", 200, 4)); err != nil {
 		t.Fatalf("SaveSnapshot acc-A second: %v", err)
 	}
-	if err := s.SaveSnapshot(ctx, ghostSnapshot(tenant.ID, "acc-B", 50, 1)); err != nil {
+	if err := s.SaveSnapshot(ctx, zombieSnapshot(tenant.ID, "acc-B", 50, 1)); err != nil {
 		t.Fatalf("SaveSnapshot acc-B: %v", err)
 	}
 
@@ -868,11 +868,11 @@ func TestSaveSnapshot_MissingTenantID_Errors(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background() // no tenant in context
 
-	snap := model.GhostSnapshot{
+	snap := model.ZombieSnapshot{
 		ID:               uuid.New().String(),
 		AccountID:        "acc-1",
 		SnapshotAt:       time.Now().UTC(),
-		GhostCount:       1,
+		ZombieCount:      1,
 		TotalMonthlyCost: 50.00,
 		Currency:         "USD",
 	}
@@ -900,7 +900,7 @@ func TestSnapshot_TenantIsolation(t *testing.T) {
 	ctxB, _ := newTenantCtx(t, s)
 
 	// Tenant A saves a snapshot.
-	if err := s.SaveSnapshot(ctxA, ghostSnapshot(tenantA.ID, "acc-1", 100, 2)); err != nil {
+	if err := s.SaveSnapshot(ctxA, zombieSnapshot(tenantA.ID, "acc-1", 100, 2)); err != nil {
 		t.Fatalf("SaveSnapshot tenant A: %v", err)
 	}
 
@@ -918,9 +918,9 @@ func TestSaveSnapshot_AccumulatesAcrossScans(t *testing.T) {
 	s := newTestStore(t)
 	ctx, tenant := newTenantCtx(t, s)
 
-	// Simulate three consecutive scans — unlike ghost_records, snapshots must not be replaced.
+	// Simulate three consecutive scans — unlike zombie_records, snapshots must not be replaced.
 	for i := 1; i <= 3; i++ {
-		snap := ghostSnapshot(tenant.ID, "acc-1", float64(i)*100, i)
+		snap := zombieSnapshot(tenant.ID, "acc-1", float64(i)*100, i)
 		if err := s.SaveSnapshot(ctx, snap); err != nil {
 			t.Fatalf("SaveSnapshot scan %d: %v", i, err)
 		}

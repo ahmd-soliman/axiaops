@@ -28,7 +28,7 @@ type Metrics struct {
 	AWSAPICallErrors        *prometheus.CounterVec   // AWS API errors by service
 	CostRecordsFetched      *prometheus.CounterVec   // Cost records fetched by provider
 	ResourcesAnalyzed       prometheus.Counter       // Total resources analyzed
-	GhostsDetected          *prometheus.GaugeVec     // Ghost resources detected by provider
+	ZombiesDetected         *prometheus.GaugeVec     // Zombie resources detected by provider
 	PotentialMonthlySaving  *prometheus.GaugeVec     // Potential monthly savings USD by provider
 
 	// Scan lifecycle metrics
@@ -118,9 +118,9 @@ func newMetrics() *Metrics {
 			Name: "axiaops_resources_analyzed_total",
 			Help: "Total resources analyzed.",
 		}),
-		GhostsDetected: factory.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "axiaops_ghosts_detected",
-			Help: "Number of ghost resources detected by provider.",
+		ZombiesDetected: factory.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "axiaops_zombies_detected",
+			Help: "Number of zombie resources detected by provider.",
 		}, []string{"provider", "tenant_id"}),
 		PotentialMonthlySaving: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "axiaops_potential_monthly_savings_usd",

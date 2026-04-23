@@ -14,7 +14,7 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 
 | Package | Responsibility |
 |---------|---------------|
-| `model/` | Domain types: Tenant, User, Account, CostRecord, GhostResource, ResourceRecord, GhostSnapshot, SnapshotService |
+| `model/` | Domain types: Tenant, User, Account, CostRecord, ZombieResource, ResourceRecord, ZombieSnapshot, SnapshotService |
 | `storage/` | `Store` interface + `WithTenantID()` / `TenantIDFromCtx()` context helpers |
 | `storage/postgres/` | Production Store impl — PostgreSQL with RLS, migrations |
 | `analyzer/` | `Detect()`, `Summarize()`, `AnnotateAll()` — pure functions, no I/O |
@@ -30,7 +30,7 @@ The `Store` interface in `storage/storage.go` is the single contract for data ac
 All methods accept `context.Context` — tenant ID must be set via `WithTenantID()` before
 any call. PostgreSQL RLS enforces this at the DB level.
 
-Key methods: `SaveCostRecords`, `SaveGhostRecords`, `LoadGhosts`, `Summary`,
+Key methods: `SaveCostRecords`, `SaveZombies`, `LoadZombies`, `Summary`,
 `SaveAccount`, `ListAccounts`, `GetAccount`, `DeleteAccount`, `TryMarkAccountScanning`,
 `UpsertTenant`, `UpsertUser`, `SaveSnapshot`, `ListSnapshots`,
 `SaveSnapshotServices`, `ListSnapshotsByService`, `ListTrendServices`,
@@ -44,8 +44,8 @@ When adding new data access, add to this interface first, then implement in
 Pure functions in `analyzer/detector.go`:
 
 - `Detect(costs, usage)` — joins on `resource_id`, applies `serviceRules` thresholds
-- `Summarize(ghosts)` — total savings + per-service breakdown
-- `AnnotateAll(costs, usage, ghosts)` — marks each cost record as ghost or active
+- `Summarize(zombies)` — total savings + per-service breakdown
+- `AnnotateAll(costs, usage, zombies)` — marks each cost record as zombie or active
 
 Detection rules are a module-level map `serviceRules`. Owner is derived from the `team` tag.
 Resources with no matching rule or no usage data are skipped (not flagged).
@@ -58,9 +58,9 @@ Resources with no matching rule or no usage data are skipped (not flagged).
 - RLS policy: `tenant_id = current_setting('app.tenant_id', true)` on all data tables
 - Connection pool: `pgxpool.Pool` — pass `DATABASE_URL` for app, `MIGRATION_DATABASE_URL` for migrations
 - Transactions: `BEGIN` → `SET app.tenant_id` → operations → `COMMIT`. Always `defer tx.Rollback()`.
-- Tables: `tenants`, `users`, `cost_records`, `ghost_records`, `resource_records`, `accounts`,
-  `ghost_snapshots` (aggregate per-scan), `ghost_snapshot_services` (per-service breakdown per snapshot),
-  `dismissed_ghosts`
+- Tables: `tenants`, `users`, `cost_records`, `zombie_records`, `resource_records`, `accounts`,
+  `zombie_snapshots` (aggregate per-scan), `zombie_snapshot_services` (per-service breakdown per snapshot),
+  `dismissed_zombies`
 
 ## Adding New Tables
 
@@ -108,7 +108,7 @@ Use observers to record metrics:
 
 ```go
 // Database
-observer := observability.NewDatabaseObserver("INSERT_GHOST")
+observer := observability.NewDatabaseObserver("INSERT_ZOMBIE")
 defer observer.Observe()
 // ... perform query ...
 if err != nil {
@@ -129,7 +129,7 @@ defer observability.RecordScanEnd(ctx)
 observability.RecordScanError(accountID, "error_type")
 
 // Update gauges
-observability.Global.GhostsDetected.WithLabelValues("aws", tenantID).Set(float64(count))
+observability.Global.ZombiesDetected.WithLabelValues("aws", tenantID).Set(float64(count))
 observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(savings)
 ```
 
@@ -145,7 +145,7 @@ observability.LogError(ctx, err, "operation", "scan", "account_id", accountID)
 observability.LogWarn(ctx, "slow operation", "duration_ms", 5000)
 
 // Log info
-observability.LogInfo(ctx, "Scan completed", "ghost_count", 42)
+observability.LogInfo(ctx, "Scan completed", "zombie_count", 42)
 ```
 
 All logs include structured context (JSON in production, text in dev mode).
