@@ -8,6 +8,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { Spinner, Toast } from '../components/primitives';
 import { useWindowWidth } from '../components/primitives';
+import { csvEncode, downloadCSV } from '../utils/csv';
 
 const PERIOD_OPTIONS = [
   { label: '7d',  days: 7 },
@@ -52,17 +53,7 @@ function exportCSV(records, { services, periodDays }, toast) {
     r.resource_id,
   ]);
 
-  const csv = [headers, ...rows]
-    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadCSV(csvEncode(headers, rows), filename);
 
   toast(`Exported ${records.length} cost record${records.length !== 1 ? 's' : ''} to CSV`, 'success');
 }

@@ -6,6 +6,7 @@ import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
 import { useToast } from '../context/ToastContext';
+import { csvEncode, downloadCSV } from '../utils/csv';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -710,17 +711,7 @@ function exportCSV(list, { ghostOnly }, toast) {
     r.reason ?? '',
   ]);
 
-  const csv = [headers, ...rows]
-    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadCSV(csvEncode(headers, rows), filename);
 
   const noun = ghostOnly ? 'zombie' : 'resource';
   toast(`Exported ${list.length} ${noun}${list.length !== 1 ? 's' : ''} to CSV`, 'success');
