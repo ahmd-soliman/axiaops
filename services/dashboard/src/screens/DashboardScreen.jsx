@@ -6,6 +6,7 @@ import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
 import { useToast } from '../context/ToastContext';
+import { useScanStatus } from '../hooks/useScanStatus';
 import { csvEncode, downloadCSV } from '../utils/csv';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -739,6 +740,7 @@ export default function DashboardScreen({
 }) {
   const { theme, isDark } = useTheme();
   const { toast }         = useToast();
+  const { watch }         = useScanStatus();
   const queryClient       = useQueryClient();
   const t = theme;
 
@@ -836,13 +838,14 @@ export default function DashboardScreen({
   }
 
   async function handleScan(accountId) {
+    const label = accounts.find(a => a.id === accountId)?.label;
     setScanning(accountId);
     try {
       await scanAccount(accountId);
-      toast('Scan started — results will appear shortly', 'info');
-      setTimeout(() => { refresh(); setScanning(null); }, 5000);
+      toast(`Scan started for ${label ?? accountId.slice(0, 8)}`, 'info');
+      watch(accountId, { label, onEnd: () => setScanning(null) });
     } catch {
-      toast('Scan failed. Please try again.', 'error');
+      toast('Scan failed to start. Please try again.', 'error');
       setScanning(null);
     }
   }
