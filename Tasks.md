@@ -42,6 +42,7 @@ _Last updated: 2026-04-23_
 | 5 | **Weekly email digest** | New ghosts after scan → Resend/SendGrid email. References `ghost_snapshots` for delta. |
 | 6 | **Slack webhook alert** | Notify channel when new ghosts appear post-scan. |
 | 7 | **Rename ghost → zombie across the stack** | UI already says "zombie" (commit `1b292bd`) but DB, Go types, API JSON, and routes still say "ghost". Pre-alpha is the cheapest time to fix. Single PR: `ALTER TABLE … RENAME` (metadata-only in Postgres), Go symbol renames (`GhostResource` → `ZombieResource`, `LoadGhosts` → `LoadZombies`, etc.), API routes (`/ghosts` → `/zombies`), dashboard field reads. Acceptance: `grep -ri "ghost" services/` returns zero non-historical matches. Size: 1–2 days. |
+| 8 | **Remove CE anomaly-monitor "ghost" detection** | AWS Cost Anomaly Detection is free — the `$0.10/day per extra monitor` pricing claim in the code does not exist. Delete `DiscoverIdleCEAnomalyMonitors` (`services/ingestion/internal/provider/aws/discover.go:1879-1987`), its call site (`services/ingestion/cmd/main.go:574-584`), its test (`services/ingestion/internal/provider/aws/discover_test.go:143-151`), the `ceAnomalyMonitorMonthlyCost` constant, and any `ce:GetAnomalyMonitors` / `ce:GetAnomalies` lines from IAM policy docs. Do on a separate branch. |
 
 ---
 
