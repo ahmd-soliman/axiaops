@@ -75,6 +75,16 @@ function ActionChip({ action, theme, isDark }) {
   );
 }
 
+// localDateBoundary parses a "YYYY-MM-DD" string from a <input type="date">
+// element and returns a Date at the given local-time wall-clock — the
+// numeric constructor avoids the spec ambiguity of date-time strings without
+// timezone offsets and handles DST-gap days (where local midnight may not
+// exist) by resolving to the next valid local instant.
+function localDateBoundary(yyyyMmDd, hh, mm, ss, ms) {
+  const [y, m, d] = yyyyMmDd.split('-').map(Number);
+  return new Date(y, m - 1, d, hh, mm, ss, ms);
+}
+
 // Always render audit timestamps in UTC and label them as such. Audit logs
 // are a compliance/security artefact — comparing two operators' views of the
 // same event must produce the same string regardless of where they're sitting.
@@ -125,9 +135,13 @@ function EventRow({ event, theme, isDark }) {
     }
   }
 
+  // ARIA: role="row" with aria-expanded is the treegrid pattern for an
+  // expandable row. Putting role="button" on the row itself would invalidate
+  // the role="cell" descendants (cells must live inside a row, not a button)
+  // and break column attribution for screen readers.
   return (
     <div
-      role={hasMetadata ? 'button' : 'row'}
+      role="row"
       tabIndex={hasMetadata ? 0 : undefined}
       aria-expanded={hasMetadata ? expanded : undefined}
       style={{
@@ -223,13 +237,17 @@ export default function AuditScreen() {
   const [sinceDate, setSinceDate]       = useState('');
   const [untilDate, setUntilDate]       = useState('');
 
-  // <input type="date"> emits a local-day string ("2026-04-01"). Construct the
-  // local-midnight Date and let toISOString() handle the timezone conversion
-  // so a user in UTC+2 picking 2026-04-01 sees events from their *local* day,
-  // not UTC's day. The previous code suffixed "Z" directly, which silently
-  // dropped events at the day boundary for any non-UTC user.
-  const since = sinceDate ? new Date(`${sinceDate}T00:00:00`).toISOString() : undefined;
-  const until = untilDate ? new Date(`${untilDate}T23:59:59.999`).toISOString() : undefined;
+  // <input type="date"> emits a local-day string ("2026-04-01"). Build the
+  // boundary instants via the year/month/day Date constructor, which always
+  // resolves through local calendar arithmetic — including the DST-gap days
+  // where "2026-03-29T02:30:00" doesn't exist in CET. Using the string
+  // constructor (`new Date("...T00:00:00")`) is correct on most days but
+  // produces invalid times on transition days, which would silently shift
+  // the filter window by an hour at boundaries. The numeric constructor
+  // sidesteps that by interpreting the input as a calendar date, and
+  // toISOString() then produces the UTC instant the server expects.
+  const since = sinceDate ? localDateBoundary(sinceDate, 0, 0, 0, 0).toISOString() : undefined;
+  const until = untilDate ? localDateBoundary(untilDate, 23, 59, 59, 999).toISOString() : undefined;
 
   const query = useInfiniteQuery({
     queryKey: ['audit', { action, resourceType, since, until }],
