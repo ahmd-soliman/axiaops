@@ -25,6 +25,7 @@ Supersedes the role sketch in `docs/user_onboarding.md`.
 - **Audit log.** Deferred to v2. `dismissed_zombies.dismissed_by` already captures the most sensitive action; broader audit can come with the security track.
 - **Resource-level permissions** (per-zombie dismiss permissions, per-snapshot export, etc.). Dismissals are tenant-wide.
 - **Billing admin** as a separate role. `owner` handles billing until a subscription system exists.
+- **Internal / staff roles** for AxiaOps employees (support, engineering, billing ops). These are a fundamentally different principal type — documented in §11 as a future scope, not implemented in v1.
 
 ---
 
@@ -216,6 +217,52 @@ Kinde supports org-scoped roles and permissions natively — you can define role
 - Org-switching UX (Kinde's built-in dashboard). No change.
 - SSO provisioning (eventually). A SAML claim could seed a default role — but that's a v2 concern. v1: every invited user starts as `member` (or whatever the inviter specifies).
 
+### Alternative: Kinde-native roles (the road not taken)
+
+This section exists so the decision is visible. If priorities change, this is the variant you'd build instead.
+
+**Shape of the implementation**
+
+1. Define four roles in the Kinde dashboard: `owner`, `admin`, `member`, `viewer`. Kinde scopes them per-organization, which matches our per-tenant model.
+2. Attach them as custom claims in the Kinde token (Kinde supports this via the "Token customization" settings — they appear as a `roles` array claim on the JWT).
+3. In `auth.go`, after verifying the JWT, extract `claims.Roles[0]` and stash it on the request context next to `tenant_id`.
+4. `middleware.Require(perm)` reads the role from context (not from a DB query) and checks against the same `rolePermissions` map described in §3. The permission vocabulary still lives in Go.
+5. User management UI: a "Manage users" button in the dashboard deep-links to Kinde's hosted org-management page. No in-app user admin screens are built.
+6. Role changes happen in Kinde. To take effect, the affected user must refresh their JWT (re-login, or wait for token expiry + silent refresh).
+7. No `memberships` table. No migration 013. No new endpoints for member management.
+
+**What you gain**
+
+- **~2–3 days of implementation** saved. No table, no migration, no CRUD endpoints, no dashboard user-management screen.
+- **SSO role provisioning comes free on day one.** Enterprise customer configures their SAML IdP to pass `role=admin` → Kinde maps it → it's in the JWT → it works. The DB-backed variant requires a custom mapping layer (§ Phase 2).
+- **One fewer table to keep in sync with users/tenants.** Simpler data model.
+- **Kinde's user-management UI is already polished.** Invitations, email delivery, resend, revoke — all built, all free.
+
+**What you lose**
+
+- **Instant role changes.** A demoted user keeps elevated access until their JWT expires (typically 1h). For "revoke admin rights" this is a real security gap. Mitigations exist (short token TTL + silent refresh, or calling Kinde's Management API to force logout) but they add complexity back.
+- **Vendor independence.** `docs/auth.md` explicitly codifies "never put Kinde-specific claims in business logic." This variant violates that rule — swapping auth providers later requires rewriting the authorization layer.
+- **Split source of truth when features grow.** Per-cloud-account scoping (§ Phase 2) lives in *our* DB. So does audit logging, API keys, pending-invitations-with-business-logic. Over time you'd rebuild a `memberships`-shaped table anyway to hang those features off — at which point you have Kinde roles *and* a local table and must reconcile them.
+- **Testability.** Every handler test needs a mock JWT with the right role claims, rather than a Store mock returning a role. The existing test pattern in `handler_test.go` doesn't stretch to this cleanly.
+- **Dashboard UX friction.** "Manage users" becoming a deep-link to Kinde is a jarring context switch and exposes Kinde branding to customers.
+
+**When this variant is the right call**
+
+- You have one developer and a two-week runway to ship *some* authorization.
+- You're confident AxiaOps will stay on Kinde for the foreseeable future (2+ years).
+- Your customers are small teams where JWT-staleness on role change is acceptable.
+- You don't plan to build per-account scoping or audit logging for 6+ months.
+
+**When to abandon it and migrate to the DB-backed variant**
+
+- First enterprise customer asks for per-cloud-account scoping.
+- First security review flags the JWT-staleness gap.
+- You decide to offer a non-Kinde auth path (self-hosted, SAML-direct, Auth0 for larger customers).
+
+The migration path is straightforward: create `memberships`, backfill from current Kinde roles via the Management API, flip `middleware.Require` to query the table instead of the context. One week of work, but it's throw-away work — the Kinde-native code you wrote gets deleted.
+
+**Recommendation stands: DB-backed variant.** The vendor-independence rule in `docs/auth.md` is the deciding factor. If that rule didn't exist, this alternative would be a defensible choice.
+
 ---
 
 ## 6. Authorization Enforcement
@@ -348,6 +395,30 @@ Deferred to v2. For v1, the existing `slog.Info` calls on mutating handlers are 
 
 Deferred to v2. Current architecture: the ingestion service writes zombies with `ListAllAccounts` (`storage.go:82`) — explicitly documented as "trusted internal code." That's the only non-human principal today and it doesn't need a role. The v2 API-key story will be "issue a token bound to a membership with a specific role" — the memberships table already supports this shape (`user_id` points to a user record of type `service_account`).
 
+### New tenant bootstrap
+
+Migration 013 handles existing tenants by promoting the earliest-created user to `owner`. But when a **new** Kinde org signs up after v1 ships, the first authenticating user has no membership row at all.
+
+**Rule:** on first login to a tenant with zero memberships, the authenticating user is auto-promoted to `owner`. Implemented in `auth.go` after `UpsertUser`:
+
+1. `SELECT COUNT(*) FROM memberships WHERE tenant_id = $1`.
+2. If zero → INSERT membership with `role='owner'` for the current user.
+3. If non-zero and no membership exists for this user → they've joined a Kinde org they haven't been invited to in AxiaOps. Return 403 with "contact your organization admin".
+
+This is the **only** code-level auto-promotion. All subsequent users go through explicit invitation.
+
+### Role-change propagation
+
+Admin demotes user X from `admin` to `viewer` at time T. X's dashboard was loaded at T-5min and still shows admin UI. X clicks "Delete account".
+
+**Behavior:**
+
+- Server returns 403 — `Require(accounts:delete)` fails on the fresh DB lookup.
+- Dashboard intercepts 403, calls `GET /v1/me` (new endpoint returning the current role), re-renders with updated capabilities.
+- User sees an initially-confusing-but-immediately-corrected state, not a silent security hole.
+
+No forced logout, no JWT invalidation, no session-revocation machinery. The server is always the source of truth; the client is eventually consistent. For more aggressive invalidation — v2.
+
 ### Per-cloud-account scoping
 
 Deferred to v2. When needed:
@@ -418,6 +489,7 @@ Drop migration 013. Remove `Require` wrappers. Since the backfill defaults every
 - SSO-driven default-role mapping (Kinde org-role → AxiaOps role on first login)
 - Email-based invitations (v1 creates pending rows; v2 sends the actual email via Kinde or SES)
 - Billing admin role (ships alongside the subscription/billing feature)
+- Internal / staff roles — see §11 (triggered by second hire, first paying customer, or billing system shipping)
 
 ### Phase 3 (speculative)
 
@@ -426,6 +498,87 @@ Drop migration 013. Remove `Require` wrappers. Since the backfill defaults every
 - Per-feature permission overrides (explicit grants/denies)
 
 Do not build any of phase 3 without a named customer.
+
+---
+
+## 11. Internal / Staff Roles (out of v1 scope)
+
+**Scope:** This section documents the *future* shape of AxiaOps-employee access. None of it is v1. It exists so that when the trigger conditions arrive, the pattern is decided and you're not building it ad-hoc under pressure.
+
+### Why staff can't share the tenant RBAC system
+
+Staff (AxiaOps employees: support, engineering, billing ops) are not customers and don't belong to any tenant. Three hard requirements make them incompatible with the `memberships` table:
+
+1. **Cross-tenant access.** Support reads tenant X to answer a ticket. RLS as designed forbids this. Staff need a documented RLS bypass.
+2. **Mandatory audit.** Every staff touch on customer data must be logged. The tenant-side audit deferred in §8 is optional; this is not (SOC2, GDPR).
+3. **Impersonation.** Engineers debug from the customer's perspective. The session must carry *both* the real staff ID and the acted-as tenant — never losing the real identity.
+
+### The four staff roles
+
+| Role | Intent | Access | Notable restriction |
+|---|---|---|---|
+| `staff_support` | Answer support tickets | Read-only across all tenants | Cannot modify customer data |
+| `staff_engineer` | Debug issues, reproduce bugs | Read-write across all tenants, impersonation | Every action audited with ticket reference |
+| `staff_billing` | Subscription + billing operations | Read/write on tenant subscription state only | Explicitly **no access** to cost/zombie data |
+| `staff_admin` | Onboarding, tenant suspension, emergency intervention | Full | Time-boxed, break-glass flow |
+
+`staff_billing` segregation matters under GDPR: the billing person has no business reason to see specific resource names or cost breakdowns. This is a real audit finding in SOC2.
+
+### Architecture: separate `staff_users` table, separate auth flow
+
+- **New table:** `staff_users(id, email, role, created_at, ...)`. Independent of `users`.
+- **Separate Kinde org:** "AxiaOps Internal". Hard boundary — customer tokens cannot authenticate as staff.
+- **Separate middleware chain:** `/internal/*` routes go through `StaffAuth` which validates against the internal Kinde org and populates `staff_id` on the context. Customer `/v1/*` routes unchanged.
+- **RLS bypass:** staff queries use a dedicated connection pool running as `axiaops_staff` (a role between `axiaops` and `axiaops_owner`) with RLS bypass for SELECT. Writes go through explicit `SET app.tenant_id = 'xyz'` so they still land in the right tenant.
+
+Alternatives rejected: `is_staff bool` on `users` (simpler, messier isolation; RLS becomes conditional) and `memberships` with `tenant_id = NULL` (clever, confusing semantics).
+
+### Impersonation flow
+
+1. `staff_engineer` visits `/internal/tenants/{id}/impersonate` with a ticket reference.
+2. Server writes an `audit_event` with `{staff_id, tenant_id, action: 'impersonate_start', ticket_ref}`.
+3. Response sets a short-lived session cookie with `acting_as_tenant_id`.
+4. Subsequent `/v1/*` requests bind tenant context to the acted-as tenant **but** audit-log entries retain the real `staff_id`.
+5. Dashboard displays a persistent banner ("Impersonating customer X — [Exit]").
+6. Session auto-expires after 1 hour. Exit button writes `action: 'impersonate_end'`.
+
+The existing tenant-scoped dashboard UI works unchanged — it just renders against a tenant it doesn't really own.
+
+### Break-glass for `staff_admin`
+
+Nobody holds `staff_admin` permanently. Grant via a separate flow:
+
+- Slack command with justification (`/break-glass incident-456 "investigating data corruption"`).
+- Second staff member approves (two-person rule).
+- Grant time-boxed to 1 hour.
+- Every action while elevated logged + Slack notification to `#security`.
+- Auto-revokes on expiry.
+
+For a solo-founder company this is overkill — you'd grant yourself permanent `staff_admin`. The pattern exists for when the team grows past 3 people.
+
+### DEV_MODE and staff roles
+
+`DEV_MODE` in §8 covers tenant roles by seeding an `owner` membership. Staff routes need a parallel treatment:
+
+- **Dev mode is tenant-scoped, not staff-scoped.** `DEV_MODE=true` bypasses customer auth — the developer is acting as a tenant user. It does **not** grant staff access. `/internal/*` routes should stay reachable only by explicit staff auth even in dev.
+- **For local staff-route development:** a separate `DEV_STAFF_MODE=true` flag (or reuse `DEV_MODE` with a second env var `DEV_STAFF_ROLE=staff_engineer`) bypasses the staff auth chain and sets `staff_id=dev-staff` + `staff_role=<configured>` on the context. Defaults to off so staff routes aren't accidentally exposed in dev builds that hit real customer data.
+- **Impersonation in dev mode:** skip. The dev user already has owner access to `dev-tenant-axiaops`. There's nothing to impersonate into.
+- **Mutual exclusion:** a request is either authenticated as a tenant user *or* as staff — never both. Middleware should fail fast if both context keys are set.
+
+### What this looks like today (pre-implementation)
+
+Direct DB access via `psql` using `MIGRATION_DATABASE_URL`. No auth, no audit, no impersonation. Fine for zero customers and one developer. Stops being fine at the first trigger condition.
+
+### Triggers that force implementation
+
+- Second full-time person joins AxiaOps (needs scoped access, not the owner DB URL).
+- First paying customer (staff access now crosses a trust boundary).
+- Support volume exceeds "I can SSH into prod and figure it out".
+- Billing system ships (`staff_billing` is a prerequisite, not a follow-up).
+
+### Estimated effort when the time comes
+
+~2 weeks for one developer: 3–4 days for `staff_users` + auth + separate Kinde org, 3–4 days for impersonation + dual-identity audit, 2–3 days for break-glass + Slack integration, 2–3 days for staff dashboard.
 
 ---
 
