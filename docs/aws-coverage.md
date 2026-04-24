@@ -1,6 +1,6 @@
 # AWS Service Coverage
 
-AxiaOps detects idle and zombie resources across **27 detection rules** covering **18 AWS services**.
+AxiaOps detects idle and zombie resources across **26 detection rules** covering **18 AWS services**.
 
 Detection is split into two tiers:
 
@@ -42,11 +42,10 @@ Detection is split into two tiers:
 | 14 | EBS Snapshot | ec2:DescribeSnapshots + DescribeImages | Source volume deleted, not backing any AMI | Orphaned snapshot | $0.05/GB-mo |
 | 15 | EC2 Instance (stopped) | ec2:DescribeInstances | Stopped > 30 days | Long-stopped instance | $0.08/GB-mo (attached EBS) |
 | 16 | AMI | ec2:DescribeImages + DescribeInstances | Age > 90 days, no instance references it | Unused AMI | $0.05/GB-mo (backing snapshots) |
-| 17 | Cost Anomaly Monitor | ce:GetAnomalyMonitors + GetAnomalies | Paid monitor with 0 anomalies in lookback window | Idle anomaly monitor | ~$3.00/mo |
-| 18 | CloudWatch Log Group | logs:DescribeLogGroups | No retention policy set (logs stored forever) | Wasteful log group | $0.03/GB-mo |
-| 19 | RDS Snapshot (manual) | rds:DescribeDBSnapshots | Age > 30 days, source DB deleted | Orphaned RDS snapshot | $0.095/GB-mo |
-| 20 | ECR Repository | ecr:DescribeRepositories + ListImages | Untagged images or images > 90 days old | Stale container images | $0.10/GB-mo |
-| 21 | Secrets Manager | secretsmanager:ListSecrets | LastAccessedDate > 90 days | Unused secret | $0.40/secret-mo |
+| 17 | CloudWatch Log Group | logs:DescribeLogGroups | No retention policy set (logs stored forever) | Wasteful log group | $0.03/GB-mo |
+| 18 | RDS Snapshot (manual) | rds:DescribeDBSnapshots | Age > 30 days, source DB deleted | Orphaned RDS snapshot | $0.095/GB-mo |
+| 19 | ECR Repository | ecr:DescribeRepositories + ListImages | Untagged images or images > 90 days old | Stale container images | $0.10/GB-mo |
+| 20 | Secrets Manager | secretsmanager:ListSecrets | LastAccessedDate > 90 days | Unused secret | $0.40/secret-mo |
 
 ---
 
@@ -60,8 +59,6 @@ Detection is split into two tiers:
       "Effect": "Allow",
       "Action": [
         "ce:GetCostAndUsage",
-        "ce:GetAnomalyMonitors",
-        "ce:GetAnomalies",
         "cloudwatch:GetMetricStatistics",
         "ec2:DescribeInstances",
         "ec2:DescribeAddresses",

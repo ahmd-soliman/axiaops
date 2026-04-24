@@ -571,18 +571,6 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		zombies = append(zombies, secretZombies...)
 	}
 
-	// Idle CE Anomaly Detection monitors (paid monitors with zero anomalies in lookback window).
-	ceMonitorZombies, ceMonitorErr := aws.DiscoverIdleCEAnomalyMonitors(ctx, allRecords, awsClient, start, end, accountID)
-	if ceMonitorErr != nil {
-		catErr := errors.Categorize(ceMonitorErr, "discover_ce_anomaly_monitors")
-		slog.Error("discover idle CE anomaly monitors failed, continuing",
-			"error", ceMonitorErr,
-			"category", catErr.Category,
-		)
-	} else {
-		zombies = append(zombies, ceMonitorZombies...)
-	}
-
 	// Idle CloudFront distributions (zero requests in lookback window).
 	cfZombies, cfErr := aws.DiscoverIdleCloudFrontDistributions(ctx, allRecords, awsClient, start, end, accountID)
 	if cfErr != nil {
