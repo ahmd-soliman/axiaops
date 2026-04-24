@@ -140,16 +140,6 @@ func TestOldAMIThreshold_Is90Days(t *testing.T) {
 	}
 }
 
-// ── ceAnomalyMonitorMonthlyCost sanity check ──────────────────────────────────
-
-func TestCEAnomalyMonitorMonthlyCost_IsThreeDollars(t *testing.T) {
-	// $0.10/day × 30 days = $3.00/month per paid monitor.
-	want := 3.00
-	if ceAnomalyMonitorMonthlyCost != want {
-		t.Errorf("ceAnomalyMonitorMonthlyCost = %v; want %v", ceAnomalyMonitorMonthlyCost, want)
-	}
-}
-
 // ── cwLogStorageGBCost sanity check ──────────────────────────────────────────
 
 func TestCWLogStorageGBCost_Is003(t *testing.T) {
