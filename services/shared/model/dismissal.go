@@ -1,12 +1,12 @@
 // Package model — DismissAction represents a tenant's decision to dismiss or
-// snooze a ghost resource.  Dismissals survive scan cycles because ghost_records
+// snooze a zombie resource.  Dismissals survive scan cycles because zombie_records
 // are replaced wholesale on every scan; the stable fingerprint is
 // (tenant_id, account_id, provider, service, region, resource_id).
 package model
 
 import "time"
 
-// DismissAction is a single dismiss-or-snooze record stored in dismissed_ghosts.
+// DismissAction is a single dismiss-or-snooze record stored in dismissed_zombies.
 type DismissAction struct {
 	ID           int64      `json:"id"`
 	AccountID    string     `json:"account_id"`              // internal account UUID

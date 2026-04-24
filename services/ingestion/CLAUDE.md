@@ -26,7 +26,7 @@ POST /scan {account_id, tenant_id}
   → FetchCosts (Cost Explorer API)
   → FetchUsage (CloudWatch + Describe APIs)
   → Detect() — apply threshold rules
-  → SaveGhosts + SaveResources → DB
+  → SaveZombies + SaveResources → DB
 ```
 
 ## Provider Interface
@@ -64,7 +64,7 @@ Already instrumented in `cmd/main.go`:
 
 - `axiaops_ingestion_records_fetched_total` — cost records fetched by provider
 - `axiaops_ingestion_records_saved_total` — records saved by provider and status
-- `axiaops_ingestion_ghosts_detected_total` — ghost count by provider
+- `axiaops_ingestion_zombies_detected_total` — zombie count by provider
 - `axiaops_potential_monthly_savings_usd` — potential savings by provider
 
 Additional metrics to add via `observability`:
@@ -110,18 +110,18 @@ fetchObserver.Observe()
 
 // Analyze stage
 analyzeObserver := observability.NewScanObserver("analyze")
-ghosts := analyzer.Detect(allRecords, usage)
+zombies := analyzer.Detect(allRecords, usage)
 analyzeObserver.Observe()
 
 // Save stage
 saveObserver := observability.NewScanObserver("save")
-if err := store.SaveGhosts(ctx, ghosts); err != nil {
-    observability.RecordScanError(accountID, "save_ghosts_failed")
+if err := store.SaveZombies(ctx, zombies); err != nil {
+    observability.RecordScanError(accountID, "save_zombies_failed")
 }
 saveObserver.Observe()
 
 // Update summary
-observability.Global.GhostsDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalGhosts))
+observability.Global.ZombiesDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalZombies))
 observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(summary.PotentialMonthlySave)
 ```
 

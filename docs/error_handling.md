@@ -64,7 +64,7 @@ SuccessThreshold: 2               // Successes needed to close
 Scans continue even when individual components fail:
 
 - **Cost fetching fails**: Skip that provider, continue with others
-- **Usage fetching fails**: Continue with cost-only ghost detection
+- **Usage fetching fails**: Continue with cost-only zombie detection
 - **EIP discovery fails**: Continue without EIP data
 - **Individual resource fails**: Skip that resource, process others
 

@@ -50,8 +50,8 @@ Each test creates a unique tenant via `uuid.New()` and uses a context carrying t
 | Group | Tests | RLS required |
 |---|---|---|
 | `Save` (cost records) | Insert, deduplication, empty batch, region uniqueness, missing tenant | No |
-| `SaveGhosts` / `LoadGhosts` | Roundtrip, replace-on-rerun, empty for new tenant | Partial |
-| Tenant isolation (ghosts) | Tenant B cannot see Tenant A's ghosts | Yes |
+| `SaveZombies` / `LoadZombies` | Roundtrip, replace-on-rerun, empty for new tenant | Partial |
+| Tenant isolation (zombies) | Tenant B cannot see Tenant A's zombies | Yes |
 | `UpsertTenant` | Create, idempotent ID, name update | No |
 | `UpsertUser` | Create on first login, same ID on second login | No |
 | Account CRUD | Save+list, get by ID, delete, status update, tenant isolation | Partial |

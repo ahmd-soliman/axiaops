@@ -11,18 +11,18 @@ import (
 )
 
 // TestE2E_BusinessScenarios tests the fake provider with realistic business scenarios.
-// These tests verify the full pipeline: costs → usage → ghost detection.
+// These tests verify the full pipeline: costs → usage → zombie detection.
 func TestE2E_BusinessScenarios(t *testing.T) {
 	tests := []struct {
 		scenario      string
-		expectGhosts  int
+		expectZombies int
 		expectActive  int
 		minSavings    float64
 	}{
 		{"startup", 3, 3, 50.0},       // Small account with EC2, RDS, Lambda, VPC
 		{"enterprise", 10, 9, 400.0},  // Large account (CloudFront/Kinesis/S3 removed — use real AWS detection)
-		{"all-ghosts", 9, 0, 250.0},   // All resources idle (CloudFront/Kinesis/S3 removed)
-		{"no-ghosts", 0, 5, 0.0},      // Everything active across major services
+		{"all-zombies", 9, 0, 250.0},  // All resources idle (CloudFront/Kinesis/S3 removed)
+		{"no-zombies", 0, 5, 0.0},     // Everything active across major services
 	}
 
 	for _, tt := range tests {
@@ -42,16 +42,16 @@ func TestE2E_BusinessScenarios(t *testing.T) {
 				t.Fatalf("FetchUsage failed: %v", err)
 			}
 
-			// Run ghost detection
-			ghosts := analyzer.Detect(records, usage, "test-account")
-			summary := analyzer.Summarize(ghosts)
+			// Run zombie detection
+			zombies := analyzer.Detect(records, usage, "test-account")
+			summary := analyzer.Summarize(zombies)
 
 			// Verify business expectations
-			if summary.TotalGhosts != tt.expectGhosts {
-				t.Errorf("expected %d ghosts, got %d", tt.expectGhosts, summary.TotalGhosts)
+			if summary.TotalZombies != tt.expectZombies {
+				t.Errorf("expected %d zombies, got %d", tt.expectZombies, summary.TotalZombies)
 			}
 
-			activeResources := len(records) - summary.TotalGhosts
+			activeResources := len(records) - summary.TotalZombies
 			if activeResources != tt.expectActive {
 				t.Errorf("expected %d active resources, got %d", tt.expectActive, activeResources)
 			}
@@ -75,20 +75,20 @@ func TestE2E_DetectionRules(t *testing.T) {
 	p := fake.New("enterprise")
 	records, _ := p.FetchCosts(context.Background(), time.Now(), time.Now())
 	usage, _ := p.FetchUsage(context.Background(), records, time.Now(), time.Now())
-	
-	ghosts := analyzer.Detect(records, usage, "test-account")
-	
-	// Group ghosts by service
-	ghostsByService := make(map[string][]model.GhostResource)
-	for _, g := range ghosts {
-		ghostsByService[g.Service] = append(ghostsByService[g.Service], g)
+
+	zombies := analyzer.Detect(records, usage, "test-account")
+
+	// Group zombies by service
+	zombiesByService := make(map[string][]model.ZombieResource)
+	for _, g := range zombies {
+		zombiesByService[g.Service] = append(zombiesByService[g.Service], g)
 	}
-	
-	// Verify each service has expected ghost detection
+
+	// Verify each service has expected zombie detection
 	expectedServices := []string{"AmazonEC2", "AmazonRDS", "AWSLambda", "AmazonElasticLoadBalancing", "AmazonVPC"}
 	for _, service := range expectedServices {
-		if len(ghostsByService[service]) == 0 {
-			t.Errorf("expected ghosts for service %s, got none", service)
+		if len(zombiesByService[service]) == 0 {
+			t.Errorf("expected zombies for service %s, got none", service)
 		}
 	}
 }

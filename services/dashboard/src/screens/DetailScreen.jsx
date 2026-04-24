@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { serviceConfig } from '../components/serviceConfig';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
-import { dismissGhost, revokeDismissal } from '../api/client';
+import { dismissZombie, revokeDismissal } from '../api/client';
 import { Overlay, Spinner } from '../components/primitives';
 
 const DISMISS_REASONS = [
@@ -99,10 +99,10 @@ function SectionLabel({ children, theme }) {
   );
 }
 
-export default function DetailScreen({ ghost, onBack, onDismissed }) {
+export default function DetailScreen({ zombie, onBack, onDismissed }) {
   const { theme, isDark } = useTheme();
   const { toast }         = useToast();
-  const cfg               = serviceConfig(ghost.service);
+  const cfg               = serviceConfig(zombie.service);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [modalAction, setModalAction]   = useState('dismiss');
@@ -111,8 +111,8 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
   const [snoozeDays, setSnoozeDays] = useState(7);
   const [submitting, setSubmitting] = useState(false);
 
-  const isDismissed = !!ghost.dismissal_id && ghost.dismiss_action === 'dismiss';
-  const isSnoozed   = !!ghost.dismissal_id && ghost.dismiss_action === 'snooze';
+  const isDismissed = !!zombie.dismissal_id && zombie.dismiss_action === 'dismiss';
+  const isSnoozed   = !!zombie.dismissal_id && zombie.dismiss_action === 'snooze';
 
   function openModal(action) {
     setModalAction(action);
@@ -132,9 +132,9 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
       const snoozeUntil = modalAction === 'snooze'
         ? new Date(Date.now() + snoozeDays * 24 * 60 * 60 * 1000).toISOString()
         : undefined;
-      await dismissGhost({
-        accountId: ghost.internal_account_id, provider: ghost.provider, service: ghost.service,
-        region: ghost.region, resourceId: ghost.resource_id, action: modalAction,
+      await dismissZombie({
+        accountId: zombie.internal_account_id, provider: zombie.provider, service: zombie.service,
+        region: zombie.region, resourceId: zombie.resource_id, action: modalAction,
         reason: selectedReason, note: note.trim(), snoozeUntil,
       });
       setModalVisible(false);
@@ -155,9 +155,9 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
   }
 
   async function handleRestore() {
-    if (!ghost.dismissal_id) return;
+    if (!zombie.dismissal_id) return;
     try {
-      await revokeDismissal(ghost.dismissal_id);
+      await revokeDismissal(zombie.dismissal_id);
       toast('Resource restored to zombie list', 'success');
       if (onDismissed) onDismissed();
       onBack();
@@ -166,15 +166,15 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
     }
   }
 
-  const metricLabel = METRIC_LABELS[ghost.usage_metric] ?? ghost.usage_metric;
+  const metricLabel = METRIC_LABELS[zombie.usage_metric] ?? zombie.usage_metric;
 
   const details = [
-    { label: 'Provider',   value: ghost.provider },
-    { label: 'Account ID', value: ghost.account_id },
-    { label: 'Owner',      value: ghost.owner || '—' },
-    { label: 'Period',     value: `${fmtDate(ghost.period_start)} → ${fmtDate(ghost.period_end)}` },
-    { label: 'Resource ID', value: ghost.resource_id, mono: true },
-    ...(ghost.arn ? [{ label: 'ARN', value: ghost.arn, mono: true }] : []),
+    { label: 'Provider',   value: zombie.provider },
+    { label: 'Account ID', value: zombie.account_id },
+    { label: 'Owner',      value: zombie.owner || '—' },
+    { label: 'Period',     value: `${fmtDate(zombie.period_start)} → ${fmtDate(zombie.period_end)}` },
+    { label: 'Resource ID', value: zombie.resource_id, mono: true },
+    ...(zombie.arn ? [{ label: 'ARN', value: zombie.arn, mono: true }] : []),
   ];
 
   const t = theme;
@@ -203,9 +203,9 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
               <span style={{ fontSize: 12, fontWeight: 800, color: cfg.color }}>{cfg.label}</span>
             </div>
 
-            {ghost.is_ghost && !isDismissed && !isSnoozed && (
-              <div style={{ padding: '3px 8px', borderRadius: 6, backgroundColor: t.ghostBadgeBg, border: `1px solid ${t.error}33` }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: t.ghostBadgeText, textTransform: 'uppercase', letterSpacing: 0.3 }}>zombie</span>
+            {zombie.is_zombie && !isDismissed && !isSnoozed && (
+              <div style={{ padding: '3px 8px', borderRadius: 6, backgroundColor: t.zombieBadgeBg, border: `1px solid ${t.error}33` }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: t.zombieBadgeText, textTransform: 'uppercase', letterSpacing: 0.3 }}>zombie</span>
               </div>
             )}
             {isDismissed && (
@@ -223,10 +223,10 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
           {/* Cost */}
           <div style={{ marginBottom: 12 }}>
             <span style={{ fontSize: 32, fontWeight: 800, color: t.accent, letterSpacing: -0.5, display: 'block' }}>
-              {ghost.currency} {ghost.monthly_cost.toFixed(2)}
+              {zombie.currency} {zombie.monthly_cost.toFixed(2)}
               <span style={{ fontSize: 14, fontWeight: 500, color: t.textMuted, letterSpacing: 0, marginLeft: 4 }}>/mo</span>
             </span>
-            {ghost.is_ghost && (
+            {zombie.is_zombie && (
               <span style={{ fontSize: 13, color: t.textMid, marginTop: 2, display: 'block' }}>
                 Wasted budget — this resource is not being used
               </span>
@@ -235,28 +235,28 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
 
           {/* Key metrics row */}
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
-            {ghost.usage_metric && (
+            {zombie.usage_metric && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 }}>{metricLabel}</span>
-                <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>{ghost.usage_avg} {ghost.usage_unit}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>{zombie.usage_avg} {zombie.usage_unit}</span>
               </div>
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 }}>Region</span>
-              <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>{ghost.region}</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>{zombie.region}</span>
             </div>
-            {(ghost.tags?.env) && (
+            {(zombie.tags?.env) && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 }}>Environment</span>
-                <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>{ghost.tags.env}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>{zombie.tags.env}</span>
               </div>
             )}
           </div>
 
           {/* Action buttons */}
-          {ghost.is_ghost && (
+          {zombie.is_zombie && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {ghost.dismissal_id ? (
+              {zombie.dismissal_id ? (
                 <button
                   onClick={handleRestore}
                   style={{ padding: '9px 16px', borderRadius: 8, backgroundColor: `${t.success}20`, border: `1px solid ${t.success}40`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
@@ -285,11 +285,11 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
 
         <div style={{ padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
           {/* Detection reason */}
-          {ghost.is_ghost && (
+          {zombie.is_zombie && (
             <section aria-label="Detection reason">
               <SectionLabel theme={t}>Why it was flagged</SectionLabel>
               <div style={{ backgroundColor: t.surface, border: `1px solid ${t.border}`, borderLeft: `3px solid ${cfg.color}`, borderRadius: 10, padding: '14px 16px' }}>
-                <span style={{ fontSize: 14, color: t.text, lineHeight: '22px', display: 'block' }}>{ghost.reason}</span>
+                <span style={{ fontSize: 14, color: t.text, lineHeight: '22px', display: 'block' }}>{zombie.reason}</span>
               </div>
             </section>
           )}
@@ -329,15 +329,15 @@ export default function DetailScreen({ ghost, onBack, onDismissed }) {
           </section>
 
           {/* Remediation */}
-          {ghost.is_ghost && (
+          {zombie.is_zombie && (
             <section aria-label="Remediation steps">
               <SectionLabel theme={t}>How to fix</SectionLabel>
               <div style={{ backgroundColor: t.surface, border: `1px solid ${t.border}`, borderLeft: `3px solid ${cfg.color}`, borderRadius: 10, padding: '14px 16px' }}>
                 <span style={{ fontSize: 14, color: t.text, lineHeight: '22px', display: 'block' }}>
-                  {remediationHint(ghost.service, ghost.resource_id)}
+                  {remediationHint(zombie.service, zombie.resource_id)}
                 </span>
               </div>
-              <CLICommand cmd={remediationCommand(ghost.service, ghost.resource_id, ghost.region)} theme={t} />
+              <CLICommand cmd={remediationCommand(zombie.service, zombie.resource_id, zombie.region)} theme={t} />
             </section>
           )}
         </div>

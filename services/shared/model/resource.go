@@ -5,7 +5,7 @@ package model
 import "time"
 
 // ResourceRecord represents a cloud resource discovered during ingestion.
-// Every resource with a cost entry is stored here; IsGhost is true for
+// Every resource with a cost entry is stored here; IsZombie is true for
 // resources that also meet the zombie detection criteria.
 type ResourceRecord struct {
 	Provider          string            `json:"provider"`
@@ -30,7 +30,7 @@ type ResourceRecord struct {
 	UsageUnit   string  `json:"usage_unit"`
 
 	// Detection metadata
-	IsGhost bool   `json:"is_ghost"`
-	Reason  string `json:"reason"` // non-empty only when IsGhost is true
-	Owner   string `json:"owner"`  // derived from tags["team"]
+	IsZombie bool   `json:"is_zombie"`
+	Reason   string `json:"reason"` // non-empty only when IsZombie is true
+	Owner    string `json:"owner"`  // derived from tags["team"]
 }
