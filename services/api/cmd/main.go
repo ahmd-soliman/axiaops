@@ -15,6 +15,7 @@ import (
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/logging"
+	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
@@ -157,7 +158,12 @@ func main() {
 		if devUserEmail == "" {
 			devUserEmail = "dev@axiaops.local"
 		}
-		if err := store.EnsureUser(ctx, devUserID, devTenantID, devUserEmail, "Dev User"); err != nil {
+		if err := store.EnsureUser(ctx, model.User{
+			ID:       devUserID,
+			TenantID: devTenantID,
+			Email:    devUserEmail,
+			Name:     "Dev User",
+		}); err != nil {
 			die("auth: failed to ensure dev user", "user", devUserID, "error", err)
 		}
 		slog.Warn("auth: DEV_MODE — bypassing auth", "tenant", devTenantID, "user", devUserID)
