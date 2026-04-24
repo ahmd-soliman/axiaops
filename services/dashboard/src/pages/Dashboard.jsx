@@ -18,8 +18,8 @@ export default function Dashboard() {
       accounts={accounts.data ?? []}
       selectedAccount={selectedAccount}
       onSelectAccount={(id) => id ? setParams({ account: id }) : setParams({})}
-      onSelectGhost={(g) =>
-        navigate(`/detail/${encodeURIComponent(g.resource_id)}?account=${encodeURIComponent(g.internal_account_id)}&region=${encodeURIComponent(g.region)}&service=${encodeURIComponent(g.service)}`)
+      onSelectZombie={(z) =>
+        navigate(`/detail/${encodeURIComponent(z.resource_id)}?account=${encodeURIComponent(z.internal_account_id)}&region=${encodeURIComponent(z.region)}&service=${encodeURIComponent(z.service)}`)
       }
       onShowTrend={() => navigate('/trend')}
       onShowCosts={() => navigate(selectedAccount ? `/cost?account=${encodeURIComponent(selectedAccount)}` : '/cost')}

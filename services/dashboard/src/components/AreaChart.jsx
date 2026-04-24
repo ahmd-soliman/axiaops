@@ -14,9 +14,9 @@ function formatDate(iso) {
 }
 
 /**
- * AreaChart — Interactive SVG area chart for cost/ghost trends
+ * AreaChart — Interactive SVG area chart for cost/zombie trends
  *
- * @param {Array} data - Array of {total_monthly_cost, snapshot_at, ghost_count, currency}
+ * @param {Array} data - Array of {total_monthly_cost, snapshot_at, zombie_count, currency}
  * @param {String} selectedId - snapshot_at timestamp of selected point
  * @param {Function} onSelect - Called with data point when clicked
  * @param {Object} theme - Theme object
@@ -188,9 +188,9 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
           <span style={{ fontSize: 15, fontWeight: 800, color: t.accent, display: 'block' }}>
             ${hoverSnap.total_monthly_cost.toFixed(2)}
           </span>
-          {hoverSnap.ghost_count !== undefined && (
+          {hoverSnap.zombie_count !== undefined && (
             <span style={{ fontSize: 11, color: t.textMuted, display: 'block', marginTop: 1 }}>
-              {hoverSnap.ghost_count} zombie{hoverSnap.ghost_count !== 1 ? 's' : ''}
+              {hoverSnap.zombie_count} zombie{hoverSnap.zombie_count !== 1 ? 's' : ''}
             </span>
           )}
         </div>

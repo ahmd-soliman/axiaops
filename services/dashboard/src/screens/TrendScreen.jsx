@@ -56,17 +56,17 @@ function downsample(snaps, periodDays) {
   return [...buckets.values()].map(group => {
     const latest = group[group.length - 1];
     const avgCost = group.reduce((sum, s) => sum + s.total_monthly_cost, 0) / group.length;
-    const avgGhosts = Math.round(group.reduce((sum, s) => sum + s.ghost_count, 0) / group.length);
+    const avgZombies = Math.round(group.reduce((sum, s) => sum + s.zombie_count, 0) / group.length);
     return {
       ...latest,
       total_monthly_cost: Math.round(avgCost * 100) / 100,
-      ghost_count: avgGhosts,
+      zombie_count: avgZombies,
       _scanCount: group.length,
     };
   });
 }
 
-// Group snapshots by calendar month — sum costs, sum ghost counts.
+// Group snapshots by calendar month — sum costs, sum zombie counts.
 function downsampleByMonth(snaps) {
   if (!snaps || snaps.length === 0) return [];
   const buckets = new Map();
@@ -78,11 +78,11 @@ function downsampleByMonth(snaps) {
   return [...buckets.values()].map(group => {
     const latest = group[group.length - 1];
     const avgCost = group.reduce((sum, s) => sum + s.total_monthly_cost, 0) / group.length;
-    const avgGhosts = Math.round(group.reduce((sum, s) => sum + s.ghost_count, 0) / group.length);
+    const avgZombies = Math.round(group.reduce((sum, s) => sum + s.zombie_count, 0) / group.length);
     return {
       ...latest,
       total_monthly_cost: Math.round(avgCost * 100) / 100,
-      ghost_count: avgGhosts,
+      zombie_count: avgZombies,
     };
   });
 }
@@ -120,7 +120,7 @@ function mergeSnapshotSeries(seriesList) {
         byTimestamp.set(snap.snapshot_at, { ...snap });
       } else {
         existing.total_monthly_cost += snap.total_monthly_cost;
-        existing.ghost_count       += snap.ghost_count;
+        existing.zombie_count       += snap.zombie_count;
       }
     }
   }
@@ -142,7 +142,7 @@ function exportCSV(seriesByBucket, { periodDays }, toast) {
   const filterSlug = slugParts.length ? `-${slugParts.join('-')}` : '';
   const filename = `axiaops-trend${filterSlug}-${periodDays}d-${new Date().toISOString().split('T')[0]}.csv`;
 
-  const headers = ['snapshot_at', 'service', 'resource_type', 'account_id', 'ghost_count', 'total_monthly_cost', 'currency'];
+  const headers = ['snapshot_at', 'service', 'resource_type', 'account_id', 'zombie_count', 'total_monthly_cost', 'currency'];
   const rows = [];
   for (const bucket of seriesByBucket) {
     for (const s of bucket.snaps.slice(-periodDays)) {
@@ -151,7 +151,7 @@ function exportCSV(seriesByBucket, { periodDays }, toast) {
         bucket.service ?? '',
         bucket.resourceType ?? '',
         s.account_id,
-        s.ghost_count,
+        s.zombie_count,
         s.total_monthly_cost.toFixed(2),
         s.currency,
       ]);
@@ -190,7 +190,7 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
           {formatDateTime(item.snapshot_at)}
         </div>
         <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
-          {item.ghost_count === 0 ? 'No zombies found' : `${item.ghost_count} zombie${item.ghost_count !== 1 ? 's' : ''}`}
+          {item.zombie_count === 0 ? 'No zombies found' : `${item.zombie_count} zombie${item.zombie_count !== 1 ? 's' : ''}`}
           {costDelta !== null && Math.abs(costDelta) >= 0.01 && (
             <span style={{ marginLeft: 8, color: costDelta > 0 ? t.error : t.success, fontWeight: 600 }}>
               {costDelta > 0 ? '+' : ''}{costDelta.toFixed(2)}
@@ -412,7 +412,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, color: t.textMid }}>
             {displaySnap
-              ? `${displaySnap.ghost_count} zombie resource${displaySnap.ghost_count !== 1 ? 's' : ''}`
+              ? `${displaySnap.zombie_count} zombie resource${displaySnap.zombie_count !== 1 ? 's' : ''}`
               : 'No data'}
           </span>
           {delta !== null && (
