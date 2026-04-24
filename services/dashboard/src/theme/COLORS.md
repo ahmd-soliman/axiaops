@@ -86,8 +86,8 @@ dark:  accent #2DD4BF  accentLight #042F2E  accentBorder #0F766E  accentText #99
 | `chipProdText`   | `#991B1B`  | 6.8:1                                     |
 | `chipStagBg`     | `#FEF3C7`  | amber-100                                 |
 | `chipStagText`   | `#854D0E`  | 6.2:1                                     |
-| `ghostBadgeBg`   | `#FFE4E6`  | rose-100                                  |
-| `ghostBadgeText` | `#9F1239`  | rose-800                                  |
+| `zombieBadgeBg`   | `#FFE4E6`  | rose-100                                  |
+| `zombieBadgeText` | `#9F1239`  | rose-800                                  |
 | **Status**       |            | Saturated for light bg clarity            |
 | `error`          | `#DC2626`  | red-600                                   |
 | `success`        | `#16A34A`  | green-600                                 |
@@ -124,8 +124,8 @@ dark:  accent #2DD4BF  accentLight #042F2E  accentBorder #0F766E  accentText #99
 | `chipProdText`   | `#FCA5A5`  | red-300, 8.9:1                            |
 | `chipStagBg`     | `#3A1D00`  | deep amber wash                           |
 | `chipStagText`   | `#FCD34D`  | amber-300, 10.7:1                         |
-| `ghostBadgeBg`   | `#3B0F1A`  | deep rose wash                            |
-| `ghostBadgeText` | `#FDA4AF`  | rose-300                                  |
+| `zombieBadgeBg`   | `#3B0F1A`  | deep rose wash                            |
+| `zombieBadgeText` | `#FDA4AF`  | rose-300                                  |
 | **Status**       |            | Desaturated for dark-mode comfort         |
 | `error`          | `#F87171`  | red-400, 6.8:1 on bg                      |
 | `success`        | `#34D399`  | emerald-400, 9.7:1                        |

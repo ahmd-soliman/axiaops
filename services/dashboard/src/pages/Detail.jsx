@@ -21,7 +21,7 @@ export default function Detail() {
     queryFn: () => fetchResources(account),
   });
 
-  const ghost = resources?.find(
+  const zombie = resources?.find(
     (r) => r.resource_id === id && r.service === service && r.region === region
   );
 
@@ -35,15 +35,15 @@ export default function Detail() {
     );
   }
 
-  if (!ghost) return <NotFound />;
+  if (!zombie) return <NotFound />;
 
   return (
     <DetailScreen
-      ghost={ghost}
+      zombie={zombie}
       onBack={goBack}
       onDismissed={() => {
         queryClient.invalidateQueries({ queryKey: ['resources'] });
-        queryClient.invalidateQueries({ queryKey: ['ghosts'] });
+        queryClient.invalidateQueries({ queryKey: ['zombies'] });
       }}
     />
   );

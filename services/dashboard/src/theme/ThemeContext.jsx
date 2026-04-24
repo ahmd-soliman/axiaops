@@ -54,8 +54,8 @@ const lightTheme = {
   chipProdText: '#991B1B',      // red-800, 7.5:1
   chipStagBg: '#FEF3C7',        // amber-100
   chipStagText: '#92400E',      // amber-800, stronger
-  ghostBadgeBg: '#FEF2F2',      // red-50 (softer danger wash)
-  ghostBadgeText: '#DC2626',    // red-600 (more vibrant alert)
+  zombieBadgeBg: '#FEF2F2',      // red-50 (softer danger wash)
+  zombieBadgeText: '#DC2626',    // red-600 (more vibrant alert)
 
   // Semantic status — clear, accessible
   error: '#DC2626',             // red-600
@@ -108,8 +108,8 @@ const darkTheme = {
   chipProdText: '#FCA5A5',      // red-300, soft coral
   chipStagBg: '#3A1D00',        // deep amber wash
   chipStagText: '#FCD34D',      // amber-300
-  ghostBadgeBg: '#3B0F1A',      // deep rose wash
-  ghostBadgeText: '#FDA4AF',    // rose-300
+  zombieBadgeBg: '#3B0F1A',      // deep rose wash
+  zombieBadgeText: '#FDA4AF',    // rose-300
 
   // Semantic status — desaturated/lightened for dark-mode comfort
   error: '#F87171',             // red-400, soft coral
