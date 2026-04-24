@@ -120,6 +120,13 @@ func main() {
 
 	mux := http.NewServeMux()
 	h := api.New(store, q)
+	// Wire the cache into the readyz check only when REDIS_URL was actually
+	// set. cache.New silently falls back to in-memory when Redis is
+	// unconfigured; we want readyz to report "skipped" in that case rather
+	// than pinging an in-process map and reporting "ok".
+	if os.Getenv("REDIS_URL") != "" {
+		h = h.WithRedisCache(c)
+	}
 	h.Register(mux)
 	mux.Handle("/metrics", promhttp.Handler())
 

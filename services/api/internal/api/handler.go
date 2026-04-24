@@ -16,6 +16,7 @@ import (
 	"axiaops.io/api/internal/audit"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/analyzer"
+	"axiaops.io/shared/cache"
 	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
@@ -27,6 +28,13 @@ type Handler struct {
 	store        storage.Store
 	queue        queue.Queue
 	ingestionURL string // used only by sync queue fallback
+
+	// redisCache is the cache backend the readyz check pings. nil means
+	// "Redis was not configured for this deployment" — readyz reports
+	// "skipped" rather than treating it as a fault. Callers wire this only
+	// when REDIS_URL is set; the wider request path uses cache.Cache directly
+	// via middleware (auth JWKS, rate limiter), independent of this field.
+	redisCache cache.Cache
 }
 
 // New creates a Handler backed by the given store and queue.
@@ -38,10 +46,20 @@ func New(store storage.Store, q queue.Queue) *Handler {
 	return &Handler{store: store, queue: q, ingestionURL: ingestionURL}
 }
 
+// WithRedisCache wires the Redis-backed cache into the readyz check. Optional —
+// if not called, readyz reports the Redis status as "skipped". Returns the
+// receiver for fluent setup so main.go can chain `api.New(...).WithRedisCache(c)`.
+func (h *Handler) WithRedisCache(c cache.Cache) *Handler {
+	h.redisCache = c
+	return h
+}
+
 // Register attaches the routes to the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /v1/version", h.getVersion)
+	mux.HandleFunc("GET /health", h.health)
+	mux.HandleFunc("GET /livez", h.livez)
+	mux.HandleFunc("GET /readyz", h.readyz)
 	mux.HandleFunc("GET /v1/zombies", h.listZombies)
 	mux.HandleFunc("GET /v1/summary", h.getSummary)
 	mux.HandleFunc("GET /v1/trend", h.getTrend)
@@ -184,7 +202,7 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Filter by internal_account_id if provided
 	if accountID != "" {
 		filtered := make([]model.ResourceRecord, 0)
@@ -195,7 +213,7 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 		}
 		resources = filtered
 	}
-	
+
 	if resources == nil {
 		resources = []model.ResourceRecord{}
 	}
@@ -326,8 +344,8 @@ func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 			// 1. An internal UUID that hasn't been added to accounts table yet (newly created)
 			// 2. An AWS account ID
 			// Try both approaches:
-			filter.InternalAccountID = accountIDParam  // Try as internal UUID
-			filter.AWSAccountID = accountIDParam       // Also try as AWS account ID
+			filter.InternalAccountID = accountIDParam // Try as internal UUID
+			filter.AWSAccountID = accountIDParam      // Also try as AWS account ID
 			slog.Info("listCosts: filtered by parameter (either internal UUID or AWS ID)", "account_id", accountIDParam)
 		}
 	}
@@ -386,6 +404,79 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+// livez answers the liveness question: "is this process responsive enough to
+// take traffic?" Always returns 200 unless the Go runtime is so wedged it
+// cannot reply at all (in which case the request times out and the orchestrator
+// kills the instance — that's the only failure mode for this endpoint).
+//
+// No DB ping, no Redis ping, no cross-service check. App Runner / k8s should
+// wire their *instance* health probe to this so a transient DB blip doesn't
+// trigger pod restarts. Deep dependency checks belong in /readyz.
+func (h *Handler) livez(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+// readyz answers the readiness question: "should the load balancer route
+// requests to me right now?" Pings PostgreSQL (required — we can't serve
+// anything without it) and reports Redis status (informational — degraded but
+// not blocking, since the cache/queue/rate-limiter all have in-memory
+// fallbacks).
+//
+// Returns 503 only when PostgreSQL is unreachable. Redis being down keeps the
+// status code at 200 with the body field set to "unreachable" — pulling the
+// instance out of rotation for a degraded mode would be worse than the
+// degradation itself. Monitoring can alert on the body field.
+//
+// Deliberately does NOT check ingestion. The API serves all read endpoints
+// from PostgreSQL alone; ingestion-down means scans are delayed, not that
+// requests should stop being routed here. Once ingestion moves to Lambda
+// (Phase 4) "is ingestion reachable" stops being a meaningful question
+// anyway — the answer is in CloudWatch metrics, not HTTP.
+func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
+	// Cap the deep check so a slow Postgres or Redis can't tie up readyz
+	// past what App Runner's check timeout will tolerate.
+	ctx, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
+	defer cancel()
+
+	body := map[string]string{
+		"status": "ok",
+		"db":     "ok",
+		"redis":  "skipped",
+	}
+	overallOK := true
+
+	if p, ok := h.store.(Pinger); ok {
+		if err := p.Ping(ctx); err != nil {
+			slog.Error("readyz: db ping failed", "error", err)
+			body["db"] = "unreachable"
+			body["status"] = "error"
+			overallOK = false
+		}
+	}
+
+	if h.redisCache != nil {
+		body["redis"] = "ok"
+		if err := h.redisCache.Ping(ctx); err != nil {
+			slog.Warn("readyz: redis ping failed", "error", err)
+			body["redis"] = "unreachable"
+			// Status stays "ok" if DB is fine — degraded but serving.
+			if overallOK {
+				body["status"] = "degraded"
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if !overallOK {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // listAccounts returns connected accounts for the tenant (secrets masked).
@@ -643,14 +734,14 @@ func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 
 	var req struct {
-		AccountID  string     `json:"account_id"`
-		Provider   string     `json:"provider"`
-		Service    string     `json:"service"`
-		Region     string     `json:"region"`
-		ResourceID string     `json:"resource_id"`
-		Action     string     `json:"action"`
-		Reason     string     `json:"reason"`
-		Note       string     `json:"note"`
+		AccountID    string     `json:"account_id"`
+		Provider     string     `json:"provider"`
+		Service      string     `json:"service"`
+		Region       string     `json:"region"`
+		ResourceID   string     `json:"resource_id"`
+		Action       string     `json:"action"`
+		Reason       string     `json:"reason"`
+		Note         string     `json:"note"`
 		SnoozedUntil *time.Time `json:"snooze_until"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
