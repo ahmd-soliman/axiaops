@@ -21,7 +21,9 @@ import (
 type contextKey string
 
 const (
-	tenantIDKey contextKey = "tenant_id"
+	tenantIDKey  contextKey = "tenant_id"
+	userIDKey    contextKey = "user_id"
+	userEmailKey contextKey = "user_email"
 
 	jwksTTL = time.Hour
 )
@@ -157,15 +159,20 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 				return
 			}
 
-			if _, err := a.store.UpsertUser(ctx, tenant.ID, sub, email, name); err != nil {
+			user, err := a.store.UpsertUser(ctx, tenant.ID, sub, email, name)
+			if err != nil {
 				slog.Error("auth: UpsertUser failed", "error", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 
 			ctx = context.WithValue(ctx, tenantIDKey, tenant.ID)
+			ctx = context.WithValue(ctx, userIDKey, user.ID)
+			ctx = context.WithValue(ctx, userEmailKey, user.Email)
 		} else {
 			ctx = context.WithValue(ctx, tenantIDKey, orgCode)
+			ctx = context.WithValue(ctx, userIDKey, sub)
+			ctx = context.WithValue(ctx, userEmailKey, email)
 		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -178,17 +185,36 @@ func TenantID(ctx context.Context) string {
 	return id
 }
 
-// DevBypass injects a fixed tenant ID into every request context.
+// UserID returns the stable user identifier from the request context.
+// In production this is the UUID from the users table (set after UpsertUser);
+// under DevBypass it is DEV_USER_ID. Returns "" if unset.
+func UserID(ctx context.Context) string {
+	id, _ := ctx.Value(userIDKey).(string)
+	return id
+}
+
+// UserEmail returns the authenticated user's email from the request context.
+// Captured from Kinde claims in production or from DEV_USER_EMAIL under
+// DevBypass. Returns "" if unset.
+func UserEmail(ctx context.Context) string {
+	email, _ := ctx.Value(userEmailKey).(string)
+	return email
+}
+
+// DevBypass injects a fixed tenant + user identity into every request context.
 // Only active when DEV_MODE=true — local development without auth.
-// The tenant row is ensured once at service startup (see cmd/main.go), so this
-// middleware does no DB work per request.
-func DevBypass(tenantID string, next http.Handler) http.Handler {
+// The tenant and user rows are ensured once at service startup (see cmd/main.go),
+// so this middleware does no DB work per request.
+func DevBypass(tenantID, userID, userEmail string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions || r.URL.Path == "/health" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		ctx := context.WithValue(r.Context(), tenantIDKey, tenantID)
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, tenantIDKey, tenantID)
+		ctx = context.WithValue(ctx, userIDKey, userID)
+		ctx = context.WithValue(ctx, userEmailKey, userEmail)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

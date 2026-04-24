@@ -146,8 +146,22 @@ func main() {
 		if err := store.EnsureTenant(ctx, devTenantID, devTenantID, devTenantID); err != nil {
 			die("auth: failed to ensure dev tenant", "tenant", devTenantID, "error", err)
 		}
-		slog.Warn("auth: DEV_MODE — bypassing auth", "tenant", devTenantID)
-		root = middleware.DevBypass(devTenantID, root)
+		// Pin the dev user row so audit rows, dismissal actors, and future
+		// RBAC lookups have a real FK target. DevBypass injects this same id
+		// onto every request's context.
+		devUserID := os.Getenv("DEV_USER_ID")
+		if devUserID == "" {
+			devUserID = "dev-user-axiaops"
+		}
+		devUserEmail := os.Getenv("DEV_USER_EMAIL")
+		if devUserEmail == "" {
+			devUserEmail = "dev@axiaops.local"
+		}
+		if err := store.EnsureUser(ctx, devUserID, devTenantID, devUserEmail, "Dev User"); err != nil {
+			die("auth: failed to ensure dev user", "user", devUserID, "error", err)
+		}
+		slog.Warn("auth: DEV_MODE — bypassing auth", "tenant", devTenantID, "user", devUserID)
+		root = middleware.DevBypass(devTenantID, devUserID, devUserEmail, root)
 	} else {
 		kindeIssuer := os.Getenv("KINDE_ISSUER")
 		if kindeIssuer == "" {

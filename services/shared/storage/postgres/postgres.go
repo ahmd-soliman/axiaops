@@ -283,6 +283,42 @@ func (s *Store) EnsureTenant(ctx context.Context, id, orgCode, name string) erro
 	return nil
 }
 
+// EnsureUser inserts a user with a caller-supplied id, or updates tenant_id,
+// email, name, and last_seen if the row already exists. The id is pinned (not
+// generated). Used by dev mode at startup to guarantee a known-id user row so
+// DevBypass can inject user_id onto the request context.
+//
+// A synthetic kinde_sub of the form "dev:<id>" is used so the UNIQUE constraint
+// on kinde_sub can coexist with real Kinde-issued users in the same database.
+//
+// Conflict handling is DO UPDATE (not DO NOTHING) so that rotating DEV_TENANT_ID
+// or DEV_USER_EMAIL across runs self-corrects the existing row — otherwise the
+// stored tenant_id would silently diverge from the tenant id DevBypass injects
+// onto every request.
+//
+// NOTE: this method uses the raw pool and does NOT set app.tenant_id. Safe here
+// only because `users` has no RLS policy and this is a startup bootstrap call.
+// Do NOT copy this pattern for handler-path writes to RLS-scoped tables —
+// those must use storage.WithTenantID and the transaction pattern.
+func (s *Store) EnsureUser(ctx context.Context, id, tenantID, email, name string) error {
+	now := time.Now().UTC()
+	kindeSub := "dev:" + id
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO users (id, tenant_id, kinde_sub, email, name, created_at, last_seen)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)
+		ON CONFLICT (id) DO UPDATE SET
+			tenant_id = EXCLUDED.tenant_id,
+			email     = EXCLUDED.email,
+			name      = EXCLUDED.name,
+			last_seen = EXCLUDED.last_seen`,
+		id, tenantID, kindeSub, email, name, now,
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: ensure user: %w", err)
+	}
+	return nil
+}
+
 // UpsertUser creates a user on first login or updates email, name, and last_seen.
 func (s *Store) UpsertUser(ctx context.Context, tenantID, kindeSub, email, name string) (model.User, error) {
 	now := time.Now().UTC()
