@@ -68,7 +68,7 @@ const PAIRS = [
   { fg: 'chipText',     bg: 'chipBg',      min: 4.5 },
   { fg: 'chipProdText', bg: 'chipProdBg',  min: 4.5 },
   { fg: 'chipStagText', bg: 'chipStagBg',  min: 4.5 },
-  { fg: 'ghostBadgeText', bg: 'ghostBadgeBg', min: 4.5 },
+  { fg: 'zombieBadgeText', bg: 'zombieBadgeBg', min: 4.5 },
   { fg: 'error',        bg: 'surface',     min: 3.0 },
   { fg: 'success',      bg: 'surface',     min: 3.0 },
   { fg: 'warning',      bg: 'surface',     min: 3.0 },

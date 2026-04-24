@@ -24,12 +24,12 @@ export async function fetchSummary(accountId) {
   return res.json();
 }
 
-export async function fetchGhosts(accountId) {
+export async function fetchZombies(accountId) {
   const url = accountId
-    ? `${BASE_URL}/v1/ghosts?account_id=${encodeURIComponent(accountId)}`
-    : `${BASE_URL}/v1/ghosts`;
+    ? `${BASE_URL}/v1/zombies?account_id=${encodeURIComponent(accountId)}`
+    : `${BASE_URL}/v1/zombies`;
   const res = await fetch(url, { headers: authHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch ghosts');
+  if (!res.ok) throw new Error('Failed to fetch zombies');
   return res.json();
 }
 
@@ -130,7 +130,7 @@ export async function fetchDismissals(accountId) {
   return res.json();
 }
 
-export async function dismissGhost({ accountId, provider, service, region, resourceId, action, reason, note, snoozeUntil }) {
+export async function dismissZombie({ accountId, provider, service, region, resourceId, action, reason, note, snoozeUntil }) {
   const body = {
     account_id: accountId,
     provider,
@@ -149,7 +149,7 @@ export async function dismissGhost({ accountId, provider, service, region, resou
     body: JSON.stringify(body),
   });
   if (res.status === 409) throw new Error('already_dismissed');
-  if (!res.ok) throw new Error('Failed to dismiss ghost');
+  if (!res.ok) throw new Error('Failed to dismiss zombie');
   return res.json();
 }
 
@@ -161,11 +161,11 @@ export async function revokeDismissal(dismissalId) {
   if (!res.ok) throw new Error('Failed to revoke dismissal');
 }
 
-export async function fetchGhostsWithDismissed(accountId) {
+export async function fetchZombiesWithDismissed(accountId) {
   const params = new URLSearchParams({ include_dismissed: 'true' });
   if (accountId) params.set('account_id', accountId);
-  const res = await fetch(`${BASE_URL}/v1/ghosts?${params}`, { headers: authHeaders() });
-  if (!res.ok) throw new Error('Failed to fetch ghosts');
+  const res = await fetch(`${BASE_URL}/v1/zombies?${params}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch zombies');
   return res.json();
 }
 

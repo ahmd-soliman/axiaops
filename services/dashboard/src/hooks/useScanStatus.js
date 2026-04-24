@@ -9,7 +9,7 @@ const MAX_POLL_DURATION_MS = 2 * 60 * 1000;
 // Query keys that contain post-scan data and must be refetched when a scan
 // completes. `accounts` is included so the `last_scanned_at` + `status` fields
 // refresh across the app.
-const STALE_QUERY_KEYS = ['accounts', 'summary', 'ghosts', 'resources', 'costs', 'trend', 'dismissals'];
+const STALE_QUERY_KEYS = ['accounts', 'summary', 'zombies', 'resources', 'costs', 'trend', 'dismissals'];
 
 // Worker terminal statuses other than `connected` all indicate failure, with
 // varying root causes surfaced by the ingestion worker in `services/ingestion/cmd/worker.go`.
