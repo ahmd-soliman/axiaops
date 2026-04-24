@@ -460,12 +460,12 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "axiaops_ghosts_detected",
+          "expr": "axiaops_zombies_detected",
           "legendFormat": "{{ provider }} - {{ tenant_id }}",
           "refId": "A"
         }
       ],
-      "title": "Ghost Resources Detected",
+      "title": "Zombie Resources Detected",
       "type": "timeseries"
     },
     {

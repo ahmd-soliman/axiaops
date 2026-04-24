@@ -204,21 +204,21 @@ psql_exec "INSERT INTO accounts (id, tenant_id, provider, label, account_id, acc
 echo "  Done."
 echo ""
 
-# ── Ghost records ─────────────────────────────────────────────────────────────
+# ── Zombie records ────────────────────────────────────────────────────────────
 # 24 zombie resources across all 3 accounts (8 each):
 #   - Tier 2 (CloudWatch): idle EC2, abandoned RDS, unused Lambda/ELB, unattached EIP
 #   - Tier 1 (API-only):   unattached EBS, orphaned snapshots, long-stopped EC2, old AMIs
 #   - Other:               empty EKS clusters
 # Deletes existing seed data first, then re-inserts (idempotent on re-run).
 
-echo "Inserting ghost records..."
-psql_exec "DELETE FROM ghost_records WHERE internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
+echo "Inserting zombie records..."
+psql_exec "DELETE FROM zombie_records WHERE internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
-psql_exec "INSERT INTO ghost_records
+psql_exec "INSERT INTO zombie_records
   (tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
    period_start, period_end, usage_metric, usage_avg, usage_unit, reason, owner, detected_at)
 VALUES
-  -- Account 1 ghosts
+  -- Account 1 zombies
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'instance', 'eu-central-1',
    'i-0abc123prod0001', '{\"env\":\"prod\",\"team\":\"backend\"}',
    45.60, 'USD', '$PERIOD_START', '$PERIOD_END',
@@ -243,7 +243,7 @@ VALUES
    'NetworkInterfaceAttachment', 0, 'Count',
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
-  -- Account 2 ghosts
+  -- Account 2 zombies
   ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
@@ -268,7 +268,7 @@ VALUES
    'NetworkInterfaceAttachment', 0, 'Count',
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
-  -- Account 3 ghosts
+  -- Account 3 zombies
   ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'instance', 'eu-west-1',
    'i-0abc123dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    22.80, 'USD', '$PERIOD_START', '$PERIOD_END',
@@ -293,7 +293,7 @@ VALUES
    'NetworkInterfaceAttachment', 0, 'Count',
    'Elastic IP not attached to any resource — incurring \$0.005/hour idle charge', 'unknown', '$NOW'),
 
-  -- ── EKS ghosts ────────────────────────────────────────────────────────────
+  -- ── EKS zombies ───────────────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (control plane billed, zero nodes)
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', '', 'eu-central-1',
@@ -309,7 +309,7 @@ VALUES
    'NodeCount', 0, 'Count',
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'platform', '$NOW'),
 
-  -- ── Tier 1 API-only ghosts ─────────────────────────────────────────────────
+  -- ── Tier 1 API-only zombies ────────────────────────────────────────────────
 
   -- Account 1: unattached EBS volume (100 GB gp3, $0.08/GB-month)
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'volume', 'eu-central-1',
@@ -367,7 +367,7 @@ VALUES
    'DaysSinceCreation', 180, 'Days',
    'AMI is 180 days old and not referenced by any instance — backing snapshots (60 GB) accumulate storage charges', 'platform', '$NOW'),
 
-  -- ── CloudWatch Log Group ghosts ───────────────────────────────────────────
+  -- ── CloudWatch Log Group zombies ──────────────────────────────────────────
 
   -- Account 1: log group with no retention policy (2.5 GB stored indefinitely)
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonCloudWatch', 'log_group', 'eu-central-1',
@@ -390,7 +390,7 @@ VALUES
    'RetentionDays', 0, 'Days',
    'CloudWatch log group has no retention policy — 1.2 GB stored indefinitely accumulating charges', 'unknown', '$NOW'),
 
-  -- ── Orphaned RDS snapshot ghosts ──────────────────────────────────────────
+  -- ── Orphaned RDS snapshot zombies ─────────────────────────────────────────
 
   -- Account 1: orphaned manual RDS snapshot (100 GB, source DB deleted, 45 days old)
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'snapshot', 'eu-central-1',
@@ -413,7 +413,7 @@ VALUES
    'SourceDBExists', 60, 'Days',
    'Manual RDS snapshot (50 GB, 60 days old) is orphaned — source DB "dev-test-db" no longer exists, accumulating \$4.75/month in storage charges', 'unknown', '$NOW'),
 
-  -- ── Stale ECR image ghosts ────────────────────────────────────────────────
+  -- ── Stale ECR image zombies ───────────────────────────────────────────────
 
   -- Account 1: ECR repo with stale images (12 stale, 8.5 GB)
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonECR', 'repository', 'eu-central-1',
@@ -436,7 +436,7 @@ VALUES
    'StaleImageCount', 8, 'Count',
    'ECR repository has 8 untagged/stale images totaling 3.2 GB — accumulating \$0.32/month in storage', 'unknown', '$NOW'),
 
-  -- ── Unused Secrets Manager ghosts ─────────────────────────────────────────
+  -- ── Unused Secrets Manager zombies ────────────────────────────────────────
 
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSSecretsManager', '', 'eu-central-1',
    'prod/legacy-api/db-password', '{}',
@@ -456,7 +456,7 @@ VALUES
    'DaysSinceAccess', 95, 'Days',
    'Secret not accessed for 95 days — still billing \$0.40/month', 'unknown', '$NOW'),
 
-  -- ── CloudFront distribution ghosts (zero requests) ─────────────────────────
+  -- ── CloudFront distribution zombies (zero requests) ────────────────────────
 
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonCloudFront', 'global', 'us-east-1',
    'E1PROD0ABANDONED', '{}',
@@ -516,7 +516,7 @@ VALUES
    'AllRequests', 0, 'Count',
    'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW')
 ;"
-echo "  Inserted ghost records including:"
+echo "  Inserted zombie records including:"
 echo "    - 3 CloudFront distributions (zero requests each)"
 echo "    - 3 Kinesis streams (zero incoming records each, provisioned mode)"
 echo "    - 3 S3 buckets (zero requests each, requires metrics enabled)"
@@ -524,40 +524,40 @@ echo "    - Plus all other resource types (EC2, RDS, Lambda, ELB, VPC, EBS, EKS,
 echo ""
 
 # ── Resource records ──────────────────────────────────────────────────────────
-# 33 records: the same 22 ghosts above plus 11 active (healthy) resources.
+# 33 records: the same 22 zombies above plus 11 active (healthy) resources.
 # Active resources provide contrast in the dashboard — they show up in the
-# "all resources" view but NOT in the ghosts view.
+# "all resources" view but NOT in the zombies view.
 
 echo "Inserting resource records..."
 psql_exec "DELETE FROM resource_records WHERE internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_exec "INSERT INTO resource_records
   (tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
-   period_start, period_end, usage_metric, usage_avg, usage_unit, is_ghost, reason, owner, detected_at)
+   period_start, period_end, usage_metric, usage_avg, usage_unit, is_zombie, reason, owner, detected_at)
 VALUES
   -- ── Production (${ACCT1}) ──────────────────────────────────────────
-  -- Ghost: idle EC2
+  -- Zombie: idle EC2
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'instance', 'eu-central-1',
    'i-0abc123prod0001', '{\"env\":\"prod\",\"team\":\"backend\"}',
    45.60, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 1.2, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  -- Ghost: abandoned RDS
+  -- Zombie: abandoned RDS
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', '', 'eu-central-1',
    'db-prod-legacy-reporting', '{\"env\":\"prod\",\"team\":\"data\"}',
    210.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count', true,
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  -- Ghost: unused ELB
+  -- Zombie: unused ELB
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', '', 'eu-central-1',
    'app/legacy-api/abc123prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 0, 'Count', true,
    'Zero requests — likely abandoned', 'platform', '$NOW'),
 
-  -- Ghost: unattached EIP
+  -- Zombie: unattached EIP
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonVPC', 'eip', 'eu-central-1',
    'eipalloc-prod00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
@@ -583,28 +583,28 @@ VALUES
    'RequestCount', 94200, 'Count', false, '', 'platform', '$NOW'),
 
   -- ── Staging (${ACCT2}) ─────────────────────────────────────────────
-  -- Ghost: idle EC2 #1
+  -- Zombie: idle EC2 #1
   ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 0.8, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  -- Ghost: idle EC2 #2
+  -- Zombie: idle EC2 #2
   ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'instance', 'us-east-1',
    'i-0abc123stg0002', '{\"env\":\"staging\",\"team\":\"platform\"}',
    38.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 2.1, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'platform', '$NOW'),
 
-  -- Ghost: unused Lambda
+  -- Zombie: unused Lambda
   ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', '', 'us-east-1',
    'stg-image-resizer', '{\"env\":\"staging\",\"team\":\"backend\"}',
    4.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count', true,
    'Zero invocations — likely unused', 'backend', '$NOW'),
 
-  -- Ghost: unattached EIP
+  -- Zombie: unattached EIP
   ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonVPC', 'eip', 'us-east-1',
    'eipalloc-stg00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
@@ -624,28 +624,28 @@ VALUES
    'DatabaseConnections', 37, 'Count', false, '', 'data', '$NOW'),
 
   -- ── Development (${ACCT3}) ────────────────────────────────────────
-  -- Ghost: idle EC2
+  -- Zombie: idle EC2
   ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'instance', 'eu-west-1',
    'i-0abc123dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    22.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'CPUUtilization', 0.3, 'Percent', true,
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  -- Ghost: abandoned RDS
+  -- Zombie: abandoned RDS
   ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', '', 'eu-west-1',
    'db-dev-abandoned', '{\"env\":\"dev\",\"team\":\"data\"}',
    89.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count', true,
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  -- Ghost: unused Lambda
+  -- Zombie: unused Lambda
   ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
    'dev-unused-email-sender', '{\"env\":\"dev\",\"team\":\"backend\"}',
    2.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count', true,
    'Zero invocations — likely unused', 'backend', '$NOW'),
 
-  -- Ghost: unattached EIP
+  -- Zombie: unattached EIP
   ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonVPC', 'eip', 'eu-west-1',
    'eipalloc-dev00001', '{}',
    3.60, 'USD', '$PERIOD_START', '$PERIOD_END',
@@ -664,16 +664,16 @@ VALUES
    1.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 1840, 'Count', false, '', 'backend', '$NOW'),
 
-  -- ── EKS ghost resources ────────────────────────────────────────────────────
+  -- ── EKS zombie resources ───────────────────────────────────────────────────
 
-  -- Account 1: empty EKS cluster (ghost)
+  -- Account 1: empty EKS cluster (zombie)
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', '', 'eu-central-1',
    'prod-analytics-cluster', '{\"env\":\"prod\",\"team\":\"data\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 0, 'Count', true,
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'data', '$NOW'),
 
-  -- Account 2: empty EKS cluster (ghost)
+  -- Account 2: empty EKS cluster (zombie)
   ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', '', 'us-east-1',
    'stg-ml-pipeline', '{\"env\":\"staging\",\"team\":\"platform\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
@@ -686,9 +686,9 @@ VALUES
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'NodeCount', 3, 'Count', false, '', 'backend', '$NOW'),
 
-  -- ── Tier 1 API-only ghost resources ───────────────────────────────────────
+  -- ── Tier 1 API-only zombie resources ──────────────────────────────────────
 
-  -- Account 1: unattached EBS volume (ghost)
+  -- Account 1: unattached EBS volume (zombie)
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'volume', 'eu-central-1',
    'vol-0prod00000001', '{\"env\":\"prod\",\"team\":\"platform\"}',
    8.00, 'USD', '$PERIOD_START', '$PERIOD_END',
@@ -701,21 +701,21 @@ VALUES
    24.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 1, 'State', false, '', 'backend', '$NOW'),
 
-  -- Account 1: orphaned snapshot (ghost)
+  -- Account 1: orphaned snapshot (zombie)
   ('${TENANT_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEC2', 'snapshot', 'eu-central-1',
    'snap-0prod00000001', '{\"env\":\"prod\",\"team\":\"data\"}',
    10.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceVolumeExists', 0, 'Boolean', true,
    'EBS snapshot (200 GB) source volume vol-0prod-deleted-001 no longer exists — orphaned storage accumulating charges', 'data', '$NOW'),
 
-  -- Account 2: long-stopped EC2 instance (ghost)
+  -- Account 2: long-stopped EC2 instance (zombie)
   ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'stopped_instance', 'us-east-1',
    'i-0stopped-stg0001', '{\"env\":\"staging\",\"team\":\"backend\"}',
    6.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysStopped', 45, 'Days', true,
    'EC2 instance stopped for 45 days — attached EBS storage (80 GB) continues to bill at no compute benefit', 'backend', '$NOW'),
 
-  -- Account 2: old AMI (ghost)
+  -- Account 2: old AMI (zombie)
   ('${TENANT_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEC2', 'ami', 'us-east-1',
    'ami-0stg00000001', '{\"env\":\"staging\",\"team\":\"platform\"}',
    4.00, 'USD', '$PERIOD_START', '$PERIOD_END',
@@ -728,41 +728,41 @@ VALUES
    2.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 14, 'Days', false, '', 'platform', '$NOW'),
 
-  -- Account 3: unattached EBS volume (ghost)
+  -- Account 3: unattached EBS volume (zombie)
   ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'volume', 'eu-west-1',
    'vol-0dev00000001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    4.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'VolumeState', 0, 'State', true,
    'EBS volume (50 GB gp3) is unattached — not mounted to any instance but still incurring storage charges', 'backend', '$NOW'),
 
-  -- Account 3: orphaned snapshot (ghost)
+  -- Account 3: orphaned snapshot (zombie)
   ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'snapshot', 'eu-west-1',
    'snap-0dev00000001', '{\"env\":\"dev\",\"team\":\"data\"}',
    7.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceVolumeExists', 0, 'Boolean', true,
    'EBS snapshot (150 GB) source volume vol-0dev-deleted-001 no longer exists — orphaned storage accumulating charges', 'data', '$NOW'),
 
-  -- Account 3: long-stopped EC2 instance (ghost)
+  -- Account 3: long-stopped EC2 instance (zombie)
   ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'stopped_instance', 'eu-west-1',
    'i-0stopped-dev0001', '{\"env\":\"dev\",\"team\":\"backend\"}',
    3.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysStopped', 60, 'Days', true,
    'EC2 instance stopped for 60 days — attached EBS storage (40 GB) continues to bill at no compute benefit', 'backend', '$NOW'),
 
-  -- Account 3: old AMI (ghost)
+  -- Account 3: old AMI (zombie)
   ('${TENANT_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEC2', 'ami', 'eu-west-1',
    'ami-0dev00000001', '{\"env\":\"dev\",\"team\":\"platform\"}',
    3.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceCreation', 180, 'Days', true,
    'AMI is 180 days old and not referenced by any instance — backing snapshots (60 GB) accumulate storage charges', 'platform', '$NOW')
 ;"
-echo "  Inserted 33 resource records (22 ghosts, 11 active) across 3 accounts."
+echo "  Inserted 33 resource records (22 zombies, 11 active) across 3 accounts."
 echo ""
 
-# ── Ghost snapshots — historical trend data per account ───────────────────────
+# ── Zombie snapshots — historical trend data per account ─────────────────────
 # Creates 90 days of snapshots per account simulating daily scans with realistic
 # variation (upward trend + weekly sine wave + noise).
-# Also creates per-service breakdown rows in ghost_snapshot_services.
+# Also creates per-service breakdown rows in zombie_snapshot_services.
 
 # Service cost distribution per account (fractions must sum to ~1.0):
 # Format: "service|resource_type:fraction" — pipe separates service from sub-type.
@@ -772,17 +772,17 @@ echo ""
 #   ACCT3 (dev):     EC2|instance=0.22, RDS=0.30, Lambda=0.08, VPC=0.06, EC2|volume=0.20, EC2|ami=0.14
 
 generate_snapshots() {
-  local acct_id=$1       # e.g. "seed-account-001"
-  local base_ghosts=$2   # baseline ghost count (e.g. 14)
-  local base_savings=$3  # baseline monthly savings in USD (e.g. 498.0)
-  local days=$4          # number of daily snapshots to generate
-  local services=$5      # service cost distribution: "Service|type:fraction ..."
+  local acct_id=$1        # e.g. "seed-account-001"
+  local base_zombies=$2   # baseline zombie count (e.g. 14)
+  local base_savings=$3   # baseline monthly savings in USD (e.g. 498.0)
+  local days=$4           # number of daily snapshots to generate
+  local services=$5       # service cost distribution: "Service|type:fraction ..."
 
   # Uses a single awk invocation to build two INSERT statements (snapshots + services).
   # This avoids spawning thousands of subshells for date math.
   local sql
   sql=$(awk -v acct="$acct_id" -v tenant="$TENANT_ID" \
-    -v base_g="$base_ghosts" -v base_s="$base_savings" \
+    -v base_z="$base_zombies" -v base_s="$base_savings" \
     -v days="$days" -v svcs="$services" \
     'BEGIN {
       srand()
@@ -803,7 +803,7 @@ generate_snapshots() {
       "date -u +%s" | getline epoch; close("date -u +%s")
 
       # Snapshot INSERT
-      printf "INSERT INTO ghost_snapshots (id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency) VALUES\n"
+      printf "INSERT INTO zombie_snapshots (id, tenant_id, account_id, snapshot_at, zombie_count, total_monthly_cost, currency) VALUES\n"
       for (i = days; i >= 1; i--) {
         snap_epoch = epoch - (i * 86400)
         # Format as ISO date (use shell date for portability)
@@ -814,35 +814,35 @@ generate_snapshots() {
         tf = 1.0 + ((days - i) / days) * 0.3
         wf = 1.0 + 0.1 * sin((i / 7) * pi)
         noise = 0.9 + rand() * 0.2
-        ghosts = int(base_g * tf * wf * noise)
+        zombies = int(base_z * tf * wf * noise)
         cost = base_s * tf * wf * noise
-        if (ghosts < 0) ghosts = 0
+        if (zombies < 0) zombies = 0
 
         snap_id = "snap-" acct "-" i
         comma = (i > 1) ? "," : ""
-        printf "  ('\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', %d, %.2f, '\''USD'\'')%s\n", snap_id, tenant, acct, snap_date, ghosts, cost, comma
+        printf "  ('\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', %d, %.2f, '\''USD'\'')%s\n", snap_id, tenant, acct, snap_date, zombies, cost, comma
 
         # Store for service rows
         snap_ids[i] = snap_id
-        snap_ghosts[i] = ghosts
+        snap_zombies[i] = zombies
         snap_costs[i] = cost
       }
       printf "ON CONFLICT DO NOTHING;\n\n"
 
       # Service INSERT
-      printf "INSERT INTO ghost_snapshot_services (id, snapshot_id, tenant_id, service, resource_type, ghost_count, monthly_cost, currency) VALUES\n"
+      printf "INSERT INTO zombie_snapshot_services (id, snapshot_id, tenant_id, service, resource_type, zombie_count, monthly_cost, currency) VALUES\n"
       first = 1
       for (i = days; i >= 1; i--) {
         for (s = 1; s <= n_svc; s++) {
           svc_noise = 0.85 + rand() * 0.3
           svc_cost = snap_costs[i] * svc_fracs[s] * svc_noise
-          svc_g = int(snap_ghosts[i] * svc_fracs[s] * svc_noise)
-          if (svc_g < 1) svc_g = 1
+          svc_z = int(snap_zombies[i] * svc_fracs[s] * svc_noise)
+          if (svc_z < 1) svc_z = 1
           row_id = "svc-" acct "-" i "-" s
 
           if (!first) printf ",\n"
           first = 0
-          printf "  ('\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', %d, %.2f, '\''USD'\'')", row_id, snap_ids[i], tenant, svc_names[s], svc_rtypes[s], svc_g, svc_cost
+          printf "  ('\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', %d, %.2f, '\''USD'\'')", row_id, snap_ids[i], tenant, svc_names[s], svc_rtypes[s], svc_z, svc_cost
         }
       }
       printf "\nON CONFLICT DO NOTHING;\n"
@@ -856,12 +856,12 @@ generate_snapshots() {
 }
 
 # Clean old seed snapshot data (deterministic IDs).
-# ghost_snapshot_services may not exist on older schemas — ignore errors.
-psql_exec "DELETE FROM ghost_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" 2>/dev/null || true
-psql_exec "DELETE FROM ghost_snapshots WHERE id LIKE 'snap-seed-account-%';"
+# zombie_snapshot_services may not exist on older schemas — ignore errors.
+psql_exec "DELETE FROM zombie_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" 2>/dev/null || true
+psql_exec "DELETE FROM zombie_snapshots WHERE id LIKE 'snap-seed-account-%';"
 
 DAYS=90
-echo "Inserting ghost snapshots with realistic trends (90 days × 3 accounts)..."
+echo "Inserting zombie snapshots with realistic trends (90 days × 3 accounts)..."
 
 generate_snapshots "$ACCT1" 14 498.0 $DAYS \
   "AmazonEC2|instance:0.16 AmazonRDS|primary:0.42 AmazonElasticLoadBalancing|alb:0.04 AmazonVPC|nat_gateway:0.005 AmazonVPC|eip:0.005 AmazonEC2|volume:0.22 AmazonEC2|snapshot:0.15"
@@ -935,14 +935,14 @@ echo ""
 # Quick sanity check: count rows per table for the dev tenant.
 
 echo "=== Verifying dev tenant data ==="
-GHOST_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_records WHERE tenant_id = '${TENANT_ID}';")
+ZOMBIE_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_records WHERE tenant_id = '${TENANT_ID}';")
 RESOURCE_COUNT=$(psql_query "SELECT COUNT(*) FROM resource_records WHERE tenant_id = '${TENANT_ID}';")
-SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshots WHERE tenant_id = '${TENANT_ID}';")
-SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM ghost_snapshot_services WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
+SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshots WHERE tenant_id = '${TENANT_ID}';")
+SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshot_services WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
 COST_COUNT=$(psql_query "SELECT COUNT(*) FROM cost_records WHERE tenant_id = '${TENANT_ID}';" 2>/dev/null || echo "n/a")
-echo "Dev tenant ghost records:       $GHOST_COUNT  (expected 41)"
+echo "Dev tenant zombie records:      $ZOMBIE_COUNT  (expected 41)"
 echo "Dev tenant resource records:    $RESOURCE_COUNT  (expected 33)"
-echo "Dev tenant ghost snapshots:     $SNAPSHOT_COUNT  (expected 270)"
+echo "Dev tenant zombie snapshots:    $SNAPSHOT_COUNT  (expected 270)"
 echo "Dev tenant snapshot services:   $SVC_COUNT"
 echo "Dev tenant cost records:        $COST_COUNT  (expected 21)"
 echo ""

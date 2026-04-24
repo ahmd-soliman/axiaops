@@ -29,12 +29,12 @@ Side-by-side comparison of unit tests and PostgreSQL integration tests for AxiaO
 // services/api/internal/api/handler_test.go
 package api_test
 
-func TestGetGhosts_ReturnsJSON(t *testing.T) {
+func TestGetZombies_ReturnsJSON(t *testing.T) {
 	mockStore := &mockStore{}
 	handler := api.NewHandler(mockStore)
 
 	resp := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/ghosts", nil)
+	req := httptest.NewRequest("GET", "/zombies", nil)
 	handler.ServeHTTP(resp, req)
 
 	if resp.Code != 200 {
@@ -80,10 +80,10 @@ func TestDetect_FlagsZeroUsageEC2(t *testing.T) {
 	costs := []model.CostRecord{{Service: "AmazonEC2", ResourceID: "i-001", Amount: 100.00}}
 	usage := []model.UsageRecord{{ResourceID: "i-001", Metric: "CPUUtilization", Avg: 2.5}}
 
-	ghosts := analyzer.Detect(costs, usage)
+	zombies := analyzer.Detect(costs, usage)
 
-	if len(ghosts) != 1 {
-		t.Errorf("expected 1 ghost, got %d", len(ghosts))
+	if len(zombies) != 1 {
+		t.Errorf("expected 1 zombie, got %d", len(zombies))
 	}
 }
 ```
@@ -97,14 +97,14 @@ func TestDetect_FlagsZeroUsageEC2(t *testing.T) {
 #### Integration Test (✓ Correct Approach)
 
 ```go
-func TestGhosts_TenantIsolation(t *testing.T) {
+func TestZombies_TenantIsolation(t *testing.T) {
 	s := newTestStore(t)
 	ctx1, _ := newTenantCtx(t, s)
 	ctx2, _ := newTenantCtx(t, s)
 
-	s.SaveGhosts(ctx1, []model.GhostResource{{ResourceID: "res-1"}})
+	s.SaveZombies(ctx1, []model.ZombieResource{{ResourceID: "res-1"}})
 
-	loaded2, _ := s.LoadGhosts(ctx2)
+	loaded2, _ := s.LoadZombies(ctx2)
 	if len(loaded2) != 0 {
 		t.Error("Tenant 2 can see Tenant 1's data — RLS failed")
 	}
