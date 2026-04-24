@@ -446,6 +446,86 @@ func TestUpsertUser_ReturnsSameIDOnSecondLogin(t *testing.T) {
 	}
 }
 
+// ── EnsureUser ────────────────────────────────────────────────────────────────
+
+func TestEnsureUser_CreatesRow(t *testing.T) {
+	s := newTestStore(t)
+	_, tenant := newTenantCtx(t, s)
+
+	u := model.User{ID: "dev-user-" + uuid.New().String(), TenantID: tenant.ID, Email: "dev@axiaops.local", Name: "Dev User"}
+	if err := s.EnsureUser(context.Background(), u); err != nil {
+		t.Fatalf("EnsureUser: %v", err)
+	}
+
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	var kindeSub, email string
+	err := conn.QueryRow(context.Background(),
+		`SELECT kinde_sub, email FROM axiaops.users WHERE id = $1`, u.ID,
+	).Scan(&kindeSub, &email)
+	if err != nil {
+		t.Fatalf("fetch inserted row: %v", err)
+	}
+	if want := "dev:" + u.ID; kindeSub != want {
+		t.Errorf("kinde_sub: got %q, want %q", kindeSub, want)
+	}
+	if email != u.Email {
+		t.Errorf("email: got %q, want %q", email, u.Email)
+	}
+}
+
+func TestEnsureUser_UpdatesOnConflict(t *testing.T) {
+	s := newTestStore(t)
+	_, tenant1 := newTenantCtx(t, s)
+	_, tenant2 := newTenantCtx(t, s)
+
+	id := "dev-user-" + uuid.New().String()
+	if err := s.EnsureUser(context.Background(), model.User{ID: id, TenantID: tenant1.ID, Email: "old@axiaops.local", Name: "Old"}); err != nil {
+		t.Fatalf("first EnsureUser: %v", err)
+	}
+	if err := s.EnsureUser(context.Background(), model.User{ID: id, TenantID: tenant2.ID, Email: "new@axiaops.local", Name: "New"}); err != nil {
+		t.Fatalf("second EnsureUser: %v", err)
+	}
+
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	var tenantID, email, name string
+	err := conn.QueryRow(context.Background(),
+		`SELECT tenant_id, email, name FROM axiaops.users WHERE id = $1`, id,
+	).Scan(&tenantID, &email, &name)
+	if err != nil {
+		t.Fatalf("fetch row: %v", err)
+	}
+	if tenantID != tenant2.ID {
+		t.Errorf("tenant_id: got %q, want %q (self-correcting update)", tenantID, tenant2.ID)
+	}
+	if email != "new@axiaops.local" {
+		t.Errorf("email: got %q, want %q", email, "new@axiaops.local")
+	}
+}
+
+// TestUsersDevKindeSubCheckConstraint verifies that migration 013's CHECK
+// constraint rejects rows where kinde_sub starts with "dev:" but does not
+// match "dev:" + id — preventing future code paths from producing colliding
+// synthetic subs.
+func TestUsersDevKindeSubCheckConstraint(t *testing.T) {
+	_ = newTestStore(t) // ensures migrations (including 013) have applied
+	_, tenant := newTenantCtx(t, newTestStore(t))
+
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+
+	now := time.Now().UTC()
+	_, err := conn.Exec(context.Background(),
+		`INSERT INTO axiaops.users (id, tenant_id, kinde_sub, email, name, created_at, last_seen)
+		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+		"user-A", tenant.ID, "dev:user-B", "mismatch@axiaops.local", "Mismatch", now,
+	)
+	if err == nil {
+		t.Fatal("expected CHECK constraint violation for dev:user-B with id user-A, got nil")
+	}
+}
+
 // ── Account CRUD ──────────────────────────────────────────────────────────────
 
 func testAccount(tenantID string) model.Account {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"axiaops.io/api/internal/api"
+	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 )
@@ -321,6 +322,39 @@ func TestListZombies_IncludeDismissedQueryParam(t *testing.T) {
 	}
 	if zombies[0].DismissalID == nil || *zombies[0].DismissalID != 1 {
 		t.Errorf("expected dismissal_id=1, got %v", zombies[0].DismissalID)
+	}
+}
+
+// TestCreateDismissal_RecordsUserIdentityViaDevBypass verifies that when the
+// request flows through DevBypass (not just the storage.WithTenantID helper),
+// the stable user_id — not the tenant_id or email — lands in dismissed_by.
+// Guards against regressing the pre-audit-trail bug where dismissed_by held
+// tenant_id because user identity was never on the context.
+func TestCreateDismissal_RecordsUserIdentityViaDevBypass(t *testing.T) {
+	store := NewMockStore().WithZombies([]model.ZombieResource{testZombie})
+	mux := newMux(newHandlerWith(store))
+	handler := middleware.DevBypass("tenant-actor-uuid", "user-actor-uuid", "dev@axiaops.local", mux)
+
+	body := `{
+		"account_id":"acc-1","provider":"aws","service":"AmazonRDS",
+		"region":"eu-central-1","resource_id":"db-actor-01",
+		"action":"dismiss","reason":"false_positive"
+	}`
+	r := httptest.NewRequest(http.MethodPost, "/v1/dismissals", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	dismissals := store.GetDismissals()
+	if len(dismissals) != 1 {
+		t.Fatalf("expected 1 dismissal recorded, got %d", len(dismissals))
+	}
+	if got, want := dismissals[0].DismissedBy, "user-actor-uuid"; got != want {
+		t.Errorf("dismissed_by: want stable user id %q, got %q", want, got)
 	}
 }
 
