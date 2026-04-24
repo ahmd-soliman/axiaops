@@ -1091,6 +1091,10 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 	s := newTestStore(t)
 	ctx, tenant := newTenantCtx(t, s)
 
+	// At least one event has IPAddress set so the happy-path test exercises
+	// the INET → text codec path (see TestAuditLog_IPAddressRoundTrips for
+	// the dedicated regression test). Defence-in-depth so the cast can't be
+	// silently reverted in a future merge without CI catching it.
 	writeAudit(t, s, ctx, model.AuditEvent{
 		Action:       model.AuditActionDismissZombie,
 		UserID:       "user-1",
@@ -1099,6 +1103,7 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 		ResourceID:   "42",
 		Reason:       "intentional",
 		Metadata:     map[string]any{"service": "AmazonEC2"},
+		IPAddress:    net.ParseIP("203.0.113.7"),
 	})
 	writeAudit(t, s, ctx, model.AuditEvent{
 		Action:     model.AuditActionAccountConnected,
