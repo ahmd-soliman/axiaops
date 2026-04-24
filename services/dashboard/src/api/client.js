@@ -196,6 +196,15 @@ export async function fetchAuditEvents({
   return res.json();
 }
 
+// Fetch the API service's build identifier. The dashboard footer pairs this
+// with its own build-time identifier so support tickets carry both versions.
+// Returns `{ service, version, commit, env }`.
+export async function fetchVersion() {
+  const res = await fetch(`${BASE_URL}/v1/version`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch version');
+  return res.json();
+}
+
 export async function fetchCosts(accountId, service, days = 30) {
   const params = new URLSearchParams();
   if (accountId) params.set('account_id', accountId);
