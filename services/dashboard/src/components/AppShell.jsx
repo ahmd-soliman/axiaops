@@ -1,6 +1,7 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../theme/ThemeContext';
 import { useApp } from '../context/AppContext';
+import { APP_VERSION, APP_COMMIT_SHA } from '../config';
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
 
@@ -197,6 +198,29 @@ export default function AppShell() {
       <main id="main-content" style={{ flex: 1, overflowY: 'auto' }}>
         <Outlet />
       </main>
+
+      {/* ── Build footer ── */}
+      {/* Tiny, dim, monospace. Identifies which bundle a user is running so
+          support tickets and audit-log correlation have a stable anchor.
+          user-select:all lets a click highlight the whole identifier — paste
+          straight into a bug report. */}
+      <footer
+        aria-label="Build version"
+        title="Click to select build identifier"
+        style={{
+          padding: '6px 12px',
+          textAlign: 'right',
+          fontSize: 10,
+          fontFamily: 'monospace',
+          color: t.textMuted,
+          opacity: 0.6,
+          flexShrink: 0,
+          letterSpacing: 0.3,
+          userSelect: 'all',
+        }}
+      >
+        v{APP_VERSION} · {APP_COMMIT_SHA}
+      </footer>
 
     </div>
   );
