@@ -72,14 +72,14 @@ func TestRateLimit_Redis(t *testing.T) {
 	t.Cleanup(func() { rdb.Del(ctx, key) })
 
 	// Request 60 — should pass.
-	resp := get(t, base+"/v1/ghosts")
+	resp := get(t, base+"/v1/zombies")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("request 60: want 200, got %d", resp.StatusCode)
 	}
 
 	// Request 61 — should be rate limited.
-	resp = get(t, base+"/v1/ghosts")
+	resp = get(t, base+"/v1/zombies")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("request 61: want 429, got %d", resp.StatusCode)
@@ -93,9 +93,9 @@ func TestRateLimit_CounterInRedis(t *testing.T) {
 	ctx := context.Background()
 
 	// Make a request to ensure a bucket key exists.
-	resp, err := http.Get(base + "/v1/ghosts") //nolint:noctx
+	resp, err := http.Get(base + "/v1/zombies") //nolint:noctx
 	if err != nil {
-		t.Fatalf("GET /v1/ghosts: %v", err)
+		t.Fatalf("GET /v1/zombies: %v", err)
 	}
 	_ = resp.Body.Close()
 
@@ -322,18 +322,18 @@ func TestAccounts(t *testing.T) {
 	}
 }
 
-// TestGhosts verifies GET /v1/ghosts returns 200 with a JSON array.
-func TestGhosts(t *testing.T) {
+// TestZombies verifies GET /v1/zombies returns 200 with a JSON array.
+func TestZombies(t *testing.T) {
 	base := apiURL(t)
-	resp := get(t, base+"/v1/ghosts")
+	resp := get(t, base+"/v1/zombies")
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /v1/ghosts: want 200, got %d", resp.StatusCode)
+		t.Fatalf("GET /v1/zombies: want 200, got %d", resp.StatusCode)
 	}
 	var body []any
 	if err := decodeJSON(resp.Body, &body); err != nil {
-		t.Fatalf("GET /v1/ghosts: decode: %v", err)
+		t.Fatalf("GET /v1/zombies: decode: %v", err)
 	}
 }
 

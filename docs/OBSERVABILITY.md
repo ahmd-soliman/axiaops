@@ -31,7 +31,7 @@ axiaops_http_errors_total                 — 5xx errors by method/route/status 
 
 **Labels:**
 - `method` — HTTP verb (GET, POST, PATCH, DELETE)
-- `route` — URL pattern (e.g., `/v1/ghosts`, `/v1/accounts/{id}/scan`)
+- `route` — URL pattern (e.g., `/v1/zombies`, `/v1/accounts/{id}/scan`)
 - `status` — HTTP status code (200, 401, 500, etc.)
 
 ### Database Metrics
@@ -44,7 +44,7 @@ axiaops_db_transaction_duration_seconds   — Transaction latency (histogram)
 ```
 
 **Labels:**
-- `operation` — Query type (SELECT, INSERT, UPDATE, DELETE, INSERT_GHOST, etc.)
+- `operation` — Query type (SELECT, INSERT, UPDATE, DELETE, INSERT_ZOMBIE, etc.)
 - `type` — Transaction type (scan, account_update, etc.)
 
 ### AWS/Ingestion Metrics
@@ -54,7 +54,7 @@ axiaops_aws_api_call_duration_seconds     — API call latency (histogram)
 axiaops_aws_api_errors_total              — API errors (counter)
 axiaops_cost_records_fetched_total        — Records fetched (counter)
 axiaops_resources_analyzed_total          — Resources analyzed (counter)
-axiaops_ghosts_detected                   — Ghosts detected (gauge)
+axiaops_zombies_detected                  — Zombies detected (gauge)
 axiaops_potential_monthly_savings_usd     — Savings USD (gauge)
 ```
 
@@ -105,7 +105,7 @@ Wrap database operations with observers:
 ```go
 import "axiaops.io/shared/observability"
 
-observer := observability.NewDatabaseObserver("INSERT_GHOST")
+observer := observability.NewDatabaseObserver("INSERT_ZOMBIE")
 defer observer.Observe()
 
 // ... perform query ...
@@ -167,7 +167,7 @@ saveObserver := observability.NewScanObserver("save")
 saveObserver.Observe()
 
 // Update summary metrics
-observability.Global.GhostsDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalGhosts))
+observability.Global.ZombiesDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalZombies))
 observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(summary.PotentialMonthlySave)
 ```
 
@@ -199,8 +199,8 @@ This logs the error with structured context to stdout/files, where it can be agg
 For warnings and info:
 
 ```go
-observability.LogWarn(ctx, "slow query", "operation", "list_ghosts", "duration_ms", 1250)
-observability.LogInfo(ctx, "scan completed", "ghost_count", 42, "savings_usd", 1234.56)
+observability.LogWarn(ctx, "slow query", "operation", "list_zombies", "duration_ms", 1250)
+observability.LogInfo(ctx, "scan completed", "zombie_count", 42, "savings_usd", 1234.56)
 ```
 
 ## Structured Logging
@@ -294,7 +294,7 @@ Create a dashboard to visualize AxiaOps metrics:
 2. **Error Rate** — `rate(axiaops_http_errors_total[5m])` per route
 3. **Latency** — `histogram_quantile(0.95, axiaops_http_request_duration_seconds)` by route
 4. **Active Requests** — `axiaops_http_requests_in_flight`
-5. **Ghost Detection Rate** — `axiaops_ghosts_detected` by tenant
+5. **Zombie Detection Rate** — `axiaops_zombies_detected` by tenant
 6. **Potential Savings** — `axiaops_potential_monthly_savings_usd` by tenant
 7. **Scan Duration** — `rate(axiaops_scan_duration_seconds_sum[5m])` by stage
 8. **Database Query Time** — `histogram_quantile(0.99, axiaops_db_query_duration_seconds)` by operation
@@ -353,7 +353,7 @@ make test
 1. **Alert on error rates** — 5x baseline or >1% errors
 2. **Alert on latency** — P95 >2s or P99 >5s
 3. **Alert on scan failures** — Consecutive failures >5 minutes
-4. **Track ghost trends** — Compare month-over-month ghost counts
+4. **Track zombie trends** — Compare month-over-month zombie counts
 5. **Review error logs** — Search CloudWatch/ELK for error patterns weekly
 
 ## Troubleshooting
