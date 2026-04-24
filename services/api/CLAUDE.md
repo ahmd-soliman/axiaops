@@ -13,7 +13,9 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| GET | /health | No | Healthcheck (Docker depends_on) |
+| GET | /health | No | Deep healthcheck — pings DB; 503 if DB unreachable. Used by Docker `depends_on` and nginx; kept for back-compat |
+| GET | /livez | No | Liveness — always 200 unless the process can't reply. Wire orchestrator instance health to this |
+| GET | /readyz | No | Readiness — pings DB (503 if down) and reports Redis status (informational; "ok" / "unreachable" / "skipped"). Wire monitoring/synthetic checks to this |
 | GET | /metrics | No | Prometheus metrics (internal only) |
 | GET | /zombies | Yes | List zombie resources for tenant |
 | GET | /summary | Yes | Aggregate savings + per-service breakdown |
