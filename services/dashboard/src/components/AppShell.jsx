@@ -57,12 +57,25 @@ function IconCost({ color, size = 18 }) {
   );
 }
 
+function IconAudit({ color, size = 18 }) {
+  // Clipboard-with-checkmark — reads "logged activity" more cleanly than a
+  // generic list icon. Two sides of the clipboard plus a tick inside.
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="4" width="14" height="17" rx="2" />
+      <path d="M9 4V2h6v2" />
+      <polyline points="9 13 11 15 15 11" />
+    </svg>
+  );
+}
+
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
   { label: 'Overview',         path: '/',      Icon: IconOverview },
   { label: 'Trends',           path: '/trend', Icon: IconTrend },
   { label: 'Costs',            path: '/cost',  Icon: IconCost },
+  { label: 'Audit',            path: '/audit', Icon: IconAudit },
 ];
 
 // ─── Top navbar ───────────────────────────────────────────────────────────────
