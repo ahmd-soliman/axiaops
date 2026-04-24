@@ -89,6 +89,14 @@ func (c *Cache) Incr(_ context.Context, key string, ttl time.Duration) (int64, e
 	return ctr.val, nil
 }
 
+// Ping reports whether the cache backend is reachable. Memory caches live
+// inside the process — they cannot be unreachable, so this is always nil.
+// Exists to satisfy the cache.Cache interface contract; readyz handlers
+// expect every cache to answer the question regardless of backend.
+func (c *Cache) Ping(_ context.Context) error {
+	return nil
+}
+
 // Close stops the background sweep goroutine.
 func (c *Cache) Close() error {
 	close(c.stopCh)

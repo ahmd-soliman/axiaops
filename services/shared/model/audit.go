@@ -12,9 +12,9 @@ import (
 type AuditEvent struct {
 	ID           int64          `json:"id"`
 	TenantID     string         `json:"tenant_id,omitempty"`
-	UserID       string         `json:"user_id,omitempty"`      // NULL after GDPR anonymisation
-	ActorEmail   string         `json:"actor_email"`            // captured at event time
-	Action       string         `json:"action"`                 // one of AuditAction* constants
+	UserID       string         `json:"user_id,omitempty"` // NULL after GDPR anonymisation
+	ActorEmail   string         `json:"actor_email"`       // captured at event time
+	Action       string         `json:"action"`            // one of AuditAction* constants
 	ResourceType string         `json:"resource_type,omitempty"`
 	ResourceID   string         `json:"resource_id,omitempty"`
 	Reason       string         `json:"reason,omitempty"`
@@ -27,15 +27,18 @@ type AuditEvent struct {
 
 // Audit action constants. Values match the action column in audit_log.
 // Keep this list in sync with docs/audit_trail_plan.md §3.2.
+//
+// Rule: audit_log is mutation-only. A user viewing a command, reading a list,
+// or opening a detail page does not belong here — CloudTrail handles real AWS
+// actions, and product telemetry is a better home for UX analytics.
 const (
-	AuditActionDismissZombie     = "dismiss_zombie"
-	AuditActionSnoozeZombie      = "snooze_zombie"
-	AuditActionRevokeDismissal   = "revoke_dismissal"
-	AuditActionViewRemediation   = "view_remediation"
-	AuditActionScanTriggered     = "scan_triggered"
-	AuditActionAccountConnected  = "account_connected"
-	AuditActionAccountUpdated    = "account_updated"
-	AuditActionAccountDeleted    = "account_deleted"
+	AuditActionDismissZombie    = "dismiss_zombie"
+	AuditActionSnoozeZombie     = "snooze_zombie"
+	AuditActionRevokeDismissal  = "revoke_dismissal"
+	AuditActionScanTriggered    = "scan_triggered"
+	AuditActionAccountConnected = "account_connected"
+	AuditActionAccountUpdated   = "account_updated"
+	AuditActionAccountDeleted   = "account_deleted"
 )
 
 // ValidAuditActions is the authoritative set of action codes accepted on write
@@ -44,7 +47,6 @@ var ValidAuditActions = map[string]bool{
 	AuditActionDismissZombie:    true,
 	AuditActionSnoozeZombie:     true,
 	AuditActionRevokeDismissal:  true,
-	AuditActionViewRemediation:  true,
 	AuditActionScanTriggered:    true,
 	AuditActionAccountConnected: true,
 	AuditActionAccountUpdated:   true,
