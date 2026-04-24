@@ -64,7 +64,7 @@ func TestAuth_NoAuthorizationHeader_Returns401(t *testing.T) {
 	auth, _ := testSetup(t)
 	h := auth.Wrap(okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -77,7 +77,7 @@ func TestAuth_MalformedAuthorizationHeader_Returns401(t *testing.T) {
 	auth, _ := testSetup(t)
 	h := auth.Wrap(okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
 	req.Header.Set("Authorization", "Token abc123") // wrong scheme
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -91,7 +91,7 @@ func TestAuth_InvalidToken_Returns401(t *testing.T) {
 	auth, _ := testSetup(t)
 	h := auth.Wrap(okHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
 	req.Header.Set("Authorization", "Bearer not.a.jwt")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -109,7 +109,7 @@ func TestAuth_ExpiredToken_Returns401(t *testing.T) {
 	claims["exp"] = time.Now().Add(-time.Hour).Unix() // already expired
 	token := signToken(t, priv, claims)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -127,7 +127,7 @@ func TestAuth_WrongIssuer_Returns401(t *testing.T) {
 	claims["iss"] = "https://attacker.kinde.com"
 	token := signToken(t, priv, claims)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -145,7 +145,7 @@ func TestAuth_MissingOrgCode_Returns401(t *testing.T) {
 	delete(claims, "org_code")
 	token := signToken(t, priv, claims)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -163,7 +163,7 @@ func TestAuth_ValidToken_Returns200(t *testing.T) {
 
 	token := signToken(t, priv, validClaims())
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -185,7 +185,7 @@ func TestAuth_ValidToken_TenantIDInContext(t *testing.T) {
 	h := auth.Wrap(capture)
 	token := signToken(t, priv, validClaims())
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
@@ -200,7 +200,7 @@ func TestAuth_OPTIONSPassesThrough(t *testing.T) {
 	auth, _ := testSetup(t)
 	h := auth.Wrap(okHandler)
 
-	req := httptest.NewRequest(http.MethodOptions, "/v1/ghosts", nil)
+	req := httptest.NewRequest(http.MethodOptions, "/v1/zombies", nil)
 	// no Authorization header
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

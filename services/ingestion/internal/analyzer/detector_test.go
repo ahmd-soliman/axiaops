@@ -46,12 +46,12 @@ func TestDetect_FlagsZeroUsage(t *testing.T) {
 		usageRecord("db-stag-01", "DatabaseConnections", 0),
 	}
 
-	ghosts := analyzer.Detect(costs, usage, "test-account-id")
+	zombies := analyzer.Detect(costs, usage, "test-account-id")
 
-	if len(ghosts) != 1 {
-		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie, got %d", len(zombies))
 	}
-	g := ghosts[0]
+	g := zombies[0]
 	if g.ResourceID != "db-stag-01" {
 		t.Errorf("wrong resource ID: %s", g.ResourceID)
 	}
@@ -72,10 +72,10 @@ func TestDetect_SkipsActiveResource(t *testing.T) {
 		usageRecord("i-active", "CPUUtilization", 62.4),
 	}
 
-	ghosts := analyzer.Detect(costs, usage, "test-account-id")
+	zombies := analyzer.Detect(costs, usage, "test-account-id")
 
-	if len(ghosts) != 0 {
-		t.Errorf("expected 0 ghosts for active resource, got %d", len(ghosts))
+	if len(zombies) != 0 {
+		t.Errorf("expected 0 zombies for active resource, got %d", len(zombies))
 	}
 }
 
@@ -88,10 +88,10 @@ func TestDetect_FlagsEC2BelowThreshold(t *testing.T) {
 		usageRecord("i-idle", "CPUUtilization", 1.1),
 	}
 
-	ghosts := analyzer.Detect(costs, usage, "test-account-id")
+	zombies := analyzer.Detect(costs, usage, "test-account-id")
 
-	if len(ghosts) != 1 {
-		t.Fatalf("expected 1 ghost for idle EC2, got %d", len(ghosts))
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie for idle EC2, got %d", len(zombies))
 	}
 }
 
@@ -104,10 +104,10 @@ func TestDetect_SkipsUnknownService(t *testing.T) {
 		usageRecord("arn:aws:s3:::my-bucket", "NumberOfObjects", 0),
 	}
 
-	ghosts := analyzer.Detect(costs, usage, "test-account-id")
+	zombies := analyzer.Detect(costs, usage, "test-account-id")
 
-	if len(ghosts) != 0 {
-		t.Errorf("expected 0 ghosts for service with no rule, got %d", len(ghosts))
+	if len(zombies) != 0 {
+		t.Errorf("expected 0 zombies for service with no rule, got %d", len(zombies))
 	}
 }
 
@@ -118,10 +118,10 @@ func TestDetect_SkipsResourceWithNoUsageData(t *testing.T) {
 	// No matching usage record
 	usage := []analyzer.UsageRecord{}
 
-	ghosts := analyzer.Detect(costs, usage, "test-account-id")
+	zombies := analyzer.Detect(costs, usage, "test-account-id")
 
-	if len(ghosts) != 0 {
-		t.Errorf("expected 0 ghosts when usage data is missing, got %d", len(ghosts))
+	if len(zombies) != 0 {
+		t.Errorf("expected 0 zombies when usage data is missing, got %d", len(zombies))
 	}
 }
 
@@ -129,21 +129,21 @@ func TestDetect_OwnerFallback(t *testing.T) {
 	c := costRecord("AmazonRDS", "db-no-team", 100.00)
 	c.Tags = map[string]string{} // no team tag
 
-	ghosts := analyzer.Detect(
+	zombies := analyzer.Detect(
 		[]model.CostRecord{c},
 		[]analyzer.UsageRecord{usageRecord("db-no-team", "DatabaseConnections", 0)},
 		"test-account-id",
 	)
 
-	if len(ghosts) != 1 {
-		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie, got %d", len(zombies))
 	}
-	if ghosts[0].Owner != "unknown" {
-		t.Errorf("expected owner 'unknown', got %s", ghosts[0].Owner)
+	if zombies[0].Owner != "unknown" {
+		t.Errorf("expected owner 'unknown', got %s", zombies[0].Owner)
 	}
 }
 
-func TestDetect_MultipleGhosts(t *testing.T) {
+func TestDetect_MultipleZombies(t *testing.T) {
 	costs := []model.CostRecord{
 		costRecord("AmazonRDS", "db-01", 210.00),
 		costRecord("AWSLambda", "fn-old", 12.80),
@@ -152,13 +152,13 @@ func TestDetect_MultipleGhosts(t *testing.T) {
 	usage := []analyzer.UsageRecord{
 		usageRecord("db-01", "DatabaseConnections", 0),
 		usageRecord("fn-old", "Invocations", 0),
-		usageRecord("i-active", "CPUUtilization", 62.4), // active — not a ghost
+		usageRecord("i-active", "CPUUtilization", 62.4), // active — not a zombie
 	}
 
-	ghosts := analyzer.Detect(costs, usage, "test-account-id")
+	zombies := analyzer.Detect(costs, usage, "test-account-id")
 
-	if len(ghosts) != 2 {
-		t.Fatalf("expected 2 ghosts, got %d", len(ghosts))
+	if len(zombies) != 2 {
+		t.Fatalf("expected 2 zombies, got %d", len(zombies))
 	}
 }
 
@@ -167,8 +167,8 @@ func TestDetect_MultipleGhosts(t *testing.T) {
 func TestSummarize_Empty(t *testing.T) {
 	s := analyzer.Summarize(nil)
 
-	if s.TotalGhosts != 0 {
-		t.Errorf("expected 0 ghosts, got %d", s.TotalGhosts)
+	if s.TotalZombies != 0 {
+		t.Errorf("expected 0 zombies, got %d", s.TotalZombies)
 	}
 	if s.PotentialMonthlySave != 0 {
 		t.Errorf("expected 0 savings, got %f", s.PotentialMonthlySave)
@@ -176,16 +176,16 @@ func TestSummarize_Empty(t *testing.T) {
 }
 
 func TestSummarize_AggregatesSavings(t *testing.T) {
-	ghosts := []model.GhostResource{
+	zombies := []model.ZombieResource{
 		{Service: "AmazonRDS", MonthlyCost: 210.00, Currency: "USD"},
 		{Service: "AmazonEC2", MonthlyCost: 189.60, Currency: "USD"},
 		{Service: "AmazonEC2", MonthlyCost: 100.00, Currency: "USD"},
 	}
 
-	s := analyzer.Summarize(ghosts)
+	s := analyzer.Summarize(zombies)
 
-	if s.TotalGhosts != 3 {
-		t.Errorf("expected 3 ghosts, got %d", s.TotalGhosts)
+	if s.TotalZombies != 3 {
+		t.Errorf("expected 3 zombies, got %d", s.TotalZombies)
 	}
 	if s.PotentialMonthlySave != 499.60 {
 		t.Errorf("expected savings 499.60, got %f", s.PotentialMonthlySave)
@@ -193,8 +193,8 @@ func TestSummarize_AggregatesSavings(t *testing.T) {
 	if s.Currency != "USD" {
 		t.Errorf("expected USD, got %s", s.Currency)
 	}
-	if s.ByService["AmazonEC2"].Ghosts != 2 {
-		t.Errorf("expected 2 EC2 ghosts, got %d", s.ByService["AmazonEC2"].Ghosts)
+	if s.ByService["AmazonEC2"].Zombies != 2 {
+		t.Errorf("expected 2 EC2 zombies, got %d", s.ByService["AmazonEC2"].Zombies)
 	}
 	if s.ByService["AmazonEC2"].Savings != 289.60 {
 		t.Errorf("expected EC2 savings 289.60, got %f", s.ByService["AmazonEC2"].Savings)

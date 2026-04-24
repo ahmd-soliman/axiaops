@@ -20,7 +20,7 @@ import (
 	"axiaops.io/shared/storage"
 )
 
-// Handler serves ghost detection results over HTTP.
+// Handler serves zombie detection results over HTTP.
 type Handler struct {
 	store        storage.Store
 	queue        queue.Queue
@@ -39,7 +39,7 @@ func New(store storage.Store, q queue.Queue) *Handler {
 // Register attaches the routes to the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.health)
-	mux.HandleFunc("GET /v1/ghosts", h.listGhosts)
+	mux.HandleFunc("GET /v1/zombies", h.listZombies)
 	mux.HandleFunc("GET /v1/summary", h.getSummary)
 	mux.HandleFunc("GET /v1/trend", h.getTrend)
 	mux.HandleFunc("GET /v1/trend/services", h.getTrendServices)
@@ -84,47 +84,47 @@ func (h *Handler) Handler(next http.Handler) http.Handler {
 
 // Optional query params:
 //   - ?account_id=<id>          filter to a single account
-//   - ?include_dismissed=true   include dismissed/snoozed ghosts (default: excluded)
-func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
+//   - ?include_dismissed=true   include dismissed/snoozed zombies (default: excluded)
+func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	accountID := r.URL.Query().Get("account_id")
 	includeDismissed := r.URL.Query().Get("include_dismissed") == "true"
 
-	ghosts, err := h.store.LoadGhosts(ctx)
+	zombies, err := h.store.LoadZombies(ctx)
 	if err != nil {
-		slog.Error("listGhosts: load failed", "error", err)
+		slog.Error("listZombies: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	// Filter by internal_account_id if provided.
 	if accountID != "" {
-		filtered := make([]model.GhostResource, 0, len(ghosts))
-		for _, g := range ghosts {
-			if g.InternalAccountID == accountID {
-				filtered = append(filtered, g)
+		filtered := make([]model.ZombieResource, 0, len(zombies))
+		for _, z := range zombies {
+			if z.InternalAccountID == accountID {
+				filtered = append(filtered, z)
 			}
 		}
-		ghosts = filtered
+		zombies = filtered
 	}
 
 	// Enrich with dismissal state and optionally filter dismissed resources.
-	ghosts, err = h.enrichWithDismissals(ctx, ghosts, accountID, includeDismissed)
+	zombies, err = h.enrichWithDismissals(ctx, zombies, accountID, includeDismissed)
 	if err != nil {
-		slog.Error("listGhosts: enrich dismissals failed", "error", err)
+		slog.Error("listZombies: enrich dismissals failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	if ghosts == nil {
-		ghosts = []model.GhostResource{}
+	if zombies == nil {
+		zombies = []model.ZombieResource{}
 	}
-	writeJSON(w, ghosts)
+	writeJSON(w, zombies)
 }
 
 // enrichWithDismissals loads active dismissals for the tenant and either annotates
-// or removes dismissed/snoozed ghosts from the list.
-func (h *Handler) enrichWithDismissals(ctx context.Context, ghosts []model.GhostResource, accountID string, includeDismissed bool) ([]model.GhostResource, error) {
+// or removes dismissed/snoozed zombies from the list.
+func (h *Handler) enrichWithDismissals(ctx context.Context, zombies []model.ZombieResource, accountID string, includeDismissed bool) ([]model.ZombieResource, error) {
 	dismissals, err := h.store.ListActiveDismissals(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -137,31 +137,31 @@ func (h *Handler) enrichWithDismissals(ctx context.Context, ghosts []model.Ghost
 	}
 
 	if len(lookup) == 0 {
-		return ghosts, nil
+		return zombies, nil
 	}
 
-	out := make([]model.GhostResource, 0, len(ghosts))
-	for _, g := range ghosts {
-		d, dismissed := lookup[ghostKey(g)]
+	out := make([]model.ZombieResource, 0, len(zombies))
+	for _, z := range zombies {
+		d, dismissed := lookup[zombieKey(z)]
 		if dismissed {
 			if !includeDismissed {
 				continue // omit from default response
 			}
 			// Annotate with dismissal info.
-			g.DismissalID = &d.ID
-			g.DismissAction = d.Action
-			g.DismissReason = d.Reason
-			g.DismissNote = d.Note
-			g.SnoozedUntil = d.SnoozedUntil
+			z.DismissalID = &d.ID
+			z.DismissAction = d.Action
+			z.DismissReason = d.Reason
+			z.DismissNote = d.Note
+			z.SnoozedUntil = d.SnoozedUntil
 		}
-		out = append(out, g)
+		out = append(out, z)
 	}
 	return out, nil
 }
 
-// ghostKey returns a stable fingerprint string for a GhostResource.
-func ghostKey(g model.GhostResource) string {
-	return g.InternalAccountID + "|" + g.Provider + "|" + g.Service + "|" + g.Region + "|" + g.ResourceID
+// zombieKey returns a stable fingerprint string for a ZombieResource.
+func zombieKey(z model.ZombieResource) string {
+	return z.InternalAccountID + "|" + z.Provider + "|" + z.Service + "|" + z.Region + "|" + z.ResourceID
 }
 
 // dismissalKey returns the same fingerprint for a DismissAction.
@@ -200,41 +200,41 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	accountID := r.URL.Query().Get("account_id")
-	ghosts, err := h.store.LoadGhosts(ctx)
+	zombies, err := h.store.LoadZombies(ctx)
 	if err != nil {
 		slog.Error("getSummary: load failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	if accountID != "" {
-		filtered := make([]model.GhostResource, 0, len(ghosts))
-		for _, g := range ghosts {
-			if g.InternalAccountID == accountID {
-				filtered = append(filtered, g)
+		filtered := make([]model.ZombieResource, 0, len(zombies))
+		for _, z := range zombies {
+			if z.InternalAccountID == accountID {
+				filtered = append(filtered, z)
 			}
 		}
-		ghosts = filtered
+		zombies = filtered
 	}
 	// Exclude dismissed/snoozed resources from the savings summary.
-	ghosts, err = h.enrichWithDismissals(ctx, ghosts, accountID, false)
+	zombies, err = h.enrichWithDismissals(ctx, zombies, accountID, false)
 	if err != nil {
 		slog.Error("getSummary: enrich dismissals failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, analyzer.Summarize(ghosts))
+	writeJSON(w, analyzer.Summarize(zombies))
 }
 
-// getTrend returns ghost snapshots for the tenant, ordered oldest-first.
+// getTrend returns zombie snapshots for the tenant, ordered oldest-first.
 // Optional query params: ?account_id=<id>, ?service=<name>.
-// When service is set, returns per-service data from ghost_snapshot_services.
+// When service is set, returns per-service data from zombie_snapshot_services.
 func (h *Handler) getTrend(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 	accountID := r.URL.Query().Get("account_id")
 	service := r.URL.Query().Get("service")
 	resourceType := r.URL.Query().Get("resource_type")
 
-	var snaps []model.GhostSnapshot
+	var snaps []model.ZombieSnapshot
 	var err error
 
 	if service != "" {
@@ -248,7 +248,7 @@ func (h *Handler) getTrend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if snaps == nil {
-		snaps = []model.GhostSnapshot{}
+		snaps = []model.ZombieSnapshot{}
 	}
 	writeJSON(w, snaps)
 }
@@ -616,7 +616,7 @@ func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
 		DismissedBy:  middleware.TenantID(r.Context()), // tenant as identifier; swap for user email when available
 	}
 
-	id, err := h.store.DismissGhost(ctx, d)
+	id, err := h.store.DismissZombie(ctx, d)
 	if err != nil {
 		if errors.Is(err, storage.ErrAlreadyDismissed) {
 			http.Error(w, "resource already has an active dismissal", http.StatusConflict)

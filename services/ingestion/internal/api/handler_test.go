@@ -13,7 +13,7 @@ import (
 )
 
 func testHandler() *api.Handler {
-	ghosts := []model.GhostResource{
+	zombies := []model.ZombieResource{
 		{
 			Provider:    "aws",
 			AccountID:   "000000000000",
@@ -33,27 +33,27 @@ func testHandler() *api.Handler {
 		},
 	}
 	summary := analyzer.Summary{
-		TotalGhosts:          1,
+		TotalZombies:         1,
 		PotentialMonthlySave: 210.00,
 		Currency:             "USD",
 		ByService: map[string]analyzer.ServiceSummary{
-			"AmazonRDS": {Ghosts: 1, Savings: 210.00},
+			"AmazonRDS": {Zombies: 1, Savings: 210.00},
 		},
 	}
-	noopIngest := func() ([]model.GhostResource, analyzer.Summary, error) {
-		return ghosts, summary, nil
+	noopIngest := func() ([]model.ZombieResource, analyzer.Summary, error) {
+		return zombies, summary, nil
 	}
-	return api.New(ghosts, summary, noopIngest)
+	return api.New(zombies, summary, noopIngest)
 }
 
-// ── GET /ghosts ───────────────────────────────────────────────────────────────
+// ── GET /zombies ──────────────────────────────────────────────────────────────
 
-func TestGetGhosts_Returns200(t *testing.T) {
+func TestGetZombies_Returns200(t *testing.T) {
 	mux := http.NewServeMux()
 	h := testHandler()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/zombies", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -62,12 +62,12 @@ func TestGetGhosts_Returns200(t *testing.T) {
 	}
 }
 
-func TestGetGhosts_ContentType(t *testing.T) {
+func TestGetZombies_ContentType(t *testing.T) {
 	mux := http.NewServeMux()
 	h := testHandler()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/zombies", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -77,36 +77,36 @@ func TestGetGhosts_ContentType(t *testing.T) {
 	}
 }
 
-func TestGetGhosts_ReturnsGhostList(t *testing.T) {
+func TestGetZombies_ReturnsZombieList(t *testing.T) {
 	mux := http.NewServeMux()
 	h := testHandler()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/zombies", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	var ghosts []model.GhostResource
-	if err := json.NewDecoder(w.Body).Decode(&ghosts); err != nil {
+	var zombies []model.ZombieResource
+	if err := json.NewDecoder(w.Body).Decode(&zombies); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if len(ghosts) != 1 {
-		t.Fatalf("expected 1 ghost, got %d", len(ghosts))
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie, got %d", len(zombies))
 	}
-	if ghosts[0].ResourceID != "db-stag-01" {
-		t.Errorf("expected resource db-stag-01, got %s", ghosts[0].ResourceID)
+	if zombies[0].ResourceID != "db-stag-01" {
+		t.Errorf("expected resource db-stag-01, got %s", zombies[0].ResourceID)
 	}
-	if ghosts[0].MonthlyCost != 210.00 {
-		t.Errorf("expected cost 210.00, got %f", ghosts[0].MonthlyCost)
+	if zombies[0].MonthlyCost != 210.00 {
+		t.Errorf("expected cost 210.00, got %f", zombies[0].MonthlyCost)
 	}
 }
 
-func TestGetGhosts_CORSHeader(t *testing.T) {
+func TestGetZombies_CORSHeader(t *testing.T) {
 	mux := http.NewServeMux()
 	h := testHandler()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/ghosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/zombies", nil)
 	w := httptest.NewRecorder()
 	h.Handler(mux).ServeHTTP(w, req)
 
@@ -115,12 +115,12 @@ func TestGetGhosts_CORSHeader(t *testing.T) {
 	}
 }
 
-func TestGetGhosts_OPTIONSPreflight(t *testing.T) {
+func TestGetZombies_OPTIONSPreflight(t *testing.T) {
 	mux := http.NewServeMux()
 	h := testHandler()
 	h.Register(mux)
 
-	req := httptest.NewRequest(http.MethodOptions, "/ghosts", nil)
+	req := httptest.NewRequest(http.MethodOptions, "/zombies", nil)
 	w := httptest.NewRecorder()
 	h.Handler(mux).ServeHTTP(w, req)
 
@@ -158,8 +158,8 @@ func TestGetSummary_ReturnsSavings(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&summary); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if summary.TotalGhosts != 1 {
-		t.Errorf("expected 1 ghost, got %d", summary.TotalGhosts)
+	if summary.TotalZombies != 1 {
+		t.Errorf("expected 1 zombie, got %d", summary.TotalZombies)
 	}
 	if summary.PotentialMonthlySave != 210.00 {
 		t.Errorf("expected savings 210.00, got %f", summary.PotentialMonthlySave)

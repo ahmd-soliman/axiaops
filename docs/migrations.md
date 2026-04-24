@@ -63,7 +63,7 @@ services/shared/storage/postgres/
 ```sql
 SET search_path TO axiaops;
 
-ALTER TABLE ghost_records ADD COLUMN status TEXT NOT NULL DEFAULT 'open';
+ALTER TABLE zombie_records ADD COLUMN status TEXT NOT NULL DEFAULT 'open';
 ```
 
 3. Write the reverse in `.down.sql`:
@@ -71,7 +71,7 @@ ALTER TABLE ghost_records ADD COLUMN status TEXT NOT NULL DEFAULT 'open';
 ```sql
 SET search_path TO axiaops;
 
-ALTER TABLE ghost_records DROP COLUMN status;
+ALTER TABLE zombie_records DROP COLUMN status;
 ```
 
 4. Deploy — the app applies it on next startup automatically.

@@ -1,6 +1,6 @@
 # Fake Provider ✅
 
-The fake provider runs the full ingestion pipeline — cost fetch → ghost detection → database → API — using pre-defined scenario data instead of real AWS calls.
+The fake provider runs the full ingestion pipeline — cost fetch → zombie detection → database → API — using pre-defined scenario data instead of real AWS calls.
 
 **Status**: Complete and production-ready. Used for development, testing, and demos.
 
@@ -10,8 +10,8 @@ The fake provider runs the full ingestion pipeline — cost fetch → ghost dete
 |-----------|-----|
 | Building or testing the dashboard UI | `DEV_MODE=true make start-dev` |
 | Demoing the product without AWS | `DEV_MODE=true DEV_SCENARIO=enterprise make start-dev` |
-| Testing the dismiss/snooze workflow | `DEV_SCENARIO=all-ghosts` |
-| Testing the empty state | `DEV_SCENARIO=no-ghosts` |
+| Testing the dismiss/snooze workflow | `DEV_SCENARIO=all-zombies` |
+| Testing the empty state | `DEV_SCENARIO=no-zombies` |
 | Unit-testing the fake itself | `make test-scenarios` |
 | CI/CD pipeline testing | Automated tests, no AWS/Docker required |
 
@@ -19,7 +19,7 @@ The fake provider runs the full ingestion pipeline — cost fetch → ghost dete
 
 **For regular development:**
 ```bash
-make seed              # 12 ghosts, 19 resources, 1000 days of snapshots
+make seed              # 12 zombies, 19 resources, 1000 days of snapshots
 make start-dev
 ```
 
@@ -27,12 +27,12 @@ Seed data includes 90 days of realistic trend snapshots (gradual growth, weekly 
 
 ## Scenarios
 
-| Scenario | Resources | Ghosts | Savings | Description |
-|----------|-----------|--------|---------|-------------|
+| Scenario | Resources | Zombies | Savings | Description |
+|----------|-----------|---------|---------|-------------|
 | `startup` | 4 | 2 | $47/month | Small account — 1 idle EC2, 1 unused Lambda |
 | `enterprise` | 12 | 6 | $400/month | Large account — mix across EC2, RDS, Lambda, ELB, NAT |
-| `all-ghosts` | 3 | 3 | $235/month | Every resource idle — for dismiss/snooze testing |
-| `no-ghosts` | 2 | 0 | $0/month | All resources active — for empty state testing |
+| `all-zombies` | 3 | 3 | $235/month | Every resource idle — for dismiss/snooze testing |
+| `no-zombies` | 2 | 0 | $0/month | All resources active — for empty state testing |
 
 ## Running in Dev Mode
 
@@ -47,7 +47,7 @@ DEV_MODE=true DEV_SCENARIO=enterprise make start-dev
 Or set in `services/ingestion/.env`:
 ```
 DEV_MODE=true
-DEV_SCENARIO=all-ghosts
+DEV_SCENARIO=all-zombies
 ```
 
 The ingestion service runs the full pipeline on startup and every 24h scheduler tick. The dashboard at `http://localhost` shows the scenario data immediately.
@@ -64,18 +64,18 @@ Tests the fake provider interface, scenario loading, and business logic. No data
 ```bash
 cd services/ingestion && go test ./cmd -run TestFakeProvider
 ```
-Tests the complete ingestion pipeline with fake data: costs → usage → ghost detection → verification.
+Tests the complete ingestion pipeline with fake data: costs → usage → zombie detection → verification.
 
 ### End-to-End Business Tests
 ```bash
 cd services/ingestion && go test ./internal/provider/fake -run TestE2E
 ```
-Verifies business scenarios produce expected ghost counts and savings amounts.
+Verifies business scenarios produce expected zombie counts and savings amounts.
 
 ### Test Coverage
 - ✅ Provider interface compliance
 - ✅ Scenario data validation  
-- ✅ Ghost detection accuracy
+- ✅ Zombie detection accuracy
 - ✅ Business logic verification
 - ✅ Full pipeline integration
 - ✅ Error handling and fallbacks
@@ -102,7 +102,7 @@ Edit `services/ingestion/internal/provider/fake/scenarios.go`:
             ResourceID: "i-example",
             Metric:     "CPUUtilization",
             Unit:       "Percent",
-            Avg:        1.5,      // <= 5% → ghost
+            Avg:        1.5,      // <= 5% → zombie
             PeriodDays: 30,
         },
     },
@@ -114,10 +114,10 @@ Then run it:
 DEV_MODE=true DEV_SCENARIO=my-scenario make start-dev
 ```
 
-### Ghost detection thresholds
+### Zombie detection thresholds
 
-| Service | Metric | Ghost if |
-|---------|--------|----------|
+| Service | Metric | Zombie if |
+|---------|--------|-----------|
 | `AmazonEC2` | `CPUUtilization` | avg ≤ 5% |
 | `AmazonRDS` | `DatabaseConnections` | avg = 0 |
 | `AWSLambda` | `Invocations` | avg = 0 |
@@ -142,8 +142,8 @@ runPipeline(ctx, store, accountID, fakeProvider, fakeProvider)
       ├── FetchCosts  → scenario cost records
       ├── store.Save  → PostgreSQL
       ├── FetchUsage  → scenario usage records
-      ├── analyzer.Detect → ghost resources
-      ├── store.SaveGhosts
+      ├── analyzer.Detect → zombie resources
+      ├── store.SaveZombies
       ├── store.SaveSnapshot
       └── store.SaveResources
 ```
@@ -158,11 +158,11 @@ services/ingestion/internal/provider/fake/
 ├── scenarios.go         # Named scenario data loader (embedded JSON)
 ├── fake_test.go         # Unit tests for provider interface
 ├── e2e_test.go         # End-to-end business scenario tests
-└── testdata/           # JSON scenario files
-    ├── startup.json    # Small account scenario
-    ├── enterprise.json # Large account scenario  
-    ├── all-ghosts.json # All resources idle
-    └── no-ghosts.json  # All resources active
+└── testdata/            # JSON scenario files
+    ├── startup.json     # Small account scenario
+    ├── enterprise.json  # Large account scenario  
+    ├── all-zombies.json # All resources idle
+    └── no-zombies.json  # All resources active
 ```
 
 ### Key Components
@@ -188,7 +188,7 @@ go test -bench=. -benchmem ./internal/provider/fake/
 - `BenchmarkFullPipeline_Enterprise` — Complete ingestion pipeline
 - `BenchmarkFetchCosts` — Cost fetching only
 - `BenchmarkFetchUsage` — Usage fetching only
-- `BenchmarkDetection` — Ghost detection only
+- `BenchmarkDetection` — Zombie detection only
 
 **Best practices:**
 1. Use existing scenarios (enterprise has realistic multi-account data)
@@ -199,4 +199,4 @@ go test -bench=. -benchmem ./internal/provider/fake/
 **Current performance (M1 Pro):**
 - Full pipeline: ~2.7μs per operation
 - Fetch costs: ~775ns per operation
-- Ghost detection: ~1.7μs per operation
+- Zombie detection: ~1.7μs per operation

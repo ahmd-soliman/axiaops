@@ -76,7 +76,7 @@ migrate:
 	@until docker-compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
 	./scripts/migrate.sh
 
-# Seed the dev tenant with dummy ghost + resource records.
+# Seed the dev tenant with dummy zombie + resource records.
 # Safe to re-run — all inserts are idempotent.
 # Starts PostgreSQL automatically if not already running.
 # Includes 90 days of realistic trend data (upward trend + weekly patterns).

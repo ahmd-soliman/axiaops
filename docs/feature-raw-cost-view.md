@@ -9,7 +9,7 @@
 
 Expose AWS billing data (`cost_records` table) through a new `/v1/costs` API endpoint and "Cost" dashboard screen. Users can view raw service costs by time period, account, and service with filtering.
 
-**Problem:** AxiaOps ingests real AWS cost data daily but never displays it — users only see detected ghosts (zombie resources). This feature surfaces the underlying cost data for visibility.
+**Problem:** AxiaOps ingests real AWS cost data daily but never displays it — users only see detected zombie resources. This feature surfaces the underlying cost data for visibility.
 
 **Solution:** Add a minimal read-only endpoint + frontend screen following existing patterns (DashboardScreen, TrendScreen).
 

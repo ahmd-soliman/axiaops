@@ -11,7 +11,7 @@ import (
 	"axiaops.io/shared/model"
 )
 
-// ErrAlreadyDismissed is returned when a ghost resource already has an active
+// ErrAlreadyDismissed is returned when a zombie resource already has an active
 // dismissal or snooze.  Callers should surface this as HTTP 409 Conflict.
 var ErrAlreadyDismissed = errors.New("storage: resource already has an active dismissal")
 
@@ -45,15 +45,15 @@ type Store interface {
 	// Returns the number of records actually inserted.
 	Save(ctx context.Context, records []model.CostRecord) (int64, error)
 
-	// SaveGhosts replaces all ghost records with the latest detection results.
+	// SaveZombies replaces all zombie records with the latest detection results.
 	// Called by the ingestion job after each analysis run.
 	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
-	SaveGhosts(ctx context.Context, ghosts []model.GhostResource) error
+	SaveZombies(ctx context.Context, zombies []model.ZombieResource) error
 
-	// LoadGhosts returns ghost records for the tenant in ctx.
+	// LoadZombies returns zombie records for the tenant in ctx.
 	// Called by the API service per request.
 	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
-	LoadGhosts(ctx context.Context) ([]model.GhostResource, error)
+	LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 
 	// UpsertTenant creates a tenant on first login or returns the existing one.
 	// Keyed on org_code — the Kinde organisation identifier.
@@ -110,25 +110,25 @@ type Store interface {
 	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
 	ListCostRecords(ctx context.Context, filter CostFilter) ([]model.CostRecord, error)
 
-	// SaveSnapshot writes a ghost snapshot after each ingestion scan.
+	// SaveSnapshot writes a zombie snapshot after each ingestion scan.
 	// Snapshots are never replaced — they accumulate to form the savings history.
 	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
-	SaveSnapshot(ctx context.Context, snap model.GhostSnapshot) error
+	SaveSnapshot(ctx context.Context, snap model.ZombieSnapshot) error
 
-	// ListSnapshots returns ghost snapshots for the tenant in ctx, ordered
+	// ListSnapshots returns zombie snapshots for the tenant in ctx, ordered
 	// oldest-first. If accountID is non-empty, only snapshots for that account
 	// are returned.
-	ListSnapshots(ctx context.Context, accountID string) ([]model.GhostSnapshot, error)
+	ListSnapshots(ctx context.Context, accountID string) ([]model.ZombieSnapshot, error)
 
 	// SaveSnapshotServices writes per-service breakdown rows for a snapshot.
 	SaveSnapshotServices(ctx context.Context, services []model.SnapshotService) error
 
-	// ListSnapshotsByService returns ghost snapshots filtered by service,
+	// ListSnapshotsByService returns zombie snapshots filtered by service,
 	// ordered oldest-first. Each snapshot's cost/count reflects only the given
 	// service. If resourceType is non-empty, further filters to that sub-type;
 	// otherwise aggregates all resource types for the service.
 	// If accountID is non-empty, also filters by account.
-	ListSnapshotsByService(ctx context.Context, service, resourceType, accountID string) ([]model.GhostSnapshot, error)
+	ListSnapshotsByService(ctx context.Context, service, resourceType, accountID string) ([]model.ZombieSnapshot, error)
 
 	// ListTrendServices returns the distinct services that have snapshot data
 	// for the tenant, useful for populating filter UI.
@@ -142,10 +142,10 @@ type Store interface {
 	// Returns the number of rows deleted.
 	DeleteOldCostRecords(ctx context.Context, cutoff time.Time) (int64, error)
 
-	// DismissGhost records a dismiss or snooze action for a ghost resource.
+	// DismissZombie records a dismiss or snooze action for a zombie resource.
 	// Returns the new dismissal ID.
 	// Returns ErrAlreadyDismissed if an active dismissal already exists for the fingerprint.
-	DismissGhost(ctx context.Context, d model.DismissAction) (int64, error)
+	DismissZombie(ctx context.Context, d model.DismissAction) (int64, error)
 
 	// RevokeDismissal soft-deletes an active dismissal (sets revoked_at / revoked_by).
 	// Returns an error if the dismissal does not exist or is already revoked.

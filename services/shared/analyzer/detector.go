@@ -19,14 +19,14 @@ type UsageRecord struct {
 // are incurring cost but show no meaningful activity according to the
 // per-service threshold rules in rules.go.
 // internalAccountID is the UUID from the accounts table, used for filtering.
-func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID string) []model.GhostResource {
+func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID string) []model.ZombieResource {
 	// Index usage by resource_id for O(1) lookup.
 	usageByID := make(map[string]UsageRecord, len(usage))
 	for _, u := range usage {
 		usageByID[u.ResourceID] = u
 	}
 
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 	for _, c := range costs {
 		r, hasRule := serviceRules[c.Service]
 		if !hasRule {
@@ -39,7 +39,7 @@ func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID str
 		}
 
 		if u.Avg <= r.threshold {
-			ghosts = append(ghosts, model.GhostResource{
+			zombies = append(zombies, model.ZombieResource{
 				Provider:          c.Provider,
 				AccountID:         c.AccountID,
 				InternalAccountID: internalAccountID,
@@ -60,38 +60,38 @@ func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID str
 			})
 		}
 	}
-	return ghosts
+	return zombies
 }
 
-// Summary holds aggregate savings figures across all detected ghost resources.
+// Summary holds aggregate savings figures across all detected zombie resources.
 type Summary struct {
-	TotalGhosts          int     `json:"total_ghosts"`
+	TotalZombies         int     `json:"total_zombies"`
 	PotentialMonthlySave float64 `json:"potential_monthly_savings"`
 	Currency             string  `json:"currency"`
 	ByService            map[string]ServiceSummary `json:"by_service"`
 }
 
-// ServiceSummary groups ghost counts and savings for one AWS service.
+// ServiceSummary groups zombie counts and savings for one AWS service.
 type ServiceSummary struct {
-	Ghosts  int     `json:"ghosts"`
+	Zombies int     `json:"zombies"`
 	Savings float64 `json:"savings"`
 }
 
-// Summarize computes aggregate savings from a slice of ghost resources.
-func Summarize(ghosts []model.GhostResource) Summary {
+// Summarize computes aggregate savings from a slice of zombie resources.
+func Summarize(zombies []model.ZombieResource) Summary {
 	s := Summary{
-		TotalGhosts: len(ghosts),
-		ByService:   make(map[string]ServiceSummary),
+		TotalZombies: len(zombies),
+		ByService:    make(map[string]ServiceSummary),
 	}
-	for _, g := range ghosts {
-		s.PotentialMonthlySave += g.MonthlyCost
+	for _, z := range zombies {
+		s.PotentialMonthlySave += z.MonthlyCost
 		if s.Currency == "" {
-			s.Currency = g.Currency
+			s.Currency = z.Currency
 		}
-		svc := s.ByService[g.Service]
-		svc.Ghosts++
-		svc.Savings += g.MonthlyCost
-		s.ByService[g.Service] = svc
+		svc := s.ByService[z.Service]
+		svc.Zombies++
+		svc.Savings += z.MonthlyCost
+		s.ByService[z.Service] = svc
 	}
 	s.PotentialMonthlySave = round2(s.PotentialMonthlySave)
 	return s
@@ -107,24 +107,24 @@ func owner(tags map[string]string) string {
 }
 
 // AnnotateAll returns a ResourceRecord for every cost entry that has a
-// non-empty resource ID. It uses the pre-computed ghosts slice (which already
-// includes EIP and other special-case ghosts) to set IsGhost and Reason,
+// non-empty resource ID. It uses the pre-computed zombies slice (which already
+// includes EIP and other special-case zombies) to set IsZombie and Reason,
 // so the caller does not need to re-run detection logic here.
-func AnnotateAll(costs []model.CostRecord, usage []UsageRecord, ghosts []model.GhostResource) []model.ResourceRecord {
+func AnnotateAll(costs []model.CostRecord, usage []UsageRecord, zombies []model.ZombieResource) []model.ResourceRecord {
 	// Index usage by resource_id for O(1) lookup.
 	usageByID := make(map[string]UsageRecord, len(usage))
 	for _, u := range usage {
 		usageByID[u.ResourceID] = u
 	}
 
-	// Index ghost info by resource_id.
-	type ghostInfo struct{ reason, owner string }
-	ghostByID := make(map[string]ghostInfo, len(ghosts))
-	for _, g := range ghosts {
-		ghostByID[g.ResourceID] = ghostInfo{reason: g.Reason, owner: g.Owner}
+	// Index zombie info by resource_id.
+	type zombieInfo struct{ reason, owner string }
+	zombieByID := make(map[string]zombieInfo, len(zombies))
+	for _, z := range zombies {
+		zombieByID[z.ResourceID] = zombieInfo{reason: z.Reason, owner: z.Owner}
 	}
 
-	// Track which resource IDs have a cost record so we can add ghost-only entries below.
+	// Track which resource IDs have a cost record so we can add zombie-only entries below.
 	costResourceIDs := make(map[string]struct{}, len(costs))
 
 	var resources []model.ResourceRecord
@@ -134,8 +134,8 @@ func AnnotateAll(costs []model.CostRecord, usage []UsageRecord, ghosts []model.G
 		}
 		costResourceIDs[c.ResourceID] = struct{}{}
 		u := usageByID[c.ResourceID]
-		gi, isGhost := ghostByID[c.ResourceID]
-		o := gi.owner
+		zi, isZombie := zombieByID[c.ResourceID]
+		o := zi.owner
 		if o == "" {
 			o = owner(c.Tags)
 		}
@@ -155,38 +155,38 @@ func AnnotateAll(costs []model.CostRecord, usage []UsageRecord, ghosts []model.G
 			UsageMetric:       u.Metric,
 			UsageAvg:          u.Avg,
 			UsageUnit:         u.Unit,
-			IsGhost:           isGhost,
-			Reason:            gi.reason,
+			IsZombie:          isZombie,
+			Reason:            zi.reason,
 			Owner:             o,
 		})
 	}
 
-	// Some ghosts (e.g. unattached EIPs) are discovered via AWS APIs and never
+	// Some zombies (e.g. unattached EIPs) are discovered via AWS APIs and never
 	// appear as individual line items in Cost Explorer. Add them here so they
 	// show up in the resource inventory.
-	for _, g := range ghosts {
-		if _, inCosts := costResourceIDs[g.ResourceID]; inCosts {
+	for _, z := range zombies {
+		if _, inCosts := costResourceIDs[z.ResourceID]; inCosts {
 			continue
 		}
 		resources = append(resources, model.ResourceRecord{
-			Provider:          g.Provider,
-			AccountID:         g.AccountID,
-			InternalAccountID: g.InternalAccountID,
-			Service:           g.Service,
-			Region:            g.Region,
-			ResourceID:        g.ResourceID,
-			ARN:               g.ARN,
-			Tags:              g.Tags,
-			MonthlyCost:       g.MonthlyCost,
-			Currency:          g.Currency,
-			PeriodStart:       g.PeriodStart,
-			PeriodEnd:         g.PeriodEnd,
-			UsageMetric:       g.UsageMetric,
-			UsageAvg:          g.UsageAvg,
-			UsageUnit:         g.UsageUnit,
-			IsGhost:           true,
-			Reason:            g.Reason,
-			Owner:             g.Owner,
+			Provider:          z.Provider,
+			AccountID:         z.AccountID,
+			InternalAccountID: z.InternalAccountID,
+			Service:           z.Service,
+			Region:            z.Region,
+			ResourceID:        z.ResourceID,
+			ARN:               z.ARN,
+			Tags:              z.Tags,
+			MonthlyCost:       z.MonthlyCost,
+			Currency:          z.Currency,
+			PeriodStart:       z.PeriodStart,
+			PeriodEnd:         z.PeriodEnd,
+			UsageMetric:       z.UsageMetric,
+			UsageAvg:          z.UsageAvg,
+			UsageUnit:         z.UsageUnit,
+			IsZombie:          true,
+			Reason:            z.Reason,
+			Owner:             z.Owner,
 		})
 	}
 

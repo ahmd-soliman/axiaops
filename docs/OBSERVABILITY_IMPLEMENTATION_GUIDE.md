@@ -34,15 +34,15 @@ mux.HandleFunc("GET /path", handler)
 **Before (no metrics):**
 
 ```go
-func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
     ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
-    ghosts, err := h.store.LoadGhosts(ctx)
+    zombies, err := h.store.LoadZombies(ctx)
     if err != nil {
-        slog.Error("listGhosts: load failed", "error", err)
+        slog.Error("listZombies: load failed", "error", err)
         http.Error(w, "internal error", http.StatusInternalServerError)
         return
     }
-    writeJSON(w, ghosts)
+    writeJSON(w, zombies)
 }
 ```
 
@@ -51,35 +51,35 @@ func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
 ```go
 import "axiaops.io/shared/observability"
 
-func (h *Handler) listGhosts(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
     ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
     
     // Record database query latency
-    observer := observability.NewDatabaseObserver("LOAD_GHOSTS")
+    observer := observability.NewDatabaseObserver("LOAD_ZOMBIES")
     defer observer.Observe()
     
-    ghosts, err := h.store.LoadGhosts(ctx)
+    zombies, err := h.store.LoadZombies(ctx)
     if err != nil {
         observer.ObserveError()
         observability.LogError(ctx, err,
-            "operation", "list_ghosts",
-            "endpoint", "GET /v1/ghosts",
+            "operation", "list_zombies",
+            "endpoint", "GET /v1/zombies",
         )
         http.Error(w, "internal error", http.StatusInternalServerError)
         return
     }
     
-    writeJSON(w, ghosts)
+    writeJSON(w, zombies)
 }
 ```
 
 **Metrics recorded:**
-- `axiaops_db_query_duration_seconds{operation="LOAD_GHOSTS"}` — query latency
-- `axiaops_db_query_errors_total{operation="LOAD_GHOSTS"}` — error count (if failed)
+- `axiaops_db_query_duration_seconds{operation="LOAD_ZOMBIES"}` — query latency
+- `axiaops_db_query_errors_total{operation="LOAD_ZOMBIES"}` — error count (if failed)
 
 **Logs (JSON to stdout):**
 ```json
-{"level":"ERROR","msg":"error","error":"...","operation":"list_ghosts","endpoint":"GET /v1/ghosts"}
+{"level":"ERROR","msg":"error","error":"...","operation":"list_zombies","endpoint":"GET /v1/zombies"}
 ```
 
 ---
@@ -196,24 +196,24 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
         return fmt.Errorf("fetch usage from cloudwatch: %w", err)
     }
     
-    ghosts := analyzer.Detect(allRecords, usage)
-    eipGhosts := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient.AccountID(), start, end)
-    ghosts = append(ghosts, eipGhosts...)
+    zombies := analyzer.Detect(allRecords, usage)
+    eipZombies := aws.DiscoverUnattachedEIPs(ctx, allRecords, awsClient.AccountID(), start, end)
+    zombies = append(zombies, eipZombies...)
     
-    summary := analyzer.Summarize(ghosts)
-    slog.Info("analysis: detected ghost resources", "total", summary.TotalGhosts)
+    summary := analyzer.Summarize(zombies)
+    slog.Info("analysis: detected zombie resources", "total", summary.TotalZombies)
     
     analyzeObserver.Observe()
     
     // === SAVE STAGE ===
     saveObserver := observability.NewScanObserver("save")
     
-    if err := store.SaveGhosts(ctx, ghosts); err != nil {
-        observability.RecordScanError(accountID, "save_ghosts_failed")
-        return fmt.Errorf("save ghosts: %w", err)
+    if err := store.SaveZombies(ctx, zombies); err != nil {
+        observability.RecordScanError(accountID, "save_zombies_failed")
+        return fmt.Errorf("save zombies: %w", err)
     }
     
-    resources := analyzer.AnnotateAll(allRecords, usage, ghosts)
+    resources := analyzer.AnnotateAll(allRecords, usage, zombies)
     if err := store.SaveResources(ctx, resources); err != nil {
         observability.RecordScanError(accountID, "save_resources_failed")
         return fmt.Errorf("save resources: %w", err)
@@ -222,7 +222,7 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
     saveObserver.Observe()
     
     // === UPDATE SUMMARY METRICS ===
-    observability.Global.GhostsDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalGhosts))
+    observability.Global.ZombiesDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalZombies))
     observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(summary.PotentialMonthlySave)
     observability.Global.ResourcesAnalyzed.Add(float64(len(resources)))
     
@@ -236,7 +236,7 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
 - `axiaops_scan_duration_seconds{stage="save"}` — save latency
 - `axiaops_accounts_scanning` — incremented at start, decremented at end
 - `axiaops_scan_errors_total{account_id="...", error_type="..."}` — error count
-- `axiaops_ghosts_detected{provider="aws", tenant_id="..."}` — final ghost count
+- `axiaops_zombies_detected{provider="aws", tenant_id="..."}` — final zombie count
 - `axiaops_potential_monthly_savings_usd{provider="aws", tenant_id="..."}` — savings
 - `axiaops_resources_analyzed_total` — total resources
 
@@ -396,7 +396,7 @@ curl -X POST http://localhost:8080/v1/accounts/abc-123/scan
 
 # Check metrics
 curl http://localhost:8080/metrics | grep "axiaops_scan_duration_seconds"
-curl http://localhost:8081/metrics | grep "axiaops_ghosts_detected"
+curl http://localhost:8081/metrics | grep "axiaops_zombies_detected"
 ```
 
 ### Prometheus Scrape Test
