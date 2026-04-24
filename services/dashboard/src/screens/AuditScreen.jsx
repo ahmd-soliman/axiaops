@@ -75,13 +75,19 @@ function ActionChip({ action, theme, isDark }) {
   );
 }
 
+// Always render audit timestamps in UTC and label them as such. Audit logs
+// are a compliance/security artefact — comparing two operators' views of the
+// same event must produce the same string regardless of where they're sitting.
+// The trailing " UTC" makes the timezone explicit so nobody has to guess.
 function fmtTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
-  return d.toLocaleString('en-GB', {
+  const formatted = d.toLocaleString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
+    timeZone: 'UTC',
   });
+  return `${formatted} UTC`;
 }
 
 function MetadataPanel({ event, theme }) {
@@ -108,30 +114,45 @@ function MetadataPanel({ event, theme }) {
 function EventRow({ event, theme, isDark }) {
   const [expanded, setExpanded] = useState(false);
   const hasMetadata = event.metadata && Object.keys(event.metadata).length > 0;
+
+  // Toggle on Enter or Space when the row is keyboard-focused. Without this,
+  // a click-to-expand row is invisible to keyboard-only users.
+  function handleKey(e) {
+    if (!hasMetadata) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setExpanded((v) => !v);
+    }
+  }
+
   return (
     <div
+      role={hasMetadata ? 'button' : 'row'}
+      tabIndex={hasMetadata ? 0 : undefined}
+      aria-expanded={hasMetadata ? expanded : undefined}
       style={{
         padding: '12px 16px',
         borderBottom: `1px solid ${theme.border}`,
         cursor: hasMetadata ? 'pointer' : 'default',
       }}
       onClick={hasMetadata ? () => setExpanded((v) => !v) : undefined}
+      onKeyDown={handleKey}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: '0 0 160px', fontSize: 12, color: theme.textMuted, fontFamily: 'monospace' }}>
+        <div role="cell" style={{ flex: '0 0 200px', fontSize: 12, color: theme.textMuted, fontFamily: 'monospace' }}>
           {fmtTime(event.created_at)}
         </div>
-        <div style={{ flex: '0 0 140px' }}>
+        <div role="cell" style={{ flex: '0 0 140px' }}>
           <ActionChip action={event.action} theme={theme} isDark={isDark} />
         </div>
-        <div style={{ flex: '1 1 180px', fontSize: 13, color: theme.text, minWidth: 0 }}>
+        <div role="cell" style={{ flex: '1 1 180px', fontSize: 13, color: theme.text, minWidth: 0 }}>
           {event.actor_email || event.user_id || <em style={{ color: theme.textMuted }}>system</em>}
         </div>
-        <div style={{ flex: '1 1 220px', fontSize: 12, color: theme.textMid, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+        <div role="cell" style={{ flex: '1 1 220px', fontSize: 12, color: theme.textMid, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
           {event.resource_type ? `${event.resource_type}/${event.resource_id}` : event.resource_id || '—'}
         </div>
         {hasMetadata && (
-          <div style={{ flex: '0 0 auto', color: theme.textMuted, fontSize: 12 }}>
+          <div aria-hidden="true" style={{ flex: '0 0 auto', color: theme.textMuted, fontSize: 12 }}>
             {expanded ? '▾' : '▸'}
           </div>
         )}
@@ -202,9 +223,13 @@ export default function AuditScreen() {
   const [sinceDate, setSinceDate]       = useState('');
   const [untilDate, setUntilDate]       = useState('');
 
-  // Convert date-only input into RFC3339 — server expects full timestamps.
-  const since = sinceDate ? `${sinceDate}T00:00:00Z` : undefined;
-  const until = untilDate ? `${untilDate}T23:59:59Z` : undefined;
+  // <input type="date"> emits a local-day string ("2026-04-01"). Construct the
+  // local-midnight Date and let toISOString() handle the timezone conversion
+  // so a user in UTC+2 picking 2026-04-01 sees events from their *local* day,
+  // not UTC's day. The previous code suffixed "Z" directly, which silently
+  // dropped events at the day boundary for any non-UTC user.
+  const since = sinceDate ? new Date(`${sinceDate}T00:00:00`).toISOString() : undefined;
+  const until = untilDate ? new Date(`${untilDate}T23:59:59.999`).toISOString() : undefined;
 
   const query = useInfiniteQuery({
     queryKey: ['audit', { action, resourceType, since, until }],
@@ -254,14 +279,14 @@ export default function AuditScreen() {
       </div>
 
       {/* Results */}
-      <div style={{
+      <div role="table" aria-label="Audit events" style={{
         backgroundColor: theme.surface,
         border: `1px solid ${theme.border}`,
         borderRadius: 10,
         overflow: 'hidden',
       }}>
         {/* Column headers */}
-        <div style={{
+        <div role="row" style={{
           display: 'flex',
           gap: 12,
           padding: '10px 16px',
@@ -273,11 +298,11 @@ export default function AuditScreen() {
           letterSpacing: 1.2,
           textTransform: 'uppercase',
         }}>
-          <div style={{ flex: '0 0 160px' }}>Time</div>
-          <div style={{ flex: '0 0 140px' }}>Action</div>
-          <div style={{ flex: '1 1 180px' }}>Actor</div>
-          <div style={{ flex: '1 1 220px' }}>Resource</div>
-          <div style={{ flex: '0 0 20px' }} />
+          <div role="columnheader" style={{ flex: '0 0 200px' }}>Time</div>
+          <div role="columnheader" style={{ flex: '0 0 140px' }}>Action</div>
+          <div role="columnheader" style={{ flex: '1 1 180px' }}>Actor</div>
+          <div role="columnheader" style={{ flex: '1 1 220px' }}>Resource</div>
+          <div role="columnheader" aria-label="Expand" style={{ flex: '0 0 20px' }} />
         </div>
 
         {query.isLoading && (
@@ -287,8 +312,13 @@ export default function AuditScreen() {
         )}
 
         {query.isError && (
-          <div style={{ padding: 40, textAlign: 'center', color: theme.textMuted, fontSize: 13 }}>
+          <div role="alert" style={{ padding: 40, textAlign: 'center', color: theme.textMuted, fontSize: 13 }}>
             Failed to load audit events.
+            {query.error?.message && (
+              <div style={{ marginTop: 6, fontSize: 11, fontFamily: 'monospace', color: theme.textMuted, opacity: 0.7 }}>
+                {query.error.message}
+              </div>
+            )}
           </div>
         )}
 
