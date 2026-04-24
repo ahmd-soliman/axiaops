@@ -89,12 +89,13 @@ Down migration: `DROP TABLE audit_log` (acceptable — pre-launch, no customer d
 
 Defined as Go constants (`services/shared/model/audit.go`), not a DB enum — keeps migrations cheap when we add new actions.
 
+**Rule:** `audit_log` is mutation-only. Reads (list endpoints, detail views, command lookups) never go here — CloudTrail records real AWS actions, and product telemetry is a better home for UX analytics. Adding a read action to the enum is a red flag.
+
 | Constant | Value | When logged |
 |----------|-------|-------------|
 | `AuditActionDismissZombie` | `dismiss_zombie` | `POST /v1/dismissals` with `action=dismiss` |
 | `AuditActionSnoozeZombie` | `snooze_zombie` | `POST /v1/dismissals` with `action=snooze` |
 | `AuditActionRevokeDismissal` | `revoke_dismissal` | `DELETE /v1/dismissals/{id}` |
-| `AuditActionViewRemediation` | `view_remediation` | `GET /v1/zombies/{id}/remediation` (added in 3.3) |
 | `AuditActionScanTriggered` | `scan_triggered` | `POST /v1/accounts/{id}/scan` (user-initiated only) |
 | `AuditActionAccountConnected` | `account_connected` | `POST /v1/accounts` |
 | `AuditActionAccountUpdated` | `account_updated` | `PATCH /v1/accounts/{id}` |
@@ -115,9 +116,6 @@ Keep it small and grep-friendly; redact secrets.
 // require an extra Get round-trip for no additional query power (a join
 // recovers them). If timeline-grep ergonomics demand it later, add then.
 {}
-
-// view_remediation
-{"zombie_id":"...","command_type":"aws_cli"}
 
 // scan_triggered
 {"account_label":"prod-eu","region":"eu-central-1","on_demand":true}
@@ -285,9 +283,9 @@ Pre-launch, there are no production rows yet — no backfill needed.
 
 **PR 2 — `feature/audit-log` (this branch):** audit table + handler wiring + endpoint, all in one. Migration `014_audit_log` (schema + RLS), `Store.AuditLogWrite/List/AnonymiseUser`, `services/api/internal/audit` helper, call-site wiring in dismiss/snooze/revoke + account CRUD + on-demand scan, `GET /v1/audit` with cursor pagination, `axiaops_audit_writes_total{action,status}` Prometheus counter, Postgres + handler + endpoint tests. Best-effort semantics: audit-write failure never breaks a user operation.
 
-**PR 3 — Remediation audit event:** ships alongside the 3.3 "Remediation Actions" task, not this PR. Adds `view_remediation` emission on `GET /v1/zombies/{id}/remediation`.
+**PR 3 — Dashboard Audit History screen:** after Phase 3.9 user roles land (only admins should see the audit timeline).
 
-**PR 4 — Dashboard Audit History screen:** after Phase 3.9 user roles land (only admins should see the audit timeline).
+> **Dropped:** an earlier revision of this plan included a `view_remediation` event fired from a `GET /v1/zombies/{id}/remediation` endpoint. Removed — `audit_log` is mutation-only (see §3.2). CloudTrail records the real AWS actions that follow a remediation view; duplicating a weak proxy here added volume without signal.
 
 ---
 
