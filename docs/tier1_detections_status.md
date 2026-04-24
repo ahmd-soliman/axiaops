@@ -193,7 +193,7 @@ No additional IAM permissions needed — all Tier 1 detections use existing gran
 ## Testing
 
 **Unit Tests:**
-- Analyzer logic: `services/ingestion/internal/analyzer/detector_test.go`
+- Analyzer logic: `services/shared/analyzer/detector_test.go`
 - 7 test cases covering threshold detection, owner resolution, summarization
 
 **Integration Tests:**
