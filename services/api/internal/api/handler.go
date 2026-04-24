@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"axiaops.io/api/internal/audit"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/crypto"
@@ -56,6 +58,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/dismissals", h.createDismissal)
 	mux.HandleFunc("DELETE /v1/dismissals/{id}", h.revokeDismissal)
 	mux.HandleFunc("GET /v1/dismissals", h.listDismissals)
+	// Audit trail
+	mux.HandleFunc("GET /v1/audit", h.listAuditEvents)
 }
 
 // cors wraps a handler with CORS headers.
@@ -433,6 +437,17 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       model.AuditActionAccountConnected,
+		ResourceType: "account",
+		ResourceID:   account.ID,
+		Metadata: map[string]any{
+			"provider": account.Provider,
+			"label":    account.Label,
+			"region":   account.Region,
+		},
+	})
+
 	w.WriteHeader(http.StatusCreated)
 	writeJSON(w, account)
 }
@@ -493,6 +508,34 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Record which field names were changed — not the values, since old/new
+	// secret_key must never leak into the audit table. Note req != nil checks
+	// are what the handler already used above to decide which columns to update.
+	changed := make([]string, 0, 5)
+	if req.Label != nil {
+		changed = append(changed, "label")
+	}
+	if req.AccessKeyID != nil {
+		changed = append(changed, "access_key_id")
+	}
+	if req.SecretKey != nil && *req.SecretKey != "" {
+		changed = append(changed, "secret_key")
+	}
+	if req.Region != nil {
+		changed = append(changed, "region")
+	}
+	if req.ScanIntervalHours != nil {
+		changed = append(changed, "scan_interval_hours")
+	}
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       model.AuditActionAccountUpdated,
+		ResourceType: "account",
+		ResourceID:   existing.ID,
+		Metadata: map[string]any{
+			"fields_changed": changed,
+		},
+	})
+
 	writeJSON(w, existing)
 }
 
@@ -505,6 +548,13 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       model.AuditActionAccountDeleted,
+		ResourceType: "account",
+		ResourceID:   id,
+	})
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -545,6 +595,18 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("scan.enqueued", "account_id", id, "tenant_id", tenantID)
+
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       model.AuditActionScanTriggered,
+		ResourceType: "account",
+		ResourceID:   id,
+		Metadata: map[string]any{
+			"account_label": account.Label,
+			"region":        account.Region,
+			"on_demand":     true,
+		},
+	})
+
 	writeJSON(w, map[string]string{"status": "scanning"})
 }
 
@@ -628,6 +690,26 @@ func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.ID = id
+
+	action := model.AuditActionDismissZombie
+	if d.Action == model.DismissActionSnooze {
+		action = model.AuditActionSnoozeZombie
+	}
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       action,
+		ResourceType: "dismissal",
+		ResourceID:   strconv.FormatInt(id, 10),
+		Reason:       d.Reason,
+		Metadata: map[string]any{
+			"provider":      d.Provider,
+			"service":       d.Service,
+			"region":        d.Region,
+			"resource_id":   d.ResourceID,
+			"note":          d.Note,
+			"snoozed_until": d.SnoozedUntil,
+		},
+	})
+
 	w.WriteHeader(http.StatusCreated)
 	writeJSON(w, d)
 }
@@ -649,6 +731,13 @@ func (h *Handler) revokeDismissal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "dismissal not found or already revoked", http.StatusNotFound)
 		return
 	}
+
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       model.AuditActionRevokeDismissal,
+		ResourceType: "dismissal",
+		ResourceID:   strconv.FormatInt(id, 10),
+	})
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -668,6 +757,112 @@ func (h *Handler) listDismissals(w http.ResponseWriter, r *http.Request) {
 		dismissals = []model.DismissAction{}
 	}
 	writeJSON(w, dismissals)
+}
+
+// listAuditEvents handles GET /v1/audit.
+// Query params (all optional): user_id, resource_type, resource_id, action,
+// since (RFC3339), until (RFC3339), limit (1..500, default 50), cursor
+// (opaque token from a previous response's next_cursor).
+// Response: { "events": [...], "next_cursor": "<base64>" | "" }.
+func (h *Handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+
+	q := r.URL.Query()
+	filter := model.AuditFilter{
+		UserID:       q.Get("user_id"),
+		ResourceType: q.Get("resource_type"),
+		ResourceID:   q.Get("resource_id"),
+		Action:       q.Get("action"),
+		Limit:        50,
+	}
+	if filter.Action != "" && !model.ValidAuditActions[filter.Action] {
+		http.Error(w, "invalid action", http.StatusBadRequest)
+		return
+	}
+	if raw := q.Get("since"); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			http.Error(w, "since must be RFC3339 timestamp", http.StatusBadRequest)
+			return
+		}
+		filter.Since = t
+	}
+	if raw := q.Get("until"); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			http.Error(w, "until must be RFC3339 timestamp", http.StatusBadRequest)
+			return
+		}
+		filter.Until = t
+	}
+	if raw := q.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 500 {
+			http.Error(w, "limit must be between 1 and 500", http.StatusBadRequest)
+			return
+		}
+		filter.Limit = n
+	}
+	if raw := q.Get("cursor"); raw != "" {
+		cur, err := decodeAuditCursor(raw)
+		if err != nil {
+			http.Error(w, "invalid cursor", http.StatusBadRequest)
+			return
+		}
+		filter.Cursor = cur
+	}
+
+	events, err := h.store.AuditLogList(ctx, filter)
+	if err != nil {
+		slog.Error("listAuditEvents: failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	resp := struct {
+		Events     []model.AuditEvent `json:"events"`
+		NextCursor string             `json:"next_cursor,omitempty"`
+	}{Events: events}
+	if len(events) == filter.Limit {
+		// There may be more — encode the last row as the cursor. When the caller
+		// reaches the true end they'll get a short page and next_cursor == "".
+		last := events[len(events)-1]
+		resp.NextCursor = encodeAuditCursor(model.AuditCursor{
+			CreatedAt: last.CreatedAt,
+			ID:        last.ID,
+		})
+	}
+	if resp.Events == nil {
+		resp.Events = []model.AuditEvent{}
+	}
+	writeJSON(w, resp)
+}
+
+// encodeAuditCursor / decodeAuditCursor turn an (created_at, id) pair into
+// an opaque base64 JSON token. Treating it as opaque leaves room to change the
+// pagination key in the future without breaking clients that round-trip it.
+func encodeAuditCursor(c model.AuditCursor) string {
+	b, err := json.Marshal(c)
+	if err != nil {
+		// Unreachable today — AuditCursor holds only a time.Time and an int64.
+		// If a future change to the struct breaks this, a log entry is cheaper
+		// than discovering the regression via silent "end of results" responses.
+		slog.Error("audit: encode cursor failed", "error", err)
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func decodeAuditCursor(s string) (model.AuditCursor, error) {
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		return model.AuditCursor{}, err
+	}
+	var c model.AuditCursor
+	if err := json.Unmarshal(b, &c); err != nil {
+		return model.AuditCursor{}, err
+	}
+	return c, nil
 }
 
 // dismissActor returns the identifier stored in dismissed_by / revoked_by.
