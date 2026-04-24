@@ -21,9 +21,7 @@ import (
 type contextKey string
 
 const (
-	tenantIDKey   contextKey = "tenant_id"
-	tenantNameKey contextKey = "tenant_name"
-	userIDKey     contextKey = "user_id"
+	tenantIDKey contextKey = "tenant_id"
 
 	jwksTTL = time.Hour
 )
@@ -159,16 +157,13 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 				return
 			}
 
-			user, err := a.store.UpsertUser(ctx, tenant.ID, sub, email, name)
-			if err != nil {
+			if _, err := a.store.UpsertUser(ctx, tenant.ID, sub, email, name); err != nil {
 				slog.Error("auth: UpsertUser failed", "error", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 
 			ctx = context.WithValue(ctx, tenantIDKey, tenant.ID)
-			ctx = context.WithValue(ctx, tenantNameKey, tenant.Name)
-			ctx = context.WithValue(ctx, userIDKey, user.ID)
 		} else {
 			ctx = context.WithValue(ctx, tenantIDKey, orgCode)
 		}
@@ -180,18 +175,6 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 // TenantID returns the internal tenant UUID from the request context.
 func TenantID(ctx context.Context) string {
 	id, _ := ctx.Value(tenantIDKey).(string)
-	return id
-}
-
-// TenantName returns the tenant display name from the request context.
-func TenantName(ctx context.Context) string {
-	name, _ := ctx.Value(tenantNameKey).(string)
-	return name
-}
-
-// UserID returns the internal user UUID from the request context.
-func UserID(ctx context.Context) string {
-	id, _ := ctx.Value(userIDKey).(string)
 	return id
 }
 
