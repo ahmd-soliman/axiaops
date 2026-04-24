@@ -69,12 +69,16 @@ type Store interface {
 	// Keyed on kinde_sub — the stable Kinde user identifier.
 	UpsertUser(ctx context.Context, tenantID, kindeSub, email, name string) (model.User, error)
 
-	// EnsureUser creates a user with a caller-supplied id if no row with that id
-	// exists yet. Unlike UpsertUser the id is pinned and the row is never
-	// modified on conflict. Used by dev mode at startup so DevBypass can inject
-	// a stable user_id alongside the dev tenant_id without going through the
-	// Kinde-upsert path.
-	EnsureUser(ctx context.Context, id, tenantID, email, name string) error
+	// EnsureUser creates a user with a caller-supplied id, or updates
+	// tenant_id/email/name/last_seen if a row with that id already exists.
+	// Unlike UpsertUser the id is pinned by the caller (not generated). Used
+	// by dev mode at startup so DevBypass can inject a stable user_id alongside
+	// the dev tenant_id without going through the Kinde-upsert path.
+	//
+	// Only u.ID, u.TenantID, u.Email, and u.Name are read. KindeSub is derived
+	// by the implementation (synthetic "dev:<id>" for the Postgres impl).
+	// Timestamps are set to NOW().
+	EnsureUser(ctx context.Context, u model.User) error
 
 	// SaveAccount inserts or replaces a connected cloud account for a tenant.
 	SaveAccount(ctx context.Context, a model.Account) error

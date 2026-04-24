@@ -277,7 +277,7 @@ func (m *MockStore) UpsertUser(_ context.Context, _, _, _, _ string) (model.User
 	return model.User{}, nil
 }
 
-func (m *MockStore) EnsureUser(_ context.Context, _, _, _, _ string) error {
+func (m *MockStore) EnsureUser(_ context.Context, _ model.User) error {
 	return nil
 }
 

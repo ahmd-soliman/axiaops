@@ -170,6 +170,11 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 			ctx = context.WithValue(ctx, userIDKey, user.ID)
 			ctx = context.WithValue(ctx, userEmailKey, user.Email)
 		} else {
+			// store == nil is reachable only via newWithKeyfunc in tests.
+			// In this branch userIDKey receives the raw Kinde sub (e.g. "kp_abc")
+			// instead of a users.id UUID, so anything using UserID(ctx) as a FK
+			// will fail. Never wire this path into production — it exists purely
+			// so middleware tests can exercise JWT parsing without a DB.
 			ctx = context.WithValue(ctx, tenantIDKey, orgCode)
 			ctx = context.WithValue(ctx, userIDKey, sub)
 			ctx = context.WithValue(ctx, userEmailKey, email)

@@ -290,6 +290,7 @@ func (s *Store) EnsureTenant(ctx context.Context, id, orgCode, name string) erro
 //
 // A synthetic kinde_sub of the form "dev:<id>" is used so the UNIQUE constraint
 // on kinde_sub can coexist with real Kinde-issued users in the same database.
+// Migration 013 adds a CHECK constraint enforcing this invariant.
 //
 // Conflict handling is DO UPDATE (not DO NOTHING) so that rotating DEV_TENANT_ID
 // or DEV_USER_EMAIL across runs self-corrects the existing row — otherwise the
@@ -300,9 +301,9 @@ func (s *Store) EnsureTenant(ctx context.Context, id, orgCode, name string) erro
 // only because `users` has no RLS policy and this is a startup bootstrap call.
 // Do NOT copy this pattern for handler-path writes to RLS-scoped tables —
 // those must use storage.WithTenantID and the transaction pattern.
-func (s *Store) EnsureUser(ctx context.Context, id, tenantID, email, name string) error {
+func (s *Store) EnsureUser(ctx context.Context, u model.User) error {
 	now := time.Now().UTC()
-	kindeSub := "dev:" + id
+	kindeSub := "dev:" + u.ID
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO users (id, tenant_id, kinde_sub, email, name, created_at, last_seen)
 		VALUES ($1, $2, $3, $4, $5, $6, $6)
@@ -311,7 +312,7 @@ func (s *Store) EnsureUser(ctx context.Context, id, tenantID, email, name string
 			email     = EXCLUDED.email,
 			name      = EXCLUDED.name,
 			last_seen = EXCLUDED.last_seen`,
-		id, tenantID, kindeSub, email, name, now,
+		u.ID, u.TenantID, kindeSub, u.Email, u.Name, now,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: ensure user: %w", err)
