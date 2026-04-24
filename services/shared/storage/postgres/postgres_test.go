@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -1126,6 +1127,32 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 	// tenant_id column should equal the tenant we wrote under.
 	if events[0].TenantID != tenant.ID {
 		t.Errorf("tenant_id: got %q, want %q", events[0].TenantID, tenant.ID)
+	}
+}
+
+// Regression test: INET columns must round-trip through AuditLogList. The
+// original implementation cast ip_address via the default binary codec, which
+// pgx can't decode into the **string used for the nullable IP field. Fixture
+// tests never populated an IP so the bug slipped past CI and surfaced only
+// when the dashboard hit the real endpoint with a real client address.
+func TestAuditLog_IPAddressRoundTrips(t *testing.T) {
+	s := newTestStore(t)
+	ctx, _ := newTenantCtx(t, s)
+
+	writeAudit(t, s, ctx, model.AuditEvent{
+		Action:    model.AuditActionScanTriggered,
+		IPAddress: net.ParseIP("203.0.113.42"),
+	})
+
+	events, err := s.AuditLogList(ctx, model.AuditFilter{})
+	if err != nil {
+		t.Fatalf("AuditLogList with populated ip_address: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if got := events[0].IPAddress.String(); got != "203.0.113.42" {
+		t.Errorf("ip_address round-trip: got %q, want 203.0.113.42", got)
 	}
 }
 

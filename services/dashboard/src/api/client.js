@@ -169,6 +169,33 @@ export async function fetchZombiesWithDismissed(accountId) {
   return res.json();
 }
 
+// Fetch a page of audit events. All fields are optional; unset values are
+// omitted from the query string so the server applies its defaults.
+// Returns `{ events: [...], next_cursor: '' | '<opaque>' }`.
+//
+// Example:
+//   fetchAuditEvents({ action: 'dismiss_zombie', limit: 50 })
+//   fetchAuditEvents({ cursor: prev.next_cursor })
+export async function fetchAuditEvents({
+  userId, resourceType, resourceId, action, since, until, limit, cursor,
+} = {}) {
+  const params = new URLSearchParams();
+  if (userId)       params.set('user_id', userId);
+  if (resourceType) params.set('resource_type', resourceType);
+  if (resourceId)   params.set('resource_id', resourceId);
+  if (action)       params.set('action', action);
+  if (since)        params.set('since', since);       // RFC3339 string
+  if (until)        params.set('until', until);       // RFC3339 string
+  if (limit)        params.set('limit', String(limit));
+  if (cursor)       params.set('cursor', cursor);
+
+  const qs = params.toString();
+  const url = qs ? `${BASE_URL}/v1/audit?${qs}` : `${BASE_URL}/v1/audit`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch audit events');
+  return res.json();
+}
+
 export async function fetchCosts(accountId, service, days = 30) {
   const params = new URLSearchParams();
   if (accountId) params.set('account_id', accountId);
