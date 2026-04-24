@@ -1129,6 +1129,15 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 	if events[1].Metadata["service"] != "AmazonEC2" {
 		t.Errorf("expected metadata round-trip, got %v", events[1].Metadata)
 	}
+	// IP round-trip — without this assertion the codec regression test (see
+	// TestAuditLog_IPAddressRoundTrips) is the only thing keeping the cast
+	// honest. Defence-in-depth: even if someone deletes that test, this one
+	// catches a reverted host(ip_address) cast.
+	if events[1].IPAddress == nil {
+		t.Errorf("ip_address: got nil, want 203.0.113.7")
+	} else if got := events[1].IPAddress.String(); got != "203.0.113.7" {
+		t.Errorf("ip_address: got %q, want 203.0.113.7", got)
+	}
 	// tenant_id column should equal the tenant we wrote under.
 	if events[0].TenantID != tenant.ID {
 		t.Errorf("tenant_id: got %q, want %q", events[0].TenantID, tenant.ID)
