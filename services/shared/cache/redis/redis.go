@@ -89,6 +89,13 @@ func (c *Client) Incr(ctx context.Context, key string, ttl time.Duration) (int64
 	return incrCmd.Val(), nil
 }
 
+// Ping verifies the Redis connection is reachable. Caller controls timeout
+// via ctx — readyz handlers typically wrap a 1s deadline so a slow Redis
+// can't block the load-balancer health check.
+func (c *Client) Ping(ctx context.Context) error {
+	return c.rdb.Ping(ctx).Err()
+}
+
 // Close closes the underlying Redis connection.
 func (c *Client) Close() error {
 	return c.rdb.Close()
