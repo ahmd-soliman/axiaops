@@ -1,6 +1,6 @@
 # AxiaOps — Task Tracker
 
-_Last updated: 2026-04-23_
+_Last updated: 2026-04-24_
 
 ---
 
@@ -38,11 +38,11 @@ _Last updated: 2026-04-23_
 | 1 | **Wire Redis in API `main.go`** ✅ | `cache.New(REDIS_URL)` injected into `NewAuth` + `NewRateLimiter`; falls back to memory if unset |
 | 2 | **CSV export — unified across screens** ✅ | TrendScreen added; DashboardScreen + CostAnalyticsScreen migrated to single convention defined in `csv-export` skill (`.claude/skills/csv-export/SKILL.md`). |
 | 3 | **Production deployment** | App Runner (API + ingestion) + RDS + ElastiCache via Terraform. See `docs/production.md`. |
-| 4 | **Raw cost view** | Expose `cost_records` in `/v1/costs` endpoint + new "Cost" dashboard screen. See `tasks/raw-cost-view.md`. |
+| 4 | **Raw cost view** ✅ | `GET /v1/costs` endpoint (`services/api/internal/api/handler.go:47`) + `CostAnalyticsScreen.jsx` shipped. |
 | 5 | **Weekly email digest** | New zombies after scan → Resend/SendGrid email. References `zombie_snapshots` for delta. |
 | 6 | **Slack webhook alert** | Notify channel when new zombies appear post-scan. |
 | 7 | **Rename ghost → zombie across the stack** ✅ | Completed: DB tables, Go types, API routes (`/zombies`), and dashboard field reads are all aligned on "zombie". Single PR covered `ALTER TABLE … RENAME` (metadata-only in Postgres), Go symbol renames (`GhostResource` → `ZombieResource`, `LoadGhosts` → `LoadZombies`, etc.), API routes (`/ghosts` → `/zombies`), and dashboard field reads. Acceptance criterion met: `grep -ri "ghost" services/` returns zero non-historical matches. |
-| 8 | **Remove CE anomaly-monitor "ghost" detection** | AWS Cost Anomaly Detection is free — the `$0.10/day per extra monitor` pricing claim in the code does not exist. Delete `DiscoverIdleCEAnomalyMonitors` (`services/ingestion/internal/provider/aws/discover.go:1879-1987`), its call site (`services/ingestion/cmd/main.go:574-584`), its test (`services/ingestion/internal/provider/aws/discover_test.go:143-151`), the `ceAnomalyMonitorMonthlyCost` constant, and any `ce:GetAnomalyMonitors` / `ce:GetAnomalies` lines from IAM policy docs. Do on a separate branch. |
+| 8 | **Remove CE anomaly-monitor "ghost" detection** ✅ | `DiscoverIdleCEAnomalyMonitors`, its call site, test, constant, and IAM policy lines (`ce:GetAnomalyMonitors`, `ce:GetAnomalies`) all removed. AWS Cost Anomaly Detection is free — the `$3/mo` pricing claim was fabricated. |
 
 ---
 

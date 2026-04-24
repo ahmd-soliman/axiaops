@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -14,8 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
-	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
-	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -1873,115 +1870,5 @@ func DiscoverUnusedSecrets(ctx context.Context, records []model.CostRecord, awsC
 			nextToken = out.NextToken
 		}
 	}
-	return zombies, nil
-}
-
-// ── CE Anomaly Detection monitors ────────────────────────────────────────────
-
-// ceAnomalyMonitorMonthlyCost is the charge per additional anomaly monitor per month.
-// The first monitor per account is free; each additional costs $0.10/day (~$3.00/month).
-// Source: AWS Cost Explorer pricing.
-const ceAnomalyMonitorMonthlyCost = 3.00
-
-// DiscoverIdleCEAnomalyMonitors calls ce:GetAnomalyMonitors to enumerate all Cost
-// Anomaly Detection monitors and flags any paid monitor (beyond the first, which is
-// free) that detected zero anomalies during the lookback window. Such monitors
-// accumulate ~$3/month while providing no signal.
-//
-// CE is a global service — a single us-east-1 request covers all regions.
-func DiscoverIdleCEAnomalyMonitors(ctx context.Context, _ []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	cfg, err := awsClient.configForRegion(ctx, "us-east-1")
-	if err != nil {
-		slog.Warn("ce-monitor: load config", "error", err)
-		return nil, nil
-	}
-	client := costexplorer.NewFromConfig(cfg)
-	accountID := awsClient.AccountID()
-
-	// Collect all monitors with pagination.
-	var monitors []cetypes.AnomalyMonitor
-	var nextPage *string
-	for {
-		out, err := client.GetAnomalyMonitors(ctx, &costexplorer.GetAnomalyMonitorsInput{
-			NextPageToken: nextPage,
-		})
-		if err != nil {
-			slog.Warn("ce-monitor: GetAnomalyMonitors", "error", err)
-			return nil, nil
-		}
-		monitors = append(monitors, out.AnomalyMonitors...)
-		if out.NextPageToken == nil {
-			break
-		}
-		nextPage = out.NextPageToken
-	}
-
-	if len(monitors) <= 1 {
-		// Zero or one monitor — the first is free, nothing to flag.
-		return nil, nil
-	}
-
-	// Sort by creation date ascending so monitors[0] is the oldest (free) one.
-	sort.Slice(monitors, func(i, j int) bool {
-		return aws.ToString(monitors[i].CreationDate) < aws.ToString(monitors[j].CreationDate)
-	})
-
-	// Skip the first monitor (free tier); check the rest.
-	paidMonitors := monitors[1:]
-	startStr := start.Format("2006-01-02")
-	endStr := end.Format("2006-01-02")
-
-	var zombies []model.ZombieResource
-	for _, m := range paidMonitors {
-		monitorARN := aws.ToString(m.MonitorArn)
-		monitorName := aws.ToString(m.MonitorName)
-
-		// Count anomalies detected in the lookback window.
-		anomalyCount := 0
-		var anomalyPage *string
-		errored := false
-		for {
-			aOut, err := client.GetAnomalies(ctx, &costexplorer.GetAnomaliesInput{
-				MonitorArn:    aws.String(monitorARN),
-				DateInterval:  &cetypes.AnomalyDateInterval{StartDate: aws.String(startStr), EndDate: aws.String(endStr)},
-				NextPageToken: anomalyPage,
-			})
-			if err != nil {
-				slog.Warn("ce-monitor: GetAnomalies failed", "monitor_arn", monitorARN, "error", err)
-				errored = true
-				break
-			}
-			anomalyCount += len(aOut.Anomalies)
-			if aOut.NextPageToken == nil {
-				break
-			}
-			anomalyPage = aOut.NextPageToken
-		}
-
-		if errored || anomalyCount > 0 {
-			continue
-		}
-
-		slog.Info("ce-monitor: idle anomaly monitor flagged", "monitor_arn", monitorARN, "monitor_name", monitorName)
-		zombies = append(zombies, model.ZombieResource{
-			Provider:          "aws",
-			AccountID:         accountID,
-			InternalAccountID: internalAccountID,
-			Service:           "AWSCostExplorer",
-			Region:            "us-east-1",
-			ResourceID:        monitorARN,
-			Tags:              map[string]string{},
-			MonthlyCost:       ceAnomalyMonitorMonthlyCost,
-			Currency:          "USD",
-			PeriodStart:       start,
-			PeriodEnd:         end,
-			UsageMetric:       "AnomalyCount",
-			UsageAvg:          0,
-			UsageUnit:         "Count",
-			Reason:            fmt.Sprintf("Cost Anomaly Detection monitor %q detected zero anomalies in the last 30 days — paying ~$3/mo for no signal", monitorName),
-			Owner:             "",
-		})
-	}
-
 	return zombies, nil
 }
