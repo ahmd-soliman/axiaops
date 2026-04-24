@@ -26,6 +26,10 @@ type Cache interface {
 	Del(ctx context.Context, key string) error
 	// Incr atomically increments a counter, resetting TTL on each call.
 	Incr(ctx context.Context, key string, ttl time.Duration) (int64, error)
+	// Ping verifies the cache backend is reachable. Memory implementations
+	// always return nil — they cannot be unreachable. Redis implementations
+	// pass the ctx deadline through so callers can cap how long they'll wait.
+	Ping(ctx context.Context) error
 	// Close releases resources held by the cache.
 	Close() error
 }
@@ -52,7 +56,8 @@ func (w *wrappedCache) Del(ctx context.Context, key string) error {
 func (w *wrappedCache) Incr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
 	return w.inner.Incr(ctx, key, ttl)
 }
-func (w *wrappedCache) Close() error { return w.inner.Close() }
+func (w *wrappedCache) Ping(ctx context.Context) error { return w.inner.Ping(ctx) }
+func (w *wrappedCache) Close() error                   { return w.inner.Close() }
 
 // New returns a Redis-backed Cache when redisURL is non-empty,
 // otherwise returns an in-memory Cache.
