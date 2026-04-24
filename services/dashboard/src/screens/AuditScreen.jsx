@@ -5,13 +5,21 @@ import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
 
 // ─── Action catalogue ────────────────────────────────────────────────────────
-// Keep in sync with services/shared/model/audit.go `AuditAction*`.
-// The order here is the order shown in the filter dropdown.
+// Keep in sync with services/shared/model/audit.go `AuditAction*`. The order
+// here is the order shown in the filter dropdown.
+//
+// `view_remediation` is on the server's ValidAuditActions list but no handler
+// emits it today (the audit_log is mutation-only — a sibling chore branch
+// removes the constant entirely). Listed here so a user filtering by it via
+// raw URL or after a future backend change still sees a friendly label
+// rather than the raw enum value. If/when the chore branch merges, drop this
+// entry to avoid a dead filter option.
 const ACTIONS = [
   { value: '',                   label: 'All actions' },
   { value: 'dismiss_zombie',     label: 'Dismissed' },
   { value: 'snooze_zombie',      label: 'Snoozed' },
   { value: 'revoke_dismissal',   label: 'Revoked' },
+  { value: 'view_remediation',   label: 'Remediation viewed' },
   { value: 'scan_triggered',     label: 'Scan triggered' },
   { value: 'account_connected',  label: 'Account connected' },
   { value: 'account_updated',    label: 'Account updated' },
@@ -32,14 +40,15 @@ const PAGE_SIZE = 50;
 // the theme object so the badge adapts to light/dark.
 function actionDisplay(action) {
   switch (action) {
-    case 'dismiss_zombie':    return { label: 'Dismissed',       tone: 'muted' };
-    case 'snooze_zombie':     return { label: 'Snoozed',         tone: 'info' };
-    case 'revoke_dismissal':  return { label: 'Revoked',         tone: 'warn' };
-    case 'scan_triggered':    return { label: 'Scan triggered',  tone: 'accent' };
-    case 'account_connected': return { label: 'Account added',   tone: 'success' };
-    case 'account_updated':   return { label: 'Account updated', tone: 'info' };
-    case 'account_deleted':   return { label: 'Account removed', tone: 'danger' };
-    default:                  return { label: action,            tone: 'muted' };
+    case 'dismiss_zombie':    return { label: 'Dismissed',          tone: 'muted' };
+    case 'snooze_zombie':     return { label: 'Snoozed',            tone: 'info' };
+    case 'revoke_dismissal':  return { label: 'Revoked',            tone: 'warn' };
+    case 'view_remediation':  return { label: 'Remediation viewed', tone: 'muted' };
+    case 'scan_triggered':    return { label: 'Scan triggered',     tone: 'accent' };
+    case 'account_connected': return { label: 'Account added',      tone: 'success' };
+    case 'account_updated':   return { label: 'Account updated',    tone: 'info' };
+    case 'account_deleted':   return { label: 'Account removed',    tone: 'danger' };
+    default:                  return { label: action,               tone: 'muted' };
   }
 }
 
