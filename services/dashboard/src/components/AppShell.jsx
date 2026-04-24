@@ -203,7 +203,12 @@ export default function AppShell() {
       {/* Tiny, dim, monospace. Identifies which bundle a user is running so
           support tickets and audit-log correlation have a stable anchor.
           user-select:all lets a click highlight the whole identifier — paste
-          straight into a bug report. */}
+          straight into a bug report.
+
+          APP_VERSION is rendered verbatim — no "v" prefix wrapper. Tagged
+          builds set it to e.g. "v2.6.0" already; branch builds set it to the
+          branch slug ("develop", "feature/foo"); local dev shows "dev". A
+          hard-coded "v" prefix here would double up to "vv2.6.0" on tags. */}
       <footer
         aria-label="Build version"
         title="Click to select build identifier"
@@ -219,7 +224,7 @@ export default function AppShell() {
           userSelect: 'all',
         }}
       >
-        v{APP_VERSION} · {APP_COMMIT_SHA}
+        {APP_VERSION} · {APP_COMMIT_SHA}
       </footer>
 
     </div>
