@@ -44,6 +44,9 @@ type Metrics struct {
 	// Application/process metrics
 	ApplicationUptime       prometheus.Gauge         // Seconds since service startup
 	ApplicationErrors       prometheus.Counter       // Total application errors
+
+	// Audit trail metrics
+	AuditWritesTotal        *prometheus.CounterVec   // Audit log writes by action and status (ok|failed)
 }
 
 // registry is the global Prometheus registry.
@@ -166,6 +169,12 @@ func newMetrics() *Metrics {
 			Name: "axiaops_application_errors_total",
 			Help: "Total application errors.",
 		}),
+
+		// Audit trail
+		AuditWritesTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_audit_writes_total",
+			Help: "Total audit_log writes attempted, labelled by action and outcome. Alert when status=failed is non-zero — audit gaps are a compliance risk.",
+		}, []string{"action", "status"}),
 	}
 
 	return m
