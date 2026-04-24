@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"axiaops.io/shared/observability"
+	"github.com/redis/go-redis/v9"
 )
 
 // ErrNotFound is returned by Get when the key does not exist or has expired.
@@ -87,6 +87,13 @@ func (c *Client) Incr(ctx context.Context, key string, ttl time.Duration) (int64
 	}
 	obs.Observe()
 	return incrCmd.Val(), nil
+}
+
+// Ping verifies the Redis connection is reachable. Caller controls timeout
+// via ctx — readyz handlers typically wrap a 1s deadline so a slow Redis
+// can't block the load-balancer health check.
+func (c *Client) Ping(ctx context.Context) error {
+	return c.rdb.Ping(ctx).Err()
 }
 
 // Close closes the underlying Redis connection.
