@@ -311,6 +311,7 @@ func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, aws
 			continue
 		}
 
+		rates := awsClient.Rates(region)
 		for _, addr := range out.Addresses {
 			// An EIP is a zombie when it has no attached network interface.
 			if addr.NetworkInterfaceId != nil {
@@ -322,7 +323,6 @@ func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, aws
 			}
 
 			tags := ec2TagsToMap(addr.Tags)
-			rates := awsClient.Rates(region)
 			zombies = append(zombies, model.ZombieResource{
 				Provider:          "aws",
 				AccountID:         accountID,
