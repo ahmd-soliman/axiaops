@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -55,7 +54,7 @@ func NewWithStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey,
 		return nil, fmt.Errorf("aws: GetCallerIdentity: %w", err)
 	}
 	accountID := aws.ToString(out.Account)
-	log.Printf("aws: resolved account ID %s", accountID)
+	slog.Info("aws: resolved account ID", "account_id", accountID)
 	return &Client{
 		accountID: accountID,
 		cfg:       cfg,
@@ -74,7 +73,7 @@ func NewWithClient(accountID string, ce CostExplorerAPI, cw CloudWatchAPI) *Clie
 // for usage metrics for each discovered resource.
 func (c *Client) FetchUsage(ctx context.Context, records []model.CostRecord, start, end time.Time) ([]analyzer.UsageRecord, error) {
 	discovered := DiscoverResources(ctx, c, records)
-	log.Printf("discover: found %d resources across %d cost records", len(discovered), len(records))
+	slog.Info("discover: found resources", "resources", len(discovered), "cost_records", len(records))
 	return FetchUsage(ctx, c.cw, discovered, start, end)
 }
 
