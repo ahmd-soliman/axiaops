@@ -15,6 +15,7 @@ import Trend      from './pages/Trend';
 import CostAnalytics from './pages/CostAnalytics';
 import Connect    from './pages/Connect';
 import Settings   from './pages/Settings';
+import Audit      from './pages/Audit';
 import Login      from './pages/Login';
 import Callback   from './pages/Callback';
 import NotFound   from './pages/NotFound';
@@ -50,6 +51,7 @@ function AuthenticatedApp() {
             <Route path="/cost"                element={<CostAnalytics />} />
             <Route path="/connect"             element={<Connect />} />
             <Route path="/settings/:accountId" element={<Settings />} />
+            <Route path="/audit"               element={<Audit />} />
           </Route>
         </Route>
       </Routes>
