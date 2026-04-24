@@ -48,29 +48,29 @@ q "SELECT COUNT(*) || ' records' FROM cost_records;"
 
 echo ""
 
-# ── Ghost Records ─────────────────────────────────────────────────────────────
+# ── Zombie Records ────────────────────────────────────────────────────────────
 
-echo "=== Ghost Records ==="
-q "SELECT tenant_id, service, resource_id, monthly_cost, currency, reason FROM ghost_records ORDER BY monthly_cost DESC;"
+echo "=== Zombie Records ==="
+q "SELECT tenant_id, service, resource_id, monthly_cost, currency, reason FROM zombie_records ORDER BY monthly_cost DESC;"
 
 echo ""
 
 # ── Resource Records ──────────────────────────────────────────────────────────
 
 echo "=== Resource Records ==="
-q "SELECT tenant_id, service, resource_id, monthly_cost, is_ghost, currency FROM resource_records ORDER BY monthly_cost DESC;"
+q "SELECT tenant_id, service, resource_id, monthly_cost, is_zombie, currency FROM resource_records ORDER BY monthly_cost DESC;"
 
 echo ""
 
-# ── Ghost Snapshots ───────────────────────────────────────────────────────────
+# ── Zombie Snapshots ──────────────────────────────────────────────────────────
 
-echo "=== Ghost Snapshots (latest 5 per tenant) ==="
-q "SELECT tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency
+echo "=== Zombie Snapshots (latest 5 per tenant) ==="
+q "SELECT tenant_id, account_id, snapshot_at, zombie_count, total_monthly_cost, currency
    FROM (
      SELECT *, ROW_NUMBER() OVER (PARTITION BY tenant_id ORDER BY snapshot_at DESC) AS rn
-     FROM ghost_snapshots
+     FROM zombie_snapshots
    ) ranked WHERE rn <= 5 ORDER BY tenant_id, snapshot_at DESC;"
 
 echo ""
-echo "=== Ghost Snapshots Total Count ==="
-q "SELECT tenant_id, COUNT(*) || ' snapshots' FROM ghost_snapshots GROUP BY tenant_id ORDER BY tenant_id;"
+echo "=== Zombie Snapshots Total Count ==="
+q "SELECT tenant_id, COUNT(*) || ' snapshots' FROM zombie_snapshots GROUP BY tenant_id ORDER BY tenant_id;"
