@@ -1,0 +1,67 @@
+# AWS list-price rates used to estimate zombie-resource cost.
+# All values USD. Update when AWS publishes new prices.
+#
+# Each rate below includes a source URL and the date it was verified.
+# If you bump a value, update the date — it's how we notice drift.
+
+currency: USD
+
+default:
+  # Elastic IP — unattached EIPs are billed hourly.
+  # $0.005/hr × 730h ≈ $3.60/month
+  # https://aws.amazon.com/ec2/pricing/on-demand/ (checked 2026-04-24)
+  eip_monthly: 3.60
+
+  # EBS gp3 volume storage. Other volume types cost more (io1/io2 up to $0.125/GB).
+  # We use gp3 as the conservative baseline — most common type.
+  # https://aws.amazon.com/ebs/pricing/ (checked 2026-04-24)
+  ebs_volume_gb_monthly: 0.08
+
+  # EBS snapshot storage — standard tier. Archive tier is $0.0125/GB but rarely used.
+  # https://aws.amazon.com/ebs/snapshots/pricing/ (checked 2026-04-24)
+  ebs_snapshot_gb_monthly: 0.05
+
+  # CloudWatch Logs storage (retained logs beyond ingestion).
+  # https://aws.amazon.com/cloudwatch/pricing/ (checked 2026-04-24)
+  cw_logs_gb_monthly: 0.03
+
+  # RDS manual snapshot storage.
+  # https://aws.amazon.com/rds/pricing/ (checked 2026-04-24)
+  rds_snapshot_gb_monthly: 0.095
+
+  # ECR private registry storage.
+  # https://aws.amazon.com/ecr/pricing/ (checked 2026-04-24)
+  ecr_storage_gb_monthly: 0.10
+
+  # Kinesis Data Streams provisioned-mode shard cost. Multiplied by shard count × 730h.
+  # https://aws.amazon.com/kinesis/data-streams/pricing/ (checked 2026-04-24)
+  kinesis_shard_hourly: 0.015
+
+  # Secrets Manager — flat per-secret-per-month.
+  # https://aws.amazon.com/secrets-manager/pricing/ (checked 2026-04-24)
+  secret_monthly: 0.40
+
+# Per-region overrides. Only set fields that actually differ from `default` —
+# anything omitted or zero falls back to the default rate.
+#
+# NOTE on currency: values here are STILL in USD. AWS lists prices in USD for
+# every region; the per-region variance is a dollar-amount difference, not a
+# currency change. If an account opts into EUR/GBP billing, that's an
+# invoice-level FX conversion applied downstream.
+regions:
+  # Frankfurt. AxiaOps ingestion defaults to this region (AWS_REGION env var)
+  # and EU FinOps teams are our primary market — so overrides matter here.
+  #
+  # Values below verified 2026-04-24 against the AWS Price List Bulk API:
+  #   https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/<service>/current/eu-central-1/index.csv
+  # Uplift vs us-east-1 noted inline. Re-verify when bumping the date.
+  eu-central-1:
+    ebs_volume_gb_monthly: 0.0952     # +19% vs $0.08    (AmazonEC2: EUC1-EBS:VolumeUsage.gp3)
+    ebs_snapshot_gb_monthly: 0.054    # +8%  vs $0.05    (AmazonEC2: EUC1-EBS:SnapshotUsage)
+    cw_logs_gb_monthly: 0.0324        # +8%  vs $0.03    (AmazonCloudWatch: EUC1-TimedStorage-ByteHrs)
+    rds_snapshot_gb_monthly: 0.103    # +8%  vs $0.095   (AmazonRDS: backup storage overage)
+    kinesis_shard_hourly: 0.018       # +20% vs $0.015   (AmazonKinesis: EUC1-Storage-ShardHour)
+    # Fields omitted (verified uniform with us-east-1 on 2026-04-24):
+    #   eip_monthly           — $0.005/hr idle public IPv4, AmazonVPC: EUC1-PublicIPv4:IdleAddress
+    #   ecr_storage_gb_monthly — $0.10/GB-mo, AmazonECR: EUC1-TimedStorage-ByteHrs
+    #   secret_monthly        — $0.40/secret-mo, AWSSecretsManager: EUC1-AWSSecretsManager-Secrets
