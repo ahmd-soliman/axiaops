@@ -1165,6 +1165,12 @@ func TestAuditLog_IPAddressRoundTrips(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
+	// nil-guard before .String() — if the codec regresses and ParseIP gets
+	// an unparseable string, IPAddress is left nil rather than panicking on
+	// the test row. A clear t.Fatalf is more useful than a runtime panic.
+	if events[0].IPAddress == nil {
+		t.Fatalf("ip_address: got nil, want 203.0.113.42 — codec regression?")
+	}
 	if got := events[0].IPAddress.String(); got != "203.0.113.42" {
 		t.Errorf("ip_address round-trip: got %q, want 203.0.113.42", got)
 	}
