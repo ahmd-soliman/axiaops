@@ -167,6 +167,17 @@ else
     VALUES ('${TENANT_ID}', '${TENANT_ID}', '${TENANT_ID}', NOW())
     ON CONFLICT (id) DO NOTHING;"
   echo "Using dev tenant: ${TENANT_ID}"
+
+  # Dev user — must match DEV_USER_ID env var used by the API's DevBypass
+  # middleware. Pinned id so audit_log / dismissed_by FK references resolve
+  # without going through the Kinde-upsert path.
+  DEV_USER_ID_VAL="${DEV_USER_ID:-dev-user-axiaops}"
+  DEV_USER_EMAIL_VAL="${DEV_USER_EMAIL:-dev@axiaops.local}"
+  psql_exec "INSERT INTO users (id, tenant_id, kinde_sub, email, name, created_at, last_seen)
+    VALUES ('${DEV_USER_ID_VAL}', '${TENANT_ID}', 'dev:${DEV_USER_ID_VAL}',
+            '${DEV_USER_EMAIL_VAL}', 'Dev User', NOW(), NOW())
+    ON CONFLICT (id) DO NOTHING;"
+  echo "Using dev user:   ${DEV_USER_ID_VAL} <${DEV_USER_EMAIL_VAL}>"
 fi
 
 # ── Additional tenants for RLS isolation testing (local only) ─────────────────
