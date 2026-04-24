@@ -135,7 +135,8 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set
 | DAYS_BACK | No | 30 | Cost lookback window (days) |
 | ENCRYPTION_KEY | Yes | — | Decrypt account secrets |
 | APP_ENV | No | — | Environment (production, staging, development) |
-| APP_VERSION | No | — | Release version (e.g., 2.6.0) |
+| APP_VERSION | No | — | Release version (e.g., 2.6.0); attached to slog `version` attribute |
+| APP_COMMIT_SHA | No | — | Short git SHA of the build; attached to slog logs |
 | LOG_LEVEL | No | info | Log level (debug, info, warn, error) |
 | LOG_OUTPUT | No | json | Log format (json or text) |
 | INGESTION_PORT | No | 8081 | HTTP listen port |
