@@ -182,6 +182,13 @@ func (m *MockStore) WithDismissals(dismissals []model.DismissAction) *MockStore 
 	return m
 }
 
+// GetDismissals returns a snapshot of dismissals recorded by the mock.
+func (m *MockStore) GetDismissals() []model.DismissAction {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]model.DismissAction(nil), m.dismissals...)
+}
+
 // WithAccountAlreadyScanning pre-marks an account as scanning,
 // causing TryMarkAccountScanning to return (false, nil) for that account.
 func (m *MockStore) WithAccountAlreadyScanning(accountID string) *MockStore {
@@ -268,6 +275,10 @@ func (m *MockStore) EnsureTenant(_ context.Context, _, _, _ string) error {
 
 func (m *MockStore) UpsertUser(_ context.Context, _, _, _, _ string) (model.User, error) {
 	return model.User{}, nil
+}
+
+func (m *MockStore) EnsureUser(_ context.Context, _ model.User) error {
+	return nil
 }
 
 func (m *MockStore) SaveAccount(_ context.Context, a model.Account) error {

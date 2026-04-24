@@ -613,7 +613,7 @@ func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
 		Reason:       req.Reason,
 		Note:         req.Note,
 		SnoozedUntil: req.SnoozedUntil,
-		DismissedBy:  middleware.TenantID(r.Context()), // tenant as identifier; swap for user email when available
+		DismissedBy:  dismissActor(r.Context()),
 	}
 
 	id, err := h.store.DismissZombie(ctx, d)
@@ -643,7 +643,7 @@ func (h *Handler) revokeDismissal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	revokedBy := middleware.TenantID(r.Context())
+	revokedBy := dismissActor(r.Context())
 	if err := h.store.RevokeDismissal(ctx, id, revokedBy); err != nil {
 		slog.Error("revokeDismissal: failed", "id", id, "error", err)
 		http.Error(w, "dismissal not found or already revoked", http.StatusNotFound)
@@ -668,6 +668,21 @@ func (h *Handler) listDismissals(w http.ResponseWriter, r *http.Request) {
 		dismissals = []model.DismissAction{}
 	}
 	writeJSON(w, dismissals)
+}
+
+// dismissActor returns the identifier stored in dismissed_by / revoked_by.
+// Prefers the stable user id (immutable UUID) so the stored value doesn't drift
+// when a user's email changes in Kinde. Falls back to email when the user id is
+// unavailable (e.g. Auth.Wrap with store=nil in tests), and finally to tenant
+// id so rows are never written with "".
+func dismissActor(ctx context.Context) string {
+	if id := middleware.UserID(ctx); id != "" {
+		return id
+	}
+	if email := middleware.UserEmail(ctx); email != "" {
+		return email
+	}
+	return middleware.TenantID(ctx)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
