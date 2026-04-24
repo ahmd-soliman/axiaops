@@ -140,23 +140,10 @@ func TestOldAMIThreshold_Is90Days(t *testing.T) {
 	}
 }
 
-// ── cwLogStorageGBCost sanity check ──────────────────────────────────────────
-
-func TestCWLogStorageGBCost_Is003(t *testing.T) {
-	want := 0.03
-	if cwLogStorageGBCost != want {
-		t.Errorf("cwLogStorageGBCost = %v; want %v", cwLogStorageGBCost, want)
-	}
-}
-
-// ── rdsSnapshotMonthlyGBCost + rdsSnapshotAgeThreshold sanity checks ────────
-
-func TestRDSSnapshotMonthlyGBCost_Is0095(t *testing.T) {
-	want := 0.095
-	if rdsSnapshotMonthlyGBCost != want {
-		t.Errorf("rdsSnapshotMonthlyGBCost = %v; want %v", rdsSnapshotMonthlyGBCost, want)
-	}
-}
+// ── Threshold sanity checks ─────────────────────────────────────────────────
+//
+// Pricing-rate checks now live in services/shared/pricing/pricing_test.go —
+// only the time-based detection thresholds stay here.
 
 func TestRDSSnapshotAgeThreshold_Is30Days(t *testing.T) {
 	want := 30 * 24 * time.Hour
@@ -165,28 +152,10 @@ func TestRDSSnapshotAgeThreshold_Is30Days(t *testing.T) {
 	}
 }
 
-// ── ecrStorageMonthlyGBCost + ecrStaleImageThreshold sanity checks ──────────
-
-func TestECRStorageMonthlyGBCost_Is010(t *testing.T) {
-	want := 0.10
-	if ecrStorageMonthlyGBCost != want {
-		t.Errorf("ecrStorageMonthlyGBCost = %v; want %v", ecrStorageMonthlyGBCost, want)
-	}
-}
-
 func TestECRStaleImageThreshold_Is90Days(t *testing.T) {
 	want := 90 * 24 * time.Hour
 	if ecrStaleImageThreshold != want {
 		t.Errorf("ecrStaleImageThreshold = %v; want %v", ecrStaleImageThreshold, want)
-	}
-}
-
-// ── secretMonthlyCost + unusedSecretThreshold sanity checks ─────────────────
-
-func TestSecretMonthlyCost_Is040(t *testing.T) {
-	want := 0.40
-	if secretMonthlyCost != want {
-		t.Errorf("secretMonthlyCost = %v; want %v", secretMonthlyCost, want)
 	}
 }
 

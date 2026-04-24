@@ -287,10 +287,6 @@ func ownerFromTags(tags map[string]string) string {
 
 // ── EIP ───────────────────────────────────────────────────────────────────────
 
-// eipMonthlyCost is the AWS charge for one unattached Elastic IP per month
-// ($0.005/hour × 24 × 30 = $3.60). Source: AWS EC2 pricing.
-const eipMonthlyCost = 3.60
-
 // DiscoverUnattachedEIPs calls ec2:DescribeAddresses in each region present in
 // the cost records and returns a ZombieResource for every Elastic IP that is not
 // attached to a network interface. Unattached EIPs are always zombies — AWS
@@ -326,6 +322,7 @@ func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, aws
 			}
 
 			tags := ec2TagsToMap(addr.Tags)
+			rates := awsClient.Rates(region)
 			zombies = append(zombies, model.ZombieResource{
 				Provider:          "aws",
 				AccountID:         accountID,
@@ -334,8 +331,8 @@ func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, aws
 				Region:            region,
 				ResourceID:        allocationID,
 				Tags:              tags,
-				MonthlyCost:       eipMonthlyCost,
-				Currency:          "USD",
+				MonthlyCost:       rates.EIPMonthly,
+				Currency:          awsClient.Currency(),
 				PeriodStart:       start,
 				PeriodEnd:         end,
 				UsageMetric:       "NetworkInterfaceAttachment",
@@ -352,12 +349,6 @@ func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, aws
 }
 
 // ── Unattached EBS volumes ────────────────────────────────────────────────────
-
-// ebsVolumeMonthlyGBCost is the EBS gp3 storage cost per GB/month.
-// Source: AWS EBS pricing (gp3 rate, most common type).
-// Note: Actual costs vary by volume type (gp2: $0.10, io1/io2: $0.125+, st1/sc1: $0.025-0.045).
-// Using gp3 as a conservative baseline — real savings may be 20-50% higher for premium volumes.
-const ebsVolumeMonthlyGBCost = 0.08
 
 // DiscoverUnattachedEBSVolumes calls ec2:DescribeVolumes in each region and
 // returns a ZombieResource for every volume whose state is "available" (i.e. not
@@ -389,11 +380,12 @@ func DiscoverUnattachedEBSVolumes(ctx context.Context, records []model.CostRecor
 				break
 			}
 
+			rates := awsClient.Rates(region)
 			for _, vol := range out.Volumes {
 				volID := aws.ToString(vol.VolumeId)
 				sizeGB := aws.ToInt32(vol.Size)
 				volType := string(vol.VolumeType)
-				monthlyCost := float64(sizeGB) * ebsVolumeMonthlyGBCost
+				monthlyCost := float64(sizeGB) * rates.EBSVolumeGBMonthly
 				tags := ec2TagsToMap(vol.Tags)
 
 				zombies = append(zombies, model.ZombieResource{
@@ -405,7 +397,7 @@ func DiscoverUnattachedEBSVolumes(ctx context.Context, records []model.CostRecor
 					ResourceID:        volID,
 					Tags:              tags,
 					MonthlyCost:       monthlyCost,
-					Currency:          "USD",
+					Currency:          awsClient.Currency(),
 					PeriodStart:       start,
 					PeriodEnd:         end,
 					UsageMetric:       "VolumeState",
@@ -427,10 +419,6 @@ func DiscoverUnattachedEBSVolumes(ctx context.Context, records []model.CostRecor
 }
 
 // ── Orphaned EBS snapshots ────────────────────────────────────────────────────
-
-// ebsSnapshotMonthlyGBCost is the EBS snapshot storage cost per GB/month.
-// Source: AWS EBS pricing.
-const ebsSnapshotMonthlyGBCost = 0.05
 
 // DiscoverOrphanedEBSSnapshots calls ec2:DescribeSnapshots (filtered to account
 // owner) and flags any snapshot whose source volume no longer exists AND that
@@ -506,6 +494,7 @@ func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecor
 		}
 
 		// 3. Enumerate all snapshots owned by this account and flag orphans.
+		rates := awsClient.Rates(region)
 		var snapNextToken *string
 		for {
 			snapOut, err := client.DescribeSnapshots(ctx, &ec2.DescribeSnapshotsInput{
@@ -531,7 +520,7 @@ func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecor
 				}
 
 				sizeGB := aws.ToInt32(snap.VolumeSize)
-				monthlyCost := float64(sizeGB) * ebsSnapshotMonthlyGBCost
+				monthlyCost := float64(sizeGB) * rates.EBSSnapshotGBMonthly
 				tags := ec2TagsToMap(snap.Tags)
 
 				zombies = append(zombies, model.ZombieResource{
@@ -543,7 +532,7 @@ func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecor
 					ResourceID:        snapID,
 					Tags:              tags,
 					MonthlyCost:       monthlyCost,
-					Currency:          "USD",
+					Currency:          awsClient.Currency(),
 					PeriodStart:       start,
 					PeriodEnd:         end,
 					UsageMetric:       "SourceVolumeExists",
@@ -683,6 +672,7 @@ func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecor
 			}
 		}
 
+		rates := awsClient.Rates(region)
 		for _, c := range candidates {
 			totalGB := int32(0)
 			for _, vid := range c.volumeIDs {
@@ -694,7 +684,7 @@ func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecor
 				slog.Warn("stopped-ec2: skipping instance — volume sizes unknown", "instance_id", c.instanceID)
 				continue
 			}
-			monthlyCost := float64(totalGB) * ebsVolumeMonthlyGBCost
+			monthlyCost := float64(totalGB) * rates.EBSVolumeGBMonthly
 			daysStop := int(now.Sub(c.stoppedAt).Hours() / 24)
 
 			zombies = append(zombies, model.ZombieResource{
@@ -706,7 +696,7 @@ func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecor
 				ResourceID:        c.instanceID,
 				Tags:              c.tags,
 				MonthlyCost:       monthlyCost,
-				Currency:          "USD",
+				Currency:          awsClient.Currency(),
 				PeriodStart:       start,
 				PeriodEnd:         end,
 				UsageMetric:       "DaysStopped",
@@ -761,6 +751,7 @@ func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient 
 			continue
 		}
 		client := ec2.NewFromConfig(cfg)
+		rates := awsClient.Rates(region)
 
 		// Collect the set of AMI IDs currently referenced by any instance
 		// (running, stopped, or otherwise) in this region.
@@ -828,7 +819,7 @@ func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient 
 						totalSnapshotGB += aws.ToInt32(bdm.Ebs.VolumeSize)
 					}
 				}
-				monthlyCost := float64(totalSnapshotGB) * ebsSnapshotMonthlyGBCost
+				monthlyCost := float64(totalSnapshotGB) * rates.EBSSnapshotGBMonthly
 				ageDays := int(now.Sub(createdAt).Hours() / 24)
 
 				tags := ec2TagsToMap(img.Tags)
@@ -841,7 +832,7 @@ func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient 
 					ResourceID:        amiID,
 					Tags:              tags,
 					MonthlyCost:       monthlyCost,
-					Currency:          "USD",
+					Currency:          awsClient.Currency(),
 					PeriodStart:       start,
 					PeriodEnd:         end,
 					UsageMetric:       "DaysSinceCreation",
@@ -864,11 +855,6 @@ func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient 
 
 // ── Wasteful CloudWatch Log Groups ──────────────────────────────────────────
 
-// cwLogStorageGBCost is the CloudWatch Logs storage cost per GB/month.
-// Source: AWS CloudWatch pricing ($0.03/GB standard, but stored bytes are
-// already compressed — effective rate is higher per raw GB).
-const cwLogStorageGBCost = 0.03
-
 // DiscoverWastefulLogGroups calls logs:DescribeLogGroups in each region present
 // in the cost records and returns a ZombieResource for every log group that has
 // no retention policy set (logs stored indefinitely). Empty log groups with a
@@ -887,6 +873,7 @@ func DiscoverWastefulLogGroups(ctx context.Context, records []model.CostRecord, 
 			continue
 		}
 		client := cloudwatchlogs.NewFromConfig(cfg)
+		rates := awsClient.Rates(region)
 
 		var nextToken *string
 		for {
@@ -905,7 +892,7 @@ func DiscoverWastefulLogGroups(ctx context.Context, records []model.CostRecord, 
 				}
 				storedBytes := aws.ToInt64(lg.StoredBytes)
 				storedGB := float64(storedBytes) / (1024 * 1024 * 1024)
-				monthlyCost := storedGB * cwLogStorageGBCost
+				monthlyCost := storedGB * rates.CWLogsGBMonthly
 
 				// Flag 1: no retention policy — logs stored forever.
 				if lg.RetentionInDays == nil {
@@ -918,7 +905,7 @@ func DiscoverWastefulLogGroups(ctx context.Context, records []model.CostRecord, 
 						ResourceID:        name,
 						Tags:              map[string]string{},
 						MonthlyCost:       monthlyCost,
-						Currency:          "USD",
+						Currency:          awsClient.Currency(),
 						PeriodStart:       start,
 						PeriodEnd:         end,
 						UsageMetric:       "RetentionDays",
@@ -941,10 +928,6 @@ func DiscoverWastefulLogGroups(ctx context.Context, records []model.CostRecord, 
 }
 
 // ── Orphaned RDS snapshots ───────────────────────────────────────────────────
-
-// rdsSnapshotMonthlyGBCost is the RDS snapshot storage cost per GB/month.
-// Source: AWS RDS pricing.
-const rdsSnapshotMonthlyGBCost = 0.095
 
 // rdsSnapshotAgeThreshold is the minimum age for a manual RDS snapshot to be
 // considered stale. Snapshots younger than this are left alone — they may be
@@ -1001,6 +984,7 @@ func DiscoverOrphanedRDSSnapshots(ctx context.Context, records []model.CostRecor
 		}
 
 		// 2. Enumerate manual snapshots and flag orphans.
+		rates := awsClient.Rates(region)
 		var snapMarker *string
 		for {
 			snapOut, err := client.DescribeDBSnapshots(ctx, &rds.DescribeDBSnapshotsInput{
@@ -1026,7 +1010,7 @@ func DiscoverOrphanedRDSSnapshots(ctx context.Context, records []model.CostRecor
 				}
 
 				sizeGB := aws.ToInt32(snap.AllocatedStorage)
-				monthlyCost := float64(sizeGB) * rdsSnapshotMonthlyGBCost
+				monthlyCost := float64(sizeGB) * rates.RDSSnapshotGBMonthly
 
 				zombies = append(zombies, model.ZombieResource{
 					Provider:          "aws",
@@ -1037,7 +1021,7 @@ func DiscoverOrphanedRDSSnapshots(ctx context.Context, records []model.CostRecor
 					ResourceID:        snapID,
 					Tags:              map[string]string{},
 					MonthlyCost:       monthlyCost,
-					Currency:          "USD",
+					Currency:          awsClient.Currency(),
 					PeriodStart:       start,
 					PeriodEnd:         end,
 					UsageMetric:       "SourceDBExists",
@@ -1059,10 +1043,6 @@ func DiscoverOrphanedRDSSnapshots(ctx context.Context, records []model.CostRecor
 }
 
 // ── Stale ECR images ──────────────────────────────────────��─────────────────
-
-// ecrStorageMonthlyGBCost is the ECR storage cost per GB/month.
-// Source: AWS ECR pricing.
-const ecrStorageMonthlyGBCost = 0.10
 
 // ecrStaleImageThreshold is the minimum age for a tagged image to be
 // considered stale. Only applies to images that are NOT the most recently
@@ -1121,6 +1101,7 @@ func DiscoverStaleECRImages(ctx context.Context, records []model.CostRecord, aws
 		if len(repos) > 0 {
 			slog.Info("ecr: scanning repositories", "count", len(repos), "region", region)
 		}
+		rates := awsClient.Rates(region)
 		for _, repoName := range repos {
 			// Fetch all images in this repository.
 			var imgNextToken *string
@@ -1160,7 +1141,7 @@ func DiscoverStaleECRImages(ctx context.Context, records []model.CostRecord, aws
 			}
 
 			staleGB := float64(staleSizeBytes) / (1024 * 1024 * 1024)
-			monthlyCost := staleGB * ecrStorageMonthlyGBCost
+			monthlyCost := staleGB * rates.ECRStorageGBMonthly
 
 			zombies = append(zombies, model.ZombieResource{
 				Provider:          "aws",
@@ -1171,7 +1152,7 @@ func DiscoverStaleECRImages(ctx context.Context, records []model.CostRecord, aws
 				ResourceID:        repoName,
 				Tags:              map[string]string{},
 				MonthlyCost:       monthlyCost,
-				Currency:          "USD",
+				Currency:          awsClient.Currency(),
 				PeriodStart:       start,
 				PeriodEnd:         end,
 				UsageMetric:       "StaleImageCount",
@@ -1553,7 +1534,7 @@ func DiscoverIdleCloudFrontDistributions(ctx context.Context, records []model.Co
 			ResourceID:        distID,
 			Tags:              map[string]string{},
 			MonthlyCost:       perDistCost,
-			Currency:          "USD",
+			Currency:          awsClient.Currency(),
 			PeriodStart:       start,
 			PeriodEnd:         end,
 			UsageMetric:       "Requests",
@@ -1569,10 +1550,6 @@ func DiscoverIdleCloudFrontDistributions(ctx context.Context, records []model.Co
 }
 
 // ── Idle Kinesis data streams ───────────────────────────────────────────────
-
-// kinesisShardHourlyCost is the provisioned-mode cost per shard-hour.
-// Source: AWS Kinesis Data Streams pricing (us-east-1).
-const kinesisShardHourlyCost = 0.015
 
 // DiscoverIdleKinesisStreams lists Kinesis streams in all regions found in cost
 // records and queries CloudWatch for IncomingRecords. Streams with zero incoming
@@ -1596,6 +1573,7 @@ func DiscoverIdleKinesisStreams(ctx context.Context, records []model.CostRecord,
 
 		cw := newCloudWatchClient(cfg)
 		kinesisClient := kinesis.NewFromConfig(cfg)
+		rates := awsClient.Rates(region)
 
 		periodSecs := int32(end.Sub(start).Seconds())
 		if periodSecs < 60 {
@@ -1614,14 +1592,14 @@ func DiscoverIdleKinesisStreams(ctx context.Context, records []model.CostRecord,
 			}
 
 			// Estimate cost from shard count.
-			monthlyCost := kinesisShardHourlyCost * 730 // 1 shard default
+			monthlyCost := rates.KinesisShardHourly * 730 // 1 shard default
 			desc, descErr := kinesisClient.DescribeStreamSummary(ctx, &kinesis.DescribeStreamSummaryInput{
 				StreamName: aws.String(name),
 			})
 			if descErr == nil && desc.StreamDescriptionSummary != nil {
 				shards := aws.ToInt32(desc.StreamDescriptionSummary.OpenShardCount)
 				if shards > 0 {
-					monthlyCost = float64(shards) * kinesisShardHourlyCost * 730
+					monthlyCost = float64(shards) * rates.KinesisShardHourly * 730
 				}
 			}
 
@@ -1634,7 +1612,7 @@ func DiscoverIdleKinesisStreams(ctx context.Context, records []model.CostRecord,
 				ResourceID:        name,
 				Tags:              map[string]string{},
 				MonthlyCost:       monthlyCost,
-				Currency:          "USD",
+				Currency:          awsClient.Currency(),
 				PeriodStart:       start,
 				PeriodEnd:         end,
 				UsageMetric:       "IncomingRecords",
@@ -1724,7 +1702,7 @@ func DiscoverIdleS3Buckets(ctx context.Context, records []model.CostRecord, awsC
 				ResourceID:        bucketName,
 				Tags:              map[string]string{},
 				MonthlyCost:       perBucketCost,
-				Currency:          "USD",
+				Currency:          awsClient.Currency(),
 				PeriodStart:       start,
 				PeriodEnd:         end,
 				UsageMetric:       "AllRequests",
@@ -1794,10 +1772,6 @@ func serviceCostFromRecords(records []model.CostRecord, service string) float64 
 
 // ── Unused Secrets Manager secrets ──────────────────────────────────────────
 
-// secretMonthlyCost is the AWS Secrets Manager charge per secret per month.
-// Source: AWS Secrets Manager pricing.
-const secretMonthlyCost = 0.40
-
 // unusedSecretThreshold is the minimum time since a secret was last accessed
 // before it is flagged as unused. 90 days is conservative — secrets accessed
 // quarterly (e.g. rotation) are excluded.
@@ -1821,6 +1795,7 @@ func DiscoverUnusedSecrets(ctx context.Context, records []model.CostRecord, awsC
 			continue
 		}
 		client := secretsmanager.NewFromConfig(cfg)
+		rates := awsClient.Rates(region)
 
 		var nextToken *string
 		for {
@@ -1851,14 +1826,14 @@ func DiscoverUnusedSecrets(ctx context.Context, records []model.CostRecord, awsC
 					Region:            region,
 					ResourceID:        name,
 					Tags:              map[string]string{},
-					MonthlyCost:       secretMonthlyCost,
-					Currency:          "USD",
+					MonthlyCost:       rates.SecretMonthly,
+					Currency:          awsClient.Currency(),
 					PeriodStart:       start,
 					PeriodEnd:         end,
 					UsageMetric:       "DaysSinceAccess",
 					UsageAvg:          float64(daysSinceAccess),
 					UsageUnit:         "Days",
-					Reason:            fmt.Sprintf("Secret not accessed for %d days — still billing $0.40/month", daysSinceAccess),
+					Reason:            fmt.Sprintf("Secret not accessed for %d days — still billing %.2f %s/month", daysSinceAccess, rates.SecretMonthly, awsClient.Currency()),
 					Owner:             "unknown",
 				})
 				slog.Info("secrets: unused secret flagged", "name", name, "days_since_access", daysSinceAccess, "region", region)
