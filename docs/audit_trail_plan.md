@@ -39,7 +39,10 @@ Out of scope for this iteration:
 
 ## 3. Data Model
 
-### 3.1 Migration `013_add_audit_log.up.sql`
+### 3.1 Migration `014_audit_log.up.sql`
+
+> Migration `013` was consumed by the audit-trail prerequisite branch for the
+> `kinde_sub` CHECK constraint. The audit_log migration is `014`.
 
 ```sql
 SET search_path TO axiaops;
@@ -107,7 +110,11 @@ Keep it small and grep-friendly; redact secrets.
  "note":"moving to spot next sprint","snoozed_until":"2026-07-01T00:00:00Z"}
 
 // revoke_dismissal
-{"original_dismissal_id":42,"original_action":"snooze"}
+// metadata is empty — resource_id points at the dismissed_zombies row, which
+// carries action/reason/snoozed_until. Denormalising those fields here would
+// require an extra Get round-trip for no additional query power (a join
+// recovers them). If timeline-grep ergonomics demand it later, add then.
+{}
 
 // view_remediation
 {"zombie_id":"...","command_type":"aws_cli"}
@@ -272,14 +279,15 @@ No dashboard UI in this iteration — the data is exposed for support / complian
 
 ## 10. Rollout
 
-Pre-launch, there are no production rows yet — no backfill needed. The plan:
+Pre-launch, there are no production rows yet — no backfill needed.
 
-1. Merge migration `013` + Store methods + user identity middleware in one PR (no behaviour change yet — the table just exists).
-2. Merge audit call-site wiring for dismiss + revoke + account CRUD in a second PR.
-3. Wire the remediation-view audit event as part of the 3.3 Remediation Actions task, not this one.
-4. Wire `GET /v1/audit` + tests in a third PR.
+**PR 1 — `feature/audit-trail` (shipped):** user-identity prerequisites. `EnsureUser`, `UserID` / `UserEmail` context helpers, `DevBypass` expansion, `dismissActor`, migration `013` (CHECK constraint on `users.kinde_sub`), dev-user seeding. No audit table yet — just the groundwork handlers need to know *who* acted.
 
-Each PR is shippable on its own; failing to deploy the next PR does not break the previous one.
+**PR 2 — `feature/audit-log` (this branch):** audit table + handler wiring + endpoint, all in one. Migration `014_audit_log` (schema + RLS), `Store.AuditLogWrite/List/AnonymiseUser`, `services/api/internal/audit` helper, call-site wiring in dismiss/snooze/revoke + account CRUD + on-demand scan, `GET /v1/audit` with cursor pagination, `axiaops_audit_writes_total{action,status}` Prometheus counter, Postgres + handler + endpoint tests. Best-effort semantics: audit-write failure never breaks a user operation.
+
+**PR 3 — Remediation audit event:** ships alongside the 3.3 "Remediation Actions" task, not this PR. Adds `view_remediation` emission on `GET /v1/zombies/{id}/remediation`.
+
+**PR 4 — Dashboard Audit History screen:** after Phase 3.9 user roles land (only admins should see the audit timeline).
 
 ---
 
@@ -300,13 +308,13 @@ Each PR is shippable on its own; failing to deploy the next PR does not break th
 
 With AI assistance (single developer, ~6h/day):
 
-| Chunk | Effort |
-|---|---|
-| Migration + model + Store methods + Postgres impl + tests | 0.5 day |
-| User identity middleware + DevBypass update + tests | 0.5 day |
-| Audit helper + call-site wiring (dismiss, revoke, scan, account CRUD) + handler tests | 1 day |
-| `GET /v1/audit` endpoint + filters + pagination + tests | 0.5 day |
-| Docs update (`services/api/CLAUDE.md` endpoint table, `services/shared/CLAUDE.md` package map, README endpoint list) | 0.25 day |
-| **Total** | **~2.75 days** |
+| Chunk | Effort | Status |
+|---|---|---|
+| User identity middleware + DevBypass update + tests | 0.5 day | Shipped in `feature/audit-trail` |
+| Migration + model + Store methods + Postgres impl + tests | 0.5 day | Shipped in `feature/audit-log` |
+| Audit helper + call-site wiring (dismiss, revoke, scan, account CRUD) + handler tests | 1 day | Shipped in `feature/audit-log` |
+| `GET /v1/audit` endpoint + filters + pagination + tests | 0.5 day | Shipped in `feature/audit-log` |
+| Docs update (`services/api/CLAUDE.md` endpoint table, `services/shared/CLAUDE.md` package map, README endpoint list) | 0.25 day | Shipped alongside each PR |
+| **Total** | **~2.75 days** | |
 
 Fits inside the Phase 3.3 October 2026 milestone without expanding scope. Remediation-view audit event ships with 3.3 itself.
