@@ -45,6 +45,15 @@ func (m *mockStoreForScheduler) UpsertUser(context.Context, string, string, stri
 func (m *mockStoreForScheduler) EnsureUser(context.Context, model.User) error {
 	return nil
 }
+func (m *mockStoreForScheduler) AuditLogWrite(context.Context, model.AuditEvent) (int64, error) {
+	return 0, nil
+}
+func (m *mockStoreForScheduler) AuditLogList(context.Context, model.AuditFilter) ([]model.AuditEvent, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) AuditLogAnonymiseUser(context.Context, string) (int64, error) {
+	return 0, nil
+}
 func (m *mockStoreForScheduler) SaveAccount(context.Context, model.Account) error { return nil }
 func (m *mockStoreForScheduler) GetAccount(context.Context, string) (model.Account, error) {
 	return model.Account{}, nil

@@ -32,11 +32,13 @@ type MockStore struct {
 	// ── Data Storage (used by all tests) ──
 	zombies    []model.ZombieResource
 	accounts   []model.Account
-	snapshots  []model.ZombieSnapshot
-	resources  []model.ResourceRecord
-	costs      []model.CostRecord
-	dismissals []model.DismissAction
-	nextDismID int64
+	snapshots   []model.ZombieSnapshot
+	resources   []model.ResourceRecord
+	costs       []model.CostRecord
+	dismissals  []model.DismissAction
+	nextDismID  int64
+	auditEvents []model.AuditEvent
+	nextAuditID int64
 
 	// ── Call Tracking (optional, for lifecycle tests) ──
 	callsToUpdateStatus []struct {
@@ -57,6 +59,7 @@ type MockStore struct {
 	errDismissZombie      error
 	errListActiveDismiss  error
 	errListCostRecords    error
+	errAuditWrite         error
 
 	// ── Account Status (for concurrency testing) ──
 	accountScanning map[string]bool // account ID → is scanning
@@ -189,6 +192,29 @@ func (m *MockStore) GetDismissals() []model.DismissAction {
 	return append([]model.DismissAction(nil), m.dismissals...)
 }
 
+// WithAuditEvents pre-populates the mock with audit events.
+func (m *MockStore) WithAuditEvents(events []model.AuditEvent) *MockStore {
+	m.mu.Lock()
+	m.auditEvents = events
+	m.mu.Unlock()
+	return m
+}
+
+// WithAuditWriteError makes AuditLogWrite return err.
+func (m *MockStore) WithAuditWriteError(err error) *MockStore {
+	m.mu.Lock()
+	m.errAuditWrite = err
+	m.mu.Unlock()
+	return m
+}
+
+// GetAuditEvents returns a snapshot of audit events recorded by the mock.
+func (m *MockStore) GetAuditEvents() []model.AuditEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]model.AuditEvent(nil), m.auditEvents...)
+}
+
 // WithAccountAlreadyScanning pre-marks an account as scanning,
 // causing TryMarkAccountScanning to return (false, nil) for that account.
 func (m *MockStore) WithAccountAlreadyScanning(accountID string) *MockStore {
@@ -279,6 +305,40 @@ func (m *MockStore) UpsertUser(_ context.Context, _, _, _, _ string) (model.User
 
 func (m *MockStore) EnsureUser(_ context.Context, _ model.User) error {
 	return nil
+}
+
+func (m *MockStore) AuditLogWrite(_ context.Context, e model.AuditEvent) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.errAuditWrite != nil {
+		return 0, m.errAuditWrite
+	}
+	m.nextAuditID++
+	e.ID = m.nextAuditID
+	m.auditEvents = append(m.auditEvents, e)
+	return e.ID, nil
+}
+
+func (m *MockStore) AuditLogList(_ context.Context, _ model.AuditFilter) ([]model.AuditEvent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Handler tests only care that List returns what was written; filter
+	// semantics are exercised in the Postgres integration tests.
+	return append([]model.AuditEvent(nil), m.auditEvents...), nil
+}
+
+func (m *MockStore) AuditLogAnonymiseUser(_ context.Context, userID string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var n int64
+	for i := range m.auditEvents {
+		if m.auditEvents[i].UserID == userID {
+			m.auditEvents[i].UserID = ""
+			m.auditEvents[i].ActorEmail = "deleted-user"
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (m *MockStore) SaveAccount(_ context.Context, a model.Account) error {
