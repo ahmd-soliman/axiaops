@@ -29,6 +29,7 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | POST | /dismissals | Yes | Dismiss or snooze a zombie resource |
 | GET | /dismissals | Yes | List active dismissals (?account_id) |
 | DELETE | /dismissals/{id} | Yes | Revoke a dismissal |
+| GET | /audit | Yes | Tenant audit timeline (?user_id, ?resource_type, ?resource_id, ?action, ?since, ?until, ?limit, ?cursor) |
 
 ## Key Patterns
 

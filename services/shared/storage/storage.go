@@ -171,6 +171,25 @@ type Store interface {
 	// Returns the number of records expired.
 	ExpireSnoozes(ctx context.Context) (int64, error)
 
+	// AuditLogWrite records a user-initiated mutation in audit_log.
+	// ctx must carry a tenant ID via WithTenantID.  Returns the new row ID.
+	// Callers must treat audit writes as best-effort — log the error, bump the
+	// axiaops_audit_writes_total{status="failed"} counter, and continue. Failing
+	// the underlying user operation because an audit row couldn't be written is
+	// a worse outcome than a missing audit row.
+	AuditLogWrite(ctx context.Context, e model.AuditEvent) (int64, error)
+
+	// AuditLogList returns audit events for the tenant in ctx in
+	// (created_at DESC, id DESC) order. Zero-valued filter fields are not
+	// applied. Limit is capped at 500 by the implementation.
+	AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.AuditEvent, error)
+
+	// AuditLogAnonymiseUser nulls user_id and replaces actor_email with a
+	// tombstone marker for all rows matching (tenant_id, user_id) — used by
+	// user-deletion and tenant-deletion (GDPR) paths.  Returns the number of
+	// rows modified.
+	AuditLogAnonymiseUser(ctx context.Context, userID string) (int64, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 }

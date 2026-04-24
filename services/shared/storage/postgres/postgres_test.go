@@ -58,6 +58,7 @@ func setup(t *testing.T) *pgx.Conn {
 	t.Helper()
 	conn := connectTestDB(t)
 	const truncate = `TRUNCATE TABLE
+		axiaops.audit_log,
 		axiaops.zombie_snapshots,
 		axiaops.resource_records,
 		axiaops.zombie_records,
@@ -1071,5 +1072,206 @@ func TestDeleteOldCostRecords_ReturnsZeroWhenEmpty(t *testing.T) {
 	}
 	if deleted != 0 {
 		t.Errorf("expected 0 rows deleted on empty table, got %d", deleted)
+	}
+}
+
+// ── Audit log ────────────────────────────────────────────────────────────────
+
+func writeAudit(t *testing.T, s *postgres.Store, ctx context.Context, e model.AuditEvent) int64 {
+	t.Helper()
+	id, err := s.AuditLogWrite(ctx, e)
+	if err != nil {
+		t.Fatalf("AuditLogWrite: %v", err)
+	}
+	return id
+}
+
+func TestAuditLog_WriteAndList(t *testing.T) {
+	s := newTestStore(t)
+	ctx, tenant := newTenantCtx(t, s)
+
+	writeAudit(t, s, ctx, model.AuditEvent{
+		Action:       model.AuditActionDismissZombie,
+		UserID:       "user-1",
+		ActorEmail:   "alice@acme.com",
+		ResourceType: "dismissal",
+		ResourceID:   "42",
+		Reason:       "intentional",
+		Metadata:     map[string]any{"service": "AmazonEC2"},
+	})
+	writeAudit(t, s, ctx, model.AuditEvent{
+		Action:     model.AuditActionAccountConnected,
+		UserID:     "user-1",
+		ActorEmail: "alice@acme.com",
+		ResourceID: "acc-1",
+	})
+
+	events, err := s.AuditLogList(ctx, model.AuditFilter{})
+	if err != nil {
+		t.Fatalf("AuditLogList: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	// Newest first.
+	if events[0].Action != model.AuditActionAccountConnected {
+		t.Errorf("expected account_connected first (newest), got %s", events[0].Action)
+	}
+	if events[1].Action != model.AuditActionDismissZombie {
+		t.Errorf("expected dismiss_zombie second, got %s", events[1].Action)
+	}
+	if events[1].Metadata["service"] != "AmazonEC2" {
+		t.Errorf("expected metadata round-trip, got %v", events[1].Metadata)
+	}
+	// tenant_id column should equal the tenant we wrote under.
+	if events[0].TenantID != tenant.ID {
+		t.Errorf("tenant_id: got %q, want %q", events[0].TenantID, tenant.ID)
+	}
+}
+
+func TestAuditLog_TenantIsolation(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("skipping: requires DATABASE_URL for RLS to scope queries")
+	}
+	s := newTestStore(t)
+	ctxA, _ := newTenantCtx(t, s)
+	ctxB, _ := newTenantCtx(t, s)
+
+	writeAudit(t, s, ctxA, model.AuditEvent{Action: model.AuditActionDismissZombie, UserID: "u-a"})
+	writeAudit(t, s, ctxB, model.AuditEvent{Action: model.AuditActionSnoozeZombie, UserID: "u-b"})
+
+	aEvents, err := s.AuditLogList(ctxA, model.AuditFilter{})
+	if err != nil {
+		t.Fatalf("list A: %v", err)
+	}
+	if len(aEvents) != 1 || aEvents[0].UserID != "u-a" {
+		t.Errorf("tenant A must see only its own rows, got %+v", aEvents)
+	}
+	bEvents, err := s.AuditLogList(ctxB, model.AuditFilter{})
+	if err != nil {
+		t.Fatalf("list B: %v", err)
+	}
+	if len(bEvents) != 1 || bEvents[0].UserID != "u-b" {
+		t.Errorf("tenant B must see only its own rows, got %+v", bEvents)
+	}
+}
+
+func TestAuditLog_Filters(t *testing.T) {
+	s := newTestStore(t)
+	ctx, _ := newTenantCtx(t, s)
+
+	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionDismissZombie, UserID: "u1", ResourceType: "dismissal", ResourceID: "1"})
+	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionSnoozeZombie, UserID: "u2", ResourceType: "dismissal", ResourceID: "2"})
+	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionAccountConnected, UserID: "u1", ResourceType: "account", ResourceID: "acc-1"})
+
+	// Filter by action.
+	events, _ := s.AuditLogList(ctx, model.AuditFilter{Action: model.AuditActionDismissZombie})
+	if len(events) != 1 || events[0].UserID != "u1" {
+		t.Errorf("action filter: got %+v", events)
+	}
+
+	// Filter by user.
+	events, _ = s.AuditLogList(ctx, model.AuditFilter{UserID: "u1"})
+	if len(events) != 2 {
+		t.Errorf("user filter: expected 2 events for u1, got %d", len(events))
+	}
+
+	// Filter by resource_type + resource_id.
+	events, _ = s.AuditLogList(ctx, model.AuditFilter{ResourceType: "account", ResourceID: "acc-1"})
+	if len(events) != 1 || events[0].Action != model.AuditActionAccountConnected {
+		t.Errorf("resource filter: got %+v", events)
+	}
+}
+
+func TestAuditLog_Pagination(t *testing.T) {
+	s := newTestStore(t)
+	ctx, _ := newTenantCtx(t, s)
+
+	const total = 25
+	for i := 0; i < total; i++ {
+		writeAudit(t, s, ctx, model.AuditEvent{
+			Action: model.AuditActionDismissZombie,
+			UserID: "u1",
+		})
+	}
+
+	first, err := s.AuditLogList(ctx, model.AuditFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	if len(first) != 10 {
+		t.Fatalf("page 1 size: got %d, want 10", len(first))
+	}
+	cursor := model.AuditCursor{CreatedAt: first[len(first)-1].CreatedAt, ID: first[len(first)-1].ID}
+
+	second, err := s.AuditLogList(ctx, model.AuditFilter{Limit: 10, Cursor: cursor})
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+	if len(second) != 10 {
+		t.Fatalf("page 2 size: got %d, want 10", len(second))
+	}
+	// Must not overlap with page 1.
+	seen := make(map[int64]bool)
+	for _, e := range first {
+		seen[e.ID] = true
+	}
+	for _, e := range second {
+		if seen[e.ID] {
+			t.Errorf("page 2 contains id %d from page 1 — cursor pagination is broken", e.ID)
+		}
+	}
+	cursor = model.AuditCursor{CreatedAt: second[len(second)-1].CreatedAt, ID: second[len(second)-1].ID}
+
+	third, err := s.AuditLogList(ctx, model.AuditFilter{Limit: 10, Cursor: cursor})
+	if err != nil {
+		t.Fatalf("page 3: %v", err)
+	}
+	if len(third) != 5 {
+		t.Errorf("page 3 size: got %d, want 5 (remaining)", len(third))
+	}
+}
+
+func TestAuditLog_AnonymiseUser(t *testing.T) {
+	s := newTestStore(t)
+	ctx, _ := newTenantCtx(t, s)
+
+	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionDismissZombie, UserID: "target", ActorEmail: "target@acme.com"})
+	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionSnoozeZombie, UserID: "target", ActorEmail: "target@acme.com"})
+	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionAccountConnected, UserID: "bystander", ActorEmail: "other@acme.com"})
+
+	n, err := s.AuditLogAnonymiseUser(ctx, "target")
+	if err != nil {
+		t.Fatalf("AnonymiseUser: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 rows anonymised, got %d", n)
+	}
+
+	events, _ := s.AuditLogList(ctx, model.AuditFilter{})
+	for _, e := range events {
+		switch e.Action {
+		case model.AuditActionAccountConnected:
+			if e.UserID != "bystander" || e.ActorEmail != "other@acme.com" {
+				t.Errorf("bystander row was modified: %+v", e)
+			}
+		default:
+			if e.UserID != "" {
+				t.Errorf("target row user_id should be empty, got %q", e.UserID)
+			}
+			if e.ActorEmail != "deleted-user" {
+				t.Errorf("target row actor_email: got %q, want 'deleted-user'", e.ActorEmail)
+			}
+		}
+	}
+}
+
+func TestAuditLog_MissingTenant_Errors(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.AuditLogWrite(context.Background(), model.AuditEvent{Action: model.AuditActionDismissZombie}); err == nil {
+		t.Error("expected error when tenant_id missing from ctx, got nil")
+	}
+	if _, err := s.AuditLogList(context.Background(), model.AuditFilter{}); err == nil {
+		t.Error("expected list error when tenant_id missing from ctx, got nil")
 	}
 }
