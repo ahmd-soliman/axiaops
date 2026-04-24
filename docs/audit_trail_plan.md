@@ -131,7 +131,7 @@ Handlers today receive tenant only. Audit rows need `user_id` + `actor_email`. D
 - `middleware.UserID(ctx)` / `middleware.UserEmail(ctx)` helpers alongside `TenantID()` (`services/api/internal/middleware/auth.go`).
 - `Auth.Wrap` stashes `user.ID` / `user.Email` on the context after `UpsertUser` succeeds.
 - `DevBypass(tenantID, userID, userEmail, next)` — 3-arg signature. Local handlers see the same context shape as production.
-- **Dev-mode bootstrap (Option 1):** new `Store.EnsureUser(ctx, id, tenantID, email, name)` method; `services/api/cmd/main.go` calls it after `EnsureTenant` so a real users row exists. New env vars `DEV_USER_ID` (default `dev-user-axiaops`) and `DEV_USER_EMAIL` (default `dev@axiaops.local`).
+- **Dev-mode bootstrap (Option 1):** new `Store.EnsureUser(ctx, model.User)` method (struct form — prevents argument-order bugs); `services/api/cmd/main.go` calls it after `EnsureTenant` so a real users row exists. New env vars `DEV_USER_ID` (default `dev-user-axiaops`) and `DEV_USER_EMAIL` (default `dev@axiaops.local`).
 - Synthetic `kinde_sub = "dev:" + id` keeps the `users.kinde_sub UNIQUE` constraint intact alongside real Kinde rows.
 - `scripts/seed_test_data.sh` inserts the same dev user row so `make seed` stays idempotent with the startup path.
 - `.env.example` documents the two new knobs.

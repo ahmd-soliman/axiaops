@@ -42,7 +42,7 @@ func (m *mockStoreForScheduler) EnsureTenant(context.Context, string, string, st
 func (m *mockStoreForScheduler) UpsertUser(context.Context, string, string, string, string) (model.User, error) {
 	return model.User{}, nil
 }
-func (m *mockStoreForScheduler) EnsureUser(context.Context, string, string, string, string) error {
+func (m *mockStoreForScheduler) EnsureUser(context.Context, model.User) error {
 	return nil
 }
 func (m *mockStoreForScheduler) SaveAccount(context.Context, model.Account) error { return nil }

@@ -173,6 +173,18 @@ else
   # without going through the Kinde-upsert path.
   DEV_USER_ID_VAL="${DEV_USER_ID:-dev-user-axiaops}"
   DEV_USER_EMAIL_VAL="${DEV_USER_EMAIL:-dev@axiaops.local}"
+  # Values are interpolated into SQL strings below. Reject anything that could
+  # close a string literal or inject additional statements. Dev env-var values
+  # should always match these allowlists; failing loudly is better than
+  # producing malformed SQL.
+  if ! [[ "$DEV_USER_ID_VAL" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "Error: DEV_USER_ID must match ^[A-Za-z0-9._-]+$ (got: ${DEV_USER_ID_VAL})" >&2
+    exit 1
+  fi
+  if ! [[ "$DEV_USER_EMAIL_VAL" =~ ^[A-Za-z0-9@._+-]+$ ]]; then
+    echo "Error: DEV_USER_EMAIL must match ^[A-Za-z0-9@._+-]+$ (got: ${DEV_USER_EMAIL_VAL})" >&2
+    exit 1
+  fi
   psql_exec "INSERT INTO users (id, tenant_id, kinde_sub, email, name, created_at, last_seen)
     VALUES ('${DEV_USER_ID_VAL}', '${TENANT_ID}', 'dev:${DEV_USER_ID_VAL}',
             '${DEV_USER_EMAIL_VAL}', 'Dev User', NOW(), NOW())
