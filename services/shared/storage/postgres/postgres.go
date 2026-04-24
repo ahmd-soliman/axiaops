@@ -1301,10 +1301,14 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 		return nil, err
 	}
 
+	// ip_address is cast to text so pgx uses the text codec (which supports
+	// nullable **string). The default binary codec for INET decodes into
+	// netip.Prefix or net.IPNet, neither of which fit our nullable-string
+	// field without a typed wrapper. The cast is cheap — inet → text is O(1).
 	query := fmt.Sprintf(`
 		SELECT id, tenant_id, user_id, actor_email, action,
 		       resource_type, resource_id, reason, metadata,
-		       request_id, ip_address, user_agent, created_at
+		       request_id, host(ip_address) AS ip_address, user_agent, created_at
 		FROM audit_log
 		WHERE %s
 		ORDER BY created_at DESC, id DESC
