@@ -458,7 +458,7 @@ func TestEnsureUser_CreatesRow(t *testing.T) {
 	}
 
 	conn := connectTestDB(t)
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 	var kindeSub, email string
 	err := conn.QueryRow(context.Background(),
 		`SELECT kinde_sub, email FROM axiaops.users WHERE id = $1`, u.ID,
@@ -488,7 +488,7 @@ func TestEnsureUser_UpdatesOnConflict(t *testing.T) {
 	}
 
 	conn := connectTestDB(t)
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 	var tenantID, email, name string
 	err := conn.QueryRow(context.Background(),
 		`SELECT tenant_id, email, name FROM axiaops.users WHERE id = $1`, id,
@@ -513,7 +513,7 @@ func TestUsersDevKindeSubCheckConstraint(t *testing.T) {
 	_, tenant := newTenantCtx(t, newTestStore(t))
 
 	conn := connectTestDB(t)
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 
 	now := time.Now().UTC()
 	_, err := conn.Exec(context.Background(),
