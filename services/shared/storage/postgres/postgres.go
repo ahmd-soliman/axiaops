@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -1173,6 +1175,219 @@ func (s *Store) ExpireSnoozes(ctx context.Context) (int64, error) {
 	)
 	if err != nil {
 		return 0, fmt.Errorf("postgres: expire snoozes: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// ── Audit log ─────────────────────────────────────────────────────────────────
+
+// auditListMaxLimit caps the per-page size returned by AuditLogList regardless
+// of what the caller requests, to stop accidental full-table scans.
+const auditListMaxLimit = 500
+
+// AuditLogWrite inserts one audit event for the tenant in ctx. Callers must
+// treat this as best-effort — see Store interface doc for why.
+func (s *Store) AuditLogWrite(ctx context.Context, e model.AuditEvent) (int64, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return 0, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setTenant(ctx, tx); err != nil {
+		return 0, err
+	}
+
+	metadata := e.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: marshal audit metadata: %w", err)
+	}
+
+	var ipArg any
+	if len(e.IPAddress) > 0 {
+		ipArg = e.IPAddress.String()
+	}
+	var userIDArg any
+	if e.UserID != "" {
+		userIDArg = e.UserID
+	}
+
+	var id int64
+	err = tx.QueryRow(ctx, `
+		INSERT INTO audit_log (
+			tenant_id, user_id, actor_email, action,
+			resource_type, resource_id, reason, metadata,
+			request_id, ip_address, user_agent
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id`,
+		tenantID, userIDArg, e.ActorEmail, e.Action,
+		e.ResourceType, e.ResourceID, e.Reason, string(metadataJSON),
+		e.RequestID, ipArg, e.UserAgent,
+	).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: insert audit row: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("postgres: commit audit row: %w", err)
+	}
+	return id, nil
+}
+
+// AuditLogList returns audit events for the tenant in ctx, newest first.
+// Filter fields compose with AND; zero values are ignored. Pagination uses a
+// (created_at, id) cursor so inserts during paging don't shift rows.
+func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.AuditEvent, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+
+	limit := f.Limit
+	if limit <= 0 || limit > auditListMaxLimit {
+		limit = auditListMaxLimit
+	}
+
+	// Build WHERE clause with positional placeholders.
+	args := []any{tenantID}
+	where := []string{"tenant_id = $1"}
+	add := func(clause string, val any) {
+		args = append(args, val)
+		where = append(where, fmt.Sprintf(clause, len(args)))
+	}
+	if f.UserID != "" {
+		add("user_id = $%d", f.UserID)
+	}
+	if f.ResourceType != "" {
+		add("resource_type = $%d", f.ResourceType)
+	}
+	if f.ResourceID != "" {
+		add("resource_id = $%d", f.ResourceID)
+	}
+	if f.Action != "" {
+		add("action = $%d", f.Action)
+	}
+	if !f.Since.IsZero() {
+		add("created_at >= $%d", f.Since)
+	}
+	if !f.Until.IsZero() {
+		add("created_at < $%d", f.Until)
+	}
+	if !f.Cursor.IsZero() {
+		// (created_at, id) < (cursor.created_at, cursor.id) in lexicographic order
+		// — pgx doesn't expand row values as placeholders, so spell it out.
+		args = append(args, f.Cursor.CreatedAt, f.Cursor.ID)
+		where = append(where, fmt.Sprintf(
+			"(created_at < $%d OR (created_at = $%d AND id < $%d))",
+			len(args)-1, len(args)-1, len(args),
+		))
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setTenant(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, tenant_id, user_id, actor_email, action,
+		       resource_type, resource_id, reason, metadata,
+		       request_id, ip_address, user_agent, created_at
+		FROM audit_log
+		WHERE %s
+		ORDER BY created_at DESC, id DESC
+		LIMIT %d`,
+		strings.Join(where, " AND "), limit,
+	)
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: query audit_log: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.AuditEvent
+	for rows.Next() {
+		var e model.AuditEvent
+		var userID, ipAddr *string
+		var metadataJSON []byte
+		if err := rows.Scan(
+			&e.ID, &e.TenantID, &userID, &e.ActorEmail, &e.Action,
+			&e.ResourceType, &e.ResourceID, &e.Reason, &metadataJSON,
+			&e.RequestID, &ipAddr, &e.UserAgent, &e.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("postgres: scan audit row: %w", err)
+		}
+		if userID != nil {
+			e.UserID = *userID
+		}
+		if ipAddr != nil {
+			e.IPAddress = net.ParseIP(*ipAddr)
+		}
+		if len(metadataJSON) > 0 {
+			if err := json.Unmarshal(metadataJSON, &e.Metadata); err != nil {
+				return nil, fmt.Errorf("postgres: unmarshal audit metadata: %w", err)
+			}
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: iterate audit rows: %w", err)
+	}
+	// Commit even on read-only tx so setTenant's SET doesn't leak. If Commit
+	// fails we can't trust that the rows we assembled were read under a
+	// consistent snapshot — surface the error rather than returning stale data.
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("postgres: commit audit list tx: %w", err)
+	}
+	return out, nil
+}
+
+// AuditLogAnonymiseUser nulls user_id and replaces actor_email for all rows
+// matching (tenant_id, user_id). Called from the GDPR user-delete path.
+func (s *Store) AuditLogAnonymiseUser(ctx context.Context, userID string) (int64, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return 0, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+	if userID == "" {
+		return 0, fmt.Errorf("postgres: user_id required for anonymise")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setTenant(ctx, tx); err != nil {
+		return 0, err
+	}
+
+	// The WHERE also includes tenant_id even though RLS would enforce it — this
+	// is a GDPR-critical path, so belt-and-suspenders tenant scoping is cheap
+	// insurance against an RLS misconfiguration slipping through code review.
+	tag, err := tx.Exec(ctx, `
+		UPDATE audit_log
+		SET user_id = NULL, actor_email = 'deleted-user'
+		WHERE tenant_id = $1 AND user_id = $2`,
+		tenantID, userID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: anonymise audit rows: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("postgres: commit anonymise: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
