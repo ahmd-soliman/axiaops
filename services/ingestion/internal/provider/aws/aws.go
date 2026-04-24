@@ -23,6 +23,7 @@ import (
 
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/pricing"
 	"axiaops.io/shared/retry"
 )
 
@@ -34,6 +35,7 @@ type Client struct {
 	cfg       aws.Config
 	ce        CostExplorerAPI
 	cw        CloudWatchAPI
+	pricing   *pricing.Config
 }
 
 // NewWithStaticCredentials builds a Client using the given access key (e.g. per-tenant scan)
@@ -60,13 +62,31 @@ func NewWithStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey,
 		cfg:       cfg,
 		ce:        costexplorer.NewFromConfig(cfg),
 		cw:        cloudwatchsdk.NewFromConfig(cfg),
+		pricing:   pricing.Default(),
 	}, nil
 }
 
 // NewWithClient creates a Client with custom API implementations.
 // Used in tests to inject mocks.
 func NewWithClient(accountID string, ce CostExplorerAPI, cw CloudWatchAPI) *Client {
-	return &Client{accountID: accountID, ce: ce, cw: cw}
+	return &Client{accountID: accountID, ce: ce, cw: cw, pricing: pricing.Default()}
+}
+
+// Rates returns the effective AWS pricing rates for the given region —
+// default values merged with any per-region overrides from rates.yml.
+func (c *Client) Rates(region string) pricing.Rates {
+	if c.pricing == nil {
+		c.pricing = pricing.Default()
+	}
+	return c.pricing.For(region)
+}
+
+// Currency returns the currency (e.g., "USD") used by the loaded pricing config.
+func (c *Client) Currency() string {
+	if c.pricing == nil {
+		c.pricing = pricing.Default()
+	}
+	return c.pricing.Currency
 }
 
 // FetchUsage discovers resources via service APIs then queries CloudWatch

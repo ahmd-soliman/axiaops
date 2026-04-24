@@ -28,6 +28,7 @@ _Last updated: 2026-04-24_
 | `cost_records` 90-day retention | Daily cleanup ticker in ingestion; `DeleteOldCostRecords` |
 | Dismiss / snooze workflow | `dismissed_zombies` table (migration 002), REST endpoints, dashboard UI |
 | Snooze expiry worker | Background ticker expires snoozed records via `ExpireSnoozes` |
+| Pricing rates — YAML config | Hardcoded `const` rates in `discover.go` moved to `services/shared/pricing/rates.yml`; loader + per-region override support; fixes the credibility bug from the CE anomaly monitor ($3/mo claim with no source). |
 
 ---
 
@@ -61,6 +62,8 @@ _Last updated: 2026-04-24_
 | 9 | GDPR / right to erasure | Data export + account deletion |
 | 10 | Expanded detection rules | EBS, S3, CloudFront, Redshift, ElastiCache |
 | 11 | Operating entity | Holding GmbH + Operating UG (target August 2026) |
+| 12 | **Pricing rates — live from AWS Pricing API** | Migrate `services/shared/pricing/rates.yml` to a DB-backed `pricing_rates` table refreshed from `pricing:GetProducts`. YAML works fine while rates change ~yearly; this becomes load-bearing once (a) customers complain that numbers don't match their bill, (b) we add Azure/GCP and need multi-provider rate tables, or (c) we backfill historical savings and need point-in-time rates. Until one of those triggers, stay on YAML. |
+| 13 | **CUR ingestion — actual-cost mode** | Replace list-price estimates with customer-specific actual costs by ingesting AWS Cost and Usage Reports (CUR). Customer opts in, enables CUR to their S3 bucket, grants us cross-account read. Two deployment shapes: Athena in-place queries (customer pays ~$1–5/mo in query costs, zero egress for us) or ingest to our DB (faster queries, we pay egress). Unlocks exact per-resource cost including Savings Plans / RIs / EDP discounts — the numbers match the customer's actual invoice to the cent. This is the real differentiator vs Terraform cost estimators (Infracost, AWS Pricing Calculator) that can only use list prices. Ahead of task #12 in priority — CUR solves accuracy, #12 only solves "keeping list prices fresh." |
 
 ---
 
