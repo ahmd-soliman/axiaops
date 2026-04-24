@@ -37,27 +37,6 @@ type Client struct {
 	cw        CloudWatchAPI
 }
 
-// New loads AWS credentials from the environment or ~/.aws/credentials and
-// resolves the account ID automatically via sts:GetCallerIdentity.
-func New(ctx context.Context) (*Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("aws: load config: %w", err)
-	}
-	out, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-	if err != nil {
-		return nil, fmt.Errorf("aws: GetCallerIdentity: %w", err)
-	}
-	accountID := aws.ToString(out.Account)
-	log.Printf("aws: resolved account ID %s", accountID)
-	return &Client{
-		accountID: accountID,
-		cfg:       cfg,
-		ce:        costexplorer.NewFromConfig(cfg),
-		cw:        cloudwatchsdk.NewFromConfig(cfg),
-	}, nil
-}
-
 // NewWithStaticCredentials builds a Client using the given access key (e.g. per-tenant scan)
 // without mutating process-wide environment variables.
 func NewWithStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey, region string) (*Client, error) {
