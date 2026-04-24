@@ -41,6 +41,7 @@ func New(store storage.Store, q queue.Queue) *Handler {
 // Register attaches the routes to the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.health)
+	mux.HandleFunc("GET /v1/version", h.getVersion)
 	mux.HandleFunc("GET /v1/zombies", h.listZombies)
 	mux.HandleFunc("GET /v1/summary", h.getSummary)
 	mux.HandleFunc("GET /v1/trend", h.getTrend)
@@ -346,6 +347,32 @@ func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 // Pinger is satisfied by *postgres.Store (which embeds pgxpool.Pool).
 type Pinger interface {
 	Ping(ctx context.Context) error
+}
+
+// getVersion returns the build identifier for the API service. Reads from the
+// APP_VERSION / APP_COMMIT_SHA / APP_ENV env vars, falling back to "dev" /
+// "local" / "development" so a vanilla `make start-dev` still produces a
+// usable response. Auth required (sits under /v1/) so the dashboard footer
+// only learns about the API after a user has logged in.
+//
+// Response shape is intentionally narrow — service identifier, version,
+// commit SHA, env. No build timestamps, no dependency versions, no secrets.
+// If you find yourself adding fields here, ask whether the data belongs in
+// /metrics or a structured log line instead.
+func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]string{
+		"service": "api",
+		"version": getenvOr("APP_VERSION", "dev"),
+		"commit":  getenvOr("APP_COMMIT_SHA", "local"),
+		"env":     getenvOr("APP_ENV", "development"),
+	})
+}
+
+func getenvOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
