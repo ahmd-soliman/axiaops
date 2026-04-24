@@ -242,6 +242,7 @@ func (m *mockCache) Set(_ context.Context, key string, value []byte, _ time.Dura
 }
 func (m *mockCache) Del(_ context.Context, key string) error  { delete(m.data, key); return nil }
 func (m *mockCache) Incr(_ context.Context, _ string, _ time.Duration) (int64, error) { return 0, nil }
+func (m *mockCache) Ping(_ context.Context) error              { return nil }
 func (m *mockCache) Close() error                              { return nil }
 
 // rsaPublicKeyToJWKS serialises an RSA public key into a minimal JWKS JSON.
