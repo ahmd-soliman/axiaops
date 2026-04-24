@@ -186,7 +186,7 @@ export async function fetchAuditEvents({
   if (action)       params.set('action', action);
   if (since)        params.set('since', since);       // RFC3339 string
   if (until)        params.set('until', until);       // RFC3339 string
-  if (limit)        params.set('limit', String(limit));
+  if (limit != null) params.set('limit', String(limit)); // null/undefined skip; 0 is sent (server treats as default)
   if (cursor)       params.set('cursor', cursor);
 
   const qs = params.toString();

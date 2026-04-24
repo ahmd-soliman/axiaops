@@ -1337,7 +1337,13 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 			e.UserID = *userID
 		}
 		if ipAddr != nil {
-			e.IPAddress = net.ParseIP(*ipAddr)
+			// host() always returns a parseable address for valid INET, but
+			// guard against ParseIP returning nil so a future migration that
+			// changes the cast cannot crash the scan loop. On unparseable
+			// input we leave IPAddress unset rather than store a nil net.IP.
+			if parsed := net.ParseIP(*ipAddr); parsed != nil {
+				e.IPAddress = parsed
+			}
 		}
 		if len(metadataJSON) > 0 {
 			if err := json.Unmarshal(metadataJSON, &e.Metadata); err != nil {
