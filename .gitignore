@@ -80,6 +80,9 @@ logs/
 .dev-pids
 .aider*
 
+# ─── Claude Code (local-only overrides) ──────────────────────────────────────
+.claude/settings.local.json
+
 # Go compiled binaries (service-specific)
 services/api/api
 services/api/main
