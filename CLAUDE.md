@@ -30,7 +30,7 @@ make start-dev      # Host-mode Go services + Postgres container. DEV_MODE=true
 make start-staging  # Full Docker stack (API, ingestion, dashboard, Redis, Postgres)
                     # with DEV_MODE=false → Kinde JWT auth on. Mirrors deployed env.
 make stop           # Kill host-mode services AND `docker compose down` the stack.
-make seed           # Populate dummy tenant/user/ghost records
+make seed           # Populate dummy tenant/user/zombie records
 make test           # All Go unit tests
 make test-storage   # PostgreSQL tests (RLS, migrations) — needs running postgres
 make test-smoke     # Smoke tests — needs full stack running (make start-dev in a separate terminal)

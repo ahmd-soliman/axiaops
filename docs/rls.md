@@ -2,7 +2,7 @@
 
 ## Overview
 
-AxiaOps uses PostgreSQL Row-Level Security (RLS) to isolate data between tenants. Every customer's cost records and ghost resources are stored in the same tables but are invisible to other tenants — enforced at the database level, not just in application code.
+AxiaOps uses PostgreSQL Row-Level Security (RLS) to isolate data between tenants. Every customer's cost records and zombie resources are stored in the same tables but are invisible to other tenants — enforced at the database level, not just in application code.
 
 ---
 
@@ -19,7 +19,7 @@ tenants
 └── name       TEXT                -- display name (e.g. "Acme Corp")
 ```
 
-Every row in `ghost_records` and `cost_records` has a `tenant_id` column that references `tenants.id`.
+Every row in `zombie_records` and `cost_records` has a `tenant_id` column that references `tenants.id`.
 
 ---
 
@@ -28,14 +28,14 @@ Every row in `ghost_records` and `cost_records` has a `tenant_id` column that re
 RLS is enabled on both tables:
 
 ```sql
-ALTER TABLE ghost_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cost_records  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE zombie_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cost_records   ENABLE ROW LEVEL SECURITY;
 ```
 
 Each table has a policy that compares the row's `tenant_id` to the current session variable `app.tenant_id`:
 
 ```sql
-CREATE POLICY ghost_tenant_isolation ON ghost_records
+CREATE POLICY zombie_tenant_isolation ON zombie_records
     USING (tenant_id = current_setting('app.tenant_id', true));
 
 CREATE POLICY cost_tenant_isolation ON cost_records
@@ -74,13 +74,13 @@ Auth middleware
   → UpsertTenant(org_code) → returns tenant UUID
   → stores tenant UUID in request context
   ↓
-Handler (GET /ghosts)
+Handler (GET /zombies)
   → storage.WithTenantID(ctx, tenantID)
   ↓
-postgres.LoadGhosts(ctx)
+postgres.LoadZombies(ctx)
   → BEGIN transaction
   → set_config('app.tenant_id', tenantID, true)
-  → SELECT * FROM ghost_records   ← RLS filters automatically
+  → SELECT * FROM zombie_records   ← RLS filters automatically
   → COMMIT
 ```
 
@@ -92,11 +92,11 @@ Scheduler (EventBridge) → passes TENANT_ID env var
 ingestion/cmd/main.go
   → storage.WithTenantID(ctx, tenantID)
   ↓
-postgres.SaveGhosts(ctx, ghosts)
+postgres.SaveZombies(ctx, zombies)
   → BEGIN transaction
   → set_config('app.tenant_id', tenantID, true)
-  → DELETE FROM ghost_records     ← RLS: only deletes this tenant's rows
-  → INSERT INTO ghost_records     ← tenant_id column set explicitly
+  → DELETE FROM zombie_records     ← RLS: only deletes this tenant's rows
+  → INSERT INTO zombie_records     ← tenant_id column set explicitly
   → COMMIT
 ```
 
@@ -109,10 +109,10 @@ The seed script (`scripts/seed_test_data.sh`) creates two tenants, runs ingestio
 ```sql
 -- As tenant A — only sees own rows
 SET app.tenant_id = '<tenant_a_uuid>';
-SELECT COUNT(*) FROM ghost_records;  -- returns tenant A count
+SELECT COUNT(*) FROM zombie_records;  -- returns tenant A count
 
 -- As tenant A — cannot see tenant B rows
-SELECT COUNT(*) FROM ghost_records
+SELECT COUNT(*) FROM zombie_records
 WHERE tenant_id = '<tenant_b_uuid>';  -- returns 0 (RLS filters them out)
 ```
 

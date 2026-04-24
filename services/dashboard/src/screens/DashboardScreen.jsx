@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissGhost } from '../api/client';
+import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissZombie } from '../api/client';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
@@ -38,7 +38,7 @@ const SNOOZE_OPTIONS = [
 function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, theme }) {
   const data = summary.data;
   const waste = data?.potential_monthly_savings ?? 0;
-  const ghostCount = data?.total_ghosts ?? 0;
+  const zombieCount = data?.total_zombies ?? 0;
   const currency = data?.currency || '$';
   const wastePercent = totalSpend > 0 ? (waste / totalSpend) * 100 : 0;
 
@@ -83,7 +83,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
             <span style={{ fontSize: 12, color: theme.textMuted }}>
-              {ghostCount} zombie{ghostCount !== 1 ? 's' : ''}
+              {zombieCount} zombie{zombieCount !== 1 ? 's' : ''}
             </span>
             {delta !== null && (
               <span style={{ fontSize: 11, color: delta > 0 ? theme.error : theme.success, fontWeight: 700 }}>
@@ -139,7 +139,7 @@ function ServiceBreakdown({ byService, currency, theme }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
-                  <span style={{ fontSize: 11, color: theme.textMuted }}>{data.ghosts} resource{data.ghosts !== 1 ? 's' : ''}</span>
+                  <span style={{ fontSize: 11, color: theme.textMuted }}>{data.zombies} resource{data.zombies !== 1 ? 's' : ''}</span>
                 </div>
                 <span style={{ fontSize: 12, fontWeight: 700, color: theme.accent }}>{currency}{data.savings.toFixed(2)}</span>
               </div>
@@ -435,15 +435,15 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
           <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
           <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
 
-          {item.is_ghost && (
+          {item.is_zombie && (
             <div style={{
               padding: '2px 6px',
               borderRadius: 4,
-              backgroundColor: theme.ghostBadgeBg,
+              backgroundColor: theme.zombieBadgeBg,
               border: `1px solid ${theme.error}33`,
               flexShrink: 0,
             }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: theme.ghostBadgeText, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: theme.zombieBadgeText, textTransform: 'uppercase', letterSpacing: 0.3 }}>
                 zombie
               </span>
             </div>
@@ -501,10 +501,10 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
         </div>
 
         {/* Row 4: detection reason / usage */}
-        {(item.is_ghost || item.usage_metric) && (
+        {(item.is_zombie || item.usage_metric) && (
           <div style={{ marginTop: 6 }}>
-            <span style={{ fontSize: 12, color: item.is_ghost ? theme.textMid : theme.textMuted, fontStyle: 'italic', lineHeight: '18px', display: 'block' }}>
-              {item.is_ghost ? item.reason : `${item.usage_metric}: ${item.usage_avg?.toFixed(2)} ${item.usage_unit}`}
+            <span style={{ fontSize: 12, color: item.is_zombie ? theme.textMid : theme.textMuted, fontStyle: 'italic', lineHeight: '18px', display: 'block' }}>
+              {item.is_zombie ? item.reason : `${item.usage_metric}: ${item.usage_avg?.toFixed(2)} ${item.usage_unit}`}
             </span>
           </div>
         )}
@@ -693,11 +693,11 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
-function exportCSV(list, { ghostOnly }, toast) {
-  const kind = ghostOnly ? 'zombies' : 'resources';
+function exportCSV(list, { zombieOnly }, toast) {
+  const kind = zombieOnly ? 'zombies' : 'resources';
   const filename = `axiaops-${kind}-${new Date().toISOString().split('T')[0]}.csv`;
 
-  const headers = ['resource_id', 'service', 'region', 'monthly_cost', 'currency', 'usage_metric', 'usage_avg', 'usage_unit', 'owner', 'is_ghost', 'reason'];
+  const headers = ['resource_id', 'service', 'region', 'monthly_cost', 'currency', 'usage_metric', 'usage_avg', 'usage_unit', 'owner', 'is_zombie', 'reason'];
   const rows = list.map(r => [
     r.resource_id,
     r.service,
@@ -708,13 +708,13 @@ function exportCSV(list, { ghostOnly }, toast) {
     r.usage_avg ?? '',
     r.usage_unit ?? '',
     r.owner ?? '',
-    r.is_ghost ? 'true' : 'false',
+    r.is_zombie ? 'true' : 'false',
     r.reason ?? '',
   ]);
 
   downloadCSV(csvEncode(headers, rows), filename);
 
-  const noun = ghostOnly ? 'zombie' : 'resource';
+  const noun = zombieOnly ? 'zombie' : 'resource';
   toast(`Exported ${list.length} ${noun}${list.length !== 1 ? 's' : ''} to CSV`, 'success');
 }
 
@@ -735,7 +735,7 @@ function sortResources(list, sortBy) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function DashboardScreen({
-  onShowTrend, onShowCosts, onSelectGhost, accounts = [], onConnectAccount, onEditAccount,
+  onShowTrend, onShowCosts, onSelectZombie, accounts = [], onConnectAccount, onEditAccount,
   selectedAccount, onSelectAccount,
 }) {
   const { theme, isDark } = useTheme();
@@ -747,7 +747,7 @@ export default function DashboardScreen({
   const [filterSvcs, setFilterSvcs]                   = useState(() => new Set());
   const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
   const [filterOwner, setFilterOwner]                 = useState(null);
-  const [ghostOnly, setGhostOnly]       = useState(true);
+  const [zombieOnly, setZombieOnly]       = useState(true);
   const [showDismissed, setShowDismissed] = useState(false);
   const [search, setSearch]             = useState('');
   const [sortBy, setSortBy]             = useState('cost_desc');
@@ -880,7 +880,7 @@ export default function DashboardScreen({
     let succeeded = 0;
     for (const item of items) {
       try {
-        await dismissGhost({
+        await dismissZombie({
           accountId: item.internal_account_id, provider: item.provider,
           service: item.service, region: item.region, resourceId: item.resource_id,
           action, reason, note, snoozeUntil,
@@ -955,7 +955,7 @@ export default function DashboardScreen({
   const listData = (() => {
     if (showDismissed) return dismissals.data ?? [];
     let list = resources.data ?? [];
-    if (ghostOnly) list = list.filter(r => r.is_ghost);
+    if (zombieOnly) list = list.filter(r => r.is_zombie);
     list = list.filter(r => !dismissedSet.has(r.resource_id));
     if (filterSvcs.size > 0)          list = list.filter(r => filterSvcs.has(r.service));
     if (filterResourceTypes.size > 0) list = list.filter(r => filterResourceTypes.has(r.resource_type));
@@ -1048,8 +1048,8 @@ export default function DashboardScreen({
       {/* Tab row */}
       <div style={{ display: 'flex', gap: 6, padding: '0 16px 0', marginTop: 4 }}>
         {[
-          { label: 'Zombies', active: ghostOnly && !showDismissed, onClick: () => { setGhostOnly(true); setShowDismissed(false); } },
-          { label: 'All', active: !ghostOnly && !showDismissed, onClick: () => { setGhostOnly(false); setShowDismissed(false); } },
+          { label: 'Zombies', active: zombieOnly && !showDismissed, onClick: () => { setZombieOnly(true); setShowDismissed(false); } },
+          { label: 'All', active: !zombieOnly && !showDismissed, onClick: () => { setZombieOnly(false); setShowDismissed(false); } },
           (dismissals.data?.length ?? 0) > 0 && {
             label: `Dismissed (${dismissals.data?.length})`,
             active: showDismissed,
@@ -1101,12 +1101,12 @@ export default function DashboardScreen({
           />
         )}
         <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
-          {showDismissed ? 'Dismissed Resources' : ghostOnly ? `Zombie Resources` : 'All Resources'}
+          {showDismissed ? 'Dismissed Resources' : zombieOnly ? `Zombie Resources` : 'All Resources'}
           {!showDismissed && ` · ${listData.length}`}
         </span>
         {!showDismissed && (
           <button
-            onClick={() => exportCSV(listData, { ghostOnly }, toast)}
+            onClick={() => exportCSV(listData, { zombieOnly }, toast)}
             disabled={listData.length === 0}
             aria-label="Export to CSV"
             style={{
@@ -1128,10 +1128,10 @@ export default function DashboardScreen({
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 32px', gap: 8 }}>
           <span style={{ fontSize: 32 }}>🎉</span>
           <span style={{ fontSize: 16, fontWeight: 700, color: t.text }}>
-            {ghostOnly && !showDismissed ? 'No zombie resources found!' : 'No resources match your filters'}
+            {zombieOnly && !showDismissed ? 'No zombie resources found!' : 'No resources match your filters'}
           </span>
           <span style={{ fontSize: 13, color: t.textMuted, textAlign: 'center' }}>
-            {ghostOnly && !showDismissed
+            {zombieOnly && !showDismissed
               ? 'All your AWS resources appear to be actively used.'
               : 'Try adjusting the search or removing filters.'}
           </span>
@@ -1145,7 +1145,7 @@ export default function DashboardScreen({
           : <ResourceCard
               key={item.resource_id}
               item={item}
-              onSelect={onSelectGhost}
+              onSelect={onSelectZombie}
               isSelected={selected.has(item.resource_id)}
               onToggleSelect={toggleSelect}
               theme={t}
@@ -1159,7 +1159,7 @@ export default function DashboardScreen({
           count={selected.size}
           onDismiss={() => setBulkModal('dismiss')}
           onSnooze={() => setBulkModal('snooze')}
-          onExport={() => exportCSV(selectedItems, { ghostOnly }, toast)}
+          onExport={() => exportCSV(selectedItems, { zombieOnly }, toast)}
           onClear={() => setSelected(new Set())}
           theme={t}
         />

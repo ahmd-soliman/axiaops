@@ -55,7 +55,7 @@ func TestRateLimiter_Wrap_Returns429(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil)
+	r := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
 	r = r.WithContext(context.WithValue(r.Context(), tenantIDKey, "alpha"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
@@ -80,7 +80,7 @@ func TestRateLimiter_Wrap_BypassesHealthAndOptions(t *testing.T) {
 	}))
 
 	for _, tc := range []struct{ method, path string }{
-		{http.MethodOptions, "/v1/ghosts"},
+		{http.MethodOptions, "/v1/zombies"},
 		{http.MethodGet, "/health"},
 	} {
 		r := httptest.NewRequest(tc.method, tc.path, nil)
@@ -99,7 +99,7 @@ func TestRateLimiter_Wrap_NoTenantAllowed(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil) // no tenant in ctx
+	r := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil) // no tenant in ctx
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	if w.Code != http.StatusOK {

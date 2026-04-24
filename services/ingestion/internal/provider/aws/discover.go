@@ -295,14 +295,14 @@ func ownerFromTags(tags map[string]string) string {
 const eipMonthlyCost = 3.60
 
 // DiscoverUnattachedEIPs calls ec2:DescribeAddresses in each region present in
-// the cost records and returns a GhostResource for every Elastic IP that is not
+// the cost records and returns a ZombieResource for every Elastic IP that is not
 // attached to a network interface. Unattached EIPs are always zombies — AWS
 // charges for them regardless of usage, with no CloudWatch metric to consult.
 // internalAccountID is the UUID from the accounts table, used for filtering.
-func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	regions := uniqueRegions(records)
 	accountID := awsClient.AccountID()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region := range regions {
 		cfg, err := awsClient.configForRegion(ctx, region)
@@ -329,7 +329,7 @@ func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, aws
 			}
 
 			tags := ec2TagsToMap(addr.Tags)
-			ghosts = append(ghosts, model.GhostResource{
+			zombies = append(zombies, model.ZombieResource{
 				Provider:          "aws",
 				AccountID:         accountID,
 				InternalAccountID: internalAccountID,
@@ -351,7 +351,7 @@ func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, aws
 		}
 	}
 
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── Unattached EBS volumes ────────────────────────────────────────────────────
@@ -363,13 +363,13 @@ func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, aws
 const ebsVolumeMonthlyGBCost = 0.08
 
 // DiscoverUnattachedEBSVolumes calls ec2:DescribeVolumes in each region and
-// returns a GhostResource for every volume whose state is "available" (i.e. not
+// returns a ZombieResource for every volume whose state is "available" (i.e. not
 // mounted to any instance). AWS charges for EBS storage regardless of whether
 // the volume is attached, making these invisible but guaranteed waste.
-func DiscoverUnattachedEBSVolumes(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverUnattachedEBSVolumes(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	regions := uniqueRegions(records)
 	accountID := awsClient.AccountID()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region := range regions {
 		cfg, err := awsClient.configForRegion(ctx, region)
@@ -399,7 +399,7 @@ func DiscoverUnattachedEBSVolumes(ctx context.Context, records []model.CostRecor
 				monthlyCost := float64(sizeGB) * ebsVolumeMonthlyGBCost
 				tags := ec2TagsToMap(vol.Tags)
 
-				ghosts = append(ghosts, model.GhostResource{
+				zombies = append(zombies, model.ZombieResource{
 					Provider:          "aws",
 					AccountID:         accountID,
 					InternalAccountID: internalAccountID,
@@ -426,7 +426,7 @@ func DiscoverUnattachedEBSVolumes(ctx context.Context, records []model.CostRecor
 			nextToken = out.NextToken
 		}
 	}
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── Orphaned EBS snapshots ────────────────────────────────────────────────────
@@ -439,10 +439,10 @@ const ebsSnapshotMonthlyGBCost = 0.05
 // owner) and flags any snapshot whose source volume no longer exists AND that
 // does not back a registered AMI. These snapshots accumulate silently at
 // $0.05/GB-month and are safe to delete once both conditions are met.
-func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	regions := uniqueRegions(records)
 	accountID := awsClient.AccountID()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region := range regions {
 		cfg, err := awsClient.configForRegion(ctx, region)
@@ -537,7 +537,7 @@ func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecor
 				monthlyCost := float64(sizeGB) * ebsSnapshotMonthlyGBCost
 				tags := ec2TagsToMap(snap.Tags)
 
-				ghosts = append(ghosts, model.GhostResource{
+				zombies = append(zombies, model.ZombieResource{
 					Provider:          "aws",
 					AccountID:         accountID,
 					InternalAccountID: internalAccountID,
@@ -564,7 +564,7 @@ func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecor
 			snapNextToken = snapOut.NextToken
 		}
 	}
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── Long-stopped EC2 instances ────────────────────────────────────────────────
@@ -582,11 +582,11 @@ var stoppedAtRe = regexp.MustCompile(`\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} GMT
 // state and flags any instance that has been stopped for longer than
 // stoppedInstanceThreshold (30 days). The monthly cost is estimated from the
 // total size of the instance's attached EBS volumes at $0.08/GB-month.
-func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	regions := uniqueRegions(records)
 	accountID := awsClient.AccountID()
 	now := time.Now().UTC()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region := range regions {
 		cfg, err := awsClient.configForRegion(ctx, region)
@@ -700,7 +700,7 @@ func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecor
 			monthlyCost := float64(totalGB) * ebsVolumeMonthlyGBCost
 			daysStop := int(now.Sub(c.stoppedAt).Hours() / 24)
 
-			ghosts = append(ghosts, model.GhostResource{
+			zombies = append(zombies, model.ZombieResource{
 				Provider:          "aws",
 				AccountID:         accountID,
 				InternalAccountID: internalAccountID,
@@ -721,7 +721,7 @@ func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecor
 			slog.Info("stopped-ec2: long-stopped instance flagged", "instance_id", c.instanceID, "days_stopped", daysStop, "region", region)
 		}
 	}
-	return ghosts, nil
+	return zombies, nil
 }
 
 // parseStopTime extracts the stop timestamp from an EC2 StateTransitionReason.
@@ -751,11 +751,11 @@ const oldAMIThreshold = 90 * 24 * time.Hour
 //
 // Note: snapshots that back these AMIs are intentionally excluded from
 // DiscoverOrphanedEBSSnapshots to avoid double-counting.
-func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	regions := uniqueRegions(records)
 	accountID := awsClient.AccountID()
 	now := time.Now().UTC()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region := range regions {
 		cfg, err := awsClient.configForRegion(ctx, region)
@@ -835,7 +835,7 @@ func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient 
 				ageDays := int(now.Sub(createdAt).Hours() / 24)
 
 				tags := ec2TagsToMap(img.Tags)
-				ghosts = append(ghosts, model.GhostResource{
+				zombies = append(zombies, model.ZombieResource{
 					Provider:          "aws",
 					AccountID:         accountID,
 					InternalAccountID: internalAccountID,
@@ -862,7 +862,7 @@ func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient 
 			imgNextToken = imgOut.NextToken
 		}
 	}
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── Wasteful CloudWatch Log Groups ──────────────────────────────────────────
@@ -873,15 +873,15 @@ func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient 
 const cwLogStorageGBCost = 0.03
 
 // DiscoverWastefulLogGroups calls logs:DescribeLogGroups in each region present
-// in the cost records and returns a GhostResource for every log group that has
+// in the cost records and returns a ZombieResource for every log group that has
 // no retention policy set (logs stored indefinitely). Empty log groups with a
 // retention policy are harmless ($0 cost) and are not flagged. This is API-only
 // — no CloudWatch metrics needed because DescribeLogGroups includes both
 // retentionInDays and storedBytes.
-func DiscoverWastefulLogGroups(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverWastefulLogGroups(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	regions := uniqueRegions(records)
 	accountID := awsClient.AccountID()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region := range regions {
 		cfg, err := awsClient.configForRegion(ctx, region)
@@ -912,7 +912,7 @@ func DiscoverWastefulLogGroups(ctx context.Context, records []model.CostRecord, 
 
 				// Flag 1: no retention policy — logs stored forever.
 				if lg.RetentionInDays == nil {
-					ghosts = append(ghosts, model.GhostResource{
+					zombies = append(zombies, model.ZombieResource{
 						Provider:          "aws",
 						AccountID:         accountID,
 						InternalAccountID: internalAccountID,
@@ -940,7 +940,7 @@ func DiscoverWastefulLogGroups(ctx context.Context, records []model.CostRecord, 
 			nextToken = out.NextToken
 		}
 	}
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── Orphaned RDS snapshots ───────────────────────────────────────────────────
@@ -959,11 +959,11 @@ const rdsSnapshotAgeThreshold = 30 * 24 * time.Hour
 // source DB instance no longer exists and that are older than 30 days. These
 // accumulate silently at $0.095/GB-month. Automated snapshots are excluded —
 // AWS manages their lifecycle via the retention setting.
-func DiscoverOrphanedRDSSnapshots(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverOrphanedRDSSnapshots(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	regions := uniqueRegions(records)
 	accountID := awsClient.AccountID()
 	now := time.Now().UTC()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region := range regions {
 		cfg, err := awsClient.configForRegion(ctx, region)
@@ -1031,7 +1031,7 @@ func DiscoverOrphanedRDSSnapshots(ctx context.Context, records []model.CostRecor
 				sizeGB := aws.ToInt32(snap.AllocatedStorage)
 				monthlyCost := float64(sizeGB) * rdsSnapshotMonthlyGBCost
 
-				ghosts = append(ghosts, model.GhostResource{
+				zombies = append(zombies, model.ZombieResource{
 					Provider:          "aws",
 					AccountID:         accountID,
 					InternalAccountID: internalAccountID,
@@ -1058,7 +1058,7 @@ func DiscoverOrphanedRDSSnapshots(ctx context.Context, records []model.CostRecor
 			snapMarker = snapOut.Marker
 		}
 	}
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── Stale ECR images ──────────────────────────────────────��─────────────────
@@ -1075,13 +1075,13 @@ const ecrStaleImageThreshold = 90 * 24 * time.Hour
 // DiscoverStaleECRImages calls ecr:DescribeRepositories and ecr:DescribeImages
 // in each region present in the cost records. It flags repositories that contain
 // untagged images or tagged images older than 90 days (excluding the most
-// recently pushed image). Results are summarized per repository — one ghost per
+// recently pushed image). Results are summarized per repository — one zombie per
 // repo with total waste across all stale images.
-func DiscoverStaleECRImages(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverStaleECRImages(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	regions := uniqueRegions(records)
 	accountID := awsClient.AccountID()
 	now := time.Now().UTC()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region := range regions {
 		cfg, err := awsClient.configForRegion(ctx, region)
@@ -1165,7 +1165,7 @@ func DiscoverStaleECRImages(ctx context.Context, records []model.CostRecord, aws
 			staleGB := float64(staleSizeBytes) / (1024 * 1024 * 1024)
 			monthlyCost := staleGB * ecrStorageMonthlyGBCost
 
-			ghosts = append(ghosts, model.GhostResource{
+			zombies = append(zombies, model.ZombieResource{
 				Provider:          "aws",
 				AccountID:         accountID,
 				InternalAccountID: internalAccountID,
@@ -1186,7 +1186,7 @@ func DiscoverStaleECRImages(ctx context.Context, records []model.CostRecord, aws
 			slog.Info("ecr: stale images flagged", "repo", repoName, "stale_count", staleCount, "stale_gb", fmt.Sprintf("%.1f", staleGB), "region", region)
 		}
 	}
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── Classification helpers (pure functions, unit-testable) ───────────────────
@@ -1502,7 +1502,7 @@ func discoverS3BucketsByRegion(ctx context.Context, cfg aws.Config) map[string][
 // DiscoverIdleCloudFrontDistributions lists all CloudFront distributions and
 // queries CloudWatch for the Requests metric. Distributions with zero requests
 // over the lookback period are flagged as idle.
-func DiscoverIdleCloudFrontDistributions(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverIdleCloudFrontDistributions(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	cfg, err := awsClient.configForRegion(ctx, "us-east-1")
 	if err != nil {
 		return nil, fmt.Errorf("cloudfront: load config: %w", err)
@@ -1533,7 +1533,7 @@ func DiscoverIdleCloudFrontDistributions(ctx context.Context, records []model.Co
 	}
 
 	accountID := awsClient.AccountID()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for _, distID := range ids {
 		avg, err := getMetricAvg(ctx, cw, "AWS/CloudFront", "Requests", "DistributionId", distID, start, end, periodSecs,
@@ -1547,7 +1547,7 @@ func DiscoverIdleCloudFrontDistributions(ctx context.Context, records []model.Co
 			continue
 		}
 
-		ghosts = append(ghosts, model.GhostResource{
+		zombies = append(zombies, model.ZombieResource{
 			Provider:          "aws",
 			AccountID:         accountID,
 			InternalAccountID: internalAccountID,
@@ -1568,7 +1568,7 @@ func DiscoverIdleCloudFrontDistributions(ctx context.Context, records []model.Co
 		slog.Info("cloudfront: idle distribution flagged", "distribution_id", distID)
 	}
 
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── Idle Kinesis data streams ───────────────────────────────────────────────
@@ -1580,10 +1580,10 @@ const kinesisShardHourlyCost = 0.015
 // DiscoverIdleKinesisStreams lists Kinesis streams in all regions found in cost
 // records and queries CloudWatch for IncomingRecords. Streams with zero incoming
 // records are flagged, with cost estimated from shard count.
-func DiscoverIdleKinesisStreams(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverIdleKinesisStreams(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	regions := uniqueRegions(records)
 	accountID := awsClient.AccountID()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region := range regions {
 		cfg, err := awsClient.configForRegion(ctx, region)
@@ -1628,7 +1628,7 @@ func DiscoverIdleKinesisStreams(ctx context.Context, records []model.CostRecord,
 				}
 			}
 
-			ghosts = append(ghosts, model.GhostResource{
+			zombies = append(zombies, model.ZombieResource{
 				Provider:          "aws",
 				AccountID:         accountID,
 				InternalAccountID: internalAccountID,
@@ -1650,7 +1650,7 @@ func DiscoverIdleKinesisStreams(ctx context.Context, records []model.CostRecord,
 		}
 	}
 
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── Idle S3 buckets ─────────────────────────────────────────────────────────
@@ -1659,7 +1659,7 @@ func DiscoverIdleKinesisStreams(ctx context.Context, records []model.CostRecord,
 // AllRequests metric (requires S3 request metrics to be enabled on the bucket).
 // Buckets with zero requests are flagged. Buckets without request metrics
 // configured are skipped (no CloudWatch data available).
-func DiscoverIdleS3Buckets(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverIdleS3Buckets(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	cfg, err := awsClient.configForRegion(ctx, "us-east-1")
 	if err != nil {
 		return nil, fmt.Errorf("s3: load config: %w", err)
@@ -1682,7 +1682,7 @@ func DiscoverIdleS3Buckets(ctx context.Context, records []model.CostRecord, awsC
 	}
 
 	accountID := awsClient.AccountID()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region, buckets := range bucketsByRegion {
 		regionCfg, err := awsClient.configForRegion(ctx, region)
@@ -1718,7 +1718,7 @@ func DiscoverIdleS3Buckets(ctx context.Context, records []model.CostRecord, awsC
 				continue
 			}
 
-			ghosts = append(ghosts, model.GhostResource{
+			zombies = append(zombies, model.ZombieResource{
 				Provider:          "aws",
 				AccountID:         accountID,
 				InternalAccountID: internalAccountID,
@@ -1740,7 +1740,7 @@ func DiscoverIdleS3Buckets(ctx context.Context, records []model.CostRecord, awsC
 		}
 	}
 
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── Shared helpers for Tier 1 CloudWatch-based detection ────────────────────
@@ -1807,15 +1807,15 @@ const secretMonthlyCost = 0.40
 const unusedSecretThreshold = 90 * 24 * time.Hour
 
 // DiscoverUnusedSecrets calls secretsmanager:ListSecrets in each region present
-// in the cost records and returns a GhostResource for every secret whose
+// in the cost records and returns a ZombieResource for every secret whose
 // LastAccessedDate is older than 90 days (or was never accessed). Secrets are
 // billed at $0.40/month regardless of whether they are read, so forgotten
 // secrets accumulate charges silently after the service that used them is torn down.
-func DiscoverUnusedSecrets(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverUnusedSecrets(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	regions := uniqueRegions(records)
 	accountID := awsClient.AccountID()
 	now := time.Now().UTC()
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 
 	for region := range regions {
 		cfg, err := awsClient.configForRegion(ctx, region)
@@ -1846,7 +1846,7 @@ func DiscoverUnusedSecrets(ctx context.Context, records []model.CostRecord, awsC
 					continue
 				}
 
-				ghosts = append(ghosts, model.GhostResource{
+				zombies = append(zombies, model.ZombieResource{
 					Provider:          "aws",
 					AccountID:         accountID,
 					InternalAccountID: internalAccountID,
@@ -1873,7 +1873,7 @@ func DiscoverUnusedSecrets(ctx context.Context, records []model.CostRecord, awsC
 			nextToken = out.NextToken
 		}
 	}
-	return ghosts, nil
+	return zombies, nil
 }
 
 // ── CE Anomaly Detection monitors ────────────────────────────────────────────
@@ -1889,7 +1889,7 @@ const ceAnomalyMonitorMonthlyCost = 3.00
 // accumulate ~$3/month while providing no signal.
 //
 // CE is a global service — a single us-east-1 request covers all regions.
-func DiscoverIdleCEAnomalyMonitors(ctx context.Context, _ []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.GhostResource, error) {
+func DiscoverIdleCEAnomalyMonitors(ctx context.Context, _ []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
 	cfg, err := awsClient.configForRegion(ctx, "us-east-1")
 	if err != nil {
 		slog.Warn("ce-monitor: load config", "error", err)
@@ -1931,7 +1931,7 @@ func DiscoverIdleCEAnomalyMonitors(ctx context.Context, _ []model.CostRecord, aw
 	startStr := start.Format("2006-01-02")
 	endStr := end.Format("2006-01-02")
 
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 	for _, m := range paidMonitors {
 		monitorARN := aws.ToString(m.MonitorArn)
 		monitorName := aws.ToString(m.MonitorName)
@@ -1963,7 +1963,7 @@ func DiscoverIdleCEAnomalyMonitors(ctx context.Context, _ []model.CostRecord, aw
 		}
 
 		slog.Info("ce-monitor: idle anomaly monitor flagged", "monitor_arn", monitorARN, "monitor_name", monitorName)
-		ghosts = append(ghosts, model.GhostResource{
+		zombies = append(zombies, model.ZombieResource{
 			Provider:          "aws",
 			AccountID:         accountID,
 			InternalAccountID: internalAccountID,
@@ -1983,5 +1983,5 @@ func DiscoverIdleCEAnomalyMonitors(ctx context.Context, _ []model.CostRecord, aw
 		})
 	}
 
-	return ghosts, nil
+	return zombies, nil
 }

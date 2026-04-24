@@ -10,10 +10,10 @@ A FinOps SaaS tool that detects idle and zombie cloud resources still incurring 
 
 AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 
-- **The Ghost Number** — total monthly spend on idle resources across all connected accounts
-- **The Ghost List** — itemized breakdown by resource with cost, usage metric, and remediation suggestion
-- **Owner Resolution** — every ghost includes the responsible team derived from resource tags
-- **The Weekly Digest** — email/Slack alert when new ghosts appear (Phase 2)
+- **The Zombie Number** — total monthly spend on idle resources across all connected accounts
+- **The Zombie List** — itemized breakdown by resource with cost, usage metric, and remediation suggestion
+- **Owner Resolution** — every zombie includes the responsible team derived from resource tags
+- **The Weekly Digest** — email/Slack alert when new zombies appear (Phase 2)
 - **Multi-account Dashboard** — single pane for managing multiple cloud accounts (Phase 2)
 
 ---
@@ -263,7 +263,7 @@ Seed data includes 90 days of realistic trend snapshots (gradual growth, weekly 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/ghosts` | List of all detected zombie resources |
+| `GET` | `/api/zombies` | List of all detected zombie resources |
 | `GET` | `/api/summary` | Aggregate savings and per-service breakdown |
 
 API is available at `http://localhost/api/` when running with Docker Compose.
@@ -361,7 +361,7 @@ axiaops/
 ### Phase 1 — MVP ✅ Complete
 - [x] Go ingestion service with PostgreSQL and RLS
 - [x] Zombie detection with per-service threshold rules
-- [x] REST API (`/api/v1/ghosts`, `/api/v1/summary`, `/api/v1/resources`)
+- [x] REST API (`/api/v1/zombies`, `/api/v1/summary`, `/api/v1/resources`)
 - [x] React web dashboard
 - [x] Docker Compose setup
 - [x] Comprehensive test coverage (44+ tests across 6 packages)
@@ -371,8 +371,8 @@ axiaops/
 - [x] AWS Cost Explorer + CloudWatch + resource discovery integration
 - [x] Kinde OAuth 2.0 auth + multi-tenancy (RLS)
 - [x] Account management — connect AWS accounts, encrypted secrets, on-demand scan
-- [x] Resource inventory view — all resources with ghost/active annotation
-- [x] Savings history / trend (`ghost_snapshots` + `GET /v1/trend`)
+- [x] Resource inventory view — all resources with zombie/active annotation
+- [x] Savings history / trend (`zombie_snapshots` + `GET /v1/trend`)
 - [x] Observability — structured logging (slog), Prometheus metrics
 - [x] API versioning — `/v1/` prefix on all endpoints
 - [x] In-memory rate limiting + graceful shutdown
@@ -380,7 +380,7 @@ axiaops/
 - [x] Scheduled auto-scan (24h default per account)
 - [x] `cost_records` 90-day retention cleanup
 - [x] Redis — JWKS cache, scan job queue, rate limiting
-- [x] Dismiss ghost workflow + snooze + audit trail
+- [x] Dismiss zombie workflow + snooze + audit trail
 - [x] Wire Redis in API `main.go` (inject into auth + rate limiter)
 - [ ] Weekly email digest + Slack alerts
 - [ ] Production deployment (App Runner + RDS + ElastiCache via Terraform)

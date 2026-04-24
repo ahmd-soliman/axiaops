@@ -199,8 +199,8 @@ func TestAccountLifecycle_ScanThenTrend(t *testing.T) {
 			{ID: "acc-trend", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		}).
 		// Simulate what the ingestion service would write after scanning.
-		WithSnapshots([]model.GhostSnapshot{
-			{ID: "snap-1", AccountID: "acc-trend", SnapshotAt: snapTime, GhostCount: 7, TotalMonthlyCost: 420.0, Currency: "USD"},
+		WithSnapshots([]model.ZombieSnapshot{
+			{ID: "snap-1", AccountID: "acc-trend", SnapshotAt: snapTime, ZombieCount: 7, TotalMonthlyCost: 420.0, Currency: "USD"},
 		})
 	_, mux := newTrackingHandler(mockStore)
 
@@ -210,15 +210,15 @@ func TestAccountLifecycle_ScanThenTrend(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	var snaps []model.GhostSnapshot
+	var snaps []model.ZombieSnapshot
 	if err := json.NewDecoder(w.Body).Decode(&snaps); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(snaps) != 1 {
 		t.Fatalf("expected 1 snapshot, got %d", len(snaps))
 	}
-	if snaps[0].GhostCount != 7 {
-		t.Errorf("expected GhostCount 7, got %d", snaps[0].GhostCount)
+	if snaps[0].ZombieCount != 7 {
+		t.Errorf("expected ZombieCount 7, got %d", snaps[0].ZombieCount)
 	}
 	if snaps[0].TotalMonthlyCost != 420.0 {
 		t.Errorf("expected TotalMonthlyCost 420.0, got %f", snaps[0].TotalMonthlyCost)
@@ -235,10 +235,10 @@ func TestAccountLifecycle_MultipleScans(t *testing.T) {
 			{ID: "acc-multi", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		}).
 		// Three snapshots representing three historical scan cycles.
-		WithSnapshots([]model.GhostSnapshot{
-			{ID: "snap-a", AccountID: "acc-multi", SnapshotAt: now.Add(-4 * time.Hour), GhostCount: 3, TotalMonthlyCost: 150.0, Currency: "USD"},
-			{ID: "snap-b", AccountID: "acc-multi", SnapshotAt: now.Add(-2 * time.Hour), GhostCount: 5, TotalMonthlyCost: 250.0, Currency: "USD"},
-			{ID: "snap-c", AccountID: "acc-multi", SnapshotAt: now, GhostCount: 2, TotalMonthlyCost: 100.0, Currency: "USD"},
+		WithSnapshots([]model.ZombieSnapshot{
+			{ID: "snap-a", AccountID: "acc-multi", SnapshotAt: now.Add(-4 * time.Hour), ZombieCount: 3, TotalMonthlyCost: 150.0, Currency: "USD"},
+			{ID: "snap-b", AccountID: "acc-multi", SnapshotAt: now.Add(-2 * time.Hour), ZombieCount: 5, TotalMonthlyCost: 250.0, Currency: "USD"},
+			{ID: "snap-c", AccountID: "acc-multi", SnapshotAt: now, ZombieCount: 2, TotalMonthlyCost: 100.0, Currency: "USD"},
 		})
 	_, mux := newTrackingHandler(mockStore)
 
@@ -248,7 +248,7 @@ func TestAccountLifecycle_MultipleScans(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	var snaps []model.GhostSnapshot
+	var snaps []model.ZombieSnapshot
 	if err := json.NewDecoder(w.Body).Decode(&snaps); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -262,8 +262,8 @@ func TestAccountLifecycle_MultipleScans(t *testing.T) {
 	if snaps[2].ID != "snap-c" {
 		t.Errorf("expected last snapshot snap-c (latest), got %s", snaps[2].ID)
 	}
-	if snaps[1].GhostCount != 5 {
-		t.Errorf("expected middle snapshot GhostCount 5, got %d", snaps[1].GhostCount)
+	if snaps[1].ZombieCount != 5 {
+		t.Errorf("expected middle snapshot ZombieCount 5, got %d", snaps[1].ZombieCount)
 	}
 }
 
@@ -275,9 +275,9 @@ func TestAccountLifecycle_MultipleScans(t *testing.T) {
 func TestGetTrend_ReflectsLatestScan(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	mockStore := NewMockStore().
-		WithSnapshots([]model.GhostSnapshot{
-			{ID: "old-snap", AccountID: "acc-1", SnapshotAt: now.Add(-time.Hour), GhostCount: 10, TotalMonthlyCost: 500.0, Currency: "USD"},
-			{ID: "new-snap", AccountID: "acc-1", SnapshotAt: now, GhostCount: 4, TotalMonthlyCost: 200.0, Currency: "USD"},
+		WithSnapshots([]model.ZombieSnapshot{
+			{ID: "old-snap", AccountID: "acc-1", SnapshotAt: now.Add(-time.Hour), ZombieCount: 10, TotalMonthlyCost: 500.0, Currency: "USD"},
+			{ID: "new-snap", AccountID: "acc-1", SnapshotAt: now, ZombieCount: 4, TotalMonthlyCost: 200.0, Currency: "USD"},
 		})
 	_, mux := newTrackingHandler(mockStore)
 
@@ -287,7 +287,7 @@ func TestGetTrend_ReflectsLatestScan(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	var snaps []model.GhostSnapshot
+	var snaps []model.ZombieSnapshot
 	if err := json.NewDecoder(w.Body).Decode(&snaps); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -300,8 +300,8 @@ func TestGetTrend_ReflectsLatestScan(t *testing.T) {
 	if latest.ID != "new-snap" {
 		t.Errorf("expected latest snapshot new-snap, got %s", latest.ID)
 	}
-	if latest.GhostCount != 4 {
-		t.Errorf("expected latest GhostCount 4, got %d", latest.GhostCount)
+	if latest.ZombieCount != 4 {
+		t.Errorf("expected latest ZombieCount 4, got %d", latest.ZombieCount)
 	}
 	// The first entry must still be the older scan.
 	if snaps[0].ID != "old-snap" {
@@ -311,27 +311,27 @@ func TestGetTrend_ReflectsLatestScan(t *testing.T) {
 
 // ─── Error handling: store failures → HTTP 500 ────────────────────────────────
 
-// TestListGhosts_StoreError_Returns500 verifies that a LoadGhosts store error
+// TestListZombies_StoreError_Returns500 verifies that a LoadZombies store error
 // is surfaced as HTTP 500.
-func TestListGhosts_StoreError_Returns500(t *testing.T) {
+func TestListZombies_StoreError_Returns500(t *testing.T) {
 	mockStore := NewMockStore().
-		WithLoadGhostsError(errors.New("connection reset by peer"))
+		WithLoadZombiesError(errors.New("connection reset by peer"))
 
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/ghosts"))
+	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
 	}
 }
 
-// TestGetSummary_StoreError_Returns500 verifies that a LoadGhosts store error
+// TestGetSummary_StoreError_Returns500 verifies that a LoadZombies store error
 // during summary aggregation is surfaced as HTTP 500.
 func TestGetSummary_StoreError_Returns500(t *testing.T) {
 	mockStore := NewMockStore().
-		WithLoadGhostsError(errors.New("timeout querying ghosts"))
+		WithLoadZombiesError(errors.New("timeout querying zombies"))
 
 	_, mux := newTrackingHandler(mockStore)
 
@@ -471,12 +471,12 @@ func TestUpdateAccount_InvalidJSON_Returns400(t *testing.T) {
 
 // ─── Tenant-context propagation ───────────────────────────────────────────────
 
-// TestTenantIsolation_LoadGhosts_ReceivesContextTenantID verifies that the
+// TestTenantIsolation_LoadZombies_ReceivesContextTenantID verifies that the
 // tenant ID set by the auth middleware (DevBypass here) is forwarded to the
-// store's LoadGhosts call via the context.
-func TestTenantIsolation_LoadGhosts_ReceivesContextTenantID(t *testing.T) {
+// store's LoadZombies call via the context.
+func TestTenantIsolation_LoadZombies_ReceivesContextTenantID(t *testing.T) {
 	mockStore := NewMockStore().
-		WithGhosts([]model.GhostResource{testGhost})
+		WithZombies([]model.ZombieResource{testZombie})
 	_, mux := newTrackingHandler(mockStore)
 
 	// DevBypass injects the tenant ID via the middleware context key, exactly
@@ -484,7 +484,7 @@ func TestTenantIsolation_LoadGhosts_ReceivesContextTenantID(t *testing.T) {
 	// because the middleware and storage packages use distinct context key types.
 	handler := middleware.DevBypass("tenant-alpha-uuid", mux)
 	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/ghosts", nil))
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/zombies", nil))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)

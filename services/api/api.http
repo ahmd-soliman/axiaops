@@ -9,8 +9,8 @@ Authorization: Bearer {{token}}
 
 ###
 
-### All detected ghost resources
-GET http://localhost:8080/ghosts
+### All detected zombie resources
+GET http://localhost:8080/v1/zombies
 Authorization: Bearer {{token}}
 
 ###

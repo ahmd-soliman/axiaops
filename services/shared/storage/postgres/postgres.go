@@ -125,14 +125,14 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 	return inserted, tx.Commit(ctx)
 }
 
-// SaveGhosts replaces the tenant's ghost records for the specified accounts with the latest detection results.
-func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) error {
+// SaveZombies replaces the tenant's zombie records for the specified accounts with the latest detection results.
+func (s *Store) SaveZombies(ctx context.Context, zombies []model.ZombieResource) error {
 	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
 		return fmt.Errorf("postgres: tenant_id missing from context")
 	}
 
-	if len(ghosts) == 0 {
+	if len(zombies) == 0 {
 		return nil // Nothing to save
 	}
 
@@ -146,48 +146,48 @@ func (s *Store) SaveGhosts(ctx context.Context, ghosts []model.GhostResource) er
 		return err
 	}
 
-	// Get unique internal account IDs from the ghosts being saved
+	// Get unique internal account IDs from the zombies being saved
 	accountIDs := make(map[string]bool)
-	for _, g := range ghosts {
-		if g.InternalAccountID != "" {
-			accountIDs[g.InternalAccountID] = true
+	for _, z := range zombies {
+		if z.InternalAccountID != "" {
+			accountIDs[z.InternalAccountID] = true
 		}
 	}
 
-	// Delete existing ghost records only for the accounts being updated
+	// Delete existing zombie records only for the accounts being updated
 	for accountID := range accountIDs {
-		if _, err := tx.Exec(ctx, `DELETE FROM ghost_records WHERE tenant_id = $1 AND internal_account_id = $2`, tenantID, accountID); err != nil {
-			return fmt.Errorf("postgres: clear ghosts for account %s: %w", accountID, err)
+		if _, err := tx.Exec(ctx, `DELETE FROM zombie_records WHERE tenant_id = $1 AND internal_account_id = $2`, tenantID, accountID); err != nil {
+			return fmt.Errorf("postgres: clear zombies for account %s: %w", accountID, err)
 		}
 	}
 
 	now := time.Now().UTC()
-	for _, g := range ghosts {
-		tags, err := json.Marshal(g.Tags)
+	for _, z := range zombies {
+		tags, err := json.Marshal(z.Tags)
 		if err != nil {
 			return fmt.Errorf("postgres: marshal tags: %w", err)
 		}
 		_, err = tx.Exec(ctx, `
-			INSERT INTO ghost_records
+			INSERT INTO zombie_records
 				(tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
 				 monthly_cost, currency, period_start, period_end,
 				 usage_metric, usage_avg, usage_unit, reason, owner, detected_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
 			tenantID,
-			g.Provider, g.AccountID, g.InternalAccountID, g.Service, g.ResourceType, g.Region, g.ResourceID, g.ARN, string(tags),
-			g.MonthlyCost, g.Currency, g.PeriodStart, g.PeriodEnd,
-			g.UsageMetric, g.UsageAvg, g.UsageUnit, g.Reason, g.Owner, now,
+			z.Provider, z.AccountID, z.InternalAccountID, z.Service, z.ResourceType, z.Region, z.ResourceID, z.ARN, string(tags),
+			z.MonthlyCost, z.Currency, z.PeriodStart, z.PeriodEnd,
+			z.UsageMetric, z.UsageAvg, z.UsageUnit, z.Reason, z.Owner, now,
 		)
 		if err != nil {
-			return fmt.Errorf("postgres: insert ghost: %w", err)
+			return fmt.Errorf("postgres: insert zombie: %w", err)
 		}
 	}
 
 	return tx.Commit(ctx)
 }
 
-// LoadGhosts returns ghost records for the tenant in ctx.
-func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
+// LoadZombies returns zombie records for the tenant in ctx.
+func (s *Store) LoadZombies(ctx context.Context) ([]model.ZombieResource, error) {
 	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
@@ -207,37 +207,37 @@ func (s *Store) LoadGhosts(ctx context.Context) ([]model.GhostResource, error) {
 		SELECT provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
 		       monthly_cost, currency, period_start, period_end,
 		       usage_metric, usage_avg, usage_unit, reason, owner
-		FROM ghost_records
+		FROM zombie_records
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("postgres: query ghosts: %w", err)
+		return nil, fmt.Errorf("postgres: query zombies: %w", err)
 	}
 	defer rows.Close()
 
-	var ghosts []model.GhostResource
+	var zombies []model.ZombieResource
 	for rows.Next() {
-		var g model.GhostResource
+		var z model.ZombieResource
 		var tagsJSON []byte
 		var internalAccountID *string
 		if err := rows.Scan(
-			&g.Provider, &g.AccountID, &internalAccountID, &g.Service, &g.ResourceType, &g.Region, &g.ResourceID, &g.ARN, &tagsJSON,
-			&g.MonthlyCost, &g.Currency, &g.PeriodStart, &g.PeriodEnd,
-			&g.UsageMetric, &g.UsageAvg, &g.UsageUnit, &g.Reason, &g.Owner,
+			&z.Provider, &z.AccountID, &internalAccountID, &z.Service, &z.ResourceType, &z.Region, &z.ResourceID, &z.ARN, &tagsJSON,
+			&z.MonthlyCost, &z.Currency, &z.PeriodStart, &z.PeriodEnd,
+			&z.UsageMetric, &z.UsageAvg, &z.UsageUnit, &z.Reason, &z.Owner,
 		); err != nil {
-			return nil, fmt.Errorf("postgres: scan ghost: %w", err)
+			return nil, fmt.Errorf("postgres: scan zombie: %w", err)
 		}
 		if internalAccountID != nil {
-			g.InternalAccountID = *internalAccountID
+			z.InternalAccountID = *internalAccountID
 		}
-		if err := json.Unmarshal(tagsJSON, &g.Tags); err != nil {
-			g.Tags = map[string]string{}
+		if err := json.Unmarshal(tagsJSON, &z.Tags); err != nil {
+			z.Tags = map[string]string{}
 		}
-		ghosts = append(ghosts, g)
+		zombies = append(zombies, z)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return ghosts, tx.Commit(ctx)
+	return zombies, tx.Commit(ctx)
 }
 
 // UpsertTenant creates a tenant on first login or returns the existing one.
@@ -268,7 +268,7 @@ func (s *Store) UpsertTenant(ctx context.Context, orgCode, name string) (model.T
 // EnsureTenant inserts a tenant with a caller-supplied id if no row with that
 // id exists yet. Unlike UpsertTenant, the id is pinned and the row is never
 // modified on conflict. Used by dev mode to guarantee a known-id tenant row
-// so that FK references from accounts/ghosts/etc. resolve without requiring
+// so that FK references from accounts/zombies/etc. resolve without requiring
 // a prior write path to have auto-created the row.
 func (s *Store) EnsureTenant(ctx context.Context, id, orgCode, name string) error {
 	_, err := s.pool.Exec(ctx, `
@@ -552,12 +552,12 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 			INSERT INTO resource_records
 				(tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
 				 monthly_cost, currency, period_start, period_end,
-				 usage_metric, usage_avg, usage_unit, is_ghost, reason, owner, detected_at)
+				 usage_metric, usage_avg, usage_unit, is_zombie, reason, owner, detected_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
 			tenantID,
 			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.ResourceType, r.Region, r.ResourceID, r.ARN, string(tags),
 			r.MonthlyCost, r.Currency, r.PeriodStart, r.PeriodEnd,
-			r.UsageMetric, r.UsageAvg, r.UsageUnit, r.IsGhost, r.Reason, r.Owner, now,
+			r.UsageMetric, r.UsageAvg, r.UsageUnit, r.IsZombie, r.Reason, r.Owner, now,
 		)
 		if err != nil {
 			return fmt.Errorf("postgres: insert resource_record: %w", err)
@@ -587,7 +587,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 	rows, err := tx.Query(ctx, `
 		SELECT provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
 		       monthly_cost, currency, period_start, period_end,
-		       usage_metric, usage_avg, usage_unit, is_ghost, reason, owner
+		       usage_metric, usage_avg, usage_unit, is_zombie, reason, owner
 		FROM resource_records
 	`)
 	if err != nil {
@@ -603,7 +603,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 		if err := rows.Scan(
 			&r.Provider, &r.AccountID, &internalAccountID, &r.Service, &r.ResourceType, &r.Region, &r.ResourceID, &r.ARN, &tagsJSON,
 			&r.MonthlyCost, &r.Currency, &r.PeriodStart, &r.PeriodEnd,
-			&r.UsageMetric, &r.UsageAvg, &r.UsageUnit, &r.IsGhost, &r.Reason, &r.Owner,
+			&r.UsageMetric, &r.UsageAvg, &r.UsageUnit, &r.IsZombie, &r.Reason, &r.Owner,
 		); err != nil {
 			return nil, fmt.Errorf("postgres: scan resource_record: %w", err)
 		}
@@ -706,8 +706,8 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 	return records, tx.Commit(ctx)
 }
 
-// SaveSnapshot writes a ghost snapshot record (one per scan run).
-func (s *Store) SaveSnapshot(ctx context.Context, snap model.GhostSnapshot) error {
+// SaveSnapshot writes a zombie snapshot record (one per scan run).
+func (s *Store) SaveSnapshot(ctx context.Context, snap model.ZombieSnapshot) error {
 	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
 		return fmt.Errorf("postgres: tenant_id missing from context")
@@ -724,21 +724,21 @@ func (s *Store) SaveSnapshot(ctx context.Context, snap model.GhostSnapshot) erro
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO ghost_snapshots
-			(id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)
+		INSERT INTO zombie_snapshots
+			(id, tenant_id, account_id, snapshot_at, zombie_count, total_monthly_cost, currency)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		snap.ID, tenantID, snap.AccountID, snap.SnapshotAt,
-		snap.GhostCount, snap.TotalMonthlyCost, snap.Currency,
+		snap.ZombieCount, snap.TotalMonthlyCost, snap.Currency,
 	)
 	if err != nil {
-		return fmt.Errorf("postgres: insert ghost_snapshot: %w", err)
+		return fmt.Errorf("postgres: insert zombie_snapshot: %w", err)
 	}
 	return tx.Commit(ctx)
 }
 
-// ListSnapshots returns ghost snapshots for the tenant, oldest-first.
+// ListSnapshots returns zombie snapshots for the tenant, oldest-first.
 // If accountID is non-empty, only snapshots for that account are returned.
-func (s *Store) ListSnapshots(ctx context.Context, accountID string) ([]model.GhostSnapshot, error) {
+func (s *Store) ListSnapshots(ctx context.Context, accountID string) ([]model.ZombieSnapshot, error) {
 	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
@@ -757,32 +757,32 @@ func (s *Store) ListSnapshots(ctx context.Context, accountID string) ([]model.Gh
 	var rows pgx.Rows
 	if accountID != "" {
 		rows, err = tx.Query(ctx, `
-			SELECT id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency
-			FROM ghost_snapshots
+			SELECT id, account_id, snapshot_at, zombie_count, total_monthly_cost, currency
+			FROM zombie_snapshots
 			WHERE account_id = $1
 			ORDER BY snapshot_at ASC`,
 			accountID,
 		)
 	} else {
 		rows, err = tx.Query(ctx, `
-			SELECT id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency
-			FROM ghost_snapshots
+			SELECT id, account_id, snapshot_at, zombie_count, total_monthly_cost, currency
+			FROM zombie_snapshots
 			ORDER BY snapshot_at ASC`,
 		)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("postgres: query ghost_snapshots: %w", err)
+		return nil, fmt.Errorf("postgres: query zombie_snapshots: %w", err)
 	}
 	defer rows.Close()
 
-	var snaps []model.GhostSnapshot
+	var snaps []model.ZombieSnapshot
 	for rows.Next() {
-		var snap model.GhostSnapshot
+		var snap model.ZombieSnapshot
 		if err := rows.Scan(
 			&snap.ID, &snap.AccountID, &snap.SnapshotAt,
-			&snap.GhostCount, &snap.TotalMonthlyCost, &snap.Currency,
+			&snap.ZombieCount, &snap.TotalMonthlyCost, &snap.Currency,
 		); err != nil {
-			return nil, fmt.Errorf("postgres: scan ghost_snapshot: %w", err)
+			return nil, fmt.Errorf("postgres: scan zombie_snapshot: %w", err)
 		}
 		snaps = append(snaps, snap)
 	}
@@ -815,11 +815,11 @@ func (s *Store) SaveSnapshotServices(ctx context.Context, services []model.Snaps
 
 	for _, svc := range services {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO ghost_snapshot_services
-				(id, snapshot_id, tenant_id, service, resource_type, ghost_count, monthly_cost, currency)
+			INSERT INTO zombie_snapshot_services
+				(id, snapshot_id, tenant_id, service, resource_type, zombie_count, monthly_cost, currency)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 			svc.ID, svc.SnapshotID, tenantID, svc.Service, svc.ResourceType,
-			svc.GhostCount, svc.MonthlyCost, svc.Currency,
+			svc.ZombieCount, svc.MonthlyCost, svc.Currency,
 		)
 		if err != nil {
 			return fmt.Errorf("postgres: insert snapshot_service: %w", err)
@@ -832,7 +832,7 @@ func (s *Store) SaveSnapshotServices(ctx context.Context, services []model.Snaps
 // Each snapshot's cost/count reflects only the given service.
 // When resourceType is non-empty, only that sub-type is returned; otherwise
 // all resource types for the service are aggregated (SUM).
-func (s *Store) ListSnapshotsByService(ctx context.Context, service, resourceType, accountID string) ([]model.GhostSnapshot, error) {
+func (s *Store) ListSnapshotsByService(ctx context.Context, service, resourceType, accountID string) ([]model.ZombieSnapshot, error) {
 	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
@@ -853,9 +853,9 @@ func (s *Store) ListSnapshotsByService(ctx context.Context, service, resourceTyp
 	// across all resource types for the service.
 	query := `
 		SELECT gs.id, gs.account_id, gs.snapshot_at,
-		       SUM(gss.ghost_count)::int, SUM(gss.monthly_cost), gss.currency
-		FROM ghost_snapshots gs
-		JOIN ghost_snapshot_services gss ON gss.snapshot_id = gs.id
+		       SUM(gss.zombie_count)::int, SUM(gss.monthly_cost), gss.currency
+		FROM zombie_snapshots gs
+		JOIN zombie_snapshot_services gss ON gss.snapshot_id = gs.id
 		WHERE gss.service = $1`
 
 	args := []any{service}
@@ -881,12 +881,12 @@ func (s *Store) ListSnapshotsByService(ctx context.Context, service, resourceTyp
 	}
 	defer rows.Close()
 
-	var snaps []model.GhostSnapshot
+	var snaps []model.ZombieSnapshot
 	for rows.Next() {
-		var snap model.GhostSnapshot
+		var snap model.ZombieSnapshot
 		if err := rows.Scan(
 			&snap.ID, &snap.AccountID, &snap.SnapshotAt,
-			&snap.GhostCount, &snap.TotalMonthlyCost, &snap.Currency,
+			&snap.ZombieCount, &snap.TotalMonthlyCost, &snap.Currency,
 		); err != nil {
 			return nil, fmt.Errorf("postgres: scan snapshot_by_service: %w", err)
 		}
@@ -916,7 +916,7 @@ func (s *Store) ListTrendServices(ctx context.Context) ([]string, error) {
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT service FROM ghost_snapshot_services ORDER BY service`)
+		SELECT DISTINCT service FROM zombie_snapshot_services ORDER BY service`)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: query trend services: %w", err)
 	}
@@ -955,7 +955,7 @@ func (s *Store) ListTrendResourceTypes(ctx context.Context, service string) ([]s
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT resource_type FROM ghost_snapshot_services
+		SELECT DISTINCT resource_type FROM zombie_snapshot_services
 		WHERE service = $1 AND resource_type != ''
 		ORDER BY resource_type`, service)
 	if err != nil {
@@ -987,10 +987,10 @@ func (s *Store) DeleteOldCostRecords(ctx context.Context, cutoff time.Time) (int
 	return tag.RowsAffected(), nil
 }
 
-// DismissGhost inserts a new dismiss or snooze record for a ghost resource.
+// DismissZombie inserts a new dismiss or snooze record for a zombie resource.
 // Returns ErrAlreadyDismissed if an active dismissal already exists for the fingerprint
-// (enforced by the partial unique index dismissed_ghosts_active_fingerprint).
-func (s *Store) DismissGhost(ctx context.Context, d model.DismissAction) (int64, error) {
+// (enforced by the partial unique index dismissed_zombies_active_fingerprint).
+func (s *Store) DismissZombie(ctx context.Context, d model.DismissAction) (int64, error) {
 	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
 		return 0, fmt.Errorf("postgres: tenant_id missing from context")
@@ -1008,7 +1008,7 @@ func (s *Store) DismissGhost(ctx context.Context, d model.DismissAction) (int64,
 
 	var id int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO dismissed_ghosts
+		INSERT INTO dismissed_zombies
 			(tenant_id, account_id, provider, service, region, resource_id,
 			 action, reason, note, snoozed_until, dismissed_by, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
@@ -1021,7 +1021,7 @@ func (s *Store) DismissGhost(ctx context.Context, d model.DismissAction) (int64,
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return 0, storage.ErrAlreadyDismissed
 		}
-		return 0, fmt.Errorf("postgres: insert dismissed_ghost: %w", err)
+		return 0, fmt.Errorf("postgres: insert dismissed_zombie: %w", err)
 	}
 	return id, tx.Commit(ctx)
 }
@@ -1044,7 +1044,7 @@ func (s *Store) RevokeDismissal(ctx context.Context, id int64, revokedBy string)
 	}
 
 	tag, err := tx.Exec(ctx, `
-		UPDATE dismissed_ghosts
+		UPDATE dismissed_zombies
 		SET    revoked_at = NOW(), revoked_by = $1
 		WHERE  id = $2 AND revoked_at IS NULL`,
 		revokedBy, id,
@@ -1082,7 +1082,7 @@ func (s *Store) ListActiveDismissals(ctx context.Context, accountID string) ([]m
 			SELECT id, account_id, provider, service, region, resource_id,
 			       action, reason, note, snoozed_until, dismissed_by, created_at,
 			       revoked_at, revoked_by
-			FROM   dismissed_ghosts
+			FROM   dismissed_zombies
 			WHERE  revoked_at IS NULL
 			  AND  (action = 'dismiss' OR snoozed_until > NOW())
 			  AND  account_id = $1
@@ -1094,14 +1094,14 @@ func (s *Store) ListActiveDismissals(ctx context.Context, accountID string) ([]m
 			SELECT id, account_id, provider, service, region, resource_id,
 			       action, reason, note, snoozed_until, dismissed_by, created_at,
 			       revoked_at, revoked_by
-			FROM   dismissed_ghosts
+			FROM   dismissed_zombies
 			WHERE  revoked_at IS NULL
 			  AND  (action = 'dismiss' OR snoozed_until > NOW())
 			ORDER BY created_at DESC`,
 		)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("postgres: query dismissed_ghosts: %w", err)
+		return nil, fmt.Errorf("postgres: query dismissed_zombies: %w", err)
 	}
 	defer rows.Close()
 
@@ -1113,7 +1113,7 @@ func (s *Store) ListActiveDismissals(ctx context.Context, accountID string) ([]m
 			&d.Action, &d.Reason, &d.Note, &d.SnoozedUntil, &d.DismissedBy, &d.CreatedAt,
 			&d.RevokedAt, &d.RevokedBy,
 		); err != nil {
-			return nil, fmt.Errorf("postgres: scan dismissed_ghost: %w", err)
+			return nil, fmt.Errorf("postgres: scan dismissed_zombie: %w", err)
 		}
 		out = append(out, d)
 	}
@@ -1128,7 +1128,7 @@ func (s *Store) ListActiveDismissals(ctx context.Context, accountID string) ([]m
 // Returns the number of records expired.
 func (s *Store) ExpireSnoozes(ctx context.Context) (int64, error) {
 	tag, err := s.adminPool.Exec(ctx, `
-		UPDATE dismissed_ghosts
+		UPDATE dismissed_zombies
 		SET    revoked_at = NOW(), revoked_by = 'system:snooze_expiry'
 		WHERE  action = 'snooze'
 		  AND  revoked_at IS NULL

@@ -24,7 +24,7 @@
 | Item | Dev Plan Ref | Target |
 |------|-------------|--------|
 | Stripe billing — 3 tiers (Starter €49, Growth €149, Team €399) | 3.1 | September 2026 |
-| Dismiss ghost workflow + snooze | 3.2 | September 2026 |
+| Dismiss zombie workflow + snooze | 3.2 | September 2026 |
 | GDPR / right to erasure + data export | 3.10 | September 2026 |
 | Privacy policy + terms of service pages | 3.10 | September 2026 |
 
@@ -46,7 +46,7 @@
 
 | Item | Why | Dev Plan Ref |
 |------|-----|-------------|
-| Weekly email digest + Slack alerts | Core retention driver; users need to know when new ghosts appear | 2.15 |
+| Weekly email digest + Slack alerts | Core retention driver; users need to know when new zombies appear | 2.15 |
 | Scan history log | Customers need to see when scans ran and what changed | 3.5 |
 | Per-account summary (`GET /summary?account_id`) | MSP use case — per-client savings breakdown | 3.8 |
 | CSV export | Required for Pro tier; common first request from paying customers | 3.7 |
@@ -61,7 +61,7 @@
 - Kinde OAuth 2.0 auth + multi-tenancy (RLS) ✅
 - Account management — connect AWS, encrypted secrets, on-demand scan ✅
 - Resource inventory view (`GET /resources`) ✅
-- Savings history / trend (`ghost_snapshots` + `GET /trend`) ✅
+- Savings history / trend (`zombie_snapshots` + `GET /trend`) ✅
 - Observability — structured logging (`slog`), Prometheus metrics ✅
 - Scan recovery — stuck scan timeout detection ✅
 - API versioning — `/v1/` prefix on all endpoints ✅
