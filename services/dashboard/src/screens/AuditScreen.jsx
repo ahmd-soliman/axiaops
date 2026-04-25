@@ -5,13 +5,21 @@ import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
 
 // ─── Action catalogue ────────────────────────────────────────────────────────
-// Keep in sync with services/shared/model/audit.go `AuditAction*`.
-// The order here is the order shown in the filter dropdown.
+// Keep in sync with services/shared/model/audit.go `AuditAction*`. The order
+// here is the order shown in the filter dropdown.
+//
+// `view_remediation` is on the server's ValidAuditActions list but no handler
+// emits it today (the audit_log is mutation-only — a sibling chore branch
+// removes the constant entirely). Listed here so a user filtering by it via
+// raw URL or after a future backend change still sees a friendly label
+// rather than the raw enum value. If/when the chore branch merges, drop this
+// entry to avoid a dead filter option.
 const ACTIONS = [
   { value: '',                   label: 'All actions' },
   { value: 'dismiss_zombie',     label: 'Dismissed' },
   { value: 'snooze_zombie',      label: 'Snoozed' },
   { value: 'revoke_dismissal',   label: 'Revoked' },
+  { value: 'view_remediation',   label: 'Remediation viewed' },
   { value: 'scan_triggered',     label: 'Scan triggered' },
   { value: 'account_connected',  label: 'Account connected' },
   { value: 'account_updated',    label: 'Account updated' },
@@ -32,14 +40,15 @@ const PAGE_SIZE = 50;
 // the theme object so the badge adapts to light/dark.
 function actionDisplay(action) {
   switch (action) {
-    case 'dismiss_zombie':    return { label: 'Dismissed',       tone: 'muted' };
-    case 'snooze_zombie':     return { label: 'Snoozed',         tone: 'info' };
-    case 'revoke_dismissal':  return { label: 'Revoked',         tone: 'warn' };
-    case 'scan_triggered':    return { label: 'Scan triggered',  tone: 'accent' };
-    case 'account_connected': return { label: 'Account added',   tone: 'success' };
-    case 'account_updated':   return { label: 'Account updated', tone: 'info' };
-    case 'account_deleted':   return { label: 'Account removed', tone: 'danger' };
-    default:                  return { label: action,            tone: 'muted' };
+    case 'dismiss_zombie':    return { label: 'Dismissed',          tone: 'muted' };
+    case 'snooze_zombie':     return { label: 'Snoozed',            tone: 'info' };
+    case 'revoke_dismissal':  return { label: 'Revoked',            tone: 'warn' };
+    case 'view_remediation':  return { label: 'Remediation viewed', tone: 'muted' };
+    case 'scan_triggered':    return { label: 'Scan triggered',     tone: 'accent' };
+    case 'account_connected': return { label: 'Account added',      tone: 'success' };
+    case 'account_updated':   return { label: 'Account updated',    tone: 'info' };
+    case 'account_deleted':   return { label: 'Account removed',    tone: 'danger' };
+    default:                  return { label: action,               tone: 'muted' };
   }
 }
 
@@ -75,13 +84,29 @@ function ActionChip({ action, theme, isDark }) {
   );
 }
 
+// localDateBoundary parses a "YYYY-MM-DD" string from a <input type="date">
+// element and returns a Date at the given local-time wall-clock — the
+// numeric constructor avoids the spec ambiguity of date-time strings without
+// timezone offsets and handles DST-gap days (where local midnight may not
+// exist) by resolving to the next valid local instant.
+function localDateBoundary(yyyyMmDd, hh, mm, ss, ms) {
+  const [y, m, d] = yyyyMmDd.split('-').map(Number);
+  return new Date(y, m - 1, d, hh, mm, ss, ms);
+}
+
+// Always render audit timestamps in UTC and label them as such. Audit logs
+// are a compliance/security artefact — comparing two operators' views of the
+// same event must produce the same string regardless of where they're sitting.
+// The trailing " UTC" makes the timezone explicit so nobody has to guess.
 function fmtTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
-  return d.toLocaleString('en-GB', {
+  const formatted = d.toLocaleString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
+    timeZone: 'UTC',
   });
+  return `${formatted} UTC`;
 }
 
 function MetadataPanel({ event, theme }) {
@@ -108,30 +133,49 @@ function MetadataPanel({ event, theme }) {
 function EventRow({ event, theme, isDark }) {
   const [expanded, setExpanded] = useState(false);
   const hasMetadata = event.metadata && Object.keys(event.metadata).length > 0;
+
+  // Toggle on Enter or Space when the row is keyboard-focused. Without this,
+  // a click-to-expand row is invisible to keyboard-only users.
+  function handleKey(e) {
+    if (!hasMetadata) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setExpanded((v) => !v);
+    }
+  }
+
+  // ARIA: role="row" with aria-expanded is the treegrid pattern for an
+  // expandable row. Putting role="button" on the row itself would invalidate
+  // the role="cell" descendants (cells must live inside a row, not a button)
+  // and break column attribution for screen readers.
   return (
     <div
+      role="row"
+      tabIndex={hasMetadata ? 0 : undefined}
+      aria-expanded={hasMetadata ? expanded : undefined}
       style={{
         padding: '12px 16px',
         borderBottom: `1px solid ${theme.border}`,
         cursor: hasMetadata ? 'pointer' : 'default',
       }}
       onClick={hasMetadata ? () => setExpanded((v) => !v) : undefined}
+      onKeyDown={handleKey}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: '0 0 160px', fontSize: 12, color: theme.textMuted, fontFamily: 'monospace' }}>
+        <div role="cell" style={{ flex: '0 0 200px', fontSize: 12, color: theme.textMuted, fontFamily: 'monospace' }}>
           {fmtTime(event.created_at)}
         </div>
-        <div style={{ flex: '0 0 140px' }}>
+        <div role="cell" style={{ flex: '0 0 140px' }}>
           <ActionChip action={event.action} theme={theme} isDark={isDark} />
         </div>
-        <div style={{ flex: '1 1 180px', fontSize: 13, color: theme.text, minWidth: 0 }}>
+        <div role="cell" style={{ flex: '1 1 180px', fontSize: 13, color: theme.text, minWidth: 0 }}>
           {event.actor_email || event.user_id || <em style={{ color: theme.textMuted }}>system</em>}
         </div>
-        <div style={{ flex: '1 1 220px', fontSize: 12, color: theme.textMid, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+        <div role="cell" style={{ flex: '1 1 220px', fontSize: 12, color: theme.textMid, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
           {event.resource_type ? `${event.resource_type}/${event.resource_id}` : event.resource_id || '—'}
         </div>
         {hasMetadata && (
-          <div style={{ flex: '0 0 auto', color: theme.textMuted, fontSize: 12 }}>
+          <div aria-hidden="true" style={{ flex: '0 0 auto', color: theme.textMuted, fontSize: 12 }}>
             {expanded ? '▾' : '▸'}
           </div>
         )}
@@ -202,9 +246,17 @@ export default function AuditScreen() {
   const [sinceDate, setSinceDate]       = useState('');
   const [untilDate, setUntilDate]       = useState('');
 
-  // Convert date-only input into RFC3339 — server expects full timestamps.
-  const since = sinceDate ? `${sinceDate}T00:00:00Z` : undefined;
-  const until = untilDate ? `${untilDate}T23:59:59Z` : undefined;
+  // <input type="date"> emits a local-day string ("2026-04-01"). Build the
+  // boundary instants via the year/month/day Date constructor, which always
+  // resolves through local calendar arithmetic — including the DST-gap days
+  // where "2026-03-29T02:30:00" doesn't exist in CET. Using the string
+  // constructor (`new Date("...T00:00:00")`) is correct on most days but
+  // produces invalid times on transition days, which would silently shift
+  // the filter window by an hour at boundaries. The numeric constructor
+  // sidesteps that by interpreting the input as a calendar date, and
+  // toISOString() then produces the UTC instant the server expects.
+  const since = sinceDate ? localDateBoundary(sinceDate, 0, 0, 0, 0).toISOString() : undefined;
+  const until = untilDate ? localDateBoundary(untilDate, 23, 59, 59, 999).toISOString() : undefined;
 
   const query = useInfiniteQuery({
     queryKey: ['audit', { action, resourceType, since, until }],
@@ -254,14 +306,14 @@ export default function AuditScreen() {
       </div>
 
       {/* Results */}
-      <div style={{
+      <div role="table" aria-label="Audit events" style={{
         backgroundColor: theme.surface,
         border: `1px solid ${theme.border}`,
         borderRadius: 10,
         overflow: 'hidden',
       }}>
         {/* Column headers */}
-        <div style={{
+        <div role="row" style={{
           display: 'flex',
           gap: 12,
           padding: '10px 16px',
@@ -273,11 +325,11 @@ export default function AuditScreen() {
           letterSpacing: 1.2,
           textTransform: 'uppercase',
         }}>
-          <div style={{ flex: '0 0 160px' }}>Time</div>
-          <div style={{ flex: '0 0 140px' }}>Action</div>
-          <div style={{ flex: '1 1 180px' }}>Actor</div>
-          <div style={{ flex: '1 1 220px' }}>Resource</div>
-          <div style={{ flex: '0 0 20px' }} />
+          <div role="columnheader" style={{ flex: '0 0 200px' }}>Time</div>
+          <div role="columnheader" style={{ flex: '0 0 140px' }}>Action</div>
+          <div role="columnheader" style={{ flex: '1 1 180px' }}>Actor</div>
+          <div role="columnheader" style={{ flex: '1 1 220px' }}>Resource</div>
+          <div role="columnheader" aria-label="Expand" style={{ flex: '0 0 20px' }} />
         </div>
 
         {query.isLoading && (
@@ -287,8 +339,13 @@ export default function AuditScreen() {
         )}
 
         {query.isError && (
-          <div style={{ padding: 40, textAlign: 'center', color: theme.textMuted, fontSize: 13 }}>
+          <div role="alert" style={{ padding: 40, textAlign: 'center', color: theme.textMuted, fontSize: 13 }}>
             Failed to load audit events.
+            {query.error?.message && (
+              <div style={{ marginTop: 6, fontSize: 11, fontFamily: 'monospace', color: theme.textMuted, opacity: 0.7 }}>
+                {query.error.message}
+              </div>
+            )}
           </div>
         )}
 

@@ -186,7 +186,11 @@ export async function fetchAuditEvents({
   if (action)       params.set('action', action);
   if (since)        params.set('since', since);       // RFC3339 string
   if (until)        params.set('until', until);       // RFC3339 string
-  if (limit)        params.set('limit', String(limit));
+  // Server validates limit ∈ [1, 500] and 400s outside that range. Falsy
+  // guard intentionally drops 0 alongside null/undefined — passing 0 would
+  // be a guaranteed 400, and there's no caller intent that 0 expresses
+  // (use null/undefined to mean "server default").
+  if (limit) params.set('limit', String(limit));
   if (cursor)       params.set('cursor', cursor);
 
   const qs = params.toString();
