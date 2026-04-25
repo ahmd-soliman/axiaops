@@ -42,7 +42,7 @@ export default function Users() {
       setInviteError('');
       invalidate();
     },
-    onError: (err) => setInviteError(humanize(err, 'Failed to invite user')),
+    onError: (err) => setInviteError(humanize(err, 'Failed to add user')),
   });
 
   const updateMutation = useMutation({
@@ -95,10 +95,10 @@ export default function Users() {
           }}
         >
           <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>
-            Invite a member
+            Add a member
           </h2>
           <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMuted }}>
-            The user must have logged in to AxiaOps at least once before they can be invited.
+            The user must have logged in to AxiaOps at least once before they can be added.
           </p>
           <form
             onSubmit={(e) => {
@@ -122,7 +122,7 @@ export default function Users() {
               ))}
             </select>
             <button type="submit" disabled={inviteMutation.isPending} style={primaryButton(t)}>
-              {inviteMutation.isPending ? 'Inviting…' : 'Invite'}
+              {inviteMutation.isPending ? 'Adding…' : 'Add'}
             </button>
           </form>
           {inviteError && (
