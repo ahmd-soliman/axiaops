@@ -173,6 +173,11 @@ func main() {
 		}); err != nil {
 			die("auth: failed to ensure dev user", "user", devUserID, "error", err)
 		}
+		// Pin the dev membership as owner so DevBypass requests pass every
+		// permission check via the Require decorator. RBAC Phase 1.
+		if err := store.EnsureDevMembership(ctx, devTenantID, devUserID, "owner"); err != nil {
+			die("auth: failed to ensure dev membership", "user", devUserID, "error", err)
+		}
 		slog.Warn("auth: DEV_MODE — bypassing auth", "tenant", devTenantID, "user", devUserID)
 		root = middleware.DevBypass(devTenantID, devUserID, devUserEmail, root)
 	} else {
