@@ -16,6 +16,7 @@ import (
 	"axiaops.io/api/internal/audit"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/analyzer"
+	"axiaops.io/shared/authz"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
@@ -54,31 +55,62 @@ func (h *Handler) WithRedisCache(c cache.Cache) *Handler {
 	return h
 }
 
-// Register attaches the routes to the given mux.
+// Register attaches the routes to the given mux. Each non-public route is
+// wrapped in middleware.Require, which 403s any caller whose role does not
+// grant the listed permission. Public routes (health, livez, readyz, version,
+// me) skip Require — version sits behind authn but every authenticated user
+// should be able to read it; me lets users who have lost their membership
+// observe that fact. DELETE /v1/memberships/{id} is intentionally unwrapped
+// because the handler implements a self-leave bypass that Require can't
+// express; the handler then enforces stricter perms when the target is
+// someone else.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v1/version", h.getVersion)
+	require := func(p authz.Permission, fn http.HandlerFunc) http.Handler {
+		return middleware.Require(p, h.store, http.HandlerFunc(fn))
+	}
+
+	// Public infra paths (auth-bypass list in Auth.Wrap / DevBypass).
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /livez", h.livez)
 	mux.HandleFunc("GET /readyz", h.readyz)
-	mux.HandleFunc("GET /v1/zombies", h.listZombies)
-	mux.HandleFunc("GET /v1/summary", h.getSummary)
-	mux.HandleFunc("GET /v1/trend", h.getTrend)
-	mux.HandleFunc("GET /v1/trend/services", h.getTrendServices)
-	mux.HandleFunc("GET /v1/trend/resource-types", h.getTrendResourceTypes)
-	mux.HandleFunc("GET /v1/costs", h.listCosts)
-	mux.HandleFunc("GET /v1/resources", h.listResources)
-	mux.HandleFunc("GET /v1/accounts", h.listAccounts)
-	mux.HandleFunc("GET /v1/accounts/{id}", h.getAccount)
-	mux.HandleFunc("POST /v1/accounts", h.createAccount)
-	mux.HandleFunc("PATCH /v1/accounts/{id}", h.updateAccount)
-	mux.HandleFunc("DELETE /v1/accounts/{id}", h.deleteAccount)
-	mux.HandleFunc("POST /v1/accounts/{id}/scan", h.scanAccount)
-	// Track C — Dismiss / Snooze
-	mux.HandleFunc("POST /v1/dismissals", h.createDismissal)
-	mux.HandleFunc("DELETE /v1/dismissals/{id}", h.revokeDismissal)
-	mux.HandleFunc("GET /v1/dismissals", h.listDismissals)
-	// Audit trail
-	mux.HandleFunc("GET /v1/audit", h.listAuditEvents)
+
+	// Authenticated, no permission gate.
+	mux.HandleFunc("GET /v1/version", h.getVersion)
+	mux.HandleFunc("GET /v1/me", h.getMe)
+
+	// Zombies / summary / costs / resources / trend.
+	mux.Handle("GET /v1/zombies", require(authz.PermZombiesRead, h.listZombies))
+	mux.Handle("GET /v1/summary", require(authz.PermZombiesRead, h.getSummary))
+	mux.Handle("GET /v1/trend", require(authz.PermSnapshotsRead, h.getTrend))
+	mux.Handle("GET /v1/trend/services", require(authz.PermSnapshotsRead, h.getTrendServices))
+	mux.Handle("GET /v1/trend/resource-types", require(authz.PermSnapshotsRead, h.getTrendResourceTypes))
+	mux.Handle("GET /v1/costs", require(authz.PermCostsRead, h.listCosts))
+	mux.Handle("GET /v1/resources", require(authz.PermResourcesRead, h.listResources))
+
+	// Accounts.
+	mux.Handle("GET /v1/accounts", require(authz.PermAccountsRead, h.listAccounts))
+	mux.Handle("GET /v1/accounts/{id}", require(authz.PermAccountsRead, h.getAccount))
+	mux.Handle("POST /v1/accounts", require(authz.PermAccountsWrite, h.createAccount))
+	mux.Handle("PATCH /v1/accounts/{id}", require(authz.PermAccountsWrite, h.updateAccount))
+	mux.Handle("DELETE /v1/accounts/{id}", require(authz.PermAccountsDelete, h.deleteAccount))
+	mux.Handle("POST /v1/accounts/{id}/scan", require(authz.PermAccountsScan, h.scanAccount))
+
+	// Dismissals.
+	mux.Handle("POST /v1/dismissals", require(authz.PermZombiesDismiss, h.createDismissal))
+	mux.Handle("DELETE /v1/dismissals/{id}", require(authz.PermZombiesDismiss, h.revokeDismissal))
+	mux.Handle("GET /v1/dismissals", require(authz.PermZombiesRead, h.listDismissals))
+
+	// Audit trail.
+	mux.Handle("GET /v1/audit", require(authz.PermAuditRead, h.listAuditEvents))
+
+	// Memberships (RBAC Phase 1). The handler does an additional stricter-perm
+	// check on PATCH/POST when the target role is admin, and DELETE bypasses
+	// the gate entirely for self-leave (with last-owner guard still applied).
+	mux.Handle("GET /v1/memberships", require(authz.PermMembersRead, h.listMemberships))
+	mux.Handle("POST /v1/memberships", require(authz.PermMembersInvite, h.createMembership))
+	mux.Handle("PATCH /v1/memberships/{id}/role", require(authz.PermMembersManageBasic, h.updateMembershipRole))
+	mux.HandleFunc("DELETE /v1/memberships/{id}", h.deleteMembership) // self-leave bypass — handler enforces
+	mux.Handle("POST /v1/tenants/transfer-ownership", require(authz.PermTenantTransfer, h.transferOwnership))
 }
 
 // cors wraps a handler with CORS headers.

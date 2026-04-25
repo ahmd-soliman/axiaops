@@ -231,3 +231,5 @@ The tenant ID (`org_code` in Kinde) maps to whatever claim the new provider uses
 
 - Store `tenant_id` as a UUID you control, not Kinde's `org_code` directly. Map Kinde org_code → your internal tenant_id in a `tenants` table. This means a provider swap does not require a data migration.
 - Never put Kinde-specific claims in your business logic — only extract `tenant_id` in the middleware layer and pass it down as a plain string.
+
+Authorization (role-based access control) is documented separately in `docs/rbac-design.md`.

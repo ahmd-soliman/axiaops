@@ -18,7 +18,6 @@ import (
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
-	"axiaops.io/shared/storage"
 )
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
@@ -553,21 +552,22 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 		codeA int
 		codeB int
 	)
+	// Wrap each mux in DevBypass so the middleware context keys (read by
+	// Require + handlers) are populated. Each tenant gets a distinct dev user.
+	handlerA := middleware.DevBypass(tenantA, "dev-user-a", "a@x.com", muxA)
+	handlerB := middleware.DevBypass(tenantB, "dev-user-b", "b@x.com", muxB)
+
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		req := httptest.NewRequest(http.MethodPost, "/v1/accounts/"+accA+"/scan", nil)
-		req = req.WithContext(storage.WithTenantID(req.Context(), tenantA))
 		w := httptest.NewRecorder()
-		muxA.ServeHTTP(w, req)
+		handlerA.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/accounts/"+accA+"/scan", nil))
 		codeA = w.Code
 	}()
 	go func() {
 		defer wg.Done()
-		req := httptest.NewRequest(http.MethodPost, "/v1/accounts/"+accB+"/scan", nil)
-		req = req.WithContext(storage.WithTenantID(req.Context(), tenantB))
 		w := httptest.NewRecorder()
-		muxB.ServeHTTP(w, req)
+		handlerB.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/accounts/"+accB+"/scan", nil))
 		codeB = w.Code
 	}()
 	wg.Wait()

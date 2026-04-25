@@ -39,18 +39,26 @@ const (
 	AuditActionAccountConnected = "account_connected"
 	AuditActionAccountUpdated   = "account_updated"
 	AuditActionAccountDeleted   = "account_deleted"
+	AuditActionMemberInvited    = "member_invited"
+	AuditActionMemberRoleChanged = "member_role_changed"
+	AuditActionMemberRemoved    = "member_removed"
+	AuditActionOwnershipTransferred = "ownership_transferred"
 )
 
 // ValidAuditActions is the authoritative set of action codes accepted on write
 // and returned by GET /v1/audit filters.
 var ValidAuditActions = map[string]bool{
-	AuditActionDismissZombie:    true,
-	AuditActionSnoozeZombie:     true,
-	AuditActionRevokeDismissal:  true,
-	AuditActionScanTriggered:    true,
-	AuditActionAccountConnected: true,
-	AuditActionAccountUpdated:   true,
-	AuditActionAccountDeleted:   true,
+	AuditActionDismissZombie:        true,
+	AuditActionSnoozeZombie:         true,
+	AuditActionRevokeDismissal:      true,
+	AuditActionScanTriggered:        true,
+	AuditActionAccountConnected:     true,
+	AuditActionAccountUpdated:       true,
+	AuditActionAccountDeleted:       true,
+	AuditActionMemberInvited:        true,
+	AuditActionMemberRoleChanged:    true,
+	AuditActionMemberRemoved:        true,
+	AuditActionOwnershipTransferred: true,
 }
 
 // AuditFilter parameterises AuditLogList queries. Zero-value fields are not
