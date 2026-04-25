@@ -6,13 +6,14 @@ This directory contains Docker Compose files for different environments.
 
 ### `dev.yml` — Development Environment
 - **DEV_MODE**: `true` (auth bypassed)
-- **Image tags**: `:dev`
+- **Image tags**: `:${DEPLOY_ENV}` (e.g. `:dev-1`, `:dev-2`)
 - **Restart policy**: `unless-stopped`
 - **Network**: Uses external GitLab runner network
-- **Usage**: GitLab CI builds and runs this
+- **Usage**: GitLab CI builds and runs this. The CI deploy jobs (`deploy:dev-1`, `deploy:dev-2`) supply `DEPLOY_ENV`, `API_HOST_PORT`, `DASHBOARD_HOST_PORT` so multiple dev slots can run on the same host.
 
 ```bash
-docker-compose -f deploy/dev.yml up -d
+DEPLOY_ENV=dev-1 API_HOST_PORT=30031 DASHBOARD_HOST_PORT=30032 \
+  docker-compose -f deploy/dev.yml up -d
 ```
 
 ### `staging.yml` — Staging Environment
