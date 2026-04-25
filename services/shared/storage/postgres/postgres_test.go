@@ -60,6 +60,7 @@ func setup(t *testing.T) *pgx.Conn {
 	conn := connectTestDB(t)
 	const truncate = `TRUNCATE TABLE
 		axiaops.audit_log,
+		axiaops.memberships,
 		axiaops.zombie_snapshots,
 		axiaops.resource_records,
 		axiaops.zombie_records,
