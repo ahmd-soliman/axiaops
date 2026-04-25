@@ -1438,9 +1438,8 @@ func (s *Store) RoleOf(ctx context.Context, tenantID, userID string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("postgres: role_of query: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return "", fmt.Errorf("postgres: role_of commit: %w", err)
-	}
+	// Read-only — defer Rollback handles cleanup. Skipping Commit shaves a
+	// round-trip on the auth fast path (called per request).
 	return role, nil
 }
 

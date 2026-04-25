@@ -1,7 +1,6 @@
 package api_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,15 +13,15 @@ import (
 
 // meRequest builds a request with full identity (tenant_id, user_id, email)
 // via DevBypass — the unexported context keys can only be set through that
-// path. The DevBypass middleware skips public paths, so we hit a non-public
-// path to make it populate the context, then capture the resulting context.
+// path. DevBypass populates the context for any non-public path; we feed it
+// the actual request so the caller's method and path are honoured.
 func meRequest(method, path string) *http.Request {
 	src := httptest.NewRequest(method, path, nil)
-	var captured context.Context
+	var captured *http.Request
 	middleware.DevBypass("tenant-me", "user-me", "me@example.com", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		captured = r.Context()
-	})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/seed", nil))
-	return src.WithContext(captured)
+		captured = r
+	})).ServeHTTP(httptest.NewRecorder(), src)
+	return captured
 }
 
 func newQueueShim() queue.Queue { return noopQueue() }

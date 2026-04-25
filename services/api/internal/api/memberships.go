@@ -87,18 +87,20 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid role", http.StatusBadRequest)
 		return
 	}
+	// Owner is reserved for transfer-ownership — never created via invite.
+	// Reject before the permission check so /v1/memberships {role:owner}
+	// always 400s, even when the caller has manage_admin.
+	if req.Role == string(authz.RoleOwner) {
+		http.Error(w, "owner role can only be assigned via transfer-ownership", http.StatusBadRequest)
+		return
+	}
 	// Promoting to admin requires owner.
-	if req.Role == string(authz.RoleAdmin) || req.Role == string(authz.RoleOwner) {
+	if req.Role == string(authz.RoleAdmin) {
 		callerRole, _ := h.store.RoleOf(ctx, tid, uid)
 		if !authz.Allows(authz.Role(callerRole), authz.PermMembersManageAdmin) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-	}
-	// Owner is reserved for transfer-ownership — never created via invite.
-	if req.Role == string(authz.RoleOwner) {
-		http.Error(w, "owner role can only be assigned via transfer-ownership", http.StatusBadRequest)
-		return
 	}
 
 	target, err := h.store.GetUserByEmail(ctx, req.Email)
