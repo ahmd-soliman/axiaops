@@ -79,7 +79,7 @@ _Last updated: 2026-04-24_
 ## CI — Containerize every job, drop custom runners
 
 Context: current CI uses a shell executor that assumes Go, golangci-lint, and Docker are
-pre-installed on the runner host, plus a shared `gitlab-cloud-runner-network` for service
+pre-installed on the runner host, plus a shared `gitlab-runner-network` for service
 containers. This ties CI to bespoke runner images and broke on the new self-hosted runner (see
 commit `dafac6b`, IP-lookup workaround). Instead of owning a custom runner image, make
 every job self-contained by specifying `image:` + `services:` — then any generic Docker
