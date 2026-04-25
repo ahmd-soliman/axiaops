@@ -15,6 +15,23 @@ import (
 // dismissal or snooze.  Callers should surface this as HTTP 409 Conflict.
 var ErrAlreadyDismissed = errors.New("storage: resource already has an active dismissal")
 
+// ErrMembershipNotFound is returned by membership reads/mutations when the
+// target row does not exist. Surface as HTTP 404.
+var ErrMembershipNotFound = errors.New("storage: membership not found")
+
+// ErrUserNotFound is returned by user lookups (e.g. GetUserByEmail) when no
+// row matches. Surface as HTTP 404 — used by the invite-by-email flow to
+// distinguish "user has not logged in yet" from real errors.
+var ErrUserNotFound = errors.New("storage: user not found")
+
+// ErrLastOwner is returned by membership mutations that would leave a tenant
+// with zero owners. Surface as HTTP 409.
+var ErrLastOwner = errors.New("storage: cannot remove or demote the last owner")
+
+// ErrMembershipExists is returned by SaveMembership when a membership already
+// exists for (tenant_id, user_id). Surface as HTTP 409.
+var ErrMembershipExists = errors.New("storage: membership already exists for user in tenant")
+
 type ctxKey string
 
 const tenantKey ctxKey = "tenant_id"
@@ -189,6 +206,62 @@ type Store interface {
 	// user-deletion and tenant-deletion (GDPR) paths.  Returns the number of
 	// rows modified.
 	AuditLogAnonymiseUser(ctx context.Context, userID string) (int64, error)
+
+	// ── Memberships (RBAC Phase 1, see docs/rbac-design.md) ──────────────────
+
+	// RoleOf returns the role string ("owner"|"admin"|"member"|"viewer") for
+	// (tenantID, userID), or "" with nil error when no membership row exists.
+	// The implementation must enforce RLS — i.e. open its own transaction
+	// and SET LOCAL app.tenant_id before SELECTing. Called from the auth
+	// middleware on every request, so must be cheap.
+	RoleOf(ctx context.Context, tenantID, userID string) (string, error)
+
+	// ListMemberships returns all memberships in the tenant in ctx, joined
+	// with users for email/name. Used by the admin user-management screen.
+	ListMemberships(ctx context.Context) ([]model.MembershipWithUser, error)
+
+	// GetMembership returns a single membership by ID for the tenant in ctx.
+	// Returns ErrMembershipNotFound if the row does not exist (or belongs to
+	// another tenant — RLS hides it the same way).
+	GetMembership(ctx context.Context, id string) (model.Membership, error)
+
+	// SaveMembership inserts a new membership. Returns ErrMembershipExists
+	// when (tenant_id, user_id) collides. The caller generates the ID.
+	SaveMembership(ctx context.Context, m model.Membership) error
+
+	// UpdateMembershipRole changes the role of an existing membership.
+	// Returns ErrMembershipNotFound when the row does not exist; returns
+	// ErrLastOwner when the change would leave the tenant with zero owners.
+	UpdateMembershipRole(ctx context.Context, id, newRole string) error
+
+	// DeleteMembership removes a membership. Returns ErrMembershipNotFound
+	// when the row does not exist; returns ErrLastOwner when the deletion
+	// would leave the tenant with zero owners.
+	DeleteMembership(ctx context.Context, id string) error
+
+	// TransferOwnership atomically demotes the current owner to admin and
+	// promotes the target user to owner, both within the tenant in ctx.
+	// Returns ErrMembershipNotFound when the target user has no membership
+	// in this tenant.
+	TransferOwnership(ctx context.Context, toUserID string) error
+
+	// EnsureFirstMembership inserts an owner row for (tenantID, userID) only
+	// if no membership row exists yet for this tenant. Used by the auth
+	// middleware to bootstrap brand-new Kinde organisations on first login.
+	// Idempotent and race-safe: the partial unique index in migration 015
+	// rejects a second concurrent insert. Returns true when this call
+	// inserted the row, false if a membership already existed.
+	EnsureFirstMembership(ctx context.Context, tenantID, userID string) (bool, error)
+
+	// EnsureDevMembership creates an owner row for (tenantID, userID) on
+	// startup in DEV_MODE. Mirrors EnsureUser's raw-pool shortcut (RLS
+	// would prevent reading app.tenant_id at startup before any handler runs).
+	// Idempotent. role is one of the four defined roles.
+	EnsureDevMembership(ctx context.Context, tenantID, userID, role string) error
+
+	// GetUserByEmail looks up a user by email for the tenant in ctx. Used by
+	// the invite-by-email flow. Returns ErrUserNotFound when no match.
+	GetUserByEmail(ctx context.Context, email string) (model.User, error)
 
 	// Close releases any resources held by the store.
 	Close() error
