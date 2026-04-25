@@ -210,6 +210,42 @@ func TestAuth_OPTIONSPassesThrough(t *testing.T) {
 	}
 }
 
+// /metrics, /livez, /readyz must remain reachable from Prometheus and
+// container orchestration without a JWT.
+func TestAuth_PublicPathsBypassAuth(t *testing.T) {
+	auth, _ := testSetup(t)
+	h := auth.Wrap(okHandler)
+
+	for _, path := range []string{"/health", "/livez", "/readyz", "/metrics"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("%s without auth: expected 200, got %d", path, w.Code)
+		}
+	}
+}
+
+func TestDevBypass_PublicPathsSkipContextPopulation(t *testing.T) {
+	captured := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Public paths must not have identity injected — they're for infra.
+		if TenantID(r.Context()) != "" {
+			t.Errorf("public path should not have tenant_id populated")
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	h := DevBypass("dev-tenant", "dev-user", "dev@x.com", captured)
+
+	for _, path := range []string{"/health", "/livez", "/readyz", "/metrics"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", path, w.Code)
+		}
+	}
+}
+
 // ── JWKS cache behaviour ──────────────────────────────────────────────────────
 
 // mockCache is a minimal in-memory cache for testing.
