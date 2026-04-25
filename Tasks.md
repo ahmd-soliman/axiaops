@@ -79,6 +79,7 @@ _Last updated: 2026-04-25_
 - Mobile app (iOS + Android)
 - Cost forecasting (linear regression over snapshot history)
 - IaC plan parser (Terraform / CDK) + CI/CD budget gate
+- **FOCUS conformance** — Consumer (Q2 2027) → Producer (Q3 2027) → Foundation conformance assertion (Q4 2027). Plan: `docs/compliance/focus_plan.md`. Unlocks one-parser multi-cloud ingestion (replaces per-cloud cost SDKs in §4.2/§4.3) and Team-tier FOCUS Parquet export for customer data lakes. Depends on CUR ingestion (Phase 3 #13) for credible Producer role.
 
 ---
 
