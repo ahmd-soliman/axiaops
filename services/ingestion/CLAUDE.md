@@ -49,7 +49,7 @@ and storage layers are provider-agnostic.
 ## Adding New Detection Rules
 
 1. Add the service's metric to `services/shared/analyzer/detector.go` → `serviceRules` map
-2. Add Describe API call in `internal/provider/aws/discover.go` for resource discovery
+2. Add the Describe API call to the per-service file in `internal/provider/aws/` (e.g. `discover_ec2.go`, `discover_rds.go`); create a new `discover_<service>.go` if no file exists for that service
 3. Add CloudWatch metric mapping in `internal/provider/aws/cloudwatch.go`
 4. Add unit test in `shared/analyzer/` covering the new threshold
 5. Update IAM policy docs in `docs/production.md`
