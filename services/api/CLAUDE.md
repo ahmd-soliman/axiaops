@@ -33,6 +33,12 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | GET | /dismissals | Yes | List active dismissals (?account_id) |
 | DELETE | /dismissals/{id} | Yes | Revoke a dismissal |
 | GET | /audit | Yes | Tenant audit timeline (?user_id, ?resource_type, ?resource_id, ?action, ?since, ?until, ?limit, ?cursor) |
+| GET | /me | Yes | Current user's role + permission set; no permission required beyond authn |
+| GET | /memberships | Yes | List tenant memberships |
+| POST | /memberships | Yes | Invite an existing user (by user_id) and assign a role; admin+ only |
+| PATCH | /memberships/{id}/role | Yes | Promote or demote a member; permission tier depends on target role |
+| DELETE | /memberships/{id} | Yes | Remove a member; self-leave bypasses permission check (last-owner guard still applies) |
+| POST | /tenants/transfer-ownership | Yes | Atomically transfer owner role to another user; owner only |
 
 ## Key Patterns
 
@@ -120,6 +126,8 @@ Errors are logged to stdout with structured context (JSON format in production).
 | KINDE_ISSUER | Prod | — | Kinde tenant URL |
 | DEV_MODE | No | false | Skip auth, use fixed tenant |
 | DEV_TENANT_ID | No | dev-tenant-axiaops | Tenant ID in dev mode |
+| DEV_USER_ID | No | dev-user-axiaops | User ID seeded in dev mode; `EnsureDevMembership` assigns it `owner` |
+| DEV_USER_EMAIL | No | dev@axiaops.local | Email for the dev user row |
 | CORS_ORIGIN | No | * | Allowed CORS origin |
 | ENCRYPTION_KEY | Yes | — | 32-byte hex for AES-256-GCM |
 | APP_ENV | No | — | Environment (production, staging, development) |
