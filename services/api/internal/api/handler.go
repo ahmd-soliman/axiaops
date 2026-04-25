@@ -56,6 +56,7 @@ func (h *Handler) WithRedisCache(c cache.Cache) *Handler {
 
 // Register attaches the routes to the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/version", h.getVersion)
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /livez", h.livez)
 	mux.HandleFunc("GET /readyz", h.readyz)
@@ -201,7 +202,7 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Filter by internal_account_id if provided
 	if accountID != "" {
 		filtered := make([]model.ResourceRecord, 0)
@@ -212,7 +213,7 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 		}
 		resources = filtered
 	}
-	
+
 	if resources == nil {
 		resources = []model.ResourceRecord{}
 	}
@@ -343,8 +344,8 @@ func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 			// 1. An internal UUID that hasn't been added to accounts table yet (newly created)
 			// 2. An AWS account ID
 			// Try both approaches:
-			filter.InternalAccountID = accountIDParam  // Try as internal UUID
-			filter.AWSAccountID = accountIDParam       // Also try as AWS account ID
+			filter.InternalAccountID = accountIDParam // Try as internal UUID
+			filter.AWSAccountID = accountIDParam      // Also try as AWS account ID
 			slog.Info("listCosts: filtered by parameter (either internal UUID or AWS ID)", "account_id", accountIDParam)
 		}
 	}
@@ -364,6 +365,32 @@ func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 // Pinger is satisfied by *postgres.Store (which embeds pgxpool.Pool).
 type Pinger interface {
 	Ping(ctx context.Context) error
+}
+
+// getVersion returns the build identifier for the API service. Reads from the
+// APP_VERSION / APP_COMMIT_SHA / APP_ENV env vars, falling back to "dev" /
+// "local" / "development" so a vanilla `make start-dev` still produces a
+// usable response. Auth required (sits under /v1/) so the dashboard footer
+// only learns about the API after a user has logged in.
+//
+// Response shape is intentionally narrow — service identifier, version,
+// commit SHA, env. No build timestamps, no dependency versions, no secrets.
+// If you find yourself adding fields here, ask whether the data belongs in
+// /metrics or a structured log line instead.
+func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]string{
+		"service": "api",
+		"version": getenvOr("APP_VERSION", "dev"),
+		"commit":  getenvOr("APP_COMMIT_SHA", "local"),
+		"env":     getenvOr("APP_ENV", "development"),
+	})
+}
+
+func getenvOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -707,14 +734,14 @@ func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
 
 	var req struct {
-		AccountID  string     `json:"account_id"`
-		Provider   string     `json:"provider"`
-		Service    string     `json:"service"`
-		Region     string     `json:"region"`
-		ResourceID string     `json:"resource_id"`
-		Action     string     `json:"action"`
-		Reason     string     `json:"reason"`
-		Note       string     `json:"note"`
+		AccountID    string     `json:"account_id"`
+		Provider     string     `json:"provider"`
+		Service      string     `json:"service"`
+		Region       string     `json:"region"`
+		ResourceID   string     `json:"resource_id"`
+		Action       string     `json:"action"`
+		Reason       string     `json:"reason"`
+		Note         string     `json:"note"`
 		SnoozedUntil *time.Time `json:"snooze_until"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

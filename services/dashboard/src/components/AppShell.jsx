@@ -1,6 +1,9 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../theme/ThemeContext';
 import { useApp } from '../context/AppContext';
+import { fetchVersion } from '../api/client';
+import { APP_VERSION, APP_COMMIT_SHA } from '../config';
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
 
@@ -86,6 +89,19 @@ export default function AppShell() {
   const navigate  = useNavigate();
   const location  = useLocation();
   const t = theme;
+
+  // Backend build identifier — fetched once per session and cached. The footer
+  // pairs it with the dashboard build identifier so support tickets carry both
+  // versions in a single click-to-select string. Failures are silently absorbed
+  // (apiVersion stays undefined) so a momentarily-unreachable API doesn't break
+  // the shell.
+  const apiVersion = useQuery({
+    queryKey: ['api-version'],
+    queryFn: fetchVersion,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', backgroundColor: t.bg }}>
@@ -197,6 +213,40 @@ export default function AppShell() {
       <main id="main-content" style={{ flex: 1, overflowY: 'auto' }}>
         <Outlet />
       </main>
+
+      {/* ── Build footer ── */}
+      {/* Tiny, dim, monospace. Identifies the dashboard build *and* the API
+          build so support tickets carry both. user-select:all lets a click
+          highlight the whole identifier — paste straight into a bug report.
+
+          Version values are rendered verbatim — no "v" prefix wrapper. Tagged
+          builds set them to e.g. "v2.6.0" already; branch builds set them to
+          the branch slug ("develop", "feature/foo"); local dev shows "dev".
+          A hard-coded "v" prefix here would double up to "vv2.6.0" on tags.
+
+          API line is shown only after a successful fetch — a momentarily
+          unreachable backend just hides that line rather than yelling. */}
+      <footer
+        aria-label="Build version"
+        title="Click to select build identifier"
+        style={{
+          padding: '6px 12px',
+          textAlign: 'right',
+          fontSize: 10,
+          fontFamily: 'monospace',
+          color: t.textMuted,
+          opacity: 0.6,
+          flexShrink: 0,
+          letterSpacing: 0.3,
+          userSelect: 'all',
+          lineHeight: '14px',
+        }}
+      >
+        <div>dashboard {APP_VERSION} · {APP_COMMIT_SHA}</div>
+        {apiVersion.data && (
+          <div>api {apiVersion.data.version} · {apiVersion.data.commit}</div>
+        )}
+      </footer>
 
     </div>
   );

@@ -214,9 +214,9 @@ func TestAuth_OPTIONSPassesThrough(t *testing.T) {
 
 // mockCache is a minimal in-memory cache for testing.
 type mockCache struct {
-	data    map[string][]byte
-	getErr  error
-	setErr  error
+	data     map[string][]byte
+	getErr   error
+	setErr   error
 	getCalls int
 }
 
@@ -240,10 +240,10 @@ func (m *mockCache) Set(_ context.Context, key string, value []byte, _ time.Dura
 	m.data[key] = value
 	return nil
 }
-func (m *mockCache) Del(_ context.Context, key string) error  { delete(m.data, key); return nil }
+func (m *mockCache) Del(_ context.Context, key string) error                          { delete(m.data, key); return nil }
 func (m *mockCache) Incr(_ context.Context, _ string, _ time.Duration) (int64, error) { return 0, nil }
-func (m *mockCache) Ping(_ context.Context) error              { return nil }
-func (m *mockCache) Close() error                              { return nil }
+func (m *mockCache) Ping(_ context.Context) error                                     { return nil }
+func (m *mockCache) Close() error                                                     { return nil }
 
 // rsaPublicKeyToJWKS serialises an RSA public key into a minimal JWKS JSON.
 func rsaPublicKeyToJWKS(t *testing.T, pub *rsa.PublicKey) []byte {

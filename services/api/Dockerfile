@@ -9,4 +9,11 @@ RUN go build -o api ./cmd/main.go
 FROM alpine:3.20
 WORKDIR /app
 COPY --from=builder /app/api .
+# Build identifiers — populated by CI via --build-arg and surfaced via
+# /v1/version and the slog `version` attribute. Defaults so a vanilla
+# `docker build` without CI context still produces a usable image.
+ARG APP_VERSION=dev
+ARG APP_COMMIT_SHA=local
+ENV APP_VERSION=$APP_VERSION
+ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
 CMD ["./api"]

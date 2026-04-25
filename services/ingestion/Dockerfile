@@ -9,4 +9,11 @@ RUN go build -o ingestion ./cmd/
 FROM alpine:3.20
 WORKDIR /app
 COPY --from=builder /app/ingestion .
+# Build identifiers — populated by CI via --build-arg and surfaced via the
+# slog `version` attribute on every log line. Defaults so a vanilla
+# `docker build` without CI context still produces a usable image.
+ARG APP_VERSION=dev
+ARG APP_COMMIT_SHA=local
+ENV APP_VERSION=$APP_VERSION
+ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
 CMD ["./ingestion"]
