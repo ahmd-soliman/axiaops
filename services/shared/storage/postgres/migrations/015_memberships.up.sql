@@ -57,15 +57,19 @@ SET role = 'owner', updated_at = NOW()
 FROM first_user f
 WHERE m.tenant_id = f.tenant_id AND m.user_id = f.user_id;
 
--- Safety check: every tenant must end with at least one owner.
+-- Safety check: every tenant that has users must have at least one owner.
+-- Tenants with zero users (e.g. RLS-isolation tenants seeded by tests) are
+-- skipped — there is no one to authenticate, so the invariant is trivially
+-- vacuous and forcing an owner row would just create a dangling FK target.
 DO $$ BEGIN
     IF EXISTS (
         SELECT 1 FROM tenants t
-        WHERE NOT EXISTS (
-            SELECT 1 FROM memberships m
-            WHERE m.tenant_id = t.id AND m.role = 'owner'
-        )
+        WHERE EXISTS (SELECT 1 FROM users u WHERE u.tenant_id = t.id)
+          AND NOT EXISTS (
+              SELECT 1 FROM memberships m
+              WHERE m.tenant_id = t.id AND m.role = 'owner'
+          )
     ) THEN
-        RAISE EXCEPTION 'migration 015: tenant(s) without an owner — refusing to proceed';
+        RAISE EXCEPTION 'migration 015: tenant(s) with users but no owner — refusing to proceed';
     END IF;
 END $$;

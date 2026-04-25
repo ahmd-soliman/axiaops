@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/google/uuid"
@@ -302,5 +303,74 @@ func TestGetUserByEmail_CaseInsensitive(t *testing.T) {
 	}
 	if u.Email != "Mixed@Example.com" {
 		t.Fatalf("got %q", u.Email)
+	}
+}
+
+// Bootstrap-path regression: EnsureDevMembership and EnsureFirstMembership
+// must work when the Store is opened via postgres.New (no separate owner URL),
+// i.e. adminPool == pool and the app role's RLS is enforced. The original
+// implementation used adminPool without a transaction, so it silently relied
+// on the test harness setting both DATABASE_URL and MIGRATION_DATABASE_URL.
+// In dev mode the API runs with only DATABASE_URL set and the INSERT was
+// rejected by the WITH CHECK clause.
+
+func TestEnsureDevMembership_WithoutOwnerPool(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("requires DATABASE_URL (app user) for RLS")
+	}
+
+	// Seed the tenant + user via the raw owner connection so the test
+	// doesn't depend on a Store that has the owner pool.
+	conn := setup(t)
+	tenantID, userAID, _ := newTenantWithUsers(t, conn)
+
+	// Open a Store WITHOUT a separate owner pool — adminPool falls back to pool.
+	s, err := postgres.New(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		t.Fatalf("postgres.New: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	if err := s.EnsureDevMembership(context.Background(), tenantID, userAID, "owner"); err != nil {
+		t.Fatalf("EnsureDevMembership without owner pool: %v", err)
+	}
+
+	role, err := s.RoleOf(context.Background(), tenantID, userAID)
+	if err != nil {
+		t.Fatalf("RoleOf: %v", err)
+	}
+	if role != "owner" {
+		t.Errorf("expected owner role, got %q", role)
+	}
+}
+
+func TestEnsureFirstMembership_WithoutOwnerPool(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("requires DATABASE_URL (app user) for RLS")
+	}
+
+	conn := setup(t)
+	tenantID, userAID, _ := newTenantWithUsers(t, conn)
+
+	s, err := postgres.New(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		t.Fatalf("postgres.New: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	ok, err := s.EnsureFirstMembership(context.Background(), tenantID, userAID)
+	if err != nil {
+		t.Fatalf("EnsureFirstMembership without owner pool: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected first call to insert, got ok=false")
+	}
+
+	role, err := s.RoleOf(context.Background(), tenantID, userAID)
+	if err != nil {
+		t.Fatalf("RoleOf: %v", err)
+	}
+	if role != "owner" {
+		t.Errorf("expected owner role, got %q", role)
 	}
 }
