@@ -146,7 +146,6 @@ func createOrganization(w http.ResponseWriter, r *http.Request) {
         Email:    claims.Email,
         Name:     claims.Name,
         OrgID:    org.ID,
-        Role:     "admin",
         CreatedAt: time.Now(),
     }
     
@@ -165,61 +164,9 @@ func createOrganization(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-## Database Schema
+## Roles & permissions
 
-### Organizations Table
-```sql
-CREATE TABLE organizations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) NOT NULL,
-    owner_id VARCHAR(255) NOT NULL, -- Kinde user ID
-    kinde_org VARCHAR(255) NOT NULL, -- For RLS isolation
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_organizations_kinde_org ON organizations(kinde_org);
-CREATE INDEX idx_organizations_owner_id ON organizations(owner_id);
-```
-
-### Users Table
-```sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    kinde_id VARCHAR(255) UNIQUE NOT NULL,
-    email VARCHAR(255) NOT NULL,
-    name VARCHAR(255),
-    org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
-    role VARCHAR(50) DEFAULT 'member' CHECK (role IN ('admin', 'member', 'viewer')),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_users_kinde_id ON users(kinde_id);
-CREATE INDEX idx_users_org_id ON users(org_id);
-```
-
-### Row Level Security (RLS)
-```sql
--- Enable RLS on organizations
-ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
-
--- Policy: Users can only see their own organization
-CREATE POLICY org_isolation ON organizations 
-    FOR ALL
-    USING (kinde_org = current_setting('app.kinde_org', true));
-
--- Enable RLS on users
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-
--- Policy: Users can only see users in their organization
-CREATE POLICY user_org_isolation ON users 
-    FOR ALL
-    USING (org_id IN (
-        SELECT id FROM organizations 
-        WHERE kinde_org = current_setting('app.kinde_org', true)
-    ));
-```
+See [`docs/rbac-design.md`](./rbac-design.md) for the implemented model. Roles live in the `memberships` table (one row per (user, tenant)), not on the `users` row.
 
 ## Complete User Journey
 
