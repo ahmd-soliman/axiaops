@@ -34,7 +34,7 @@ function notifyForbidden(detail) {
 // changing the caller's error semantics. The pre-RBAC API methods call
 // ifetch instead of fetch so a 403 anywhere triggers MeContext refresh.
 async function ifetch(url, opts) {
-  const res = await ifetch(url, opts);
+  const res = await fetch(url, opts);
   if (res.status === 403) notifyForbidden({ path: url });
   return res;
 }
