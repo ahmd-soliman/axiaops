@@ -8,9 +8,12 @@
 #
 # Usage:
 #   ./scripts/seed_test_data.sh                                    # Local docker
-#   ./scripts/seed_test_data.sh --remote dev                       # Remote dev (axiaops.local:5432)
-#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (axiaops.local:5433)
+#   ./scripts/seed_test_data.sh --remote dev-1                     # Remote dev-1   (axiaops.local:5432)
+#   ./scripts/seed_test_data.sh --remote dev-2                     # Remote dev-2   (axiaops.local:5433)
+#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (axiaops.local:5442)
 #   MIGRATION_DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom connection (owner user, bypasses RLS)
+#
+# Remote ports are sourced from the deploy stack/apps/axiaops-dbs/docker-compose.yml.
 #
 # Supports both local (docker) and remote database connections.
 # Safe to re-run — all inserts are idempotent (ON CONFLICT DO NOTHING / DO UPDATE).
@@ -27,10 +30,13 @@ while [[ $# -gt 0 ]]; do
     --remote)
       shift
       REMOTE_ENV="${1:-}"
-      if [[ "$REMOTE_ENV" != "dev" && "$REMOTE_ENV" != "staging" ]]; then
-        echo "Error: --remote requires 'dev' or 'staging', got '$REMOTE_ENV'"
-        exit 1
-      fi
+      case "$REMOTE_ENV" in
+        dev-1|dev-2|staging) ;;
+        *)
+          echo "Error: --remote requires 'dev-1', 'dev-2', or 'staging', got '$REMOTE_ENV'"
+          exit 1
+          ;;
+      esac
       ;;
     --yes|-y) AUTO_YES=true ;;
     *) echo "Error: Unknown flag '$1'"; exit 1 ;;
@@ -45,13 +51,14 @@ done
 
 if [[ -n "$REMOTE_ENV" ]]; then
   HOSTNAME="axiaops.local"
-  
-  if [[ "$REMOTE_ENV" == "dev" ]]; then
-    DB_PORT=5432
-  else
-    DB_PORT=5433
-  fi
-  
+
+  # Ports mirror the deploy stack/apps/axiaops-dbs/docker-compose.yml — keep in sync.
+  case "$REMOTE_ENV" in
+    dev-1)   DB_PORT=5432 ;;
+    dev-2)   DB_PORT=5433 ;;
+    staging) DB_PORT=5442 ;;
+  esac
+
   export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
   
   echo "=== Seeding AxiaOps $REMOTE_ENV database ==="
