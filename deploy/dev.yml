@@ -1,7 +1,7 @@
 services:
   redis:
     image: redis:7-alpine
-    container_name: axiaops-redis-dev
+    container_name: axiaops-redis-${DEPLOY_ENV}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -12,8 +12,8 @@ services:
       - gitlab-cloud-runner-network
 
   ingestion:
-    image: axiaops-ingestion:dev
-    container_name: axiaops-ingestion-dev
+    image: axiaops-ingestion:${DEPLOY_ENV}
+    container_name: axiaops-ingestion-${DEPLOY_ENV}
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -22,36 +22,36 @@ services:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
-      REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-dev:6379}
+      REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
       - gitlab-cloud-runner-network
 
   api:
-    image: axiaops-api:dev
-    container_name: axiaops-api-dev
+    image: axiaops-api:${DEPLOY_ENV}
+    container_name: axiaops-api-${DEPLOY_ENV}
     restart: unless-stopped
     ports:
-      - "30031:8080"
+      - "${API_HOST_PORT}:8080"
     environment:
       DATABASE_URL: ${DATABASE_URL}
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
-      INGESTION_URL: http://axiaops-ingestion-dev:8081
+      INGESTION_URL: http://axiaops-ingestion-${DEPLOY_ENV}:8081
       API_ADDR: ":8080"
       DEV_MODE: ${DEV_MODE:-true}
       DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
-      REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-dev:6379}
+      REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
       - gitlab-cloud-runner-network
 
   dashboard:
-    image: axiaops-dashboard:dev
-    container_name: axiaops-dashboard-dev
+    image: axiaops-dashboard:${DEPLOY_ENV}
+    container_name: axiaops-dashboard-${DEPLOY_ENV}
     restart: unless-stopped
     ports:
-      - "30032:80"
+      - "${DASHBOARD_HOST_PORT}:80"
     environment:
-      API_HOST: axiaops-api-dev
+      API_HOST: axiaops-api-${DEPLOY_ENV}
       DEV_MODE: "true"
       DEV_ORG_NAME: ${DEV_ORG_NAME:-AxiaOps Dev}
     networks:
