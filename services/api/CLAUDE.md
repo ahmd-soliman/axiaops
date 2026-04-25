@@ -17,6 +17,7 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | GET | /livez | No | Liveness — always 200 unless the process can't reply. Wire orchestrator instance health to this |
 | GET | /readyz | No | Readiness — pings DB (503 if down) and reports Redis status (informational; "ok" / "unreachable" / "skipped"). Wire monitoring/synthetic checks to this |
 | GET | /metrics | No | Prometheus metrics (internal only) |
+| GET | /version | Yes | Build identifier — `{service, version, commit, env}` |
 | GET | /zombies | Yes | List zombie resources for tenant |
 | GET | /summary | Yes | Aggregate savings + per-service breakdown |
 | GET | /trend | Yes | Zombie snapshots over time (?account_id, ?service, ?resource_type) |
@@ -122,7 +123,8 @@ Errors are logged to stdout with structured context (JSON format in production).
 | CORS_ORIGIN | No | * | Allowed CORS origin |
 | ENCRYPTION_KEY | Yes | — | 32-byte hex for AES-256-GCM |
 | APP_ENV | No | — | Environment (production, staging, development) |
-| APP_VERSION | No | — | Release version (e.g., 2.6.0) |
+| APP_VERSION | No | — | Release version (e.g., 2.6.0); surfaced via `GET /v1/version` |
+| APP_COMMIT_SHA | No | — | Short git SHA of the build; surfaced via `GET /v1/version` |
 | LOG_LEVEL | No | info | Log level (debug, info, warn, error) |
 | LOG_OUTPUT | No | json | Log format (json or text) |
 
