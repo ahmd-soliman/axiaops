@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev seed-remote-staging inspect-db clean-db test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging inspect-db clean-db clean-db-drop clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -83,11 +83,15 @@ migrate:
 seed:
 	./scripts/seed_test_data.sh
 
-# Seed remote dev database (NAS.local:5432)
-seed-remote-dev:
-	./scripts/seed_test_data.sh --remote dev
+# Seed remote dev-1 database (axiaops.local:5432 — axiaops-dev-1-db).
+seed-remote-dev-1:
+	./scripts/seed_test_data.sh --remote dev-1
 
-# Seed remote staging database (NAS.local:5433)
+# Seed remote dev-2 database (axiaops.local:5433 — axiaops-dev-2-db).
+seed-remote-dev-2:
+	./scripts/seed_test_data.sh --remote dev-2
+
+# Seed remote staging database (axiaops.local:5442 — axiaops-staging-db).
 seed-remote-staging:
 	./scripts/seed_test_data.sh --remote staging
 
@@ -105,20 +109,28 @@ clean-db-drop:
 	./scripts/clean_db.sh --drop-schema
 
 # ── Remote Database Cleanup ───────────────────────────────────────────────────
+# Remote ports match the deploy stack/apps/axiaops-dbs/docker-compose.yml:
+#   dev-1   → axiaops.local:5432
+#   dev-2   → axiaops.local:5433
+#   staging → axiaops.local:5442
 
-# Clean remote dev database (truncate tables, preserve schema).
-clean-remote-dev:
-	./scripts/clean_db.sh --remote dev
+# Truncate tables (preserve schema).
+clean-remote-dev-1:
+	./scripts/clean_db.sh --remote dev-1
 
-# Clean remote staging database (truncate tables, preserve schema).
+clean-remote-dev-2:
+	./scripts/clean_db.sh --remote dev-2
+
 clean-remote-staging:
 	./scripts/clean_db.sh --remote staging
 
-# Clean remote dev database (drop schema and user — destructive).
-clean-remote-dev-drop:
-	./scripts/clean_db.sh --remote dev --drop-schema
+# Drop schema and user (destructive — requires re-running migrations).
+clean-remote-dev-1-drop:
+	./scripts/clean_db.sh --remote dev-1 --drop-schema
 
-# Clean remote staging database (drop schema and user — destructive).
+clean-remote-dev-2-drop:
+	./scripts/clean_db.sh --remote dev-2 --drop-schema
+
 clean-remote-staging-drop:
 	./scripts/clean_db.sh --remote staging --drop-schema
 
