@@ -9,7 +9,7 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - gitlab-cloud-runner-network
+      - gitlab-runner-network
 
   ingestion:
     image: axiaops-ingestion:${DEPLOY_ENV}
@@ -24,7 +24,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
-      - gitlab-cloud-runner-network
+      - gitlab-runner-network
 
   api:
     image: axiaops-api:${DEPLOY_ENV}
@@ -42,7 +42,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
-      - gitlab-cloud-runner-network
+      - gitlab-runner-network
 
   dashboard:
     image: axiaops-dashboard:${DEPLOY_ENV}
@@ -55,8 +55,8 @@ services:
       DEV_MODE: "true"
       DEV_ORG_NAME: ${DEV_ORG_NAME:-AxiaOps Dev}
     networks:
-      - gitlab-cloud-runner-network
+      - gitlab-runner-network
 
 networks:
-  gitlab-cloud-runner-network:
+  gitlab-runner-network:
     external: true
