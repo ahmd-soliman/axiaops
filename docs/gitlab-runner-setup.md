@@ -20,20 +20,21 @@ One runner profile covers every job in the pipeline:
 `deploy:dev` / `deploy:staging` manage long-lived containers on the runner
 host via docker-compose (attached to `gitlab-runner-network`).
 `build:images` and `deploy:production` push images to registries. Everything
-shares the same host daemon, so no runner tagging is needed.
+shares the same host daemon, so no runner tagging is needed — the pipeline
+sets no `tags:` (default or per-job).
 
-The DinD vs socket mount section below is kept as background — the pipeline
-used DinD briefly on `feature/containerized-ci` but was switched to
-socket-mount-for-all because the self-hosted-hosted runner was already one level of
-Docker nesting deep and the per-job DinD boot was pure overhead.
+The DinD vs socket mount section below is reference material only. The
+pipeline does not use DinD anywhere — every job mounts the host socket. The
+self-hosted-hosted runner was already one level of Docker nesting deep, so a
+per-job DinD daemon was pure overhead.
 
 ---
 
 ## DinD vs socket mount
 
-Two ways a CI job can get Docker daemon access. The pipeline uses DinD for the
-jobs that can tolerate fresh-daemon-per-job, and socket mount only for deploy
-jobs that must manage long-lived containers on the runner host.
+Two ways a CI job can get Docker daemon access. This pipeline uses socket
+mount for every job; DinD is documented here only as the alternative pattern
+you would pick on shared multi-tenant runners.
 
 ### What each is
 
@@ -69,16 +70,21 @@ jobs.
   runner host itself (long-running dev/staging stacks), or on fully self-hosted
   setups where you accept the shared-daemon risk as a simplicity win.
 
-### Why this pipeline uses DinD (mostly)
+### Why this pipeline uses socket mount everywhere
 
-The deciding factor is GitLab.com compatibility. If the pipeline used socket
-mount for test + build jobs, moving to shared runners later would require a CI
-rewrite. DinD works on both self-hosted (with `services_privileged`) and shared
-runners without changes.
+The runner is self-hosted on self-hosted — a single-tenant, single-runner setup.
+The two reasons to prefer DinD (per-job daemon isolation, GitLab.com
+shared-runner compatibility) don't apply: nothing else schedules jobs on this
+runner, and there is no plan to move to shared runners (deploy jobs require
+host Docker access regardless, which shared runners can't provide).
 
-`deploy:dev` / `deploy:staging` genuinely need host Docker — they manage
-persistent containers on a specific runner host as part of the deploy model.
-They can't use DinD because the DinD daemon dies with the job.
+What socket mount buys: instant job startup (no DinD boot per job), warm
+build cache (image layers persist on the host daemon between jobs), and one
+config to maintain — `deploy:*` jobs need the host daemon anyway, and
+running tests + builds the same way removes a special case.
+
+The cost: a compromised job has the host daemon's capabilities. Acceptable
+on a single-tenant runner that already runs `gitlab-runner` as root.
 
 ### Why DinD needs privileged
 
@@ -236,7 +242,8 @@ project." No config required; they already support DinD.
 No `privileged` or `services_privileged` needed — this runner only handles
 deploy jobs, which don't use DinD.
 
-Register with tags `self-hosted, docker-socket`:
+Register without tags — the pipeline routes deploy jobs by job name, not
+runner tags:
 
 ```bash
 gitlab-runner register \
@@ -245,11 +252,16 @@ gitlab-runner register \
   --registration-token "<token>" \
   --executor docker \
   --docker-image "docker:24" \
-  --tag-list "self-hosted,docker-socket" \
   --description "axiaops-deploy"
 ```
 
 Bootstrap the network as in Option A.
+
+Note: with no tags, this runner is also eligible to pick up shared-runner
+jobs unless you set `[[runners]] limit = 0` on the shared-runner-only jobs
+or restrict via project settings. For Option B to make sense, gate this
+runner so it only picks up `deploy:dev` / `deploy:staging` — easiest is to
+re-introduce a tag (`deploy`) on those two jobs and on this runner.
 
 ---
 
@@ -270,7 +282,7 @@ Bootstrap the network as in Option A.
 Before merging `feature/containerized-ci`:
 
 - `test:storage` picks up the `postgres` service alias. First run confirms per-service `variables:` work (requires GitLab 14.5+).
-- `test:integration:*` runs `make test-integration-*` successfully under DinD. `before_script` installs `make` and `docker-cli-compose` via `apk`; if the package name differs on your alpine version, swap for `docker-compose` or `pip install docker-compose`.
+- `test:integration:*` runs `make test-integration-*` against the host daemon via the mounted socket. `before_script` installs `make` and `docker-cli-compose` via `apk`; if the package name differs on your alpine version, swap for `docker-compose` or `pip install docker-compose`.
 - `deploy:dev` reaches `axiaops-dev-db` by name — confirms the deploy compose file's `gitlab-runner-network` attachment works and the host network exists.
 
 ---
@@ -280,29 +292,29 @@ Before merging `feature/containerized-ci`:
 - No custom runner image to build, version, or publish.
 - No `.go_setup` or host-tool assumptions (Go, golangci-lint, Docker installed on runner host).
 - No manual `docker run` + readiness probe + `after_script` cleanup in CI jobs.
-- No `RUNNER_NETWORK` variable in `.gitlab-ci.yml`.
+- No DinD service container or `services_privileged` requirement.
 - No IP-lookup workaround (the commit `dafac6b` pattern).
+
+(Note: a `RUNNER_NETWORK` variable still appears in `.gitlab-ci.yml` for
+backwards reference but isn't used — `--network` flags and
+`deploy/{dev,staging}.yml` use the literal `gitlab-runner-network`. Safe to
+delete in a future cleanup.)
 
 ---
 
 ## Troubleshooting
 
-**DinD service fails to start with `services_privileged` set.** Look at the
-service container logs for `can't create unix socket /var/run/docker.sock:
-device or resource busy`. This means the runner's `volumes =` line mounts
-the host socket onto `/var/run/docker.sock` inside the DinD container,
-blocking DinD from creating its own. Rebind to a non-conflicting path:
-`/var/run/docker.sock:/var/run/host-docker.sock`, and set
-`DOCKER_HOST=unix:///var/run/host-docker.sock` in deploy jobs that need
-the host daemon.
-
-**DinD service fails to start otherwise.** Check that `services_privileged =
-true` (or `privileged = true`) is set. `docker:24-dind` cannot start
-without it.
+**`Cannot connect to the Docker daemon at unix:///var/run/host-docker.sock`.**
+A `DOCKER_HOST` override is set on a job, but the runner mounts the host
+daemon at the standard `/var/run/docker.sock` path (see Option A `volumes`).
+Don't set `DOCKER_HOST` — the Docker CLI defaults to `/var/run/docker.sock`,
+which is exactly where the runner mounts it. The non-standard `host-docker.sock`
+rebind only makes sense if a DinD service container also runs in the same job
+and needs to claim `/var/run/docker.sock` for itself; this pipeline doesn't
+do that anywhere.
 
 **`docker: not found` inside the job.** The job is using an image without the
-Docker CLI. For CI jobs that need `docker` commands, make sure `image:` is
-`docker:24` (directly or via `extends: .dind`).
+Docker CLI. For CI jobs that need `docker` commands, set `image: docker:24`.
 
 **`deploy:dev` fails with `unable to resolve axiaops-dev-db`.** The DB
 container isn't on `gitlab-runner-network`, or the network doesn't
@@ -314,7 +326,16 @@ exist on the runner host. Confirm `docker network ls` shows
 alias isn't reachable. Check `services:` in the job has `alias: postgres` and
 that `DATABASE_URL` uses `@postgres:5432` as the host.
 
-**Shared runners don't pick up the pipeline.** Tags routing: jobs with
-`tags: [self-hosted, docker-socket]` won't run on shared runners. That's
-correct for `deploy:dev` / `deploy:staging`; for other jobs, ensure no stray
-tags are set and shared runners are enabled on the project.
+**Pipeline stalls with no runner picking up jobs.** The pipeline currently
+sets no `tags:` (default or per-job), so any runner enabled for the project
+is eligible. If jobs sit in pending: confirm at least one runner is online
+in Project Settings → CI/CD → Runners, and that no `default: tags:` block
+has been re-introduced in `.gitlab-ci.yml` pointing at a tag no live runner
+carries.
+
+**(DinD reference, not used by this pipeline.)** If you ever switch a job
+to DinD, the daemon needs `services_privileged = true` (or `privileged =
+true`) to set up cgroups, iptables, and overlayfs. And if the runner also
+mounts the host socket onto `/var/run/docker.sock`, DinD will fail with
+`device or resource busy` — rebind the host socket to a non-conflicting
+path (e.g. `/var/run/host-docker.sock`) for the DinD-using jobs only.
