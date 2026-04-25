@@ -1091,6 +1091,10 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 	s := newTestStore(t)
 	ctx, tenant := newTenantCtx(t, s)
 
+	// At least one event has IPAddress set so the happy-path test exercises
+	// the INET → text codec path (see TestAuditLog_IPAddressRoundTrips for
+	// the dedicated regression test). Defence-in-depth so the cast can't be
+	// silently reverted in a future merge without CI catching it.
 	writeAudit(t, s, ctx, model.AuditEvent{
 		Action:       model.AuditActionDismissZombie,
 		UserID:       "user-1",
@@ -1099,6 +1103,7 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 		ResourceID:   "42",
 		Reason:       "intentional",
 		Metadata:     map[string]any{"service": "AmazonEC2"},
+		IPAddress:    net.ParseIP("203.0.113.7"),
 	})
 	writeAudit(t, s, ctx, model.AuditEvent{
 		Action:     model.AuditActionAccountConnected,
@@ -1123,6 +1128,15 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 	}
 	if events[1].Metadata["service"] != "AmazonEC2" {
 		t.Errorf("expected metadata round-trip, got %v", events[1].Metadata)
+	}
+	// IP round-trip — without this assertion the codec regression test (see
+	// TestAuditLog_IPAddressRoundTrips) is the only thing keeping the cast
+	// honest. Defence-in-depth: even if someone deletes that test, this one
+	// catches a reverted host(ip_address) cast.
+	if events[1].IPAddress == nil {
+		t.Errorf("ip_address: got nil, want 203.0.113.7")
+	} else if got := events[1].IPAddress.String(); got != "203.0.113.7" {
+		t.Errorf("ip_address: got %q, want 203.0.113.7", got)
 	}
 	// tenant_id column should equal the tenant we wrote under.
 	if events[0].TenantID != tenant.ID {
@@ -1150,6 +1164,12 @@ func TestAuditLog_IPAddressRoundTrips(t *testing.T) {
 	}
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	// nil-guard before .String() — if the codec regresses and ParseIP gets
+	// an unparseable string, IPAddress is left nil rather than panicking on
+	// the test row. A clear t.Fatalf is more useful than a runtime panic.
+	if events[0].IPAddress == nil {
+		t.Fatalf("ip_address: got nil, want 203.0.113.42 — codec regression?")
 	}
 	if got := events[0].IPAddress.String(); got != "203.0.113.42" {
 		t.Errorf("ip_address round-trip: got %q, want 203.0.113.42", got)
