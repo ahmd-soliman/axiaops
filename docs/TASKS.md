@@ -541,12 +541,36 @@ Ongoing (2028+):
 - [ ] Implement `Provider` interface for GCP Billing Export → BigQuery
 - [ ] Implement `Provider` interface for GCP Cloud Monitoring metrics
 
-### 4.4 FOCUS Specification (Q2 2027)
+### 4.4 FOCUS Conformance (Q2 2027 → Q4 2027)
 
-- [ ] Implement `focusfile` provider — reads FOCUS-formatted billing exports from S3/blob storage
-- [ ] Map FOCUS columns (`BilledCost`, `ResourceId`, `ServiceName`, `RegionName`, `Tags`) → `model.CostRecord`
-- [ ] Use FOCUS as ingestion path for Azure and GCP (one parser for all clouds)
-- [ ] Offer FOCUS as optional ingestion path for AWS customers who already export to S3
+> **Full plan:** [`docs/compliance/focus_plan.md`](compliance/focus_plan.md) — covers role choice (Consumer + Producer), spec version pinning policy, full column mapping vs `model.CostRecord`, multi-cloud unification strategy, customer-facing surface, and Foundation conformance assertion.
+
+Roles and rollout:
+
+- [ ] Pin FOCUS spec version in `services/shared/focus/VERSION` (latest GA minus one minor — see plan §3)
+- [ ] Build `services/shared/focus/` package — schema, parse, emit, mapping, validate (sibling to `analyzer/`)
+- [ ] `ServiceCategory` lookup table (~30 service entries) — can ship before CUR
+
+**Q2 2027 — Consumer role:**
+- [ ] `focusfile` provider in `services/ingestion/internal/provider/focusfile/` — ingests FOCUS Parquet/CSV from S3 / blob storage, satisfies the existing `Provider` interface
+- [ ] Validate against the foundation's reference dataset; `make test-focus` target
+- [ ] `docs/focus_ingestion.md` — customer setup (enable FOCUS export at AWS/Azure/GCP, grant cross-account read)
+
+**Q3 2027 — Producer role (gated on CUR ingestion — Phase 3 #13):**
+- [ ] `GET /v1/export/focus?period=YYYY-MM&format=parquet|csv` endpoint — streams FOCUS-conformant export
+- [ ] Plan-gate to Team tier and above (per `docs/business_plan.md`)
+- [ ] `docs/focus_export.md` — examples for piping into Snowflake / BigQuery / Athena / Power BI
+- [ ] Audit log entry on every export (sibling to GDPR `gdpr.dsr.export`)
+
+**Q3 2027 — Multi-cloud unification (the strategic payoff):**
+- [ ] Replace Azure-specific cost ingestion (§4.2) with Azure → FOCUS export → `focusfile` provider
+- [ ] Same for GCP (§4.3): GCP Billing Export → FOCUS → `focusfile` provider
+- [ ] Update `docs/multicloud-coverage.md` with the new ingestion topology
+
+**Q4 2027 — Foundation conformance assertion:**
+- [ ] Submit conformance assertion (self-attestation as of plan write date; check for formal review process)
+- [ ] Add badge to `axiaops.io/security` and homepage
+- [ ] Annual re-assertion + on-bump workflow
 
 ### 4.5 Mobile App (Q2 2027)
 
@@ -603,7 +627,8 @@ Ongoing (2028+):
 | October 2026 | GDPR paperwork live (privacy/ToS/DPA, RoPA, DPIA, breach runbook, pen-test), remediation actions, scan history, tag filtering, CSV export, per-account summary | Planned |
 | November 2026 | Expanded detection rules, user management + roles, PDF report | Planned |
 | December 2026 | First paying customer · target: 10 customers, €5K MRR · Drata + SOC 2 policy library in place | Planned |
-| Q1 2027 | Cost forecasting, Azure integration, SOC 2 Type I prep (auditor selected) | Planned |
-| Q2 2027 | GCP integration, FOCUS spec, mobile app, **SOC 2 Type I audit + report** | Planned |
+| Q1 2027 | Cost forecasting, Azure integration, SOC 2 Type I prep (auditor selected), FOCUS package scaffolding | Planned |
+| Q2 2027 | Mobile app, **SOC 2 Type I audit + report**, **FOCUS Consumer role shipped** (`focusfile` ingestion) | Planned |
 | Q2–Q3 2027 | SOC 2 Type II observation window (May–Oct 2027) | Planned |
-| Q3–Q4 2027 | IaC plan parser, cost estimation engine, CI/CD budget gate, CLI tool, **SOC 2 Type II audit + report** | Planned |
+| Q3 2027 | GCP integration via FOCUS, **FOCUS Producer role shipped** (`GET /v1/export/focus`), multi-cloud ingestion unified through FOCUS | Planned |
+| Q4 2027 | IaC plan parser, cost estimation engine, CI/CD budget gate, CLI tool, **SOC 2 Type II audit + report**, **FOCUS Foundation conformance assertion** | Planned |
