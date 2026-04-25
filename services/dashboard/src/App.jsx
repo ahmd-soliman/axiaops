@@ -6,6 +6,7 @@ import { DEV_MODE, DEV_ORG_NAME } from './config';
 import { getKindeClient } from './auth/kinde';
 import { queryClient } from './main';
 import { AppProvider } from './context/AppContext';
+import { MeProvider } from './context/MeContext';
 
 import AppShell   from './components/AppShell';
 import AuthGuard  from './components/AuthGuard';
@@ -16,6 +17,7 @@ import CostAnalytics from './pages/CostAnalytics';
 import Connect    from './pages/Connect';
 import Settings   from './pages/Settings';
 import Audit      from './pages/Audit';
+import Users      from './pages/Users';
 import Login      from './pages/Login';
 import Callback   from './pages/Callback';
 import NotFound   from './pages/NotFound';
@@ -42,19 +44,22 @@ function AuthenticatedApp() {
 
   return (
     <AppProvider orgName={orgName} onLogout={handleLogout}>
-      <Routes>
-        <Route element={<AuthGuard />}>
-          <Route element={<AppShell />}>
-            <Route path="/"                    element={<Dashboard />} />
-            <Route path="/detail/:id"          element={<Detail />} />
-            <Route path="/trend"               element={<Trend />} />
-            <Route path="/cost"                element={<CostAnalytics />} />
-            <Route path="/connect"             element={<Connect />} />
-            <Route path="/settings/:accountId" element={<Settings />} />
-            <Route path="/audit"               element={<Audit />} />
+      <MeProvider>
+        <Routes>
+          <Route element={<AuthGuard />}>
+            <Route element={<AppShell />}>
+              <Route path="/"                    element={<Dashboard />} />
+              <Route path="/detail/:id"          element={<Detail />} />
+              <Route path="/trend"               element={<Trend />} />
+              <Route path="/cost"                element={<CostAnalytics />} />
+              <Route path="/connect"             element={<Connect />} />
+              <Route path="/settings/:accountId" element={<Settings />} />
+              <Route path="/audit"               element={<Audit />} />
+              <Route path="/users"               element={<Users />} />
+            </Route>
           </Route>
-        </Route>
-      </Routes>
+        </Routes>
+      </MeProvider>
     </AppProvider>
   );
 }

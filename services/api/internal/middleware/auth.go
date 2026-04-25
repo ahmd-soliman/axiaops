@@ -110,11 +110,22 @@ func newWithKeyfunc(issuer string, kf jwt.Keyfunc) *Auth {
 	return &Auth{issuer: issuer, keyfunc: kf}
 }
 
+// publicPath reports whether the path bypasses authentication.
+// /metrics, /health, /livez, /readyz must remain reachable from
+// container orchestration and Prometheus without a JWT.
+func publicPath(p string) bool {
+	switch p {
+	case "/health", "/livez", "/readyz", "/metrics":
+		return true
+	}
+	return false
+}
+
 // Wrap returns an http.Handler that enforces JWT authentication.
 func (a *Auth) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// OPTIONS preflight and health check — no auth needed
-		if r.Method == http.MethodOptions || r.URL.Path == "/health" {
+		// OPTIONS preflight and public infra paths — no auth needed
+		if r.Method == http.MethodOptions || publicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -166,6 +177,19 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 				return
 			}
 
+			// Brand-new Kinde org: auto-promote the first authenticator to
+			// owner. The partial unique index in migration 015 backstops
+			// concurrent first-logins — only one INSERT wins. Subsequent
+			// users to the tenant get inserted = false and rely on explicit
+			// invitation; their request still succeeds at the auth layer
+			// but the Require decorator on protected routes will 403 since
+			// they have no membership row.
+			if _, err := a.store.EnsureFirstMembership(ctx, tenant.ID, user.ID); err != nil {
+				slog.Error("auth: EnsureFirstMembership failed", "error", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+
 			ctx = context.WithValue(ctx, tenantIDKey, tenant.ID)
 			ctx = context.WithValue(ctx, userIDKey, user.ID)
 			ctx = context.WithValue(ctx, userEmailKey, user.Email)
@@ -212,7 +236,7 @@ func UserEmail(ctx context.Context) string {
 // so this middleware does no DB work per request.
 func DevBypass(tenantID, userID, userEmail string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodOptions || r.URL.Path == "/health" {
+		if r.Method == http.MethodOptions || publicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

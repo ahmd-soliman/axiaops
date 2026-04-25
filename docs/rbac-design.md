@@ -1,6 +1,6 @@
 # RBAC Design — AxiaOps
 
-Status: proposed, not implemented.
+Status: implemented (Phase 1 — branch feat/rbac-phase1).
 Supersedes the role sketch in `docs/user_onboarding.md`.
 
 ---
@@ -197,7 +197,7 @@ The existing `users` row is still populated on every authenticated request by `a
 
 ### Migration shape
 
-`services/shared/storage/postgres/migrations/013_memberships.up.sql`:
+`services/shared/storage/postgres/migrations/015_memberships.up.sql`:
 
 1. `CREATE TABLE memberships (...)`
 2. `ALTER TABLE memberships ENABLE ROW LEVEL SECURITY`
@@ -205,9 +205,9 @@ The existing `users` row is still populated on every authenticated request by `a
 4. `GRANT SELECT, INSERT, UPDATE, DELETE ON memberships TO axiaops`
 5. **Backfill:** `INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) SELECT gen_random_uuid(), tenant_id, id, 'admin', NOW(), NOW() FROM users;` — every existing user becomes `admin`.
 6. **Promote one user per tenant to `owner`:** for each tenant, the user with the earliest `created_at` gets `UPDATE memberships SET role='owner' WHERE ...`. Single SQL with a CTE.
-7. **Safety check:** `DO $$ BEGIN IF EXISTS (SELECT 1 FROM tenants t WHERE NOT EXISTS (SELECT 1 FROM memberships m WHERE m.tenant_id = t.id AND m.role = 'owner')) THEN RAISE EXCEPTION 'migration 013: tenant(s) without an owner'; END IF; END $$;` — fails the migration if any tenant ended up ownerless (happens when a tenant row exists with zero users — the "earliest user" CTE produces no row for it). Surfaces the orphan tenant loudly rather than leaving the invariant broken.
+7. **Safety check:** `DO $$ BEGIN IF EXISTS (SELECT 1 FROM tenants t WHERE NOT EXISTS (SELECT 1 FROM memberships m WHERE m.tenant_id = t.id AND m.role = 'owner')) THEN RAISE EXCEPTION 'migration 015: tenant(s) without an owner — refusing to proceed'; END IF; END $$;` — fails the migration if any tenant ended up ownerless (happens when a tenant row exists with zero users — the "earliest user" CTE produces no row for it). Surfaces the orphan tenant loudly rather than leaving the invariant broken.
 
-`services/shared/storage/postgres/migrations/013_memberships.down.sql` drops the table.
+`services/shared/storage/postgres/migrations/015_memberships.down.sql` drops the table.
 
 ---
 
@@ -245,7 +245,7 @@ This section exists so the decision is visible. If priorities change, this is th
 4. `middleware.Require(perm)` reads the role from context (not from a DB query) and checks against the same `rolePermissions` map described in §3. The permission vocabulary still lives in Go.
 5. User management UI: a "Manage users" button in the dashboard deep-links to Kinde's hosted org-management page. No in-app user admin screens are built.
 6. Role changes happen in Kinde. To take effect, the affected user must refresh their JWT (re-login, or wait for token expiry + silent refresh).
-7. No `memberships` table. No migration 013. No new endpoints for member management.
+7. No `memberships` table. No migration 015. No new endpoints for member management.
 
 **What you gain**
 
@@ -362,7 +362,7 @@ Authoritative table. See §2 capability matrix for which role gets each permissi
 | `PATCH /v1/accounts/{id}` | `accounts:write` | |
 | `DELETE /v1/accounts/{id}` | `accounts:delete` | admin+ |
 | `POST /v1/accounts/{id}/scan` | `accounts:scan` | |
-| `POST /v1/dismissals` | `zombies:dismiss` | `DismissedBy` column should hold `user_id` (UUID, stable), not `tenant_id` or email — see §8 |
+| `POST /v1/dismissals` | `zombies:dismiss` | `DismissedBy` holds `user_id` (stable UUID) via `dismissActor()` — prefers `UserID`, falls back to email, then tenant-id |
 | `DELETE /v1/dismissals/{id}` | `zombies:dismiss` | |
 | `GET /v1/dismissals` | `zombies:read` | read-only listing |
 | `GET /v1/memberships` | `members:read` | new |
@@ -381,9 +381,9 @@ Authoritative table. See §2 capability matrix for which role gets each permissi
 - **Self-demotion:** allowed only if another owner exists.
 - **Owner deletion:** to remove the only owner, the owner must first `POST /v1/tenants/transfer-ownership` to another admin/member, which in one transaction demotes current user to `admin` and promotes target to `owner`.
 
-### `DismissedBy` is currently `tenant_id` — fix it
+### `DismissedBy` stores the stable user UUID
 
-In `handler.go:616`, `DismissedBy: middleware.TenantID(r.Context())`. With RBAC we also have a user identity. **Change to `middleware.UserID(r.Context())` — store the stable UUID, not the email.** Emails can change (rename, re-marry, new company domain); UUIDs are immutable. Every other audit field in the schema references user IDs, so this keeps things consistent. Not strictly an RBAC change, but it's the first place "who did this" becomes visible.
+`DismissedBy` is set by `dismissActor()` (`handler.go`), which prefers `middleware.UserID(ctx)` (the immutable UUID), falls back to `middleware.UserEmail(ctx)` when user ID is unavailable (e.g. test contexts with `store=nil`), and finally falls back to the tenant ID so rows are never written with an empty string. Emails can change (rename, re-marry, new company domain); UUIDs are immutable. This was implemented as part of RBAC Phase 1.
 
 ### `DEV_MODE`
 
@@ -441,7 +441,7 @@ Deferred to v2. Current architecture: the ingestion service writes zombies with 
 
 ### New tenant bootstrap
 
-Migration 013 handles existing tenants by promoting the earliest-created user to `owner`. But when a **new** Kinde org signs up after v1 ships, the first authenticating user has no membership row at all.
+Migration 015 handles existing tenants by promoting the earliest-created user to `owner`. But when a **new** Kinde org signs up after v1 ships, the first authenticating user has no membership row at all.
 
 **Rule:** on first login to a tenant with zero memberships, the authenticating user is auto-promoted to `owner`. Implemented in `auth.go` after `UpsertUser`:
 
@@ -487,7 +487,7 @@ Filtering applies in the handler (add `WHERE account_id IN (scoped_ids)` to list
 
 ### Ship sequence
 
-1. **Migration 013:** create `memberships` (with partial unique index for owner), enable RLS, backfill all existing users as `admin`, elevate earliest-created user per tenant to `owner`, run the safety check that fails the migration if any tenant is ownerless.
+1. **Migration 015:** create `memberships` (with partial unique index for owner), enable RLS, backfill all existing users as `admin`, elevate earliest-created user per tenant to `owner`, run the safety check that fails the migration if any tenant is ownerless.
 2. **Extend `Store` interface** with `RoleOf`, `ListMemberships`, `SaveMembership`, `DeleteMembership`, `EnsureDevUser`, `EnsureDevMembership`. Postgres impl. `RoleOf` opens its own tx and runs `SET LOCAL app.tenant_id` — it must not bypass RLS.
 3. **Add `authz` package** in `services/shared/authz/` — roles, permissions, `Allows(role, perm)`.
 4. **Add `middleware.Require`** in `services/api/internal/middleware/authz.go`. Also add `UserID(ctx)` accessor alongside the existing `TenantID(ctx)`.
@@ -495,7 +495,7 @@ Filtering applies in the handler (add `WHERE account_id IN (scoped_ids)` to list
    - Set `user_id` on the request context in both `Auth.Wrap` (after `UpsertUser`) and `DevBypass`.
    - Add the new-tenant bootstrap logic (§8) in `Auth.Wrap` after upsert.
    - Add `/metrics` to the public-path bypass list (pre-existing bug — see §2 note †).
-6. **Wire `Require` into `Handler.Register`** — all current endpoints get a permission. Fix `DismissedBy` to use `user_id`. Change `mux.HandleFunc` call sites that need a permission to `mux.Handle(method_path, Require(perm, store, http.HandlerFunc(handler)))`.
+6. **Wire `Require` into `Handler.Register`** — all current endpoints get a permission. Change `mux.HandleFunc` call sites that need a permission to `mux.Handle(method_path, Require(perm, store, http.HandlerFunc(handler)))`.
 7. **Add `/v1/me` endpoint** — returns `{user_id, tenant_id, role, permissions: [...]}`. No `Require` wrapping (any authenticated user can fetch their own role).
 8. **Add membership endpoints** (invite, list, promote, demote, remove, transfer ownership). Implement last-owner guard and self-leave branch (§8).
 9. **Seed dev identity on startup:** in `main.go`, after `EnsureTenant`, call `EnsureDevUser` then `EnsureDevMembership` when `DEV_MODE=true`.
@@ -513,27 +513,25 @@ Not recommended. Once the migration runs, every existing user has role `admin`, 
 
 ### Rolling back
 
-Drop migration 013. Remove `Require` wrappers. Since the backfill defaults everyone to `admin`, the pre-RBAC world is fully restored. No data loss.
+Drop migration 015. Remove `Require` wrappers. Since the backfill defaults everyone to `admin`, the pre-RBAC world is fully restored. No data loss.
 
 ---
 
 ## 10. Phased Implementation Plan
 
-### Phase 1 (MVP RBAC — this doc)
+### Phase 1 (MVP RBAC — shipped on feat/rbac-phase1)
 
-- `memberships` table + migration 013 (with partial unique index + ownerless-tenant safety check)
+- `memberships` table + migration 015 (with partial unique index + ownerless-tenant safety check)
 - `authz` package (roles, permissions, `Allows`)
 - `middleware.Require` + `UserID(ctx)` accessor
-- `auth.go` changes: set `user_id` on ctx, new-tenant bootstrap, `/metrics` auth bypass
+- `auth.go` changes: set `user_id` on ctx, new-tenant bootstrap via `EnsureFirstMembership`, `/metrics` auth bypass
 - All current endpoints mapped to permissions
 - `GET /v1/me` endpoint
 - Membership endpoints: invite-by-user-id, list, promote/demote, remove, transfer-ownership, self-leave
 - Last-admin/last-owner guards (app-level) + partial unique index (DB-level)
 - Dashboard user-management screen + 403→`/v1/me` refresh flow
-- Dev identity seeding (`EnsureDevUser` + `EnsureDevMembership` on startup)
-- Fix `DismissedBy` to use `user_id`
-
-**Estimated effort:** ~3–5 days for a single developer. Biggest risk is the membership endpoint handlers and their edge-case tests (last-owner, self-demotion, self-leave, deleted-user-with-valid-JWT), not the decorator plumbing.
+- Dev identity seeding (`EnsureDevMembership` on startup in `cmd/main.go`)
+- `DismissedBy` uses `user_id` via `dismissActor()` (shipped — `handler.go` uses `middleware.UserID` with email and tenant-id fallbacks)
 
 ### Phase 2 (post-MVP)
 
@@ -585,8 +583,8 @@ Expect ~2 weeks of work when it's time.
 
 **Backend**
 
-- `services/shared/storage/postgres/migrations/013_memberships.up.sql` (new — table, RLS policy, partial unique index, backfill, safety check)
-- `services/shared/storage/postgres/migrations/013_memberships.down.sql` (new)
+- `services/shared/storage/postgres/migrations/015_memberships.up.sql` (new — table, RLS policy, partial unique index, backfill, safety check)
+- `services/shared/storage/postgres/migrations/015_memberships.down.sql` (new)
 - `services/shared/model/membership.go` (new)
 - `services/shared/storage/storage.go` (extend `Store`: `RoleOf`, `ListMemberships`, `SaveMembership`, `DeleteMembership`, `EnsureDevUser`, `EnsureDevMembership`)
 - `services/shared/storage/postgres/postgres.go` (implement new methods; `RoleOf` uses own tx with `SET LOCAL app.tenant_id`)
@@ -594,7 +592,7 @@ Expect ~2 weeks of work when it's time.
 - `services/shared/authz/roles_test.go` (new)
 - `services/api/internal/middleware/auth.go` (add `UserID` context key + accessor; set `user_id` on ctx in both `Auth.Wrap` and `DevBypass`; add new-tenant-bootstrap logic; add `/metrics` to public-path bypass — fixes the pre-existing bug flagged in §2 note †)
 - `services/api/internal/middleware/authz.go` (new — `Require` decorator)
-- `services/api/internal/api/handler.go` (convert relevant `mux.HandleFunc` to `mux.Handle(path, Require(perm, store, http.HandlerFunc(handler)))`; fix `DismissedBy` at line 616 to use `middleware.UserID`)
+- `services/api/internal/api/handler.go` (convert relevant `mux.HandleFunc` to `mux.Handle(path, Require(perm, store, http.HandlerFunc(handler)))`; `DismissedBy` now uses `dismissActor()` which calls `middleware.UserID`)
 - `services/api/internal/api/me.go` (new — `GET /v1/me` handler)
 - `services/api/internal/api/memberships.go` (new — invite, list, patch-role, delete with self-leave branch, transfer-ownership)
 - `services/api/cmd/main.go` (seed dev user + dev owner membership under `DEV_MODE`; register `/v1/me` route)

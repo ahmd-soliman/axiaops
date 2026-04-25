@@ -8,12 +8,27 @@ package api_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"time"
 
+	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 )
+
+// injectIdentity returns a context populated with the same unexported keys
+// that Auth.Wrap / DevBypass set in production. The middleware package owns
+// those keys, so we round-trip through DevBypass to reach them.
+func injectIdentity(parent context.Context, tenantID, userID, email string) context.Context {
+	src := httptest.NewRequest(http.MethodGet, "/seed", nil).WithContext(parent)
+	var captured context.Context
+	middleware.DevBypass(tenantID, userID, email, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		captured = r.Context()
+	})).ServeHTTP(httptest.NewRecorder(), src)
+	return captured
+}
 
 
 // MockStore is a unified in-memory Store implementation for testing.
@@ -60,6 +75,12 @@ type MockStore struct {
 	errListActiveDismiss  error
 	errListCostRecords    error
 	errAuditWrite         error
+
+	// ── Memberships / users (RBAC) ──
+	memberships    []model.MembershipWithUser
+	users          []model.User
+	fixedRole      string // role returned by RoleOf when roleOverridden is true
+	roleOverridden bool   // distinguishes "explicitly empty" from "not set"
 
 	// ── Account Status (for concurrency testing) ──
 	accountScanning map[string]bool // account ID → is scanning
@@ -562,4 +583,205 @@ func (m *MockStore) ListActiveDismissals(_ context.Context, accountID string) ([
 
 func (m *MockStore) ExpireSnoozes(_ context.Context) (int64, error) {
 	return 0, nil
+}
+
+// ── Memberships (RBAC Phase 1) ──────────────────────────────────────────────
+//
+// Backed by an in-memory slice with the same field shape as the postgres
+// implementation. Behaviours used by the handler tests (last-owner guard,
+// duplicate-membership rejection, transfer-ownership atomicity) live here so
+// the tests don't depend on a real DB.
+
+func (m *MockStore) WithRole(role string) *MockStore {
+	m.mu.Lock()
+	m.fixedRole = role
+	m.roleOverridden = true
+	m.mu.Unlock()
+	return m
+}
+
+func (m *MockStore) WithMemberships(ms []model.MembershipWithUser) *MockStore {
+	m.mu.Lock()
+	m.memberships = ms
+	m.mu.Unlock()
+	return m
+}
+
+func (m *MockStore) WithUsers(us []model.User) *MockStore {
+	m.mu.Lock()
+	m.users = us
+	m.mu.Unlock()
+	return m
+}
+
+func (m *MockStore) RoleOf(_ context.Context, _, _ string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.roleOverridden {
+		return m.fixedRole, nil
+	}
+	return "owner", nil // tests default to owner so existing handler tests keep passing
+}
+
+func (m *MockStore) ListMemberships(_ context.Context) ([]model.MembershipWithUser, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]model.MembershipWithUser, len(m.memberships))
+	copy(out, m.memberships)
+	return out, nil
+}
+
+func (m *MockStore) GetMembership(_ context.Context, id string) (model.Membership, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, mu := range m.memberships {
+		if mu.ID == id {
+			return mu.Membership, nil
+		}
+	}
+	return model.Membership{}, storage.ErrMembershipNotFound
+}
+
+func (m *MockStore) SaveMembership(_ context.Context, mb model.Membership) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, existing := range m.memberships {
+		if existing.TenantID == mb.TenantID && existing.UserID == mb.UserID {
+			return storage.ErrMembershipExists
+		}
+	}
+	m.memberships = append(m.memberships, model.MembershipWithUser{Membership: mb})
+	return nil
+}
+
+func (m *MockStore) UpdateMembershipRole(_ context.Context, id, newRole string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := -1
+	for i, mu := range m.memberships {
+		if mu.ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return storage.ErrMembershipNotFound
+	}
+	if m.memberships[idx].Role == "owner" && newRole != "owner" && m.countOwnersLocked(m.memberships[idx].TenantID) <= 1 {
+		return storage.ErrLastOwner
+	}
+	m.memberships[idx].Role = newRole
+	m.memberships[idx].UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+func (m *MockStore) DeleteMembership(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := -1
+	for i, mu := range m.memberships {
+		if mu.ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return storage.ErrMembershipNotFound
+	}
+	if m.memberships[idx].Role == "owner" && m.countOwnersLocked(m.memberships[idx].TenantID) <= 1 {
+		return storage.ErrLastOwner
+	}
+	m.memberships = append(m.memberships[:idx], m.memberships[idx+1:]...)
+	return nil
+}
+
+func (m *MockStore) TransferOwnership(ctx context.Context, toUserID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	tenantID := storage.TenantIDFromCtx(ctx)
+	targetIdx := -1
+	for i, mu := range m.memberships {
+		if mu.TenantID == tenantID && mu.UserID == toUserID {
+			targetIdx = i
+			break
+		}
+	}
+	if targetIdx < 0 {
+		return storage.ErrMembershipNotFound
+	}
+	now := time.Now().UTC()
+	for i := range m.memberships {
+		if m.memberships[i].TenantID == tenantID && m.memberships[i].Role == "owner" {
+			m.memberships[i].Role = "admin"
+			m.memberships[i].UpdatedAt = now
+		}
+	}
+	m.memberships[targetIdx].Role = "owner"
+	m.memberships[targetIdx].UpdatedAt = now
+	return nil
+}
+
+func (m *MockStore) EnsureFirstMembership(_ context.Context, tenantID, userID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, mu := range m.memberships {
+		if mu.TenantID == tenantID {
+			return false, nil
+		}
+	}
+	m.memberships = append(m.memberships, model.MembershipWithUser{
+		Membership: model.Membership{
+			ID:        "first-" + userID,
+			TenantID:  tenantID,
+			UserID:    userID,
+			Role:      "owner",
+			CreatedAt: time.Now().UTC(),
+			UpdatedAt: time.Now().UTC(),
+		},
+	})
+	return true, nil
+}
+
+func (m *MockStore) EnsureDevMembership(_ context.Context, tenantID, userID, role string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, mu := range m.memberships {
+		if mu.TenantID == tenantID && mu.UserID == userID {
+			m.memberships[i].Role = role
+			m.memberships[i].UpdatedAt = time.Now().UTC()
+			return nil
+		}
+	}
+	m.memberships = append(m.memberships, model.MembershipWithUser{
+		Membership: model.Membership{
+			ID:        "dev-" + userID,
+			TenantID:  tenantID,
+			UserID:    userID,
+			Role:      role,
+			CreatedAt: time.Now().UTC(),
+			UpdatedAt: time.Now().UTC(),
+		},
+	})
+	return nil
+}
+
+func (m *MockStore) GetUserByEmail(_ context.Context, email string) (model.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.Email == email {
+			return u, nil
+		}
+	}
+	return model.User{}, storage.ErrUserNotFound
+}
+
+func (m *MockStore) countOwnersLocked(tenantID string) int {
+	n := 0
+	for _, mu := range m.memberships {
+		if mu.TenantID == tenantID && mu.Role == "owner" {
+			n++
+		}
+	}
+	return n
 }
