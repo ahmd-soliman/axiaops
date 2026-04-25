@@ -2,10 +2,13 @@
 # clean_db.sh — clean AxiaOps database (local docker or remote)
 #
 # Usage:
-#   ./scripts/clean_db.sh                          # Local docker (truncate)
-#   ./scripts/clean_db.sh --drop-schema            # Local docker (drop schema)
-#   ./scripts/clean_db.sh --remote dev             # Remote dev (truncate)
-#   ./scripts/clean_db.sh --remote staging --drop-schema  # Remote staging (drop schema)
+#   ./scripts/clean_db.sh                              # Local docker (truncate)
+#   ./scripts/clean_db.sh --drop-schema                # Local docker (drop schema)
+#   ./scripts/clean_db.sh --remote dev-1               # Remote dev-1   (truncate, axiaops.local:5432)
+#   ./scripts/clean_db.sh --remote dev-2               # Remote dev-2   (truncate, axiaops.local:5433)
+#   ./scripts/clean_db.sh --remote staging --drop-schema  # Remote staging (drop schema, axiaops.local:5442)
+#
+# Remote ports are sourced from the deploy stack/apps/axiaops-dbs/docker-compose.yml.
 
 set -euo pipefail
 
@@ -20,10 +23,13 @@ while [[ $# -gt 0 ]]; do
     --remote)
       shift
       REMOTE_ENV="${1:-}"
-      if [[ "$REMOTE_ENV" != "dev" && "$REMOTE_ENV" != "staging" ]]; then
-        echo "Error: --remote requires 'dev' or 'staging', got '$REMOTE_ENV'"
-        exit 1
-      fi
+      case "$REMOTE_ENV" in
+        dev-1|dev-2|staging) ;;
+        *)
+          echo "Error: --remote requires 'dev-1', 'dev-2', or 'staging', got '$REMOTE_ENV'"
+          exit 1
+          ;;
+      esac
       ;;
     --drop-schema) DROP_SCHEMA=true ;;
     --yes|-y) AUTO_YES=true ;;
@@ -38,13 +44,14 @@ if [[ -n "$REMOTE_ENV" ]]; then
   # Remote mode
   MODE="remote"
   HOSTNAME="axiaops.local"
-  
-  if [[ "$REMOTE_ENV" == "dev" ]]; then
-    DB_PORT=5432
-  else
-    DB_PORT=5433
-  fi
-  
+
+  # Ports mirror the deploy stack/apps/axiaops-dbs/docker-compose.yml — keep in sync.
+  case "$REMOTE_ENV" in
+    dev-1)   DB_PORT=5432 ;;
+    dev-2)   DB_PORT=5433 ;;
+    staging) DB_PORT=5442 ;;
+  esac
+
   SUPERUSER_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
   
   psql_exec()  { PGOPTIONS="-c search_path=axiaops" psql "$SUPERUSER_URL" --quiet -c "$1"; }
