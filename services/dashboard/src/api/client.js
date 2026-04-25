@@ -15,11 +15,65 @@ function authHeaders() {
   return authToken ? { Authorization: `Bearer ${authToken}` } : {};
 }
 
+// FORBIDDEN_EVENT fires whenever an authenticated request returns 403. The
+// MeContext provider listens and refreshes the cached role/permissions so the
+// UI catches up to a server-side role change (or membership removal) without
+// needing the user to reload. See docs/rbac-design.md §8 "Role-change propagation".
+export const FORBIDDEN_EVENT = 'axiaops:forbidden';
+
+// notifyForbidden is decoupled from React deliberately — keeping client.js as
+// a plain JS module avoids importing React into the data layer. Listeners
+// register on window in MeContext.
+function notifyForbidden(detail) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(FORBIDDEN_EVENT, { detail }));
+  }
+}
+
+// ifetch wraps the global `fetch` to fire FORBIDDEN_EVENT on 403 without
+// changing the caller's error semantics. The pre-RBAC API methods call
+// ifetch instead of fetch so a 403 anywhere triggers MeContext refresh.
+async function ifetch(url, opts) {
+  const res = await fetch(url, opts);
+  if (res.status === 403) notifyForbidden({ path: url });
+  return res;
+}
+
+// request is the single fetch wrapper every API method goes through. It adds
+// auth headers, intercepts 403 → dispatches FORBIDDEN_EVENT, and surfaces
+// non-2xx responses as Errors with a `.status` property so callers can
+// branch on (e.g.) 409 conflicts without parsing message strings.
+async function request(path, { method = 'GET', body, headers = {} } = {}) {
+  const opts = {
+    method,
+    headers: { ...authHeaders(), ...headers },
+  };
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = typeof body === 'string' ? body : JSON.stringify(body);
+  }
+  const res = await ifetch(`${BASE_URL}${path}`, opts);
+  if (!res.ok) {
+    const err = new Error(`request failed: ${res.status}`);
+    err.status = res.status;
+    try {
+      err.body = await res.text();
+    } catch {
+      err.body = '';
+    }
+    throw err;
+  }
+  if (res.status === 204) return null;
+  const ctype = res.headers.get('Content-Type') || '';
+  if (ctype.includes('application/json')) return res.json();
+  return res.text();
+}
+
 export async function fetchSummary(accountId) {
   const url = accountId
     ? `${BASE_URL}/v1/summary?account_id=${encodeURIComponent(accountId)}`
     : `${BASE_URL}/v1/summary`;
-  const res = await fetch(url, { headers: authHeaders() });
+  const res = await ifetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch summary');
   return res.json();
 }
@@ -28,7 +82,7 @@ export async function fetchZombies(accountId) {
   const url = accountId
     ? `${BASE_URL}/v1/zombies?account_id=${encodeURIComponent(accountId)}`
     : `${BASE_URL}/v1/zombies`;
-  const res = await fetch(url, { headers: authHeaders() });
+  const res = await ifetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch zombies');
   return res.json();
 }
@@ -37,19 +91,19 @@ export async function fetchResources(accountId) {
   const url = accountId
     ? `${BASE_URL}/v1/resources?account_id=${encodeURIComponent(accountId)}`
     : `${BASE_URL}/v1/resources`;
-  const res = await fetch(url, { headers: authHeaders() });
+  const res = await ifetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch resources');
   return res.json();
 }
 
 export async function fetchAccounts() {
-  const res = await fetch(`${BASE_URL}/v1/accounts`, { headers: authHeaders() });
+  const res = await ifetch(`${BASE_URL}/v1/accounts`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch accounts');
   return res.json();
 }
 
 export async function connectAccount({ provider, label, accessKeyId, secretKey, region }) {
-  const res = await fetch(`${BASE_URL}/v1/accounts`, {
+  const res = await ifetch(`${BASE_URL}/v1/accounts`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider, label, access_key_id: accessKeyId, secret_key: secretKey, region }),
@@ -66,7 +120,7 @@ export async function updateAccount(id, { label, accessKeyId, secretKey, region,
   if (region !== undefined) body.region = region;
   if (scan_interval_hours !== undefined) body.scan_interval_hours = scan_interval_hours;
 
-  const res = await fetch(`${BASE_URL}/v1/accounts/${id}`, {
+  const res = await ifetch(`${BASE_URL}/v1/accounts/${id}`, {
     method: 'PATCH',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -76,7 +130,7 @@ export async function updateAccount(id, { label, accessKeyId, secretKey, region,
 }
 
 export async function deleteAccount(id) {
-  const res = await fetch(`${BASE_URL}/v1/accounts/${id}`, {
+  const res = await ifetch(`${BASE_URL}/v1/accounts/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -84,7 +138,7 @@ export async function deleteAccount(id) {
 }
 
 export async function scanAccount(id) {
-  const res = await fetch(`${BASE_URL}/v1/accounts/${id}/scan`, {
+  const res = await ifetch(`${BASE_URL}/v1/accounts/${id}/scan`, {
     method: 'POST',
     headers: authHeaders(),
   });
@@ -104,19 +158,19 @@ export async function fetchTrend(accountId, service, resourceType) {
   if (resourceType) params.set('resource_type', resourceType);
   const qs = params.toString();
   const url = qs ? `${BASE_URL}/v1/trend?${qs}` : `${BASE_URL}/v1/trend`;
-  const res = await fetch(url, { headers: authHeaders() });
+  const res = await ifetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch trend');
   return res.json();
 }
 
 export async function fetchTrendServices() {
-  const res = await fetch(`${BASE_URL}/v1/trend/services`, { headers: authHeaders() });
+  const res = await ifetch(`${BASE_URL}/v1/trend/services`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch trend services');
   return res.json();
 }
 
 export async function fetchTrendResourceTypes(service) {
-  const res = await fetch(`${BASE_URL}/v1/trend/resource-types?service=${encodeURIComponent(service)}`, { headers: authHeaders() });
+  const res = await ifetch(`${BASE_URL}/v1/trend/resource-types?service=${encodeURIComponent(service)}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch trend resource types');
   return res.json();
 }
@@ -125,7 +179,7 @@ export async function fetchDismissals(accountId) {
   const url = accountId
     ? `${BASE_URL}/v1/dismissals?account_id=${encodeURIComponent(accountId)}`
     : `${BASE_URL}/v1/dismissals`;
-  const res = await fetch(url, { headers: authHeaders() });
+  const res = await ifetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch dismissals');
   return res.json();
 }
@@ -143,7 +197,7 @@ export async function dismissZombie({ accountId, provider, service, region, reso
   };
   if (snoozeUntil) body.snooze_until = snoozeUntil;
 
-  const res = await fetch(`${BASE_URL}/v1/dismissals`, {
+  const res = await ifetch(`${BASE_URL}/v1/dismissals`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -154,7 +208,7 @@ export async function dismissZombie({ accountId, provider, service, region, reso
 }
 
 export async function revokeDismissal(dismissalId) {
-  const res = await fetch(`${BASE_URL}/v1/dismissals/${dismissalId}`, {
+  const res = await ifetch(`${BASE_URL}/v1/dismissals/${dismissalId}`, {
     method: 'DELETE',
     headers: authHeaders(),
   });
@@ -164,7 +218,7 @@ export async function revokeDismissal(dismissalId) {
 export async function fetchZombiesWithDismissed(accountId) {
   const params = new URLSearchParams({ include_dismissed: 'true' });
   if (accountId) params.set('account_id', accountId);
-  const res = await fetch(`${BASE_URL}/v1/zombies?${params}`, { headers: authHeaders() });
+  const res = await ifetch(`${BASE_URL}/v1/zombies?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch zombies');
   return res.json();
 }
@@ -195,7 +249,7 @@ export async function fetchAuditEvents({
 
   const qs = params.toString();
   const url = qs ? `${BASE_URL}/v1/audit?${qs}` : `${BASE_URL}/v1/audit`;
-  const res = await fetch(url, { headers: authHeaders() });
+  const res = await ifetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch audit events');
   return res.json();
 }
@@ -204,7 +258,7 @@ export async function fetchAuditEvents({
 // with its own build-time identifier so support tickets carry both versions.
 // Returns `{ service, version, commit, env }`.
 export async function fetchVersion() {
-  const res = await fetch(`${BASE_URL}/v1/version`, { headers: authHeaders() });
+  const res = await ifetch(`${BASE_URL}/v1/version`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch version');
   return res.json();
 }
@@ -216,7 +270,42 @@ export async function fetchCosts(accountId, service, days = 30) {
   params.set('days', String(days));
   const qs = params.toString();
   const url = qs ? `${BASE_URL}/v1/costs?${qs}` : `${BASE_URL}/v1/costs`;
-  const res = await fetch(url, { headers: authHeaders() });
+  const res = await ifetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch costs');
   return res.json();
+}
+
+// ── RBAC (Phase 1) ──────────────────────────────────────────────────────────
+
+// fetchMe returns the authenticated user's role + permission set. Goes
+// through `request()` so a 403 here (e.g. membership removed mid-session)
+// cascades to MeContext just like any other 403.
+export async function fetchMe() {
+  return request('/v1/me');
+}
+
+export async function listMemberships() {
+  return request('/v1/memberships');
+}
+
+export async function inviteMember(email, role) {
+  return request('/v1/memberships', { method: 'POST', body: { email, role } });
+}
+
+export async function updateMemberRole(membershipId, role) {
+  return request(`/v1/memberships/${encodeURIComponent(membershipId)}/role`, {
+    method: 'PATCH',
+    body: { role },
+  });
+}
+
+export async function removeMember(membershipId) {
+  return request(`/v1/memberships/${encodeURIComponent(membershipId)}`, { method: 'DELETE' });
+}
+
+export async function transferOwnership(toUserID) {
+  return request('/v1/tenants/transfer-ownership', {
+    method: 'POST',
+    body: { to_user_id: toUserID },
+  });
 }

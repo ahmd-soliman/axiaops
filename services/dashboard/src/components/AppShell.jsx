@@ -2,6 +2,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../theme/ThemeContext';
 import { useApp } from '../context/AppContext';
+import { useMe } from '../context/MeContext';
 import { fetchVersion } from '../api/client';
 import { APP_VERSION, APP_COMMIT_SHA } from '../config';
 
@@ -72,13 +73,29 @@ function IconAudit({ color, size = 18 }) {
   );
 }
 
+function IconUsers({ color, size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
 // ─── Nav config ───────────────────────────────────────────────────────────────
+//
+// `requires` gates the entry on a permission grant from MeContext. Items
+// without it are visible to every authenticated user. Filtering happens in
+// the render path, not here, so role changes show up on the next render.
 
 const NAV_ITEMS = [
-  { label: 'Overview',         path: '/',      Icon: IconOverview },
-  { label: 'Trends',           path: '/trend', Icon: IconTrend },
-  { label: 'Costs',            path: '/cost',  Icon: IconCost },
-  { label: 'Audit',            path: '/audit', Icon: IconAudit },
+  { label: 'Overview', path: '/',      Icon: IconOverview },
+  { label: 'Trends',   path: '/trend', Icon: IconTrend },
+  { label: 'Costs',    path: '/cost',  Icon: IconCost },
+  { label: 'Audit',    path: '/audit', Icon: IconAudit },
+  { label: 'Users',    path: '/users', Icon: IconUsers, requires: 'members:invite' },
 ];
 
 // ─── Top navbar ───────────────────────────────────────────────────────────────
@@ -86,9 +103,12 @@ const NAV_ITEMS = [
 export default function AppShell() {
   const { theme, isDark, toggleTheme } = useTheme();
   const { orgName, onLogout } = useApp();
+  const { can } = useMe();
   const navigate  = useNavigate();
   const location  = useLocation();
   const t = theme;
+
+  const visibleNavItems = NAV_ITEMS.filter((item) => !item.requires || can(item.requires));
 
   // Backend build identifier — fetched once per session and cached. The footer
   // pairs it with the dashboard build identifier so support tickets carry both
@@ -129,7 +149,7 @@ export default function AppShell() {
 
         {/* Nav links */}
         <nav aria-label="Main navigation" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
-          {NAV_ITEMS.map(({ label, path, Icon }) => {
+          {visibleNavItems.map(({ label, path, Icon }) => {
             const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
             const activeBg = isDark ? 'rgba(255, 255, 255, 0.05)' : t.accentLight;
             return (

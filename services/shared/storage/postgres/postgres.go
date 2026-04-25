@@ -1402,6 +1402,378 @@ func (s *Store) AuditLogAnonymiseUser(ctx context.Context, userID string) (int64
 	return tag.RowsAffected(), nil
 }
 
+// ── Memberships ─────────────────────────────────────────────────────────────
+//
+// RBAC Phase 1. See docs/rbac-design.md §4 for the data model and §6 for
+// enforcement semantics. All membership reads/writes go through RLS — a tenant
+// can only see and mutate its own rows. The middleware path opens its own
+// transaction (rather than reading from adminPool) so RLS stays the last line
+// of defence even on the auth-check fast path.
+
+// RoleOf returns the role for (tenantID, userID), or "" with nil error when
+// no membership row exists. Called from the auth middleware on every request,
+// so it stays a single short transaction.
+func (s *Store) RoleOf(ctx context.Context, tenantID, userID string) (string, error) {
+	if tenantID == "" || userID == "" {
+		return "", nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("postgres: role_of begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID); err != nil {
+		return "", fmt.Errorf("postgres: role_of set tenant: %w", err)
+	}
+
+	var role string
+	err = tx.QueryRow(ctx,
+		`SELECT role FROM memberships WHERE tenant_id = $1 AND user_id = $2`,
+		tenantID, userID,
+	).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("postgres: role_of query: %w", err)
+	}
+	// Read-only — defer Rollback handles cleanup. Skipping Commit shaves a
+	// round-trip on the auth fast path (called per request).
+	return role, nil
+}
+
+// ListMemberships returns memberships in the tenant in ctx joined with users.
+func (s *Store) ListMemberships(ctx context.Context) ([]model.MembershipWithUser, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list memberships begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setTenant(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT m.id, m.tenant_id, m.user_id, m.role, COALESCE(m.invited_by, ''),
+		       m.created_at, m.updated_at, COALESCE(u.email, ''), COALESCE(u.name, '')
+		FROM memberships m
+		LEFT JOIN users u ON u.id = m.user_id
+		ORDER BY m.created_at ASC, m.id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list memberships query: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.MembershipWithUser
+	for rows.Next() {
+		var mu model.MembershipWithUser
+		if err := rows.Scan(
+			&mu.ID, &mu.TenantID, &mu.UserID, &mu.Role, &mu.InvitedBy,
+			&mu.CreatedAt, &mu.UpdatedAt, &mu.Email, &mu.Name,
+		); err != nil {
+			return nil, fmt.Errorf("postgres: list memberships scan: %w", err)
+		}
+		out = append(out, mu)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: list memberships rows: %w", err)
+	}
+	return out, tx.Commit(ctx)
+}
+
+// GetMembership returns a single membership by ID for the tenant in ctx.
+func (s *Store) GetMembership(ctx context.Context, id string) (model.Membership, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return model.Membership{}, fmt.Errorf("postgres: get membership begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setTenant(ctx, tx); err != nil {
+		return model.Membership{}, err
+	}
+
+	var m model.Membership
+	err = tx.QueryRow(ctx, `
+		SELECT id, tenant_id, user_id, role, COALESCE(invited_by, ''), created_at, updated_at
+		FROM memberships WHERE id = $1`, id,
+	).Scan(&m.ID, &m.TenantID, &m.UserID, &m.Role, &m.InvitedBy, &m.CreatedAt, &m.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Membership{}, storage.ErrMembershipNotFound
+	}
+	if err != nil {
+		return model.Membership{}, fmt.Errorf("postgres: get membership: %w", err)
+	}
+	return m, tx.Commit(ctx)
+}
+
+// SaveMembership inserts a new membership row.
+func (s *Store) SaveMembership(ctx context.Context, m model.Membership) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: save membership begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+	id := m.ID
+	if id == "" {
+		id = uuid.New().String()
+	}
+	var invitedBy any
+	if m.InvitedBy != "" {
+		invitedBy = m.InvitedBy
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO memberships (id, tenant_id, user_id, role, invited_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+		id, m.TenantID, m.UserID, m.Role, invitedBy, now,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return storage.ErrMembershipExists
+		}
+		return fmt.Errorf("postgres: save membership: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// UpdateMembershipRole changes the role of an existing membership, enforcing
+// the last-owner guard at SQL level via a CTE so the check runs inside the
+// same transaction.
+func (s *Store) UpdateMembershipRole(ctx context.Context, id, newRole string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: update role begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	// Lock the target row and read current state.
+	var currentRole, tenantID string
+	err = tx.QueryRow(ctx,
+		`SELECT role, tenant_id FROM memberships WHERE id = $1 FOR UPDATE`, id,
+	).Scan(&currentRole, &tenantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storage.ErrMembershipNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: update role lock: %w", err)
+	}
+
+	// Last-owner guard: demoting the last owner is rejected.
+	if currentRole == "owner" && newRole != "owner" {
+		var ownerCount int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM memberships WHERE tenant_id = $1 AND role = 'owner'`, tenantID,
+		).Scan(&ownerCount); err != nil {
+			return fmt.Errorf("postgres: update role count owners: %w", err)
+		}
+		if ownerCount <= 1 {
+			return storage.ErrLastOwner
+		}
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE memberships SET role = $1, updated_at = NOW() WHERE id = $2`, newRole, id,
+	); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// Promotion to owner racing with another owner.
+			return storage.ErrLastOwner
+		}
+		return fmt.Errorf("postgres: update role: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// DeleteMembership removes a membership row, enforcing the last-owner guard.
+func (s *Store) DeleteMembership(ctx context.Context, id string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: delete membership begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	var role, tenantID string
+	err = tx.QueryRow(ctx,
+		`SELECT role, tenant_id FROM memberships WHERE id = $1 FOR UPDATE`, id,
+	).Scan(&role, &tenantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storage.ErrMembershipNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: delete membership lock: %w", err)
+	}
+
+	if role == "owner" {
+		var ownerCount int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM memberships WHERE tenant_id = $1 AND role = 'owner'`, tenantID,
+		).Scan(&ownerCount); err != nil {
+			return fmt.Errorf("postgres: delete membership count owners: %w", err)
+		}
+		if ownerCount <= 1 {
+			return storage.ErrLastOwner
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM memberships WHERE id = $1`, id); err != nil {
+		return fmt.Errorf("postgres: delete membership: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// TransferOwnership atomically demotes the current owner to admin and promotes
+// the target user to owner within the tenant in ctx.
+func (s *Store) TransferOwnership(ctx context.Context, toUserID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: transfer ownership begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setTenant(ctx, tx); err != nil {
+		return err
+	}
+
+	tenantID := storage.TenantIDFromCtx(ctx)
+
+	// Verify target membership exists in this tenant.
+	var targetID, targetRole string
+	err = tx.QueryRow(ctx,
+		`SELECT id, role FROM memberships WHERE tenant_id = $1 AND user_id = $2 FOR UPDATE`,
+		tenantID, toUserID,
+	).Scan(&targetID, &targetRole)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storage.ErrMembershipNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: transfer ownership target: %w", err)
+	}
+
+	// Demote current owner first to free the partial unique index.
+	if _, err := tx.Exec(ctx, `
+		UPDATE memberships
+		SET role = 'admin', updated_at = NOW()
+		WHERE tenant_id = $1 AND role = 'owner'`,
+		tenantID,
+	); err != nil {
+		return fmt.Errorf("postgres: transfer ownership demote: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE memberships SET role = 'owner', updated_at = NOW() WHERE id = $1`,
+		targetID,
+	); err != nil {
+		return fmt.Errorf("postgres: transfer ownership promote: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// EnsureFirstMembership inserts an owner row only when no membership exists
+// for the tenant. The partial unique index is the race-safe backstop: a second
+// concurrent INSERT in a brand-new Kinde org loses on the index, the caller
+// sees err with constraint code 23505 → swallowed → ok=false.
+//
+// Opens its own transaction and sets app.tenant_id so the INSERT satisfies
+// the WITH CHECK clause of the memberships RLS policy. Works whether the
+// process connects as the owner (BYPASSRLS) or the app role (RLS-enforced).
+func (s *Store) EnsureFirstMembership(ctx context.Context, tenantID, userID string) (bool, error) {
+	if tenantID == "" || userID == "" {
+		return false, fmt.Errorf("postgres: ensure first membership: tenantID and userID required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("postgres: ensure first membership begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID); err != nil {
+		return false, fmt.Errorf("postgres: ensure first membership set tenant: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at)
+		SELECT $1, $2, $3, 'owner', NOW(), NOW()
+		WHERE NOT EXISTS (SELECT 1 FROM memberships WHERE tenant_id = $2)`,
+		uuid.New().String(), tenantID, userID,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		// Race: another request inserted the owner between WHERE NOT EXISTS and INSERT.
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return false, nil
+		}
+		return false, fmt.Errorf("postgres: ensure first membership: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("postgres: ensure first membership commit: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// EnsureDevMembership creates an owner-or-other row for (tenantID, userID) on
+// startup. Idempotent. Opens its own transaction and sets app.tenant_id so
+// the INSERT satisfies the memberships RLS policy regardless of whether the
+// process connects as the owner role (BYPASSRLS) or the app role.
+func (s *Store) EnsureDevMembership(ctx context.Context, tenantID, userID, role string) error {
+	switch role {
+	case "owner", "admin", "member", "viewer":
+	default:
+		return fmt.Errorf("postgres: ensure dev membership: invalid role %q", role)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: ensure dev membership begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID); err != nil {
+		return fmt.Errorf("postgres: ensure dev membership set tenant: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, NOW(), NOW())
+		ON CONFLICT (tenant_id, user_id) DO UPDATE SET
+			role       = EXCLUDED.role,
+			updated_at = NOW()`,
+		uuid.New().String(), tenantID, userID, role,
+	); err != nil {
+		return fmt.Errorf("postgres: ensure dev membership: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// GetUserByEmail looks up a user by email within the tenant in ctx. Used by
+// the invite-by-email flow.
+func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, error) {
+	tenantID := storage.TenantIDFromCtx(ctx)
+	if tenantID == "" {
+		return model.User{}, fmt.Errorf("postgres: tenant_id missing from context")
+	}
+	var u model.User
+	// users has no RLS; tenant scoping is explicit in the WHERE clause.
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, tenant_id, kinde_sub, email, name, created_at, last_seen
+		FROM users
+		WHERE tenant_id = $1 AND lower(email) = lower($2)`,
+		tenantID, email,
+	).Scan(&u.ID, &u.TenantID, &u.KindeSub, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, storage.ErrUserNotFound
+	}
+	if err != nil {
+		return model.User{}, fmt.Errorf("postgres: get user by email: %w", err)
+	}
+	return u, nil
+}
+
 // Ping verifies the database connection is still alive.
 func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)

@@ -102,6 +102,30 @@ func (m *mockStoreForScheduler) DeleteOldCostRecords(context.Context, time.Time)
 	return 0, nil
 }
 func (m *mockStoreForScheduler) Close() error { return nil }
+func (m *mockStoreForScheduler) RoleOf(context.Context, string, string) (string, error) {
+	return "", nil
+}
+func (m *mockStoreForScheduler) ListMemberships(context.Context) ([]model.MembershipWithUser, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) GetMembership(context.Context, string) (model.Membership, error) {
+	return model.Membership{}, nil
+}
+func (m *mockStoreForScheduler) SaveMembership(context.Context, model.Membership) error { return nil }
+func (m *mockStoreForScheduler) UpdateMembershipRole(context.Context, string, string) error {
+	return nil
+}
+func (m *mockStoreForScheduler) DeleteMembership(context.Context, string) error      { return nil }
+func (m *mockStoreForScheduler) TransferOwnership(context.Context, string) error     { return nil }
+func (m *mockStoreForScheduler) EnsureFirstMembership(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+func (m *mockStoreForScheduler) EnsureDevMembership(context.Context, string, string, string) error {
+	return nil
+}
+func (m *mockStoreForScheduler) GetUserByEmail(context.Context, string) (model.User, error) {
+	return model.User{}, nil
+}
 
 // captureQueue records enqueued jobs.
 type captureQueue struct{ jobs []queue.ScanJob }
