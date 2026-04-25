@@ -15,10 +15,10 @@ One runner profile covers every job in the pipeline:
 
 | Jobs | Needs |
 |---|---|
-| `test:*`, `test:integration:*`, `build:images`, `deploy:*` | Docker executor + mounted `/var/run/docker.sock` + persistent Go cache bind mounts + `gitlab-cloud-runner-network` available on the host |
+| `test:*`, `test:integration:*`, `build:images`, `deploy:*` | Docker executor + mounted `/var/run/docker.sock` + persistent Go cache bind mounts + `gitlab-runner-network` available on the host |
 
 `deploy:dev` / `deploy:staging` manage long-lived containers on the runner
-host via docker-compose (attached to `gitlab-cloud-runner-network`).
+host via docker-compose (attached to `gitlab-runner-network`).
 `build:images` and `deploy:production` push images to registries. Everything
 shares the same host daemon, so no runner tagging is needed.
 
@@ -161,7 +161,7 @@ path, next job sees the same files instantly. `.gitlab-ci.yml` sets
 `GOMODCACHE=/gocache/mod`, `GOCACHE=/gocache/build`, and
 `GOLANGCI_LINT_CACHE=/gocache/golangci-lint` to match these mounts.
 
-**Why there is no `network_mode`.** `gitlab-cloud-runner-network` is
+**Why there is no `network_mode`.** `gitlab-runner-network` is
 attached by the deploy compose files (`external: true`) and by explicit
 `--network` flags on one-off `docker run` commands. The runner itself does
 not need to be on that network.
@@ -175,8 +175,8 @@ sudo mkdir -p /cache/gomod /cache/gobuild /cache/golangci-lint
 sudo chmod 777 /cache/gomod /cache/gobuild /cache/golangci-lint
 
 # Shared network for deploy compose stacks and the migration docker run
-docker network inspect gitlab-cloud-runner-network >/dev/null 2>&1 \
-  || docker network create gitlab-cloud-runner-network
+docker network inspect gitlab-runner-network >/dev/null 2>&1 \
+  || docker network create gitlab-runner-network
 ```
 
 Register (or re-register) the runner — no tags needed for the unified
@@ -229,7 +229,7 @@ project." No config required; they already support DinD.
       "/var/run/docker.sock:/var/run/docker.sock",
       "/cache",
     ]
-    network_mode = "gitlab-cloud-runner-network"
+    network_mode = "gitlab-runner-network"
     pull_policy = "if-not-present"
 ```
 
@@ -256,7 +256,7 @@ Bootstrap the network as in Option A.
 ## Migration from the previous shell-executor setup
 
 1. Pick Option A or B.
-2. Update `config.toml` on the target runner(s). Ensure `gitlab-cloud-runner-network` exists on the Docker daemon each runner talks to. `systemctl restart gitlab-runner`.
+2. Update `config.toml` on the target runner(s). Ensure `gitlab-runner-network` exists on the Docker daemon each runner talks to. `systemctl restart gitlab-runner`.
 3. Decommission runners that no longer fit the new model:
    - self-hosted-based shell-executor runner → decommission.
    - Old socket-mount shell-executor runner → either repurpose with the config above, or decommission if moving to Option B.
@@ -271,7 +271,7 @@ Before merging `feature/containerized-ci`:
 
 - `test:storage` picks up the `postgres` service alias. First run confirms per-service `variables:` work (requires GitLab 14.5+).
 - `test:integration:*` runs `make test-integration-*` successfully under DinD. `before_script` installs `make` and `docker-cli-compose` via `apk`; if the package name differs on your alpine version, swap for `docker-compose` or `pip install docker-compose`.
-- `deploy:dev` reaches `axiaops-dev-db` by name — confirms the deploy compose file's `gitlab-cloud-runner-network` attachment works and the host network exists.
+- `deploy:dev` reaches `axiaops-dev-db` by name — confirms the deploy compose file's `gitlab-runner-network` attachment works and the host network exists.
 
 ---
 
@@ -305,9 +305,9 @@ Docker CLI. For CI jobs that need `docker` commands, make sure `image:` is
 `docker:24` (directly or via `extends: .dind`).
 
 **`deploy:dev` fails with `unable to resolve axiaops-dev-db`.** The DB
-container isn't on `gitlab-cloud-runner-network`, or the network doesn't
+container isn't on `gitlab-runner-network`, or the network doesn't
 exist on the runner host. Confirm `docker network ls` shows
-`gitlab-cloud-runner-network`, and that `deploy/dev.yml` declares it as
+`gitlab-runner-network`, and that `deploy/dev.yml` declares it as
 `external: true` with every service attached.
 
 **`test:storage` fails with postgres connection refused.** The `postgres`
