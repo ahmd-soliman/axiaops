@@ -133,3 +133,9 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 @services/ingestion/CLAUDE.md
 @services/shared/CLAUDE.md
 @services/dashboard/CLAUDE.md
+
+## Design & Decision Docs
+
+- **CloudTrail Integration:** See `docs/cloudtrail-analysis.md` — Why CloudTrail detection was deferred to Phase 4+, ROI analysis, when to reconsider
+- **AWS Service Coverage:** See `tmp/aws-coverage-and-cost-explorer-notes.md` — Why certain services are prioritized, detection patterns
+- **Tier 2 Detections:** See `docs/tier2_detections_status.md` — ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, EKS detection status
