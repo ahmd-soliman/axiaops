@@ -57,6 +57,7 @@ func (h *Handler) WithRedisCache(c cache.Cache) *Handler {
 // Register attaches the routes to the given mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/version", h.getVersion)
+	mux.HandleFunc("GET /v1/me", h.getMe)
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /livez", h.livez)
 	mux.HandleFunc("GET /readyz", h.readyz)
@@ -79,6 +80,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/dismissals", h.listDismissals)
 	// Audit trail
 	mux.HandleFunc("GET /v1/audit", h.listAuditEvents)
+	// Memberships (RBAC Phase 1)
+	mux.HandleFunc("GET /v1/memberships", h.listMemberships)
+	mux.HandleFunc("POST /v1/memberships", h.createMembership)
+	mux.HandleFunc("PATCH /v1/memberships/{id}/role", h.updateMembershipRole)
+	mux.HandleFunc("DELETE /v1/memberships/{id}", h.deleteMembership)
+	mux.HandleFunc("POST /v1/tenants/transfer-ownership", h.transferOwnership)
 }
 
 // cors wraps a handler with CORS headers.
