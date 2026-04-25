@@ -8,12 +8,27 @@ package api_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"time"
 
+	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 )
+
+// injectIdentity returns a context populated with the same unexported keys
+// that Auth.Wrap / DevBypass set in production. The middleware package owns
+// those keys, so we round-trip through DevBypass to reach them.
+func injectIdentity(parent context.Context, tenantID, userID, email string) context.Context {
+	src := httptest.NewRequest(http.MethodGet, "/seed", nil).WithContext(parent)
+	var captured context.Context
+	middleware.DevBypass(tenantID, userID, email, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		captured = r.Context()
+	})).ServeHTTP(httptest.NewRecorder(), src)
+	return captured
+}
 
 
 // MockStore is a unified in-memory Store implementation for testing.
@@ -62,9 +77,10 @@ type MockStore struct {
 	errAuditWrite         error
 
 	// ── Memberships / users (RBAC) ──
-	memberships []model.MembershipWithUser
-	users       []model.User
-	fixedRole   string // when set, RoleOf returns this regardless of input
+	memberships    []model.MembershipWithUser
+	users          []model.User
+	fixedRole      string // role returned by RoleOf when roleOverridden is true
+	roleOverridden bool   // distinguishes "explicitly empty" from "not set"
 
 	// ── Account Status (for concurrency testing) ──
 	accountScanning map[string]bool // account ID → is scanning
@@ -579,6 +595,7 @@ func (m *MockStore) ExpireSnoozes(_ context.Context) (int64, error) {
 func (m *MockStore) WithRole(role string) *MockStore {
 	m.mu.Lock()
 	m.fixedRole = role
+	m.roleOverridden = true
 	m.mu.Unlock()
 	return m
 }
@@ -590,10 +607,17 @@ func (m *MockStore) WithMemberships(ms []model.MembershipWithUser) *MockStore {
 	return m
 }
 
+func (m *MockStore) WithUsers(us []model.User) *MockStore {
+	m.mu.Lock()
+	m.users = us
+	m.mu.Unlock()
+	return m
+}
+
 func (m *MockStore) RoleOf(_ context.Context, _, _ string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.fixedRole != "" {
+	if m.roleOverridden {
 		return m.fixedRole, nil
 	}
 	return "owner", nil // tests default to owner so existing handler tests keep passing

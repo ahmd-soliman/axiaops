@@ -43,18 +43,23 @@ func testHandler() (*api.Handler, *http.ServeMux) {
 	return h, mux
 }
 
-// tenantRequest creates a request with tenant_id in context (simulates auth middleware).
+// tenantRequest creates a request with tenant_id, user_id, and email in
+// context — matches what the real Auth.Wrap / DevBypass middleware sets.
+// Required for handlers wrapped in middleware.Require, which reads both
+// tenant_id and user_id off the context.
 func tenantRequest(method, path string) *http.Request {
 	r := httptest.NewRequest(method, path, nil)
 	ctx := storage.WithTenantID(r.Context(), "tenant-test-uuid")
-	return r.WithContext(ctx)
+	r = r.WithContext(ctx)
+	return r.WithContext(injectIdentity(r.Context(), "tenant-test-uuid", "user-test-uuid", "test@x.com"))
 }
 
 func tenantRequestWithBody(method, path, body string) *http.Request {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	ctx := storage.WithTenantID(r.Context(), "tenant-test-uuid")
-	return r.WithContext(ctx)
+	r = r.WithContext(ctx)
+	return r.WithContext(injectIdentity(r.Context(), "tenant-test-uuid", "user-test-uuid", "test@x.com"))
 }
 
 // mockStoreWithFailingPing wraps MockStore and overrides Ping to simulate database failure.
