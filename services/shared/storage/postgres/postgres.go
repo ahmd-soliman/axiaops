@@ -1682,16 +1682,24 @@ func (s *Store) TransferOwnership(ctx context.Context, toUserID string) error {
 // EnsureFirstMembership inserts an owner row only when no membership exists
 // for the tenant. The partial unique index is the race-safe backstop: a second
 // concurrent INSERT in a brand-new Kinde org loses on the index, the caller
-// sees ok=false and treats the user as un-invited.
+// sees err with constraint code 23505 → swallowed → ok=false.
 //
-// Uses adminPool because this runs from auth middleware *before* any handler
-// has called WithTenantID — RLS would block the INSERT otherwise. The query
-// scopes by tenant_id explicitly, which is acceptable for a bootstrap-only path.
+// Opens its own transaction and sets app.tenant_id so the INSERT satisfies
+// the WITH CHECK clause of the memberships RLS policy. Works whether the
+// process connects as the owner (BYPASSRLS) or the app role (RLS-enforced).
 func (s *Store) EnsureFirstMembership(ctx context.Context, tenantID, userID string) (bool, error) {
 	if tenantID == "" || userID == "" {
 		return false, fmt.Errorf("postgres: ensure first membership: tenantID and userID required")
 	}
-	tag, err := s.adminPool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("postgres: ensure first membership begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID); err != nil {
+		return false, fmt.Errorf("postgres: ensure first membership set tenant: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at)
 		SELECT $1, $2, $3, 'owner', NOW(), NOW()
 		WHERE NOT EXISTS (SELECT 1 FROM memberships WHERE tenant_id = $2)`,
@@ -1705,30 +1713,41 @@ func (s *Store) EnsureFirstMembership(ctx context.Context, tenantID, userID stri
 		}
 		return false, fmt.Errorf("postgres: ensure first membership: %w", err)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("postgres: ensure first membership commit: %w", err)
+	}
 	return tag.RowsAffected() > 0, nil
 }
 
 // EnsureDevMembership creates an owner-or-other row for (tenantID, userID) on
-// startup. Idempotent. Mirrors EnsureUser's raw-pool pattern — bypasses RLS
-// because this runs during process bootstrap, before any handler.
+// startup. Idempotent. Opens its own transaction and sets app.tenant_id so
+// the INSERT satisfies the memberships RLS policy regardless of whether the
+// process connects as the owner role (BYPASSRLS) or the app role.
 func (s *Store) EnsureDevMembership(ctx context.Context, tenantID, userID, role string) error {
 	switch role {
 	case "owner", "admin", "member", "viewer":
 	default:
 		return fmt.Errorf("postgres: ensure dev membership: invalid role %q", role)
 	}
-	_, err := s.adminPool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: ensure dev membership begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID); err != nil {
+		return fmt.Errorf("postgres: ensure dev membership set tenant: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, NOW(), NOW())
 		ON CONFLICT (tenant_id, user_id) DO UPDATE SET
 			role       = EXCLUDED.role,
 			updated_at = NOW()`,
 		uuid.New().String(), tenantID, userID, role,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("postgres: ensure dev membership: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // GetUserByEmail looks up a user by email within the tenant in ctx. Used by
