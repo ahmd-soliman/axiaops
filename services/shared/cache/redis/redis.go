@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"axiaops.io/shared/observability"
+	"github.com/redis/go-redis/v9"
 )
 
 // ErrNotFound is returned by Get when the key does not exist or has expired.

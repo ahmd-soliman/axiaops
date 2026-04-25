@@ -12,9 +12,9 @@ import (
 type AuditEvent struct {
 	ID           int64          `json:"id"`
 	TenantID     string         `json:"tenant_id,omitempty"`
-	UserID       string         `json:"user_id,omitempty"`      // NULL after GDPR anonymisation
-	ActorEmail   string         `json:"actor_email"`            // captured at event time
-	Action       string         `json:"action"`                 // one of AuditAction* constants
+	UserID       string         `json:"user_id,omitempty"` // NULL after GDPR anonymisation
+	ActorEmail   string         `json:"actor_email"`       // captured at event time
+	Action       string         `json:"action"`            // one of AuditAction* constants
 	ResourceType string         `json:"resource_type,omitempty"`
 	ResourceID   string         `json:"resource_id,omitempty"`
 	Reason       string         `json:"reason,omitempty"`

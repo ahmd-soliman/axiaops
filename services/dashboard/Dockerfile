@@ -8,10 +8,17 @@ ARG VITE_KINDE_ISSUER
 ARG VITE_KINDE_CLIENT_ID
 ARG VITE_API_URL=/api
 ARG VITE_DEV_MODE=false
+# Version + commit SHA baked into the bundle so the footer can display them.
+# Defaults to "dev" / "local" so a plain `docker build` without CI context
+# still produces a usable image — production builds override via --build-arg.
+ARG VITE_APP_VERSION=dev
+ARG VITE_APP_COMMIT_SHA=local
 ENV VITE_KINDE_ISSUER=$VITE_KINDE_ISSUER
 ENV VITE_KINDE_CLIENT_ID=$VITE_KINDE_CLIENT_ID
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_DEV_MODE=$VITE_DEV_MODE
+ENV VITE_APP_VERSION=$VITE_APP_VERSION
+ENV VITE_APP_COMMIT_SHA=$VITE_APP_COMMIT_SHA
 
 RUN npm run build
 
