@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext';
 import { useMe } from '../context/MeContext';
 import { fetchVersion } from '../api/client';
 import { APP_VERSION, APP_COMMIT_SHA } from '../config';
+import AvatarMenu from './AvatarMenu';
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
 
@@ -61,25 +62,19 @@ function IconCost({ color, size = 18 }) {
   );
 }
 
-function IconAudit({ color, size = 18 }) {
-  // Clipboard-with-checkmark — reads "logged activity" more cleanly than a
-  // generic list icon. Two sides of the clipboard plus a tick inside.
+function IconCloud({ color, size = 18 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="5" y="4" width="14" height="17" rx="2" />
-      <path d="M9 4V2h6v2" />
-      <polyline points="9 13 11 15 15 11" />
+      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
     </svg>
   );
 }
 
-function IconUsers({ color, size = 18 }) {
+function IconSettings({ color, size = 18 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   );
 }
@@ -89,20 +84,24 @@ function IconUsers({ color, size = 18 }) {
 // `requires` gates the entry on a permission grant from MeContext. Items
 // without it are visible to every authenticated user. Filtering happens in
 // the render path, not here, so role changes show up on the next render.
+//
+// Settings is ungated: every authenticated user has audit:read, so the
+// hub's sub-nav always has at least one accessible tab. The hub itself
+// filters tabs per-permission internally.
 
 const NAV_ITEMS = [
-  { label: 'Overview', path: '/',      Icon: IconOverview },
-  { label: 'Trends',   path: '/trend', Icon: IconTrend },
-  { label: 'Costs',    path: '/cost',  Icon: IconCost },
-  { label: 'Audit',    path: '/audit', Icon: IconAudit },
-  { label: 'Users',    path: '/users', Icon: IconUsers, requires: 'members:invite' },
+  { label: 'Overview',       path: '/',                Icon: IconOverview },
+  { label: 'Trends',         path: '/trend',           Icon: IconTrend },
+  { label: 'Costs',          path: '/cost',            Icon: IconCost },
+  { label: 'Cloud Accounts', path: '/cloud-accounts',  Icon: IconCloud },
+  { label: 'Settings',       path: '/settings',        Icon: IconSettings },
 ];
 
 // ─── Top navbar ───────────────────────────────────────────────────────────────
 
 export default function AppShell() {
   const { theme, isDark, toggleTheme } = useTheme();
-  const { orgName, onLogout } = useApp();
+  const { orgName } = useApp();
   const { can } = useMe();
   const navigate  = useNavigate();
   const location  = useLocation();
@@ -212,20 +211,7 @@ export default function AppShell() {
             </div>
           )}
 
-          {/* Sign out */}
-          <button
-            onClick={onLogout}
-            aria-label="Sign out"
-            style={{
-              padding: '5px 11px',
-              borderRadius: 7,
-              border: `1px solid ${t.border}`,
-              backgroundColor: 'transparent',
-              cursor: 'pointer',
-            }}
-          >
-            <span style={{ fontSize: 12, fontWeight: 600, color: t.accentMuted }}>Sign out</span>
-          </button>
+          <AvatarMenu />
         </div>
       </header>
 

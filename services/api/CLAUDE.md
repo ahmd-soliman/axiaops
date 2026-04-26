@@ -39,6 +39,8 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | PATCH | /memberships/{id}/role | Yes | Promote or demote a member; permission tier depends on target role |
 | DELETE | /memberships/{id} | Yes | Remove a member; self-leave bypasses permission check (last-owner guard still applies) |
 | POST | /tenants/transfer-ownership | Yes | Atomically transfer owner role to another user; owner only |
+| DELETE | /users/me | Yes | Right-to-erasure: hard-delete the caller. 409 if sole owner of any tenant — must transfer or delete those tenants first. Anonymises audit_log across all tenants. |
+| DELETE | /tenants/me | Yes | Right-to-erasure: cascade-delete the entire tenant (every per-tenant table including audit_log). Owner-only (`tenant:delete`). |
 
 ## Key Patterns
 

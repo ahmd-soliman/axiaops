@@ -197,6 +197,15 @@ else
             '${DEV_USER_EMAIL_VAL}', 'Dev User', NOW(), NOW())
     ON CONFLICT (id) DO NOTHING;"
   echo "Using dev user:   ${DEV_USER_ID_VAL} <${DEV_USER_EMAIL_VAL}>"
+
+  # Owner membership for the dev user. The API also calls EnsureDevMembership
+  # at startup, but seeding it here makes the seed self-contained — useful
+  # after testing the GDPR right-to-erasure flow (DELETE /v1/tenants/me),
+  # which wipes everything including the membership row. Without this, you'd
+  # have to restart the API after re-seeding to recover access.
+  psql_exec "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at)
+    VALUES (gen_random_uuid()::text, '${TENANT_ID}', '${DEV_USER_ID_VAL}', 'owner', NOW(), NOW())
+    ON CONFLICT (tenant_id, user_id) DO NOTHING;"
 fi
 
 # ── Additional tenants for RLS isolation testing (local only) ─────────────────
@@ -815,7 +824,11 @@ generate_snapshots() {
     -v base_z="$base_zombies" -v base_s="$base_savings" \
     -v days="$days" -v svcs="$services" \
     'BEGIN {
-      srand()
+      # Fixed seed makes the seeded data reproducible across runs and across
+      # machines (gawk/mawk/BSD awk all honour an integer arg the same way).
+      # Was bare srand() before — that reseeds from time-of-day, so every
+      # `make seed` produced different ±10% wobble on the same dashboard.
+      srand(42)
       pi = 3.14159265
 
       # Parse services — format: "service|resource_type:fraction" or "service:fraction"
