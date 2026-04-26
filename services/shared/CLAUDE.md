@@ -59,9 +59,10 @@ Resources with no matching rule or no usage data are skipped (not flagged).
 - RLS policy: `organization_id = current_setting('app.organization_id', true)` on all data tables
 - Connection pool: `pgxpool.Pool` — pass `DATABASE_URL` for app, `MIGRATION_DATABASE_URL` for migrations
 - Transactions: `BEGIN` → `SET app.organization_id` → operations → `COMMIT`. Always `defer tx.Rollback()`.
-- Tables: `organizations`, `users`, `cost_records`, `zombie_records`, `resource_records`, `accounts`,
+- Tables: `organizations`, `users`, `memberships`, `pending_memberships` (email-based invitations awaiting first-login redemption — see `docs/invitation-flow.md`),
+  `cost_records`, `zombie_records`, `resource_records`, `accounts`,
   `zombie_snapshots` (aggregate per-scan), `zombie_snapshot_services` (per-service breakdown per snapshot),
-  `dismissed_zombies`
+  `dismissed_zombies`, `audit_log`
 
 ## Adding New Tables
 
