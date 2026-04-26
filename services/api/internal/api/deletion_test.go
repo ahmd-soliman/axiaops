@@ -26,11 +26,11 @@ func TestDeleteCurrentUser_LastOwner_409(t *testing.T) {
 	store := NewMockStore().
 		WithRole("owner").
 		WithMemberships([]model.MembershipWithUser{
-			{Membership: model.Membership{ID: "m-1", TenantID: "tenant-me", UserID: "user-me", Role: "owner",
+			{Membership: model.Membership{ID: "m-1", OrganizationID: "tenant-me", UserID: "user-me", Role: "owner",
 				CreatedAt: time.Now(), UpdatedAt: time.Now()}},
 		}).
 		WithUsers([]model.User{
-			{ID: "user-me", TenantID: "tenant-me", Email: "me@example.com"},
+			{ID: "user-me", OrganizationID: "tenant-me", Email: "me@example.com"},
 		})
 
 	mux := delHandler(store)
@@ -46,14 +46,14 @@ func TestDeleteCurrentUser_OwnerWithCoOwner_204(t *testing.T) {
 	store := NewMockStore().
 		WithRole("owner").
 		WithMemberships([]model.MembershipWithUser{
-			{Membership: model.Membership{ID: "m-1", TenantID: "tenant-me", UserID: "user-me", Role: "owner",
+			{Membership: model.Membership{ID: "m-1", OrganizationID: "tenant-me", UserID: "user-me", Role: "owner",
 				CreatedAt: time.Now(), UpdatedAt: time.Now()}},
-			{Membership: model.Membership{ID: "m-2", TenantID: "tenant-me", UserID: "user-other", Role: "owner",
+			{Membership: model.Membership{ID: "m-2", OrganizationID: "tenant-me", UserID: "user-other", Role: "owner",
 				CreatedAt: time.Now(), UpdatedAt: time.Now()}},
 		}).
 		WithUsers([]model.User{
-			{ID: "user-me", TenantID: "tenant-me", Email: "me@example.com"},
-			{ID: "user-other", TenantID: "tenant-me", Email: "other@example.com"},
+			{ID: "user-me", OrganizationID: "tenant-me", Email: "me@example.com"},
+			{ID: "user-other", OrganizationID: "tenant-me", Email: "other@example.com"},
 		})
 
 	mux := delHandler(store)
@@ -77,11 +77,11 @@ func TestDeleteCurrentUser_NonOwner_204(t *testing.T) {
 	store := NewMockStore().
 		WithRole("member").
 		WithMemberships([]model.MembershipWithUser{
-			{Membership: model.Membership{ID: "m-1", TenantID: "tenant-me", UserID: "user-me", Role: "member",
+			{Membership: model.Membership{ID: "m-1", OrganizationID: "tenant-me", UserID: "user-me", Role: "member",
 				CreatedAt: time.Now(), UpdatedAt: time.Now()}},
 		}).
 		WithUsers([]model.User{
-			{ID: "user-me", TenantID: "tenant-me", Email: "me@example.com"},
+			{ID: "user-me", OrganizationID: "tenant-me", Email: "me@example.com"},
 		})
 
 	mux := delHandler(store)
@@ -113,7 +113,7 @@ func TestDeleteCurrentTenant_Owner_204(t *testing.T) {
 	store := NewMockStore().
 		WithRole("owner").
 		WithUsers([]model.User{
-			{ID: "user-me", TenantID: "tenant-me", Email: "me@example.com"},
+			{ID: "user-me", OrganizationID: "tenant-me", Email: "me@example.com"},
 		})
 
 	mux := delHandler(store)

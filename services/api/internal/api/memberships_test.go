@@ -37,7 +37,7 @@ func TestListMemberships_ReturnsTenantMemberships(t *testing.T) {
 	store := NewMockStore().WithMemberships([]model.MembershipWithUser{
 		{
 			Membership: model.Membership{
-				ID: "m-1", TenantID: "tenant-me", UserID: "u-1", Role: "admin",
+				ID: "m-1", OrganizationID: "tenant-me", UserID: "u-1", Role: "admin",
 				CreatedAt: time.Now(), UpdatedAt: time.Now(),
 			},
 			Email: "a@x.com",
@@ -67,7 +67,7 @@ func TestListMemberships_ReturnsTenantMemberships(t *testing.T) {
 
 func TestCreateMembership_InvitesExistingUser(t *testing.T) {
 	store := NewMockStore().WithUsers([]model.User{
-		{ID: "u-target", TenantID: "tenant-me", Email: "target@x.com", Name: "Target"},
+		{ID: "u-target", OrganizationID: "tenant-me", Email: "target@x.com", Name: "Target"},
 	})
 	mux := memHandler(store)
 	body := `{"email":"target@x.com","role":"member"}`
@@ -93,10 +93,10 @@ func TestCreateMembership_UserNeverLoggedIn_404(t *testing.T) {
 
 func TestCreateMembership_DuplicateReturns409(t *testing.T) {
 	store := NewMockStore().WithUsers([]model.User{
-		{ID: "u-target", TenantID: "tenant-me", Email: "dup@x.com"},
+		{ID: "u-target", OrganizationID: "tenant-me", Email: "dup@x.com"},
 	}).WithMemberships([]model.MembershipWithUser{
 		{Membership: model.Membership{
-			ID: "m-existing", TenantID: "tenant-me", UserID: "u-target", Role: "viewer",
+			ID: "m-existing", OrganizationID: "tenant-me", UserID: "u-target", Role: "viewer",
 		}},
 	})
 	mux := memHandler(store)
@@ -111,7 +111,7 @@ func TestCreateMembership_DuplicateReturns409(t *testing.T) {
 
 func TestCreateMembership_OwnerRoleRejected(t *testing.T) {
 	store := NewMockStore().WithUsers([]model.User{
-		{ID: "u-target", TenantID: "tenant-me", Email: "target@x.com"},
+		{ID: "u-target", OrganizationID: "tenant-me", Email: "target@x.com"},
 	})
 	mux := memHandler(store)
 	body := `{"email":"target@x.com","role":"owner"}`
@@ -125,7 +125,7 @@ func TestCreateMembership_OwnerRoleRejected(t *testing.T) {
 
 func TestCreateMembership_AdminInviteByNonOwnerForbidden(t *testing.T) {
 	store := NewMockStore().WithRole("admin").WithUsers([]model.User{
-		{ID: "u-target", TenantID: "tenant-me", Email: "target@x.com"},
+		{ID: "u-target", OrganizationID: "tenant-me", Email: "target@x.com"},
 	})
 	mux := memHandler(store)
 	body := `{"email":"target@x.com","role":"admin"}`
@@ -139,7 +139,7 @@ func TestCreateMembership_AdminInviteByNonOwnerForbidden(t *testing.T) {
 
 func TestCreateMembership_InvalidRole(t *testing.T) {
 	store := NewMockStore().WithUsers([]model.User{
-		{ID: "u-target", TenantID: "tenant-me", Email: "x@x.com"},
+		{ID: "u-target", OrganizationID: "tenant-me", Email: "x@x.com"},
 	})
 	mux := memHandler(store)
 	body := `{"email":"x@x.com","role":"superuser"}`
@@ -155,7 +155,7 @@ func TestCreateMembership_InvalidRole(t *testing.T) {
 
 func TestUpdateMembershipRole_BasicChange(t *testing.T) {
 	store := NewMockStore().WithMemberships([]model.MembershipWithUser{
-		{Membership: model.Membership{ID: "m-1", TenantID: "tenant-me", UserID: "u-1", Role: "viewer"}},
+		{Membership: model.Membership{ID: "m-1", OrganizationID: "tenant-me", UserID: "u-1", Role: "viewer"}},
 	})
 	mux := memHandler(store)
 	body := `{"role":"member"}`
@@ -169,7 +169,7 @@ func TestUpdateMembershipRole_BasicChange(t *testing.T) {
 
 func TestUpdateMembershipRole_LastOwnerReturns409(t *testing.T) {
 	store := NewMockStore().WithMemberships([]model.MembershipWithUser{
-		{Membership: model.Membership{ID: "m-1", TenantID: "tenant-me", UserID: "u-1", Role: "owner"}},
+		{Membership: model.Membership{ID: "m-1", OrganizationID: "tenant-me", UserID: "u-1", Role: "owner"}},
 	})
 	mux := memHandler(store)
 	body := `{"role":"admin"}`
@@ -184,7 +184,7 @@ func TestUpdateMembershipRole_LastOwnerReturns409(t *testing.T) {
 func TestUpdateMembershipRole_AdminPromoteToAdminBlocked(t *testing.T) {
 	// caller is admin, target is member; promoting to admin requires owner perm.
 	store := NewMockStore().WithRole("admin").WithMemberships([]model.MembershipWithUser{
-		{Membership: model.Membership{ID: "m-1", TenantID: "tenant-me", UserID: "u-1", Role: "member"}},
+		{Membership: model.Membership{ID: "m-1", OrganizationID: "tenant-me", UserID: "u-1", Role: "member"}},
 	})
 	mux := memHandler(store)
 	body := `{"role":"admin"}`
@@ -198,7 +198,7 @@ func TestUpdateMembershipRole_AdminPromoteToAdminBlocked(t *testing.T) {
 
 func TestUpdateMembershipRole_OwnerRoleRejected(t *testing.T) {
 	store := NewMockStore().WithMemberships([]model.MembershipWithUser{
-		{Membership: model.Membership{ID: "m-1", TenantID: "tenant-me", UserID: "u-1", Role: "admin"}},
+		{Membership: model.Membership{ID: "m-1", OrganizationID: "tenant-me", UserID: "u-1", Role: "admin"}},
 	})
 	mux := memHandler(store)
 	body := `{"role":"owner"}`
@@ -215,8 +215,8 @@ func TestUpdateMembershipRole_OwnerRoleRejected(t *testing.T) {
 func TestDeleteMembership_SelfLeaveAllowed(t *testing.T) {
 	// caller is viewer (no manage perms), but is removing their own row.
 	store := NewMockStore().WithRole("viewer").WithMemberships([]model.MembershipWithUser{
-		{Membership: model.Membership{ID: "m-self", TenantID: "tenant-me", UserID: "user-me", Role: "viewer"}},
-		{Membership: model.Membership{ID: "m-owner", TenantID: "tenant-me", UserID: "u-owner", Role: "owner"}},
+		{Membership: model.Membership{ID: "m-self", OrganizationID: "tenant-me", UserID: "user-me", Role: "viewer"}},
+		{Membership: model.Membership{ID: "m-owner", OrganizationID: "tenant-me", UserID: "u-owner", Role: "owner"}},
 	})
 	mux := memHandler(store)
 	w := httptest.NewRecorder()
@@ -230,7 +230,7 @@ func TestDeleteMembership_SelfLeaveAllowed(t *testing.T) {
 func TestDeleteMembership_LastOwnerSelfLeaveBlocked(t *testing.T) {
 	// Even self-leave must respect last-owner guard.
 	store := NewMockStore().WithMemberships([]model.MembershipWithUser{
-		{Membership: model.Membership{ID: "m-self", TenantID: "tenant-me", UserID: "user-me", Role: "owner"}},
+		{Membership: model.Membership{ID: "m-self", OrganizationID: "tenant-me", UserID: "user-me", Role: "owner"}},
 	})
 	mux := memHandler(store)
 	w := httptest.NewRecorder()
@@ -243,7 +243,7 @@ func TestDeleteMembership_LastOwnerSelfLeaveBlocked(t *testing.T) {
 
 func TestDeleteMembership_AdminCannotDeleteAdmin(t *testing.T) {
 	store := NewMockStore().WithRole("admin").WithMemberships([]model.MembershipWithUser{
-		{Membership: model.Membership{ID: "m-target", TenantID: "tenant-me", UserID: "u-target", Role: "admin"}},
+		{Membership: model.Membership{ID: "m-target", OrganizationID: "tenant-me", UserID: "u-target", Role: "admin"}},
 	})
 	mux := memHandler(store)
 	w := httptest.NewRecorder()
@@ -258,7 +258,7 @@ func TestDeleteMembership_AdminCannotDeleteAdmin(t *testing.T) {
 
 func TestTransferOwnership_TargetNotMember(t *testing.T) {
 	store := NewMockStore().WithMemberships([]model.MembershipWithUser{
-		{Membership: model.Membership{ID: "m-self", TenantID: "tenant-me", UserID: "user-me", Role: "owner"}},
+		{Membership: model.Membership{ID: "m-self", OrganizationID: "tenant-me", UserID: "user-me", Role: "owner"}},
 	})
 	mux := memHandler(store)
 	body := `{"to_user_id":"u-stranger"}`
@@ -272,8 +272,8 @@ func TestTransferOwnership_TargetNotMember(t *testing.T) {
 
 func TestTransferOwnership_Atomic(t *testing.T) {
 	store := NewMockStore().WithMemberships([]model.MembershipWithUser{
-		{Membership: model.Membership{ID: "m-self", TenantID: "tenant-me", UserID: "user-me", Role: "owner"}},
-		{Membership: model.Membership{ID: "m-target", TenantID: "tenant-me", UserID: "u-target", Role: "admin"}},
+		{Membership: model.Membership{ID: "m-self", OrganizationID: "tenant-me", UserID: "user-me", Role: "owner"}},
+		{Membership: model.Membership{ID: "m-target", OrganizationID: "tenant-me", UserID: "u-target", Role: "admin"}},
 	})
 	mux := memHandler(store)
 	body := `{"to_user_id":"u-target"}`

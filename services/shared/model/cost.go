@@ -7,10 +7,10 @@ import "time"
 
 // CostRecord is the normalized cost entry across all cloud providers.
 type CostRecord struct {
-	Provider          string            `json:"provider"`              // aws | gcp | azure
-	AccountID         string            `json:"account_id"`            // AWS account, GCP project, Azure subscription
-	InternalAccountID *string           `json:"internal_account_id"`   // AxiaOps internal account UUID
-	Service           string            `json:"service"`               // e.g. AmazonEC2, Cloud Storage
+	Provider          string            `json:"provider"`            // aws | gcp | azure
+	AccountID         string            `json:"account_id"`          // AWS account, GCP project, Azure subscription
+	InternalAccountID *string           `json:"internal_account_id"` // AxiaOps internal account UUID
+	Service           string            `json:"service"`             // e.g. AmazonEC2, Cloud Storage
 	Region            string            `json:"region"`
 	ResourceID        string            `json:"resource_id"`
 	Amount            float64           `json:"amount"`

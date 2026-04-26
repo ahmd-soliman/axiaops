@@ -242,8 +242,8 @@ func (s *Store) LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 	return zombies, tx.Commit(ctx)
 }
 
-// UpsertTenant creates a tenant on first login or returns the existing one.
-func (s *Store) UpsertTenant(ctx context.Context, orgCode, name string) (model.Tenant, error) {
+// UpsertOrganization creates a tenant on first login or returns the existing one.
+func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (model.Organization, error) {
 	now := time.Now().UTC()
 	id := uuid.New().String()
 
@@ -254,25 +254,25 @@ func (s *Store) UpsertTenant(ctx context.Context, orgCode, name string) (model.T
 		id, orgCode, name, now,
 	)
 	if err != nil {
-		return model.Tenant{}, fmt.Errorf("postgres: upsert tenant: %w", err)
+		return model.Organization{}, fmt.Errorf("postgres: upsert tenant: %w", err)
 	}
 
-	var t model.Tenant
+	var t model.Organization
 	err = s.pool.QueryRow(ctx,
 		`SELECT id, org_code, name, created_at FROM tenants WHERE org_code = $1`, orgCode,
 	).Scan(&t.ID, &t.OrgCode, &t.Name, &t.CreatedAt)
 	if err != nil {
-		return model.Tenant{}, fmt.Errorf("postgres: fetch tenant: %w", err)
+		return model.Organization{}, fmt.Errorf("postgres: fetch tenant: %w", err)
 	}
 	return t, nil
 }
 
-// EnsureTenant inserts a tenant with a caller-supplied id if no row with that
-// id exists yet. Unlike UpsertTenant, the id is pinned and the row is never
+// EnsureOrganization inserts a tenant with a caller-supplied id if no row with that
+// id exists yet. Unlike UpsertOrganization, the id is pinned and the row is never
 // modified on conflict. Used by dev mode to guarantee a known-id tenant row
 // so that FK references from accounts/zombies/etc. resolve without requiring
 // a prior write path to have auto-created the row.
-func (s *Store) EnsureTenant(ctx context.Context, id, orgCode, name string) error {
+func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO tenants (id, org_code, name, created_at)
 		VALUES ($1, $2, $3, $4)
@@ -314,7 +314,7 @@ func (s *Store) EnsureUser(ctx context.Context, u model.User) error {
 			email     = EXCLUDED.email,
 			name      = EXCLUDED.name,
 			last_seen = EXCLUDED.last_seen`,
-		u.ID, u.TenantID, kindeSub, u.Email, u.Name, now,
+		u.ID, u.OrganizationID, kindeSub, u.Email, u.Name, now,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: ensure user: %w", err)
@@ -343,7 +343,7 @@ func (s *Store) UpsertUser(ctx context.Context, tenantID, kindeSub, email, name 
 	var u model.User
 	err = s.pool.QueryRow(ctx,
 		`SELECT id, tenant_id, kinde_sub, email, name, created_at, last_seen FROM users WHERE kinde_sub = $1`, kindeSub,
-	).Scan(&u.ID, &u.TenantID, &u.KindeSub, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
+	).Scan(&u.ID, &u.OrganizationID, &u.KindeSub, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
 	if err != nil {
 		return model.User{}, fmt.Errorf("postgres: fetch user: %w", err)
 	}
@@ -374,7 +374,7 @@ func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
 			region              = EXCLUDED.region,
 			status              = EXCLUDED.status,
 			scan_interval_hours = EXCLUDED.scan_interval_hours`,
-		a.ID, a.TenantID, a.Provider, a.Label, a.AccountID,
+		a.ID, a.OrganizationID, a.Provider, a.Label, a.AccountID,
 		a.AccessKeyID, a.SecretEncrypted, a.Region, a.Status, a.ScanIntervalHours, a.CreatedAt,
 	)
 	if err != nil {
@@ -408,7 +408,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	for rows.Next() {
 		var a model.Account
 		if err := rows.Scan(
-			&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
+			&a.ID, &a.OrganizationID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
 			&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -447,7 +447,7 @@ func (s *Store) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
 	for rows.Next() {
 		var a model.Account
 		if err := rows.Scan(
-			&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
+			&a.ID, &a.OrganizationID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
 			&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -477,7 +477,7 @@ func (s *Store) GetAccount(ctx context.Context, id string) (model.Account, error
 		SELECT id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted,
 		       region, status, last_scanned_at, scan_interval_hours, created_at
 		FROM accounts WHERE id = $1`, id,
-	).Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
+	).Scan(&a.ID, &a.OrganizationID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
 		&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt)
 	if err != nil {
 		return model.Account{}, err
@@ -1327,7 +1327,7 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 		var userID, ipAddr *string
 		var metadataJSON []byte
 		if err := rows.Scan(
-			&e.ID, &e.TenantID, &userID, &e.ActorEmail, &e.Action,
+			&e.ID, &e.OrganizationID, &userID, &e.ActorEmail, &e.Action,
 			&e.ResourceType, &e.ResourceID, &e.Reason, &metadataJSON,
 			&e.RequestID, &ipAddr, &e.UserAgent, &e.CreatedAt,
 		); err != nil {
@@ -1469,7 +1469,7 @@ func (s *Store) ListMemberships(ctx context.Context) ([]model.MembershipWithUser
 	for rows.Next() {
 		var mu model.MembershipWithUser
 		if err := rows.Scan(
-			&mu.ID, &mu.TenantID, &mu.UserID, &mu.Role, &mu.InvitedBy,
+			&mu.ID, &mu.OrganizationID, &mu.UserID, &mu.Role, &mu.InvitedBy,
 			&mu.CreatedAt, &mu.UpdatedAt, &mu.Email, &mu.Name,
 		); err != nil {
 			return nil, fmt.Errorf("postgres: list memberships scan: %w", err)
@@ -1497,7 +1497,7 @@ func (s *Store) GetMembership(ctx context.Context, id string) (model.Membership,
 	err = tx.QueryRow(ctx, `
 		SELECT id, tenant_id, user_id, role, COALESCE(invited_by, ''), created_at, updated_at
 		FROM memberships WHERE id = $1`, id,
-	).Scan(&m.ID, &m.TenantID, &m.UserID, &m.Role, &m.InvitedBy, &m.CreatedAt, &m.UpdatedAt)
+	).Scan(&m.ID, &m.OrganizationID, &m.UserID, &m.Role, &m.InvitedBy, &m.CreatedAt, &m.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Membership{}, storage.ErrMembershipNotFound
 	}
@@ -1530,7 +1530,7 @@ func (s *Store) SaveMembership(ctx context.Context, m model.Membership) error {
 	_, err = tx.Exec(ctx, `
 		INSERT INTO memberships (id, tenant_id, user_id, role, invited_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-		id, m.TenantID, m.UserID, m.Role, invitedBy, now,
+		id, m.OrganizationID, m.UserID, m.Role, invitedBy, now,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -1764,7 +1764,7 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, e
 		FROM users
 		WHERE tenant_id = $1 AND lower(email) = lower($2)`,
 		tenantID, email,
-	).Scan(&u.ID, &u.TenantID, &u.KindeSub, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
+	).Scan(&u.ID, &u.OrganizationID, &u.KindeSub, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, storage.ErrUserNotFound
 	}
@@ -1829,10 +1829,10 @@ func (s *Store) DeleteUser(ctx context.Context, userID string) error {
 	return tx.Commit(ctx)
 }
 
-// DeleteTenantCascade purges every row scoped to tenantID in FK-safe order
+// DeleteOrganizationCascade purges every row scoped to tenantID in FK-safe order
 // and then drops the tenant row itself. See docs/audit_trail_plan.md §7
 // — this is the one path that purges audit_log.
-func (s *Store) DeleteTenantCascade(ctx context.Context, tenantID string) error {
+func (s *Store) DeleteOrganizationCascade(ctx context.Context, tenantID string) error {
 	if tenantID == "" {
 		return fmt.Errorf("postgres: delete tenant: tenantID required")
 	}

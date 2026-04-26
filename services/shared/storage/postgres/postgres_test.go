@@ -128,13 +128,13 @@ func newTestStore(t *testing.T) *postgres.Store {
 
 // newTenantCtx creates a fresh tenant and returns a context carrying its ID.
 // Each test gets its own tenant so RLS isolates test data naturally.
-func newTenantCtx(t *testing.T, s *postgres.Store) (context.Context, model.Tenant) {
+func newTenantCtx(t *testing.T, s *postgres.Store) (context.Context, model.Organization) {
 	t.Helper()
 	ctx := context.Background()
 	orgCode := "test-org-" + uuid.New().String()
-	tenant, err := s.UpsertTenant(ctx, orgCode, "Test Org")
+	tenant, err := s.UpsertOrganization(ctx, orgCode, "Test Org")
 	if err != nil {
-		t.Fatalf("UpsertTenant: %v", err)
+		t.Fatalf("UpsertOrganization: %v", err)
 	}
 	return storage.WithTenantID(ctx, tenant.ID), tenant
 }
@@ -356,15 +356,15 @@ func TestZombies_TenantIsolation(t *testing.T) {
 	}
 }
 
-// ── UpsertTenant ─────────────────────────────────────────────────────────────
+// ── UpsertOrganization ─────────────────────────────────────────────────────────────
 
-func TestUpsertTenant_CreatesOnFirstCall(t *testing.T) {
+func TestUpsertOrganization_CreatesOnFirstCall(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	tenant, err := s.UpsertTenant(ctx, "org_"+uuid.New().String(), "Acme Corp")
+	tenant, err := s.UpsertOrganization(ctx, "org_"+uuid.New().String(), "Acme Corp")
 	if err != nil {
-		t.Fatalf("UpsertTenant: %v", err)
+		t.Fatalf("UpsertOrganization: %v", err)
 	}
 	if tenant.ID == "" {
 		t.Error("expected non-empty tenant ID")
@@ -374,36 +374,36 @@ func TestUpsertTenant_CreatesOnFirstCall(t *testing.T) {
 	}
 }
 
-func TestUpsertTenant_ReturnsSameIDOnSecondCall(t *testing.T) {
+func TestUpsertOrganization_ReturnsSameIDOnSecondCall(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	orgCode := "org_" + uuid.New().String()
 
-	first, err := s.UpsertTenant(ctx, orgCode, "Acme Corp")
+	first, err := s.UpsertOrganization(ctx, orgCode, "Acme Corp")
 	if err != nil {
-		t.Fatalf("first UpsertTenant: %v", err)
+		t.Fatalf("first UpsertOrganization: %v", err)
 	}
-	second, err := s.UpsertTenant(ctx, orgCode, "Acme Corp")
+	second, err := s.UpsertOrganization(ctx, orgCode, "Acme Corp")
 	if err != nil {
-		t.Fatalf("second UpsertTenant: %v", err)
+		t.Fatalf("second UpsertOrganization: %v", err)
 	}
 	if first.ID != second.ID {
 		t.Errorf("expected same tenant ID, got %s and %s", first.ID, second.ID)
 	}
 }
 
-func TestUpsertTenant_UpdatesName(t *testing.T) {
+func TestUpsertOrganization_UpdatesName(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	orgCode := "org_" + uuid.New().String()
 
-	_, err := s.UpsertTenant(ctx, orgCode, "Old Name")
+	_, err := s.UpsertOrganization(ctx, orgCode, "Old Name")
 	if err != nil {
-		t.Fatalf("first UpsertTenant: %v", err)
+		t.Fatalf("first UpsertOrganization: %v", err)
 	}
-	updated, err := s.UpsertTenant(ctx, orgCode, "New Name")
+	updated, err := s.UpsertOrganization(ctx, orgCode, "New Name")
 	if err != nil {
-		t.Fatalf("second UpsertTenant: %v", err)
+		t.Fatalf("second UpsertOrganization: %v", err)
 	}
 	if updated.Name != "New Name" {
 		t.Errorf("expected name New Name, got %s", updated.Name)
@@ -423,8 +423,8 @@ func TestUpsertUser_CreatesOnFirstLogin(t *testing.T) {
 	if user.ID == "" {
 		t.Error("expected non-empty user ID")
 	}
-	if user.TenantID != tenant.ID {
-		t.Errorf("expected tenant_id %s, got %s", tenant.ID, user.TenantID)
+	if user.OrganizationID != tenant.ID {
+		t.Errorf("expected tenant_id %s, got %s", tenant.ID, user.OrganizationID)
 	}
 	if user.Email != "alice@acme.com" {
 		t.Errorf("expected email alice@acme.com, got %s", user.Email)
@@ -455,7 +455,7 @@ func TestEnsureUser_CreatesRow(t *testing.T) {
 	s := newTestStore(t)
 	_, tenant := newTenantCtx(t, s)
 
-	u := model.User{ID: "dev-user-" + uuid.New().String(), TenantID: tenant.ID, Email: "dev@axiaops.local", Name: "Dev User"}
+	u := model.User{ID: "dev-user-" + uuid.New().String(), OrganizationID: tenant.ID, Email: "dev@axiaops.local", Name: "Dev User"}
 	if err := s.EnsureUser(context.Background(), u); err != nil {
 		t.Fatalf("EnsureUser: %v", err)
 	}
@@ -483,10 +483,10 @@ func TestEnsureUser_UpdatesOnConflict(t *testing.T) {
 	_, tenant2 := newTenantCtx(t, s)
 
 	id := "dev-user-" + uuid.New().String()
-	if err := s.EnsureUser(context.Background(), model.User{ID: id, TenantID: tenant1.ID, Email: "old@axiaops.local", Name: "Old"}); err != nil {
+	if err := s.EnsureUser(context.Background(), model.User{ID: id, OrganizationID: tenant1.ID, Email: "old@axiaops.local", Name: "Old"}); err != nil {
 		t.Fatalf("first EnsureUser: %v", err)
 	}
-	if err := s.EnsureUser(context.Background(), model.User{ID: id, TenantID: tenant2.ID, Email: "new@axiaops.local", Name: "New"}); err != nil {
+	if err := s.EnsureUser(context.Background(), model.User{ID: id, OrganizationID: tenant2.ID, Email: "new@axiaops.local", Name: "New"}); err != nil {
 		t.Fatalf("second EnsureUser: %v", err)
 	}
 
@@ -534,7 +534,7 @@ func TestUsersDevKindeSubCheckConstraint(t *testing.T) {
 func testAccount(tenantID string) model.Account {
 	return model.Account{
 		ID:                uuid.New().String(),
-		TenantID:          tenantID,
+		OrganizationID:    tenantID,
 		Provider:          "aws",
 		Label:             "dev account",
 		AccessKeyID:       "AKIAIOSFODNN7EXAMPLE",
@@ -799,7 +799,7 @@ func TestSaveResources_ReplacesOnSecondRun(t *testing.T) {
 func zombieSnapshot(tenantID, accountID string, cost float64, zombieCount int) model.ZombieSnapshot {
 	return model.ZombieSnapshot{
 		ID:               uuid.New().String(),
-		TenantID:         tenantID,
+		OrganizationID:   tenantID,
 		AccountID:        accountID,
 		SnapshotAt:       time.Now().UTC(),
 		ZombieCount:      zombieCount,
@@ -849,9 +849,9 @@ func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 	// Insert three snapshots with explicit timestamps spread one hour apart.
 	base := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
 	snapsToSave := []model.ZombieSnapshot{
-		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(2 * time.Hour), ZombieCount: 5, TotalMonthlyCost: 500, Currency: "USD"},
-		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base, ZombieCount: 1, TotalMonthlyCost: 100, Currency: "USD"},
-		{ID: uuid.New().String(), TenantID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(time.Hour), ZombieCount: 3, TotalMonthlyCost: 300, Currency: "USD"},
+		{ID: uuid.New().String(), OrganizationID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(2 * time.Hour), ZombieCount: 5, TotalMonthlyCost: 500, Currency: "USD"},
+		{ID: uuid.New().String(), OrganizationID: tenant.ID, AccountID: "acc-1", SnapshotAt: base, ZombieCount: 1, TotalMonthlyCost: 100, Currency: "USD"},
+		{ID: uuid.New().String(), OrganizationID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(time.Hour), ZombieCount: 3, TotalMonthlyCost: 300, Currency: "USD"},
 	}
 	for _, snap := range snapsToSave {
 		if err := s.SaveSnapshot(ctx, snap); err != nil {
@@ -1140,8 +1140,8 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 		t.Errorf("ip_address: got %q, want 203.0.113.7", got)
 	}
 	// tenant_id column should equal the tenant we wrote under.
-	if events[0].TenantID != tenant.ID {
-		t.Errorf("tenant_id: got %q, want %q", events[0].TenantID, tenant.ID)
+	if events[0].OrganizationID != tenant.ID {
+		t.Errorf("tenant_id: got %q, want %q", events[0].OrganizationID, tenant.ID)
 	}
 }
 

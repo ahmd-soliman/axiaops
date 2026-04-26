@@ -12,11 +12,11 @@ import (
 // strings so the dashboard can drive UI gating without bundling the
 // authz package into the JS layer.
 type meResponse struct {
-	UserID      string   `json:"user_id"`
-	TenantID    string   `json:"tenant_id"`
-	Email       string   `json:"email"`
-	Role        string   `json:"role"`
-	Permissions []string `json:"permissions"`
+	UserID         string   `json:"user_id"`
+	OrganizationID string   `json:"tenant_id"`
+	Email          string   `json:"email"`
+	Role           string   `json:"role"`
+	Permissions    []string `json:"permissions"`
 }
 
 // getMe returns the authenticated user's role and permissions. Used by the
@@ -27,7 +27,7 @@ type meResponse struct {
 // permissions array. The dashboard treats that as "removed user, redirect
 // to login."
 func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
 	email := middleware.UserEmail(r.Context())
 
@@ -45,10 +45,10 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, meResponse{
-		UserID:      uid,
-		TenantID:    tid,
-		Email:       email,
-		Role:        role,
-		Permissions: permStrs,
+		UserID:         uid,
+		OrganizationID: tid,
+		Email:          email,
+		Role:           role,
+		Permissions:    permStrs,
 	})
 }

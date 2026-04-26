@@ -31,16 +31,16 @@ func (s State) String() string {
 
 // Config holds circuit breaker configuration
 type Config struct {
-	MaxFailures     int           // Number of failures before opening
-	ResetTimeout    time.Duration // Time to wait before trying half-open
-	SuccessThreshold int          // Successes needed in half-open to close
+	MaxFailures      int           // Number of failures before opening
+	ResetTimeout     time.Duration // Time to wait before trying half-open
+	SuccessThreshold int           // Successes needed in half-open to close
 }
 
 // DefaultConfig returns sensible defaults for scan operations
 func DefaultConfig() Config {
 	return Config{
-		MaxFailures:     3,
-		ResetTimeout:    30 * time.Second,
+		MaxFailures:      3,
+		ResetTimeout:     30 * time.Second,
 		SuccessThreshold: 2,
 	}
 }

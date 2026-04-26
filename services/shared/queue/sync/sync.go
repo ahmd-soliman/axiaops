@@ -14,10 +14,10 @@ import (
 
 // ScanJob mirrors queue.ScanJob to avoid an import cycle.
 type ScanJob struct {
-	TenantID   string    `json:"tenant_id"`
-	AccountID  string    `json:"account_id"`
-	EnqueuedAt time.Time `json:"enqueued_at"`
-	RequestID  string    `json:"request_id"`
+	OrganizationID string    `json:"tenant_id"`
+	AccountID      string    `json:"account_id"`
+	EnqueuedAt     time.Time `json:"enqueued_at"`
+	RequestID      string    `json:"request_id"`
 }
 
 // Queue is a synchronous HTTP-based scan queue fallback.
@@ -38,7 +38,7 @@ func New(ingestionURL string) *Queue {
 func (q *Queue) Enqueue(ctx context.Context, job ScanJob) error {
 	body, err := json.Marshal(map[string]string{
 		"account_id": job.AccountID,
-		"tenant_id":  job.TenantID,
+		"tenant_id":  job.OrganizationID,
 	})
 	if err != nil {
 		return err

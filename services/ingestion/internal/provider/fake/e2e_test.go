@@ -19,10 +19,10 @@ func TestE2E_BusinessScenarios(t *testing.T) {
 		expectActive  int
 		minSavings    float64
 	}{
-		{"startup", 3, 3, 50.0},       // Small account with EC2, RDS, Lambda, VPC
-		{"enterprise", 10, 9, 400.0},  // Large account (CloudFront/Kinesis/S3 removed — use real AWS detection)
-		{"all-zombies", 9, 0, 250.0},  // All resources idle (CloudFront/Kinesis/S3 removed)
-		{"no-zombies", 0, 5, 0.0},     // Everything active across major services
+		{"startup", 3, 3, 50.0},      // Small account with EC2, RDS, Lambda, VPC
+		{"enterprise", 10, 9, 400.0}, // Large account (CloudFront/Kinesis/S3 removed — use real AWS detection)
+		{"all-zombies", 9, 0, 250.0}, // All resources idle (CloudFront/Kinesis/S3 removed)
+		{"no-zombies", 0, 5, 0.0},    // Everything active across major services
 	}
 
 	for _, tt := range tests {

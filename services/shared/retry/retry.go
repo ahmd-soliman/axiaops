@@ -48,7 +48,7 @@ func Do(ctx context.Context, config Config, fn func() error) error {
 			}
 
 			slog.Debug("retry: backing off", "attempt", attempt, "delay_ms", delay.Milliseconds())
-			
+
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
