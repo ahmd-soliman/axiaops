@@ -159,7 +159,7 @@ Then use `make start-staging` (see "Running Locally" section above). The Docker 
 
 1. Ingestion service fetches cost data from AWS Cost Explorer (last 30 days)
 2. Fetches usage metrics from CloudWatch
-3. Stores records in PostgreSQL with tenant isolation (RLS)
+3. Stores records in PostgreSQL with organization isolation (RLS)
 4. API serves requests at `http://localhost/api/`
 
 ### Known limitations (Phase 2)
@@ -234,8 +234,8 @@ make test-integration
 ```
 
 **What it does:**
-- Spins up postgres, redis, ingestion, api, and init-tenant containers
-- Runs migrations and creates test tenant
+- Spins up postgres, redis, ingestion, api, and init-organization containers
+- Runs migrations and creates test organization
 - Executes 11 integration tests covering API, Redis, and ingestion
 - Cleans up automatically
 

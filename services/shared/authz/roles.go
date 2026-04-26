@@ -3,7 +3,7 @@
 // The model is intentionally coarse: four hardcoded roles in a strict hierarchy
 // (owner > admin > member > viewer), each granting a fixed set of permissions.
 // Permissions are checked at the HTTP middleware layer via Allows. The role
-// itself is stored per-(user, tenant) in the memberships table — see
+// itself is stored per-(user, organization) in the memberships table — see
 // docs/rbac-design.md §3 for full rationale.
 package authz
 
@@ -38,14 +38,14 @@ const (
 	PermResourcesRead Permission = "resources:read"
 	PermAuditRead     Permission = "audit:read"
 
-	PermMembersRead          Permission = "members:read"
-	PermMembersInvite        Permission = "members:invite"
-	PermMembersManageBasic   Permission = "members:manage_basic"
-	PermMembersManageAdmin   Permission = "members:manage_admin"
+	PermMembersRead        Permission = "members:read"
+	PermMembersInvite      Permission = "members:invite"
+	PermMembersManageBasic Permission = "members:manage_basic"
+	PermMembersManageAdmin Permission = "members:manage_admin"
 
-	PermTenantTransfer Permission = "tenant:transfer"
-	PermTenantDelete   Permission = "tenant:delete"
-	PermDataExport     Permission = "data:export"
+	PermOrganizationTransfer Permission = "organization:transfer"
+	PermOrganizationDelete   Permission = "organization:delete"
+	PermDataExport           Permission = "data:export"
 )
 
 // rolePermissions maps each role to its complete permission set, including
@@ -79,8 +79,8 @@ var directGrants = map[Role][]Permission{
 	},
 	RoleOwner: {
 		PermMembersManageAdmin,
-		PermTenantTransfer,
-		PermTenantDelete,
+		PermOrganizationTransfer,
+		PermOrganizationDelete,
 		PermDataExport,
 	},
 }

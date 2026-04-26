@@ -210,7 +210,7 @@ S3 bucket, and AxiaOps ingests it identically to a Cost Explorer pull.
       in CI to catch regressions when we bump the spec version.
 - [ ] Add `GET /v1/export/focus?period=YYYY-MM&format=parquet|csv` endpoint
       in `services/api/internal/api/`. Streams a FOCUS-conformant file for
-      the requesting tenant.
+      the requesting organization.
 - [ ] Schema-validate every emitted file in tests against the foundation
       reference validator.
 - [ ] Plan-gate Producer access — Team tier and above (per `docs/business_plan.md`
@@ -256,7 +256,7 @@ This is the strategic reason we did all the above.
 | Pricing page | "Team tier and above can export their AxiaOps cost data as FOCUS-conformant Parquet or CSV." |
 | `docs/focus_ingestion.md` | Step-by-step: enable FOCUS export at provider, grant S3 read, paste bucket ARN in AxiaOps account form. |
 | `docs/focus_export.md` | Step-by-step: schedule export, pipe into Snowflake / BigQuery / Athena. Includes example DDL. |
-| In-app | A small "FOCUS export" button on Cost Analytics screen for Team+ tenants. |
+| In-app | A small "FOCUS export" button on Cost Analytics screen for Team+ organizations. |
 | Sub-processor / DPA | No change — FOCUS is a data shape, not a sub-processor. The output is still customer data we already process. |
 
 ---

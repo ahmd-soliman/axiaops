@@ -37,24 +37,24 @@ The detection engine covers 15 AWS resource types across two tiers. Tier 1 (Clou
 
 The remediation workflow is the strongest differentiator. Dismiss-with-reason (intentional idle, scheduled deletion, false positive, cost accepted, other), snooze (1/7/30/90 days), and revoke are all shipped and tested. This is the feature AWS Trusted Advisor and GCP Recommender don't have, and it's the one that converts "interesting dashboard" into "workflow tool we can't live without."
 
-**Caveat — actor attribution is not yet wired end-to-end.** The `dismissed_ghosts` table has `dismissed_by` and `revoked_by` columns, but the API handler currently writes the tenant ID into those fields instead of the authenticated user's email (see `services/api/internal/api/handler.go:565` and `:595`, both flagged with a `// swap for user email when available` comment). The dashboard also does not render actor info anywhere — there's no "dismissed by X on Y" line in the detail view, and no per-resource history modal. Net effect: the schema supports a full audit trail, but today a customer cannot see who on their team approved what. The selling point "MSP shows the client a report proving who approved each dismissal" is not true in the product as it ships right now. Fix is small (see §6.2 and Week 1 of §7): ~4 hours of backend + UI work.
+**Caveat — actor attribution is not yet wired end-to-end.** The `dismissed_ghosts` table has `dismissed_by` and `revoked_by` columns, but the API handler currently writes the organization ID into those fields instead of the authenticated user's email (see `services/api/internal/api/handler.go:565` and `:595`, both flagged with a `// swap for user email when available` comment). The dashboard also does not render actor info anywhere — there's no "dismissed by X on Y" line in the detail view, and no per-resource history modal. Net effect: the schema supports a full audit trail, but today a customer cannot see who on their team approved what. The selling point "MSP shows the client a report proving who approved each dismissal" is not true in the product as it ships right now. Fix is small (see §6.2 and Week 1 of §7): ~4 hours of backend + UI work.
 
 The dashboard has 6 screens (Login, Connect AWS, Dashboard, Trend, Detail, Account Settings), is responsive, has dark-mode support, and has loading/error states. UX polish is respectable but not exceptional — sufficient for paid launch, would benefit from a second design pass before a wider public launch.
 
 **What's missing from the product for paid launch:**
 
-- **Demo mode** — No pre-loaded fake data for prospects to explore before connecting AWS. This is the single biggest activation risk, explicitly called out in the business plan as the "cold start problem." `services/ingestion/` already has a fake provider used for tests; wiring it to a demo tenant is ~1 day.
+- **Demo mode** — No pre-loaded fake data for prospects to explore before connecting AWS. This is the single biggest activation risk, explicitly called out in the business plan as the "cold start problem." `services/ingestion/` already has a fake provider used for tests; wiring it to a demo organization is ~1 day.
 - **Email/Slack alerts** — No digest, no new-ghost notifications. The business plan positions this as a core retention driver. Without it, users have to pull the dashboard manually, which kills weekly-active-user metrics. ~2–3 days (SES + Slack webhook + scheduler).
 - **CSV export** — A Team-tier feature in the pricing plan that doesn't exist in code. ~0.5 day.
 - **In-product IAM setup wizard** — The "paste your AWS access key" flow works but is not how security-aware customers want to connect. An IAM role with a cross-account AssumeRole + external ID is the industry norm; needs a guided wizard. ~2 days.
 - **Empty-state messaging** — New accounts with zero ghosts see a blank list, not "nice work, no waste detected" or "scanning in progress." ~0.5 day.
-- **Actor attribution on dismissals** — The schema stores `dismissed_by` and `revoked_by`, but the API writes tenant ID instead of user email, and the dashboard doesn't display these fields at all. This breaks the audit-trail pitch. Fix: pull user email from JWT claims in `handler.go:565` and `:595`, surface it in the detail view, optionally add a per-resource history modal. ~4 hours end-to-end.
+- **Actor attribution on dismissals** — The schema stores `dismissed_by` and `revoked_by`, but the API writes organization ID instead of user email, and the dashboard doesn't display these fields at all. This breaks the audit-trail pitch. Fix: pull user email from JWT claims in `handler.go:565` and `:595`, surface it in the detail view, optionally add a per-resource history modal. ~4 hours end-to-end.
 
 ### 2.2 Engineering quality
 
 The codebase is 14,227 lines of Go across three services, plus React for the dashboard. Test coverage is 6,278 LOC of test code — a 44% test-to-code ratio, which is excellent for a pre-revenue product. Integration tests run in an isolated Docker network with a fake AWS provider capable of generating 10,000+ resources for benchmarking.
 
-Observed strengths: consistent use of `log/slog`, correct `%w` error wrapping, `context.Context` propagation everywhere, Postgres Row-Level Security on every table (no app-level tenant filtering), AES-256-GCM for AWS credentials, and a clean handler pattern (`New(store) → Register(mux) → methods`). The go.work multi-module setup is tidy.
+Observed strengths: consistent use of `log/slog`, correct `%w` error wrapping, `context.Context` propagation everywhere, Postgres Row-Level Security on every table (no app-level organization filtering), AES-256-GCM for AWS credentials, and a clean handler pattern (`New(store) → Register(mux) → methods`). The go.work multi-module setup is tidy.
 
 Known weaknesses (from `docs/code_review_april_2026.md` and the audit): a P1 memory leak in the in-memory rate limiter (bucket map grows unbounded — ~30 min fix, or moot once Redis limiter ships in Phase 2.14), five missing unit tests (logging init, RequestID middleware, ResetStuckScans, health failure path, Retry-After header — ~1–2 hours), no end-to-end load tests, and no Grafana/alerting wired despite Prometheus metrics being exposed.
 
@@ -81,7 +81,7 @@ This is the single largest gap.
 | Component | State | Effort |
 |---|---|---|
 | Stripe Go SDK in go.mod | Missing | 5 min |
-| DB columns: `tenants.plan`, `trial_ends_at`, `stripe_customer_id`, `stripe_subscription_id` | Missing (design doc only) | 1 hour (migration + RLS update) |
+| DB columns: `organizations.plan`, `trial_ends_at`, `stripe_customer_id`, `stripe_subscription_id` | Missing (design doc only) | 1 hour (migration + RLS update) |
 | Checkout session endpoint | Missing | 3 hours |
 | Customer portal endpoint | Missing | 2 hours |
 | Webhook handler (subscription.created/updated/deleted, invoice.payment_failed) | Missing | 4 hours |
@@ -95,12 +95,12 @@ This is the single largest gap.
 
 ### 2.5 Security & compliance posture
 
-Strengths: AES-256-GCM for customer AWS secrets, Kinde OAuth with RS256 JWT and JWKS verification, Postgres RLS enforcing tenant isolation at the database level (not app level), read-only IAM policy for customer AWS access.
+Strengths: AES-256-GCM for customer AWS secrets, Kinde OAuth with RS256 JWT and JWKS verification, Postgres RLS enforcing organization isolation at the database level (not app level), read-only IAM policy for customer AWS access.
 
 Gaps:
 
 - **No SOC 2 roadmap publicly visible.** Business plan targets SOC 2 Type II in Q4 2027 but there is no Vanta/Drata/Secureframe vendor selected, no evidence collection, and no policy documentation. For SMB/MSP sales this is fine in 2026; for any enterprise conversation in 2027 it will be asked on day one.
-- **No GDPR data-export or right-to-erasure endpoints.** Business plan and `tmp/3.10-gdpr.md` design it; nothing is shipped. For EU customers this is a real legal exposure if you start taking revenue before it exists. ~1 day to implement a basic export (JSON dump of tenant data) and a deletion endpoint that cascades through foreign keys.
+- **No GDPR data-export or right-to-erasure endpoints.** Business plan and `tmp/3.10-gdpr.md` design it; nothing is shipped. For EU customers this is a real legal exposure if you start taking revenue before it exists. ~1 day to implement a basic export (JSON dump of organization data) and a deletion endpoint that cascades through foreign keys.
 - **No audit log for account creation/modification/deletion.** Dismissals have an audit-trail schema (but see §2.1 caveat — actor is not populated correctly yet); account connect/disconnect has no audit log at all. ~0.5 day.
 - **No credential rotation process documented.** If a customer's encrypted AWS secret is compromised (unlikely given AES-256-GCM, but still), there's no documented rotation procedure. ~0.5 day to write the runbook.
 - **Encryption key in docker-compose.yml** is hardcoded for dev only, which is correct — but make sure the prod deploy reads `ENCRYPTION_KEY` exclusively from Secrets Manager and never from env-var injection that could leak into logs.
@@ -109,9 +109,9 @@ Gaps:
 
 The business plan correctly identifies this as the biggest activation blocker. Current state:
 
-- Signup → Kinde OAuth redirect → tenant auto-created → Connect AWS screen. That's good.
+- Signup → Kinde OAuth redirect → organization auto-created → Connect AWS screen. That's good.
 - Connect AWS screen asks for access key + secret. This is the weak link. Security-aware prospects will hesitate or bounce. The fix is a cross-account IAM role wizard with a one-click CloudFormation template, which is what Vantage and Datadog both use.
-- No demo mode. A first-time visitor cannot explore the product without connecting a real account. The fake provider used in tests is perfect for this; wiring it to a `/demo` tenant with realistic pre-scanned data is a ~1-day win.
+- No demo mode. A first-time visitor cannot explore the product without connecting a real account. The fake provider used in tests is perfect for this; wiring it to a `/demo` organization with realistic pre-scanned data is a ~1-day win.
 - No in-product tour. Users who do connect an account land on the dashboard with no guidance on "here's what dismiss does, here's why it matters." Consider Shepherd.js or a manual tooltip-based tour. ~1 day.
 - No "first-scan-in-progress" messaging. A new account takes 30–120 seconds to complete its first scan; users see an empty dashboard and assume the product is broken.
 
@@ -276,7 +276,7 @@ Items required **before** the first invoice is issued. This is the "done means d
 - GDPR data export + deletion endpoints shipped
 - Audit log for account create/modify/delete
 - IAM cross-account role wizard (replace access-key paste form)
-- Demo mode tenant (fake provider data pre-loaded)
+- Demo mode organization (fake provider data pre-loaded)
 - Email/Slack digest alerts shipped
 - In-product first-scan progress indicator
 - Status page (Better Stack or Instatus, ~€20/mo)
@@ -312,7 +312,7 @@ This is the concrete sequence for a paid-launch by mid-June 2026.
 
 **Week 1 (Apr 21–27): Unblock production**
 - Fix rate limiter memory leak (0.5d)
-- Fix dismissal actor attribution: write user email (not tenant ID) to `dismissed_by`/`revoked_by`, surface "Dismissed by X on Y" in detail view, optional per-resource history modal (0.5d)
+- Fix dismissal actor attribution: write user email (not organization ID) to `dismissed_by`/`revoked_by`, surface "Dismissed by X on Y" in detail view, optional per-resource history modal (0.5d)
 - Write Terraform for RDS, ElastiCache, App Runner (1d)
 - Provision production infra, move secrets to Secrets Manager (1d)
 - Wire axiaops.io domain + ACM + Route 53 (0.5d)
@@ -329,7 +329,7 @@ This is the concrete sequence for a paid-launch by mid-June 2026.
 
 **Week 3 (May 5–11): Onboarding polish**
 - IAM cross-account role wizard (2d)
-- Demo mode tenant with fake provider data (1d)
+- Demo mode organization with fake provider data (1d)
 - In-product first-scan progress indicator (0.5d)
 - Empty-state copy across dashboard (0.5d)
 - Email/Slack digest alerts (1d)

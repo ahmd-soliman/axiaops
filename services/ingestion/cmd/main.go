@@ -4,7 +4,7 @@
 //  1. HTTP server (default) — listens on :8081, accepts POST /scan to run on demand.
 //  2. One-shot CLI          — set RUN_ONCE=true to run a single ingestion and exit.
 //
-// The API service triggers scans via POST /scan with {"account_id","tenant_id"}.
+// The API service triggers scans via POST /scan with {"account_id","organization_id"}.
 // Credentials for the account are read from the accounts table in the database.
 package main
 
@@ -38,43 +38,43 @@ import (
 // Prometheus metrics for ingestion service
 var (
 	// axiaops_ingestion_records_fetched_total: Total number of cost records fetched.
-	// Labels: provider, tenant_id.
+	// Labels: provider, organization_id.
 	ingestionRecordsFetchedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "axiaops_ingestion_records_fetched_total",
 			Help: "Total number of cost records fetched by the ingestion service.",
 		},
-		[]string{"provider", "tenant_id"},
+		[]string{"provider", "organization_id"},
 	)
 
 	// axiaops_ingestion_records_saved_total: Total number of cost records successfully saved to the database.
-	// Labels: provider, tenant_id, status (inserted/skipped).
+	// Labels: provider, organization_id, status (inserted/skipped).
 	ingestionRecordsSavedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "axiaops_ingestion_records_saved_total",
 			Help: "Total number of cost records saved to the database.",
 		},
-		[]string{"provider", "tenant_id", "status"},
+		[]string{"provider", "organization_id", "status"},
 	)
 
 	// axiaops_zombies_detected_total: Total number of zombie resources detected in the current scan.
-	// Labels: tenant_id, provider.
+	// Labels: organization_id, provider.
 	ingestionZombiesDetectedTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "axiaops_ingestion_zombies_detected_total",
 			Help: "Total number of zombie resources detected in the current scan.",
 		},
-		[]string{"tenant_id", "provider"},
+		[]string{"organization_id", "provider"},
 	)
 
 	// axiaops_potential_monthly_savings_usd: Current potential monthly savings in USD.
-	// Labels: tenant_id, provider.
+	// Labels: organization_id, provider.
 	ingestionPotentialMonthlySavings = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "axiaops_potential_monthly_savings_usd",
 			Help: "Current potential monthly savings in USD.",
 		},
-		[]string{"tenant_id", "provider"},
+		[]string{"organization_id", "provider"},
 	)
 )
 
@@ -123,8 +123,8 @@ func main() {
 
 	mux.HandleFunc("POST /scan", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			AccountID string `json:"account_id"`
-			TenantID  string `json:"tenant_id"`
+			AccountID      string `json:"account_id"`
+			OrganizationID string `json:"organization_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			slog.Error("scan: invalid request", "error", err)
@@ -132,7 +132,7 @@ func main() {
 			return
 		}
 
-		ctx := storage.WithTenantID(context.Background(), req.TenantID)
+		ctx := storage.WithOrganizationID(context.Background(), req.OrganizationID)
 
 		if err := runScan(ctx, store, req.AccountID); err != nil {
 			slog.Error("scan: ingestion failed", "account_id", req.AccountID, "error", err)
@@ -166,7 +166,7 @@ func main() {
 		slog.Info("worker: skipped_no_redis")
 	}
 
-	// Background ticker: trigger scheduled auto-scans across all tenants.
+	// Background ticker: trigger scheduled auto-scans across all organizations.
 	go func() {
 		scanInterval := 60 * time.Minute
 		if v := os.Getenv("SCAN_INTERVAL"); v != "" {
@@ -355,16 +355,16 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	}
 	providers = append(providers, awsClient)
 
-	tenantID := storage.TenantIDFromCtx(ctx)
-	if tenantID == "" {
+	organizationID := storage.OrganizationIDFromCtx(ctx)
+	if organizationID == "" {
 		orgCode := "aws-" + awsClient.AccountID()
-		tenant, err := store.UpsertTenant(ctx, orgCode, orgCode)
+		org, err := store.UpsertOrganization(ctx, orgCode, orgCode)
 		if err != nil {
-			return fmt.Errorf("upsert tenant: %w", err)
+			return fmt.Errorf("upsert organization: %w", err)
 		}
-		tenantID = tenant.ID
-		ctx = storage.WithTenantID(ctx, tenantID)
-		slog.Info("ingestion: using auto-created tenant", "tenant_id", tenantID, "org_code", orgCode)
+		organizationID = org.ID
+		ctx = storage.WithOrganizationID(ctx, organizationID)
+		slog.Info("ingestion: using auto-created organization", "organization_id", organizationID, "org_code", orgCode)
 	}
 
 	end, start := dateRange()
@@ -406,9 +406,9 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		}
 		skipped := int64(len(records)) - inserted
 		slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted, "skipped", skipped)
-		ingestionRecordsFetchedTotal.WithLabelValues(p.Name(), tenantID).Add(float64(len(records)))
-		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), tenantID, "inserted").Add(float64(inserted))
-		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), tenantID, "skipped").Add(float64(skipped))
+		ingestionRecordsFetchedTotal.WithLabelValues(p.Name(), organizationID).Add(float64(len(records)))
+		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), organizationID, "inserted").Add(float64(inserted))
+		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), organizationID, "skipped").Add(float64(skipped))
 
 		allRecords = append(allRecords, records...)
 	}
@@ -609,8 +609,8 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 	summary := analyzer.Summarize(zombies)
 	slog.Info("analysis: detected zombie resources", "total", summary.TotalZombies, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
-	ingestionZombiesDetectedTotal.WithLabelValues(tenantID, awsClient.Name()).Set(float64(summary.TotalZombies))
-	ingestionPotentialMonthlySavings.WithLabelValues(tenantID, awsClient.Name()).Set(summary.PotentialMonthlySave)
+	ingestionZombiesDetectedTotal.WithLabelValues(organizationID, awsClient.Name()).Set(float64(summary.TotalZombies))
+	ingestionPotentialMonthlySavings.WithLabelValues(organizationID, awsClient.Name()).Set(summary.PotentialMonthlySave)
 
 	if err := store.SaveZombies(ctx, zombies); err != nil {
 		return fmt.Errorf("save zombies: %w", err)
@@ -700,7 +700,7 @@ func expireSnoozes(ctx context.Context, store storage.Store) {
 	}
 }
 
-// scanScheduledAccounts checks all accounts across all tenants and triggers scans for those overdue.
+// scanScheduledAccounts checks all accounts across all organizations and triggers scans for those overdue.
 func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue) {
 	accounts, err := store.ListAllAccounts(ctx)
 	if err != nil {
@@ -724,15 +724,15 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Que
 			continue
 		}
 		job := queue.ScanJob{
-			TenantID:   acc.TenantID,
-			AccountID:  acc.ID,
-			EnqueuedAt: time.Now().UTC(),
+			OrganizationID: acc.OrganizationID,
+			AccountID:      acc.ID,
+			EnqueuedAt:     time.Now().UTC(),
 		}
 		if err := q.Enqueue(ctx, job); err != nil {
-			slog.Error("scan.failed_to_trigger", "account_id", acc.ID, "tenant_id", acc.TenantID, "error", err)
+			slog.Error("scan.failed_to_trigger", "account_id", acc.ID, "organization_id", acc.OrganizationID, "error", err)
 			continue
 		}
-		slog.Info("scan.scheduled", "account_id", acc.ID, "tenant_id", acc.TenantID, "interval_hours", acc.ScanIntervalHours)
+		slog.Info("scan.scheduled", "account_id", acc.ID, "organization_id", acc.OrganizationID, "interval_hours", acc.ScanIntervalHours)
 	}
 }
 

@@ -203,7 +203,7 @@ loss, regulatory change, supply-chain compromise.
 
 - `docs/compliance/policies/change_management.md` — code review required, prod deploys logged, rollback plan documented per release
 - Tag-based release process: only signed tags from `main` deploy to prod (already partial via GitLab CI)
-- Migration approval workflow: privacy lead approves any migration touching `tenants`, `users`, `accounts`, `audit_log`
+- Migration approval workflow: privacy lead approves any migration touching `organizations`, `users`, `accounts`, `audit_log`
 
 ### CC9 — Risk Mitigation
 
@@ -387,6 +387,6 @@ running when the window opens. This is the bulk of the work.
 - `docs/development_plan.md` — phase timing
 - `docs/audit_trail_plan.md` — audit log feeds CC7.3 evidence
 - `docs/production.md` — hosting topology, IAM, secrets
-- `docs/rls.md` — tenant isolation (CC6.1)
+- `docs/rls.md` — organization isolation (CC6.1)
 - `docs/auth.md` — authentication design (CC6.1)
 - `docs/improvement.md` — broader security improvement backlog

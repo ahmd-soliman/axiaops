@@ -35,13 +35,13 @@ ListCostRecords(ctx context.Context, filter CostFilter) ([]model.CostRecord, err
 - Dynamic SQL query with optional `account_id`, `service` filters
 - Time filter: `period_end >= NOW() - (days interval)`
 - Amount filter: `amount > 0` (exclude $0.000005 entries)
-- RLS enforcement: automatic via `setTenant(ctx, tx)`
-- Uses existing `idx_cost_records_tenant_period_end` index
+- RLS enforcement: automatic via `setOrganization(ctx, tx)`
+- Uses existing `idx_cost_records_organization_period_end` index
 
 **API Endpoint:**
 - `GET /v1/costs?account_id=...&service=...&days=30`
 - Returns: `[]model.CostRecord`
-- Auth: Required (tenant isolation via middleware)
+- Auth: Required (organization isolation via middleware)
 
 ### Frontend
 
@@ -92,7 +92,7 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
     tx, err := s.pool.Begin(ctx)
     if err != nil { return nil, fmt.Errorf("ListCostRecords: begin: %w", err) }
     defer tx.Rollback(ctx)
-    if err := setTenant(ctx, tx); err != nil { return nil, err }
+    if err := setOrganization(ctx, tx); err != nil { return nil, err }
 
     days := filter.Days
     if days <= 0 { days = 30 }
@@ -136,7 +136,7 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 }
 ```
 
-**Pattern:** Follows `ListSnapshotsByService` for dynamic query building with tenant isolation.
+**Pattern:** Follows `ListSnapshotsByService` for dynamic query building with organization isolation.
 
 ### Backend API Handler
 
@@ -144,7 +144,7 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 
 ```go
 func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
-    ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+    ctx := storage.WithOrganizationID(r.Context(), middleware.OrganizationID(r.Context()))
     days, _ := strconv.Atoi(r.URL.Query().Get("days"))
     
     filter := storage.CostFilter{
@@ -250,7 +250,7 @@ open http://localhost:5173
 - [ ] Storage tests pass (`make test-storage`)
 - [ ] Backend endpoint returns correct data
 - [ ] Endpoint respects `account_id`, `service`, `days` filters
-- [ ] RLS enforces tenant isolation
+- [ ] RLS enforces organization isolation
 - [ ] Frontend page loads at `/cost`
 - [ ] Period buttons filter data correctly
 - [ ] Service filter pills work

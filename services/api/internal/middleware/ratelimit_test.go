@@ -20,11 +20,11 @@ func TestRateLimiter_AllowsUpToLimit(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < rateLimitMax; i++ {
-		if !rl.Allow(ctx, "tenant-A") {
+		if !rl.Allow(ctx, "organization-A") {
 			t.Fatalf("expected allowed on request %d", i+1)
 		}
 	}
-	if rl.Allow(ctx, "tenant-A") {
+	if rl.Allow(ctx, "organization-A") {
 		t.Fatal("expected blocked after limit exceeded")
 	}
 }
@@ -34,11 +34,11 @@ func TestRateLimiter_Isolation(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < rateLimitMax; i++ {
-		rl.Allow(ctx, "tenant-1") //nolint:errcheck
+		rl.Allow(ctx, "organization-1") //nolint:errcheck
 	}
-	// tenant-2 should still have full capacity
-	if !rl.Allow(ctx, "tenant-2") {
-		t.Fatal("tenant-2 should not be affected by tenant-1's limit")
+	// organization-2 should still have full capacity
+	if !rl.Allow(ctx, "organization-2") {
+		t.Fatal("organization-2 should not be affected by organization-1's limit")
 	}
 }
 
@@ -56,7 +56,7 @@ func TestRateLimiter_Wrap_Returns429(t *testing.T) {
 	}))
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
-	r = r.WithContext(context.WithValue(r.Context(), tenantIDKey, "alpha"))
+	r = r.WithContext(context.WithValue(r.Context(), organizationIDKey, "alpha"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -72,7 +72,7 @@ func TestRateLimiter_Wrap_BypassesHealthAndOptions(t *testing.T) {
 	rl := newTestRateLimiter()
 	ctx := context.Background()
 	for i := 0; i < rateLimitMax; i++ {
-		rl.Allow(ctx, "tenant-x") //nolint:errcheck
+		rl.Allow(ctx, "organization-x") //nolint:errcheck
 	}
 
 	handler := rl.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +84,7 @@ func TestRateLimiter_Wrap_BypassesHealthAndOptions(t *testing.T) {
 		{http.MethodGet, "/health"},
 	} {
 		r := httptest.NewRequest(tc.method, tc.path, nil)
-		r = r.WithContext(context.WithValue(r.Context(), tenantIDKey, "tenant-x"))
+		r = r.WithContext(context.WithValue(r.Context(), organizationIDKey, "organization-x"))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
 		if w.Code != http.StatusOK {
@@ -93,17 +93,17 @@ func TestRateLimiter_Wrap_BypassesHealthAndOptions(t *testing.T) {
 	}
 }
 
-func TestRateLimiter_Wrap_NoTenantAllowed(t *testing.T) {
+func TestRateLimiter_Wrap_NoOrganizationAllowed(t *testing.T) {
 	rl := newTestRateLimiter()
 	handler := rl.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	r := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil) // no tenant in ctx
+	r := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil) // no organization in ctx
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for missing tenant, got %d", w.Code)
+		t.Errorf("expected 200 for missing organization, got %d", w.Code)
 	}
 }
 
@@ -111,7 +111,7 @@ func TestRateLimiter_CacheError_FailsOpen(t *testing.T) {
 	errCache := &errorCache{}
 	rl := NewRateLimiter(errCache)
 	// Should allow even when cache errors
-	if !rl.Allow(context.Background(), "tenant-err") {
+	if !rl.Allow(context.Background(), "organization-err") {
 		t.Fatal("expected fail-open on cache error")
 	}
 }
@@ -123,12 +123,12 @@ func TestRateLimiter_SurvivesRestart(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < rateLimitMax; i++ {
-		rl1.Allow(ctx, "tenant-restart") //nolint:errcheck
+		rl1.Allow(ctx, "organization-restart") //nolint:errcheck
 	}
 
 	// New instance, same cache — counter should be preserved.
 	rl2 := NewRateLimiter(c)
-	if rl2.Allow(ctx, "tenant-restart") {
+	if rl2.Allow(ctx, "organization-restart") {
 		t.Fatal("expected new instance to see existing counter and block")
 	}
 }

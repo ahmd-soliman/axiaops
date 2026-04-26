@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// /v1/version is auth-required (sits under /v1/) but doesn't read tenant data,
-// so a tenant context is enough — no zombies/dismissals fixtures needed.
+// /v1/version is auth-required (sits under /v1/) but doesn't read organization data,
+// so an organization context is enough — no zombies/dismissals fixtures needed.
 
 func TestVersion_DefaultsWhenEnvUnset(t *testing.T) {
 	t.Setenv("APP_VERSION", "")
@@ -17,7 +17,7 @@ func TestVersion_DefaultsWhenEnvUnset(t *testing.T) {
 	_, mux := testHandler()
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/version"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/version"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -47,7 +47,7 @@ func TestVersion_HonoursEnvVars(t *testing.T) {
 	_, mux := testHandler()
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/version"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/version"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())

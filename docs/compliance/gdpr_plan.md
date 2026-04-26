@@ -19,17 +19,17 @@ AxiaOps processes two distinct categories of data:
 
 | Category | Examples | GDPR role |
 |---|---|---|
-| **Customer (tenant) account data** | Email, name, Kinde `sub`, org code, billing details, audit log entries | We are the **data controller** for AxiaOps's own customer relationship |
+| **Customer (organization) account data** | Email, name, Kinde `sub`, org code, billing details, audit log entries | We are the **data controller** for AxiaOps's own customer relationship |
 | **Customer cloud telemetry** | AWS account IDs, ARNs, resource IDs, tags (which may contain employee names/emails), Cost Explorer line items | We are the **data processor** acting on the customer's instructions |
 
-This dual role drives most of the work below. Anything that touches *tenant
+This dual role drives most of the work below. Anything that touches *organization
 employee/operator identifiers* falls under controller obligations; anything
-that touches *tenant cloud data* falls under processor obligations and a Data
+that touches *organization cloud data* falls under processor obligations and a Data
 Processing Agreement (DPA).
 
 ### 1.2 Out of scope (explicitly)
 
-- We do not process special-category data (Art. 9). If a tenant's AWS tags
+- We do not process special-category data (Art. 9). If an organization's AWS tags
   contain such data we treat it the same as ordinary identifiers — but our
   ToS prohibits putting it there.
 - We do not target individuals or data subjects directly. Our customers are
@@ -59,11 +59,11 @@ rechecked any time a migration adds a column.
 
 | Table | Field | Purpose | Retention |
 |---|---|---|---|
-| `tenants` | `id`, `kinde_org_code`, `name` | Tenant identity | Until tenant deletion + 30 days |
-| `users` | `id`, `kinde_sub`, `email`, `last_seen` | Authentication & audit | Until tenant deletion or user removal + 30 days |
-| `accounts` | `label`, `region`, `secret_encrypted` | Customer-supplied AWS creds (label may include user names) | Until tenant deletes the account |
+| `organizations` | `id`, `kinde_org_code`, `name` | Organization identity | Until organization deletion + 30 days |
+| `users` | `id`, `kinde_sub`, `email`, `last_seen` | Authentication & audit | Until organization deletion or user removal + 30 days |
+| `accounts` | `label`, `region`, `secret_encrypted` | Customer-supplied AWS creds (label may include user names) | Until organization deletes the account |
 | `audit_log` (planned, 3.3) | `user_id`, `action`, `resource_id`, `created_at` | Security & compliance audit trail | 12 months minimum, 7 years for billing-related events |
-| `dismissed_zombies` | `dismissed_by` (user_id), `note` | Workflow audit | Until tenant deletion |
+| `dismissed_zombies` | `dismissed_by` (user_id), `note` | Workflow audit | Until organization deletion |
 
 ### 2.2 Cloud telemetry we hold (processor mode)
 
@@ -98,7 +98,7 @@ No production data leaves `eu-central-1`. CI/CD test data is synthetic.
 
 | Processing activity | Basis (Art. 6) |
 |---|---|
-| Authenticate tenant users | Contract performance — Art. 6(1)(b) |
+| Authenticate organization users | Contract performance — Art. 6(1)(b) |
 | Process cloud telemetry to detect zombies | Contract performance — same |
 | Send transactional product emails (digest, scan failed) | Legitimate interest — Art. 6(1)(f), opt-out provided |
 | Send marketing emails | Consent — Art. 6(1)(a), explicit opt-in only |
@@ -126,11 +126,11 @@ The product surface for these rights is mostly already sketched in §3.10 of
 
 | Right | UI path | Backend |
 |---|---|---|
-| Access (Art. 15) | Settings → "Download my data" | `GET /v1/export` — JSON dump of tenant data |
+| Access (Art. 15) | Settings → "Download my data" | `GET /v1/export` — JSON dump of organization data |
 | Rectification (Art. 16) | Settings → profile fields are editable | `PATCH /v1/users/me` |
-| Erasure (Art. 17) | Settings → "Delete account" with 14-day grace period | `DELETE /v1/tenants/me` (soft-delete) → cron hard-delete after 14 days |
+| Erasure (Art. 17) | Settings → "Delete account" with 14-day grace period | `DELETE /v1/organizations/me` (soft-delete) → cron hard-delete after 14 days |
 | Portability (Art. 20) | Same as Access — JSON is structured & machine-readable | `GET /v1/export` |
-| Restriction (Art. 18) | Email request only (rare in B2B SaaS) | Manual — DB flag `processing_restricted_at` on tenant |
+| Restriction (Art. 18) | Email request only (rare in B2B SaaS) | Manual — DB flag `processing_restricted_at` on organization |
 | Objection (Art. 21) | Email-only opt-out for legitimate-interest emails | Manual — `notification_preferences` row |
 | Automated decisions (Art. 22) | N/A — we don't make automated decisions about people | — |
 
@@ -138,7 +138,7 @@ The product surface for these rights is mostly already sketched in §3.10 of
 
 For erasure:
 
-1. Soft-delete: tenant disappears from UI immediately, all API calls return 404, scheduled scans cancelled, Stripe subscription cancelled via API call (not webhook).
+1. Soft-delete: organization disappears from UI immediately, all API calls return 404, scheduled scans cancelled, Stripe subscription cancelled via API call (not webhook).
 2. Grace period: 14 days, undoable by privacy lead via runbook.
 3. Hard-delete: cascade across all tables in §2.1 and §2.2; encrypted secrets zeroised; audit log entries anonymised (user_id → tombstone, log row preserved for 12 months).
 4. Backups: RDS snapshots aged out within 7 days; documented in privacy policy as the maximum residual retention window.
@@ -146,17 +146,17 @@ For erasure:
 
 For export:
 
-1. JSON download covers everything in §2.1 and §2.2 for the requesting tenant.
+1. JSON download covers everything in §2.1 and §2.2 for the requesting organization.
 2. Excludes secrets, sub-processor identifiers, internal-only audit fields (`created_by_internal`).
 3. Generated on demand (not pre-built); generation logged in audit log.
-4. Returned within 30 days (Art. 12(3)) — target ≤ 1 hour for normal tenants, ≤ 24 h for tenants > 1M records.
+4. Returned within 30 days (Art. 12(3)) — target ≤ 1 hour for normal organizations, ≤ 24 h for organizations > 1M records.
 
-### 4.3 DSR intake for non-tenants (data subjects who aren't our customers)
+### 4.3 DSR intake for non-organizations (data subjects who aren't our customers)
 
 Cloud telemetry tags can contain employee emails. If an end-user employee
 contacts us asking what data we hold about them, we route them to the
 controller (our customer) per Art. 28(3)(e) — we do **not** unilaterally
-delete data from a customer's tenant. Privacy policy must say this plainly.
+delete data from a customer's organization. Privacy policy must say this plainly.
 
 ### 4.4 SLA
 
@@ -221,9 +221,9 @@ The list below is the GDPR-specific subset; SOC 2 expands it.
 
 - Encryption at rest: AES-256-GCM on customer secrets in DB (`crypto/`), RDS storage encryption, EBS encryption.
 - Encryption in transit: TLS 1.2+ everywhere (App Runner managed certs, RDS SSL).
-- Tenant isolation: PostgreSQL Row-Level Security on every table (`docs/rls.md`).
+- Organization isolation: PostgreSQL Row-Level Security on every table (`docs/rls.md`).
 - Auth: Kinde OAuth 2.0 PKCE, RS256 JWTs, JWKS rotation cached with 1h TTL.
-- Audit trail: `audit_log` table (Phase 3.3) — every mutation logged with user, tenant, action, resource.
+- Audit trail: `audit_log` table (Phase 3.3) — every mutation logged with user, organization, action, resource.
 - Backups: 7-day RDS automated snapshots; tested restore drill scheduled quarterly (deliverable).
 - Secrets management: AWS Secrets Manager in production; no `.env` files committed.
 
@@ -250,7 +250,7 @@ The list below is the GDPR-specific subset; SOC 2 expands it.
 
 1. **Detection** — alert source (alarm, customer report, security researcher, …).
 2. **Triage (≤ 4 h)** — privacy lead + on-call engineer; classify severity (P0–P3).
-3. **Contain (≤ 24 h)** — rotate keys, revoke tokens, isolate affected tenants.
+3. **Contain (≤ 24 h)** — rotate keys, revoke tokens, isolate affected organizations.
 4. **Assess (≤ 48 h)** — what data, how many subjects, attack vector, reversibility.
 5. **Notify DPA (≤ 72 h)** — Bavarian DPA (BayLDA) for Bavarian-registered entities; submit via online form. Template letter pre-drafted.
 6. **Notify subjects (high-risk only)** — email + dashboard banner; template pre-drafted.
@@ -317,12 +317,12 @@ paperwork" wrapper.
 
 ### Phase 3 — Sep 2026 (concurrent with §3.10 task)
 
-- [ ] `DELETE /v1/tenants/me` (soft + hard delete) — §4.2
+- [ ] `DELETE /v1/organizations/me` (soft + hard delete) — §4.2
 - [ ] `GET /v1/export` — §4.2
 - [ ] Privacy policy + ToS + DPA template + Sub-processors page — §3.2
 - [ ] DSR intake form (`gdpr@axiaops.io` + ticketing)
 - [ ] Audit log entries for every DSR step
-- [ ] Stripe cancellation on tenant deletion
+- [ ] Stripe cancellation on organization deletion
 - [ ] User anonymisation on hard-delete (audit_log tombstone)
 - [ ] Notification preferences UI (legitimate-interest opt-out)
 
@@ -365,6 +365,6 @@ paperwork" wrapper.
 - `Tasks.md` — Phase 3 tracker (engineering surface + paperwork checklist)
 - `docs/audit_trail_plan.md` — audit log design (feeds DSR & breach work)
 - `docs/auth.md`, `docs/auth_flow.md` — authentication design
-- `docs/rls.md` — tenant isolation
+- `docs/rls.md` — organization isolation
 - `docs/production.md` — hosting topology, IAM, log retention
 - `docs/compliance/soc2_plan.md` — companion plan; many controls are shared

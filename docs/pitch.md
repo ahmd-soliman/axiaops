@@ -185,7 +185,7 @@ AxiaOps finds exactly those resources — the ones outside your IaC state.
 
 ## "How do you handle multi-account and multi-cloud setups?"
 
-**Today:** AxiaOps supports multiple AWS accounts per tenant — connect each one with read-only credentials and see all detected ghosts in one dashboard, with per-account and aggregated views.
+**Today:** AxiaOps supports multiple AWS accounts per organization — connect each one with read-only credentials and see all detected ghosts in one dashboard, with per-account and aggregated views.
 
 **Q2 2026:** cross-account IAM role onboarding wizard replaces the access-key paste flow. One CloudFormation template per account, no long-lived credentials stored on AxiaOps's side.
 
@@ -243,7 +243,7 @@ The remediation workflow in Phase 3 adds a one-click option, but it still requir
 
 The data AxiaOps processes — cost line items, resource IDs, usage metrics — does not contain personal data. It is infrastructure billing data.
 
-**SaaS version:** data is stored in EU data centers (Frankfurt) and never transferred outside the EU. A Data Processing Agreement (DPA) is available on request. Right-to-erasure (full tenant deletion with cascade) is shipped today; data export endpoint is shipping Q2 2026.
+**SaaS version:** data is stored in EU data centers (Frankfurt) and never transferred outside the EU. A Data Processing Agreement (DPA) is available on request. Right-to-erasure (full organization deletion with cascade) is shipped today; data export endpoint is shipping Q2 2026.
 
 **Self-hosted:** pilots available Q2 2026 — talk to sales. Once available, all data stays within your own infrastructure in your chosen region.
 
