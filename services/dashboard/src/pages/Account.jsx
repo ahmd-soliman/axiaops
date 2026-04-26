@@ -117,6 +117,8 @@ function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
       blurb="Permanently deletes your AxiaOps user. Your audit-log entries are anonymised across every tenant you belonged to. This cannot be undone."
       buttonLabel="Delete my account"
       onClick={ctrl.openModal}
+      disabled={ctrl.target === ''}
+      disabledHint="Email unavailable on your session — reload and try again."
     >
       <DestructiveConfirmModal
         ctrl={ctrl}
@@ -146,6 +148,8 @@ function DeleteTenantSection({ t, isDark, orgName, toast, onLogout }) {
       blurb="Permanently deletes the entire tenant and every record it owns: cloud accounts, scan history, dismissals, audit log, and member memberships. Members lose access immediately. This cannot be undone."
       buttonLabel="Delete tenant"
       onClick={ctrl.openModal}
+      disabled={ctrl.target === ''}
+      disabledHint="Tenant name unavailable on your session — reload and try again."
     >
       <DestructiveConfirmModal
         ctrl={ctrl}
@@ -270,7 +274,7 @@ function Section({ t, title, children }) {
   );
 }
 
-function DangerSection({ t, isDark, title, blurb, buttonLabel, onClick, children }) {
+function DangerSection({ t, isDark, title, blurb, buttonLabel, onClick, disabled, disabledHint, children }) {
   const dangerBorder = isDark ? 'rgba(239,68,68,0.5)' : '#fecaca';
   const dangerTint = isDark ? 'rgba(239,68,68,0.07)' : '#fef2f2';
   return (
@@ -285,7 +289,18 @@ function DangerSection({ t, isDark, title, blurb, buttonLabel, onClick, children
     >
       <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: '#ef4444' }}>{title}</h2>
       <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>{blurb}</p>
-      <button type="button" onClick={onClick} style={primaryDangerButton()}>{buttonLabel}</button>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        title={disabled ? disabledHint : undefined}
+        style={primaryDangerButton(disabled)}
+      >
+        {buttonLabel}
+      </button>
+      {disabled && disabledHint && (
+        <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: t.textMuted }}>{disabledHint}</p>
+      )}
       {children}
     </section>
   );

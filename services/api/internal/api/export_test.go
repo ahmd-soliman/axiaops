@@ -205,6 +205,17 @@ func TestExport_AuditLog_PagesPastSinglePage(t *testing.T) {
 		}
 		seen[e.ID] = true
 	}
+
+	// Chronological (oldest-first) order is the export contract — a privacy
+	// lead reads the file end-to-end. Pagination collects newest-first; the
+	// handler reverses. The seed assigned increasing IDs to increasing
+	// timestamps, so ascending IDs prove ascending CreatedAt.
+	for i := 1; i < len(doc.AuditLog); i++ {
+		if doc.AuditLog[i].ID <= doc.AuditLog[i-1].ID {
+			t.Fatalf("audit_log not chronological at index %d: id %d follows id %d",
+				i, doc.AuditLog[i].ID, doc.AuditLog[i-1].ID)
+		}
+	}
 }
 
 func TestExport_EmptyTenant_200(t *testing.T) {
