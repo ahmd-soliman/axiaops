@@ -78,7 +78,7 @@ func (h *Handler) deleteCurrentTenant(w http.ResponseWriter, r *http.Request) {
 	// by the time the request returns. The slog/Prometheus side is the
 	// permanent ops trail.
 	audit.Record(r, h.store, model.AuditEvent{
-		Action:       model.AuditActionTenantDeleted,
+		Action:       model.AuditActionOrganizationDeleted,
 		ResourceType: "tenant",
 		ResourceID:   tid,
 	})
