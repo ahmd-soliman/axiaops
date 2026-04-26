@@ -5,6 +5,17 @@
 **Scope:** Commercial readiness, positioning, and channel strategy — grounded in what is actually shipped in `main`, not what docs or pitches claim.
 **Companion docs:** `docs/market-readiness-2026-04.md` (readiness scorecard), `docs/competition.md` (competitor deep-dive), `docs/business_plan.md` (pricing + ICP + financial plan), `docs/pitch.md` (Q&A talking points), `docs/go_live_checklist.md`.
 
+> **April 2026 ICP refinement — addendum**
+>
+> Earlier sections of this document treat "MSPs" as a single ICP-1. After a structured review (see §4.5 below — added April 2026), this is revised. The original "MSP" label conflated three distinct buyer personas: (a) general IT MSPs (the ConnectWise/N-able/r/msp population — wrong customer for AxiaOps), (b) specialist AWS Solution Provider partners (real but hard to sell to, with strong incumbents in CloudCheckr/Spot.io and Flexera), and (c) independent FinOps consultants (real, plausible, but a tiny global segment). Revised priority order:
+>
+> - **ICP-1 (highest priority): independent FinOps consultants and small specialist consultancies (1–5 people).** Real buyer, fast decision cycle, per-account pricing fits. Ceiling: 30–80 paying customers globally.
+> - **ICP-2: mid-market EU DevOps/platform teams (€10K–€100K AWS spend).** Larger reachable population, weaker wedge — Vantage and Unusd already serve them.
+> - **ICP-3 (deprioritized): specialist AWS Solution Provider partners.** Strong incumbents, channel-mediated buying, long sales cycles. Revisit when the multi-client dashboard ships.
+> - **Out of scope: general IT MSPs.** Different buyer; their customers don't have AWS workloads at the scale that justifies €249+/mo tooling.
+>
+> The honest reachable SAM after this refinement is ~300–1,500 firms globally, an order of magnitude smaller than the earlier "50K MSPs" framing in `business_plan.md` (now corrected). Realistic 24-month SOM: 80–200 customers / €16K–€40K MRR. The €5M exit math now requires the optimistic case to play out (low probability without a multi-client dashboard + channel motion).
+>
 > **TL;DR — Is AxiaOps market-ready?**
 >
 > **Two parallel GTM paths, two distinct answers** (see §4):
@@ -179,10 +190,12 @@ The original business plan and the first draft of this assessment assumed one de
 - German Mittelstand CTOs, regulated industries (insurance, healthcare, fintech), and security-first enterprise will not paste access keys into a new SaaS. They will run a container image in their VPC. `pitch.md` already claims this capability exists — that claim needs to become true, not be struck.
 - This is the segment `market-readiness-2026-04.md` §4 deferred as ICP-4 "revisit 2027 Q4 post-SOC 2." Model B un-defers them: SOC 2 matters far less when the customer's data never leaves their infrastructure.
 
-**Model A remains the right model for MSPs.**
+**Model A remains the right model for FinOps consultants and AWS Solution Providers (when the multi-client dashboard ships).**
 
-- ICP-1 MSPs want one dashboard showing 30 client accounts, not 30 installs. They explicitly do not want to run yet another service. Model B is useless to them.
+- ICP-1/ICP-3 buyers want one dashboard showing multiple client accounts, not multiple installs. They explicitly do not want to run yet another service. Model B is useless to them.
 - The SaaS path stays on the published 8-week plan. Nothing changes there.
+
+> **Note (April 2026 ICP refinement):** the multi-client dashboard required to serve the AWS Solution Provider segment is **not built**. Until it ships (~5–6 weeks of focused engineering), Model A is best-suited for individual FinOps consultants serving one or two clients at a time, and for mid-market DevOps teams managing their own multiple AWS accounts — neither of whom requires per-organization white-label or multi-tenant client switching.
 
 ### 4.3 The risk Model B introduces
 
@@ -387,10 +400,11 @@ Model C is strategically attractive but engineering-heavy (cross-account IAM, re
 
 ### 4.6 Recommended sequencing
 
-1. **May 2026 — Ship Model B packaging.** Compose file, install guide, license-key gating, pricing page for self-hosted tier. Target: 2 paid self-hosted customers by end of May. Pre-requires UG only if you want to invoice under the company; otherwise a friendly-entity arrangement or a "letter of intent + invoice once UG ready" works.
-2. **June–July 2026 — Ship Model A SaaS launch.** Per the existing 8-week plan in `market-readiness-2026-04.md` §7. Model B customers provide the first testimonials.
-3. **Q3 2026 — Both channels in market.** MSPs go to SaaS; enterprise / Mittelstand go to self-hosted. Pricing page shows both options.
-4. **2027 Q1 — Revisit Model C.** If 2+ enterprise self-hosted customers are asking for managed-private, build it then.
+1. **April–May 2026 — Run the ICP validation experiment first** (see addendum at top of document). 60 cold emails to 30 EU AWS Solution Provider partners + 30 self-identified FinOps consultants. Two-week response window. Decision gate: <8 calls = redirect to mid-market DevOps and skip the multi-client dashboard build; >12 calls = build the dashboard; 8–12 = beachhead-only, no multi-client build yet. **Do not build the multi-client dashboard before this experiment runs.** It is 5–6 weeks of work whose ROI depends entirely on whether the segment engages.
+2. **May 2026 — Ship Model B packaging.** Compose file, install guide, license-key gating, pricing page for self-hosted tier. Target: 2 paid self-hosted customers by end of May. Pre-requires UG only if you want to invoice under the company; otherwise a friendly-entity arrangement or a "letter of intent + invoice once UG ready" works.
+3. **June–July 2026 — Ship Model A SaaS launch.** Per the existing 8-week plan in `market-readiness-2026-04.md` §7. Model B customers provide the first testimonials. UG incorporation target moved from August to **mid-June** (see `business_plan.md` and `funding.md`).
+4. **Q3 2026 — Both channels in market.** Sequencing depends on validation outcome: if AWS Solution Provider validation succeeded, ship multi-client dashboard for the SaaS path; if not, polish single-tenant SaaS and lean on consultants + mid-market.
+5. **2027 Q1 — Revisit Model C.** If 2+ enterprise self-hosted customers are asking for managed-private, build it then.
 
 This sequencing changes the answer to "when is AxiaOps market-ready":
 
