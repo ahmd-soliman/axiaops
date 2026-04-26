@@ -123,8 +123,8 @@ func main() {
 
 	mux.HandleFunc("POST /scan", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			AccountID string `json:"account_id"`
-			TenantID  string `json:"tenant_id"`
+			AccountID      string `json:"account_id"`
+			OrganizationID string `json:"tenant_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			slog.Error("scan: invalid request", "error", err)
@@ -132,7 +132,7 @@ func main() {
 			return
 		}
 
-		ctx := storage.WithTenantID(context.Background(), req.TenantID)
+		ctx := storage.WithTenantID(context.Background(), req.OrganizationID)
 
 		if err := runScan(ctx, store, req.AccountID); err != nil {
 			slog.Error("scan: ingestion failed", "account_id", req.AccountID, "error", err)
@@ -358,7 +358,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	tenantID := storage.TenantIDFromCtx(ctx)
 	if tenantID == "" {
 		orgCode := "aws-" + awsClient.AccountID()
-		tenant, err := store.UpsertTenant(ctx, orgCode, orgCode)
+		tenant, err := store.UpsertOrganization(ctx, orgCode, orgCode)
 		if err != nil {
 			return fmt.Errorf("upsert tenant: %w", err)
 		}
@@ -724,15 +724,15 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Que
 			continue
 		}
 		job := queue.ScanJob{
-			TenantID:   acc.TenantID,
-			AccountID:  acc.ID,
-			EnqueuedAt: time.Now().UTC(),
+			OrganizationID: acc.OrganizationID,
+			AccountID:      acc.ID,
+			EnqueuedAt:     time.Now().UTC(),
 		}
 		if err := q.Enqueue(ctx, job); err != nil {
-			slog.Error("scan.failed_to_trigger", "account_id", acc.ID, "tenant_id", acc.TenantID, "error", err)
+			slog.Error("scan.failed_to_trigger", "account_id", acc.ID, "tenant_id", acc.OrganizationID, "error", err)
 			continue
 		}
-		slog.Info("scan.scheduled", "account_id", acc.ID, "tenant_id", acc.TenantID, "interval_hours", acc.ScanIntervalHours)
+		slog.Info("scan.scheduled", "account_id", acc.ID, "tenant_id", acc.OrganizationID, "interval_hours", acc.ScanIntervalHours)
 	}
 }
 

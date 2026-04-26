@@ -72,15 +72,15 @@ type Store interface {
 	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
 	LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 
-	// UpsertTenant creates a tenant on first login or returns the existing one.
+	// UpsertOrganization creates a tenant on first login or returns the existing one.
 	// Keyed on org_code — the Kinde organisation identifier.
-	UpsertTenant(ctx context.Context, orgCode, name string) (model.Tenant, error)
+	UpsertOrganization(ctx context.Context, orgCode, name string) (model.Organization, error)
 
-	// EnsureTenant creates a tenant with a caller-supplied id if no row with
-	// that id exists yet. Unlike UpsertTenant, the id is pinned (not a UUID)
+	// EnsureOrganization creates a tenant with a caller-supplied id if no row with
+	// that id exists yet. Unlike UpsertOrganization, the id is pinned (not a UUID)
 	// and the row is never modified on conflict. Used by dev mode at startup
 	// to guarantee a known-id tenant row for FK references.
-	EnsureTenant(ctx context.Context, id, orgCode, name string) error
+	EnsureOrganization(ctx context.Context, id, orgCode, name string) error
 
 	// UpsertUser creates a user on first login or updates last_seen.
 	// Keyed on kinde_sub — the stable Kinde user identifier.
@@ -92,7 +92,7 @@ type Store interface {
 	// by dev mode at startup so DevBypass can inject a stable user_id alongside
 	// the dev tenant_id without going through the Kinde-upsert path.
 	//
-	// Only u.ID, u.TenantID, u.Email, and u.Name are read. KindeSub is derived
+	// Only u.ID, u.OrganizationID, u.Email, and u.Name are read. KindeSub is derived
 	// by the implementation (synthetic "dev:<id>" for the Postgres impl).
 	// Timestamps are set to NOW().
 	EnsureUser(ctx context.Context, u model.User) error
@@ -277,10 +277,10 @@ type Store interface {
 	// Bypasses RLS (uses the admin pool) because the operation spans tenants
 	// and audit_log requires DELETE/UPDATE privileges the app role lacks.
 	// Does not touch users whose users.tenant_id row points at a tenant being
-	// deleted in the same flow — DeleteTenantCascade handles that case.
+	// deleted in the same flow — DeleteOrganizationCascade handles that case.
 	DeleteUser(ctx context.Context, userID string) error
 
-	// DeleteTenantCascade hard-deletes a tenant and every row scoped to it,
+	// DeleteOrganizationCascade hard-deletes a tenant and every row scoped to it,
 	// in FK-safe order, in a single transaction. Used by the per-tenant
 	// right-to-erasure flow (DELETE /v1/tenants/me). Steps:
 	//   1. Anonymise audit_log entries (in OTHER tenants) for users whose
@@ -297,7 +297,7 @@ type Store interface {
 	// audit_log write recording the deletion intent — that record is purged
 	// along with everything else, but a Prometheus counter and structured
 	// log line should remain as the operations trail.
-	DeleteTenantCascade(ctx context.Context, tenantID string) error
+	DeleteOrganizationCascade(ctx context.Context, tenantID string) error
 
 	// Close releases any resources held by the store.
 	Close() error

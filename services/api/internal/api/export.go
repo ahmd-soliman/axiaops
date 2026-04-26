@@ -61,7 +61,7 @@ type tenantExportMember struct {
 type tenantExport struct {
 	SchemaVersion     string                 `json:"schema_version"`
 	GeneratedAt       time.Time              `json:"generated_at"`
-	TenantID          string                 `json:"tenant_id"`
+	OrganizationID    string                 `json:"tenant_id"`
 	Notes             string                 `json:"notes,omitempty"`
 	Members           []tenantExportMember   `json:"members"`
 	Accounts          []model.Account        `json:"accounts"`
@@ -75,7 +75,7 @@ type tenantExport struct {
 }
 
 func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	if tid == "" {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
@@ -150,10 +150,10 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 // exports are worse than a 500 because the user can't tell what's missing.
 func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tenantExport, error) {
 	exp := &tenantExport{
-		SchemaVersion: exportSchemaVersion,
-		GeneratedAt:   time.Now().UTC(),
-		TenantID:      tenantID,
-		Notes:         "Encrypted account credentials and internal-only audit fields are excluded. See docs/compliance/gdpr_plan.md §4.2.",
+		SchemaVersion:  exportSchemaVersion,
+		GeneratedAt:    time.Now().UTC(),
+		OrganizationID: tenantID,
+		Notes:          "Encrypted account credentials and internal-only audit fields are excluded. See docs/compliance/gdpr_plan.md §4.2.",
 	}
 
 	g, gctx := errgroup.WithContext(ctx)

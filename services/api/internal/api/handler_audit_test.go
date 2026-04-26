@@ -144,7 +144,7 @@ func TestAuditEmission_CreateAccount_RecordsAccountConnected(t *testing.T) {
 
 func TestAuditEmission_UpdateAccount_RecordsAccountUpdated(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
-	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-up", TenantID: "tenant-audit"}})
+	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-up", OrganizationID: "tenant-audit"}})
 	handler := middleware.DevBypass(
 		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
@@ -169,7 +169,7 @@ func TestAuditEmission_UpdateAccount_RecordsAccountUpdated(t *testing.T) {
 }
 
 func TestAuditEmission_ScanAccount_RecordsScanTriggered(t *testing.T) {
-	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-scan", TenantID: "tenant-audit", Label: "prod", Region: "eu-central-1"}})
+	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-scan", OrganizationID: "tenant-audit", Label: "prod", Region: "eu-central-1"}})
 	handler := middleware.DevBypass(
 		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
@@ -193,7 +193,7 @@ func TestAuditEmission_ScanAccount_RecordsScanTriggered(t *testing.T) {
 }
 
 func TestAuditEmission_DeleteAccount_RecordsAccountDeleted(t *testing.T) {
-	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-gone", TenantID: "tenant-audit"}})
+	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-gone", OrganizationID: "tenant-audit"}})
 	handler := middleware.DevBypass(
 		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)

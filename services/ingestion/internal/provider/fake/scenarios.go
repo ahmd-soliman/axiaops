@@ -15,7 +15,7 @@ import (
 var scenarioFS embed.FS
 
 type scenarioData struct {
-	Costs []model.CostRecord    `json:"costs"`
+	Costs []model.CostRecord     `json:"costs"`
 	Usage []analyzer.UsageRecord `json:"usage"`
 }
 

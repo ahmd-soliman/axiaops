@@ -151,7 +151,7 @@ func (h *Handler) Handler(next http.Handler) http.Handler {
 //   - ?account_id=<id>          filter to a single account
 //   - ?include_dismissed=true   include dismissed/snoozed zombies (default: excluded)
 func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	accountID := r.URL.Query().Get("account_id")
 	includeDismissed := r.URL.Query().Get("include_dismissed") == "true"
 
@@ -236,7 +236,7 @@ func dismissalKey(d model.DismissAction) string {
 
 // Optional query param: ?account_id=<id> to filter to a single account.
 func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	accountID := r.URL.Query().Get("account_id")
 	resources, err := h.store.LoadResources(ctx)
 	if err != nil {
@@ -263,7 +263,7 @@ func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	accountID := r.URL.Query().Get("account_id")
 	zombies, err := h.store.LoadZombies(ctx)
 	if err != nil {
@@ -294,7 +294,7 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 // Optional query params: ?account_id=<id>, ?service=<name>.
 // When service is set, returns per-service data from zombie_snapshot_services.
 func (h *Handler) getTrend(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	accountID := r.URL.Query().Get("account_id")
 	service := r.URL.Query().Get("service")
 	resourceType := r.URL.Query().Get("resource_type")
@@ -320,7 +320,7 @@ func (h *Handler) getTrend(w http.ResponseWriter, r *http.Request) {
 
 // getTrendServices returns distinct services available in snapshot data.
 func (h *Handler) getTrendServices(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	services, err := h.store.ListTrendServices(ctx)
 	if err != nil {
 		slog.Error("getTrendServices: load failed", "error", err)
@@ -335,7 +335,7 @@ func (h *Handler) getTrendServices(w http.ResponseWriter, r *http.Request) {
 
 // getTrendResourceTypes returns distinct resource types for a given service.
 func (h *Handler) getTrendResourceTypes(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	service := r.URL.Query().Get("service")
 	if service == "" {
 		writeJSON(w, []string{})
@@ -357,7 +357,7 @@ func (h *Handler) getTrendResourceTypes(w http.ResponseWriter, r *http.Request) 
 // Optional query params: ?account_id=<id>, ?service=<name>, ?days=<int> (default 30).
 // account_id can be either the internal AxiaOps account UUID or the AWS account ID.
 func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
 
 	accountIDParam := r.URL.Query().Get("account_id")
@@ -523,7 +523,7 @@ func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
 
 // listAccounts returns connected accounts for the tenant (secrets masked).
 func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	accounts, err := h.store.ListAccounts(ctx)
 	if err != nil {
 		slog.Error("listAccounts: load failed", "error", err)
@@ -537,7 +537,7 @@ func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	account, err := h.store.GetAccount(ctx, r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "account not found", http.StatusNotFound)
@@ -576,10 +576,10 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := middleware.TenantID(r.Context())
+	tenantID := middleware.OrganizationID(r.Context())
 	account := model.Account{
 		ID:                uuid.New().String(),
-		TenantID:          tenantID,
+		OrganizationID:    tenantID,
 		Provider:          req.Provider,
 		Label:             req.Label,
 		AccessKeyID:       req.AccessKeyID,
@@ -616,7 +616,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 // secret_key is only re-encrypted when a non-empty value is provided.
 func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tenantID := middleware.TenantID(r.Context())
+	tenantID := middleware.OrganizationID(r.Context())
 	ctx := storage.WithTenantID(r.Context(), tenantID)
 
 	existing, err := h.store.GetAccount(ctx, id)
@@ -702,7 +702,7 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 // deleteAccount removes a connected account.
 func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	if err := h.store.DeleteAccount(ctx, id); err != nil {
 		slog.Error("deleteAccount: failed", "account_id", id, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -721,7 +721,7 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 // scanAccount triggers an ingestion run for the given account.
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tenantID := middleware.TenantID(r.Context())
+	tenantID := middleware.OrganizationID(r.Context())
 	ctx := storage.WithTenantID(r.Context(), tenantID)
 
 	account, err := h.store.GetAccount(ctx, id)
@@ -743,10 +743,10 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job := queue.ScanJob{
-		TenantID:   account.TenantID,
-		AccountID:  account.ID,
-		EnqueuedAt: time.Now().UTC(),
-		RequestID:  middleware.RequestIDFromCtx(r.Context()),
+		OrganizationID: account.OrganizationID,
+		AccountID:      account.ID,
+		EnqueuedAt:     time.Now().UTC(),
+		RequestID:      middleware.RequestIDFromCtx(r.Context()),
 	}
 	if err := h.queue.Enqueue(ctx, job); err != nil {
 		slog.Error("scan.enqueue_failed", "account_id", id, "error", err)
@@ -773,7 +773,7 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 // createDismissal handles POST /v1/dismissals.
 // Body: { account_id, provider, service, region, resource_id, action, reason, note?, snooze_until? }
 func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 
 	var req struct {
 		AccountID    string     `json:"account_id"`
@@ -876,7 +876,7 @@ func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
 
 // revokeDismissal handles DELETE /v1/dismissals/{id}.
 func (h *Handler) revokeDismissal(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 
 	raw := r.PathValue("id")
 	id, err := strconv.ParseInt(raw, 10, 64)
@@ -904,7 +904,7 @@ func (h *Handler) revokeDismissal(w http.ResponseWriter, r *http.Request) {
 // listDismissals handles GET /v1/dismissals.
 // Optional query param: ?account_id=<id>
 func (h *Handler) listDismissals(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 	accountID := r.URL.Query().Get("account_id")
 
 	dismissals, err := h.store.ListActiveDismissals(ctx, accountID)
@@ -925,7 +925,7 @@ func (h *Handler) listDismissals(w http.ResponseWriter, r *http.Request) {
 // (opaque token from a previous response's next_cursor).
 // Response: { "events": [...], "next_cursor": "<base64>" | "" }.
 func (h *Handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
-	ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+	ctx := storage.WithTenantID(r.Context(), middleware.OrganizationID(r.Context()))
 
 	q := r.URL.Query()
 	filter := model.AuditFilter{
@@ -1037,7 +1037,7 @@ func dismissActor(ctx context.Context) string {
 	if email := middleware.UserEmail(ctx); email != "" {
 		return email
 	}
-	return middleware.TenantID(ctx)
+	return middleware.OrganizationID(ctx)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

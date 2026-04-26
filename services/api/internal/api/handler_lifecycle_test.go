@@ -50,7 +50,7 @@ func (q *captureQueueLC) Close() error { return nil }
 func TestScanAccount_TryMarkScanning_Called(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-99", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "eu-west-1"},
+			{ID: "acc-99", OrganizationID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "eu-west-1"},
 		})
 	_, mux := newTrackingHandler(mockStore)
 
@@ -67,7 +67,7 @@ func TestScanAccount_TryMarkScanning_Called(t *testing.T) {
 func TestScanAccount_TryMarkScanning_StoreError_Returns500(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+			{ID: "acc-1", OrganizationID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		}).
 		WithTryMarkScanningError(errors.New("db lock timeout"))
 
@@ -89,7 +89,7 @@ func TestScanAccount_TryMarkScanning_StoreError_Returns500(t *testing.T) {
 func TestScanAccount_Async_UpdatesStatusConnectedOnSuccess(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-async", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+			{ID: "acc-async", OrganizationID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		})
 
 	_, mux := newTrackingHandler(mockStore)
@@ -107,7 +107,7 @@ func TestScanAccount_Async_UpdatesStatusConnectedOnSuccess(t *testing.T) {
 func TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-fail", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+			{ID: "acc-fail", OrganizationID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		})
 
 	mux := http.NewServeMux()
@@ -195,7 +195,7 @@ func TestAccountLifecycle_ScanThenTrend(t *testing.T) {
 	snapTime := time.Now().UTC().Truncate(time.Second)
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-trend", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+			{ID: "acc-trend", OrganizationID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		}).
 		// Simulate what the ingestion service would write after scanning.
 		WithSnapshots([]model.ZombieSnapshot{
@@ -231,7 +231,7 @@ func TestAccountLifecycle_MultipleScans(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-multi", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+			{ID: "acc-multi", OrganizationID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		}).
 		// Three snapshots representing three historical scan cycles.
 		WithSnapshots([]model.ZombieSnapshot{
@@ -381,7 +381,7 @@ func TestDeleteAccount_StoreError_Returns500(t *testing.T) {
 func TestUpdateAccount_UpdatesLabel_Returns200(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-patch", TenantID: "tenant-test-uuid", Provider: "aws", Label: "old-label", AccessKeyID: "AKIA123", Region: "us-east-1"},
+			{ID: "acc-patch", OrganizationID: "tenant-test-uuid", Provider: "aws", Label: "old-label", AccessKeyID: "AKIA123", Region: "us-east-1"},
 		})
 	_, mux := newTrackingHandler(mockStore)
 
@@ -413,7 +413,7 @@ func TestUpdateAccount_UpdatesLabel_Returns200(t *testing.T) {
 func TestUpdateAccount_UpdatesRegion_Returns200(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-region", TenantID: "tenant-test-uuid", Provider: "aws", Label: "my-account", AccessKeyID: "AKIA123", Region: "us-east-1"},
+			{ID: "acc-region", OrganizationID: "tenant-test-uuid", Provider: "aws", Label: "my-account", AccessKeyID: "AKIA123", Region: "us-east-1"},
 		})
 	_, mux := newTrackingHandler(mockStore)
 
@@ -479,7 +479,7 @@ func TestTenantIsolation_LoadZombies_ReceivesContextTenantID(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	// DevBypass injects the tenant ID via the middleware context key, exactly
-	// as the real auth middleware does. Without it, middleware.TenantID returns ""
+	// as the real auth middleware does. Without it, middleware.OrganizationID returns ""
 	// because the middleware and storage packages use distinct context key types.
 	handler := middleware.DevBypass("tenant-alpha-uuid", "dev-user", "dev@axiaops.local", mux)
 	w := httptest.NewRecorder()
@@ -536,10 +536,10 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 	)
 
 	storeA := NewMockStore().WithAccounts([]model.Account{
-		{ID: accA, TenantID: tenantA, Provider: "aws", AccessKeyID: "AKIA_A", Region: "us-east-1"},
+		{ID: accA, OrganizationID: tenantA, Provider: "aws", AccessKeyID: "AKIA_A", Region: "us-east-1"},
 	})
 	storeB := NewMockStore().WithAccounts([]model.Account{
-		{ID: accB, TenantID: tenantB, Provider: "aws", AccessKeyID: "AKIA_B", Region: "eu-west-1"},
+		{ID: accB, OrganizationID: tenantB, Provider: "aws", AccessKeyID: "AKIA_B", Region: "eu-west-1"},
 	})
 
 	muxA := http.NewServeMux()

@@ -22,8 +22,8 @@ type ZombieResource struct {
 	Tags              map[string]string `json:"tags"`
 
 	// Cost fields
-	MonthlyCost float64 `json:"monthly_cost"`
-	Currency    string  `json:"currency"`
+	MonthlyCost float64   `json:"monthly_cost"`
+	Currency    string    `json:"currency"`
 	PeriodStart time.Time `json:"period_start"`
 	PeriodEnd   time.Time `json:"period_end"`
 
@@ -38,11 +38,11 @@ type ZombieResource struct {
 
 	// Dismissal state — enriched at read time by the API handler.
 	// Zero values mean the resource is not dismissed/snoozed.
-	DismissalID    *int64     `json:"dismissal_id,omitempty"`
-	DismissAction  string     `json:"dismiss_action,omitempty"`  // "dismiss" | "snooze"
-	DismissReason  string     `json:"dismiss_reason,omitempty"`
-	DismissNote    string     `json:"dismiss_note,omitempty"`
-	SnoozedUntil   *time.Time `json:"snoozed_until,omitempty"`
+	DismissalID   *int64     `json:"dismissal_id,omitempty"`
+	DismissAction string     `json:"dismiss_action,omitempty"` // "dismiss" | "snooze"
+	DismissReason string     `json:"dismiss_reason,omitempty"`
+	DismissNote   string     `json:"dismiss_note,omitempty"`
+	SnoozedUntil  *time.Time `json:"snoozed_until,omitempty"`
 }
 
 // BuildARN constructs an Amazon Resource Name for AWS resources.

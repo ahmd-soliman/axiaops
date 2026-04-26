@@ -40,11 +40,11 @@ func TestGetMe_ReturnsRoleAndPermissions(t *testing.T) {
 	}
 
 	var resp struct {
-		UserID      string   `json:"user_id"`
-		TenantID    string   `json:"tenant_id"`
-		Email       string   `json:"email"`
-		Role        string   `json:"role"`
-		Permissions []string `json:"permissions"`
+		UserID         string   `json:"user_id"`
+		OrganizationID string   `json:"tenant_id"`
+		Email          string   `json:"email"`
+		Role           string   `json:"role"`
+		Permissions    []string `json:"permissions"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -53,8 +53,8 @@ func TestGetMe_ReturnsRoleAndPermissions(t *testing.T) {
 	if resp.UserID != "user-me" {
 		t.Errorf("user_id=%q", resp.UserID)
 	}
-	if resp.TenantID != "tenant-me" {
-		t.Errorf("tenant_id=%q", resp.TenantID)
+	if resp.OrganizationID != "tenant-me" {
+		t.Errorf("tenant_id=%q", resp.OrganizationID)
 	}
 	if resp.Email != "me@example.com" {
 		t.Errorf("email=%q", resp.Email)
