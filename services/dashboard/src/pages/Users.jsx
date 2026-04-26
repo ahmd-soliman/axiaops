@@ -9,6 +9,7 @@ import {
   transferOwnership,
   updateMemberRole,
 } from '../api/client';
+import { PERM } from '../api/permissions';
 import { Spinner } from '../components/primitives';
 
 // Role labels in the order shown in dropdowns and the matrix in the design.
@@ -66,10 +67,10 @@ export default function Users() {
     onError: (err) => setError(humanize(err, 'Failed to transfer ownership')),
   });
 
-  const canInvite = can('members:invite');
-  const canManageBasic = can('members:manage_basic');
-  const canManageAdmin = can('members:manage_admin');
-  const canTransfer = can('tenant:transfer');
+  const canInvite = can(PERM.MEMBERS_INVITE);
+  const canManageBasic = can(PERM.MEMBERS_MANAGE_BASIC);
+  const canManageAdmin = can(PERM.MEMBERS_MANAGE_ADMIN);
+  const canTransfer = can(PERM.TENANT_TRANSFER);
 
   return (
     <div style={{ padding: 24, color: t.textMid }}>

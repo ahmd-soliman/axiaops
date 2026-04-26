@@ -4,6 +4,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { useApp } from '../context/AppContext';
 import { useMe } from '../context/MeContext';
 import { fetchVersion } from '../api/client';
+import { PERM } from '../api/permissions';
 import { APP_VERSION, APP_COMMIT_SHA } from '../config';
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ const NAV_ITEMS = [
   { label: 'Trends',   path: '/trend', Icon: IconTrend },
   { label: 'Costs',    path: '/cost',  Icon: IconCost },
   { label: 'Audit',    path: '/audit', Icon: IconAudit },
-  { label: 'Users',    path: '/users', Icon: IconUsers, requires: 'members:invite' },
+  { label: 'Users',    path: '/users', Icon: IconUsers, requires: PERM.MEMBERS_INVITE },
   { label: 'Account',  path: '/account', Icon: IconAccount },
 ];
 
