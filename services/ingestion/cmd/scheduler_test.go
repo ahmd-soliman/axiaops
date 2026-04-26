@@ -29,14 +29,16 @@ func (m *mockStoreForScheduler) ListAllAccounts(ctx context.Context) ([]model.Ac
 func (m *mockStoreForScheduler) Save(context.Context, []model.CostRecord) (int64, error) {
 	return 0, nil
 }
-func (m *mockStoreForScheduler) SaveZombies(context.Context, []model.ZombieResource) error { return nil }
+func (m *mockStoreForScheduler) SaveZombies(context.Context, []model.ZombieResource) error {
+	return nil
+}
 func (m *mockStoreForScheduler) LoadZombies(context.Context) ([]model.ZombieResource, error) {
 	return nil, nil
 }
-func (m *mockStoreForScheduler) UpsertTenant(context.Context, string, string) (model.Tenant, error) {
-	return model.Tenant{}, nil
+func (m *mockStoreForScheduler) UpsertOrganization(context.Context, string, string) (model.Organization, error) {
+	return model.Organization{}, nil
 }
-func (m *mockStoreForScheduler) EnsureTenant(context.Context, string, string, string) error {
+func (m *mockStoreForScheduler) EnsureOrganization(context.Context, string, string, string) error {
 	return nil
 }
 func (m *mockStoreForScheduler) UpsertUser(context.Context, string, string, string, string) (model.User, error) {
@@ -115,8 +117,8 @@ func (m *mockStoreForScheduler) SaveMembership(context.Context, model.Membership
 func (m *mockStoreForScheduler) UpdateMembershipRole(context.Context, string, string) error {
 	return nil
 }
-func (m *mockStoreForScheduler) DeleteMembership(context.Context, string) error      { return nil }
-func (m *mockStoreForScheduler) TransferOwnership(context.Context, string) error     { return nil }
+func (m *mockStoreForScheduler) DeleteMembership(context.Context, string) error  { return nil }
+func (m *mockStoreForScheduler) TransferOwnership(context.Context, string) error { return nil }
 func (m *mockStoreForScheduler) EnsureFirstMembership(context.Context, string, string) (bool, error) {
 	return false, nil
 }
@@ -126,8 +128,8 @@ func (m *mockStoreForScheduler) EnsureDevMembership(context.Context, string, str
 func (m *mockStoreForScheduler) GetUserByEmail(context.Context, string) (model.User, error) {
 	return model.User{}, nil
 }
-func (m *mockStoreForScheduler) DeleteUser(context.Context, string) error          { return nil }
-func (m *mockStoreForScheduler) DeleteTenantCascade(context.Context, string) error { return nil }
+func (m *mockStoreForScheduler) DeleteUser(context.Context, string) error                { return nil }
+func (m *mockStoreForScheduler) DeleteOrganizationCascade(context.Context, string) error { return nil }
 
 // captureQueue records enqueued jobs.
 type captureQueue struct{ jobs []queue.ScanJob }
@@ -160,7 +162,7 @@ func TestScanScheduledAccounts_ListError(t *testing.T) {
 func TestScanScheduledAccounts_SkipsAlreadyScanning(t *testing.T) {
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
-			ID: "acc-1", TenantID: "tenant-1", ScanIntervalHours: 24, Status: "scanning",
+			ID: "acc-1", OrganizationID: "tenant-1", ScanIntervalHours: 24, Status: "scanning",
 		}},
 	}
 	q := &captureQueue{}
@@ -173,7 +175,7 @@ func TestScanScheduledAccounts_SkipsAlreadyScanning(t *testing.T) {
 func TestScanScheduledAccounts_NeverScanned(t *testing.T) {
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
-			ID: "acc-1", TenantID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: nil, Status: "connected",
+			ID: "acc-1", OrganizationID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: nil, Status: "connected",
 		}},
 	}
 	q := &captureQueue{}
@@ -187,7 +189,7 @@ func TestScanScheduledAccounts_Overdue(t *testing.T) {
 	last := time.Now().Add(-30 * time.Hour)
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
-			ID: "acc-1", TenantID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: &last, Status: "connected",
+			ID: "acc-1", OrganizationID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: &last, Status: "connected",
 		}},
 	}
 	q := &captureQueue{}
@@ -204,7 +206,7 @@ func TestScanScheduledAccounts_NotOverdue(t *testing.T) {
 	last := time.Now().Add(-12 * time.Hour)
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
-			ID: "acc-1", TenantID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: &last, Status: "connected",
+			ID: "acc-1", OrganizationID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: &last, Status: "connected",
 		}},
 	}
 	q := &captureQueue{}
@@ -218,7 +220,7 @@ func TestScanScheduledAccounts_ZeroInterval_AlwaysOverdue(t *testing.T) {
 	now := time.Now()
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
-			ID: "acc-1", TenantID: "tenant-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
+			ID: "acc-1", OrganizationID: "tenant-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
 		}},
 	}
 	q := &captureQueue{}

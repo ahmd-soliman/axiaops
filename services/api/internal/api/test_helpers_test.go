@@ -31,7 +31,6 @@ func injectIdentity(parent context.Context, tenantID, userID, email string) cont
 	return captured
 }
 
-
 // MockStore is a unified in-memory Store implementation for testing.
 // It provides:
 //   - Real data storage (zombies, accounts, snapshots, dismissals)
@@ -46,8 +45,8 @@ type MockStore struct {
 	mu sync.Mutex
 
 	// ── Data Storage (used by all tests) ──
-	zombies    []model.ZombieResource
-	accounts   []model.Account
+	zombies     []model.ZombieResource
+	accounts    []model.Account
 	snapshots   []model.ZombieSnapshot
 	resources   []model.ResourceRecord
 	costs       []model.CostRecord
@@ -66,16 +65,16 @@ type MockStore struct {
 	lastCostFilter             storage.CostFilter
 
 	// ── Error Injection (optional, for failure testing) ──
-	errLoadZombies        error
-	errListAccounts       error
-	errDeleteAccount      error
-	errGetAccount         error
-	errListSnapshots      error
-	errTryMarkScanning    error
-	errDismissZombie      error
-	errListActiveDismiss  error
-	errListCostRecords    error
-	errAuditWrite         error
+	errLoadZombies       error
+	errListAccounts      error
+	errDeleteAccount     error
+	errGetAccount        error
+	errListSnapshots     error
+	errTryMarkScanning   error
+	errDismissZombie     error
+	errListActiveDismiss error
+	errListCostRecords   error
+	errAuditWrite        error
 
 	// ── Memberships / users (RBAC) ──
 	memberships    []model.MembershipWithUser
@@ -313,11 +312,11 @@ func (m *MockStore) LoadZombies(ctx context.Context) ([]model.ZombieResource, er
 	return zombies, nil
 }
 
-func (m *MockStore) UpsertTenant(_ context.Context, externalID, name string) (model.Tenant, error) {
-	return model.Tenant{ID: externalID, Name: name}, nil
+func (m *MockStore) UpsertOrganization(_ context.Context, externalID, name string) (model.Organization, error) {
+	return model.Organization{ID: externalID, Name: name}, nil
 }
 
-func (m *MockStore) EnsureTenant(_ context.Context, _, _, _ string) error {
+func (m *MockStore) EnsureOrganization(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
@@ -670,7 +669,7 @@ func (m *MockStore) SaveMembership(_ context.Context, mb model.Membership) error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, existing := range m.memberships {
-		if existing.TenantID == mb.TenantID && existing.UserID == mb.UserID {
+		if existing.OrganizationID == mb.OrganizationID && existing.UserID == mb.UserID {
 			return storage.ErrMembershipExists
 		}
 	}
@@ -691,7 +690,7 @@ func (m *MockStore) UpdateMembershipRole(_ context.Context, id, newRole string) 
 	if idx < 0 {
 		return storage.ErrMembershipNotFound
 	}
-	if m.memberships[idx].Role == "owner" && newRole != "owner" && m.countOwnersLocked(m.memberships[idx].TenantID) <= 1 {
+	if m.memberships[idx].Role == "owner" && newRole != "owner" && m.countOwnersLocked(m.memberships[idx].OrganizationID) <= 1 {
 		return storage.ErrLastOwner
 	}
 	m.memberships[idx].Role = newRole
@@ -712,7 +711,7 @@ func (m *MockStore) DeleteMembership(_ context.Context, id string) error {
 	if idx < 0 {
 		return storage.ErrMembershipNotFound
 	}
-	if m.memberships[idx].Role == "owner" && m.countOwnersLocked(m.memberships[idx].TenantID) <= 1 {
+	if m.memberships[idx].Role == "owner" && m.countOwnersLocked(m.memberships[idx].OrganizationID) <= 1 {
 		return storage.ErrLastOwner
 	}
 	m.memberships = append(m.memberships[:idx], m.memberships[idx+1:]...)
@@ -725,7 +724,7 @@ func (m *MockStore) TransferOwnership(ctx context.Context, toUserID string) erro
 	tenantID := storage.TenantIDFromCtx(ctx)
 	targetIdx := -1
 	for i, mu := range m.memberships {
-		if mu.TenantID == tenantID && mu.UserID == toUserID {
+		if mu.OrganizationID == tenantID && mu.UserID == toUserID {
 			targetIdx = i
 			break
 		}
@@ -735,7 +734,7 @@ func (m *MockStore) TransferOwnership(ctx context.Context, toUserID string) erro
 	}
 	now := time.Now().UTC()
 	for i := range m.memberships {
-		if m.memberships[i].TenantID == tenantID && m.memberships[i].Role == "owner" {
+		if m.memberships[i].OrganizationID == tenantID && m.memberships[i].Role == "owner" {
 			m.memberships[i].Role = "admin"
 			m.memberships[i].UpdatedAt = now
 		}
@@ -749,18 +748,18 @@ func (m *MockStore) EnsureFirstMembership(_ context.Context, tenantID, userID st
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, mu := range m.memberships {
-		if mu.TenantID == tenantID {
+		if mu.OrganizationID == tenantID {
 			return false, nil
 		}
 	}
 	m.memberships = append(m.memberships, model.MembershipWithUser{
 		Membership: model.Membership{
-			ID:        "first-" + userID,
-			TenantID:  tenantID,
-			UserID:    userID,
-			Role:      "owner",
-			CreatedAt: time.Now().UTC(),
-			UpdatedAt: time.Now().UTC(),
+			ID:             "first-" + userID,
+			OrganizationID: tenantID,
+			UserID:         userID,
+			Role:           "owner",
+			CreatedAt:      time.Now().UTC(),
+			UpdatedAt:      time.Now().UTC(),
 		},
 	})
 	return true, nil
@@ -770,7 +769,7 @@ func (m *MockStore) EnsureDevMembership(_ context.Context, tenantID, userID, rol
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, mu := range m.memberships {
-		if mu.TenantID == tenantID && mu.UserID == userID {
+		if mu.OrganizationID == tenantID && mu.UserID == userID {
 			m.memberships[i].Role = role
 			m.memberships[i].UpdatedAt = time.Now().UTC()
 			return nil
@@ -778,12 +777,12 @@ func (m *MockStore) EnsureDevMembership(_ context.Context, tenantID, userID, rol
 	}
 	m.memberships = append(m.memberships, model.MembershipWithUser{
 		Membership: model.Membership{
-			ID:        "dev-" + userID,
-			TenantID:  tenantID,
-			UserID:    userID,
-			Role:      role,
-			CreatedAt: time.Now().UTC(),
-			UpdatedAt: time.Now().UTC(),
+			ID:             "dev-" + userID,
+			OrganizationID: tenantID,
+			UserID:         userID,
+			Role:           role,
+			CreatedAt:      time.Now().UTC(),
+			UpdatedAt:      time.Now().UTC(),
 		},
 	})
 	return nil
@@ -811,7 +810,7 @@ func (m *MockStore) DeleteUser(_ context.Context, userID string) error {
 		}
 		others := 0
 		for _, mb2 := range m.memberships {
-			if mb2.TenantID == mb.TenantID && mb2.Role == "owner" && mb2.UserID != userID {
+			if mb2.OrganizationID == mb.OrganizationID && mb2.Role == "owner" && mb2.UserID != userID {
 				others++
 			}
 		}
@@ -847,21 +846,21 @@ func (m *MockStore) DeleteUser(_ context.Context, userID string) error {
 	return nil
 }
 
-func (m *MockStore) DeleteTenantCascade(_ context.Context, tenantID string) error {
+func (m *MockStore) DeleteOrganizationCascade(_ context.Context, tenantID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Identify users whose primary tenant is this one — they're going away.
 	purgedUsers := map[string]bool{}
 	for _, u := range m.users {
-		if u.TenantID == tenantID {
+		if u.OrganizationID == tenantID {
 			purgedUsers[u.ID] = true
 		}
 	}
 
 	// Anonymise audit entries in OTHER tenants for users about to be deleted.
 	for i := range m.auditEvents {
-		if m.auditEvents[i].TenantID != tenantID && purgedUsers[m.auditEvents[i].UserID] {
+		if m.auditEvents[i].OrganizationID != tenantID && purgedUsers[m.auditEvents[i].UserID] {
 			m.auditEvents[i].UserID = ""
 			m.auditEvents[i].ActorEmail = "deleted-user"
 		}
@@ -870,7 +869,7 @@ func (m *MockStore) DeleteTenantCascade(_ context.Context, tenantID string) erro
 	// Drop this tenant's audit, accounts, dismissals.
 	keptAudit := m.auditEvents[:0]
 	for _, e := range m.auditEvents {
-		if e.TenantID != tenantID {
+		if e.OrganizationID != tenantID {
 			keptAudit = append(keptAudit, e)
 		}
 	}
@@ -878,7 +877,7 @@ func (m *MockStore) DeleteTenantCascade(_ context.Context, tenantID string) erro
 
 	keptAccounts := m.accounts[:0]
 	for _, a := range m.accounts {
-		if a.TenantID != tenantID {
+		if a.OrganizationID != tenantID {
 			keptAccounts = append(keptAccounts, a)
 		}
 	}
@@ -900,7 +899,7 @@ func (m *MockStore) DeleteTenantCascade(_ context.Context, tenantID string) erro
 
 	keptMemberships := m.memberships[:0]
 	for _, mb := range m.memberships {
-		if mb.TenantID != tenantID && !purgedUsers[mb.UserID] {
+		if mb.OrganizationID != tenantID && !purgedUsers[mb.UserID] {
 			keptMemberships = append(keptMemberships, mb)
 		}
 	}
@@ -911,7 +910,7 @@ func (m *MockStore) DeleteTenantCascade(_ context.Context, tenantID string) erro
 func (m *MockStore) countOwnersLocked(tenantID string) int {
 	n := 0
 	for _, mu := range m.memberships {
-		if mu.TenantID == tenantID && mu.Role == "owner" {
+		if mu.OrganizationID == tenantID && mu.Role == "owner" {
 			n++
 		}
 	}

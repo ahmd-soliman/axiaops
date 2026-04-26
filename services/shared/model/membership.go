@@ -2,17 +2,17 @@ package model
 
 import "time"
 
-// Membership joins a User to a Tenant with a specific role. A user can belong
-// to multiple tenants; the (tenant_id, user_id) pair is unique. See
-// docs/rbac-design.md §4 for the data model rationale.
+// Membership joins a User to an Organization with a specific role. A user can
+// belong to multiple organizations; the (organization_id, user_id) pair is
+// unique. See docs/rbac-design.md §4 for the data model rationale.
 type Membership struct {
-	ID        string
-	TenantID  string
-	UserID    string
-	Role      string // one of: owner, admin, member, viewer
-	InvitedBy string // FK → User.ID; empty for backfilled and bootstrap rows
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             string
+	OrganizationID string
+	UserID         string
+	Role           string // one of: owner, admin, member, viewer
+	InvitedBy      string // FK → User.ID; empty for backfilled and bootstrap rows
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // MembershipWithUser is the read-side projection used by the user-management

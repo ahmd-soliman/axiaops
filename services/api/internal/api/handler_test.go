@@ -409,7 +409,7 @@ func TestCreateAccount_InvalidJSON_Returns400(t *testing.T) {
 
 func TestUpdateAccount_UpdatesScanIntervalHours(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+		{ID: "acc-1", OrganizationID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -434,7 +434,7 @@ func TestUpdateAccount_UpdatesScanIntervalHours(t *testing.T) {
 
 func TestUpdateAccount_UpdatesMultipleFields(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+		{ID: "acc-1", OrganizationID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -465,7 +465,7 @@ func TestUpdateAccount_UpdatesMultipleFields(t *testing.T) {
 
 func TestUpdateAccount_ScanIntervalHoursZero(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+		{ID: "acc-1", OrganizationID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -490,7 +490,7 @@ func TestUpdateAccount_ScanIntervalHoursZero(t *testing.T) {
 
 func TestUpdateAccount_NegativeScanIntervalHours_Returns400(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+		{ID: "acc-1", OrganizationID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -540,7 +540,7 @@ func TestDeleteAccount_Returns204(t *testing.T) {
 
 func TestScanAccount_Returns200(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
+		{ID: "acc-1", OrganizationID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
 	})
 	h := api.New(store, &testCaptureQueue{})
 	mux := http.NewServeMux()
@@ -556,7 +556,7 @@ func TestScanAccount_Returns200(t *testing.T) {
 
 func TestScanAccount_ReturnsScanningStatus(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
+		{ID: "acc-1", OrganizationID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
 	})
 	h := api.New(store, &testCaptureQueue{})
 	mux := http.NewServeMux()
@@ -591,7 +591,7 @@ func TestScanAccount_AccountNotFound_Returns404(t *testing.T) {
 func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
 	store := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1", Status: "scanning"},
+			{ID: "acc-1", OrganizationID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1", Status: "scanning"},
 		}).
 		WithAccountAlreadyScanning("acc-1")
 	h := api.New(store, noopQueue())
@@ -685,7 +685,7 @@ func TestGetTrend_SnapshotTenantIDNotExposed(t *testing.T) {
 	store := NewMockStore().
 		WithZombies([]model.ZombieResource{testZombie}).
 		WithSnapshots([]model.ZombieSnapshot{
-			{ID: "snap-1", AccountID: "acc-1", TenantID: "secret-tenant", ZombieCount: 1, TotalMonthlyCost: 50.00, Currency: "USD"},
+			{ID: "snap-1", AccountID: "acc-1", OrganizationID: "secret-tenant", ZombieCount: 1, TotalMonthlyCost: 50.00, Currency: "USD"},
 		})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()

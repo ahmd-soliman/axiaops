@@ -132,12 +132,12 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 			page, err = c.ce.GetCostAndUsage(ctx, input)
 			return err
 		})
-		
+
 		if err != nil {
 			var unavail *types.DataUnavailableException
 			if errors.As(err, &unavail) {
 				return nil, fmt.Errorf(
-					"aws: Cost Explorer data is not yet available for this account — " +
+					"aws: Cost Explorer data is not yet available for this account — "+
 						"it can take up to 24 hours after first enabling Cost Explorer before data appears: %w", err)
 			}
 			return nil, fmt.Errorf("aws: GetCostAndUsage: %w", err)
@@ -208,8 +208,8 @@ var ceServiceToInternal = map[string]string{
 	"Amazon DynamoDB":                        "AmazonDynamoDB",
 	"Amazon Elastic Kubernetes Service":      "AmazonEKS",
 	"Amazon Cost Explorer":                   "AWSCostExplorer",
-	"AWS Cost Explorer":                     "AWSCostExplorer",
-	"AWS Data Transfer":                     "AWSDataTransfer",
+	"AWS Cost Explorer":                      "AWSCostExplorer",
+	"AWS Data Transfer":                      "AWSDataTransfer",
 	"Amazon CloudWatch":                      "AmazonCloudWatch",
 	"Amazon Simple Storage Service":          "AmazonS3",
 	"AWS Glue":                               "AWSGlue",

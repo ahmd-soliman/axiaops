@@ -151,7 +151,7 @@ func main() {
 		// Pin the dev tenant row at startup so DevBypass can inject a known id
 		// without doing any DB work per request. id = org_code = name here —
 		// dev mode uses DEV_TENANT_ID as the literal, stable tenant id.
-		if err := store.EnsureTenant(ctx, devTenantID, devTenantID, devTenantID); err != nil {
+		if err := store.EnsureOrganization(ctx, devTenantID, devTenantID, devTenantID); err != nil {
 			die("auth: failed to ensure dev tenant", "tenant", devTenantID, "error", err)
 		}
 		// Pin the dev user row so audit rows, dismissal actors, and future
@@ -166,10 +166,10 @@ func main() {
 			devUserEmail = "dev@axiaops.local"
 		}
 		if err := store.EnsureUser(ctx, model.User{
-			ID:       devUserID,
-			TenantID: devTenantID,
-			Email:    devUserEmail,
-			Name:     "Dev User",
+			ID:             devUserID,
+			OrganizationID: devTenantID,
+			Email:          devUserEmail,
+			Name:           "Dev User",
 		}); err != nil {
 			die("auth: failed to ensure dev user", "user", devUserID, "error", err)
 		}

@@ -18,7 +18,7 @@ func TestDeleteUser_RefusesSoleOwner(t *testing.T) {
 	ctx, tenant := newTenantCtx(t, s)
 
 	userID := "u-" + uuid.New().String()
-	if err := s.EnsureUser(ctx, model.User{ID: userID, TenantID: tenant.ID, Email: "owner@x.com"}); err != nil {
+	if err := s.EnsureUser(ctx, model.User{ID: userID, OrganizationID: tenant.ID, Email: "owner@x.com"}); err != nil {
 		t.Fatalf("EnsureUser: %v", err)
 	}
 	if err := s.EnsureDevMembership(ctx, tenant.ID, userID, "owner"); err != nil {
@@ -50,10 +50,10 @@ func TestDeleteUser_AnonymisesAuditAndRemovesUser(t *testing.T) {
 	// Two users so deleting one doesn't violate the sole-owner guard.
 	ownerID := "u-" + uuid.New().String()
 	leavingID := "u-" + uuid.New().String()
-	if err := s.EnsureUser(ctx, model.User{ID: ownerID, TenantID: tenant.ID, Email: "owner@x.com"}); err != nil {
+	if err := s.EnsureUser(ctx, model.User{ID: ownerID, OrganizationID: tenant.ID, Email: "owner@x.com"}); err != nil {
 		t.Fatalf("EnsureUser owner: %v", err)
 	}
-	if err := s.EnsureUser(ctx, model.User{ID: leavingID, TenantID: tenant.ID, Email: "leaving@x.com"}); err != nil {
+	if err := s.EnsureUser(ctx, model.User{ID: leavingID, OrganizationID: tenant.ID, Email: "leaving@x.com"}); err != nil {
 		t.Fatalf("EnsureUser leaving: %v", err)
 	}
 	if err := s.EnsureDevMembership(ctx, tenant.ID, ownerID, "owner"); err != nil {
@@ -107,15 +107,15 @@ func TestDeleteUser_AnonymisesAuditAndRemovesUser(t *testing.T) {
 	}
 }
 
-// ── DeleteTenantCascade ─────────────────────────────────────────────────────
+// ── DeleteOrganizationCascade ─────────────────────────────────────────────────────
 
-func TestDeleteTenantCascade_PurgesEveryTable(t *testing.T) {
+func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 	s := newTestStore(t)
 	ctx, tenant := newTenantCtx(t, s)
 
 	// User + membership in this tenant.
 	userID := "u-" + uuid.New().String()
-	if err := s.EnsureUser(ctx, model.User{ID: userID, TenantID: tenant.ID, Email: "u@x.com"}); err != nil {
+	if err := s.EnsureUser(ctx, model.User{ID: userID, OrganizationID: tenant.ID, Email: "u@x.com"}); err != nil {
 		t.Fatalf("EnsureUser: %v", err)
 	}
 	if err := s.EnsureDevMembership(ctx, tenant.ID, userID, "owner"); err != nil {
@@ -127,7 +127,7 @@ func TestDeleteTenantCascade_PurgesEveryTable(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 	if err := s.SaveAccount(ctx, model.Account{
-		ID: "acc-" + uuid.New().String(), TenantID: tenant.ID,
+		ID: "acc-" + uuid.New().String(), OrganizationID: tenant.ID,
 		Provider: "aws", AccountID: "000000000000", Region: "eu-central-1", Status: "connected",
 	}); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
@@ -138,8 +138,8 @@ func TestDeleteTenantCascade_PurgesEveryTable(t *testing.T) {
 		t.Fatalf("AuditLogWrite: %v", err)
 	}
 
-	if err := s.DeleteTenantCascade(ctx, tenant.ID); err != nil {
-		t.Fatalf("DeleteTenantCascade: %v", err)
+	if err := s.DeleteOrganizationCascade(ctx, tenant.ID); err != nil {
+		t.Fatalf("DeleteOrganizationCascade: %v", err)
 	}
 
 	conn := connectTestDB(t)
@@ -171,7 +171,7 @@ func TestDeleteTenantCascade_PurgesEveryTable(t *testing.T) {
 	}
 }
 
-func TestDeleteTenantCascade_AnonymisesCrossTenantAudit(t *testing.T) {
+func TestDeleteOrganizationCascade_AnonymisesCrossTenantAudit(t *testing.T) {
 	// User U has primary tenant A. U is also a member of tenant B and has
 	// audit rows in B. When A is deleted (and U with it), U's audit rows in
 	// B must be anonymised — right to erasure travels with the user.
@@ -180,7 +180,7 @@ func TestDeleteTenantCascade_AnonymisesCrossTenantAudit(t *testing.T) {
 	ctxB, tenantB := newTenantCtx(t, s)
 
 	userID := "u-" + uuid.New().String()
-	if err := s.EnsureUser(ctxA, model.User{ID: userID, TenantID: tenantA.ID, Email: "u@x.com"}); err != nil {
+	if err := s.EnsureUser(ctxA, model.User{ID: userID, OrganizationID: tenantA.ID, Email: "u@x.com"}); err != nil {
 		t.Fatalf("EnsureUser: %v", err)
 	}
 	if err := s.EnsureDevMembership(ctxA, tenantA.ID, userID, "owner"); err != nil {
@@ -195,8 +195,8 @@ func TestDeleteTenantCascade_AnonymisesCrossTenantAudit(t *testing.T) {
 		t.Fatalf("AuditLogWrite B: %v", err)
 	}
 
-	if err := s.DeleteTenantCascade(ctxA, tenantA.ID); err != nil {
-		t.Fatalf("DeleteTenantCascade: %v", err)
+	if err := s.DeleteOrganizationCascade(ctxA, tenantA.ID); err != nil {
+		t.Fatalf("DeleteOrganizationCascade: %v", err)
 	}
 
 	conn := connectTestDB(t)

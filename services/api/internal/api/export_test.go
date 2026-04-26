@@ -27,17 +27,17 @@ func TestExport_Owner_200_HappyPath(t *testing.T) {
 		WithMemberships([]model.MembershipWithUser{
 			{
 				Membership: model.Membership{
-					ID: "m-1", TenantID: "tenant-me", UserID: "user-me", Role: "owner",
+					ID: "m-1", OrganizationID: "tenant-me", UserID: "user-me", Role: "owner",
 					CreatedAt: now, UpdatedAt: now,
 				},
 				Email: "me@example.com",
 			},
 		}).
 		WithAccounts([]model.Account{
-			{ID: "acct-1", TenantID: "tenant-me", Provider: "aws", Label: "prod", AccessKeyID: "AKIA...", SecretEncrypted: "ENCRYPTED-DO-NOT-LEAK", Region: "eu-central-1"},
+			{ID: "acct-1", OrganizationID: "tenant-me", Provider: "aws", Label: "prod", AccessKeyID: "AKIA...", SecretEncrypted: "ENCRYPTED-DO-NOT-LEAK", Region: "eu-central-1"},
 		}).
 		WithAuditEvents([]model.AuditEvent{
-			{ID: 1, TenantID: "tenant-me", UserID: "user-me", ActorEmail: "me@example.com", Action: model.AuditActionAccountConnected, CreatedAt: now},
+			{ID: 1, OrganizationID: "tenant-me", UserID: "user-me", ActorEmail: "me@example.com", Action: model.AuditActionAccountConnected, CreatedAt: now},
 		})
 
 	mux := expHandler(store)
@@ -164,12 +164,12 @@ func TestExport_AuditLog_PagesPastSinglePage(t *testing.T) {
 	base := time.Now().UTC().Add(-time.Hour)
 	for i := 0; i < total; i++ {
 		events = append(events, model.AuditEvent{
-			ID:         int64(i + 1),
-			TenantID:   "tenant-me",
-			UserID:     "user-me",
-			ActorEmail: "me@example.com",
-			Action:     model.AuditActionAccountConnected,
-			CreatedAt:  base.Add(time.Duration(i) * time.Millisecond),
+			ID:             int64(i + 1),
+			OrganizationID: "tenant-me",
+			UserID:         "user-me",
+			ActorEmail:     "me@example.com",
+			Action:         model.AuditActionAccountConnected,
+			CreatedAt:      base.Add(time.Duration(i) * time.Millisecond),
 		})
 	}
 

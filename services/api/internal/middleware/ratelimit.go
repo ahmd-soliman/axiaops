@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	rateLimitMax    = 60             // requests per minute
+	rateLimitMax    = 60              // requests per minute
 	rateLimitWindow = 2 * time.Minute // TTL covers current + next bucket boundary
 )
 
@@ -48,7 +48,7 @@ func (rl *RateLimiter) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		tenantID := TenantID(r.Context())
+		tenantID := OrganizationID(r.Context())
 		if tenantID == "" {
 			next.ServeHTTP(w, r)
 			return

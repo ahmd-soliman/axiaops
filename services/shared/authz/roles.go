@@ -38,10 +38,10 @@ const (
 	PermResourcesRead Permission = "resources:read"
 	PermAuditRead     Permission = "audit:read"
 
-	PermMembersRead          Permission = "members:read"
-	PermMembersInvite        Permission = "members:invite"
-	PermMembersManageBasic   Permission = "members:manage_basic"
-	PermMembersManageAdmin   Permission = "members:manage_admin"
+	PermMembersRead        Permission = "members:read"
+	PermMembersInvite      Permission = "members:invite"
+	PermMembersManageBasic Permission = "members:manage_basic"
+	PermMembersManageAdmin Permission = "members:manage_admin"
 
 	PermTenantTransfer Permission = "tenant:transfer"
 	PermTenantDelete   Permission = "tenant:delete"

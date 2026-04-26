@@ -47,7 +47,7 @@ func Record(r *http.Request, w Writer, e model.AuditEvent) {
 	}
 
 	ctx := r.Context()
-	tenantID := middleware.TenantID(ctx)
+	tenantID := middleware.OrganizationID(ctx)
 	if tenantID == "" {
 		// No tenant means RLS will reject the insert; don't even try.
 		observability.Global.AuditWritesTotal.WithLabelValues(e.Action, "failed").Inc()

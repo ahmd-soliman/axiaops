@@ -178,7 +178,7 @@ func TestAuth_ValidToken_TenantIDInContext(t *testing.T) {
 
 	var gotTenantID string
 	capture := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotTenantID = TenantID(r.Context())
+		gotTenantID = OrganizationID(r.Context())
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -229,7 +229,7 @@ func TestAuth_PublicPathsBypassAuth(t *testing.T) {
 func TestDevBypass_PublicPathsSkipContextPopulation(t *testing.T) {
 	captured := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Public paths must not have identity injected — they're for infra.
-		if TenantID(r.Context()) != "" {
+		if OrganizationID(r.Context()) != "" {
 			t.Errorf("public path should not have tenant_id populated")
 		}
 		w.WriteHeader(http.StatusOK)
