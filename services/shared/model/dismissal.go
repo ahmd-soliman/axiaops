@@ -9,13 +9,13 @@ import "time"
 // DismissAction is a single dismiss-or-snooze record stored in dismissed_zombies.
 type DismissAction struct {
 	ID           int64      `json:"id"`
-	AccountID    string     `json:"account_id"`              // internal account UUID
+	AccountID    string     `json:"account_id"` // internal account UUID
 	Provider     string     `json:"provider"`
 	Service      string     `json:"service"`
 	Region       string     `json:"region"`
 	ResourceID   string     `json:"resource_id"`
-	Action       string     `json:"action"`                  // "dismiss" | "snooze"
-	Reason       string     `json:"reason"`                  // see constants below
+	Action       string     `json:"action"` // "dismiss" | "snooze"
+	Reason       string     `json:"reason"` // see constants below
 	Note         string     `json:"note,omitempty"`
 	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"` // nil when action="dismiss"
 	DismissedBy  string     `json:"dismissed_by,omitempty"`  // email / user identifier

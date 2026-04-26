@@ -42,7 +42,7 @@ func toMembershipResponse(m model.MembershipWithUser) membershipResponse {
 // listMemberships returns all memberships in the caller's tenant.
 // Permission: members:read (every authenticated tenant user).
 func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	ctx := storage.WithTenantID(r.Context(), tid)
 
 	rows, err := h.store.ListMemberships(ctx)
@@ -65,7 +65,7 @@ func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
 // Permission: members:invite for member/viewer roles, members:manage_admin
 // for admin role.
 func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
 	ctx := storage.WithTenantID(r.Context(), tid)
 
@@ -114,10 +114,10 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m := model.Membership{
-		TenantID:  tid,
-		UserID:    target.ID,
-		Role:      req.Role,
-		InvitedBy: uid,
+		OrganizationID: tid,
+		UserID:         target.ID,
+		Role:           req.Role,
+		InvitedBy:      uid,
 	}
 	if err := h.store.SaveMembership(ctx, m); err != nil {
 		if errors.Is(err, storage.ErrMembershipExists) {
@@ -152,7 +152,7 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 // members:manage_basic (admin) is enough.
 func (h *Handler) updateMembershipRole(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
 	ctx := storage.WithTenantID(r.Context(), tid)
 
@@ -227,7 +227,7 @@ func (h *Handler) updateMembershipRole(w http.ResponseWriter, r *http.Request) {
 // last-owner guard still applies — a sole owner must transfer first.
 func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
 	ctx := storage.WithTenantID(r.Context(), tid)
 
@@ -272,8 +272,8 @@ func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {
 		ResourceType: "membership",
 		ResourceID:   id,
 		Metadata: map[string]any{
-			"user_id":   target.UserID,
-			"role":      target.Role,
+			"user_id":    target.UserID,
+			"role":       target.Role,
 			"self_leave": target.UserID == uid,
 		},
 	})
@@ -284,7 +284,7 @@ func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {
 // transferOwnership atomically demotes the current owner to admin and
 // promotes the target user to owner. Permission: tenant:transfer (owner only).
 func (h *Handler) transferOwnership(w http.ResponseWriter, r *http.Request) {
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	ctx := storage.WithTenantID(r.Context(), tid)
 
 	var req struct {

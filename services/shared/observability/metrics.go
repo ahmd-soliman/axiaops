@@ -11,42 +11,42 @@ import (
 // These are pre-registered with the default Prometheus registry in init().
 type Metrics struct {
 	// HTTP API metrics
-	HTTPRequestsTotal       prometheus.Counter       // Total HTTP requests received
-	HTTPRequestsDuration    prometheus.Histogram     // HTTP request latency (seconds)
-	HTTPRequestsInFlight    prometheus.Gauge         // In-flight HTTP requests
-	HTTPResponsesTotal      *prometheus.CounterVec   // Total responses by method, route, status
-	HTTPErrorsTotal         *prometheus.CounterVec   // Total HTTP errors by method, route, status
+	HTTPRequestsTotal    prometheus.Counter     // Total HTTP requests received
+	HTTPRequestsDuration prometheus.Histogram   // HTTP request latency (seconds)
+	HTTPRequestsInFlight prometheus.Gauge       // In-flight HTTP requests
+	HTTPResponsesTotal   *prometheus.CounterVec // Total responses by method, route, status
+	HTTPErrorsTotal      *prometheus.CounterVec // Total HTTP errors by method, route, status
 
 	// Database metrics
-	DBQueryDuration         *prometheus.HistogramVec // Query latency by operation
-	DBQueryErrors           *prometheus.CounterVec   // Query errors by operation
-	DBConnectionsActive     prometheus.Gauge         // Active database connections
-	DBTransactionDuration   *prometheus.HistogramVec // Transaction latency
+	DBQueryDuration       *prometheus.HistogramVec // Query latency by operation
+	DBQueryErrors         *prometheus.CounterVec   // Query errors by operation
+	DBConnectionsActive   prometheus.Gauge         // Active database connections
+	DBTransactionDuration *prometheus.HistogramVec // Transaction latency
 
 	// AWS/Ingestion metrics
-	AWSAPICallDuration      *prometheus.HistogramVec // AWS API call latency by service
-	AWSAPICallErrors        *prometheus.CounterVec   // AWS API errors by service
-	CostRecordsFetched      *prometheus.CounterVec   // Cost records fetched by provider
-	ResourcesAnalyzed       prometheus.Counter       // Total resources analyzed
-	ZombiesDetected         *prometheus.GaugeVec     // Zombie resources detected by provider
-	PotentialMonthlySaving  *prometheus.GaugeVec     // Potential monthly savings USD by provider
+	AWSAPICallDuration     *prometheus.HistogramVec // AWS API call latency by service
+	AWSAPICallErrors       *prometheus.CounterVec   // AWS API errors by service
+	CostRecordsFetched     *prometheus.CounterVec   // Cost records fetched by provider
+	ResourcesAnalyzed      prometheus.Counter       // Total resources analyzed
+	ZombiesDetected        *prometheus.GaugeVec     // Zombie resources detected by provider
+	PotentialMonthlySaving *prometheus.GaugeVec     // Potential monthly savings USD by provider
 
 	// Scan lifecycle metrics
-	ScanDuration            *prometheus.HistogramVec // Scan operation duration by stage
-	ScanErrors              *prometheus.CounterVec   // Scan errors by account_id, error_type
-	ScanQueueDepth          prometheus.Gauge         // Current scan queue depth
-	AccountsScanning        prometheus.Gauge         // Accounts currently being scanned
+	ScanDuration     *prometheus.HistogramVec // Scan operation duration by stage
+	ScanErrors       *prometheus.CounterVec   // Scan errors by account_id, error_type
+	ScanQueueDepth   prometheus.Gauge         // Current scan queue depth
+	AccountsScanning prometheus.Gauge         // Accounts currently being scanned
 
 	// Cache metrics
-	CacheOperationsTotal    *prometheus.CounterVec   // Cache ops by op, backend, status
-	CacheOperationDuration  *prometheus.HistogramVec // Cache op latency by op, backend
+	CacheOperationsTotal   *prometheus.CounterVec   // Cache ops by op, backend, status
+	CacheOperationDuration *prometheus.HistogramVec // Cache op latency by op, backend
 
 	// Application/process metrics
-	ApplicationUptime       prometheus.Gauge         // Seconds since service startup
-	ApplicationErrors       prometheus.Counter       // Total application errors
+	ApplicationUptime prometheus.Gauge   // Seconds since service startup
+	ApplicationErrors prometheus.Counter // Total application errors
 
 	// Audit trail metrics
-	AuditWritesTotal        *prometheus.CounterVec   // Audit log writes by action and status (ok|failed)
+	AuditWritesTotal *prometheus.CounterVec // Audit log writes by action and status (ok|failed)
 
 	// GDPR / right-to-erasure metrics — these are the operational trail that
 	// survives the audit_log purge that organization deletion performs.

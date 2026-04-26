@@ -46,9 +46,9 @@ func TestSaveMembership_RoundTrip(t *testing.T) {
 	u := seedUser(t, s, tenant.ID, "alice@x.com")
 
 	if err := s.SaveMembership(ctx, model.Membership{
-		TenantID: tenant.ID,
-		UserID:   u.ID,
-		Role:     "admin",
+		OrganizationID: tenant.ID,
+		UserID:         u.ID,
+		Role:           "admin",
 	}); err != nil {
 		t.Fatalf("SaveMembership: %v", err)
 	}
@@ -68,12 +68,12 @@ func TestSaveMembership_DuplicateReturnsExists(t *testing.T) {
 	u := seedUser(t, s, tenant.ID, "dup@x.com")
 
 	if err := s.SaveMembership(ctx, model.Membership{
-		TenantID: tenant.ID, UserID: u.ID, Role: "viewer",
+		OrganizationID: tenant.ID, UserID: u.ID, Role: "viewer",
 	}); err != nil {
 		t.Fatalf("first SaveMembership: %v", err)
 	}
 	err := s.SaveMembership(ctx, model.Membership{
-		TenantID: tenant.ID, UserID: u.ID, Role: "admin",
+		OrganizationID: tenant.ID, UserID: u.ID, Role: "admin",
 	})
 	if !errors.Is(err, storage.ErrMembershipExists) {
 		t.Fatalf("expected ErrMembershipExists, got %v", err)
@@ -87,7 +87,7 @@ func TestUpdateMembershipRole_LastOwnerGuard(t *testing.T) {
 
 	id := uuid.NewString()
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: id, TenantID: tenant.ID, UserID: owner.ID, Role: "owner",
+		ID: id, OrganizationID: tenant.ID, UserID: owner.ID, Role: "owner",
 	}); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestUpdateMembershipRole_AllowsRoleChangeBetweenNonOwners(t *testing.T) {
 
 	id := uuid.NewString()
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: id, TenantID: tenant.ID, UserID: user.ID, Role: "viewer",
+		ID: id, OrganizationID: tenant.ID, UserID: user.ID, Role: "viewer",
 	}); err != nil {
 		t.Fatalf("seed viewer: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestDeleteMembership_LastOwnerGuard(t *testing.T) {
 
 	id := uuid.NewString()
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: id, TenantID: tenant.ID, UserID: owner.ID, Role: "owner",
+		ID: id, OrganizationID: tenant.ID, UserID: owner.ID, Role: "owner",
 	}); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
@@ -148,12 +148,12 @@ func TestTransferOwnership_Atomic(t *testing.T) {
 	target := seedUser(t, s, tenant.ID, "to@x.com")
 
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: uuid.NewString(), TenantID: tenant.ID, UserID: owner.ID, Role: "owner",
+		ID: uuid.NewString(), OrganizationID: tenant.ID, UserID: owner.ID, Role: "owner",
 	}); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: uuid.NewString(), TenantID: tenant.ID, UserID: target.ID, Role: "admin",
+		ID: uuid.NewString(), OrganizationID: tenant.ID, UserID: target.ID, Role: "admin",
 	}); err != nil {
 		t.Fatalf("seed admin: %v", err)
 	}
@@ -239,12 +239,12 @@ func TestRoleOf_TenantIsolation(t *testing.T) {
 	userB := seedUser(t, s, tenantB.ID, "b@x.com")
 
 	if err := s.SaveMembership(ctxA, model.Membership{
-		TenantID: tenantA.ID, UserID: userA.ID, Role: "admin",
+		OrganizationID: tenantA.ID, UserID: userA.ID, Role: "admin",
 	}); err != nil {
 		t.Fatalf("save A: %v", err)
 	}
 	if err := s.SaveMembership(ctxB, model.Membership{
-		TenantID: tenantB.ID, UserID: userB.ID, Role: "viewer",
+		OrganizationID: tenantB.ID, UserID: userB.ID, Role: "viewer",
 	}); err != nil {
 		t.Fatalf("save B: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestListMemberships_JoinsUserEmail(t *testing.T) {
 	u := seedUser(t, s, tenant.ID, "list@x.com")
 
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: uuid.NewString(), TenantID: tenant.ID, UserID: u.ID, Role: "member",
+		ID: uuid.NewString(), OrganizationID: tenant.ID, UserID: u.ID, Role: "member",
 	}); err != nil {
 		t.Fatalf("save: %v", err)
 	}

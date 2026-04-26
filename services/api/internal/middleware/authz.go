@@ -29,7 +29,7 @@ type RoleStore interface {
 // in operational logs.
 func Require(perm authz.Permission, store RoleStore, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tid := TenantID(r.Context())
+		tid := OrganizationID(r.Context())
 		uid := UserID(r.Context())
 		if tid == "" || uid == "" {
 			slog.Warn("authz: missing identity on context",

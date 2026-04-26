@@ -10,19 +10,19 @@ import (
 // AuditEvent is a single audit_log row. Only user-initiated mutating actions
 // are recorded — reads and scheduled/automated scans are excluded.
 type AuditEvent struct {
-	ID           int64          `json:"id"`
-	TenantID     string         `json:"tenant_id,omitempty"`
-	UserID       string         `json:"user_id,omitempty"` // NULL after GDPR anonymisation
-	ActorEmail   string         `json:"actor_email"`       // captured at event time
-	Action       string         `json:"action"`            // one of AuditAction* constants
-	ResourceType string         `json:"resource_type,omitempty"`
-	ResourceID   string         `json:"resource_id,omitempty"`
-	Reason       string         `json:"reason,omitempty"`
-	Metadata     map[string]any `json:"metadata,omitempty"`
-	RequestID    string         `json:"request_id,omitempty"`
-	IPAddress    net.IP         `json:"ip_address,omitempty"`
-	UserAgent    string         `json:"user_agent,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
+	ID             int64          `json:"id"`
+	OrganizationID string         `json:"tenant_id,omitempty"`
+	UserID         string         `json:"user_id,omitempty"` // NULL after GDPR anonymisation
+	ActorEmail     string         `json:"actor_email"`       // captured at event time
+	Action         string         `json:"action"`            // one of AuditAction* constants
+	ResourceType   string         `json:"resource_type,omitempty"`
+	ResourceID     string         `json:"resource_id,omitempty"`
+	Reason         string         `json:"reason,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	RequestID      string         `json:"request_id,omitempty"`
+	IPAddress      net.IP         `json:"ip_address,omitempty"`
+	UserAgent      string         `json:"user_agent,omitempty"`
+	CreatedAt      time.Time      `json:"created_at"`
 }
 
 // Audit action constants. Values match the action column in audit_log.
@@ -32,16 +32,16 @@ type AuditEvent struct {
 // or opening a detail page does not belong here — CloudTrail handles real AWS
 // actions, and product telemetry is a better home for UX analytics.
 const (
-	AuditActionDismissZombie    = "dismiss_zombie"
-	AuditActionSnoozeZombie     = "snooze_zombie"
-	AuditActionRevokeDismissal  = "revoke_dismissal"
-	AuditActionScanTriggered    = "scan_triggered"
-	AuditActionAccountConnected = "account_connected"
-	AuditActionAccountUpdated   = "account_updated"
-	AuditActionAccountDeleted   = "account_deleted"
-	AuditActionMemberInvited    = "member_invited"
-	AuditActionMemberRoleChanged = "member_role_changed"
-	AuditActionMemberRemoved    = "member_removed"
+	AuditActionDismissZombie        = "dismiss_zombie"
+	AuditActionSnoozeZombie         = "snooze_zombie"
+	AuditActionRevokeDismissal      = "revoke_dismissal"
+	AuditActionScanTriggered        = "scan_triggered"
+	AuditActionAccountConnected     = "account_connected"
+	AuditActionAccountUpdated       = "account_updated"
+	AuditActionAccountDeleted       = "account_deleted"
+	AuditActionMemberInvited        = "member_invited"
+	AuditActionMemberRoleChanged    = "member_role_changed"
+	AuditActionMemberRemoved        = "member_removed"
 	AuditActionOwnershipTransferred = "ownership_transferred"
 	// AuditActionTenantDeleted is written immediately before a tenant cascade
 	// delete (DELETE /v1/tenants/me). The row itself gets purged with the

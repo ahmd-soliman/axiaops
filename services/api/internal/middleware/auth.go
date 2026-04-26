@@ -161,11 +161,11 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 		ctx := r.Context()
 
 		// Persist tenant and user on every authenticated request.
-		// UpsertTenant/UpsertUser are idempotent — safe to call repeatedly.
+		// UpsertOrganization/UpsertUser are idempotent — safe to call repeatedly.
 		if a.store != nil {
-			tenant, err := a.store.UpsertTenant(ctx, orgCode, orgName)
+			tenant, err := a.store.UpsertOrganization(ctx, orgCode, orgName)
 			if err != nil {
-				slog.Error("auth: UpsertTenant failed", "error", err)
+				slog.Error("auth: UpsertOrganization failed", "error", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
@@ -208,8 +208,8 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// TenantID returns the internal tenant UUID from the request context.
-func TenantID(ctx context.Context) string {
+// OrganizationID returns the internal tenant UUID from the request context.
+func OrganizationID(ctx context.Context) string {
 	id, _ := ctx.Value(tenantIDKey).(string)
 	return id
 }

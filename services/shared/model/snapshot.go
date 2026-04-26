@@ -6,7 +6,7 @@ import "time"
 // One snapshot is written per ingestion run, forming the savings history series.
 type ZombieSnapshot struct {
 	ID               string    `json:"id"`
-	TenantID         string    `json:"-"`
+	OrganizationID   string    `json:"-"`
 	AccountID        string    `json:"account_id"`
 	SnapshotAt       time.Time `json:"snapshot_at"`
 	ZombieCount      int       `json:"zombie_count"`

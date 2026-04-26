@@ -67,7 +67,7 @@ func (h *Handler) deleteCurrentUser(w http.ResponseWriter, r *http.Request) {
 // purged alongside the rest of the tenant's data, but the audit-write
 // counter and slog line endure.
 func (h *Handler) deleteCurrentTenant(w http.ResponseWriter, r *http.Request) {
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	if tid == "" {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
@@ -83,7 +83,7 @@ func (h *Handler) deleteCurrentTenant(w http.ResponseWriter, r *http.Request) {
 		ResourceID:   tid,
 	})
 
-	if err := h.store.DeleteTenantCascade(r.Context(), tid); err != nil {
+	if err := h.store.DeleteOrganizationCascade(r.Context(), tid); err != nil {
 		observability.Global.OrganizationDeletionsTotal.WithLabelValues("failed").Inc()
 		slog.Error("delete tenant failed",
 			"tenant_id", tid,
