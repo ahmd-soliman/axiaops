@@ -120,7 +120,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 	// GDPR — right of access / portability (Art. 15 + 20). Owner-only because
 	// the export bundles audit_log + billing + accounts in a single download.
-	mux.Handle("GET /v1/export", require(authz.PermDataExport, h.exportTenantData))
+	mux.Handle("GET /v1/export", require(authz.PermDataExport, h.exportOrganizationData))
 }
 
 // cors wraps a handler with CORS headers.
@@ -187,7 +187,7 @@ func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, zombies)
 }
 
-// enrichWithDismissals loads active dismissals for the tenant and either annotates
+// enrichWithDismissals loads active dismissals for the organization and either annotates
 // or removes dismissed/snoozed zombies from the list.
 func (h *Handler) enrichWithDismissals(ctx context.Context, zombies []model.ZombieResource, accountID string, includeDismissed bool) ([]model.ZombieResource, error) {
 	dismissals, err := h.store.ListActiveDismissals(ctx, accountID)
@@ -290,7 +290,7 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, analyzer.Summarize(zombies))
 }
 
-// getTrend returns zombie snapshots for the tenant, ordered oldest-first.
+// getTrend returns zombie snapshots for the organization, ordered oldest-first.
 // Optional query params: ?account_id=<id>, ?service=<name>.
 // When service is set, returns per-service data from zombie_snapshot_services.
 func (h *Handler) getTrend(w http.ResponseWriter, r *http.Request) {
@@ -353,7 +353,7 @@ func (h *Handler) getTrendResourceTypes(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, types)
 }
 
-// listCosts returns cost records for the tenant, filtered by account, service, and time window.
+// listCosts returns cost records for the organization, filtered by account, service, and time window.
 // Optional query params: ?account_id=<id>, ?service=<name>, ?days=<int> (default 30).
 // account_id can be either the internal AxiaOps account UUID or the AWS account ID.
 func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
@@ -521,7 +521,7 @@ func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// listAccounts returns connected accounts for the tenant (secrets masked).
+// listAccounts returns connected accounts for the organization (secrets masked).
 func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithOrganizationID(r.Context(), middleware.OrganizationID(r.Context()))
 	accounts, err := h.store.ListAccounts(ctx)
@@ -1028,7 +1028,7 @@ func decodeAuditCursor(s string) (model.AuditCursor, error) {
 // dismissActor returns the identifier stored in dismissed_by / revoked_by.
 // Prefers the stable user id (immutable UUID) so the stored value doesn't drift
 // when a user's email changes in Kinde. Falls back to email when the user id is
-// unavailable (e.g. Auth.Wrap with store=nil in tests), and finally to tenant
+// unavailable (e.g. Auth.Wrap with store=nil in tests), and finally to organization
 // id so rows are never written with "".
 func dismissActor(ctx context.Context) string {
 	if id := middleware.UserID(ctx); id != "" {

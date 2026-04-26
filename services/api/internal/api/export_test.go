@@ -27,17 +27,17 @@ func TestExport_Owner_200_HappyPath(t *testing.T) {
 		WithMemberships([]model.MembershipWithUser{
 			{
 				Membership: model.Membership{
-					ID: "m-1", OrganizationID: "tenant-me", UserID: "user-me", Role: "owner",
+					ID: "m-1", OrganizationID: "organization-me", UserID: "user-me", Role: "owner",
 					CreatedAt: now, UpdatedAt: now,
 				},
 				Email: "me@example.com",
 			},
 		}).
 		WithAccounts([]model.Account{
-			{ID: "acct-1", OrganizationID: "tenant-me", Provider: "aws", Label: "prod", AccessKeyID: "AKIA...", SecretEncrypted: "ENCRYPTED-DO-NOT-LEAK", Region: "eu-central-1"},
+			{ID: "acct-1", OrganizationID: "organization-me", Provider: "aws", Label: "prod", AccessKeyID: "AKIA...", SecretEncrypted: "ENCRYPTED-DO-NOT-LEAK", Region: "eu-central-1"},
 		}).
 		WithAuditEvents([]model.AuditEvent{
-			{ID: 1, OrganizationID: "tenant-me", UserID: "user-me", ActorEmail: "me@example.com", Action: model.AuditActionAccountConnected, CreatedAt: now},
+			{ID: 1, OrganizationID: "organization-me", UserID: "user-me", ActorEmail: "me@example.com", Action: model.AuditActionAccountConnected, CreatedAt: now},
 		})
 
 	mux := expHandler(store)
@@ -70,8 +70,8 @@ func TestExport_Owner_200_HappyPath(t *testing.T) {
 	if doc["schema_version"] != "1" {
 		t.Errorf("schema_version: want \"1\", got %v", doc["schema_version"])
 	}
-	if doc["organization_id"] != "tenant-me" {
-		t.Errorf("organization_id: want tenant-me, got %v", doc["organization_id"])
+	if doc["organization_id"] != "organization-me" {
+		t.Errorf("organization_id: want organization-me, got %v", doc["organization_id"])
 	}
 
 	for _, key := range []string{"members", "accounts", "resources", "zombies", "cost_records", "snapshots", "active_dismissals", "audit_log"} {
@@ -116,7 +116,7 @@ func TestExport_Owner_200_HappyPath(t *testing.T) {
 		t.Fatalf("expected a %q audit row, got %d total events: %+v",
 			model.AuditActionDataExported, len(gotEvents), gotEvents)
 	}
-	if found.ResourceType != "organization" || found.ResourceID != "tenant-me" {
+	if found.ResourceType != "organization" || found.ResourceID != "organization-me" {
 		t.Errorf("audit row resource fields wrong: type=%q id=%q", found.ResourceType, found.ResourceID)
 	}
 	if found.Metadata == nil || found.Metadata["accounts"] == nil {
@@ -165,7 +165,7 @@ func TestExport_AuditLog_PagesPastSinglePage(t *testing.T) {
 	for i := 0; i < total; i++ {
 		events = append(events, model.AuditEvent{
 			ID:             int64(i + 1),
-			OrganizationID: "tenant-me",
+			OrganizationID: "organization-me",
 			UserID:         "user-me",
 			ActorEmail:     "me@example.com",
 			Action:         model.AuditActionAccountConnected,
@@ -218,7 +218,7 @@ func TestExport_AuditLog_PagesPastSinglePage(t *testing.T) {
 	}
 }
 
-func TestExport_EmptyTenant_200(t *testing.T) {
+func TestExport_EmptyOrganization_200(t *testing.T) {
 	// Owner with nothing in any table — every collection should encode as [],
 	// not null, so consumers can iterate without nil-checks.
 	store := NewMockStore().WithRole("owner")

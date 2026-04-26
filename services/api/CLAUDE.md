@@ -66,7 +66,7 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 - Location: `internal/middleware/auth.go`
 - Fetches JWKS from Kinde's `.well-known/jwks.json` endpoint
 - Verifies RS256 signature + expiry
-- `DEV_MODE=true` → auth bypassed, uses `DEV_TENANT_ID`
+- `DEV_MODE=true` → auth bypassed, uses `DEV_ORGANIZATION_ID`
 - Organization mapped: Kinde `org_code` → `organizations.id` via `UpsertOrganization()`
 
 ## Prometheus Metrics (Phase 2.6)
@@ -127,7 +127,7 @@ Errors are logged to stdout with structured context (JSON format in production).
 | API_ADDR | No | :8080 | Listen address |
 | KINDE_ISSUER | Prod | — | Kinde organization URL |
 | DEV_MODE | No | false | Skip auth, use fixed organization |
-| DEV_TENANT_ID | No | dev-organization-axiaops | Organization ID in dev mode |
+| DEV_ORGANIZATION_ID | No | dev-organization-axiaops | Organization ID in dev mode |
 | DEV_USER_ID | No | dev-user-axiaops | User ID seeded in dev mode; `EnsureDevMembership` assigns it `owner` |
 | DEV_USER_EMAIL | No | dev@axiaops.local | Email for the dev user row |
 | CORS_ORIGIN | No | * | Allowed CORS origin |

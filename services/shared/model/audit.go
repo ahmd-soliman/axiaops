@@ -48,7 +48,7 @@ const (
 	// with the rest of audit_log, so its only durable trace is the structured
 	// slog line and the axiaops_organization_deletions_total Prometheus counter.
 	AuditActionOrganizationDeleted = "organization_deleted"
-	// AuditActionDataExported is written when an owner downloads the tenant's
+	// AuditActionDataExported is written when an owner downloads the organization's
 	// GDPR data export (GET /v1/export). The Metadata map carries the row
 	// counts per table so a DSR audit can show *what* was exported, not just
 	// that an export happened.
@@ -74,7 +74,7 @@ var ValidAuditActions = map[string]bool{
 }
 
 // AuditFilter parameterises AuditLogList queries. Zero-value fields are not
-// applied — a zero filter returns the full tenant timeline (bounded by Limit).
+// applied — a zero filter returns the full organization timeline (bounded by Limit).
 type AuditFilter struct {
 	UserID       string
 	ResourceType string

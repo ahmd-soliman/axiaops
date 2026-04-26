@@ -22,7 +22,7 @@ Two modes exist, controlled by `DEV_MODE`:
 - Calls `setAuthToken(devToken)` and renders the app immediately
 
 **API (`main.go`):**
-- `DevBypass` middleware injects `DEV_TENANT_ID` from env into every request context
+- `DevBypass` middleware injects `DEV_ORGANIZATION_ID` from env into every request context
 - No token parsing, no DB lookup
 
 ---
@@ -70,7 +70,7 @@ PostgreSQL RLS uses to isolate data between organizations.
 | `KINDE_ISSUER` | `services/api/.env` | JWT issuer + JWKS base URL (API) and OAuth discovery (dashboard) |
 | `KINDE_CLIENT_ID` | `services/api/.env` | OAuth client ID — dashboard only, API does not read it |
 | `DEV_MODE` | Makefile / env | Switches between dev bypass and real auth |
-| `DEV_TENANT_ID` | Makefile (`start-dev`) | Fixed organization for dev bypass |
+| `DEV_ORGANIZATION_ID` | Makefile (`start-dev`) | Fixed organization for dev bypass |
 
 The API only needs `KINDE_ISSUER` — it never reads `KINDE_CLIENT_ID` or any client
 secret. The JWKS endpoint (`<issuer>/.well-known/jwks.json`) is public; no

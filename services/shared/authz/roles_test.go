@@ -64,7 +64,7 @@ func TestAllows_FailsClosed(t *testing.T) {
 	if authz.Allows("superuser", authz.PermAccountsRead) {
 		t.Error("unknown role must not grant any permission")
 	}
-	if authz.Allows(authz.RoleOwner, "tenant:nuke") {
+	if authz.Allows(authz.RoleOwner, "organization:nuke") {
 		t.Error("unknown permission must not be granted to any role")
 	}
 }

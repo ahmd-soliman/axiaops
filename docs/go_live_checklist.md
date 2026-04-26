@@ -65,7 +65,7 @@
 - Observability — structured logging (`slog`), Prometheus metrics ✅
 - Scan recovery — stuck scan timeout detection ✅
 - API versioning — `/v1/` prefix on all endpoints ✅
-- In-memory rate limiting — per-tenant token bucket ✅
+- In-memory rate limiting — per-organization token bucket ✅
 - Graceful shutdown — SIGTERM handling ✅
 - GitLab CI pipeline — test + build stages ✅
 

@@ -167,8 +167,8 @@ saveObserver := observability.NewScanObserver("save")
 saveObserver.Observe()
 
 // Update summary metrics
-observability.Global.ZombiesDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalZombies))
-observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(summary.PotentialMonthlySave)
+observability.Global.ZombiesDetected.WithLabelValues("aws", organizationID).Set(float64(summary.TotalZombies))
+observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationID).Set(summary.PotentialMonthlySave)
 ```
 
 ## Error Handling

@@ -162,7 +162,7 @@ func TestScanScheduledAccounts_ListError(t *testing.T) {
 func TestScanScheduledAccounts_SkipsAlreadyScanning(t *testing.T) {
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
-			ID: "acc-1", OrganizationID: "tenant-1", ScanIntervalHours: 24, Status: "scanning",
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 24, Status: "scanning",
 		}},
 	}
 	q := &captureQueue{}
@@ -175,7 +175,7 @@ func TestScanScheduledAccounts_SkipsAlreadyScanning(t *testing.T) {
 func TestScanScheduledAccounts_NeverScanned(t *testing.T) {
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
-			ID: "acc-1", OrganizationID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: nil, Status: "connected",
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 24, LastScannedAt: nil, Status: "connected",
 		}},
 	}
 	q := &captureQueue{}
@@ -189,7 +189,7 @@ func TestScanScheduledAccounts_Overdue(t *testing.T) {
 	last := time.Now().Add(-30 * time.Hour)
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
-			ID: "acc-1", OrganizationID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: &last, Status: "connected",
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 24, LastScannedAt: &last, Status: "connected",
 		}},
 	}
 	q := &captureQueue{}
@@ -206,7 +206,7 @@ func TestScanScheduledAccounts_NotOverdue(t *testing.T) {
 	last := time.Now().Add(-12 * time.Hour)
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
-			ID: "acc-1", OrganizationID: "tenant-1", ScanIntervalHours: 24, LastScannedAt: &last, Status: "connected",
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 24, LastScannedAt: &last, Status: "connected",
 		}},
 	}
 	q := &captureQueue{}
@@ -220,7 +220,7 @@ func TestScanScheduledAccounts_ZeroInterval_AlwaysOverdue(t *testing.T) {
 	now := time.Now()
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
-			ID: "acc-1", OrganizationID: "tenant-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
 		}},
 	}
 	q := &captureQueue{}

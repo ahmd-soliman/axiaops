@@ -9,7 +9,7 @@ Supersedes the role sketch in `docs/user_onboarding.md`.
 
 ### Goals (v1)
 
-- Authorization within a organization. Every current endpoint gets a required permission. Unauthorized users receive `403 Forbidden`.
+- Authorization within an organization. Every current endpoint gets a required permission. Unauthorized users receive `403 Forbidden`.
 - Four roles with clear, non-overlapping semantics: `owner`, `admin`, `member`, `viewer`.
 - Role is a **property of (user, organization)**, not a property of the user. A single Kinde user could in theory belong to multiple AxiaOps organizations with different roles. (Kinde supports multi-org per user; we preserve that.)
 - Enforcement at the HTTP handler layer via a decorator. No change to the `storage.Store` interface. No change to RLS.
@@ -390,7 +390,7 @@ Authoritative table. See §2 capability matrix for which role gets each permissi
 `DEV_MODE=true` bypasses auth (`auth.go:185` → `DevBypass`). The dev-mode user has no JWT, no `kinde_sub`, no role row. Handling:
 
 - **At startup in `main.go`:** after `store.EnsureOrganization(ctx, devOrganizationID, ...)`, also call `store.EnsureDevUser(ctx, devOrganizationID, devUserID, devEmail)` followed by `store.EnsureDevMembership(ctx, devOrganizationID, devUserID, authz.RoleOwner)`. Two helpers — the membership depends on a user row existing, and neither exists today.
-- **New env var:** `DEV_USER_ID` (default: `dev-user-axiaops`). `DEV_TENANT_ID` already exists.
+- **New env var:** `DEV_USER_ID` (default: `dev-user-axiaops`). `DEV_ORGANIZATION_ID` already exists.
 - **In `DevBypass`:** set both `organization_id` **and** `user_id` on the context. Today it only sets organization (see `auth.go:185-194`).
 - **In the `Require` middleware:** no branching on dev mode — it just looks up the role, finds `owner`, and allows everything. Keeps prod and dev code paths identical. If you branched here, the permission-check path would only run in prod and bugs there wouldn't surface until staging.
 

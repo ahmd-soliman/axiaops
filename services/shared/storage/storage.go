@@ -24,25 +24,25 @@ var ErrMembershipNotFound = errors.New("storage: membership not found")
 // distinguish "user has not logged in yet" from real errors.
 var ErrUserNotFound = errors.New("storage: user not found")
 
-// ErrLastOwner is returned by membership mutations that would leave a tenant
+// ErrLastOwner is returned by membership mutations that would leave a organization
 // with zero owners. Surface as HTTP 409.
 var ErrLastOwner = errors.New("storage: cannot remove or demote the last owner")
 
 // ErrMembershipExists is returned by SaveMembership when a membership already
-// exists for (tenant_id, user_id). Surface as HTTP 409.
-var ErrMembershipExists = errors.New("storage: membership already exists for user in tenant")
+// exists for (organization_id, user_id). Surface as HTTP 409.
+var ErrMembershipExists = errors.New("storage: membership already exists for user in organization")
 
 type ctxKey string
 
 const organizationKey ctxKey = "organization_id"
 
-// WithOrganizationID returns a context carrying the given tenant ID.
-// The PostgreSQL store reads this to set app.tenant_id for Row-Level Security.
+// WithOrganizationID returns a context carrying the given organization ID.
+// The PostgreSQL store reads this to set app.organization_id for Row-Level Security.
 func WithOrganizationID(ctx context.Context, organizationID string) context.Context {
 	return context.WithValue(ctx, organizationKey, organizationID)
 }
 
-// OrganizationIDFromCtx returns the tenant ID stored in the context, or "".
+// OrganizationIDFromCtx returns the organization ID stored in the context, or "".
 func OrganizationIDFromCtx(ctx context.Context) string {
 	v, _ := ctx.Value(organizationKey).(string)
 	return v
@@ -56,7 +56,7 @@ type CostFilter struct {
 	Days              int    // optional: lookback window in days (default: 30)
 }
 
-// Store persists and retrieves cost records, tenants, and users.
+// Store persists and retrieves cost records, organizations, and users.
 type Store interface {
 	// Save inserts a batch of cost records, skipping duplicates.
 	// Returns the number of records actually inserted.
@@ -64,22 +64,22 @@ type Store interface {
 
 	// SaveZombies replaces all zombie records with the latest detection results.
 	// Called by the ingestion job after each analysis run.
-	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
 	SaveZombies(ctx context.Context, zombies []model.ZombieResource) error
 
-	// LoadZombies returns zombie records for the tenant in ctx.
+	// LoadZombies returns zombie records for the organization in ctx.
 	// Called by the API service per request.
-	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
 	LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 
-	// UpsertOrganization creates a tenant on first login or returns the existing one.
+	// UpsertOrganization creates a organization on first login or returns the existing one.
 	// Keyed on org_code — the Kinde organisation identifier.
 	UpsertOrganization(ctx context.Context, orgCode, name string) (model.Organization, error)
 
-	// EnsureOrganization creates a tenant with a caller-supplied id if no row with
+	// EnsureOrganization creates a organization with a caller-supplied id if no row with
 	// that id exists yet. Unlike UpsertOrganization, the id is pinned (not a UUID)
 	// and the row is never modified on conflict. Used by dev mode at startup
-	// to guarantee a known-id tenant row for FK references.
+	// to guarantee a known-id organization row for FK references.
 	EnsureOrganization(ctx context.Context, id, orgCode, name string) error
 
 	// UpsertUser creates a user on first login or updates last_seen.
@@ -87,32 +87,32 @@ type Store interface {
 	UpsertUser(ctx context.Context, organizationID, kindeSub, email, name string) (model.User, error)
 
 	// EnsureUser creates a user with a caller-supplied id, or updates
-	// tenant_id/email/name/last_seen if a row with that id already exists.
+	// organization_id/email/name/last_seen if a row with that id already exists.
 	// Unlike UpsertUser the id is pinned by the caller (not generated). Used
 	// by dev mode at startup so DevBypass can inject a stable user_id alongside
-	// the dev tenant_id without going through the Kinde-upsert path.
+	// the dev organization_id without going through the Kinde-upsert path.
 	//
 	// Only u.ID, u.OrganizationID, u.Email, and u.Name are read. KindeSub is derived
 	// by the implementation (synthetic "dev:<id>" for the Postgres impl).
 	// Timestamps are set to NOW().
 	EnsureUser(ctx context.Context, u model.User) error
 
-	// SaveAccount inserts or replaces a connected cloud account for a tenant.
+	// SaveAccount inserts or replaces a connected cloud account for a organization.
 	SaveAccount(ctx context.Context, a model.Account) error
 
-	// ListAccounts returns all connected accounts for the tenant in ctx.
+	// ListAccounts returns all connected accounts for the organization in ctx.
 	ListAccounts(ctx context.Context) ([]model.Account, error)
 
-	// ListAllAccounts returns accounts for ALL tenants, bypassing row-level security.
-	// Used internally by the scheduled scan scheduler to check all accounts across all tenants.
+	// ListAllAccounts returns accounts for ALL organizations, bypassing row-level security.
+	// Used internally by the scheduled scan scheduler to check all accounts across all organizations.
 	// WARNING: This must only be called from trusted internal code (e.g., background jobs).
-	// Never call with untrusted input. ctx.tenant_id is ignored if present.
+	// Never call with untrusted input. ctx.organization_id is ignored if present.
 	ListAllAccounts(ctx context.Context) ([]model.Account, error)
 
-	// GetAccount returns a single account by ID for the tenant in ctx.
+	// GetAccount returns a single account by ID for the organization in ctx.
 	GetAccount(ctx context.Context, id string) (model.Account, error)
 
-	// DeleteAccount removes an account by ID for the tenant in ctx.
+	// DeleteAccount removes an account by ID for the organization in ctx.
 	DeleteAccount(ctx context.Context, id string) error
 
 	// UpdateAccountStatus sets the status and last_scanned_at for an account.
@@ -124,26 +124,26 @@ type Store interface {
 
 	// SaveResources replaces all resource records with the latest inventory.
 	// Called by the ingestion job after each analysis run.
-	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
 	SaveResources(ctx context.Context, resources []model.ResourceRecord) error
 
-	// LoadResources returns all resource records for the tenant in ctx.
+	// LoadResources returns all resource records for the organization in ctx.
 	// Called by the API service per request.
-	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
 	LoadResources(ctx context.Context) ([]model.ResourceRecord, error)
 
-	// ListCostRecords returns cost records for the tenant in ctx, filtered by account, service, and time window.
+	// ListCostRecords returns cost records for the organization in ctx, filtered by account, service, and time window.
 	// Records with amount > 0 are returned, ordered by period_start (newest first) then amount (largest first).
 	// If filter.Days is 0 or negative, defaults to 30 days.
-	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
 	ListCostRecords(ctx context.Context, filter CostFilter) ([]model.CostRecord, error)
 
 	// SaveSnapshot writes a zombie snapshot after each ingestion scan.
 	// Snapshots are never replaced — they accumulate to form the savings history.
-	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
 	SaveSnapshot(ctx context.Context, snap model.ZombieSnapshot) error
 
-	// ListSnapshots returns zombie snapshots for the tenant in ctx, ordered
+	// ListSnapshots returns zombie snapshots for the organization in ctx, ordered
 	// oldest-first. If accountID is non-empty, only snapshots for that account
 	// are returned.
 	ListSnapshots(ctx context.Context, accountID string) ([]model.ZombieSnapshot, error)
@@ -159,14 +159,14 @@ type Store interface {
 	ListSnapshotsByService(ctx context.Context, service, resourceType, accountID string) ([]model.ZombieSnapshot, error)
 
 	// ListTrendServices returns the distinct services that have snapshot data
-	// for the tenant, useful for populating filter UI.
+	// for the organization, useful for populating filter UI.
 	ListTrendServices(ctx context.Context) ([]string, error)
 
 	// ListTrendResourceTypes returns distinct resource types for a given service
-	// that have snapshot data for the tenant.
+	// that have snapshot data for the organization.
 	ListTrendResourceTypes(ctx context.Context, service string) ([]string, error)
 
-	// DeleteOldCostRecords removes cost records older than the given cutoff for all tenants.
+	// DeleteOldCostRecords removes cost records older than the given cutoff for all organizations.
 	// Returns the number of rows deleted.
 	DeleteOldCostRecords(ctx context.Context, cutoff time.Time) (int64, error)
 
@@ -180,30 +180,30 @@ type Store interface {
 	RevokeDismissal(ctx context.Context, id int64, revokedBy string) error
 
 	// ListActiveDismissals returns all active (non-revoked, non-expired) dismissals
-	// for the tenant in ctx.  If accountID is non-empty, only that account is returned.
+	// for the organization in ctx.  If accountID is non-empty, only that account is returned.
 	ListActiveDismissals(ctx context.Context, accountID string) ([]model.DismissAction, error)
 
 	// ExpireSnoozes marks snoozed records whose snoozed_until has passed as revoked.
-	// This is a cross-tenant operation called by the background maintenance worker.
+	// This is a cross-organization operation called by the background maintenance worker.
 	// Returns the number of records expired.
 	ExpireSnoozes(ctx context.Context) (int64, error)
 
 	// AuditLogWrite records a user-initiated mutation in audit_log.
-	// ctx must carry a tenant ID via WithOrganizationID.  Returns the new row ID.
+	// ctx must carry a organization ID via WithOrganizationID.  Returns the new row ID.
 	// Callers must treat audit writes as best-effort — log the error, bump the
 	// axiaops_audit_writes_total{status="failed"} counter, and continue. Failing
 	// the underlying user operation because an audit row couldn't be written is
 	// a worse outcome than a missing audit row.
 	AuditLogWrite(ctx context.Context, e model.AuditEvent) (int64, error)
 
-	// AuditLogList returns audit events for the tenant in ctx in
+	// AuditLogList returns audit events for the organization in ctx in
 	// (created_at DESC, id DESC) order. Zero-valued filter fields are not
 	// applied. Limit is capped at 500 by the implementation.
 	AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.AuditEvent, error)
 
 	// AuditLogAnonymiseUser nulls user_id and replaces actor_email with a
-	// tombstone marker for all rows matching (tenant_id, user_id) — used by
-	// user-deletion and tenant-deletion (GDPR) paths.  Returns the number of
+	// tombstone marker for all rows matching (organization_id, user_id) — used by
+	// user-deletion and organization-deletion (GDPR) paths.  Returns the number of
 	// rows modified.
 	AuditLogAnonymiseUser(ctx context.Context, userID string) (int64, error)
 
@@ -212,41 +212,41 @@ type Store interface {
 	// RoleOf returns the role string ("owner"|"admin"|"member"|"viewer") for
 	// (organizationID, userID), or "" with nil error when no membership row exists.
 	// The implementation must enforce RLS — i.e. open its own transaction
-	// and SET LOCAL app.tenant_id before SELECTing. Called from the auth
+	// and SET LOCAL app.organization_id before SELECTing. Called from the auth
 	// middleware on every request, so must be cheap.
 	RoleOf(ctx context.Context, organizationID, userID string) (string, error)
 
-	// ListMemberships returns all memberships in the tenant in ctx, joined
+	// ListMemberships returns all memberships in the organization in ctx, joined
 	// with users for email/name. Used by the admin user-management screen.
 	ListMemberships(ctx context.Context) ([]model.MembershipWithUser, error)
 
-	// GetMembership returns a single membership by ID for the tenant in ctx.
+	// GetMembership returns a single membership by ID for the organization in ctx.
 	// Returns ErrMembershipNotFound if the row does not exist (or belongs to
-	// another tenant — RLS hides it the same way).
+	// another organization — RLS hides it the same way).
 	GetMembership(ctx context.Context, id string) (model.Membership, error)
 
 	// SaveMembership inserts a new membership. Returns ErrMembershipExists
-	// when (tenant_id, user_id) collides. The caller generates the ID.
+	// when (organization_id, user_id) collides. The caller generates the ID.
 	SaveMembership(ctx context.Context, m model.Membership) error
 
 	// UpdateMembershipRole changes the role of an existing membership.
 	// Returns ErrMembershipNotFound when the row does not exist; returns
-	// ErrLastOwner when the change would leave the tenant with zero owners.
+	// ErrLastOwner when the change would leave the organization with zero owners.
 	UpdateMembershipRole(ctx context.Context, id, newRole string) error
 
 	// DeleteMembership removes a membership. Returns ErrMembershipNotFound
 	// when the row does not exist; returns ErrLastOwner when the deletion
-	// would leave the tenant with zero owners.
+	// would leave the organization with zero owners.
 	DeleteMembership(ctx context.Context, id string) error
 
 	// TransferOwnership atomically demotes the current owner to admin and
-	// promotes the target user to owner, both within the tenant in ctx.
+	// promotes the target user to owner, both within the organization in ctx.
 	// Returns ErrMembershipNotFound when the target user has no membership
-	// in this tenant.
+	// in this organization.
 	TransferOwnership(ctx context.Context, toUserID string) error
 
 	// EnsureFirstMembership inserts an owner row for (organizationID, userID) only
-	// if no membership row exists yet for this tenant. Used by the auth
+	// if no membership row exists yet for this organization. Used by the auth
 	// middleware to bootstrap brand-new Kinde organisations on first login.
 	// Idempotent and race-safe: the partial unique index in migration 015
 	// rejects a second concurrent insert. Returns true when this call
@@ -255,11 +255,11 @@ type Store interface {
 
 	// EnsureDevMembership creates an owner row for (organizationID, userID) on
 	// startup in DEV_MODE. Mirrors EnsureUser's raw-pool shortcut (RLS
-	// would prevent reading app.tenant_id at startup before any handler runs).
+	// would prevent reading app.organization_id at startup before any handler runs).
 	// Idempotent. role is one of the four defined roles.
 	EnsureDevMembership(ctx context.Context, organizationID, userID, role string) error
 
-	// GetUserByEmail looks up a user by email for the tenant in ctx. Used by
+	// GetUserByEmail looks up a user by email for the organization in ctx. Used by
 	// the invite-by-email flow. Returns ErrUserNotFound when no match.
 	GetUserByEmail(ctx context.Context, email string) (model.User, error)
 
@@ -267,32 +267,32 @@ type Store interface {
 
 	// DeleteUser hard-deletes a user across the entire system as part of the
 	// per-user right-to-erasure flow. Steps:
-	//   1. Anonymise the user's audit_log footprint across ALL tenants
+	//   1. Anonymise the user's audit_log footprint across ALL organizations
 	//      (sets user_id = NULL, actor_email = 'deleted-user').
 	//   2. Cascade-deletes all memberships (memberships.user_id has
 	//      ON DELETE CASCADE).
 	//   3. Deletes the users row.
-	// Returns ErrLastOwner if the user is the sole owner of any tenant —
-	// the caller must transfer ownership or delete those tenants first.
-	// Bypasses RLS (uses the admin pool) because the operation spans tenants
+	// Returns ErrLastOwner if the user is the sole owner of any organization —
+	// the caller must transfer ownership or delete those organizations first.
+	// Bypasses RLS (uses the admin pool) because the operation spans organizations
 	// and audit_log requires DELETE/UPDATE privileges the app role lacks.
-	// Does not touch users whose users.tenant_id row points at a tenant being
+	// Does not touch users whose users.organization_id row points at a organization being
 	// deleted in the same flow — DeleteOrganizationCascade handles that case.
 	DeleteUser(ctx context.Context, userID string) error
 
-	// DeleteOrganizationCascade hard-deletes a tenant and every row scoped to it,
-	// in FK-safe order, in a single transaction. Used by the per-tenant
+	// DeleteOrganizationCascade hard-deletes a organization and every row scoped to it,
+	// in FK-safe order, in a single transaction. Used by the per-organization
 	// right-to-erasure flow (DELETE /v1/organizations/me). Steps:
-	//   1. Anonymise audit_log entries (in OTHER tenants) for users whose
-	//      users.tenant_id = organizationID — those users are about to be deleted
+	//   1. Anonymise audit_log entries (in OTHER organizations) for users whose
+	//      users.organization_id = organizationID — those users are about to be deleted
 	//      and their attribution must be erased everywhere, not just here.
-	//   2. Delete per-tenant data: dismissed_zombies, zombie_snapshot_services,
+	//   2. Delete per-organization data: dismissed_zombies, zombie_snapshot_services,
 	//      zombie_snapshots, zombie_records, resource_records, cost_records,
 	//      accounts, audit_log.
-	//   3. Delete users with users.tenant_id = organizationID; CASCADE removes
-	//      their memberships in this and other tenants.
-	//   4. Delete the tenants row; CASCADE removes any remaining memberships
-	//      held by users from other tenants.
+	//   3. Delete users with users.organization_id = organizationID; CASCADE removes
+	//      their memberships in this and other organizations.
+	//   4. Delete the organizations row; CASCADE removes any remaining memberships
+	//      held by users from other organizations.
 	// Bypasses RLS (uses the admin pool). The call should be preceded by an
 	// audit_log write recording the deletion intent — that record is purged
 	// along with everything else, but a Prometheus counter and structured
