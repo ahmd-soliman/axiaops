@@ -3,10 +3,9 @@
 _Last updated: 2026-04-25_
 
 > **Purpose:** Operational plan to bring AxiaOps to GDPR compliance before the
-> first paying EU customer (target: October 2026). Expands `Tasks.md` Phase 3 #9
-> ("GDPR / right to erasure") and `docs/TASKS.md` §3.10 into a concrete,
-> deliverable-by-deliverable plan with owners, dependencies, and acceptance
-> criteria.
+> first paying EU customer (target: October 2026). Expands `Tasks.md` Phase 3
+> #9 / §3.10 into a concrete, deliverable-by-deliverable plan with owners,
+> dependencies, and acceptance criteria.
 >
 > This document is the source of truth. The task trackers point at it.
 
@@ -121,7 +120,7 @@ Single PR target: `legal/initial-policies` — all four documents land together.
 ## 4. Data Subject Rights (Art. 15–22)
 
 The product surface for these rights is mostly already sketched in §3.10 of
-`docs/TASKS.md`. This section consolidates and adds what's missing.
+`Tasks.md`. This section consolidates and adds what's missing.
 
 ### 4.1 Self-service surface (target Phase 3, September 2026)
 
@@ -304,9 +303,9 @@ Reviewed quarterly.
 
 ## 11. Implementation Roadmap
 
-Mapped onto the existing Phase 2 / Phase 3 cadence in `Tasks.md` and
-`docs/TASKS.md`. The §3.10 entry there is the "ship feature" line; this plan
-is the "ship feature + paperwork" wrapper.
+Mapped onto the existing Phase 2 / Phase 3 cadence in `Tasks.md`. The §3.10
+entry there is the "ship feature" line; this plan is the "ship feature +
+paperwork" wrapper.
 
 ### Phase 2 finish (May–Aug 2026) — pre-paperwork groundwork
 
@@ -363,8 +362,7 @@ is the "ship feature + paperwork" wrapper.
 
 - `docs/business_plan.md` — EU-first stance, German entity structure
 - `docs/development_plan.md` §3.10 — original feature sketch
-- `docs/TASKS.md` §3.10 — task breakdown for the feature half
-- `Tasks.md` — Phase 3 tracker
+- `Tasks.md` — Phase 3 tracker (engineering surface + paperwork checklist)
 - `docs/audit_trail_plan.md` — audit log design (feeds DSR & breach work)
 - `docs/auth.md`, `docs/auth_flow.md` — authentication design
 - `docs/rls.md` — tenant isolation

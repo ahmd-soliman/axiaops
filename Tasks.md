@@ -1,12 +1,44 @@
 # AxiaOps — Task Tracker
 
-_Last updated: 2026-04-26_
+_Single source of truth for project work. Last updated: 2026-04-26._
+
+> User-story tracking (GitLab issues) lives in `docs/USER_STORIES_STATUS.md`
+> and the two scripts in `scripts/`. This file is the engineering view —
+> phases, features, and the granular subtasks under each.
+
+---
+
+## Legend
+
+- ✅ Feature shipped
+- 🔲 Feature pending
+- `[x]` Subtask complete
+- `[ ]` Subtask not started
+- `[~]` Subtask in progress
+
+---
+
+## ✅ Phase 1 — MVP (Complete, April 2026)
+
+- [x] Go ingestion service with AWS integration
+- [x] Zombie detection analyzer (`Detect()`, `Summarize()`, threshold rules)
+- [x] REST API: `GET /zombies`, `GET /summary`, `GET /health`, `GET /accounts`, `POST /accounts`, `DELETE /accounts/{id}`, `POST /accounts/{id}/scan`
+- [x] Kinde auth — PKCE flow, RS256 JWT middleware, tenant + user persistence
+- [x] Vite + React dashboard — zombie list, detail screen, connect screen, accounts bar
+- [x] Docker Compose full-stack (PostgreSQL, ingestion, api, nginx)
+- [x] PostgreSQL schema with RLS on all tables
+- [x] 44+ unit tests across 6 packages
+- [x] AWS Cost Explorer + CloudWatch + resource discovery integration
+- [x] AES-256-GCM secret encryption at rest
+- [x] Account management CRUD (save, list, get, delete, update status)
+- [x] Resource inventory view — `GET /resources`, `resource_records` table, zombie/active annotation
+- [x] GitLab CI pipeline — `go test ./...` on every push
 
 ---
 
 ## Phase 2 — Alpha (target August 2026)
 
-### ✅ Done
+### ✅ Shipped
 
 | Feature | Notes |
 |---------|-------|
@@ -29,57 +61,574 @@ _Last updated: 2026-04-26_
 | Dismiss / snooze workflow | `dismissed_zombies` table (migration 002), REST endpoints, dashboard UI |
 | Snooze expiry worker | Background ticker expires snoozed records via `ExpireSnoozes` |
 | Pricing rates — YAML config | Hardcoded `const` rates in `discover.go` moved to `services/shared/pricing/rates.yml`; loader + per-region override support; fixes the credibility bug from the CE anomaly monitor ($3/mo claim with no source). |
+| Wire Redis in API `main.go` | `cache.New(REDIS_URL)` injected into `NewAuth` + `NewRateLimiter`; falls back to memory if unset |
+| CSV export — unified across screens | TrendScreen added; DashboardScreen + CostAnalyticsScreen migrated to single convention defined in `csv-export` skill (`.claude/skills/csv-export/SKILL.md`). |
+| Raw cost view | `GET /v1/costs` endpoint (`services/api/internal/api/handler.go:87`) + `CostAnalyticsScreen.jsx` shipped. |
+| Rename ghost → zombie across the stack | DB tables, Go types, API routes (`/zombies`), and dashboard field reads are all aligned on "zombie". `grep -ri "ghost" services/` returns zero non-historical matches. |
+| Remove CE anomaly-monitor "ghost" detection | `DiscoverIdleCEAnomalyMonitors`, its call site, test, constant, and IAM policy lines (`ce:GetAnomalyMonitors`, `ce:GetAnomalies`) all removed. AWS Cost Anomaly Detection is free — the `$3/mo` pricing claim was fabricated. |
+| Tier 1 detections (API-only) | EBS unattached + orphaned snapshots, long-stopped EC2, old AMIs, unattached EIPs |
+| Tier 2 detections (CloudWatch + API) | ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, EKS, Secrets Manager, CloudFront, Kinesis, S3, RDS snapshots, ECR, log groups |
 
----
-
-### 🔲 Remaining — Phase 2
+### 🔲 Remaining
 
 | # | Task | Notes |
 |---|------|-------|
-| 1 | **Wire Redis in API `main.go`** ✅ | `cache.New(REDIS_URL)` injected into `NewAuth` + `NewRateLimiter`; falls back to memory if unset |
-| 2 | **CSV export — unified across screens** ✅ | TrendScreen added; DashboardScreen + CostAnalyticsScreen migrated to single convention defined in `csv-export` skill (`.claude/skills/csv-export/SKILL.md`). |
 | 3 | **Production deployment** | App Runner (API + ingestion) + RDS + ElastiCache via Terraform. See `docs/production.md`. |
-| 4 | **Raw cost view** ✅ | `GET /v1/costs` endpoint (`services/api/internal/api/handler.go:47`) + `CostAnalyticsScreen.jsx` shipped. |
 | 5 | **Weekly email digest** | New zombies after scan → Resend/SendGrid email. References `zombie_snapshots` for delta. |
 | 6 | **Slack webhook alert** | Notify channel when new zombies appear post-scan. |
-| 7 | **Rename ghost → zombie across the stack** ✅ | Completed: DB tables, Go types, API routes (`/zombies`), and dashboard field reads are all aligned on "zombie". Single PR covered `ALTER TABLE … RENAME` (metadata-only in Postgres), Go symbol renames (`GhostResource` → `ZombieResource`, `LoadGhosts` → `LoadZombies`, etc.), API routes (`/ghosts` → `/zombies`), and dashboard field reads. Acceptance criterion met: `grep -ri "ghost" services/` returns zero non-historical matches. |
-| 8 | **Remove CE anomaly-monitor "ghost" detection** ✅ | `DiscoverIdleCEAnomalyMonitors`, its call site, test, constant, and IAM policy lines (`ce:GetAnomalyMonitors`, `ce:GetAnomalies`) all removed. AWS Cost Anomaly Detection is free — the `$3/mo` pricing claim was fabricated. |
-| 9 | **Rename tenant → organization across the stack** | Same shape as #7 (ghost→zombie). Today: dashboard UI prose already migrated (commit `3ff0146`); DB schema, Go code, API URLs, permissions, audit actions, and engineer docs still say "tenant". Two terms for the same concept is a tax on every grep, every onboarding engineer, every customer-support debugging session — fix while pre-launch makes the migration cheap (no production dashboards, no public API contracts, no integrations). JWT format untouched (Kinde sends `org_code` — that's the auth-boundary contract). 12 commits sequenced to keep `make test` green at each: (1–4) Go internal renames `model.Tenant`/`TenantID`/`WithTenantID`/slog labels; (5–6) DB migration 016 + SQL strings in `postgres.go`; (7–9) API URLs `/v1/tenants/*` → `/v1/organizations/*` + permission strings `tenant:delete` → `organization:delete` + audit action `tenant_deleted` → `organization_deleted` (with one-time `UPDATE audit_log` data migration if any prod rows exist); (10–11) Prometheus metric rename + dashboard JS function names; (12) docs sweep. Estimated ~6–8h on a fresh `refactor/tenant-to-organization` branch off `develop` after `feat/gdpr-tenant-deletion` merges. **Blocks Phase 3 #14, #15, #16** — they're all written assuming "organization" terminology lands first. |
+| 9 | **Rename tenant → organization across the stack** | Same shape as the ghost→zombie rename. Today: dashboard UI prose already migrated (commit `3ff0146`); DB schema, Go code, API URLs, permissions, audit actions, and engineer docs still say "tenant". Two terms for the same concept is a tax on every grep, every onboarding engineer, every customer-support debugging session — fix while pre-launch makes the migration cheap (no production dashboards, no public API contracts, no integrations). JWT format untouched (Kinde sends `org_code` — that's the auth-boundary contract). 12 commits sequenced to keep `make test` green at each: (1–4) Go internal renames `model.Tenant`/`TenantID`/`WithTenantID`/slog labels; (5–6) DB migration 016 + SQL strings in `postgres.go`; (7–9) API URLs `/v1/tenants/*` → `/v1/organizations/*` + permission strings `tenant:delete` → `organization:delete` + audit action `tenant_deleted` → `organization_deleted` (with one-time `UPDATE audit_log` data migration if any prod rows exist); (10–11) Prometheus metric rename + dashboard JS function names; (12) docs sweep. Estimated ~6–8h on a fresh `refactor/tenant-to-organization` branch off `develop` after `feat/gdpr-tenant-deletion` merges. **Blocks Phase 3 #14, #15, #16** — they're all written assuming "organization" terminology lands first. |
+
+### Implementation detail — Phase 2
+
+#### 2.4 Versioned Migrations (golang-migrate) ✅
+
+- [x] Install `golang-migrate` CLI and add `github.com/golang-migrate/migrate/v4` to Go modules
+- [x] Create `services/shared/storage/postgres/migrations/000_init.up.sql` — app user, schema, default grants
+- [x] Create `services/shared/storage/postgres/migrations/001_initial.up.sql` — baseline schema + RLS policies
+- [x] Wire migration runner into `services/api/cmd/main.go` and `services/ingestion/cmd/main.go` — run on startup using `MIGRATION_DATABASE_URL`
+- [x] Remove inline `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` calls from application code
+- [x] Test: run `make test-storage` and verify `schema_migrations` table is populated correctly
+- [x] Test: run migrations from scratch on a clean PostgreSQL container
+
+#### 2.5 Savings History / Trend ✅
+
+- [x] Migration `002_zombie_snapshots.up.sql` — create `zombie_snapshots(id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)`
+- [x] Update `Store` interface in `services/shared/storage/storage.go` — add `SaveSnapshot(ctx, snapshot)` and `ListSnapshots(ctx, accountID, limit)` methods
+- [x] Implement `SaveSnapshot` + `ListSnapshots` in `services/shared/storage/postgres/postgres.go`
+- [x] Update ingestion scan flow — write one snapshot row per scan after `SaveZombies`
+- [x] Add `GET /v1/trend?account_id={id}&days=30` endpoint
+- [x] Dashboard: savings trend sparkline on the header (replaces the static savings banner)
+- [x] Test: scan twice, verify two snapshot rows exist and `GET /v1/trend` returns series
+
+#### 2.6 Observability ✅
+
+- [x] Create `services/shared/logging/logging.go` — `slog` setup (JSON in production, text in dev based on `LOG_OUTPUT` env var)
+- [x] Replace all `log.Printf` / `fmt.Println` calls in all three services with `slog.Info/Error/Warn`
+- [x] Create `services/api/internal/middleware/requestid.go` — inject `X-Request-ID` header and add to `slog` context
+- [x] Add scan lifecycle logs: `scan.started`, `scan.completed`, `scan.failed` with `tenant_id`, `account_id`, `duration_ms`, `zombie_count`
+- [x] ~~Add Sentry Go SDK~~ — SKIPPED: structured logging chosen for cost reasons
+- [x] Create `services/api/internal/middleware/metrics.go` — Prometheus HTTP middleware
+- [x] Add `axiaops_scan_duration_seconds` histogram and `axiaops_zombies_detected_total` counter in ingestion service
+- [x] Expose `/metrics` on the API service (internal port — not behind auth middleware)
+- [x] Extend `GET /health` to check DB connectivity (`SELECT 1`); `/livez` + `/readyz` follow Kubernetes conventions
+- [x] Test: run `make start-dev`, hit `/metrics`, verify Prometheus output format
+
+#### 2.7 Scan Recovery (Stuck Scan Timeout) ✅
+
+- [x] Add background ticker in `services/api` — runs every 5 minutes
+- [x] Query: find accounts with `status = 'scanning'` and `last_scanned_at < NOW() - INTERVAL '15 minutes'`
+- [x] Update those accounts to `status = 'error'` with a `scan_timeout` reason
+- [x] Log `scan.timeout_reset` with `account_id` and `stuck_duration`
+- [x] Test: manually set an account to `scanning` with an old timestamp, verify ticker resets it
+
+#### 2.8 API Versioning ✅
+
+- [x] Update all routes in `services/api/internal/api/` to use `/v1/` prefix
+- [x] Update nginx config — rewrite `/api/v1/*` → `api:8080/v1/*`
+- [x] Update dashboard API client base path to `/v1/`
+- [x] Update all handler tests to use `/v1/` paths
+- [x] Test: `make test` passes; hit `/v1/zombies` in browser
+
+#### 2.9 In-Memory Rate Limiting ✅
+
+- [x] Create `services/api/internal/middleware/ratelimit.go` — `sync.Map` keyed by `tenant_id`, sliding window 60 req/min, returns 429 with `Retry-After`, no-op when `DEV_MODE=true`
+- [x] Wire into the middleware chain in `services/api/cmd/main.go` (after auth, before handlers)
+- [x] Test: write a test that fires >60 requests and asserts 429 is returned
+
+#### 2.10 Graceful Shutdown ✅
+
+- [x] `services/api/cmd/main.go` — listen for SIGTERM/SIGINT via `signal.NotifyContext`; `server.Shutdown(ctx)` with 30s drain; `pool.Close()` after; log `shutdown.started` and `shutdown.complete`
+- [x] `services/ingestion/cmd/main.go` — same pattern; reject new `POST /scan` during drain (503); allow current scan to complete
+- [x] Test: send SIGTERM during an active scan; verify scan completes and server exits cleanly
+
+#### 2.11 GitLab CI Pipeline ✅
+
+- [x] Create `.gitlab-ci.yml` at repo root with three stages: `test`, `build`, `deploy`
+- [x] **test stage:** `go test ./...` for all three modules; `golangci-lint run`; on all branches
+- [x] **build stage** (main only): build Docker images; tag with Git SHA; push to AWS ECR
+- [x] **deploy stage** (main only): `aws apprunner update-service` for `api` + `ingestion`; CloudFront invalidation for dashboard
+- [x] Add required CI/CD variables in GitLab: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ENCRYPTION_KEY`
+- [x] Test: feature branch only runs `test`; merge to main runs full pipeline
+
+#### 2.12 Scheduled Auto-Scan ✅
+
+- [x] Migration `004_add_scan_interval.sql` — add `scan_interval_hours INTEGER NOT NULL DEFAULT 24` to `accounts`
+- [x] Update `model.Account` to include `ScanIntervalHours`
+- [x] `PATCH /v1/accounts/{id}` — update `label`, `region`, `scan_interval_hours`
+- [x] Background ticker in ingestion — runs every 60 min; queries accounts where `last_scanned_at < NOW() - INTERVAL '{scan_interval_hours} hours'`; skips `scanning`; fires `POST :8081/scan`; logs `scan.scheduled`, `scan.skipped_already_running`
+- [x] Dashboard: show next scheduled scan time per account in accounts bar
+- [x] Integration test: create an account with `scan_interval_hours=0`, wait up to 90s, verify a scan is triggered
+
+#### 2.13 cost_records Retention ✅
+
+- [x] Add `COST_RECORDS_RETENTION_DAYS` env var (default `90`)
+- [x] Daily background ticker in ingestion — `DELETE FROM cost_records WHERE period_end < NOW() - INTERVAL '{n} days' AND tenant_id = $1`
+- [x] Migration `005_add_cost_records_index.sql` — index on `(tenant_id, period_end)` for efficient range deletes
+- [x] Test: insert records with old `period_end`, run cleanup manually, verify rows deleted
+
+#### 2.14 Redis ✅
+
+- [x] Add Redis container to `docker-compose.yml` (`redis:7-alpine`)
+- [x] Add `REDIS_URL` env var to all service configs (default: `redis://localhost:6379`)
+- [x] `services/shared/cache/cache.go` — `Cache` interface (`Get`, `Set`, `Del`)
+- [x] `services/shared/cache/redis/redis.go` — Redis impl using `github.com/redis/go-redis/v9`
+- [x] `services/shared/cache/memory/memory.go` — in-memory fallback (used when `REDIS_URL` is unset)
+- [x] Update `services/api/internal/middleware/auth.go` — inject cache for JWKS lookup (1h TTL)
+- [x] Create `services/ingestion/cmd/worker.go` — Redis queue consumer (`LPUSH axiaops:scan_queue` / `BRPOP`); falls back to synchronous execution if `REDIS_URL` is unset
+- [x] Replace in-memory rate limiter with Redis `INCR` + `EXPIRE` counter
+- [x] Test: run with and without `REDIS_URL` — verify fallback behaviour
+
+#### 2.15 Weekly Email Digest + Slack Alerts 🔲
+
+- [ ] Choose and set up email provider — **Resend** (preferred; add `RESEND_API_KEY` env var)
+- [ ] Build digest HTML email template — zombie count, top 5 zombie resources by cost, week-over-week delta from `zombie_snapshots`
+- [ ] Trigger digest after nightly ingestion: if new zombies detected since last digest, send to all tenant users
+- [ ] Add `SLACK_WEBHOOK_URL` env var per account (store in `accounts` table — write migration `006_add_slack_webhook.sql`)
+- [ ] Send Slack message after scan completes if zombie count changes (new zombies or resolved zombies)
+- [ ] Add `POST /v1/settings/notifications` endpoint — enable/disable email digest and Slack webhook per tenant
+- [ ] Test: trigger a scan in staging, verify email is received and Slack message is posted
+
+#### 2.16 Production Deployment 🔲
+
+- [ ] **IAM setup**
+  - [ ] Create `AxiaOpsAppRunnerRole` IAM role for App Runner — access to ECR, Secrets Manager, RDS
+  - [ ] Create `AxiaOpsCI` IAM user for GitLab CI — ECR push + App Runner update permissions only
+- [ ] **Terraform**
+  - [ ] Modules: App Runner (api + ingestion), RDS PostgreSQL `db.t4g.micro`, ElastiCache Serverless, Secrets Manager secrets, ECR repositories, VPC + security groups (public subnets — no NAT Gateway)
+  - [ ] S3 bucket + DynamoDB table for Terraform state backend
+  - [ ] Store in `terraform/` directory at repo root
+  - [ ] `terraform apply` on a fresh AWS account; verify all services start
+- [ ] **RDS**
+  - [ ] Provision `db.t4g.micro` PostgreSQL 16 in `eu-central-1`
+  - [ ] Run migrations against production RDS using `MIGRATION_DATABASE_URL`
+  - [ ] Enable automated daily snapshots (7-day retention)
+  - [ ] Set CloudWatch log retention to 7 days
+- [ ] **Secrets Manager**
+  - [ ] Store `ENCRYPTION_KEY`, `REDIS_URL`, `RESEND_API_KEY`, `KINDE_ISSUER`, `KINDE_CLIENT_ID`
+  - [ ] Reference secrets in App Runner service definition (not env vars)
+  - [ ] Document key rotation procedure in `docs/ops.md`
+- [ ] **Database password management**
+  - [ ] Separate migration execution from service runtime — run migrations as a one-off ECS task, not inside long-running services
+  - [ ] Remove `MIGRATION_DATABASE_URL` from production service environments — only `DATABASE_URL` should be available to runtime
+  - [ ] Use AWS Secrets Manager for RDS password management with automatic rotation — remove `ALTER USER` password-setting logic from service startup in production
+  - [ ] Keep self-bootstrapping pattern for dev and staging environments only
+  - [ ] Document migration job setup in `docs/deployment.md`
+- [ ] **App Runner**
+  - [ ] Deploy `api` on `:8080` — wire to RDS and ElastiCache
+  - [ ] Deploy `ingestion` on `:8081` — wire to RDS and ElastiCache
+  - [ ] Custom domain + TLS via App Runner managed certificate
+  - [ ] Health check: `GET /readyz`, 30-second timeout
+- [ ] **Dashboard**
+  - [ ] Vite production build → S3 + CloudFront distribution
+  - [ ] CloudFront invalidation in CI deploy stage
+- [ ] **EventBridge** — wire EventBridge cron (`rate(24 hours)`) → `POST /v1/accounts/{id}/scan` for each tenant account
+- [ ] **Smoke test production** — connect a real AWS account, trigger scan, verify zombies appear in dashboard
+
+#### Tier 1 — API-Only Detection Rules ✅
+
+- [x] `DiscoverUnattachedEIPs` — `ec2:DescribeAddresses`, flags EIPs with no attached network interface ($3.60/mo)
+- [x] `DiscoverUnattachedEBSVolumes` — `ec2:DescribeVolumes` filtered to `state=available`; cost = `sizeGB × $0.08/mo`
+- [x] `DiscoverOrphanedEBSSnapshots` — `ec2:DescribeSnapshots` cross-referenced against existing volume IDs and AMI-backing snapshots; cost = `sizeGB × $0.05/mo`
+- [x] `DiscoverLongStoppedInstances` — `ec2:DescribeInstances` + `StateTransitionReason` timestamp; flags instances stopped > 30 days; cost from attached EBS
+- [x] `DiscoverOldAMIs` — `ec2:DescribeImages` cross-referenced against `ec2:DescribeInstances`; flags AMIs > 90 days old not referenced by any instance
+- [x] All five wired into `runIngestionCore` in `services/ingestion/cmd/main.go` — each is non-fatal (permission gap skips that check)
+- [x] Unit tests in `discover_test.go`
+- [x] Seed data extended with all four new types across all three seed accounts
+
+#### Tier 2 — CloudWatch Detection Rules ✅
+
+- [x] Rules in `services/shared/analyzer/rules.go`: ElastiCache (`CurrConnections`), OpenSearch (`SearchRate`), Redshift (`DatabaseConnections`), SageMaker (`Invocations`), DynamoDB (`ConsumedReadCapacityUnits`), EKS (`cluster_node_count` via Container Insights)
+- [x] CloudWatch namespace/dimension mapping in `services/ingestion/internal/provider/aws/cloudwatch.go`
+- [x] Discovery functions with full pagination: `discoverElastiCache`, `discoverOpenSearch`, `discoverRedshift`, `discoverSageMaker`, `discoverDynamoDB`, `discoverEKS`
+- [x] All six registered in `DiscoverResources` switch statement
+- [x] Unit tests: 10 new test cases in `services/shared/analyzer/detector_test.go`
+- [x] README and CLAUDE.md updated with new IAM permissions and detection rule tables
+
+#### Integration & Smoke Tests ✅
+
+- [x] `test/integration/api_test.go` — covers `GET /health`, `GET /metrics`, account creation, scan queue, rate limiting, scheduled auto-scan
+- [x] `test/integration/go.mod` — standalone module
+- [x] `make test-integration` target — `GOWORK=off SMOKE_API_URL=... SMOKE_REDIS_URL=... go test ./...`
+- [x] Old `test/smoke/` directory removed; replaced by integration tests
+- [x] `.vscode/launch.json` updated — smoke test launch configs removed
+
+#### UX — Scan Completion Polling ✅
+
+- [x] Shared `useScanStatus()` hook polls `GET /v1/accounts` every 4s after scan trigger (`services/dashboard/src/hooks/useScanStatus.js`)
+- [x] Toast on flip from `scanning` → `connected` (success) or `error` / `scan_timeout` / `circuit_breaker_open` (failure)
+- [x] Auto-refetch `accounts`, `summary`, `zombies`, `resources`, `costs`, `trend`, `dismissals` React Query keys on completion
+- [x] 2-minute timeout with "taking longer than expected" warning toast
+- [x] Polling intervals + timeouts cleaned up on component unmount
+- [x] Applied to DashboardScreen, AccountSettingsScreen, CostAnalyticsScreen — replaces optimistic `setTimeout(refresh, 5000)` pattern
 
 ---
 
 ## Phase 3 — Beta / GTM (target December 2026)
 
-| # | Task | Notes |
-|---|------|-------|
-| 1 | Stripe billing | Starter €49 / Growth €149 / Team €399 |
-| 2 | **Copy-paste remediation commands** ✅ | `remediationCommand()` in `services/dashboard/src/screens/DetailScreen.jsx` generates exact AWS CLI per service (EC2 stop, RDS delete-db-instance, Lambda delete-function, ELBv2 delete-load-balancer); `CLICommand` component provides copy-to-clipboard. No write IAM required. |
-| 3 | **Tag / team filtering** | Filter zombie list by `owner` tag — "show me only the payments team's zombies" |
-| 4 | **CSV export** ✅ | Shipped as part of Phase 2 #2 (unified convention). DashboardScreen + CostAnalyticsScreen + TrendScreen all expose CSV download via shared `utils/csv` helpers; convention defined in `.claude/skills/csv-export/SKILL.md`. |
-| 5 | **Audit trail UI for dismissals** ✅ | `GET /v1/audit` (with `user_id`/`resource_type`/`resource_id`/`action`/`since`/`until`/`limit`/`cursor` filters) backs `services/dashboard/src/screens/AuditScreen.jsx`, surfaced under Settings → Audit. Dismissal mutations write `audit_log` rows via `model.AuditAction*`. |
-| 6 | Scan history log | Per-account scan log with timestamps and zombie delta |
-| 7 | Cost forecast | "If nothing changes, you'll waste $X this month" — linear projection over `zombie_snapshots` |
-| 8 | **User management + roles** ✅ | `memberships(user_id, tenant_id, role)` table (migration 015) + `model.Membership` with owner/admin/member/viewer roles. Endpoints: `GET/POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/tenants/transfer-ownership`, `GET /v1/me`. Permission constants (`PermMembersInvite`, `PermMembersManage`, …) enforced in handlers; Settings → Team tab exposes the UI. Invite-by-email is deferred to Phase 3 #14. |
-| 9 | **GDPR compliance** | Implementation plan: `docs/compliance/gdpr_plan.md`. Covers data inventory, lawful basis, DSR/erasure (`DELETE /v1/tenants/me`, `GET /v1/export`), retention, sub-processors, breach runbook, DPIA, RoPA, public privacy policy / ToS / DPA. Must ship before first paying EU customer (Sep–Oct 2026). |
-| 10 | **Expanded detection rules — Custodian backlog** | 13+ new rules ported from `cloud-custodian/cloud-custodian` filters: unused security groups, idle ALB target groups, overprovisioned RDS, idle ElastiCache replication groups, VPC endpoints, TGW attachments, Lambda PCU, IAM access keys, etc. M1 (per-service file split) shipped. Full backlog with priorities, per-rule template, and milestone sequencing in `docs/custodian-rule-backlog.md`. The original entry ("EBS, S3, CloudFront, Redshift, ElastiCache") is superseded — those are all live. |
-| 11 | Operating entity | Holding GmbH + Operating UG (target August 2026) |
-| 12 | **Pricing rates — live from AWS Pricing API** | Migrate `services/shared/pricing/rates.yml` to a DB-backed `pricing_rates` table refreshed from `pricing:GetProducts`. YAML works fine while rates change ~yearly; this becomes load-bearing once (a) customers complain that numbers don't match their bill, (b) we add Azure/GCP and need multi-provider rate tables, or (c) we backfill historical savings and need point-in-time rates. Until one of those triggers, stay on YAML. |
-| 13 | **CUR ingestion — actual-cost mode** | Replace list-price estimates with customer-specific actual costs by ingesting AWS Cost and Usage Reports (CUR). Customer opts in, enables CUR to their S3 bucket, grants us cross-account read. Two deployment shapes: Athena in-place queries (customer pays ~$1–5/mo in query costs, zero egress for us) or ingest to our DB (faster queries, we pay egress). Unlocks exact per-resource cost including Savings Plans / RIs / EDP discounts — the numbers match the customer's actual invoice to the cent. This is the real differentiator vs Terraform cost estimators (Infracost, AWS Pricing Calculator) that can only use list prices. Ahead of task #12 in priority — CUR solves accuracy, #12 only solves "keeping list prices fresh." |
-| 14 | **Multi-organization UX** | The data model already supports one user belonging to many orgs (`memberships(user_id, tenant_id, role)`), but the dashboard exposes single-org operationally. Three pieces, ship as one feature: (a) **org switcher** in the navbar, visible only when the current user has ≥2 memberships — pattern: GitHub avatar dropdown / Slack workspace switcher; (b) **invite-by-email** — replace today's "user must have signed in first" constraint with an email-out flow: invitation row created with a token, email sent via Resend with a magic link, recipient clicks → onboarded into the org with the assigned role. Storage requires a new `pending_invitations` table; renames the dashboard's `addMember` back to `inviteMember` once the semantics match the name; (c) **per-org context indicator** so a switched user always knows which org they're viewing — the navbar org badge already exists, just needs to stay accurate after a switch. Unlocks the MSP / FinOps consultant / holding-company segment that CloudHealth and Vantage explicitly tier for. |
-| 15 | **Org-level dashboard** | Promote the existing `/` (All Accounts mode) into a proper organization summary page. Lands after the tenant→organization rename so naming is correct from line one. Seven widgets, top to bottom: **headline tiles** (total monthly waste, active zombies, connected accounts, last-scan + stale-account alert); **org-wide trend** (rolls up `zombie_snapshots` client-side by day — `GET /v1/trend` already returns per-account-per-scan rows, sum `total_monthly_cost` grouped by date); **per-account breakdown** (sortable table of waste $ + zombie count per account; rows click through to `/?account=<id>` — the existing account-filtered Dashboard); **by-service breakdown** (existing `GET /v1/summary` already returns this); **top zombies** (existing `GET /v1/zombies` + client sort + slice(10)); **account health strip** (status badges + ⚠ on any account >24h since last scan; derived from `GET /v1/accounts`); **member activity tile** (last 5 audit events; `GET /v1/audit?limit=5` — overlaps with the dedicated Audit page on purpose: dashboard tile is "what happened?" at a glance, Audit page is "let me investigate"). Snapshot drill-down (click a trend-chart point) shows the per-service breakdown only — per-resource lineage requires task #16. **One new backend endpoint:** `GET /v1/summary/by-account` to return per-account aggregates in one round-trip instead of N+1 `/v1/summary?account_id=X` calls (~1h with test). **Frontend:** split `DashboardScreen.jsx` into `OrgSummaryScreen.jsx` + `AccountDetailScreen.jsx` with shared widget components; new HeadlineTile, OrgTrendChart, AccountBreakdown, AccountHealthStrip, MemberActivityTile (~1 day). Mobile responsive out of scope per existing dashboard convention. |
-| 16 | **Historical zombie lineage** | Today `zombie_records` is replaced on every scan — only the *current* zombies are queryable. Per-snapshot aggregates are preserved (`zombie_snapshots`, `zombie_snapshot_services`), but the per-resource history is lost. Add an append-only `zombie_history` table — one row per (snapshot, resource_id) with cost + service + reason + the existing zombie metadata. Storage cost ~36k rows/year/account at 100 zombies × daily scans. Unlocks: **per-resource timeline** ("vol-X became a zombie 2026-03-12, dismissed 2026-03-20, re-detected 2026-04-01"); **stale reports** ("47 resources have been zombies for >30 days"); **audit/compliance evidence** ("prove resource X was flagged on date Y"); and **per-resource snapshot drill-down** from the org dashboard's trend chart (the deferred half of task #15's drill — currently per-service only). Backend: schema migration + `Store.SaveZombieHistory` called alongside `SaveZombies` + read methods + tests (~1 day). Frontend: timeline tab on the existing per-resource detail page + a stale-report screen (~1–2 days). Independent of #15 but they pair well — ship #15 first to validate the drill UX, then #16 to deepen it. |
-| 17 | **SOC 2 compliance — Type I → Type II** | Implementation plan: `docs/compliance/soc2_plan.md`. Scope: Security + Availability + Confidentiality TSCs (Privacy deferred). Ship Drata + policy library + evidence pipeline by Q4 2026; Type I audit Q2 2027; Type II audit Q4 2027 (6-month observation window May–Oct 2027). Heavy overlap with GDPR Art. 32 controls — pen-test, breach runbook, restore drill, access review are deliverables for both plans. Required to unlock MSP / Team-tier / Enterprise sales (per `docs/business_plan.md`). |
+### Status overview
+
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 1 | Stripe billing | 🔲 | Starter €49 / Growth €149 / Team €399 |
+| 2 | **Copy-paste remediation commands** | ✅ | `remediationCommand()` in `services/dashboard/src/screens/DetailScreen.jsx` generates exact AWS CLI per service (EC2 stop, RDS delete-db-instance, Lambda delete-function, ELBv2 delete-load-balancer); `CLICommand` component provides copy-to-clipboard. No write IAM required. |
+| 3 | **Tag / team filtering** | 🔲 | Filter zombie list by `owner` tag — "show me only the payments team's zombies" |
+| 4 | **CSV export** | ✅ | Shipped as part of Phase 2 #2 (unified convention). DashboardScreen + CostAnalyticsScreen + TrendScreen all expose CSV download via shared `utils/csv` helpers; convention defined in `.claude/skills/csv-export/SKILL.md`. |
+| 5 | **Audit trail UI for dismissals** | ✅ | `GET /v1/audit` (with `user_id`/`resource_type`/`resource_id`/`action`/`since`/`until`/`limit`/`cursor` filters) backs `services/dashboard/src/screens/AuditScreen.jsx`, surfaced under Settings → Audit. Dismissal mutations write `audit_log` rows via `model.AuditAction*`. |
+| 6 | Scan history log | 🔲 | Per-account scan log with timestamps and zombie delta |
+| 7 | Cost forecast | 🔲 | "If nothing changes, you'll waste $X this month" — linear projection over `zombie_snapshots` |
+| 8 | **User management + roles** | ✅ | `memberships(user_id, tenant_id, role)` table (migration 015) + `model.Membership` with owner/admin/member/viewer roles. Endpoints: `GET/POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/tenants/transfer-ownership`, `GET /v1/me`. Permission constants (`PermMembersInvite`, `PermMembersManage`, …) enforced in handlers; Settings → Team tab exposes the UI. Invite-by-email is deferred to Phase 3 #14. |
+| 9 | **GDPR — engineering surface** | ✅ | `DELETE /v1/users/me`, `DELETE /v1/tenants/me`, `GET /v1/export` shipped (handlers in `services/api/internal/api/deletion.go` + `export.go`) |
+| 9p | **GDPR — paperwork** | 🔲 | Privacy policy / ToS / DPA / sub-processors / RoPA / DPIA / breach runbook / pen-test. Implementation plan: `docs/compliance/gdpr_plan.md`. Must ship before first paying EU customer (Sep–Oct 2026). |
+| 10 | **Expanded detection rules — Custodian backlog** | 🔲 | 13+ new rules ported from `cloud-custodian/cloud-custodian` filters: unused security groups, idle ALB target groups, overprovisioned RDS, idle ElastiCache replication groups, VPC endpoints, TGW attachments, Lambda PCU, IAM access keys, etc. M1 (per-service file split) shipped. Full backlog with priorities, per-rule template, and milestone sequencing in `docs/custodian-rule-backlog.md`. The original entry ("EBS, S3, CloudFront, Redshift, ElastiCache") is superseded — those are all live. |
+| 11 | Operating entity | 🔲 | Holding GmbH + Operating UG (target August 2026) |
+| 12 | **Pricing rates — live from AWS Pricing API** | 🔲 | Migrate `services/shared/pricing/rates.yml` to a DB-backed `pricing_rates` table refreshed from `pricing:GetProducts`. YAML works fine while rates change ~yearly; this becomes load-bearing once (a) customers complain that numbers don't match their bill, (b) we add Azure/GCP and need multi-provider rate tables, or (c) we backfill historical savings and need point-in-time rates. Until one of those triggers, stay on YAML. |
+| 13 | **CUR ingestion — actual-cost mode** | 🔲 | Replace list-price estimates with customer-specific actual costs by ingesting AWS Cost and Usage Reports (CUR). Customer opts in, enables CUR to their S3 bucket, grants us cross-account read. Two deployment shapes: Athena in-place queries (customer pays ~$1–5/mo in query costs, zero egress for us) or ingest to our DB (faster queries, we pay egress). Unlocks exact per-resource cost including Savings Plans / RIs / EDP discounts — the numbers match the customer's actual invoice to the cent. The real differentiator vs Terraform cost estimators (Infracost, AWS Pricing Calculator) that can only use list prices. Ahead of #12 in priority — CUR solves accuracy, #12 only solves "keeping list prices fresh." |
+| 14 | **Multi-organization UX** | 🔲 | Data model already supports one user belonging to many orgs (`memberships(user_id, tenant_id, role)`), but the dashboard exposes single-org operationally. Three pieces, ship as one feature: (a) **org switcher** in the navbar, visible only when the current user has ≥2 memberships — pattern: GitHub avatar dropdown / Slack workspace switcher; (b) **invite-by-email** — replace today's "user must have signed in first" constraint with an email-out flow: invitation row created with a token, email sent via Resend with a magic link, recipient clicks → onboarded into the org with the assigned role. Storage requires a new `pending_invitations` table; renames the dashboard's `addMember` back to `inviteMember` once the semantics match the name; (c) **per-org context indicator** so a switched user always knows which org they're viewing — the navbar org badge already exists, just needs to stay accurate after a switch. Unlocks the MSP / FinOps consultant / holding-company segment that CloudHealth and Vantage explicitly tier for. |
+| 15 | **Org-level dashboard** | 🔲 | Promote the existing `/` (All Accounts mode) into a proper organization summary page. Lands after the tenant→organization rename so naming is correct from line one. Seven widgets: headline tiles, org-wide trend, per-account breakdown, by-service breakdown, top zombies, account health strip, member activity tile. **One new backend endpoint:** `GET /v1/summary/by-account`. **Frontend:** split `DashboardScreen.jsx` into `OrgSummaryScreen.jsx` + `AccountDetailScreen.jsx`. |
+| 16 | **Historical zombie lineage** | 🔲 | Today `zombie_records` is replaced on every scan — only the *current* zombies are queryable. Per-snapshot aggregates are preserved (`zombie_snapshots`, `zombie_snapshot_services`), but the per-resource history is lost. Add an append-only `zombie_history` table — one row per (snapshot, resource_id) with cost + service + reason + the existing zombie metadata. Storage cost ~36k rows/year/account at 100 zombies × daily scans. Unlocks per-resource timeline, stale reports, audit/compliance evidence, and per-resource snapshot drill-down. |
+| 17 | **SOC 2 compliance — Type I → Type II** | 🔲 | Implementation plan: `docs/compliance/soc2_plan.md`. Scope: Security + Availability + Confidentiality TSCs (Privacy deferred). Ship Drata + policy library + evidence pipeline by Q4 2026; Type I audit Q2 2027; Type II audit Q4 2027 (6-month observation window May–Oct 2027). Heavy overlap with GDPR Art. 32 controls. Required to unlock MSP / Team-tier / Enterprise sales. |
+
+### Implementation detail — Phase 3
+
+#### 3.1 Pricing & Billing — Stripe (September 2026)
+
+- [ ] Sign up for Stripe; get API keys (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`)
+- [ ] Migration `007_add_billing_fields.sql` — add `plan TEXT DEFAULT 'free'`, `stripe_customer_id TEXT`, `stripe_subscription_id TEXT` to `tenants`
+- [ ] Define products in Stripe dashboard: Free, Starter (€49/mo), Growth (€149/mo), Team (€399/mo)
+- [ ] Create `services/api/internal/middleware/billing.go` — read `tenant.plan`, enforce tier limits
+  - Free: 1 account, no auto-scan
+  - Starter: up to 5 accounts, auto-scan enabled, CSV export enabled
+  - Growth: unlimited accounts
+  - Team: roles + Slack alerts
+- [ ] `POST /v1/webhooks/stripe` — handle `customer.subscription.created/updated/deleted`
+- [ ] Dashboard: plan indicator in header; upgrade prompt when hitting limits; pricing page
+- [ ] 14-day Starter trial on signup (no credit card) — set `plan=starter_trial`, `trial_ends_at`
+- [ ] Test: simulate Stripe webhook events in test mode; verify enforcement blocks correctly
+
+#### 3.2 Dismiss Zombie Workflow ✅
+
+- [x] Migration `002_dismiss_snooze.up.sql` — `dismissed_zombies(id, tenant_id, resource_id, reason, note, dismissed_by, dismissed_at, snooze_until)`
+- [x] `Store` methods: `DismissZombie`, `ListDismissedZombies`, `UndismissZombie`
+- [x] `POST /v1/dismissals` — body: `{reason, note, snooze_until?}`
+- [x] `DELETE /v1/dismissals/{id}` — undismiss / cancel snooze
+- [x] `GET /v1/zombies` — exclude dismissed by default
+- [x] Background ticker to clear expired snoozes (`snooze_until < NOW()`)
+- [x] Dashboard: "Dismiss" button on DetailScreen; dismissed zombies show grey "Intentional" badge; snooze UI with date picker
+- [x] Test: dismiss a zombie, verify it disappears from list; set snooze, verify it reappears after expiry
+
+#### 3.3 Remediation Actions ✅
+
+- [x] Build remediation command generator in `services/dashboard/src/screens/DetailScreen.jsx` — `remediationCommand()`
+  - EC2: `aws ec2 stop-instances --instance-ids {id}`
+  - RDS: `aws rds delete-db-instance --db-instance-identifier {id}`
+  - Lambda: `aws lambda delete-function --function-name {name}`
+  - ELB: `aws elbv2 delete-load-balancer --load-balancer-arn {arn}`
+  - NAT Gateway / EIP / EBS / snapshot variants
+- [x] `CLICommand` component provides copy-to-clipboard
+- [x] Migration `014_audit_log.up.sql` — `audit_log(id, tenant_id, user_id, action, resource_type, resource_id, metadata, created_at)`
+- [x] Log every dismiss, undismiss, membership change to `audit_log` via `model.AuditAction*`
+- [x] Test: hit each service type, verify correct command returned
+
+#### 3.5 Scan History Log 🔲
+
+- [ ] Migration `010_add_scan_history.sql` — `scan_runs(id, tenant_id, account_id, started_at, finished_at, zombie_count, total_monthly_cost, status, error)`
+- [ ] Update ingestion scan flow — write one `scan_runs` row at start (`status=running`), update on completion or failure
+- [ ] `GET /v1/accounts/{id}/scans` — last N scan runs for an account
+- [ ] Dashboard: scan history list under each account (timestamp, zombie count, status badge, duration)
+- [ ] Test: run two scans; verify two rows in `scan_runs`; GET returns both descending
+
+#### 3.6 Tag / Team Filtering 🔲
+
+- [ ] Update `GET /v1/zombies` — support `?team=backend&env=prod` query params (filter on `tags` JSON column)
+- [ ] Update `GET /v1/resources` — same tag filtering support
+- [ ] Dashboard: tag filter chips alongside service pill filter
+- [ ] Test: insert zombies with different team tags; verify filter returns correct subset
+
+#### 3.7 CSV Export ✅ (See Phase 2 #2)
+
+Shipped as part of the unified Phase 2 CSV export convention.
+
+#### 3.8 Per-Account Summary 🔲
+
+- [ ] Update `GET /v1/summary` — support `?account_id={id}` query param
+- [ ] Add `GET /v1/summary/by-account` for one-shot multi-account aggregates (replaces N+1 calls; needed by Org-level dashboard #15)
+- [ ] Dashboard: per-account savings shown in accounts bar alongside the Scan button
+- [ ] Test: connect two accounts with different zombies, verify `?account_id=` returns isolated totals
+
+#### 3.9 User Management ✅ (with caveats)
+
+- [x] `memberships(user_id, tenant_id, role)` table in migration `015_memberships.up.sql`
+- [x] Permission constants in `services/shared/authz/roles.go`: `PermMembersRead`, `PermMembersInvite`, `PermMembersManageBasic`, `PermMembersManageAdmin`, `PermTenantTransfer`
+- [x] Endpoints (handler.go:109–113): `GET/POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/tenants/transfer-ownership`, `GET /v1/me`
+- [x] Self-leave bypass on DELETE; last-owner guard at the store level
+- [x] Dashboard Settings → Team tab
+- [ ] **Deferred** Invite-by-email flow (`pending_invitations` table) — moved to Phase 3 #14 (Multi-organization UX)
+- [ ] **Deferred** `viewer` role enforcement audit — confirm middleware blocks scan/connect/dismiss for viewers across every endpoint
+
+#### 3.10 GDPR Compliance
+
+> Full plan: [`docs/compliance/gdpr_plan.md`](compliance/gdpr_plan.md).
+
+Engineering deliverables:
+
+- [x] `DELETE /v1/users/me` — anonymises audit log; sole-owner guard returns 409
+- [x] `DELETE /v1/tenants/me` — cascade hard-delete: accounts, cost_records, zombie_records, zombie_snapshots, users, dismissed_zombies, audit_log
+- [x] `GET /v1/export` — full JSON dump (zombies, account metadata sans secrets, scan history, audit log entries)
+- [x] Anonymise audit log on user hard-delete (replace `user_id` with tombstone, preserve row)
+- [ ] Trigger Stripe subscription cancellation on tenant deletion (depends on Stripe billing #1)
+- [ ] Hard-delete cron job — sweeps soft-deleted tenants past the 14-day grace window (currently hard-delete only — soft-delete grace not yet implemented)
+- [ ] Notification preferences UI + `POST /v1/settings/notifications` for legitimate-interest opt-out
+- [ ] CloudWatch log redaction — strip `tags` JSONB content from request logs
+- [ ] DSR intake mailbox (`gdpr@axiaops.io`) wired to a ticketing flow with audit log entries on every step
+- [ ] Test: create tenant, add data, call DELETE, verify hard-delete cascade → backup roll-off documented
+
+Paperwork deliverables (tracked in `docs/compliance/gdpr_plan.md`):
+
+- [ ] Privacy policy + terms of service + DPA template + sub-processors page
+- [ ] Records of Processing Activities (Art. 30) — `docs/compliance/ropa.md`
+- [ ] Data Protection Impact Assessment — `docs/compliance/dpia.md`
+- [ ] Breach response runbook — `docs/compliance/breach_runbook.md` + tabletop exercise #0
+- [ ] External pen-test (Phase 3, before first paying customer)
+- [ ] Restore drill #0 (also a SOC 2 deliverable)
+
+#### 3.Fake AWS Client for Tier 1 Testing 🔲
+
+- [ ] Define `AWSClientAPI` interface in `services/ingestion/internal/provider/aws/` — wraps every method called by Tier 1 `Discover*` functions
+- [ ] Refactor real `Client` to satisfy this interface
+- [ ] Implement `FakeAWSClient` in `fake_client_test.go` — returns canned responses loaded from JSON fixtures
+- [ ] Write scenario fixtures in `testdata/tier1/` — one JSON file per Discover function with both zombie and active examples
+- [ ] Write table-driven tests for each `Discover*` function using `FakeAWSClient`
+- [ ] Benefit: Tier 1 logic tested end-to-end without real AWS calls
+
+#### 3.11 Expanded Detection Rules
+
+Already shipped (Tier 1/2 above):
+
+- [x] EBS unattached volumes (Tier 1)
+- [x] Orphaned EBS snapshots (Tier 1)
+- [x] Long-stopped EC2 instances (Tier 1)
+- [x] Old unused AMIs (Tier 1)
+- [x] ElastiCache idle clusters (Tier 2)
+- [x] OpenSearch / ES unused domains (Tier 2)
+- [x] Redshift abandoned clusters (Tier 2)
+- [x] SageMaker forgotten endpoints (Tier 2)
+- [x] DynamoDB unused provisioned tables (Tier 2)
+- [x] EKS control plane with no nodes (Tier 2)
+- [x] CloudWatch Log Groups (no retention or zero stored bytes)
+- [x] RDS Snapshots (manual, >30 days, source DB gone)
+- [x] ECR Images (untagged or >90 days)
+- [x] Secrets Manager (LastAccessedDate >90 days)
+- [x] CloudFront (`Requests = 0`)
+- [x] Kinesis (`IncomingRecords = 0`)
+- [x] S3 (`AllRequests = 0`)
+
+Remaining for Phase 3:
+
+- [ ] Custom per-tenant thresholds: migration `012_add_detection_rules.sql`, `detection_rules(id, tenant_id, service, metric, threshold, enabled)` table
+- [ ] `PATCH /v1/settings/rules` — allow tenants to override thresholds
+- [ ] Fall back to built-in defaults when no custom rule exists
+- [ ] Custodian backlog (~13 rules) — see `docs/custodian-rule-backlog.md`
+
+#### 3.12 Legal Entity 🔲
+
+- [ ] Register operating entity (UG or GmbH — decide based on revenue trajectory)
+- [ ] Apple Developer account ($99/year) — required for TestFlight + App Store
+- [ ] Google Play Developer account ($25 one-time)
+- [ ] VAT registration if EU revenue exceeds threshold
+- [ ] Publish privacy policy and terms of service on production domain
+
+#### 3.13 PDF Savings Report 🔲
+
+- [ ] `GET /v1/reports/savings?format=pdf`
+  - Summary page: total zombie spend, potential savings, date range
+  - Per-service breakdown table
+  - Zombie resource list with cost, reason, owner
+  - Savings trend chart (uses `zombie_snapshots`)
+- [ ] Use a Go PDF library (`github.com/jung-kurt/gofpdf` or `github.com/unidoc/unipdf`) — no external service
+- [ ] Gate behind Pro / Growth tier
+- [ ] Dashboard: "Export PDF Report" button on summary screen
+- [ ] Test: generate PDF for a tenant with known data; verify page count and key fields
+
+#### 3.14 Database Security Hardening 🔲
+
+- [ ] Create separate DB users per service in migration `000_init.up.sql`:
+  - `axiaops_api` — SELECT, INSERT, UPDATE on API-facing tables
+  - `axiaops_ingestion` — SELECT, INSERT, UPDATE on `cost_records`, `resource_records`, `zombie_snapshots`
+  - Retire shared `axiaops` app user
+- [ ] Update `DATABASE_URL` env var per service to use its dedicated user
+- [ ] Integration test: connect as `axiaops_ingestion`, assert it cannot SELECT from `tenants` or `users`
+- [ ] Integration test: connect as `axiaops_api`, assert it cannot INSERT into `cost_records` directly
+
+#### 3.15 Migration History Log 🔲
+
+> golang-migrate's `schema_migrations` keeps only the latest applied version (single row). We want a per-migration audit log with filename + checksum (Flyway-style) so we can see when each migration was applied and detect in-place edits of already-applied migration files. Keeps golang-migrate as the engine — adds a sibling table populated by `migrate.go`.
+
+- [ ] Migration `NNN_migration_history.up.sql` / `.down.sql` — `axiaops.migration_history (version BIGINT PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`; grant `SELECT` to `axiaops` app user, writes stay with `axiaops_owner`
+- [ ] Extend `services/shared/storage/postgres/migrate.go` — after `m.Up()` succeeds, enumerate embedded `migrations/*.up.sql` files, compute SHA-256, `INSERT ... ON CONFLICT (version) DO NOTHING` into `migration_history`
+- [ ] Drift detection: for rows that already exist with a different checksum, emit `slog.Warn("migration checksum mismatch", "version", v, "file", name, "db_checksum", ..., "file_checksum", ...)`
+- [ ] Document backfill behaviour: on existing DBs, migrations 000–NNN-1 get recorded with `applied_at = NOW()` on first upgrade
+- [ ] Integration test: clean DB → assert one row per `*.up.sql` with matching checksum
+- [ ] Integration test: tamper checksum, re-run Migrate(), assert warning logged
+- [ ] `docs/migrations.md` — document the table + warning
+
+#### 3.16 SOC 2 Compliance — Type I → Type II 🔲
+
+> Full plan: [`docs/compliance/soc2_plan.md`](compliance/soc2_plan.md). Targets aligned with `docs/business_plan.md`: Type I Q2 2027, Type II Q4 2027 (6-month window May–Oct 2027). Heavy overlap with §3.10 GDPR.
+
+Phase 2 finish (May–Aug 2026) — set the stage:
+
+- [ ] Stand up status page (Instatus / Statuspage)
+- [ ] Hardware key (YubiKey) on AWS root, GitLab admin, Kinde admin
+- [ ] CloudWatch alarms — failed-auth spikes, secret access pattern, off-hours deploys
+- [ ] Data classification doc — `docs/compliance/data_classification.md`
+- [ ] Quarterly access review process (build the muscle even with one user)
+
+Phase 3 (Sep–Dec 2026) — operational baseline:
+
+- [ ] Sign Drata (or Vanta / Secureframe / Sprinto). Target October 2026
+- [ ] Policy library: 15 docs in `docs/compliance/policies/`
+- [ ] Risk register v1 — `docs/compliance/risk_register.md`
+- [ ] Incident response runbook — `docs/compliance/runbooks/incident_response.md`
+- [ ] Restore drill #1 — actually execute, capture evidence
+- [ ] Pen-test #0 (shared with GDPR §3.10)
+- [ ] Vendor questionnaire pack
+- [ ] Public security page at `axiaops.io/security`
+- [ ] "SOC 2 in progress, Type II Q4 2027" published statement
+
+Phase 4 / Q1–Q2 2027 — Type I:
+
+- [ ] Drata gap-analysis pass — close any control showing "Not implemented"
+- [ ] Boutique auditor selection (Prescient / Schellman / A-LIGN / Insight / Johanson)
+- [ ] Type I audit (Q2 2027) — point-in-time, 4–6 weeks
+- [ ] Publish Type I report (NDA-gated)
+
+Q2–Q4 2027 — Type II:
+
+- [ ] Type II observation window opens (May 1, 2027)
+- [ ] Quarterly cadence: access review, risk review, vendor review, restore drill
+- [ ] Pen-test #2 within window
+- [ ] Tabletop exercise within window
+- [ ] Type II audit (Q4 2027) — fieldwork + report by Dec 2027
+- [ ] Publish Type II report
+
+Ongoing (2028+):
+
+- [ ] Annual Type II renewal (rolling 12-month windows)
+- [ ] Reconsider Privacy TSC if EU enterprise customers ask
+- [ ] Layer ISO 27001 if a major customer demands it (~70% control overlap)
 
 ---
 
-## Phase 4+ (2027)
+## Phase 4 — Multi-cloud + Mobile + FOCUS (Q1–Q2 2027)
 
-- Multi-cloud (Azure, GCP)
+### Status overview
+
+- 🔲 Multi-cloud (Azure, GCP)
   - **Terminology audit before second provider lands.** Today the dashboard mixes generic ("Cloud Accounts" nav, `/cloud-accounts` route, "Connect Account" button) and AWS-specific ("AWS Account ID" column, "AWS account" body copy) labels — fine while we ship AWS only. When Azure / GCP arrive: replace per-place "AWS account" with `${PROVIDER_LABEL[a.provider]}` lookups, add a Provider column with per-row icons, refactor `/connect` into a provider-picker. The umbrella terms ("Cloud Accounts", `/cloud-accounts`) stay as-is — they're already provider-neutral. Mirror in the API: `model.Account.Provider` already exists (`"aws"|"azure"|"gcp"`) but only `"aws"` is ever written today.
-- Mobile app (iOS + Android)
-- Cost forecasting (linear regression over snapshot history)
-- IaC plan parser (Terraform / CDK) + CI/CD budget gate
-- **FOCUS conformance** — Consumer (Q2 2027) → Producer (Q3 2027) → Foundation conformance assertion (Q4 2027). Plan: `docs/compliance/focus_plan.md`. Unlocks one-parser multi-cloud ingestion (replaces per-cloud cost SDKs in §4.2/§4.3) and Team-tier FOCUS Parquet export for customer data lakes. Depends on CUR ingestion (Phase 3 #13) for credible Producer role.
+- 🔲 Mobile app (iOS + Android) — Capacitor or React Native wrapper around the existing Vite + React dashboard
+- 🔲 Cost forecasting (linear regression over snapshot history)
+- 🔲 IaC plan parser (Terraform / CDK) + CI/CD budget gate — _moved to Phase 5_
+- 🔲 **FOCUS conformance** — Consumer (Q2 2027) → Producer (Q3 2027) → Foundation conformance assertion (Q4 2027). Plan: `docs/compliance/focus_plan.md`. Unlocks one-parser multi-cloud ingestion (replaces per-cloud cost SDKs in §4.2/§4.3) and Team-tier FOCUS Parquet export for customer data lakes. Depends on CUR ingestion (Phase 3 #13) for credible Producer role.
+
+### Implementation detail — Phase 4
+
+#### 4.1 Cost Forecasting (Q1 2027)
+
+- [ ] Implement linear regression over `zombie_snapshots` in `services/shared/analyzer/forecast.go` (stdlib `math` only — no ML lib, ~50 lines)
+- [ ] Minimum 60 days of snapshot data required before enabling forecasts (return `402 Insufficient Data` otherwise)
+- [ ] `GET /v1/forecast?days=30|60|90` — project future zombie spend per account
+- [ ] Anomaly detection: flag if actual spend exceeds forecast by >20% — surface as Slack/email alert
+- [ ] Dashboard: forecast line overlaid on savings trend chart
+
+#### 4.2 Multi-Cloud — Azure (Q1 2027)
+
+- [ ] Implement `Provider` interface for Azure Cost Management API (`services/ingestion/internal/provider/azure/`)
+- [ ] Implement `Provider` interface for Azure Monitor metrics
+- [ ] Add `provider=azure` support in `accounts` table (schema already provider-agnostic)
+- [ ] Dashboard: provider icon (AWS/Azure/GCP) on each account and resource card; provider filter pill
+- [ ] Only pursue after AWS has proven paying customers
+
+#### 4.3 Multi-Cloud — GCP (Q2 2027)
+
+- [ ] Implement `Provider` interface for GCP Billing Export → BigQuery
+- [ ] Implement `Provider` interface for GCP Cloud Monitoring metrics
+
+#### 4.4 FOCUS Conformance (Q2 2027 → Q4 2027)
+
+> Full plan: [`docs/compliance/focus_plan.md`](compliance/focus_plan.md).
+
+Roles and rollout:
+
+- [ ] Pin FOCUS spec version in `services/shared/focus/VERSION` (latest GA minus one minor)
+- [ ] Build `services/shared/focus/` package — schema, parse, emit, mapping, validate
+- [ ] `ServiceCategory` lookup table (~30 service entries) — can ship before CUR
+
+**Q2 2027 — Consumer role:**
+
+- [ ] `focusfile` provider in `services/ingestion/internal/provider/focusfile/` — ingests FOCUS Parquet/CSV from S3 / blob storage, satisfies the existing `Provider` interface
+- [ ] Validate against the foundation's reference dataset; `make test-focus` target
+- [ ] `docs/focus_ingestion.md` — customer setup (enable FOCUS export at AWS/Azure/GCP, grant cross-account read)
+
+**Q3 2027 — Producer role (gated on CUR ingestion — Phase 3 #13):**
+
+- [ ] `GET /v1/export/focus?period=YYYY-MM&format=parquet|csv` endpoint — streams FOCUS-conformant export
+- [ ] Plan-gate to Team tier and above
+- [ ] `docs/focus_export.md` — examples for Snowflake / BigQuery / Athena / Power BI
+- [ ] Audit log entry on every export (sibling to GDPR `gdpr.dsr.export`)
+
+**Q3 2027 — Multi-cloud unification (the strategic payoff):**
+
+- [ ] Replace Azure-specific cost ingestion (§4.2) with Azure → FOCUS export → `focusfile` provider
+- [ ] Same for GCP (§4.3): GCP Billing Export → FOCUS → `focusfile` provider
+- [ ] Update `docs/multicloud-coverage.md` with the new ingestion topology
+
+**Q4 2027 — Foundation conformance assertion:**
+
+- [ ] Submit conformance assertion (self-attestation as of plan write date; check for formal review process)
+- [ ] Add badge to `axiaops.io/security` and homepage
+- [ ] Annual re-assertion + on-bump workflow
+
+#### 4.5 Mobile App (Q2 2027)
+
+- [ ] Decide native shell: Capacitor wrapper around the Vite bundle, or a new RN/Expo project
+- [ ] iOS build with no web-only code paths
+- [ ] Android build with no web-only code paths
+- [ ] Kinde PKCE login on native (token in iOS keychain / Android keystore)
+- [ ] Push notification for new zombies (replaces email digest on mobile)
+- [ ] Submit to TestFlight for internal testing (requires Apple Developer account from 3.12)
+- [ ] Submit to Google Play internal track (requires legal entity from 3.12)
+
+---
+
+## Phase 5 — Proactive Cost Simulation (Q3–Q4 2027)
+
+### 5.1 IaC Plan Parser
+
+- [ ] Parse `terraform plan -out=plan.json` (Terraform 1.5+ format only — stable JSON schema)
+- [ ] Parse `cdk diff` output
+- [ ] Extract: resource types, sizes, regions, counts
+
+### 5.2 Cost Estimation Engine
+
+- [ ] Fetch live pricing from AWS Pricing API, Azure Retail Prices API, GCP Cloud Billing Catalog
+- [ ] Compute monthly cost delta per planned resource
+- [ ] Integrate with forecast (4.1) — planned deltas adjust projected spend
+
+### 5.3 What-if Scenarios
+
+- [ ] "What if I use gp3 instead of gp2?" → show EBS savings
+- [ ] "What if I switch region?" → show inter-region delta
+- [ ] "What if I use Spot?" → show risk vs savings trade-off
+
+### 5.4 CI/CD Budget Gate
+
+- [ ] GitLab CI / GitHub Actions integration — post cost delta as MR/PR comment
+- [ ] Configurable threshold: warn or block merge if delta exceeds limit
+
+### 5.5 CLI Tool
+
+- [ ] `axiaops estimate --plan plan.json` — standalone binary
+- [ ] `brew install axiaops` — Homebrew formula
 
 ---
 
@@ -132,3 +681,34 @@ identically locally and in CI.
 - First-job-on-runner image pull latency. Use GitLab's image caching or accept ~5-10s on cold runs.
 - Host-behavior-dependent tests (timezone, DNS, filesystem case sensitivity) may pass locally and fail in CI. Expect 1-2 surprises across a year.
 - Deploy jobs that need VPC/VPN access can't run on shared runners — requires a small self-hosted runner or ECS/Fargate one-off tasks for migrations (already the pattern for production).
+
+---
+
+## Milestone Timeline
+
+| Date | Milestone | Status |
+|------|-----------|--------|
+| April 2026 | Phase 1 complete + Phase 2 early work + Phase 3 dismiss/remediation/audit/memberships/GDPR shipped early | ✅ Done |
+| May 2026 | Versioned migrations, savings history, observability, scan recovery, API versioning, rate limiting, graceful shutdown | ✅ Done |
+| June 2026 | GitLab CI pipeline, scheduled auto-scan, cost_records retention | ✅ Done |
+| July 2026 | Redis (JWKS cache, scan queue, rate limiting), unified CSV, raw cost view | ✅ Done |
+| August 2026 | Production deployment (App Runner + RDS + ElastiCache), email digest, Slack alerts, tenant→organization rename | Planned |
+| September 2026 | Stripe billing, GDPR paperwork live, legal entity | Planned |
+| October 2026 | Tag filtering, scan history log, per-account summary, custom detection thresholds | Planned |
+| November 2026 | Custodian rule backlog, multi-org UX, org dashboard, PDF report, cost forecast | Planned |
+| December 2026 | Historical zombie lineage, per-service DB users, migration history log, first paying customer (target: 10 customers, €5K MRR), Drata + SOC 2 policy library in place | Planned |
+| Q1 2027 | Azure integration, SOC 2 Type I prep (auditor selected), FOCUS package scaffolding | Planned |
+| Q2 2027 | Mobile app, **SOC 2 Type I audit + report**, **FOCUS Consumer role shipped** (`focusfile` ingestion) | Planned |
+| Q2–Q3 2027 | SOC 2 Type II observation window (May–Oct 2027) | Planned |
+| Q3 2027 | GCP integration via FOCUS, **FOCUS Producer role shipped** (`GET /v1/export/focus`), multi-cloud ingestion unified through FOCUS, IaC plan parser begins | Planned |
+| Q4 2027 | Cost estimation engine, what-if scenarios, CI/CD budget gate, CLI tool, **SOC 2 Type II audit + report**, **FOCUS Foundation conformance assertion** | Planned |
+
+---
+
+## Design & Decision Docs
+
+- **CloudTrail Integration:** `docs/cloudtrail-analysis.md` — Why CloudTrail detection was deferred to Phase 4+, ROI analysis, when to reconsider
+- **AWS Service Coverage:** `tmp/aws-coverage-and-cost-explorer-notes.md` — Why certain services are prioritized, detection patterns
+- **Tier 2 Detections:** `docs/tier2_detections_status.md` — ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, EKS detection status
+- **Custodian Rule Backlog:** `docs/custodian-rule-backlog.md` — Phase 3 #10 priority + per-rule template
+- **Compliance Plans:** `docs/compliance/{gdpr,soc2,focus}_plan.md`
