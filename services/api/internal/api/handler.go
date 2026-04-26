@@ -117,6 +117,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// (subject to the sole-owner guard enforced by the store).
 	mux.HandleFunc("DELETE /v1/users/me", h.deleteCurrentUser)
 	mux.Handle("DELETE /v1/tenants/me", require(authz.PermTenantDelete, h.deleteCurrentTenant))
+
+	// GDPR — right of access / portability (Art. 15 + 20). Owner-only because
+	// the export bundles audit_log + billing + accounts in a single download.
+	mux.Handle("GET /v1/export", require(authz.PermDataExport, h.exportTenantData))
 }
 
 // cors wraps a handler with CORS headers.

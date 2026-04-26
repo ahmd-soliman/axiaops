@@ -37,6 +37,7 @@ func TestAllows_CapabilityMatrix(t *testing.T) {
 		{authz.PermMembersManageAdmin, []authz.Role{authz.RoleOwner}},
 		{authz.PermTenantTransfer, []authz.Role{authz.RoleOwner}},
 		{authz.PermTenantDelete, []authz.Role{authz.RoleOwner}},
+		{authz.PermDataExport, []authz.Role{authz.RoleOwner}},
 	}
 
 	allRoles := []authz.Role{authz.RoleViewer, authz.RoleMember, authz.RoleAdmin, authz.RoleOwner}

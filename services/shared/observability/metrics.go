@@ -52,6 +52,7 @@ type Metrics struct {
 	// survives the audit_log purge that tenant deletion performs.
 	TenantDeletionsTotal    *prometheus.CounterVec   // Tenant cascade deletes by status (ok|failed)
 	UserDeletionsTotal      *prometheus.CounterVec   // Per-user hard deletes by status (ok|failed|conflict)
+	DataExportsTotal        *prometheus.CounterVec   // GDPR data exports (GET /v1/export) by status (ok|failed)
 }
 
 // registry is the global Prometheus registry.
@@ -191,6 +192,10 @@ func newMetrics() *Metrics {
 		UserDeletionsTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_user_deletions_total",
 			Help: "Total per-user hard deletions attempted, labelled by outcome (ok|failed|conflict). conflict means the user was the sole owner of a tenant and must transfer first.",
+		}, []string{"status"}),
+		DataExportsTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_data_exports_total",
+			Help: "Total GDPR data exports served via GET /v1/export, labelled by outcome (ok|failed).",
 		}, []string{"status"}),
 	}
 
