@@ -19,6 +19,8 @@ import (
 	"net/http"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"axiaops.io/api/internal/audit"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/model"
@@ -30,23 +32,17 @@ import (
 // (privacy lead's tooling, customer's data warehouse) can branch on it.
 const exportSchemaVersion = "1"
 
-// auditExportPageSize is the per-page cap for audit_log pagination during
-// export. Sized below the Postgres store's hard cap (500) so we always send
-// a request the store will accept without coercion.
+// auditExportPageSize is sized below the Postgres store's hard cap (500)
+// so requests never get coerced.
 const auditExportPageSize = 500
 
 // auditExportMaxPages bounds the audit-log pagination loop so a runaway
 // tenant or stuck cursor can't make a single export hold a goroutine forever.
-// At 500 rows × 200 pages this caps a single export at 100k audit rows —
-// well above the per-tenant volume we'd expect inside the 12-month retention
-// window. If a tenant ever hits the cap, the response carries
-// `audit_log_truncated: true` and the privacy lead falls back to a direct
-// DB dump for the residual.
+// At 500 rows × 200 pages this caps a single export at 100k audit rows. If a
+// tenant ever hits the cap, the response carries `audit_log_truncated: true`
+// and the privacy lead falls back to a direct DB dump for the residual.
 const auditExportMaxPages = 200
 
-// tenantExportMember is the per-member projection in the export. Trims the
-// internal-only fields (invited_by, updated_at, the wrapping struct) down to
-// what a data subject would recognise.
 type tenantExportMember struct {
 	UserID   string    `json:"user_id"`
 	Email    string    `json:"email,omitempty"`
@@ -55,10 +51,6 @@ type tenantExportMember struct {
 	JoinedAt time.Time `json:"joined_at"`
 }
 
-// tenantExport is the top-level JSON payload served by GET /v1/export.
-//
-// Field order follows the §2.1/§2.2 inventory in the GDPR plan so a reader
-// can cross-reference what's present here against what the plan promises.
 type tenantExport struct {
 	SchemaVersion     string                 `json:"schema_version"`
 	GeneratedAt       time.Time              `json:"generated_at"`
@@ -75,13 +67,6 @@ type tenantExport struct {
 	AuditLogTruncated bool                   `json:"audit_log_truncated,omitempty"`
 }
 
-// exportTenantData handles GET /v1/export.
-//
-// Composes existing tenant-scoped Store methods rather than introducing a
-// dedicated ExportTenant query. Each call sits under RLS via the tenant set
-// on r.Context(); cross-tenant leakage would require an RLS bug, not a
-// handler bug. Audit-logs the export with per-table row counts so a future
-// DSR audit can show *what* a download contained, not just that it happened.
 func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 	tid := middleware.TenantID(r.Context())
 	if tid == "" {
@@ -131,9 +116,7 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 		// nothing useful we can send back to the client. Log and bump the
 		// failure counter; the partial body is the user-visible signal.
 		observability.Global.DataExportsTotal.WithLabelValues("failed").Inc()
-		slog.Error("export tenant: encode failed",
-			"tenant_id", tid,
-			"error", err)
+		slog.Error("export tenant: encode failed", "tenant_id", tid, "error", err)
 		return
 	}
 
@@ -147,9 +130,13 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 		"audit_truncated", exp.AuditLogTruncated)
 }
 
-// buildTenantExport composes the export payload from existing Store methods.
-// Failures short-circuit; partial exports would be worse than a 500 because
-// the user can't tell what's missing.
+// buildTenantExport runs the eight tenant-scoped reads concurrently. Each
+// goroutine writes to its own field of `exp` (or to the `memberships` local)
+// so there's no overlapping memory access; errgroup.Wait() establishes
+// happens-before for the post-Wait member-projection loop. Failure of any
+// goroutine cancels the rest via gctx and short-circuits the rebuild —
+// partial exports would be worse than a 500 because the user can't tell
+// what's missing.
 func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tenantExport, error) {
 	exp := &tenantExport{
 		SchemaVersion: exportSchemaVersion,
@@ -158,10 +145,54 @@ func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tena
 		Notes:         "Encrypted account credentials and internal-only audit fields are excluded. See docs/compliance/gdpr_plan.md §4.2.",
 	}
 
-	memberships, err := h.store.ListMemberships(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list memberships: %w", err)
+	g, gctx := errgroup.WithContext(ctx)
+	var memberships []model.MembershipWithUser
+
+	g.Go(func() error {
+		var err error
+		memberships, err = h.store.ListMemberships(gctx)
+		return wrapErr("list memberships", err)
+	})
+	g.Go(func() error {
+		var err error
+		exp.Accounts, err = h.store.ListAccounts(gctx)
+		return wrapErr("list accounts", err)
+	})
+	g.Go(func() error {
+		var err error
+		exp.Resources, err = h.store.LoadResources(gctx)
+		return wrapErr("load resources", err)
+	})
+	g.Go(func() error {
+		var err error
+		exp.Zombies, err = h.store.LoadZombies(gctx)
+		return wrapErr("load zombies", err)
+	})
+	g.Go(func() error {
+		var err error
+		// CostFilter zero-value applies the store's default 90-day window
+		// (gdpr_plan.md §5).
+		exp.CostRecords, err = h.store.ListCostRecords(gctx, storage.CostFilter{})
+		return wrapErr("list cost records", err)
+	})
+	g.Go(func() error {
+		var err error
+		exp.Snapshots, err = h.store.ListSnapshots(gctx, "")
+		return wrapErr("list snapshots", err)
+	})
+	g.Go(func() error {
+		var err error
+		exp.ActiveDismissals, err = h.store.ListActiveDismissals(gctx, "")
+		return wrapErr("list dismissals", err)
+	})
+	g.Go(func() error {
+		return h.loadAuditLog(gctx, exp)
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
+
 	exp.Members = make([]tenantExportMember, 0, len(memberships))
 	for _, m := range memberships {
 		exp.Members = append(exp.Members, tenantExportMember{
@@ -173,56 +204,23 @@ func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tena
 		})
 	}
 
-	if exp.Accounts, err = h.store.ListAccounts(ctx); err != nil {
-		return nil, fmt.Errorf("list accounts: %w", err)
-	}
-	if exp.Accounts == nil {
-		exp.Accounts = []model.Account{}
-	}
-
-	if exp.Resources, err = h.store.LoadResources(ctx); err != nil {
-		return nil, fmt.Errorf("load resources: %w", err)
-	}
-	if exp.Resources == nil {
-		exp.Resources = []model.ResourceRecord{}
+	emptyIfNil(&exp.Accounts)
+	emptyIfNil(&exp.Resources)
+	emptyIfNil(&exp.Zombies)
+	emptyIfNil(&exp.CostRecords)
+	emptyIfNil(&exp.Snapshots)
+	emptyIfNil(&exp.ActiveDismissals)
+	if exp.AuditLog == nil {
+		exp.AuditLog = []model.AuditEvent{}
 	}
 
-	if exp.Zombies, err = h.store.LoadZombies(ctx); err != nil {
-		return nil, fmt.Errorf("load zombies: %w", err)
-	}
-	if exp.Zombies == nil {
-		exp.Zombies = []model.ZombieResource{}
-	}
+	return exp, nil
+}
 
-	// CostFilter zero-value returns the full window the store applies by
-	// default. The store layer caps lookback (Days=0 means "store default",
-	// which is the 90-day retention window from gdpr_plan.md §5).
-	if exp.CostRecords, err = h.store.ListCostRecords(ctx, storage.CostFilter{}); err != nil {
-		return nil, fmt.Errorf("list cost records: %w", err)
-	}
-	if exp.CostRecords == nil {
-		exp.CostRecords = []model.CostRecord{}
-	}
-
-	if exp.Snapshots, err = h.store.ListSnapshots(ctx, ""); err != nil {
-		return nil, fmt.Errorf("list snapshots: %w", err)
-	}
-	if exp.Snapshots == nil {
-		exp.Snapshots = []model.ZombieSnapshot{}
-	}
-
-	// Active dismissals only — revoked rows are deleted by the revoke handler,
-	// so there is nothing else for us to hold.
-	if exp.ActiveDismissals, err = h.store.ListActiveDismissals(ctx, ""); err != nil {
-		return nil, fmt.Errorf("list dismissals: %w", err)
-	}
-	if exp.ActiveDismissals == nil {
-		exp.ActiveDismissals = []model.DismissAction{}
-	}
-
-	// Page through the audit log so a 12-month-deep tenant doesn't get
-	// silently truncated at the store's per-call cap.
-	exp.AuditLog = []model.AuditEvent{}
+// loadAuditLog pages through the audit log so a 12-month-deep tenant doesn't
+// get silently truncated at the store's per-call cap. Sets AuditLogTruncated
+// if the page ceiling is hit before the cursor exhausts.
+func (h *Handler) loadAuditLog(ctx context.Context, exp *tenantExport) error {
 	cursor := model.AuditCursor{}
 	for page := 0; page < auditExportMaxPages; page++ {
 		batch, err := h.store.AuditLogList(ctx, model.AuditFilter{
@@ -230,18 +228,31 @@ func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tena
 			Cursor: cursor,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list audit (page %d): %w", page, err)
+			return fmt.Errorf("list audit (page %d): %w", page, err)
 		}
 		if len(batch) == 0 {
-			return exp, nil
+			return nil
 		}
 		exp.AuditLog = append(exp.AuditLog, batch...)
 		if len(batch) < auditExportPageSize {
-			return exp, nil
+			return nil
 		}
 		last := batch[len(batch)-1]
 		cursor = model.AuditCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
 	exp.AuditLogTruncated = true
-	return exp, nil
+	return nil
+}
+
+func wrapErr(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", op, err)
+}
+
+func emptyIfNil[T any](s *[]T) {
+	if *s == nil {
+		*s = []T{}
+	}
 }

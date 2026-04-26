@@ -19,19 +19,21 @@ export function csvEncode(headers, rows) {
     .join('\n');
 }
 
-// Trigger a browser download of `csv` as `filename`. Revokes the object URL
+// Trigger a browser download of `blob` as `filename`. Revokes the object URL
 // after a short delay so large downloads (tens of MB+) have time to start
 // streaming before the URL is invalidated.
-//
-// The Blob is prefixed with a UTF-8 BOM (﻿) so Excel on Windows opens
-// it as UTF-8 instead of cp1252 — without this, em-dashes and accented
-// characters render as mojibake (e.g. `—` → `‚Äî`).
-export function downloadCSV(csv, filename) {
-  const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' });
+export function downloadBlob(blob, filename) {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// The Blob is prefixed with a UTF-8 BOM (﻿) so Excel on Windows opens
+// it as UTF-8 instead of cp1252 — without this, em-dashes and accented
+// characters render as mojibake (e.g. `—` → `‚Äî`).
+export function downloadCSV(csv, filename) {
+  downloadBlob(new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' }), filename);
 }
