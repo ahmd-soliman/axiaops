@@ -1,13 +1,8 @@
 # User onboarding (current state)
 
-> **Status:** describes the implementation as of Phase 2. The
-> next-phase rewrite — app-owned organisations, self-serve
-> onboarding, and email invitations — is designed in
-> `docs/onboarding-and-app-owned-orgs.md` and tracked in
-> `Tasks.md` Phase 3 #14.
+> **Status:** describes the implementation as of Phase 2 plus the email-invitation flow designed in [`docs/invitation-flow.md`](./invitation-flow.md) (pending implementation on `feat/team-invitations`). The previously-planned "app-owned organisations" rewrite (`docs/onboarding-and-app-owned-orgs.md`, now marked superseded) was evaluated and **not pursued** — Kinde's `register()` plus its Management API solves both self-serve org creation and email invitations without an app-side org-primitive refactor.
 
-This doc was previously aspirational. It now reflects what actually
-ships. For where we're going, see the plan doc above.
+This doc reflects what actually ships today, plus the invitation flow that is being added on top without changing the org primitive.
 
 ## The current flow (closed beta, pattern A)
 
@@ -88,18 +83,15 @@ This is why the local dashboard "just works" on `make start-dev`
 and why the CI integration stack uses `DEV_ORGANIZATION_ID:
 "ci-tenant"` (an opaque fixture ID).
 
-## What the next phase changes
+## What changes next: email invitations (no org-primitive refactor)
 
-`docs/onboarding-and-app-owned-orgs.md` — Phase 3 #14 — replaces:
+The chicken-and-egg invite flow above is closed by the email-invitation design in [`docs/invitation-flow.md`](./invitation-flow.md):
 
-- The manual Kinde-dashboard step with `POST /v1/organizations`.
-- The chicken-and-egg invite flow with token-based magic-link emails
-  (Resend) and `POST /v1/invitations/accept`.
-- The `EnsureFirstMembership` auto-promotion with explicit owner
-  assignment at org-creation time.
-- The Kinde `org_code` JWT coupling with an `X-Organization-ID`
-  header validated against `memberships`.
+- Admin posts `POST /v1/invitations { email, role }`.
+- AxiaOps writes a `pending_memberships` row and calls Kinde's Management API → Kinde sends the org-scoped invitation email.
+- Invitee clicks → Kinde signup → JWT carries the inviting org's `org_code`.
+- Auth middleware redeems the pending row into a real `memberships` row on the invitee's first authenticated request (after `EnsureFirstMembership`, which is a no-op for already-populated orgs).
 
-That refactor unblocks paid self-serve and the self-managed-license
-GTM path. Read the plan doc for sequencing, AC checklist, and
-risks.
+What stays the same: Kinde owns the org primitive (`org_code` in JWT → `organizations.id`); `EnsureFirstMembership` still auto-promotes the founder of a brand-new self-serve org; RLS, roles, and permissions are unchanged.
+
+What the originally-planned [`onboarding-and-app-owned-orgs.md`](./onboarding-and-app-owned-orgs.md) rewrite would have added — `POST /v1/organizations`, `pending_invitations` magic-link flow via Resend, `X-Organization-ID` header, dropping `UpsertOrganization`/`EnsureFirstMembership` — is **not** being pursued. That doc is preserved as a historical record of the rejected alternative; do not implement from it.
