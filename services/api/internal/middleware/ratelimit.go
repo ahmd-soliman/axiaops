@@ -28,9 +28,9 @@ func NewRateLimiter(c cache.Cache) *RateLimiter {
 }
 
 // Allow returns true if the tenant is within the rate limit for the current minute.
-func (rl *RateLimiter) Allow(ctx context.Context, tenantID string) bool {
+func (rl *RateLimiter) Allow(ctx context.Context, organizationID string) bool {
 	bucket := time.Now().Unix() / 60
-	key := fmt.Sprintf("ratelimit:%s:%d", tenantID, bucket)
+	key := fmt.Sprintf("ratelimit:%s:%d", organizationID, bucket)
 
 	n, err := rl.cache.Incr(ctx, key, rateLimitWindow)
 	if err != nil {
@@ -48,14 +48,14 @@ func (rl *RateLimiter) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		tenantID := OrganizationID(r.Context())
-		if tenantID == "" {
+		organizationID := OrganizationID(r.Context())
+		if organizationID == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		if !rl.Allow(r.Context(), tenantID) {
-			slog.Warn("ratelimit: too many requests", "organization_id", tenantID)
+		if !rl.Allow(r.Context(), organizationID) {
+			slog.Warn("ratelimit: too many requests", "organization_id", organizationID)
 			w.Header().Set("Retry-After", "60")
 			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 			return

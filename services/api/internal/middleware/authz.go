@@ -12,7 +12,7 @@ import (
 // Defining it here (rather than importing storage.Store) keeps middleware
 // decoupled from the full Store interface — useful for tests.
 type RoleStore interface {
-	RoleOf(ctx context.Context, tenantID, userID string) (string, error)
+	RoleOf(ctx context.Context, organizationID, userID string) (string, error)
 }
 
 // Require returns an http.Handler that allows the request only if the

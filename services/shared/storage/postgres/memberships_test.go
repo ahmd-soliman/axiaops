@@ -17,9 +17,9 @@ import (
 // authz middleware and membership handlers depend on. RLS is asserted by
 // running every test against the app pool (see DATABASE_URL guard).
 
-func seedUser(t *testing.T, s *postgres.Store, tenantID, email string) model.User {
+func seedUser(t *testing.T, s *postgres.Store, organizationID, email string) model.User {
 	t.Helper()
-	u, err := s.UpsertUser(context.Background(), tenantID, "kinde-"+uuid.NewString(), email, email)
+	u, err := s.UpsertUser(context.Background(), organizationID, "kinde-"+uuid.NewString(), email, email)
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
@@ -28,10 +28,10 @@ func seedUser(t *testing.T, s *postgres.Store, tenantID, email string) model.Use
 
 func TestRoleOf_NoMembershipReturnsEmpty(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
-	u := seedUser(t, s, tenant.ID, "noone@x.com")
+	ctx, org := newOrgCtx(t, s)
+	u := seedUser(t, s, org.ID, "noone@x.com")
 
-	role, err := s.RoleOf(ctx, tenant.ID, u.ID)
+	role, err := s.RoleOf(ctx, org.ID, u.ID)
 	if err != nil {
 		t.Fatalf("RoleOf: %v", err)
 	}
@@ -42,18 +42,18 @@ func TestRoleOf_NoMembershipReturnsEmpty(t *testing.T) {
 
 func TestSaveMembership_RoundTrip(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
-	u := seedUser(t, s, tenant.ID, "alice@x.com")
+	ctx, org := newOrgCtx(t, s)
+	u := seedUser(t, s, org.ID, "alice@x.com")
 
 	if err := s.SaveMembership(ctx, model.Membership{
-		OrganizationID: tenant.ID,
+		OrganizationID: org.ID,
 		UserID:         u.ID,
 		Role:           "admin",
 	}); err != nil {
 		t.Fatalf("SaveMembership: %v", err)
 	}
 
-	role, err := s.RoleOf(ctx, tenant.ID, u.ID)
+	role, err := s.RoleOf(ctx, org.ID, u.ID)
 	if err != nil {
 		t.Fatalf("RoleOf: %v", err)
 	}
@@ -64,16 +64,16 @@ func TestSaveMembership_RoundTrip(t *testing.T) {
 
 func TestSaveMembership_DuplicateReturnsExists(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
-	u := seedUser(t, s, tenant.ID, "dup@x.com")
+	ctx, org := newOrgCtx(t, s)
+	u := seedUser(t, s, org.ID, "dup@x.com")
 
 	if err := s.SaveMembership(ctx, model.Membership{
-		OrganizationID: tenant.ID, UserID: u.ID, Role: "viewer",
+		OrganizationID: org.ID, UserID: u.ID, Role: "viewer",
 	}); err != nil {
 		t.Fatalf("first SaveMembership: %v", err)
 	}
 	err := s.SaveMembership(ctx, model.Membership{
-		OrganizationID: tenant.ID, UserID: u.ID, Role: "admin",
+		OrganizationID: org.ID, UserID: u.ID, Role: "admin",
 	})
 	if !errors.Is(err, storage.ErrMembershipExists) {
 		t.Fatalf("expected ErrMembershipExists, got %v", err)
@@ -82,12 +82,12 @@ func TestSaveMembership_DuplicateReturnsExists(t *testing.T) {
 
 func TestUpdateMembershipRole_LastOwnerGuard(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
-	owner := seedUser(t, s, tenant.ID, "owner@x.com")
+	ctx, org := newOrgCtx(t, s)
+	owner := seedUser(t, s, org.ID, "owner@x.com")
 
 	id := uuid.NewString()
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: id, OrganizationID: tenant.ID, UserID: owner.ID, Role: "owner",
+		ID: id, OrganizationID: org.ID, UserID: owner.ID, Role: "owner",
 	}); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
@@ -100,12 +100,12 @@ func TestUpdateMembershipRole_LastOwnerGuard(t *testing.T) {
 
 func TestUpdateMembershipRole_AllowsRoleChangeBetweenNonOwners(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
-	user := seedUser(t, s, tenant.ID, "viewer@x.com")
+	ctx, org := newOrgCtx(t, s)
+	user := seedUser(t, s, org.ID, "viewer@x.com")
 
 	id := uuid.NewString()
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: id, OrganizationID: tenant.ID, UserID: user.ID, Role: "viewer",
+		ID: id, OrganizationID: org.ID, UserID: user.ID, Role: "viewer",
 	}); err != nil {
 		t.Fatalf("seed viewer: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestUpdateMembershipRole_AllowsRoleChangeBetweenNonOwners(t *testing.T) {
 		t.Fatalf("UpdateMembershipRole: %v", err)
 	}
 
-	role, err := s.RoleOf(ctx, tenant.ID, user.ID)
+	role, err := s.RoleOf(ctx, org.ID, user.ID)
 	if err != nil {
 		t.Fatalf("RoleOf: %v", err)
 	}
@@ -125,12 +125,12 @@ func TestUpdateMembershipRole_AllowsRoleChangeBetweenNonOwners(t *testing.T) {
 
 func TestDeleteMembership_LastOwnerGuard(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
-	owner := seedUser(t, s, tenant.ID, "lastowner@x.com")
+	ctx, org := newOrgCtx(t, s)
+	owner := seedUser(t, s, org.ID, "lastowner@x.com")
 
 	id := uuid.NewString()
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: id, OrganizationID: tenant.ID, UserID: owner.ID, Role: "owner",
+		ID: id, OrganizationID: org.ID, UserID: owner.ID, Role: "owner",
 	}); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
@@ -143,17 +143,17 @@ func TestDeleteMembership_LastOwnerGuard(t *testing.T) {
 
 func TestTransferOwnership_Atomic(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
-	owner := seedUser(t, s, tenant.ID, "from@x.com")
-	target := seedUser(t, s, tenant.ID, "to@x.com")
+	ctx, org := newOrgCtx(t, s)
+	owner := seedUser(t, s, org.ID, "from@x.com")
+	target := seedUser(t, s, org.ID, "to@x.com")
 
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: uuid.NewString(), OrganizationID: tenant.ID, UserID: owner.ID, Role: "owner",
+		ID: uuid.NewString(), OrganizationID: org.ID, UserID: owner.ID, Role: "owner",
 	}); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: uuid.NewString(), OrganizationID: tenant.ID, UserID: target.ID, Role: "admin",
+		ID: uuid.NewString(), OrganizationID: org.ID, UserID: target.ID, Role: "admin",
 	}); err != nil {
 		t.Fatalf("seed admin: %v", err)
 	}
@@ -162,14 +162,14 @@ func TestTransferOwnership_Atomic(t *testing.T) {
 		t.Fatalf("TransferOwnership: %v", err)
 	}
 
-	ownerRole, err := s.RoleOf(ctx, tenant.ID, owner.ID)
+	ownerRole, err := s.RoleOf(ctx, org.ID, owner.ID)
 	if err != nil {
 		t.Fatalf("RoleOf old owner: %v", err)
 	}
 	if ownerRole != "admin" {
 		t.Fatalf("expected old owner -> admin, got %q", ownerRole)
 	}
-	targetRole, err := s.RoleOf(ctx, tenant.ID, target.ID)
+	targetRole, err := s.RoleOf(ctx, org.ID, target.ID)
 	if err != nil {
 		t.Fatalf("RoleOf new owner: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestTransferOwnership_Atomic(t *testing.T) {
 
 func TestTransferOwnership_TargetNotInTenant(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	err := s.TransferOwnership(ctx, "u-does-not-exist")
 	if !errors.Is(err, storage.ErrMembershipNotFound) {
@@ -190,11 +190,11 @@ func TestTransferOwnership_TargetNotInTenant(t *testing.T) {
 
 func TestEnsureFirstMembership_OnlyFirstWins(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
-	first := seedUser(t, s, tenant.ID, "first@x.com")
-	second := seedUser(t, s, tenant.ID, "second@x.com")
+	ctx, org := newOrgCtx(t, s)
+	first := seedUser(t, s, org.ID, "first@x.com")
+	second := seedUser(t, s, org.ID, "second@x.com")
 
-	ok, err := s.EnsureFirstMembership(ctx, tenant.ID, first.ID)
+	ok, err := s.EnsureFirstMembership(ctx, org.ID, first.ID)
 	if err != nil {
 		t.Fatalf("first call: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestEnsureFirstMembership_OnlyFirstWins(t *testing.T) {
 		t.Fatalf("expected first call to insert")
 	}
 
-	ok, err = s.EnsureFirstMembership(ctx, tenant.ID, second.ID)
+	ok, err = s.EnsureFirstMembership(ctx, org.ID, second.ID)
 	if err != nil {
 		t.Fatalf("second call: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestEnsureFirstMembership_OnlyFirstWins(t *testing.T) {
 		t.Fatalf("expected second call to be a no-op")
 	}
 
-	role, err := s.RoleOf(ctx, tenant.ID, first.ID)
+	role, err := s.RoleOf(ctx, org.ID, first.ID)
 	if err != nil {
 		t.Fatalf("RoleOf: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestEnsureFirstMembership_OnlyFirstWins(t *testing.T) {
 		t.Fatalf("first user should be owner, got %q", role)
 	}
 
-	role, err = s.RoleOf(ctx, tenant.ID, second.ID)
+	role, err = s.RoleOf(ctx, org.ID, second.ID)
 	if err != nil {
 		t.Fatalf("RoleOf second: %v", err)
 	}
@@ -232,25 +232,25 @@ func TestRoleOf_TenantIsolation(t *testing.T) {
 		t.Skip("requires DATABASE_URL (app user) for RLS")
 	}
 	s := newTestStore(t)
-	ctxA, tenantA := newTenantCtx(t, s)
-	ctxB, tenantB := newTenantCtx(t, s)
+	ctxA, orgA := newOrgCtx(t, s)
+	ctxB, orgB := newOrgCtx(t, s)
 
-	userA := seedUser(t, s, tenantA.ID, "a@x.com")
-	userB := seedUser(t, s, tenantB.ID, "b@x.com")
+	userA := seedUser(t, s, orgA.ID, "a@x.com")
+	userB := seedUser(t, s, orgB.ID, "b@x.com")
 
 	if err := s.SaveMembership(ctxA, model.Membership{
-		OrganizationID: tenantA.ID, UserID: userA.ID, Role: "admin",
+		OrganizationID: orgA.ID, UserID: userA.ID, Role: "admin",
 	}); err != nil {
 		t.Fatalf("save A: %v", err)
 	}
 	if err := s.SaveMembership(ctxB, model.Membership{
-		OrganizationID: tenantB.ID, UserID: userB.ID, Role: "viewer",
+		OrganizationID: orgB.ID, UserID: userB.ID, Role: "viewer",
 	}); err != nil {
 		t.Fatalf("save B: %v", err)
 	}
 
 	// Looking up A's user from B's tenant must return empty (RLS).
-	role, err := s.RoleOf(ctxB, tenantB.ID, userA.ID)
+	role, err := s.RoleOf(ctxB, orgB.ID, userA.ID)
 	if err != nil {
 		t.Fatalf("RoleOf cross-tenant: %v", err)
 	}
@@ -261,11 +261,11 @@ func TestRoleOf_TenantIsolation(t *testing.T) {
 
 func TestListMemberships_JoinsUserEmail(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
-	u := seedUser(t, s, tenant.ID, "list@x.com")
+	ctx, org := newOrgCtx(t, s)
+	u := seedUser(t, s, org.ID, "list@x.com")
 
 	if err := s.SaveMembership(ctx, model.Membership{
-		ID: uuid.NewString(), OrganizationID: tenant.ID, UserID: u.ID, Role: "member",
+		ID: uuid.NewString(), OrganizationID: org.ID, UserID: u.ID, Role: "member",
 	}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestListMemberships_JoinsUserEmail(t *testing.T) {
 
 func TestGetUserByEmail_NotFound(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	_, err := s.GetUserByEmail(ctx, "missing@x.com")
 	if !errors.Is(err, storage.ErrUserNotFound) {
@@ -294,8 +294,8 @@ func TestGetUserByEmail_NotFound(t *testing.T) {
 
 func TestGetUserByEmail_CaseInsensitive(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
-	seedUser(t, s, tenant.ID, "Mixed@Example.com")
+	ctx, org := newOrgCtx(t, s)
+	seedUser(t, s, org.ID, "Mixed@Example.com")
 
 	u, err := s.GetUserByEmail(ctx, "mixed@example.com")
 	if err != nil {
@@ -322,7 +322,7 @@ func TestEnsureDevMembership_WithoutOwnerPool(t *testing.T) {
 	// Seed the tenant + user via the raw owner connection so the test
 	// doesn't depend on a Store that has the owner pool.
 	conn := setup(t)
-	tenantID, userAID, _ := newTenantWithUsers(t, conn)
+	organizationID, userAID, _ := newOrganizationWithUsers(t, conn)
 
 	// Open a Store WITHOUT a separate owner pool — adminPool falls back to pool.
 	s, err := postgres.New(context.Background(), os.Getenv("DATABASE_URL"))
@@ -331,11 +331,11 @@ func TestEnsureDevMembership_WithoutOwnerPool(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
-	if err := s.EnsureDevMembership(context.Background(), tenantID, userAID, "owner"); err != nil {
+	if err := s.EnsureDevMembership(context.Background(), organizationID, userAID, "owner"); err != nil {
 		t.Fatalf("EnsureDevMembership without owner pool: %v", err)
 	}
 
-	role, err := s.RoleOf(context.Background(), tenantID, userAID)
+	role, err := s.RoleOf(context.Background(), organizationID, userAID)
 	if err != nil {
 		t.Fatalf("RoleOf: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestEnsureFirstMembership_WithoutOwnerPool(t *testing.T) {
 	}
 
 	conn := setup(t)
-	tenantID, userAID, _ := newTenantWithUsers(t, conn)
+	organizationID, userAID, _ := newOrganizationWithUsers(t, conn)
 
 	s, err := postgres.New(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -358,7 +358,7 @@ func TestEnsureFirstMembership_WithoutOwnerPool(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
-	ok, err := s.EnsureFirstMembership(context.Background(), tenantID, userAID)
+	ok, err := s.EnsureFirstMembership(context.Background(), organizationID, userAID)
 	if err != nil {
 		t.Fatalf("EnsureFirstMembership without owner pool: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestEnsureFirstMembership_WithoutOwnerPool(t *testing.T) {
 		t.Fatalf("expected first call to insert, got ok=false")
 	}
 
-	role, err := s.RoleOf(context.Background(), tenantID, userAID)
+	role, err := s.RoleOf(context.Background(), organizationID, userAID)
 	if err != nil {
 		t.Fatalf("RoleOf: %v", err)
 	}

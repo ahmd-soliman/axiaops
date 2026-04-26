@@ -234,14 +234,14 @@ func UserEmail(ctx context.Context) string {
 // Only active when DEV_MODE=true — local development without auth.
 // The tenant and user rows are ensured once at service startup (see cmd/main.go),
 // so this middleware does no DB work per request.
-func DevBypass(tenantID, userID, userEmail string, next http.Handler) http.Handler {
+func DevBypass(organizationID, userID, userEmail string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions || publicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, organizationIDKey, tenantID)
+		ctx = context.WithValue(ctx, organizationIDKey, organizationID)
 		ctx = context.WithValue(ctx, userIDKey, userID)
 		ctx = context.WithValue(ctx, userEmailKey, userEmail)
 		next.ServeHTTP(w, r.WithContext(ctx))

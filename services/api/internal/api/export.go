@@ -149,11 +149,11 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 // buildTenantExport runs the eight tenant-scoped reads concurrently. Any
 // goroutine failure cancels the rest via gctx and short-circuits — partial
 // exports are worse than a 500 because the user can't tell what's missing.
-func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tenantExport, error) {
+func (h *Handler) buildTenantExport(ctx context.Context, organizationID string) (*tenantExport, error) {
 	exp := &tenantExport{
 		SchemaVersion:  exportSchemaVersion,
 		GeneratedAt:    time.Now().UTC(),
-		OrganizationID: tenantID,
+		OrganizationID: organizationID,
 		Notes:          "Encrypted account credentials, internal-only audit fields, and Stripe billing records (held by Stripe under §147 AO) are excluded. See docs/compliance/gdpr_plan.md §4.2.",
 	}
 

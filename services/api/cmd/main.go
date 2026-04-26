@@ -144,15 +144,15 @@ func main() {
 
 	// ── Auth ──────────────────────────────────────────────────────────────────
 	if devMode {
-		devTenantID := os.Getenv("DEV_TENANT_ID")
-		if devTenantID == "" {
+		devOrganizationID := os.Getenv("DEV_TENANT_ID")
+		if devOrganizationID == "" {
 			die("auth: DEV_MODE=true requires DEV_TENANT_ID to be set")
 		}
 		// Pin the dev tenant row at startup so DevBypass can inject a known id
 		// without doing any DB work per request. id = org_code = name here —
 		// dev mode uses DEV_TENANT_ID as the literal, stable tenant id.
-		if err := store.EnsureOrganization(ctx, devTenantID, devTenantID, devTenantID); err != nil {
-			die("auth: failed to ensure dev tenant", "tenant", devTenantID, "error", err)
+		if err := store.EnsureOrganization(ctx, devOrganizationID, devOrganizationID, devOrganizationID); err != nil {
+			die("auth: failed to ensure dev tenant", "tenant", devOrganizationID, "error", err)
 		}
 		// Pin the dev user row so audit rows, dismissal actors, and future
 		// RBAC lookups have a real FK target. DevBypass injects this same id
@@ -167,7 +167,7 @@ func main() {
 		}
 		if err := store.EnsureUser(ctx, model.User{
 			ID:             devUserID,
-			OrganizationID: devTenantID,
+			OrganizationID: devOrganizationID,
 			Email:          devUserEmail,
 			Name:           "Dev User",
 		}); err != nil {
@@ -175,11 +175,11 @@ func main() {
 		}
 		// Pin the dev membership as owner so DevBypass requests pass every
 		// permission check via the Require decorator. RBAC Phase 1.
-		if err := store.EnsureDevMembership(ctx, devTenantID, devUserID, "owner"); err != nil {
+		if err := store.EnsureDevMembership(ctx, devOrganizationID, devUserID, "owner"); err != nil {
 			die("auth: failed to ensure dev membership", "user", devUserID, "error", err)
 		}
-		slog.Warn("auth: DEV_MODE — bypassing auth", "tenant", devTenantID, "user", devUserID)
-		root = middleware.DevBypass(devTenantID, devUserID, devUserEmail, root)
+		slog.Warn("auth: DEV_MODE — bypassing auth", "tenant", devOrganizationID, "user", devUserID)
+		root = middleware.DevBypass(devOrganizationID, devUserID, devUserEmail, root)
 	} else {
 		kindeIssuer := os.Getenv("KINDE_ISSUER")
 		if kindeIssuer == "" {

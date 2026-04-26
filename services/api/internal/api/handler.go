@@ -576,10 +576,10 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := middleware.OrganizationID(r.Context())
+	organizationID := middleware.OrganizationID(r.Context())
 	account := model.Account{
 		ID:                uuid.New().String(),
-		OrganizationID:    tenantID,
+		OrganizationID:    organizationID,
 		Provider:          req.Provider,
 		Label:             req.Label,
 		AccessKeyID:       req.AccessKeyID,
@@ -590,7 +590,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:         time.Now().UTC(),
 	}
 
-	ctx := storage.WithOrganizationID(r.Context(), tenantID)
+	ctx := storage.WithOrganizationID(r.Context(), organizationID)
 	if err := h.store.SaveAccount(ctx, account); err != nil {
 		slog.Error("createAccount: save failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -616,8 +616,8 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 // secret_key is only re-encrypted when a non-empty value is provided.
 func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tenantID := middleware.OrganizationID(r.Context())
-	ctx := storage.WithOrganizationID(r.Context(), tenantID)
+	organizationID := middleware.OrganizationID(r.Context())
+	ctx := storage.WithOrganizationID(r.Context(), organizationID)
 
 	existing, err := h.store.GetAccount(ctx, id)
 	if err != nil {
@@ -721,8 +721,8 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 // scanAccount triggers an ingestion run for the given account.
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tenantID := middleware.OrganizationID(r.Context())
-	ctx := storage.WithOrganizationID(r.Context(), tenantID)
+	organizationID := middleware.OrganizationID(r.Context())
+	ctx := storage.WithOrganizationID(r.Context(), organizationID)
 
 	account, err := h.store.GetAccount(ctx, id)
 	if err != nil {
@@ -754,7 +754,7 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	slog.Info("scan.enqueued", "account_id", id, "organization_id", tenantID)
+	slog.Info("scan.enqueued", "account_id", id, "organization_id", organizationID)
 
 	audit.Record(r, h.store, model.AuditEvent{
 		Action:       model.AuditActionScanTriggered,
