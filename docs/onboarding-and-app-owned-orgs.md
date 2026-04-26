@@ -1,8 +1,32 @@
 # Onboarding + app-owned organisations (auth pattern B)
 
-Tracking ticket: Phase 3 #14 (Multi-organization UX) in `Tasks.md`.
+> **Status: SUPERSEDED. Not planned.**
+>
+> This plan describes a refactor that **we have decided not to do**. It is preserved as the historical record of an alternative we evaluated and rejected, not as a forward-looking roadmap item.
+>
+> **What we're doing instead:** the `org_code`-from-Kinde model stays. Self-serve org creation happens by enabling Kinde's "Create organization on sign up" toggle (a Kinde admin setting, no code). Team invitations go through Kinde's Management API (org-scoped invitations sent by Kinde itself, redeemed in our auth middleware on the invitee's first authenticated request). Full design: **[`docs/invitation-flow.md`](./invitation-flow.md)**.
+>
+> **Why we changed direction:**
+>
+> - The original premise — that org-creation must be in-app and that the chicken-and-egg invite flow is unfixable — turned out to be wrong. Kinde's `register()` SDK call plus the "Create org on sign up" toggle solves self-serve org creation in zero application code. Kinde's Management API solves email-based invitations without a `pending_invitations` magic-link flow, an SMTP/Resend dependency, an `OrgContext` middleware, or a state machine.
+> - The Kinde-org-per-AxiaOps-org 1:1 mapping is fine for our model. The "split between Kinde and AxiaOps is the worst of both worlds" framing assumed multi-org-per-user as a near-term requirement; we've explicitly deferred that.
+> - Cost: the original plan was ~10 commits / ~2 weeks plus an SMTP provider + DNS work. The Kinde-Mgmt-API path is ~7.75 days with no infra additions. See `docs/invitation-flow.md §11`.
+> - The "self-managed-license / BYO-OIDC" GTM path is real but speculative; we'll cross that bridge if a customer asks for it. Pattern B was over-engineering for a problem we don't yet have.
+>
+> **What stays unchanged:** the `memberships` table, the role/permission model, RLS, and the §3 stance ("AxiaOps owns authorization, ignores Kinde's role claims") all remain correct. None of the RBAC story depended on app-owned orgs.
+>
+> **What this means for cross-references in other docs:**
+>
+> - `docs/rbac-design.md` — the Phase 3 #14 callout previously at the top of that doc has been removed.
+> - `docs/user_onboarding.md` — the "next-phase rewrite" status block and the "What the next phase changes" section have been removed; that doc now describes the actual current + near-term flow.
+> - `Tasks.md` — the Phase 3 #14 entry and related "Invite-by-email deferred to Phase 3 #14" notes have been redirected to `docs/invitation-flow.md`.
+> - `docs/refactor-tenant-to-organization.md` — historical "unblocks Phase 3 #14, #15, #16" reference is left untouched (it's an immutable shipped-work record).
+>
+> The original plan is preserved below for reference. Do not implement from this doc.
 
-## Why
+---
+
+## Why (original rationale — historical, not active)
 
 Today's auth model couples organisation identity to Kinde:
 
