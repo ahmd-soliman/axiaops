@@ -70,6 +70,7 @@ _Last updated: 2026-04-24_
 ## Phase 4+ (2027)
 
 - Multi-cloud (Azure, GCP)
+  - **Terminology audit before second provider lands.** Today the dashboard mixes generic ("Cloud Accounts" nav, `/cloud-accounts` route, "Connect Account" button) and AWS-specific ("AWS Account ID" column, "AWS account" body copy) labels — fine while we ship AWS only. When Azure / GCP arrive: replace per-place "AWS account" with `${PROVIDER_LABEL[a.provider]}` lookups, add a Provider column with per-row icons, refactor `/connect` into a provider-picker. The umbrella terms ("Cloud Accounts", `/cloud-accounts`) stay as-is — they're already provider-neutral. Mirror in the API: `model.Account.Provider` already exists (`"aws"|"azure"|"gcp"`) but only `"aws"` is ever written today.
 - Mobile app (iOS + Android)
 - Cost forecasting (linear regression over snapshot history)
 - IaC plan parser (Terraform / CDK) + CI/CD budget gate
