@@ -22,7 +22,7 @@ export function MeProvider({ children }) {
       // The dashboard treats this as "removed user" — the consumer can
       // redirect to /login or render a removed-user screen.
       if (err.status === 403) {
-        setMe({ user_id: '', tenant_id: '', email: '', role: '', permissions: [] });
+        setMe({ user_id: '', organization_id: '', email: '', role: '', permissions: [] });
         setError(null);
       } else {
         setError(err);

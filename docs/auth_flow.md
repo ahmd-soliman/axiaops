@@ -3,14 +3,14 @@
 ## Overview
 
 AxiaOps uses Kinde OAuth 2.0 with PKCE. The dashboard handles the browser-side
-flow; the API validates JWTs on every request and auto-provisions tenants.
+flow; the API validates JWTs on every request and auto-provisions organizations.
 
 Two modes exist, controlled by `DEV_MODE`:
 
 | Mode | Dashboard | API |
 |------|-----------|-----|
-| `DEV_MODE=true` | Fake token, no Kinde | `DevBypass` — fixed tenant injected |
-| `DEV_MODE=false` | Full PKCE flow via Kinde | JWT validation + tenant upsert |
+| `DEV_MODE=true` | Fake token, no Kinde | `DevBypass` — fixed organization injected |
+| `DEV_MODE=false` | Full PKCE flow via Kinde | JWT validation + organization upsert |
 
 ---
 
@@ -22,7 +22,7 @@ Two modes exist, controlled by `DEV_MODE`:
 - Calls `setAuthToken(devToken)` and renders the app immediately
 
 **API (`main.go`):**
-- `DevBypass` middleware injects `DEV_TENANT_ID` from env into every request context
+- `DevBypass` middleware injects `DEV_ORGANIZATION_ID` from env into every request context
 - No token parsing, no DB lookup
 
 ---
@@ -54,12 +54,12 @@ Every API request (except `/health` and `OPTIONS`) goes through `auth.Wrap`:
 2. Validates JWT signature using JWKS fetched from `<KINDE_ISSUER>/.well-known/jwks.json` at startup (keys cached and auto-refreshed)
 3. Validates `iss` claim matches `KINDE_ISSUER` → 401 if wrong
 4. Extracts `org_code` claim (Kinde's org identifier) → 401 if missing
-5. Calls `store.UpsertTenant(org_code, org_name)` — creates tenant row on first login, idempotent thereafter
-6. Calls `store.UpsertUser(tenant.ID, sub, email, name)` — same idempotent pattern
-7. Injects `tenant_id`, `tenant_name`, `user_id` into the request context
+5. Calls `store.UpsertOrganization(org_code, org_name)` — creates organization row on first login, idempotent thereafter
+6. Calls `store.UpsertUser(organization.ID, sub, email, name)` — same idempotent pattern
+7. Injects `organization_id`, `organization_name`, `user_id` into the request context
 
-Downstream handlers call `middleware.TenantID(ctx)` to get the tenant UUID, which
-PostgreSQL RLS uses to isolate data between tenants.
+Downstream handlers call `middleware.OrganizationID(ctx)` to get the organization UUID, which
+PostgreSQL RLS uses to isolate data between organizations.
 
 ---
 
@@ -70,7 +70,7 @@ PostgreSQL RLS uses to isolate data between tenants.
 | `KINDE_ISSUER` | `services/api/.env` | JWT issuer + JWKS base URL (API) and OAuth discovery (dashboard) |
 | `KINDE_CLIENT_ID` | `services/api/.env` | OAuth client ID — dashboard only, API does not read it |
 | `DEV_MODE` | Makefile / env | Switches between dev bypass and real auth |
-| `DEV_TENANT_ID` | Makefile (`start-dev`) | Fixed tenant for dev bypass |
+| `DEV_ORGANIZATION_ID` | Makefile (`start-dev`) | Fixed organization for dev bypass |
 
 The API only needs `KINDE_ISSUER` — it never reads `KINDE_CLIENT_ID` or any client
 secret. The JWKS endpoint (`<issuer>/.well-known/jwks.json`) is public; no
@@ -110,14 +110,14 @@ the IP-based rate limit.
 
 ---
 
-## Tenant Auto-Provisioning
+## Organization Auto-Provisioning
 
-There is no manual tenant setup. The first authenticated request from a new Kinde
+There is no manual organization setup. The first authenticated request from a new Kinde
 org automatically:
 
-1. Creates a row in `tenants` (keyed on `org_code`)
+1. Creates a row in `organizations` (keyed on `org_code`)
 2. Creates a row in `users` (keyed on Kinde `sub`)
-3. Sets the tenant context for the rest of the request
+3. Sets the organization context for the rest of the request
 
 All subsequent requests for the same org hit the existing rows (upsert is a no-op).
 
@@ -125,5 +125,5 @@ All subsequent requests for the same org hit the existing rows (upsert is a no-o
 
 ## Migration Away from Kinde
 
-See [`docs/auth.md`](auth.md#migration-path-away-from-kinde) — the tenant model is
+See [`docs/auth.md`](auth.md#migration-path-away-from-kinde) — the organization model is
 provider-agnostic. Only the JWT middleware and the dashboard SDK need to change.

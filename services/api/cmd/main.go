@@ -137,22 +137,22 @@ func main() {
 	if rateLimitEnabled {
 		limiter := middleware.NewRateLimiter(c)
 		root = limiter.Wrap(root)
-		slog.Info("api: rate limiting enabled (60 req/min per tenant)")
+		slog.Info("api: rate limiting enabled (60 req/min per organization)")
 	} else if !devMode && os.Getenv("REDIS_URL") == "" {
 		slog.Warn("api: rate limiting disabled — REDIS_URL not set")
 	}
 
 	// ── Auth ──────────────────────────────────────────────────────────────────
 	if devMode {
-		devTenantID := os.Getenv("DEV_TENANT_ID")
-		if devTenantID == "" {
-			die("auth: DEV_MODE=true requires DEV_TENANT_ID to be set")
+		devOrganizationID := os.Getenv("DEV_ORGANIZATION_ID")
+		if devOrganizationID == "" {
+			die("auth: DEV_MODE=true requires DEV_ORGANIZATION_ID to be set")
 		}
-		// Pin the dev tenant row at startup so DevBypass can inject a known id
+		// Pin the dev organization row at startup so DevBypass can inject a known id
 		// without doing any DB work per request. id = org_code = name here —
-		// dev mode uses DEV_TENANT_ID as the literal, stable tenant id.
-		if err := store.EnsureTenant(ctx, devTenantID, devTenantID, devTenantID); err != nil {
-			die("auth: failed to ensure dev tenant", "tenant", devTenantID, "error", err)
+		// dev mode uses DEV_ORGANIZATION_ID as the literal, stable organization id.
+		if err := store.EnsureOrganization(ctx, devOrganizationID, devOrganizationID, devOrganizationID); err != nil {
+			die("auth: failed to ensure dev organization", "organization", devOrganizationID, "error", err)
 		}
 		// Pin the dev user row so audit rows, dismissal actors, and future
 		// RBAC lookups have a real FK target. DevBypass injects this same id
@@ -166,20 +166,20 @@ func main() {
 			devUserEmail = "dev@axiaops.local"
 		}
 		if err := store.EnsureUser(ctx, model.User{
-			ID:       devUserID,
-			TenantID: devTenantID,
-			Email:    devUserEmail,
-			Name:     "Dev User",
+			ID:             devUserID,
+			OrganizationID: devOrganizationID,
+			Email:          devUserEmail,
+			Name:           "Dev User",
 		}); err != nil {
 			die("auth: failed to ensure dev user", "user", devUserID, "error", err)
 		}
 		// Pin the dev membership as owner so DevBypass requests pass every
 		// permission check via the Require decorator. RBAC Phase 1.
-		if err := store.EnsureDevMembership(ctx, devTenantID, devUserID, "owner"); err != nil {
+		if err := store.EnsureDevMembership(ctx, devOrganizationID, devUserID, "owner"); err != nil {
 			die("auth: failed to ensure dev membership", "user", devUserID, "error", err)
 		}
-		slog.Warn("auth: DEV_MODE — bypassing auth", "tenant", devTenantID, "user", devUserID)
-		root = middleware.DevBypass(devTenantID, devUserID, devUserEmail, root)
+		slog.Warn("auth: DEV_MODE — bypassing auth", "organization", devOrganizationID, "user", devUserID)
+		root = middleware.DevBypass(devOrganizationID, devUserID, devUserEmail, root)
 	} else {
 		kindeIssuer := os.Getenv("KINDE_ISSUER")
 		if kindeIssuer == "" {

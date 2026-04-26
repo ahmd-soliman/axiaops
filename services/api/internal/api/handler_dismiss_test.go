@@ -28,7 +28,7 @@ func TestCreateDismissal_Returns201(t *testing.T) {
 		"action":"dismiss","reason":"false_positive"
 	}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d — body: %s", w.Code, w.Body.String())
@@ -59,7 +59,7 @@ func TestCreateDismissal_Snooze_Returns201(t *testing.T) {
 		"snooze_until":"` + snoozeUntil + `"
 	}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d — body: %s", w.Code, w.Body.String())
@@ -70,7 +70,7 @@ func TestCreateDismissal_MissingAccountID_Returns400(t *testing.T) {
 	_, mux := testHandler()
 	body := `{"provider":"aws","service":"AmazonRDS","region":"eu-central-1","resource_id":"db-1","action":"dismiss","reason":"intentional"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
 	}
@@ -80,7 +80,7 @@ func TestCreateDismissal_InvalidAction_Returns400(t *testing.T) {
 	_, mux := testHandler()
 	body := `{"account_id":"acc-1","provider":"aws","service":"AmazonRDS","region":"eu-central-1","resource_id":"db-1","action":"delete","reason":"intentional"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
 	}
@@ -90,7 +90,7 @@ func TestCreateDismissal_InvalidReason_Returns400(t *testing.T) {
 	_, mux := testHandler()
 	body := `{"account_id":"acc-1","provider":"aws","service":"AmazonRDS","region":"eu-central-1","resource_id":"db-1","action":"dismiss","reason":"dunno"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
 	}
@@ -100,7 +100,7 @@ func TestCreateDismissal_OtherReasonWithoutNote_Returns400(t *testing.T) {
 	_, mux := testHandler()
 	body := `{"account_id":"acc-1","provider":"aws","service":"AmazonRDS","region":"eu-central-1","resource_id":"db-1","action":"dismiss","reason":"other"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 when reason=other and note missing, got %d", w.Code)
 	}
@@ -113,7 +113,7 @@ func TestCreateDismissal_OtherReasonWithNote_Returns201(t *testing.T) {
 	_, mux := testHandler()
 	body := `{"account_id":"acc-1","provider":"aws","service":"AmazonRDS","region":"eu-central-1","resource_id":"db-1","action":"dismiss","reason":"other","note":"keeping for audit"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 	if w.Code != http.StatusCreated {
 		t.Errorf("expected 201, got %d — body: %s", w.Code, w.Body.String())
 	}
@@ -123,7 +123,7 @@ func TestCreateDismissal_SnoozeMissingSnoozedUntil_Returns400(t *testing.T) {
 	_, mux := testHandler()
 	body := `{"account_id":"acc-1","provider":"aws","service":"AmazonEC2","region":"us-east-1","resource_id":"i-1","action":"snooze","reason":"scheduled_deletion"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 when snooze_until missing, got %d", w.Code)
 	}
@@ -134,7 +134,7 @@ func TestCreateDismissal_SnoozeInPast_Returns400(t *testing.T) {
 	past := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
 	body := `{"account_id":"acc-1","provider":"aws","service":"AmazonEC2","region":"us-east-1","resource_id":"i-1","action":"snooze","reason":"scheduled_deletion","snooze_until":"` + past + `"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for past snooze_until, got %d", w.Code)
 	}
@@ -145,7 +145,7 @@ func TestCreateDismissal_SnoozeTooFar_Returns400(t *testing.T) {
 	tooFar := time.Now().Add(100 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	body := `{"account_id":"acc-1","provider":"aws","service":"AmazonEC2","region":"us-east-1","resource_id":"i-1","action":"snooze","reason":"scheduled_deletion","snooze_until":"` + tooFar + `"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for snooze >90 days, got %d", w.Code)
 	}
@@ -158,7 +158,7 @@ func TestCreateDismissal_AlreadyDismissed_Returns409(t *testing.T) {
 
 	body := `{"account_id":"acc-1","provider":"aws","service":"AmazonRDS","region":"eu-central-1","resource_id":"db-1","action":"dismiss","reason":"intentional"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/dismissals", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/dismissals", body))
 	if w.Code != http.StatusConflict {
 		t.Errorf("expected 409, got %d", w.Code)
 	}
@@ -174,7 +174,7 @@ func TestRevokeDismissal_Returns204(t *testing.T) {
 	mux := newMux(h)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodDelete, "/v1/dismissals/1"))
+	mux.ServeHTTP(w, orgRequest(http.MethodDelete, "/v1/dismissals/1"))
 	if w.Code != http.StatusNoContent {
 		t.Errorf("expected 204, got %d — body: %s", w.Code, w.Body.String())
 	}
@@ -183,7 +183,7 @@ func TestRevokeDismissal_Returns204(t *testing.T) {
 func TestRevokeDismissal_NotFound_Returns404(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodDelete, "/v1/dismissals/999"))
+	mux.ServeHTTP(w, orgRequest(http.MethodDelete, "/v1/dismissals/999"))
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
 	}
@@ -192,7 +192,7 @@ func TestRevokeDismissal_NotFound_Returns404(t *testing.T) {
 func TestRevokeDismissal_InvalidID_Returns400(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodDelete, "/v1/dismissals/not-a-number"))
+	mux.ServeHTTP(w, orgRequest(http.MethodDelete, "/v1/dismissals/not-a-number"))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for non-numeric id, got %d", w.Code)
 	}
@@ -203,7 +203,7 @@ func TestRevokeDismissal_InvalidID_Returns400(t *testing.T) {
 func TestListDismissals_Returns200(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/dismissals"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/dismissals"))
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -212,7 +212,7 @@ func TestListDismissals_Returns200(t *testing.T) {
 func TestListDismissals_EmptyList(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/dismissals"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/dismissals"))
 
 	var dismissals []model.DismissAction
 	if err := json.NewDecoder(w.Body).Decode(&dismissals); err != nil {
@@ -232,7 +232,7 @@ func TestListDismissals_ReturnsDismissals(t *testing.T) {
 	mux := newMux(h)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/dismissals"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/dismissals"))
 
 	var dismissals []model.DismissAction
 	if err := json.NewDecoder(w.Body).Decode(&dismissals); err != nil {
@@ -249,7 +249,7 @@ func TestListDismissals_StoreError_Returns500(t *testing.T) {
 	mux := newMux(h)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/dismissals"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/dismissals"))
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
 	}
@@ -277,7 +277,7 @@ func TestListZombies_ExcludesDismissedByDefault(t *testing.T) {
 	mux := newMux(h)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/zombies"))
 
 	var zombies []model.ZombieResource
 	if err := json.NewDecoder(w.Body).Decode(&zombies); err != nil {
@@ -308,7 +308,7 @@ func TestListZombies_IncludeDismissedQueryParam(t *testing.T) {
 	mux := newMux(h)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies?include_dismissed=true"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/zombies?include_dismissed=true"))
 
 	var zombies []model.ZombieResource
 	if err := json.NewDecoder(w.Body).Decode(&zombies); err != nil {
@@ -326,14 +326,14 @@ func TestListZombies_IncludeDismissedQueryParam(t *testing.T) {
 }
 
 // TestCreateDismissal_RecordsUserIdentityViaDevBypass verifies that when the
-// request flows through DevBypass (not just the storage.WithTenantID helper),
-// the stable user_id — not the tenant_id or email — lands in dismissed_by.
+// request flows through DevBypass (not just the storage.WithOrganizationID helper),
+// the stable user_id — not the organization_id or email — lands in dismissed_by.
 // Guards against regressing the pre-audit-trail bug where dismissed_by held
-// tenant_id because user identity was never on the context.
+// organization_id because user identity was never on the context.
 func TestCreateDismissal_RecordsUserIdentityViaDevBypass(t *testing.T) {
 	store := NewMockStore().WithZombies([]model.ZombieResource{testZombie})
 	mux := newMux(newHandlerWith(store))
-	handler := middleware.DevBypass("tenant-actor-uuid", "user-actor-uuid", "dev@axiaops.local", mux)
+	handler := middleware.DevBypass("organization-actor-uuid", "user-actor-uuid", "dev@axiaops.local", mux)
 
 	body := `{
 		"account_id":"acc-1","provider":"aws","service":"AmazonRDS",

@@ -1,7 +1,7 @@
 // Package api_test — integration-level handler tests.
 //
 // These tests exercise cross-handler interactions, async goroutine behaviour,
-// and tenant-context propagation using the unified MockStore from test_helpers.go.
+// and organization-context propagation using the unified MockStore from test_helpers.go.
 package api_test
 
 import (
@@ -50,12 +50,12 @@ func (q *captureQueueLC) Close() error { return nil }
 func TestScanAccount_TryMarkScanning_Called(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-99", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "eu-west-1"},
+			{ID: "acc-99", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "eu-west-1"},
 		})
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-99/scan"))
+	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/acc-99/scan"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
@@ -67,14 +67,14 @@ func TestScanAccount_TryMarkScanning_Called(t *testing.T) {
 func TestScanAccount_TryMarkScanning_StoreError_Returns500(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+			{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		}).
 		WithTryMarkScanningError(errors.New("db lock timeout"))
 
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
+	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d — body: %s", w.Code, w.Body.String())
@@ -89,13 +89,13 @@ func TestScanAccount_TryMarkScanning_StoreError_Returns500(t *testing.T) {
 func TestScanAccount_Async_UpdatesStatusConnectedOnSuccess(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-async", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+			{ID: "acc-async", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		})
 
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-async/scan"))
+	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/acc-async/scan"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -107,14 +107,14 @@ func TestScanAccount_Async_UpdatesStatusConnectedOnSuccess(t *testing.T) {
 func TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-fail", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+			{ID: "acc-fail", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		})
 
 	mux := http.NewServeMux()
 	api.New(mockStore, &errorQueueLC{}).Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-fail/scan"))
+	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/acc-fail/scan"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 on enqueue failure, got %d", w.Code)
@@ -147,7 +147,7 @@ func TestAccountLifecycle_CreateThenList(t *testing.T) {
 	// 1. Create the account.
 	body := `{"provider":"aws","label":"integration-test","access_key_id":"AKIA_INT","secret_key":"secret123","region":"ap-southeast-1"}`
 	wCreate := httptest.NewRecorder()
-	mux.ServeHTTP(wCreate, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
+	mux.ServeHTTP(wCreate, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 	if wCreate.Code != http.StatusCreated {
 		t.Fatalf("create: expected 201, got %d — body: %s", wCreate.Code, wCreate.Body.String())
 	}
@@ -165,7 +165,7 @@ func TestAccountLifecycle_CreateThenList(t *testing.T) {
 
 	// 2. List accounts — the created account must appear.
 	wList := httptest.NewRecorder()
-	mux.ServeHTTP(wList, tenantRequest(http.MethodGet, "/v1/accounts"))
+	mux.ServeHTTP(wList, orgRequest(http.MethodGet, "/v1/accounts"))
 	if wList.Code != http.StatusOK {
 		t.Fatalf("list: expected 200, got %d", wList.Code)
 	}
@@ -195,7 +195,7 @@ func TestAccountLifecycle_ScanThenTrend(t *testing.T) {
 	snapTime := time.Now().UTC().Truncate(time.Second)
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-trend", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+			{ID: "acc-trend", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		}).
 		// Simulate what the ingestion service would write after scanning.
 		WithSnapshots([]model.ZombieSnapshot{
@@ -204,7 +204,7 @@ func TestAccountLifecycle_ScanThenTrend(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend?account_id=acc-trend"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend?account_id=acc-trend"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -231,7 +231,7 @@ func TestAccountLifecycle_MultipleScans(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-multi", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+			{ID: "acc-multi", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		}).
 		// Three snapshots representing three historical scan cycles.
 		WithSnapshots([]model.ZombieSnapshot{
@@ -242,7 +242,7 @@ func TestAccountLifecycle_MultipleScans(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend?account_id=acc-multi"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend?account_id=acc-multi"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -281,7 +281,7 @@ func TestGetTrend_ReflectsLatestScan(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -319,7 +319,7 @@ func TestListZombies_StoreError_Returns500(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/zombies"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -335,7 +335,7 @@ func TestGetSummary_StoreError_Returns500(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/summary"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/summary"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -351,7 +351,7 @@ func TestListAccounts_StoreError_Returns500(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/accounts"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -367,7 +367,7 @@ func TestDeleteAccount_StoreError_Returns500(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodDelete, "/v1/accounts/any-id"))
+	mux.ServeHTTP(w, orgRequest(http.MethodDelete, "/v1/accounts/any-id"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -381,12 +381,12 @@ func TestDeleteAccount_StoreError_Returns500(t *testing.T) {
 func TestUpdateAccount_UpdatesLabel_Returns200(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-patch", TenantID: "tenant-test-uuid", Provider: "aws", Label: "old-label", AccessKeyID: "AKIA123", Region: "us-east-1"},
+			{ID: "acc-patch", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "old-label", AccessKeyID: "AKIA123", Region: "us-east-1"},
 		})
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-patch", `{"label":"new-label"}`))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-patch", `{"label":"new-label"}`))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
@@ -413,12 +413,12 @@ func TestUpdateAccount_UpdatesLabel_Returns200(t *testing.T) {
 func TestUpdateAccount_UpdatesRegion_Returns200(t *testing.T) {
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-region", TenantID: "tenant-test-uuid", Provider: "aws", Label: "my-account", AccessKeyID: "AKIA123", Region: "us-east-1"},
+			{ID: "acc-region", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "my-account", AccessKeyID: "AKIA123", Region: "us-east-1"},
 		})
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-region", `{"region":"eu-central-1"}`))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-region", `{"region":"eu-central-1"}`))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
@@ -444,7 +444,7 @@ func TestUpdateAccount_NotFound_Returns404(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/nonexistent", `{"label":"any"}`))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/nonexistent", `{"label":"any"}`))
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -461,27 +461,27 @@ func TestUpdateAccount_InvalidJSON_Returns400(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-json", `not-json`))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-json", `not-json`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
 	}
 }
 
-// ─── Tenant-context propagation ───────────────────────────────────────────────
+// ─── Organization-context propagation ───────────────────────────────────────────────
 
-// TestTenantIsolation_LoadZombies_ReceivesContextTenantID verifies that the
-// tenant ID set by the auth middleware (DevBypass here) is forwarded to the
+// TestOrganizationIsolation_LoadZombies_ReceivesContextOrganizationID verifies that the
+// organization ID set by the auth middleware (DevBypass here) is forwarded to the
 // store's LoadZombies call via the context.
-func TestTenantIsolation_LoadZombies_ReceivesContextTenantID(t *testing.T) {
+func TestOrganizationIsolation_LoadZombies_ReceivesContextOrganizationID(t *testing.T) {
 	mockStore := NewMockStore().
 		WithZombies([]model.ZombieResource{testZombie})
 	_, mux := newTrackingHandler(mockStore)
 
-	// DevBypass injects the tenant ID via the middleware context key, exactly
-	// as the real auth middleware does. Without it, middleware.TenantID returns ""
+	// DevBypass injects the organization ID via the middleware context key, exactly
+	// as the real auth middleware does. Without it, middleware.OrganizationID returns ""
 	// because the middleware and storage packages use distinct context key types.
-	handler := middleware.DevBypass("tenant-alpha-uuid", "dev-user", "dev@axiaops.local", mux)
+	handler := middleware.DevBypass("organization-alpha-uuid", "dev-user", "dev@axiaops.local", mux)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/zombies", nil))
 
@@ -489,23 +489,23 @@ func TestTenantIsolation_LoadZombies_ReceivesContextTenantID(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	captured := mockStore.GetCapturedTenantIDs()
+	captured := mockStore.GetCapturedOrganizationIDs()
 
 	if len(captured) == 0 {
-		t.Fatal("capturedTenantIDs is empty — tenant ID was not propagated to store")
+		t.Fatal("capturedOrganizationIDs is empty — organization ID was not propagated to store")
 	}
-	if captured[0] != "tenant-alpha-uuid" {
-		t.Errorf("expected tenant-alpha-uuid propagated to store, got %q", captured[0])
+	if captured[0] != "organization-alpha-uuid" {
+		t.Errorf("expected organization-alpha-uuid propagated to store, got %q", captured[0])
 	}
 }
 
-// TestTenantIsolation_ListAccounts_ReceivesContextTenantID verifies the same
+// TestOrganizationIsolation_ListAccounts_ReceivesContextOrganizationID verifies the same
 // propagation guarantee for the ListAccounts path.
-func TestTenantIsolation_ListAccounts_ReceivesContextTenantID(t *testing.T) {
+func TestOrganizationIsolation_ListAccounts_ReceivesContextOrganizationID(t *testing.T) {
 	mockStore := NewMockStore()
 	_, mux := newTrackingHandler(mockStore)
 
-	handler := middleware.DevBypass("tenant-beta-uuid", "dev-user", "dev@axiaops.local", mux)
+	handler := middleware.DevBypass("organization-beta-uuid", "dev-user", "dev@axiaops.local", mux)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/accounts", nil))
 
@@ -513,33 +513,33 @@ func TestTenantIsolation_ListAccounts_ReceivesContextTenantID(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	captured := mockStore.GetCapturedTenantIDs()
+	captured := mockStore.GetCapturedOrganizationIDs()
 
 	if len(captured) == 0 {
-		t.Fatal("capturedTenantIDs is empty — tenant ID was not propagated to store")
+		t.Fatal("capturedOrganizationIDs is empty — organization ID was not propagated to store")
 	}
-	if captured[0] != "tenant-beta-uuid" {
-		t.Errorf("expected tenant-beta-uuid propagated to store, got %q", captured[0])
+	if captured[0] != "organization-beta-uuid" {
+		t.Errorf("expected organization-beta-uuid propagated to store, got %q", captured[0])
 	}
 }
 
-// ─── Concurrent scans: tenant isolation ──────────────────────────────────────
+// ─── Concurrent scans: organization isolation ──────────────────────────────────────
 
-// TestConcurrentScans_TenantIsolation verifies that when two tenants trigger
+// TestConcurrentScans_OrganizationIsolation verifies that when two organizations trigger
 // account scans simultaneously both receive HTTP 200 with status "scanning".
-func TestConcurrentScans_TenantIsolation(t *testing.T) {
+func TestConcurrentScans_OrganizationIsolation(t *testing.T) {
 	const (
-		tenantA = "tenant-isolation-a"
-		tenantB = "tenant-isolation-b"
-		accA    = "acc-iso-alpha"
-		accB    = "acc-iso-beta"
+		orgA = "organization-isolation-a"
+		orgB = "organization-isolation-b"
+		accA = "acc-iso-alpha"
+		accB = "acc-iso-beta"
 	)
 
 	storeA := NewMockStore().WithAccounts([]model.Account{
-		{ID: accA, TenantID: tenantA, Provider: "aws", AccessKeyID: "AKIA_A", Region: "us-east-1"},
+		{ID: accA, OrganizationID: orgA, Provider: "aws", AccessKeyID: "AKIA_A", Region: "us-east-1"},
 	})
 	storeB := NewMockStore().WithAccounts([]model.Account{
-		{ID: accB, TenantID: tenantB, Provider: "aws", AccessKeyID: "AKIA_B", Region: "eu-west-1"},
+		{ID: accB, OrganizationID: orgB, Provider: "aws", AccessKeyID: "AKIA_B", Region: "eu-west-1"},
 	})
 
 	muxA := http.NewServeMux()
@@ -553,9 +553,9 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 		codeB int
 	)
 	// Wrap each mux in DevBypass so the middleware context keys (read by
-	// Require + handlers) are populated. Each tenant gets a distinct dev user.
-	handlerA := middleware.DevBypass(tenantA, "dev-user-a", "a@x.com", muxA)
-	handlerB := middleware.DevBypass(tenantB, "dev-user-b", "b@x.com", muxB)
+	// Require + handlers) are populated. Each organization gets a distinct dev user.
+	handlerA := middleware.DevBypass(orgA, "dev-user-a", "a@x.com", muxA)
+	handlerB := middleware.DevBypass(orgB, "dev-user-b", "b@x.com", muxB)
 
 	wg.Add(2)
 	go func() {
@@ -573,9 +573,9 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 	wg.Wait()
 
 	if codeA != http.StatusOK {
-		t.Errorf("tenant A scan: expected 200, got %d", codeA)
+		t.Errorf("organization A scan: expected 200, got %d", codeA)
 	}
 	if codeB != http.StatusOK {
-		t.Errorf("tenant B scan: expected 200, got %d", codeB)
+		t.Errorf("organization B scan: expected 200, got %d", codeB)
 	}
 }

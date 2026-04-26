@@ -12,10 +12,10 @@ import (
 )
 
 var testJob = queue.ScanJob{
-	TenantID:   "tenant-1",
-	AccountID:  "account-1",
-	EnqueuedAt: time.Now().UTC().Truncate(time.Second),
-	RequestID:  "req-1",
+	OrganizationID: "organization-1",
+	AccountID:      "account-1",
+	EnqueuedAt:     time.Now().UTC().Truncate(time.Second),
+	RequestID:      "req-1",
 }
 
 // suite runs the shared enqueue/dequeue test against any Queue implementation.
@@ -34,7 +34,7 @@ func suite(t *testing.T, q queue.Queue) {
 	if err != nil {
 		t.Fatalf("Dequeue: %v", err)
 	}
-	if got.TenantID != testJob.TenantID || got.AccountID != testJob.AccountID {
+	if got.OrganizationID != testJob.OrganizationID || got.AccountID != testJob.AccountID {
 		t.Errorf("got %+v, want %+v", got, testJob)
 	}
 }
