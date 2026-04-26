@@ -87,7 +87,7 @@ postgres.LoadZombies(ctx)
 #### Ingestion job (write path)
 
 ```
-Scheduler (EventBridge) → passes TENANT_ID env var
+Scheduler (EventBridge) → passes ORGANIZATION_ID env var
   ↓
 ingestion/cmd/main.go
   → storage.WithOrganizationID(ctx, organizationID)
@@ -138,7 +138,7 @@ This means queries never need to qualify table names with the schema prefix.
 - **Table owner bypasses RLS** — by default PostgreSQL skips RLS for the table owner. AxiaOps applies `FORCE ROW LEVEL SECURITY` on all organization tables so the owning user is also subject to RLS. In production, use a separate application user without ownership for an additional layer of safety.
 - **Superuser bypasses RLS** — never connect as a superuser from the application.
 - **`SET LOCAL` vs `SET`** — the store uses `set_config(..., true)` which is transaction-local (equivalent to `SET LOCAL`). This is intentional — the setting cannot leak outside the transaction.
-- **Missing organization_id** — if `TENANT_ID` is not in the context, `setOrganization()` returns an error before any query runs. No data is ever read or written without a organization context.
+- **Missing organization_id** — if `organization_id` is not in the context, `setOrganization()` returns an error before any query runs. No data is ever read or written without an organization context.
 
 ---
 

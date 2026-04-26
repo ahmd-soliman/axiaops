@@ -320,7 +320,7 @@ enqueuing again.
 
 #### B.3.2 `/v1/summary` and `/v1/trend` cache
 
-**Why:** Both endpoints hit the DB on every dashboard load. For a organization with
+**Why:** Both endpoints hit the DB on every dashboard load. For an organization with
 300 ghost_records the summary query does a scan + aggregation; cacheable for 30s
 with no user-visible lag.
 

@@ -1,4 +1,4 @@
-// Package model — DismissAction represents a organization's decision to dismiss or
+// Package model — DismissAction represents an organization's decision to dismiss or
 // snooze a zombie resource.  Dismissals survive scan cycles because zombie_records
 // are replaced wholesale on every scan; the stable fingerprint is
 // (organization_id, account_id, provider, service, region, resource_id).
