@@ -94,6 +94,11 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Audit before encode, deliberately. If the response stream fails
+	// mid-body the row over-counts (we logged a "successful" export the
+	// client may not have fully received) — for GDPR that's safer than
+	// under-counting, since the privacy lead would rather verify a recorded
+	// export than miss a leak. Don't move this below enc.Encode.
 	audit.Record(r, h.store, model.AuditEvent{
 		Action:       model.AuditActionDataExported,
 		ResourceType: "tenant",
@@ -117,6 +122,9 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 
+	// Bypasses writeJSON because the export is downloaded as a file and a
+	// privacy lead may inspect it by hand — pretty-printing earns its keep
+	// here in a way that doesn't apply to the regular JSON API.
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(exp); err != nil {
@@ -138,13 +146,9 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 		"audit_truncated", exp.AuditLogTruncated)
 }
 
-// buildTenantExport runs the eight tenant-scoped reads concurrently. Each
-// goroutine writes to its own field of `exp` (or to the `memberships` local)
-// so there's no overlapping memory access; errgroup.Wait() establishes
-// happens-before for the post-Wait member-projection loop. Failure of any
-// goroutine cancels the rest via gctx and short-circuits the rebuild —
-// partial exports would be worse than a 500 because the user can't tell
-// what's missing.
+// buildTenantExport runs the eight tenant-scoped reads concurrently. Any
+// goroutine failure cancels the rest via gctx and short-circuits — partial
+// exports are worse than a 500 because the user can't tell what's missing.
 func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tenantExport, error) {
 	exp := &tenantExport{
 		SchemaVersion: exportSchemaVersion,
@@ -221,6 +225,13 @@ func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tena
 	emptyIfNil(&exp.ActiveDismissals)
 	if exp.AuditLog == nil {
 		exp.AuditLog = []model.AuditEvent{}
+	}
+	// loadAuditLog returns newest-first (mirrors the /v1/audit endpoint and
+	// the postgres ORDER BY); for a privacy lead reading the export end-to-end
+	// chronological order is more natural. Reverse in place — pages are
+	// already individually sorted, so a single pass suffices.
+	for i, j := 0, len(exp.AuditLog)-1; i < j; i, j = i+1, j-1 {
+		exp.AuditLog[i], exp.AuditLog[j] = exp.AuditLog[j], exp.AuditLog[i]
 	}
 
 	return exp, nil
