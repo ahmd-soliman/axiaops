@@ -6,19 +6,13 @@ import { useToast } from '../context/ToastContext';
 import { fetchAccounts, scanAccount } from '../api/client';
 import { PERM } from '../api/permissions';
 import { Spinner } from '../components/primitives';
+import { STATUS_LABEL } from '../utils/accountStatus';
+import { formatRelative } from '../utils/relativeTime';
 
 // Top-level Cloud Accounts list. Companion to the navbar's AccountSelector,
 // which exists for transient context-switching ("filter dashboard data to
 // account X"). This page is the management surface — full table, sortable
 // columns later, primary path for connect/edit/delete.
-
-const STATUS_LABEL = {
-  connected:            'Connected',
-  scanning:             'Scanning…',
-  error:                'Error',
-  scan_timeout:         'Timed Out',
-  circuit_breaker_open: 'Unavailable',
-};
 
 export default function CloudAccounts() {
   const { theme: t, isDark } = useTheme();
@@ -78,7 +72,7 @@ export default function CloudAccounts() {
         ) : accounts.data?.length === 0 ? (
           <EmptyState t={t} canConnect={canConnect} onConnect={() => navigate('/connect')} />
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table aria-label="Connected cloud accounts" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.surfaceRaised }}>
                 <Th t={t}>Label</Th>
@@ -100,14 +94,14 @@ export default function CloudAccounts() {
                   <Td t={t} mono>{a.account_id || '—'}</Td>
                   <Td t={t}>{a.region}</Td>
                   <Td t={t}><StatusBadge t={t} isDark={isDark} status={a.status} /></Td>
-                  <Td t={t}>{formatLastScan(a.last_scanned_at)}</Td>
+                  <Td t={t}>{formatRelative(a.last_scanned_at)}</Td>
                   <Td t={t} align="right">
                     <div style={{ display: 'inline-flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
                       {canScan && (
                         <button
                           type="button"
                           onClick={() => scanMutation.mutate(a.id)}
-                          disabled={a.status === 'scanning' || scanMutation.isPending}
+                          disabled={a.status === 'scanning'}
                           style={ghostButton(t, a.status === 'scanning')}
                         >
                           {a.status === 'scanning' ? 'Scanning…' : 'Scan'}
@@ -118,7 +112,7 @@ export default function CloudAccounts() {
                         onClick={() => navigate(`/cloud-accounts/${a.id}`)}
                         style={ghostButton(t)}
                       >
-                        Edit
+                        Manage
                       </button>
                     </div>
                   </Td>
@@ -169,24 +163,6 @@ function StatusBadge({ t, isDark, status }) {
       {STATUS_LABEL[status] ?? status ?? 'Unknown'}
     </span>
   );
-}
-
-function formatLastScan(s) {
-  if (!s) return 'Never';
-  try {
-    const d = new Date(s);
-    const diff = Date.now() - d.getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'Just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    if (days < 7) return `${days}d ago`;
-    return d.toLocaleDateString();
-  } catch {
-    return s;
-  }
 }
 
 function Th({ t, children, align }) {
