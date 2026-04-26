@@ -1,15 +1,15 @@
 import { useTheme } from '../../theme/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
-import { deleteCurrentTenant } from '../../api/client';
+import { deleteCurrentOrganization } from '../../api/client';
 import {
   useDestructiveConfirm,
   DestructiveConfirmModal,
 } from '../../components/DestructiveConfirm';
 
-// Organization tab — tenant-level destructive controls. Only owners reach
-// this route (Settings sub-nav filters on PERM.TENANT_DELETE before
-// rendering the tab), so no extra in-page perm check is needed.
+// Organization tab — organization-level destructive controls. Only owners
+// reach this route (Settings sub-nav filters on PERM.ORGANIZATION_DELETE
+// before rendering the tab), so no extra in-page perm check is needed.
 //
 // Future home for transfer-ownership UI, notification preferences,
 // billing controls, and the org display-name editor.
@@ -24,7 +24,7 @@ export default function Organization() {
       <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
         Organization-level controls.
       </p>
-      <DeleteTenantSection
+      <DeleteOrganizationSection
         t={t}
         isDark={isDark}
         orgName={orgName}
@@ -35,10 +35,10 @@ export default function Organization() {
   );
 }
 
-function DeleteTenantSection({ t, isDark, orgName, toast, onLogout }) {
+function DeleteOrganizationSection({ t, isDark, orgName, toast, onLogout }) {
   const ctrl = useDestructiveConfirm({
     target: orgName || '',
-    mutationFn: deleteCurrentTenant,
+    mutationFn: deleteCurrentOrganization,
     successMessage: 'Organization deleted.',
     onSuccess: onLogout,
     toast,

@@ -1,8 +1,8 @@
 // Package api — GET /v1/export.
 //
 // Implements the GDPR Art. 15 (access) and Art. 20 (portability) right by
-// returning a single JSON document containing every per-tenant row the
-// calling tenant owns. See docs/compliance/gdpr_plan.md §4.1 for the full
+// returning a single JSON document containing every per-organization row the
+// calling organization owns. See docs/compliance/gdpr_plan.md §4.1 for the full
 // product surface and acceptance criteria.
 //
 // Gated by PermDataExport (owner-only). The export bundles account configurations, cost/resource/zombie records, and the full audit_log of every member — granting
@@ -37,20 +37,20 @@ const exportSchemaVersion = "1"
 const auditExportPageSize = 500
 
 // auditExportMaxPages bounds the audit-log pagination loop so a runaway
-// tenant or stuck cursor can't make a single export hold a goroutine forever.
+// organization or stuck cursor can't make a single export hold a goroutine forever.
 // At 500 rows × 200 pages this caps a single export at 100k audit rows. If a
-// tenant ever hits the cap, the response carries `audit_log_truncated: true`
+// organization ever hits the cap, the response carries `audit_log_truncated: true`
 // and the privacy lead falls back to a direct DB dump for the residual.
 const auditExportMaxPages = 200
 
-// exportConcurrency caps how many of the eight tenant-scoped reads run in
-// parallel. Each acquires its own pgx transaction (RLS sets app.tenant_id
+// exportConcurrency caps how many of the eight organization-scoped reads run in
+// parallel. Each acquires its own pgx transaction (RLS sets app.organization_id
 // per-tx), so unbounded fan-out × concurrent exports could starve the pool.
 // Four keeps the parallelism win (~4× over serial) without monopolising
 // connections under load.
 const exportConcurrency = 4
 
-type tenantExportMember struct {
+type orgExportMember struct {
 	UserID   string    `json:"user_id"`
 	Email    string    `json:"email,omitempty"`
 	Name     string    `json:"name,omitempty"`
@@ -58,12 +58,12 @@ type tenantExportMember struct {
 	JoinedAt time.Time `json:"joined_at"`
 }
 
-type tenantExport struct {
+type orgExport struct {
 	SchemaVersion     string                 `json:"schema_version"`
 	GeneratedAt       time.Time              `json:"generated_at"`
-	TenantID          string                 `json:"tenant_id"`
+	OrganizationID    string                 `json:"organization_id"`
 	Notes             string                 `json:"notes,omitempty"`
-	Members           []tenantExportMember   `json:"members"`
+	Members           []orgExportMember      `json:"members"`
 	Accounts          []model.Account        `json:"accounts"`
 	Resources         []model.ResourceRecord `json:"resources"`
 	Zombies           []model.ZombieResource `json:"zombies"`
@@ -74,19 +74,19 @@ type tenantExport struct {
 	AuditLogTruncated bool                   `json:"audit_log_truncated,omitempty"`
 }
 
-func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
-	tid := middleware.TenantID(r.Context())
+func (h *Handler) exportOrganizationData(w http.ResponseWriter, r *http.Request) {
+	tid := middleware.OrganizationID(r.Context())
 	if tid == "" {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
-	exp, err := h.buildTenantExport(ctx, tid)
+	exp, err := h.buildOrgExport(ctx, tid)
 	if err != nil {
 		observability.Global.DataExportsTotal.WithLabelValues("failed").Inc()
-		slog.Error("export tenant failed",
-			"tenant_id", tid,
+		slog.Error("export organization failed",
+			"organization_id", tid,
 			"user_id", middleware.UserID(r.Context()),
 			"error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -100,7 +100,7 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 	// export than miss a leak. Don't move this below enc.Encode.
 	audit.Record(r, h.store, model.AuditEvent{
 		Action:       model.AuditActionDataExported,
-		ResourceType: "tenant",
+		ResourceType: "organization",
 		ResourceID:   tid,
 		Metadata: map[string]any{
 			"members":             len(exp.Members),
@@ -131,13 +131,13 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 		// nothing useful we can send back to the client. Log and bump the
 		// failure counter; the partial body is the user-visible signal.
 		observability.Global.DataExportsTotal.WithLabelValues("failed").Inc()
-		slog.Error("export tenant: encode failed", "tenant_id", tid, "error", err)
+		slog.Error("export organization: encode failed", "organization_id", tid, "error", err)
 		return
 	}
 
 	observability.Global.DataExportsTotal.WithLabelValues("ok").Inc()
-	slog.Info("tenant data exported",
-		"tenant_id", tid,
+	slog.Info("organization data exported",
+		"organization_id", tid,
 		"user_id", middleware.UserID(r.Context()),
 		"actor_email", middleware.UserEmail(r.Context()),
 		"members", len(exp.Members),
@@ -145,15 +145,15 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 		"audit_truncated", exp.AuditLogTruncated)
 }
 
-// buildTenantExport runs the eight tenant-scoped reads concurrently. Any
+// buildOrgExport runs the eight organization-scoped reads concurrently. Any
 // goroutine failure cancels the rest via gctx and short-circuits — partial
 // exports are worse than a 500 because the user can't tell what's missing.
-func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tenantExport, error) {
-	exp := &tenantExport{
-		SchemaVersion: exportSchemaVersion,
-		GeneratedAt:   time.Now().UTC(),
-		TenantID:      tenantID,
-		Notes:         "Encrypted account credentials and internal-only audit fields are excluded. See docs/compliance/gdpr_plan.md §4.2.",
+func (h *Handler) buildOrgExport(ctx context.Context, organizationID string) (*orgExport, error) {
+	exp := &orgExport{
+		SchemaVersion:  exportSchemaVersion,
+		GeneratedAt:    time.Now().UTC(),
+		OrganizationID: organizationID,
+		Notes:          "Encrypted account credentials and internal-only audit fields are excluded. See docs/compliance/gdpr_plan.md §4.2.",
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -205,9 +205,9 @@ func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tena
 		return nil, err
 	}
 
-	exp.Members = make([]tenantExportMember, 0, len(memberships))
+	exp.Members = make([]orgExportMember, 0, len(memberships))
 	for _, m := range memberships {
-		exp.Members = append(exp.Members, tenantExportMember{
+		exp.Members = append(exp.Members, orgExportMember{
 			UserID:   m.UserID,
 			Email:    m.Email,
 			Name:     m.Name,
@@ -236,10 +236,10 @@ func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tena
 	return exp, nil
 }
 
-// loadAuditLog pages through the audit log so a 12-month-deep tenant doesn't
+// loadAuditLog pages through the audit log so a 12-month-deep organization doesn't
 // get silently truncated at the store's per-call cap. Sets AuditLogTruncated
 // if the page ceiling is hit before the cursor exhausts.
-func (h *Handler) loadAuditLog(ctx context.Context, exp *tenantExport) error {
+func (h *Handler) loadAuditLog(ctx context.Context, exp *orgExport) error {
 	cursor := model.AuditCursor{}
 	for page := 0; page < auditExportMaxPages; page++ {
 		batch, err := h.store.AuditLogList(ctx, model.AuditFilter{

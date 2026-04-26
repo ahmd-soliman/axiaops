@@ -20,7 +20,7 @@ services:
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
       SCAN_INTERVAL: ${SCAN_INTERVAL:-60s}
       DEV_MODE: ${DEV_MODE:-true}
-      DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
+      DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
@@ -38,7 +38,7 @@ services:
       INGESTION_URL: http://axiaops-ingestion-${DEPLOY_ENV}:8081
       API_ADDR: ":8080"
       DEV_MODE: ${DEV_MODE:-true}
-      DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
+      DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:

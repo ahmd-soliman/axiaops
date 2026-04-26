@@ -21,9 +21,9 @@ import (
 type contextKey string
 
 const (
-	tenantIDKey  contextKey = "tenant_id"
-	userIDKey    contextKey = "user_id"
-	userEmailKey contextKey = "user_email"
+	organizationIDKey contextKey = "organization_id"
+	userIDKey         contextKey = "user_id"
+	userEmailKey      contextKey = "user_email"
 
 	jwksTTL = time.Hour
 )
@@ -160,17 +160,17 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 
 		ctx := r.Context()
 
-		// Persist tenant and user on every authenticated request.
-		// UpsertTenant/UpsertUser are idempotent — safe to call repeatedly.
+		// Persist organization and user on every authenticated request.
+		// UpsertOrganization/UpsertUser are idempotent — safe to call repeatedly.
 		if a.store != nil {
-			tenant, err := a.store.UpsertTenant(ctx, orgCode, orgName)
+			organization, err := a.store.UpsertOrganization(ctx, orgCode, orgName)
 			if err != nil {
-				slog.Error("auth: UpsertTenant failed", "error", err)
+				slog.Error("auth: UpsertOrganization failed", "error", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 
-			user, err := a.store.UpsertUser(ctx, tenant.ID, sub, email, name)
+			user, err := a.store.UpsertUser(ctx, organization.ID, sub, email, name)
 			if err != nil {
 				slog.Error("auth: UpsertUser failed", "error", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
@@ -180,17 +180,17 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 			// Brand-new Kinde org: auto-promote the first authenticator to
 			// owner. The partial unique index in migration 015 backstops
 			// concurrent first-logins — only one INSERT wins. Subsequent
-			// users to the tenant get inserted = false and rely on explicit
+			// users to the organization get inserted = false and rely on explicit
 			// invitation; their request still succeeds at the auth layer
 			// but the Require decorator on protected routes will 403 since
 			// they have no membership row.
-			if _, err := a.store.EnsureFirstMembership(ctx, tenant.ID, user.ID); err != nil {
+			if _, err := a.store.EnsureFirstMembership(ctx, organization.ID, user.ID); err != nil {
 				slog.Error("auth: EnsureFirstMembership failed", "error", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 
-			ctx = context.WithValue(ctx, tenantIDKey, tenant.ID)
+			ctx = context.WithValue(ctx, organizationIDKey, organization.ID)
 			ctx = context.WithValue(ctx, userIDKey, user.ID)
 			ctx = context.WithValue(ctx, userEmailKey, user.Email)
 		} else {
@@ -199,7 +199,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 			// instead of a users.id UUID, so anything using UserID(ctx) as a FK
 			// will fail. Never wire this path into production — it exists purely
 			// so middleware tests can exercise JWT parsing without a DB.
-			ctx = context.WithValue(ctx, tenantIDKey, orgCode)
+			ctx = context.WithValue(ctx, organizationIDKey, orgCode)
 			ctx = context.WithValue(ctx, userIDKey, sub)
 			ctx = context.WithValue(ctx, userEmailKey, email)
 		}
@@ -208,9 +208,9 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// TenantID returns the internal tenant UUID from the request context.
-func TenantID(ctx context.Context) string {
-	id, _ := ctx.Value(tenantIDKey).(string)
+// OrganizationID returns the internal organization UUID from the request context.
+func OrganizationID(ctx context.Context) string {
+	id, _ := ctx.Value(organizationIDKey).(string)
 	return id
 }
 
@@ -230,18 +230,18 @@ func UserEmail(ctx context.Context) string {
 	return email
 }
 
-// DevBypass injects a fixed tenant + user identity into every request context.
+// DevBypass injects a fixed organization + user identity into every request context.
 // Only active when DEV_MODE=true — local development without auth.
-// The tenant and user rows are ensured once at service startup (see cmd/main.go),
+// The organization and user rows are ensured once at service startup (see cmd/main.go),
 // so this middleware does no DB work per request.
-func DevBypass(tenantID, userID, userEmail string, next http.Handler) http.Handler {
+func DevBypass(organizationID, userID, userEmail string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions || publicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, tenantIDKey, tenantID)
+		ctx = context.WithValue(ctx, organizationIDKey, organizationID)
 		ctx = context.WithValue(ctx, userIDKey, userID)
 		ctx = context.WithValue(ctx, userEmailKey, userEmail)
 		next.ServeHTTP(w, r.WithContext(ctx))

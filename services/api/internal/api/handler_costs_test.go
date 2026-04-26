@@ -46,7 +46,7 @@ func TestListCosts_Returns200(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -60,7 +60,7 @@ func TestListCosts_ContentType(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
 
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("expected application/json, got %s", ct)
@@ -74,7 +74,7 @@ func TestListCosts_ReturnsCostRecords(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
 
 	var costs []model.CostRecord
 	if err := json.NewDecoder(w.Body).Decode(&costs); err != nil {
@@ -98,7 +98,7 @@ func TestListCosts_EmptyStoreReturnsEmptyArray(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
 
 	var costs []model.CostRecord
 	if err := json.NewDecoder(w.Body).Decode(&costs); err != nil {
@@ -119,7 +119,7 @@ func TestListCosts_StoreError_Returns500(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -133,7 +133,7 @@ func TestListCosts_ServiceFilter(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs?service=AmazonEC2"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?service=AmazonEC2"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -152,7 +152,7 @@ func TestListCosts_DaysFilter(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs?days=90"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?days=90"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -176,7 +176,7 @@ func TestListCosts_AccountIDFilter_InternalUUID(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs?account_id=acc-uuid-1"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?account_id=acc-uuid-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -200,7 +200,7 @@ func TestListCosts_AccountIDFilter_NotFound_SetsBoth(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs?account_id=unknown-id"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?account_id=unknown-id"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -222,7 +222,7 @@ func TestListCosts_NoAccountID_LeavesFilterEmpty(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -249,7 +249,7 @@ func TestListCosts_AccountWithoutAWSID_OnlySetsInternal(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/costs?account_id=acc-new"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?account_id=acc-new"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)

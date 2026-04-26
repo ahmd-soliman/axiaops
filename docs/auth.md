@@ -217,11 +217,11 @@ const issuer = "https://axiaops.kinde.com"
 const issuer = os.Getenv("AUTH_ISSUER") // e.g. Clerk, Supabase, Keycloak
 ```
 
-The tenant ID (`org_code` in Kinde) maps to whatever claim the new provider uses for the org identifier. That claim name is the only application-level change.
+The organization ID (`org_code` in Kinde) maps to whatever claim the new provider uses for the org identifier. That claim name is the only application-level change.
 
 **4. What does NOT change**
-- PostgreSQL schema — `tenant_id` column is provider-agnostic
-- Row-level security policies — they depend on `tenant_id`, not on Kinde
+- PostgreSQL schema — `organization_id` column is provider-agnostic
+- Row-level security policies — they depend on `organization_id`, not on Kinde
 - React Native auth screens — swap the Kinde SDK for the new provider's SDK
 - All business logic — zero changes
 
@@ -229,7 +229,7 @@ The tenant ID (`org_code` in Kinde) maps to whatever claim the new provider uses
 
 ### Reduce lock-in now
 
-- Store `tenant_id` as a UUID you control, not Kinde's `org_code` directly. Map Kinde org_code → your internal tenant_id in a `tenants` table. This means a provider swap does not require a data migration.
-- Never put Kinde-specific claims in your business logic — only extract `tenant_id` in the middleware layer and pass it down as a plain string.
+- Store `organization_id` as a UUID you control, not Kinde's `org_code` directly. Map Kinde org_code → your internal organization_id in a `organizations` table. This means a provider swap does not require a data migration.
+- Never put Kinde-specific claims in your business logic — only extract `organization_id` in the middleware layer and pass it down as a plain string.
 
 Authorization (role-based access control) is documented separately in `docs/rbac-design.md`.

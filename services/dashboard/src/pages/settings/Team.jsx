@@ -70,7 +70,7 @@ export default function Team() {
   const canInvite = can(PERM.MEMBERS_INVITE);
   const canManageBasic = can(PERM.MEMBERS_MANAGE_BASIC);
   const canManageAdmin = can(PERM.MEMBERS_MANAGE_ADMIN);
-  const canTransfer = can(PERM.TENANT_TRANSFER);
+  const canTransfer = can(PERM.ORGANIZATION_TRANSFER);
 
   return (
     <div style={{ padding: 24, color: t.textMid }}>

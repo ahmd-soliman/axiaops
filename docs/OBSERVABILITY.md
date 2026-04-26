@@ -61,7 +61,7 @@ axiaops_potential_monthly_savings_usd     — Savings USD (gauge)
 **Labels:**
 - `service` — AWS service (CostExplorer, CloudWatch, EC2, etc.)
 - `provider` — Cloud provider (aws)
-- `tenant_id` — Tenant UUID
+- `organization_id` — Organization UUID
 
 ### Scan Lifecycle Metrics
 
@@ -167,8 +167,8 @@ saveObserver := observability.NewScanObserver("save")
 saveObserver.Observe()
 
 // Update summary metrics
-observability.Global.ZombiesDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalZombies))
-observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(summary.PotentialMonthlySave)
+observability.Global.ZombiesDetected.WithLabelValues("aws", organizationID).Set(float64(summary.TotalZombies))
+observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationID).Set(summary.PotentialMonthlySave)
 ```
 
 ## Error Handling
@@ -294,8 +294,8 @@ Create a dashboard to visualize AxiaOps metrics:
 2. **Error Rate** — `rate(axiaops_http_errors_total[5m])` per route
 3. **Latency** — `histogram_quantile(0.95, axiaops_http_request_duration_seconds)` by route
 4. **Active Requests** — `axiaops_http_requests_in_flight`
-5. **Zombie Detection Rate** — `axiaops_zombies_detected` by tenant
-6. **Potential Savings** — `axiaops_potential_monthly_savings_usd` by tenant
+5. **Zombie Detection Rate** — `axiaops_zombies_detected` by organization
+6. **Potential Savings** — `axiaops_potential_monthly_savings_usd` by organization
 7. **Scan Duration** — `rate(axiaops_scan_duration_seconds_sum[5m])` by stage
 8. **Database Query Time** — `histogram_quantile(0.99, axiaops_db_query_duration_seconds)` by operation
 9. **AWS API Errors** — `rate(axiaops_aws_api_errors_total[5m])` by service

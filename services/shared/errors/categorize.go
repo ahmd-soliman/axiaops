@@ -11,13 +11,13 @@ import (
 type ErrorCategory string
 
 const (
-	CategoryCredentials   ErrorCategory = "credentials"
-	CategoryPermissions   ErrorCategory = "permissions"
-	CategoryThrottling    ErrorCategory = "throttling"
-	CategoryNetwork       ErrorCategory = "network"
-	CategoryDataUnavail   ErrorCategory = "data_unavailable"
-	CategoryInternal      ErrorCategory = "internal"
-	CategoryUnknown       ErrorCategory = "unknown"
+	CategoryCredentials ErrorCategory = "credentials"
+	CategoryPermissions ErrorCategory = "permissions"
+	CategoryThrottling  ErrorCategory = "throttling"
+	CategoryNetwork     ErrorCategory = "network"
+	CategoryDataUnavail ErrorCategory = "data_unavailable"
+	CategoryInternal    ErrorCategory = "internal"
+	CategoryUnknown     ErrorCategory = "unknown"
 )
 
 // CategorizedError wraps an error with category information

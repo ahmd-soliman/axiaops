@@ -2,7 +2,7 @@
 # start.sh — start all AxiaOps services locally
 #
 # Usage:
-#   ./scripts/start.sh                    start in dev mode (bypass auth with fixed tenant)
+#   ./scripts/start.sh                    start in dev mode (bypass auth with fixed organization)
 #   ./scripts/start.sh stop               kill all running services
 #   DEV_MODE=false ./scripts/start.sh     start in staging mode (real Kinde auth)
 
@@ -103,7 +103,7 @@ cd "$API_DIR"
   fi
   export DEV_MODE="$CALLER_DEV_MODE"
   if [[ "$DEV_MODE" == "true" ]]; then
-    export DEV_TENANT_ID="dev-tenant-axiaops"
+    export DEV_ORGANIZATION_ID="dev-organization-axiaops"
   fi
   exec go run ./cmd/
 ) >> "$LOG_FILE" 2>&1 &

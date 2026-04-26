@@ -18,7 +18,7 @@ import (
 func TestAuditEmission_CreateDismissal_RecordsDismissZombie(t *testing.T) {
 	store := NewMockStore().WithZombies([]model.ZombieResource{testZombie})
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	body := `{
@@ -63,7 +63,7 @@ func TestAuditEmission_CreateDismissal_RecordsDismissZombie(t *testing.T) {
 func TestAuditEmission_SnoozeDismissal_RecordsSnoozeZombie(t *testing.T) {
 	store := NewMockStore()
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	snoozeUntil := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
@@ -91,7 +91,7 @@ func TestAuditEmission_RevokeDismissal_RecordsRevoke(t *testing.T) {
 		{ID: 7, AccountID: "acc-1", Action: "dismiss", Reason: "intentional"},
 	})
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -118,7 +118,7 @@ func TestAuditEmission_CreateAccount_RecordsAccountConnected(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 	store := NewMockStore()
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	body := `{"provider":"aws","label":"prod","access_key_id":"AKIA","secret_key":"s","region":"eu-central-1"}`
@@ -144,9 +144,9 @@ func TestAuditEmission_CreateAccount_RecordsAccountConnected(t *testing.T) {
 
 func TestAuditEmission_UpdateAccount_RecordsAccountUpdated(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
-	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-up", TenantID: "tenant-audit"}})
+	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-up", OrganizationID: "organization-audit"}})
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	body := `{"label":"renamed","region":"us-east-1"}`
@@ -169,9 +169,9 @@ func TestAuditEmission_UpdateAccount_RecordsAccountUpdated(t *testing.T) {
 }
 
 func TestAuditEmission_ScanAccount_RecordsScanTriggered(t *testing.T) {
-	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-scan", TenantID: "tenant-audit", Label: "prod", Region: "eu-central-1"}})
+	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-scan", OrganizationID: "organization-audit", Label: "prod", Region: "eu-central-1"}})
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -193,9 +193,9 @@ func TestAuditEmission_ScanAccount_RecordsScanTriggered(t *testing.T) {
 }
 
 func TestAuditEmission_DeleteAccount_RecordsAccountDeleted(t *testing.T) {
-	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-gone", TenantID: "tenant-audit"}})
+	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-gone", OrganizationID: "organization-audit"}})
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -217,7 +217,7 @@ func TestAudit_WriteFailure_DoesNotBreakUserOperation(t *testing.T) {
 		WithZombies([]model.ZombieResource{testZombie}).
 		WithAuditWriteError(errors.New("simulated audit failure"))
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	body := `{
@@ -246,7 +246,7 @@ func TestListAuditEvents_ReturnsWrittenEvents(t *testing.T) {
 		{ID: 2, Action: model.AuditActionAccountConnected, UserID: "u2", CreatedAt: time.Now()},
 	})
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -270,7 +270,7 @@ func TestListAuditEvents_ReturnsWrittenEvents(t *testing.T) {
 func TestListAuditEvents_InvalidAction_Returns400(t *testing.T) {
 	store := NewMockStore()
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -284,7 +284,7 @@ func TestListAuditEvents_InvalidAction_Returns400(t *testing.T) {
 func TestListAuditEvents_InvalidSince_Returns400(t *testing.T) {
 	store := NewMockStore()
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -298,7 +298,7 @@ func TestListAuditEvents_InvalidSince_Returns400(t *testing.T) {
 func TestListAuditEvents_LimitOutOfRange_Returns400(t *testing.T) {
 	store := NewMockStore()
 	handler := middleware.DevBypass(
-		"tenant-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()

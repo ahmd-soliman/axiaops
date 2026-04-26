@@ -158,6 +158,6 @@ func FetchUsage(ctx context.Context, cw CloudWatchAPI, resources []DiscoveredRes
 		// All resources failed - return the first error
 		return nil, errors[0]
 	}
-	
+
 	return usage, nil
 }
