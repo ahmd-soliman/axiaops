@@ -19,6 +19,7 @@ import CloudAccountSettings from './pages/CloudAccountSettings';
 import Audit      from './pages/Audit';
 import Users      from './pages/Users';
 import Account    from './pages/Account';
+import Profile    from './pages/Profile';
 import Login      from './pages/Login';
 import Callback   from './pages/Callback';
 import NotFound   from './pages/NotFound';
@@ -58,6 +59,7 @@ function AuthenticatedApp() {
               <Route path="/audit"               element={<Audit />} />
               <Route path="/users"               element={<Users />} />
               <Route path="/account"             element={<Account />} />
+              <Route path="/profile"             element={<Profile />} />
             </Route>
           </Route>
         </Routes>
