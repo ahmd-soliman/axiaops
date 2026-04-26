@@ -35,7 +35,7 @@ mux.HandleFunc("GET /path", handler)
 
 ```go
 func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
-    ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+    ctx := storage.WithOrganizationID(r.Context(), middleware.OrganizationID(r.Context()))
     zombies, err := h.store.LoadZombies(ctx)
     if err != nil {
         slog.Error("listZombies: load failed", "error", err)
@@ -52,7 +52,7 @@ func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
 import "axiaops.io/shared/observability"
 
 func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
-    ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+    ctx := storage.WithOrganizationID(r.Context(), middleware.OrganizationID(r.Context()))
     
     // Record database query latency
     observer := observability.NewDatabaseObserver("LOAD_ZOMBIES")
@@ -124,7 +124,7 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
     }
     
     // Record cost records fetched
-    tenantID := storage.TenantIDFromCtx(ctx)
+    tenantID := storage.OrganizationIDFromCtx(ctx)
     observability.Global.CostRecordsFetched.WithLabelValues("aws", tenantID).Add(float64(len(records)))
     
     // ...
@@ -151,7 +151,7 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
 import "axiaops.io/shared/observability"
 
 func runIngestion(ctx context.Context, store storage.Store, accountID string, keys *scanAWS) error {
-    tenantID := storage.TenantIDFromCtx(ctx)
+    tenantID := storage.OrganizationIDFromCtx(ctx)
     
     // Record scan start
     observability.RecordScanStart(ctx)
@@ -249,14 +249,14 @@ Use structured logs to track the flow and debug issues:
 ```go
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
     accountID := r.PathValue("id")
-    tenantID := middleware.TenantID(r.Context())
+    tenantID := middleware.OrganizationID(r.Context())
     
-    ctx := storage.WithTenantID(r.Context(), tenantID)
+    ctx := storage.WithOrganizationID(r.Context(), tenantID)
     
     // Log account retrieval
     observability.LogInfo(ctx, "retrieving account",
         "account_id", accountID,
-        "tenant_id", tenantID,
+        "organization_id", tenantID,
     )
     
     account, err := h.store.GetAccount(ctx, accountID)
@@ -289,7 +289,7 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 
 **Log output** (JSON):
 ```json
-{"time":"2025-04-11T10:30:45.123Z","level":"INFO","msg":"retrieving account","account_id":"abc-123","tenant_id":"tenant-xyz"}
+{"time":"2025-04-11T10:30:45.123Z","level":"INFO","msg":"retrieving account","account_id":"abc-123","organization_id":"organization-xyz"}
 {"time":"2025-04-11T10:30:45.234Z","level":"INFO","msg":"decrypting credentials","account_id":"abc-123"}
 {"time":"2025-04-11T10:30:45.345Z","level":"ERROR","msg":"error","error":"decryption failed","operation":"decrypt_secret","account_id":"abc-123"}
 ```

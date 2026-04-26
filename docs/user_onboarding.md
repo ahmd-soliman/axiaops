@@ -166,7 +166,7 @@ func createOrganization(w http.ResponseWriter, r *http.Request) {
 
 ## Roles & permissions
 
-See [`docs/rbac-design.md`](./rbac-design.md) for the implemented model. Roles live in the `memberships` table (one row per (user, tenant)), not on the `users` row.
+See [`docs/rbac-design.md`](./rbac-design.md) for the implemented model. Roles live in the `memberships` table (one row per (user, organization)), not on the `users` row.
 
 ## Complete User Journey
 

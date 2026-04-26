@@ -125,4 +125,4 @@ Tracked via `services/shared/observability/`:
 
 ## Provenance
 
-Architectural decision and backlog produced by the project's `architect` and `Plan` agents (April 2026). The decision was: don't adopt Komiser, Cloud Custodian, OpenCost, Infracost, or CloudQuery as runtime dependencies — they're products with single-tenant or different-product-shape assumptions that don't fit a multi-tenant SaaS or the €24–34/mo cost target. Instead, mine Custodian's rule library as docs.
+Architectural decision and backlog produced by the project's `architect` and `Plan` agents (April 2026). The decision was: don't adopt Komiser, Cloud Custodian, OpenCost, Infracost, or CloudQuery as runtime dependencies — they're products with single-organization or different-product-shape assumptions that don't fit a multi-tenant SaaS or the €24–34/mo cost target. Instead, mine Custodian's rule library as docs.
