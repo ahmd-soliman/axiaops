@@ -15,7 +15,7 @@ const queueKey = "axiaops:scan_queue"
 
 // ScanJob mirrors queue.ScanJob to avoid an import cycle.
 type ScanJob struct {
-	OrganizationID string    `json:"tenant_id"`
+	OrganizationID string    `json:"organization_id"`
 	AccountID      string    `json:"account_id"`
 	EnqueuedAt     time.Time `json:"enqueued_at"`
 	RequestID      string    `json:"request_id"`

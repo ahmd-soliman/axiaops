@@ -5,7 +5,7 @@ import "time"
 // Account represents a connected cloud provider account for an organization.
 type Account struct {
 	ID                string     `json:"id"`
-	OrganizationID    string     `json:"tenant_id"`
+	OrganizationID    string     `json:"organization_id"`
 	Provider          string     `json:"provider"`      // "aws", "azure", "gcp"
 	Label             string     `json:"label"`         // user-defined name
 	AccountID         string     `json:"account_id"`    // AWS account ID (e.g., "123456789012")

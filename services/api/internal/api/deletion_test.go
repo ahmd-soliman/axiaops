@@ -107,7 +107,7 @@ func TestDeleteCurrentUser_NoIdentity_403(t *testing.T) {
 	}
 }
 
-// ── DELETE /v1/tenants/me ───────────────────────────────────────────────────
+// ── DELETE /v1/organizations/me ───────────────────────────────────────────────────
 
 func TestDeleteCurrentTenant_Owner_204(t *testing.T) {
 	store := NewMockStore().
@@ -118,7 +118,7 @@ func TestDeleteCurrentTenant_Owner_204(t *testing.T) {
 
 	mux := delHandler(store)
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, meRequest(http.MethodDelete, "/v1/tenants/me"))
+	mux.ServeHTTP(w, meRequest(http.MethodDelete, "/v1/organizations/me"))
 
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d (body: %s)", w.Code, w.Body.String())
@@ -131,7 +131,7 @@ func TestDeleteCurrentTenant_NonOwnerRoles_403(t *testing.T) {
 			store := NewMockStore().WithRole(role)
 			mux := delHandler(store)
 			w := httptest.NewRecorder()
-			mux.ServeHTTP(w, meRequest(http.MethodDelete, "/v1/tenants/me"))
+			mux.ServeHTTP(w, meRequest(http.MethodDelete, "/v1/organizations/me"))
 
 			if w.Code != http.StatusForbidden {
 				t.Errorf("role=%q: expected 403, got %d", role, w.Code)

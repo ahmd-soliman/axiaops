@@ -14,7 +14,7 @@ import (
 
 // ScanJob represents a single scan request enqueued by the API.
 type ScanJob struct {
-	OrganizationID string    `json:"tenant_id"`
+	OrganizationID string    `json:"organization_id"`
 	AccountID      string    `json:"account_id"`
 	EnqueuedAt     time.Time `json:"enqueued_at"`
 	RequestID      string    `json:"request_id"`

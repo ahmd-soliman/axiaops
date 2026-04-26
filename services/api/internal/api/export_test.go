@@ -70,8 +70,8 @@ func TestExport_Owner_200_HappyPath(t *testing.T) {
 	if doc["schema_version"] != "1" {
 		t.Errorf("schema_version: want \"1\", got %v", doc["schema_version"])
 	}
-	if doc["tenant_id"] != "tenant-me" {
-		t.Errorf("tenant_id: want tenant-me, got %v", doc["tenant_id"])
+	if doc["organization_id"] != "tenant-me" {
+		t.Errorf("organization_id: want tenant-me, got %v", doc["organization_id"])
 	}
 
 	for _, key := range []string{"members", "accounts", "resources", "zombies", "cost_records", "snapshots", "active_dismissals", "audit_log"} {

@@ -5,7 +5,7 @@ import { useMe } from '../context/MeContext';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import { downloadBlob } from '../utils/csv';
-import { deleteCurrentUser, exportTenantData } from '../api/client';
+import { deleteCurrentUser, exportOrganizationData } from '../api/client';
 import { PERM } from '../api/permissions';
 import {
   useDestructiveConfirm,
@@ -13,9 +13,9 @@ import {
 } from '../components/DestructiveConfirm';
 
 // "Manage me" surface: read-only profile + GDPR Art. 15/20 export +
-// Art. 17 self-erasure. Tenant-level destructive actions (delete tenant,
-// transfer ownership) live under /settings/organization — they're org
-// admin, not personal.
+// Art. 17 self-erasure. Organization-level destructive actions (delete
+// organization, transfer ownership) live under /settings/organization —
+// they're org admin, not personal.
 export default function Profile() {
   const { theme: t, isDark } = useTheme();
   const { me, can } = useMe();
@@ -32,7 +32,7 @@ export default function Profile() {
       <Section t={t} title="Profile">
         <Field t={t} label="Email" value={me?.email || '—'} />
         <Field t={t} label="Role" value={me?.role || '—'} />
-        <Field t={t} label="Organization" value={orgName || me?.tenant_id || '—'} />
+        <Field t={t} label="Organization" value={orgName || me?.organization_id || '—'} />
       </Section>
 
       {can(PERM.DATA_EXPORT) && <ExportSection t={t} toast={toast} />}
@@ -52,7 +52,7 @@ function ExportSection({ t, toast }) {
   const [error, setError] = useState('');
 
   const mutation = useMutation({
-    mutationFn: exportTenantData,
+    mutationFn: exportOrganizationData,
     onSuccess: ({ blob, filename }) => {
       downloadBlob(blob, filename);
       toast('Export downloaded.', 'success');

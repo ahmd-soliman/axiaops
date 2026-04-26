@@ -1,4 +1,4 @@
-// Package api — DELETE /v1/users/me and DELETE /v1/tenants/me.
+// Package api — DELETE /v1/users/me and DELETE /v1/organizations/me.
 //
 // These two endpoints implement the GDPR right-to-erasure flow described in
 // docs/rbac-design.md §10 and docs/audit_trail_plan.md §7. Both are guarded
@@ -60,13 +60,13 @@ func (h *Handler) deleteCurrentUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// deleteCurrentTenant handles DELETE /v1/tenants/me.
+// deleteCurrentOrganization handles DELETE /v1/organizations/me.
 //
 // Permission gate: PermOrganizationDelete (owner-only). The audit_log entry is
 // written BEFORE the cascade so the row exists momentarily — it will be
 // purged alongside the rest of the tenant's data, but the audit-write
 // counter and slog line endure.
-func (h *Handler) deleteCurrentTenant(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) deleteCurrentOrganization(w http.ResponseWriter, r *http.Request) {
 	tid := middleware.OrganizationID(r.Context())
 	if tid == "" {
 		http.Error(w, "forbidden", http.StatusForbidden)
