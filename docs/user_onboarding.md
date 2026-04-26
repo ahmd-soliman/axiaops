@@ -1,6 +1,6 @@
 # User onboarding (current state)
 
-> **Status:** describes the implementation as of Phase 2 plus the email-invitation flow designed in [`docs/invitation-flow.md`](./invitation-flow.md) (pending implementation on `feat/team-invitations`). The previously-planned "app-owned organisations" rewrite (`docs/onboarding-and-app-owned-orgs.md`, now marked superseded) was evaluated and **not pursued** — Kinde's `register()` plus its Management API solves both self-serve org creation and email invitations without an app-side org-primitive refactor.
+> **Status:** describes the implementation as of Phase 2 plus the email-invitation flow designed in [`docs/invitation-flow.md`](./invitation-flow.md) (pending implementation on `feat/team-invitations`) and the post-signup wizard designed in [`docs/onboarding-wizard.md`](./onboarding-wizard.md). The previously-planned "app-owned organisations" rewrite (`docs/onboarding-and-app-owned-orgs.md`, now marked superseded) was evaluated and **not pursued** — Kinde's `register()` plus its Management API solves both self-serve org creation and email invitations without an app-side org-primitive refactor.
 
 This doc reflects what actually ships today, plus the invitation flow that is being added on top without changing the org primitive.
 
@@ -116,3 +116,7 @@ The chicken-and-egg invite flow above is closed by the email-invitation design i
 What stays the same: Kinde owns the org primitive (`org_code` in JWT → `organizations.id`); `EnsureFirstMembership` still auto-promotes the founder of a brand-new self-serve org; RLS, roles, and permissions are unchanged.
 
 What the originally-planned [`onboarding-and-app-owned-orgs.md`](./onboarding-and-app-owned-orgs.md) rewrite would have added — `POST /v1/organizations`, `pending_invitations` magic-link flow via Resend, `X-Organization-ID` header, dropping `UpsertOrganization`/`EnsureFirstMembership` — is **not** being pursued. That doc is preserved as a historical record of the rejected alternative; do not implement from it.
+
+## And: post-signup wizard
+
+The empty-state landing for fresh organisations is replaced with a 3-step wizard (confirm org name → invite teammates → connect first AWS account) designed in [`docs/onboarding-wizard.md`](./onboarding-wizard.md). It introduces `PATCH /v1/organizations/me` for org rename, with two-phase commit to Kinde so invitation emails stay in sync.
