@@ -7,19 +7,20 @@ import {
   DestructiveConfirmModal,
 } from '../../components/DestructiveConfirm';
 
-// Workspace tab — tenant-level destructive controls. Only owners reach
+// Organization tab — tenant-level destructive controls. Only owners reach
 // this route (Settings sub-nav filters on PERM.TENANT_DELETE before
 // rendering the tab), so no extra in-page perm check is needed.
 //
-// Future home for transfer-ownership UI and billing controls.
-export default function Workspace() {
+// Future home for transfer-ownership UI, notification preferences,
+// billing controls, and the org display-name editor.
+export default function Organization() {
   const { theme: t, isDark } = useTheme();
   const { orgName, onLogout } = useApp();
   const { toast } = useToast();
 
   return (
     <div style={{ padding: 24, color: t.textMid, maxWidth: 760 }}>
-      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Workspace</h1>
+      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Organization</h1>
       <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
         Tenant-level controls.
       </p>
