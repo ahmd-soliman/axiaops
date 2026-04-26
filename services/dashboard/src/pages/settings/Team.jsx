@@ -1,23 +1,23 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useTheme } from '../theme/ThemeContext';
-import { useMe } from '../context/MeContext';
+import { useTheme } from '../../theme/ThemeContext';
+import { useMe } from '../../context/MeContext';
 import {
   inviteMember,
   listMemberships,
   removeMember,
   transferOwnership,
   updateMemberRole,
-} from '../api/client';
-import { PERM } from '../api/permissions';
-import { Spinner } from '../components/primitives';
+} from '../../api/client';
+import { PERM } from '../../api/permissions';
+import { Spinner } from '../../components/primitives';
 
 // Role labels in the order shown in dropdowns and the matrix in the design.
 // Owner is intentionally omitted — promotion to owner happens only via the
 // transfer-ownership flow.
 const ASSIGNABLE_ROLES = ['admin', 'member', 'viewer'];
 
-export default function Users() {
+export default function Team() {
   const { theme: t, isDark } = useTheme();
   const { me, can, refresh } = useMe();
   const qc = useQueryClient();
@@ -74,7 +74,7 @@ export default function Users() {
 
   return (
     <div style={{ padding: 24, color: t.textMid }}>
-      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Users</h1>
+      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Team</h1>
       <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
         Manage the people in this AxiaOps tenant.
       </p>
