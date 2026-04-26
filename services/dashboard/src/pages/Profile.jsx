@@ -24,7 +24,7 @@ export default function Profile() {
 
   return (
     <div style={{ padding: 24, color: t.textMid, maxWidth: 760 }}>
-      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>My profile</h1>
+      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>My Profile</h1>
       <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
         Your AxiaOps account, data export, and self-erasure controls.
       </p>
@@ -61,7 +61,7 @@ function ExportSection({ t, toast }) {
   });
 
   return (
-    <Section t={t} title="Download my data">
+    <Section t={t} title="Download My Data">
       <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
         Generates a JSON file containing every per-tenant record we hold for this tenant — members,
         cloud accounts (without secrets), audit log, scan history, and detected resources. Satisfies
@@ -73,7 +73,7 @@ function ExportSection({ t, toast }) {
         disabled={mutation.isPending}
         style={primaryButton(t, mutation.isPending)}
       >
-        {mutation.isPending ? 'Preparing…' : 'Download my data'}
+        {mutation.isPending ? 'Preparing…' : 'Download My Data'}
       </button>
       {error && <InlineBanner color="#fca5a5" bg="rgba(239,68,68,0.15)">{error}</InlineBanner>}
     </Section>
@@ -96,19 +96,19 @@ function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
     <DangerSection
       t={t}
       isDark={isDark}
-      title="Delete my account"
+      title="Delete My Account"
       blurb="Permanently deletes your AxiaOps user. Your audit-log entries are anonymised across every tenant you belonged to. This cannot be undone."
-      buttonLabel="Delete my account"
+      buttonLabel="Delete My Account"
       onClick={ctrl.openModal}
       disabled={ctrl.target === ''}
       disabledHint="Email unavailable on your session — reload and try again."
     >
       <DestructiveConfirmModal
         ctrl={ctrl}
-        title="Delete my account?"
+        title="Delete My Account?"
         warning="This permanently deletes your user. You will be signed out and your audit-log entries across every tenant will be anonymised. This cannot be undone."
         targetLabel="email"
-        confirmLabel="Delete account"
+        confirmLabel="Delete Account"
       />
     </DangerSection>
   );

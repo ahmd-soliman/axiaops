@@ -12,7 +12,7 @@ import { PERM } from '../api/permissions';
 
 const TABS = [
   { label: 'Team',      path: '/settings/team',      requires: PERM.MEMBERS_INVITE },
-  { label: 'Audit log', path: '/settings/audit',     requires: PERM.AUDIT_READ },
+  { label: 'Audit Log', path: '/settings/audit',     requires: PERM.AUDIT_READ },
   { label: 'Workspace', path: '/settings/workspace', requires: PERM.TENANT_DELETE },
 ];
 

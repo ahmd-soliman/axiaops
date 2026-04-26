@@ -93,9 +93,9 @@ export default function AvatarMenu() {
             zIndex: 150,
           }}
         >
-          <MenuItem t={t} onClick={() => go('/profile')}>My profile</MenuItem>
+          <MenuItem t={t} onClick={() => go('/profile')}>My Profile</MenuItem>
           <div style={{ height: 1, backgroundColor: t.border, margin: '4px 0' }} />
-          <MenuItem t={t} onClick={signOut}>Sign out</MenuItem>
+          <MenuItem t={t} onClick={signOut}>Sign Out</MenuItem>
         </div>
       )}
     </div>
