@@ -41,7 +41,7 @@ func TestGetMe_ReturnsRoleAndPermissions(t *testing.T) {
 
 	var resp struct {
 		UserID         string   `json:"user_id"`
-		OrganizationID string   `json:"tenant_id"`
+		OrganizationID string   `json:"organization_id"`
 		Email          string   `json:"email"`
 		Role           string   `json:"role"`
 		Permissions    []string `json:"permissions"`

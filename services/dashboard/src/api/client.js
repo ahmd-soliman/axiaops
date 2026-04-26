@@ -312,7 +312,7 @@ export async function removeMember(membershipId) {
 }
 
 export async function transferOwnership(toUserID) {
-  return request('/v1/tenants/transfer-ownership', {
+  return request('/v1/organizations/transfer-ownership', {
     method: 'POST',
     body: { to_user_id: toUserID },
   });
@@ -328,13 +328,13 @@ export async function deleteCurrentUser() {
   return request('/v1/users/me', { method: 'DELETE' });
 }
 
-export async function deleteCurrentTenant() {
-  return request('/v1/tenants/me', { method: 'DELETE' });
+export async function deleteCurrentOrganization() {
+  return request('/v1/organizations/me', { method: 'DELETE' });
 }
 
-// exportTenantData fetches GET /v1/export and returns { blob, filename } so
+// exportOrganizationData fetches GET /v1/export and returns { blob, filename } so
 // the caller can wire it into a browser download.
-export async function exportTenantData() {
+export async function exportOrganizationData() {
   const res = await request('/v1/export', { raw: true });
   const cd = res.headers.get('Content-Disposition') || '';
   const match = cd.match(/filename="([^"]+)"/);

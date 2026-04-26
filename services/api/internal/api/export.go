@@ -61,7 +61,7 @@ type tenantExportMember struct {
 type tenantExport struct {
 	SchemaVersion     string                 `json:"schema_version"`
 	GeneratedAt       time.Time              `json:"generated_at"`
-	OrganizationID    string                 `json:"tenant_id"`
+	OrganizationID    string                 `json:"organization_id"`
 	Notes             string                 `json:"notes,omitempty"`
 	Members           []tenantExportMember   `json:"members"`
 	Accounts          []model.Account        `json:"accounts"`
