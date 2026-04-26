@@ -30,7 +30,7 @@ make start-dev      # Host-mode Go services + Postgres container. DEV_MODE=true
 make start-staging  # Full Docker stack (API, ingestion, dashboard, Redis, Postgres)
                     # with DEV_MODE=false → Kinde JWT auth on. Mirrors deployed env.
 make stop           # Kill host-mode services AND `docker compose down` the stack.
-make seed           # Populate dummy tenant/user/zombie records
+make seed           # Populate dummy organization/user/zombie records
 make test           # All Go unit tests
 make test-storage   # PostgreSQL tests (RLS, migrations) — needs running postgres
 make test-smoke     # Smoke tests — needs full stack running (make start-dev in a separate terminal)
@@ -49,7 +49,7 @@ make test-all       # Unit + postgres tests
 
 ## Database
 
-- **Runtime:** PostgreSQL 16 with Row-Level Security (tenant isolation via `SET app.tenant_id`)
+- **Runtime:** PostgreSQL 16 with Row-Level Security (organization isolation via `SET app.organization_id`)
 - **Migrations:** `services/shared/storage/postgres/migrations/` — versioned SQL, run on startup
 - Two connection strings: `DATABASE_URL` (app user) and `MIGRATION_DATABASE_URL` (owner/admin)
 
@@ -71,7 +71,7 @@ make test-all       # Unit + postgres tests
 - **Naming:** Explicit, no abbreviations beyond `ctx`, `err`, `tx`, `mux`
 - **Handler pattern:** Constructor `New(store)` → `Register(mux)` → route handlers as methods
 - **JSON responses:** Use `writeJSON()` helper, never raw `json.NewEncoder`
-- **Context propagation:** `storage.WithTenantID(ctx, tenantID)` for all DB calls
+- **Context propagation:** `storage.WithOrganizationID(ctx, organizationID)` for all DB calls
 - **Transactions:** `defer tx.Rollback(ctx)` immediately after `Begin()`
 - **Constants:** Named duration constants (`const stuckScanTimeout = 15 * time.Minute`)
 
@@ -108,7 +108,7 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 
 - AES-256-GCM encrypts AWS secrets before DB storage (`ENCRYPTION_KEY` env var, 32-byte hex)
 - Kinde OAuth 2.0 PKCE flow — RS256 JWT verified via JWKS endpoint
-- RLS enforces tenant isolation at the DB level — never query without `app.tenant_id` set
+- RLS enforces organization isolation at the DB level — never query without `app.organization_id` set
 - Never commit `.env` files, credentials, or encryption keys
 - Production: IAM roles instead of access keys
 
