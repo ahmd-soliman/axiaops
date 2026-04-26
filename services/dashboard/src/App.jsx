@@ -18,6 +18,7 @@ import Connect    from './pages/Connect';
 import Settings   from './pages/Settings';
 import Audit      from './pages/Audit';
 import Users      from './pages/Users';
+import Account    from './pages/Account';
 import Login      from './pages/Login';
 import Callback   from './pages/Callback';
 import NotFound   from './pages/NotFound';
@@ -56,6 +57,7 @@ function AuthenticatedApp() {
               <Route path="/settings/:accountId" element={<Settings />} />
               <Route path="/audit"               element={<Audit />} />
               <Route path="/users"               element={<Users />} />
+              <Route path="/account"             element={<Account />} />
             </Route>
           </Route>
         </Routes>
