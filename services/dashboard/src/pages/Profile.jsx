@@ -14,8 +14,8 @@ import {
 
 // "Manage me" surface: read-only profile + GDPR Art. 15/20 export +
 // Art. 17 self-erasure. Tenant-level destructive actions (delete tenant,
-// transfer ownership) live under /settings/workspace — they're org admin,
-// not personal.
+// transfer ownership) live under /settings/organization — they're org
+// admin, not personal.
 export default function Profile() {
   const { theme: t, isDark } = useTheme();
   const { me, can } = useMe();
@@ -89,7 +89,7 @@ function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
     toast,
     on409: (err) =>
       err.body ||
-      'You are the sole owner of one or more tenants. Transfer ownership in Settings → Team, or delete the tenant from Settings → Workspace.',
+      'You are the sole owner of one or more tenants. Transfer ownership in Settings → Team, or delete the tenant from Settings → Organization.',
   });
 
   return (
