@@ -309,3 +309,17 @@ export async function transferOwnership(toUserID) {
     body: { to_user_id: toUserID },
   });
 }
+
+// ── GDPR right-to-erasure ───────────────────────────────────────────────────
+//
+// Both go through `request()` so a 409 (sole-owner refusal on /users/me)
+// surfaces as `err.status === 409` with `err.body` carrying the API's
+// human-readable explanation.
+
+export async function deleteCurrentUser() {
+  return request('/v1/users/me', { method: 'DELETE' });
+}
+
+export async function deleteCurrentTenant() {
+  return request('/v1/tenants/me', { method: 'DELETE' });
+}
