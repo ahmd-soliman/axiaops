@@ -110,9 +110,11 @@ export default function CloudAccounts() {
                       <button
                         type="button"
                         onClick={() => navigate(`/cloud-accounts/${a.id}`)}
+                        aria-label="Manage account"
+                        title="Manage"
                         style={ghostButton(t)}
                       >
-                        Manage
+                        ⚙
                       </button>
                     </div>
                   </Td>
