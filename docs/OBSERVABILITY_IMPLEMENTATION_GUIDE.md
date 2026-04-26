@@ -124,8 +124,8 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
     }
     
     // Record cost records fetched
-    tenantID := storage.OrganizationIDFromCtx(ctx)
-    observability.Global.CostRecordsFetched.WithLabelValues("aws", tenantID).Add(float64(len(records)))
+    organizationID := storage.OrganizationIDFromCtx(ctx)
+    observability.Global.CostRecordsFetched.WithLabelValues("aws", organizationID).Add(float64(len(records)))
     
     // ...
 }
@@ -151,7 +151,7 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
 import "axiaops.io/shared/observability"
 
 func runIngestion(ctx context.Context, store storage.Store, accountID string, keys *scanAWS) error {
-    tenantID := storage.OrganizationIDFromCtx(ctx)
+    organizationID := storage.OrganizationIDFromCtx(ctx)
     
     // Record scan start
     observability.RecordScanStart(ctx)
@@ -181,7 +181,7 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
         
         skipped := int64(len(records)) - inserted
         slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted)
-        observability.Global.CostRecordsFetched.WithLabelValues(p.Name(), tenantID).Add(float64(len(records)))
+        observability.Global.CostRecordsFetched.WithLabelValues(p.Name(), organizationID).Add(float64(len(records)))
         
         allRecords = append(allRecords, records...)
     }
@@ -222,8 +222,8 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
     saveObserver.Observe()
     
     // === UPDATE SUMMARY METRICS ===
-    observability.Global.ZombiesDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalZombies))
-    observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(summary.PotentialMonthlySave)
+    observability.Global.ZombiesDetected.WithLabelValues("aws", organizationID).Set(float64(summary.TotalZombies))
+    observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationID).Set(summary.PotentialMonthlySave)
     observability.Global.ResourcesAnalyzed.Add(float64(len(resources)))
     
     return nil
@@ -249,14 +249,14 @@ Use structured logs to track the flow and debug issues:
 ```go
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
     accountID := r.PathValue("id")
-    tenantID := middleware.OrganizationID(r.Context())
+    organizationID := middleware.OrganizationID(r.Context())
     
-    ctx := storage.WithOrganizationID(r.Context(), tenantID)
+    ctx := storage.WithOrganizationID(r.Context(), organizationID)
     
     // Log account retrieval
     observability.LogInfo(ctx, "retrieving account",
         "account_id", accountID,
-        "organization_id", tenantID,
+        "organization_id", organizationID,
     )
     
     account, err := h.store.GetAccount(ctx, accountID)

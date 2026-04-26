@@ -173,12 +173,12 @@ func TestAuth_ValidToken_Returns200(t *testing.T) {
 	}
 }
 
-func TestAuth_ValidToken_TenantIDInContext(t *testing.T) {
+func TestAuth_ValidToken_OrganizationIDInContext(t *testing.T) {
 	auth, priv := testSetup(t)
 
-	var gotTenantID string
+	var gotOrganizationID string
 	capture := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotTenantID = OrganizationID(r.Context())
+		gotOrganizationID = OrganizationID(r.Context())
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -189,8 +189,8 @@ func TestAuth_ValidToken_TenantIDInContext(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
-	if gotTenantID != "org_abc" {
-		t.Errorf("expected tenant_id org_abc, got %q", gotTenantID)
+	if gotOrganizationID != "org_abc" {
+		t.Errorf("expected organization_id org_abc, got %q", gotOrganizationID)
 	}
 }
 
@@ -230,11 +230,11 @@ func TestDevBypass_PublicPathsSkipContextPopulation(t *testing.T) {
 	captured := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Public paths must not have identity injected — they're for infra.
 		if OrganizationID(r.Context()) != "" {
-			t.Errorf("public path should not have tenant_id populated")
+			t.Errorf("public path should not have organization_id populated")
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	h := DevBypass("dev-tenant", "dev-user", "dev@x.com", captured)
+	h := DevBypass("dev-organization", "dev-user", "dev@x.com", captured)
 
 	for _, path := range []string{"/health", "/livez", "/readyz", "/metrics"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
