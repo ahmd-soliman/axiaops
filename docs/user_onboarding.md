@@ -1,273 +1,105 @@
-# User Onboarding & Organization Creation
+# User onboarding (current state)
 
-This document outlines the complete flow for new user registration, authentication, and organization setup in AxiaOps.
+> **Status:** describes the implementation as of Phase 2. The
+> next-phase rewrite — app-owned organisations, self-serve
+> onboarding, and email invitations — is designed in
+> `docs/onboarding-and-app-owned-orgs.md` and tracked in
+> `Tasks.md` Phase 3 #14.
 
-## Overview
+This doc was previously aspirational. It now reflects what actually
+ships. For where we're going, see the plan doc above.
 
-AxiaOps uses Kinde for authentication with custom organization management. New users go through a streamlined onboarding process that creates both their user account and organization in a single flow.
+## The current flow (closed beta, pattern A)
 
-## Step-by-Step User Flow
+AxiaOps couples organisation identity to Kinde. New customers come
+on board through a manual handshake:
 
-### 1. Initial Registration/Login
+1. **AxiaOps admin creates the org in Kinde.** This is the manual
+   step that gates onboarding today. Done in the Kinde dashboard,
+   not via AxiaOps code. Sets the `org_code` slug and adds the
+   inviting customer's email to that org.
+2. **Customer signs in via Kinde** using the email Kinde sent them.
+   Kinde returns a JWT carrying `org_code`, `sub`, `email`, `name`.
+3. **AxiaOps auth middleware** (`services/api/internal/middleware/auth.go`)
+   validates the JWT, then on every request:
+   - `UpsertOrganization(orgCode, orgName)` — mirrors the Kinde org
+     into `organizations` if missing, returns the internal UUID.
+   - `UpsertUser(orgID, sub, email, name)` — mirrors the Kinde user
+     into `users` if missing.
+   - `EnsureFirstMembership(orgID, userID)` — inserts a membership
+     row with `role='owner'` **only when no membership yet exists for
+     that org**. The first authenticator into a brand-new Kinde org
+     becomes the owner. Subsequent users get no membership and
+     bounce off `403`.
+4. **Subsequent team members** sign in via Kinde, hit a `403`,
+   then the existing owner calls `POST /v1/memberships
+   { user_id, role }` to create their membership row. Once
+   created, the team member's next request succeeds.
 
-**User Journey:**
-```
-User visits AxiaOps → Click "Sign Up" → Redirected to Kinde → Complete registration → Return to AxiaOps
-```
+## Why the manual Kinde step
 
-**What Kinde handles:**
-- Email/password registration OR social login (Google, GitHub, etc.)
-- Email verification
-- Returns to AxiaOps with authorization code
+It's a feature of the closed-beta GTM, not a bug. Each new
+customer goes through a vetting checkpoint before getting access:
+DPA signed, AWS IAM walked through, expectations set. See
+`docs/gtm_assessment.md` for the GTM context.
 
-### 2. Authentication Callback Processing
+## Why the chicken-and-egg invitation flow
 
-```go
-// After Kinde callback, check if user exists in AxiaOps
-func handleKindeCallback(w http.ResponseWriter, r *http.Request) {
-    token := exchangeCodeForToken(r.URL.Query().Get("code"))
-    claims := validateToken(token)
-    
-    user := getUserByKindeID(claims.Sub)
-    if user == nil {
-        // New user - redirect to onboarding
-        http.Redirect(w, r, "/onboarding", 302)
-        return
-    }
-    
-    // Existing user - redirect to dashboard
-    http.Redirect(w, r, "/dashboard", 302)
-}
-```
-
-### 3. Organization Creation (Onboarding)
-
-**Frontend Onboarding Form:**
-```jsx
-const OnboardingForm = () => {
-  const [orgName, setOrgName] = useState('');
-  const [loading, setLoading] = useState(false);
-  
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    
-    try {
-      await fetch('/api/v1/organizations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ org_name: orgName })
-      });
-      
-      // Redirect to dashboard
-      window.location.href = '/dashboard';
-    } catch (error) {
-      console.error('Failed to create organization:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  return (
-    <form onSubmit={handleSubmit}>
-      <h2>Welcome to AxiaOps</h2>
-      <p>Let's set up your organization to get started.</p>
-      
-      <input 
-        type="text"
-        placeholder="Organization name (e.g., Acme Corp)"
-        value={orgName}
-        onChange={(e) => setOrgName(e.target.value)}
-        required
-        minLength={2}
-        maxLength={100}
-      />
-      
-      <button type="submit" disabled={loading}>
-        {loading ? 'Creating...' : 'Create Organization'}
-      </button>
-    </form>
-  );
-};
-```
-
-### 4. Backend Organization Creation
-
-```go
-func createOrganization(w http.ResponseWriter, r *http.Request) {
-    claims := getClaimsFromToken(r)
-    
-    // Check if user already has an organization
-    existingUser := getUserByKindeID(claims.Sub)
-    if existingUser != nil {
-        http.Error(w, "User already has an organization", http.StatusConflict)
-        return
-    }
-    
-    var req struct {
-        OrgName string `json:"org_name"`
-    }
-    
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, "Invalid request body", http.StatusBadRequest)
-        return
-    }
-    
-    // Validate organization name
-    if len(req.OrgName) < 2 || len(req.OrgName) > 100 {
-        http.Error(w, "Organization name must be 2-100 characters", http.StatusBadRequest)
-        return
-    }
-    
-    tx := db.Begin()
-    defer tx.Rollback()
-    
-    // Create organization record
-    org := &Organization{
-        ID:       generateUUID(),
-        Name:     strings.TrimSpace(req.OrgName),
-        OwnerID:  claims.Sub,
-        KindeOrg: claims.Org, // Kinde org ID for RLS
-        CreatedAt: time.Now(),
-    }
-    
-    if err := tx.Create(org).Error; err != nil {
-        http.Error(w, "Failed to create organization", http.StatusInternalServerError)
-        return
-    }
-    
-    // Create user record
-    user := &User{
-        ID:       generateUUID(),
-        KindeID:  claims.Sub,
-        Email:    claims.Email,
-        Name:     claims.Name,
-        OrgID:    org.ID,
-        CreatedAt: time.Now(),
-    }
-    
-    if err := tx.Create(user).Error; err != nil {
-        http.Error(w, "Failed to create user", http.StatusInternalServerError)
-        return
-    }
-    
-    tx.Commit()
-    
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]interface{}{
-        "organization": org,
-        "user": user,
-    })
-}
-```
+Today the owner cannot invite by email — they have to invite by
+`user_id`, which means the invitee must first sign in (creating
+their `users` row) and bounce off `403`. This is a known limitation
+called out in `Tasks.md` 3.9 and addressed by the plan doc.
 
 ## Roles & permissions
 
-See [`docs/rbac-design.md`](./rbac-design.md) for the implemented model. Roles live in the `memberships` table (one row per (user, organization)), not on the `users` row.
+See `docs/rbac-design.md` for the role model — `owner`, `admin`,
+`member`, `viewer`. Roles live in the `memberships` table (one row
+per (user, organization)), not on the `users` row. AxiaOps
+deliberately ignores Kinde org-roles claims (`rbac-design.md §3`).
 
-## Complete User Journey
+## The shipped endpoint surface
 
-### New User Flow
-1. **User visits AxiaOps** → Clicks "Sign Up"
-2. **Kinde registration** → Email/password or social login
-3. **Email verification** → User confirms email (if required)
-4. **Return to AxiaOps** → Kinde redirects with auth code
-5. **Token exchange** → AxiaOps gets JWT token
-6. **New user check** → No existing user found
-7. **Onboarding form** → User enters organization name
-8. **Organization creation** → Backend creates org + user records
-9. **Dashboard redirect** → User can now connect AWS accounts
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `GET` | `/v1/me` | Yes | Returns current user, role, permission set |
+| `GET` | `/v1/memberships` | Yes | List memberships of the current org |
+| `POST` | `/v1/memberships` | `members:invite` | Add an existing user (by `user_id`) with a role |
+| `PATCH` | `/v1/memberships/{id}/role` | tier-dependent | Promote / demote |
+| `DELETE` | `/v1/memberships/{id}` | tier-dependent | Remove (self-leave bypasses perm) |
+| `POST` | `/v1/organizations/transfer-ownership` | `organization:transfer` | Owner handover |
+| `DELETE` | `/v1/organizations/me` | `organization:delete` | GDPR right-to-erasure |
 
-### Existing User Flow
-1. **User visits AxiaOps** → Clicks "Sign In"
-2. **Kinde login** → Existing credentials
-3. **Return to AxiaOps** → Kinde redirects with auth code
-4. **Token exchange** → AxiaOps gets JWT token
-5. **Existing user check** → User found in database
-6. **Dashboard redirect** → Direct access to main application
+There is **no** `POST /v1/organizations` today. Org creation
+happens in the Kinde dashboard.
 
-## Error Handling
+## The DEV_MODE bootstrap
 
-### Common Error Scenarios
-- **Duplicate organization creation**: User refreshes onboarding page
-- **Invalid organization name**: Too short, too long, or empty
-- **Database errors**: Connection issues, constraint violations
-- **Token validation failures**: Expired or invalid JWT
+In `DEV_MODE=true`, the Kinde dance is bypassed. The API instead:
+- Reads `DEV_ORGANIZATION_ID` env var (default
+  `dev-organization-axiaops`).
+- Reads `DEV_USER_ID` env var (default `dev-user-axiaops`).
+- On startup, calls `EnsureDevOrganization`, `EnsureDevUser`, and
+  `EnsureDevMembership(role='owner')` to guarantee a known-id
+  triple exists.
+- The auth middleware is replaced with `DevBypass`, which injects
+  the dev IDs into every request context — no JWT required.
 
-### Error Responses
-```go
-// Standard error response format
-type ErrorResponse struct {
-    Error   string `json:"error"`
-    Code    string `json:"code"`
-    Details string `json:"details,omitempty"`
-}
+This is why the local dashboard "just works" on `make start-dev`
+and why the CI integration stack uses `DEV_ORGANIZATION_ID:
+"ci-tenant"` (an opaque fixture ID).
 
-// Example error responses
-var (
-    ErrUserExists = ErrorResponse{
-        Error: "User already has an organization",
-        Code:  "USER_EXISTS",
-    }
-    
-    ErrInvalidOrgName = ErrorResponse{
-        Error: "Organization name must be 2-100 characters",
-        Code:  "INVALID_ORG_NAME",
-    }
-)
-```
+## What the next phase changes
 
-## Security Considerations
+`docs/onboarding-and-app-owned-orgs.md` — Phase 3 #14 — replaces:
 
-### Data Isolation
-- **Kinde organization ID** used for RLS policies
-- **JWT validation** on every request
-- **CSRF protection** for state-changing operations
+- The manual Kinde-dashboard step with `POST /v1/organizations`.
+- The chicken-and-egg invite flow with token-based magic-link emails
+  (Resend) and `POST /v1/invitations/accept`.
+- The `EnsureFirstMembership` auto-promotion with explicit owner
+  assignment at org-creation time.
+- The Kinde `org_code` JWT coupling with an `X-Organization-ID`
+  header validated against `memberships`.
 
-### Input Validation
-- **Organization name**: Length limits, sanitization
-- **Email validation**: Handled by Kinde
-- **SQL injection prevention**: Parameterized queries
-
-## Testing
-
-### Unit Tests
-```go
-func TestCreateOrganization(t *testing.T) {
-    // Test successful organization creation
-    // Test duplicate user handling
-    // Test invalid input validation
-    // Test database error handling
-}
-```
-
-### Integration Tests
-```go
-func TestOnboardingFlow(t *testing.T) {
-    // Test complete flow from Kinde callback to dashboard
-    // Test RLS policy enforcement
-    // Test error scenarios
-}
-```
-
-## Configuration
-
-### Environment Variables
-```bash
-# Kinde configuration
-KINDE_DOMAIN=https://axiaops.kinde.com
-KINDE_CLIENT_ID=your_client_id
-KINDE_CLIENT_SECRET=your_client_secret
-KINDE_REDIRECT_URI=https://app.axiaops.com/auth/callback
-
-# Database
-DATABASE_URL=postgres://user:pass@host:port/dbname
-
-# Application
-ENCRYPTION_KEY=32_byte_hex_key_for_secrets
-```
-
-This onboarding flow ensures a smooth user experience while maintaining proper security and data isolation through Kinde's multi-tenant architecture.
+That refactor unblocks paid self-serve and the self-managed-license
+GTM path. Read the plan doc for sequencing, AC checklist, and
+risks.
