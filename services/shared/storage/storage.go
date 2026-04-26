@@ -263,6 +263,42 @@ type Store interface {
 	// the invite-by-email flow. Returns ErrUserNotFound when no match.
 	GetUserByEmail(ctx context.Context, email string) (model.User, error)
 
+	// ── GDPR — right to erasure (see docs/rbac-design.md §10) ────────────────
+
+	// DeleteUser hard-deletes a user across the entire system as part of the
+	// per-user right-to-erasure flow. Steps:
+	//   1. Anonymise the user's audit_log footprint across ALL tenants
+	//      (sets user_id = NULL, actor_email = 'deleted-user').
+	//   2. Cascade-deletes all memberships (memberships.user_id has
+	//      ON DELETE CASCADE).
+	//   3. Deletes the users row.
+	// Returns ErrLastOwner if the user is the sole owner of any tenant —
+	// the caller must transfer ownership or delete those tenants first.
+	// Bypasses RLS (uses the admin pool) because the operation spans tenants
+	// and audit_log requires DELETE/UPDATE privileges the app role lacks.
+	// Does not touch users whose users.tenant_id row points at a tenant being
+	// deleted in the same flow — DeleteTenantCascade handles that case.
+	DeleteUser(ctx context.Context, userID string) error
+
+	// DeleteTenantCascade hard-deletes a tenant and every row scoped to it,
+	// in FK-safe order, in a single transaction. Used by the per-tenant
+	// right-to-erasure flow (DELETE /v1/tenants/me). Steps:
+	//   1. Anonymise audit_log entries (in OTHER tenants) for users whose
+	//      users.tenant_id = tenantID — those users are about to be deleted
+	//      and their attribution must be erased everywhere, not just here.
+	//   2. Delete per-tenant data: dismissed_zombies, zombie_snapshot_services,
+	//      zombie_snapshots, zombie_records, resource_records, cost_records,
+	//      accounts, audit_log.
+	//   3. Delete users with users.tenant_id = tenantID; CASCADE removes
+	//      their memberships in this and other tenants.
+	//   4. Delete the tenants row; CASCADE removes any remaining memberships
+	//      held by users from other tenants.
+	// Bypasses RLS (uses the admin pool). The call should be preceded by an
+	// audit_log write recording the deletion intent — that record is purged
+	// along with everything else, but a Prometheus counter and structured
+	// log line should remain as the operations trail.
+	DeleteTenantCascade(ctx context.Context, tenantID string) error
+
 	// Close releases any resources held by the store.
 	Close() error
 }

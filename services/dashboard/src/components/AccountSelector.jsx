@@ -2,14 +2,7 @@ import { useState } from 'react';
 import { useTheme } from '../theme/ThemeContext';
 import { Overlay } from '../components/primitives';
 import { Spinner } from '../components/primitives';
-
-const STATUS_LABEL = {
-  connected:            'Connected',
-  scanning:             'Scanning…',
-  error:                'Error',
-  scan_timeout:         'Timed out',
-  circuit_breaker_open: 'Unavailable',
-};
+import { STATUS_LABEL } from '../utils/accountStatus';
 
 export default function AccountSelector({
   accounts,
@@ -74,11 +67,20 @@ export default function AccountSelector({
 
           {accounts.map((account) => {
             const isActive = selectedAccount === account.id;
+            const select = () => { onSelectAccount(account.id); setShowDropdown(false); };
             return (
-              <button
+              // Outer is a div, not a button — Scan/⚙ inside are real
+              // <button>s and HTML forbids button-in-button (DOM nesting
+              // warning + inconsistent click behaviour across browsers).
+              <div
                 key={account.id}
+                role="button"
+                tabIndex={0}
                 style={{ ...s.accountItem, backgroundColor: isActive ? theme.accentLight : 'transparent' }}
-                onClick={() => { onSelectAccount(account.id); setShowDropdown(false); }}
+                onClick={select}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(); }
+                }}
               >
                 <div style={{ ...s.statusDot, backgroundColor: getStatusColor(account) }} />
                 <div style={s.accountInfo}>
@@ -104,7 +106,7 @@ export default function AccountSelector({
                     <span style={s.actionText}>⚙</span>
                   </button>
                 </div>
-              </button>
+              </div>
             );
           })}
 

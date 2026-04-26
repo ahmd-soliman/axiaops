@@ -43,7 +43,7 @@ async function ifetch(url, opts) {
 // auth headers, intercepts 403 → dispatches FORBIDDEN_EVENT, and surfaces
 // non-2xx responses as Errors with a `.status` property so callers can
 // branch on (e.g.) 409 conflicts without parsing message strings.
-async function request(path, { method = 'GET', body, headers = {} } = {}) {
+async function request(path, { method = 'GET', body, headers = {}, raw = false } = {}) {
   const opts = {
     method,
     headers: { ...authHeaders(), ...headers },
@@ -63,6 +63,9 @@ async function request(path, { method = 'GET', body, headers = {} } = {}) {
     }
     throw err;
   }
+  // raw=true skips body parsing — for callers that need a Blob, stream, or
+  // the response headers (e.g. Content-Disposition for downloads).
+  if (raw) return res;
   if (res.status === 204) return null;
   const ctype = res.headers.get('Content-Type') || '';
   if (ctype.includes('application/json')) return res.json();
@@ -288,7 +291,12 @@ export async function listMemberships() {
   return request('/v1/memberships');
 }
 
-export async function inviteMember(email, role) {
+// addMember adds an existing AxiaOps user (looked up server-side by email)
+// to the calling org's memberships. Backend returns 404 if no user matches —
+// today there's no email-out invitation flow, the user must have signed in
+// at least once. See Tasks.md "Multi-organization UX" for the future
+// invite-by-email flow that supersedes this constraint.
+export async function addMember(email, role) {
   return request('/v1/memberships', { method: 'POST', body: { email, role } });
 }
 
@@ -308,4 +316,30 @@ export async function transferOwnership(toUserID) {
     method: 'POST',
     body: { to_user_id: toUserID },
   });
+}
+
+// ── GDPR right-to-erasure ───────────────────────────────────────────────────
+//
+// Both go through `request()` so a 409 (sole-owner refusal on /users/me)
+// surfaces as `err.status === 409` with `err.body` carrying the API's
+// human-readable explanation.
+
+export async function deleteCurrentUser() {
+  return request('/v1/users/me', { method: 'DELETE' });
+}
+
+export async function deleteCurrentTenant() {
+  return request('/v1/tenants/me', { method: 'DELETE' });
+}
+
+// exportTenantData fetches GET /v1/export and returns { blob, filename } so
+// the caller can wire it into a browser download.
+export async function exportTenantData() {
+  const res = await request('/v1/export', { raw: true });
+  const cd = res.headers.get('Content-Disposition') || '';
+  const match = cd.match(/filename="([^"]+)"/);
+  return {
+    blob: await res.blob(),
+    filename: match ? match[1] : 'axiaops-export.json',
+  };
 }

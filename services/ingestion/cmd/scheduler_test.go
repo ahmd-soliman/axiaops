@@ -126,6 +126,8 @@ func (m *mockStoreForScheduler) EnsureDevMembership(context.Context, string, str
 func (m *mockStoreForScheduler) GetUserByEmail(context.Context, string) (model.User, error) {
 	return model.User{}, nil
 }
+func (m *mockStoreForScheduler) DeleteUser(context.Context, string) error          { return nil }
+func (m *mockStoreForScheduler) DeleteTenantCascade(context.Context, string) error { return nil }
 
 // captureQueue records enqueued jobs.
 type captureQueue struct{ jobs []queue.ScanJob }
