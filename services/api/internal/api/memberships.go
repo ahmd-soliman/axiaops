@@ -223,7 +223,7 @@ func (h *Handler) updateMembershipRole(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteMembership removes a user from the organization. Self-leave bypasses the
-// permission check (you don't need members:manage_* to leave a organization). The
+// permission check (you don't need members:manage_* to leave an organization). The
 // last-owner guard still applies — a sole owner must transfer first.
 func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

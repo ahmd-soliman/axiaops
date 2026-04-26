@@ -24,7 +24,7 @@ var ErrMembershipNotFound = errors.New("storage: membership not found")
 // distinguish "user has not logged in yet" from real errors.
 var ErrUserNotFound = errors.New("storage: user not found")
 
-// ErrLastOwner is returned by membership mutations that would leave a organization
+// ErrLastOwner is returned by membership mutations that would leave an organization
 // with zero owners. Surface as HTTP 409.
 var ErrLastOwner = errors.New("storage: cannot remove or demote the last owner")
 
@@ -64,19 +64,19 @@ type Store interface {
 
 	// SaveZombies replaces all zombie records with the latest detection results.
 	// Called by the ingestion job after each analysis run.
-	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry an organization ID via WithOrganizationID when using PostgreSQL.
 	SaveZombies(ctx context.Context, zombies []model.ZombieResource) error
 
 	// LoadZombies returns zombie records for the organization in ctx.
 	// Called by the API service per request.
-	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry an organization ID via WithOrganizationID when using PostgreSQL.
 	LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 
-	// UpsertOrganization creates a organization on first login or returns the existing one.
+	// UpsertOrganization creates an organization on first login or returns the existing one.
 	// Keyed on org_code — the Kinde organisation identifier.
 	UpsertOrganization(ctx context.Context, orgCode, name string) (model.Organization, error)
 
-	// EnsureOrganization creates a organization with a caller-supplied id if no row with
+	// EnsureOrganization creates an organization with a caller-supplied id if no row with
 	// that id exists yet. Unlike UpsertOrganization, the id is pinned (not a UUID)
 	// and the row is never modified on conflict. Used by dev mode at startup
 	// to guarantee a known-id organization row for FK references.
@@ -97,7 +97,7 @@ type Store interface {
 	// Timestamps are set to NOW().
 	EnsureUser(ctx context.Context, u model.User) error
 
-	// SaveAccount inserts or replaces a connected cloud account for a organization.
+	// SaveAccount inserts or replaces a connected cloud account for an organization.
 	SaveAccount(ctx context.Context, a model.Account) error
 
 	// ListAccounts returns all connected accounts for the organization in ctx.
@@ -124,23 +124,23 @@ type Store interface {
 
 	// SaveResources replaces all resource records with the latest inventory.
 	// Called by the ingestion job after each analysis run.
-	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry an organization ID via WithOrganizationID when using PostgreSQL.
 	SaveResources(ctx context.Context, resources []model.ResourceRecord) error
 
 	// LoadResources returns all resource records for the organization in ctx.
 	// Called by the API service per request.
-	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry an organization ID via WithOrganizationID when using PostgreSQL.
 	LoadResources(ctx context.Context) ([]model.ResourceRecord, error)
 
 	// ListCostRecords returns cost records for the organization in ctx, filtered by account, service, and time window.
 	// Records with amount > 0 are returned, ordered by period_start (newest first) then amount (largest first).
 	// If filter.Days is 0 or negative, defaults to 30 days.
-	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry an organization ID via WithOrganizationID when using PostgreSQL.
 	ListCostRecords(ctx context.Context, filter CostFilter) ([]model.CostRecord, error)
 
 	// SaveSnapshot writes a zombie snapshot after each ingestion scan.
 	// Snapshots are never replaced — they accumulate to form the savings history.
-	// ctx must carry a organization ID via WithOrganizationID when using PostgreSQL.
+	// ctx must carry an organization ID via WithOrganizationID when using PostgreSQL.
 	SaveSnapshot(ctx context.Context, snap model.ZombieSnapshot) error
 
 	// ListSnapshots returns zombie snapshots for the organization in ctx, ordered
@@ -189,7 +189,7 @@ type Store interface {
 	ExpireSnoozes(ctx context.Context) (int64, error)
 
 	// AuditLogWrite records a user-initiated mutation in audit_log.
-	// ctx must carry a organization ID via WithOrganizationID.  Returns the new row ID.
+	// ctx must carry an organization ID via WithOrganizationID.  Returns the new row ID.
 	// Callers must treat audit writes as best-effort — log the error, bump the
 	// axiaops_audit_writes_total{status="failed"} counter, and continue. Failing
 	// the underlying user operation because an audit row couldn't be written is
@@ -276,11 +276,11 @@ type Store interface {
 	// the caller must transfer ownership or delete those organizations first.
 	// Bypasses RLS (uses the admin pool) because the operation spans organizations
 	// and audit_log requires DELETE/UPDATE privileges the app role lacks.
-	// Does not touch users whose users.organization_id row points at a organization being
+	// Does not touch users whose users.organization_id column points at an organization being
 	// deleted in the same flow — DeleteOrganizationCascade handles that case.
 	DeleteUser(ctx context.Context, userID string) error
 
-	// DeleteOrganizationCascade hard-deletes a organization and every row scoped to it,
+	// DeleteOrganizationCascade hard-deletes an organization and every row scoped to it,
 	// in FK-safe order, in a single transaction. Used by the per-organization
 	// right-to-erasure flow (DELETE /v1/organizations/me). Steps:
 	//   1. Anonymise audit_log entries (in OTHER organizations) for users whose

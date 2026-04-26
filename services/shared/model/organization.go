@@ -12,7 +12,7 @@ type Organization struct {
 }
 
 // User represents an individual who has logged in.
-// Linked to an Organization via OrganizationID.
+// Linked to an Organization vian OrganizationID.
 type User struct {
 	ID             string // internal UUID
 	OrganizationID string // FK → Organization.ID
