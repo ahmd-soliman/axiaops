@@ -14,8 +14,8 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 
 | Package | Responsibility |
 |---------|---------------|
-| `model/` | Domain types: Tenant, User, Account, CostRecord, ZombieResource, ResourceRecord, ZombieSnapshot, SnapshotService |
-| `storage/` | `Store` interface + `WithTenantID()` / `TenantIDFromCtx()` context helpers |
+| `model/` | Domain types: Organization, User, Account, CostRecord, ZombieResource, ResourceRecord, ZombieSnapshot, SnapshotService |
+| `storage/` | `Store` interface + `WithOrganizationID()` / `OrganizationIDFromCtx()` context helpers |
 | `storage/postgres/` | Production Store impl — PostgreSQL with RLS, migrations |
 | `analyzer/` | `Detect()`, `Summarize()`, `AnnotateAll()` — pure functions, no I/O |
 | `crypto/` | AES-256-GCM encrypt/decrypt for account secrets |
@@ -28,12 +28,12 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 ## Store Interface
 
 The `Store` interface in `storage/storage.go` is the single contract for data access.
-All methods accept `context.Context` — tenant ID must be set via `WithTenantID()` before
+All methods accept `context.Context` — organization ID must be set via `WithOrganizationID()` before
 any call. PostgreSQL RLS enforces this at the DB level.
 
 Key methods: `SaveCostRecords`, `SaveZombies`, `LoadZombies`, `Summary`,
 `SaveAccount`, `ListAccounts`, `GetAccount`, `DeleteAccount`, `TryMarkAccountScanning`,
-`UpsertTenant`, `UpsertUser`, `SaveSnapshot`, `ListSnapshots`,
+`UpsertOrganization`, `UpsertUser`, `SaveSnapshot`, `ListSnapshots`,
 `SaveSnapshotServices`, `ListSnapshotsByService`, `ListTrendServices`,
 `ListTrendResourceTypes`.
 
@@ -56,17 +56,17 @@ Resources with no matching rule or no usage data are skipped (not flagged).
 - Migrations in `storage/postgres/migrations/` — `NNN_name.up.sql` / `NNN_name.down.sql`
 - Two DB users: `axiaops_owner` (runs migrations, creates schema) and `axiaops` (app user, RLS-limited)
 - Schema: `axiaops` (not public) — set via `SET search_path TO axiaops`
-- RLS policy: `tenant_id = current_setting('app.tenant_id', true)` on all data tables
+- RLS policy: `organization_id = current_setting('app.organization_id', true)` on all data tables
 - Connection pool: `pgxpool.Pool` — pass `DATABASE_URL` for app, `MIGRATION_DATABASE_URL` for migrations
-- Transactions: `BEGIN` → `SET app.tenant_id` → operations → `COMMIT`. Always `defer tx.Rollback()`.
-- Tables: `tenants`, `users`, `cost_records`, `zombie_records`, `resource_records`, `accounts`,
+- Transactions: `BEGIN` → `SET app.organization_id` → operations → `COMMIT`. Always `defer tx.Rollback()`.
+- Tables: `organizations`, `users`, `cost_records`, `zombie_records`, `resource_records`, `accounts`,
   `zombie_snapshots` (aggregate per-scan), `zombie_snapshot_services` (per-service breakdown per snapshot),
   `dismissed_zombies`
 
 ## Adding New Tables
 
 1. Create migration files: `NNN_description.up.sql` and `NNN_description.down.sql`
-2. Add RLS policy: `CREATE POLICY ... USING (tenant_id = current_setting('app.tenant_id', true))`
+2. Add RLS policy: `CREATE POLICY ... USING (organization_id = current_setting('app.organization_id', true))`
 3. Add methods to `Store` interface in `storage/storage.go`
 4. Implement in `storage/postgres/postgres.go`
 5. Write integration test in `storage/postgres/postgres_test.go`
@@ -130,8 +130,8 @@ defer observability.RecordScanEnd(ctx)
 observability.RecordScanError(accountID, "error_type")
 
 // Update gauges
-observability.Global.ZombiesDetected.WithLabelValues("aws", tenantID).Set(float64(count))
-observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(savings)
+observability.Global.ZombiesDetected.WithLabelValues("aws", organizationID).Set(float64(count))
+observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationID).Set(savings)
 ```
 
 ### Error Handling

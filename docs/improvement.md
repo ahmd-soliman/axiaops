@@ -23,7 +23,7 @@ Every flagged ghost must include an `Owner` attribute derived from resource tags
 ## 3. The 7-Day Threshold — Configurable Zombie Window
 **Status: Integrated → `development_plan.md` Phase 1.2**
 
-A fixed 7-day "last usage" window will generate false positives for enterprise customers with monthly batch jobs (e.g., a monthly reporting server that only runs on the 1st of each month). The zombie threshold must be configurable per tenant — default 7 days, with options for 14, 30, or custom.
+A fixed 7-day "last usage" window will generate false positives for enterprise customers with monthly batch jobs (e.g., a monthly reporting server that only runs on the 1st of each month). The zombie threshold must be configurable per organization — default 7 days, with options for 14, 30, or custom.
 
 ---
 

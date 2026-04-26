@@ -58,14 +58,14 @@ CORS_ORIGIN=*                        # default (local dev)
 Verifies Kinde RS256 JWTs on every request.
 
 - Fetches JWKS from `{KINDE_ISSUER}/.well-known/jwks` at startup; keys refresh automatically.
-- Extracts `org_code` claim → looks up tenant in DB → injects `tenant_id`, `tenant_name`, `user_id` into request context.
+- Extracts `org_code` claim → looks up organization in DB → injects `organization_id`, `organization_name`, `user_id` into request context.
 - Returns `401` for missing, expired, wrong-issuer, or malformed tokens.
 - Passes `OPTIONS` preflight requests through without auth (CORS support).
 
 **Context helpers:**
 ```go
-middleware.TenantID(ctx)   // internal tenant UUID
-middleware.TenantName(ctx) // tenant display name
+middleware.OrganizationID(ctx)   // internal organization UUID
+middleware.OrganizationName(ctx) // organization display name
 middleware.UserID(ctx)     // internal user UUID
 ```
 
@@ -75,9 +75,9 @@ middleware.UserID(ctx)     // internal user UUID
 
 ## Rate Limiter (`ratelimit.go`)
 
-In-memory token bucket, one bucket per tenant.
+In-memory token bucket, one bucket per organization.
 
-- Default: 60 requests/minute per tenant (1 token/sec, burst of 60).
+- Default: 60 requests/minute per organization (1 token/sec, burst of 60).
 - Returns `429 Too Many Requests` with a `Retry-After` header when the bucket is empty.
 - Disabled in `DEV_MODE=true`.
 - Background ticker in `main.go` calls `CleanupStaleBuckets(1h)` every 5 minutes to prevent memory growth.
@@ -114,6 +114,6 @@ Order matters — each layer wraps the next:
 1. **CORS** — outermost so headers are always set, even on rejected requests. Browser needs them to read any response.
 2. **Logger + Metrics** — wraps everything so all requests (including auth failures) are logged and counted.
 3. **RequestID** — early so every log line has a request ID, including auth failures.
-4. **Auth** — before rate limiter; injects tenant context used by the rate limiter and all handlers.
-5. **RateLimiter** — after auth so it can bucket by tenant ID rather than IP.
+4. **Auth** — before rate limiter; injects organization context used by the rate limiter and all handlers.
+5. **RateLimiter** — after auth so it can bucket by organization ID rather than IP.
 6. **Mux** — innermost; routes to the correct handler.

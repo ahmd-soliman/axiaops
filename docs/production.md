@@ -19,7 +19,7 @@ between the current state and a production-ready deployment on AWS.
 | Ingestion schedule | On-demand via API | Scheduled auto-scan (24h default, 2.11) |
 | Logging | Structured JSON (slog) | Structured JSON → CloudWatch Logs |
 | Metrics | Prometheus `/metrics` | Prometheus → Grafana Cloud (or CloudWatch custom metrics) |
-| Multi-tenancy | Per-tenant RLS | Same — no change |
+| Multi-tenancy | Per-organization RLS | Same — no change |
 | CI/CD | GitLab CI (test + build) | GitLab CI (test → build → deploy to ECR + App Runner) |
 | Infrastructure | Docker Compose | Terraform (App Runner + RDS + ElastiCache + Secrets Manager) |
 

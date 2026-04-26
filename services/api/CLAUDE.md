@@ -18,7 +18,7 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | GET | /readyz | No | Readiness — pings DB (503 if down) and reports Redis status (informational; "ok" / "unreachable" / "skipped"). Wire monitoring/synthetic checks to this |
 | GET | /metrics | No | Prometheus metrics (internal only) |
 | GET | /version | Yes | Build identifier — `{service, version, commit, env}` |
-| GET | /zombies | Yes | List zombie resources for tenant |
+| GET | /zombies | Yes | List zombie resources for organization |
 | GET | /summary | Yes | Aggregate savings + per-service breakdown |
 | GET | /trend | Yes | Zombie snapshots over time (?account_id, ?service, ?resource_type) |
 | GET | /trend/services | Yes | Distinct services available in trend data |
@@ -32,21 +32,21 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | POST | /dismissals | Yes | Dismiss or snooze a zombie resource |
 | GET | /dismissals | Yes | List active dismissals (?account_id) |
 | DELETE | /dismissals/{id} | Yes | Revoke a dismissal |
-| GET | /audit | Yes | Tenant audit timeline (?user_id, ?resource_type, ?resource_id, ?action, ?since, ?until, ?limit, ?cursor) |
+| GET | /audit | Yes | Organization audit timeline (?user_id, ?resource_type, ?resource_id, ?action, ?since, ?until, ?limit, ?cursor) |
 | GET | /me | Yes | Current user's role + permission set; no permission required beyond authn |
-| GET | /memberships | Yes | List tenant memberships |
+| GET | /memberships | Yes | List organization memberships |
 | POST | /memberships | Yes | Invite an existing user (by user_id) and assign a role; admin+ only |
 | PATCH | /memberships/{id}/role | Yes | Promote or demote a member; permission tier depends on target role |
 | DELETE | /memberships/{id} | Yes | Remove a member; self-leave bypasses permission check (last-owner guard still applies) |
-| POST | /tenants/transfer-ownership | Yes | Atomically transfer owner role to another user; owner only |
-| DELETE | /users/me | Yes | Right-to-erasure: hard-delete the caller. 409 if sole owner of any tenant — must transfer or delete those tenants first. Anonymises audit_log across all tenants. |
-| DELETE | /tenants/me | Yes | Right-to-erasure: cascade-delete the entire tenant (every per-tenant table including audit_log). Owner-only (`tenant:delete`). |
+| POST | /organizations/transfer-ownership | Yes | Atomically transfer owner role to another user; owner only |
+| DELETE | /users/me | Yes | Right-to-erasure: hard-delete the caller. 409 if sole owner of any organization — must transfer or delete those organizations first. Anonymises audit_log across all organizations. |
+| DELETE | /organizations/me | Yes | Right-to-erasure: cascade-delete the entire organization (every per-organization table including audit_log). Owner-only (`organization:delete`). |
 
 ## Key Patterns
 
 - **Route registration:** `handler.Register(mux)` — uses Go 1.22+ `mux.HandleFunc("GET /path", fn)`
-- **Tenant context:** Auth middleware extracts tenant from JWT, sets via `middleware.TenantID(ctx)`.
-  Handlers must call `storage.WithTenantID(ctx, tenantID)` before any DB operation.
+- **Organization context:** Auth middleware extracts organization from JWT, sets via `middleware.OrganizationID(ctx)`.
+  Handlers must call `storage.WithOrganizationID(ctx, organizationID)` before any DB operation.
 - **Async scans:** `POST /accounts/{id}/scan` sets status to `scanning`, fires goroutine with
   `context.WithTimeout(context.Background(), 15*time.Minute)`, POSTs to ingestion at `:8081/scan`
 - **Scan lock:** In-memory `sync.Mutex` map prevents duplicate concurrent scans per account
@@ -56,8 +56,8 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 
 1. Add handler method to `Handler` struct in `internal/api/handler.go`
 2. Register route in `Register(mux)` with correct HTTP method prefix
-3. Extract tenant: `tid := middleware.TenantID(r.Context())`
-4. Set tenant on context: `ctx := storage.WithTenantID(r.Context(), tid)`
+3. Extract organization: `tid := middleware.OrganizationID(r.Context())`
+4. Set organization on context: `ctx := storage.WithOrganizationID(r.Context(), tid)`
 5. Use `writeJSON(w, data)` for responses
 6. Add test in `internal/api/handler_test.go` using `httptest.NewRecorder`
 
@@ -67,7 +67,7 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 - Fetches JWKS from Kinde's `.well-known/jwks.json` endpoint
 - Verifies RS256 signature + expiry
 - `DEV_MODE=true` → auth bypassed, uses `DEV_TENANT_ID`
-- Tenant mapped: Kinde `org_code` → `tenants.id` via `UpsertTenant()`
+- Organization mapped: Kinde `org_code` → `organizations.id` via `UpsertOrganization()`
 
 ## Prometheus Metrics (Phase 2.6)
 
@@ -125,9 +125,9 @@ Errors are logged to stdout with structured context (JSON format in production).
 | DATABASE_URL | Yes | — | PostgreSQL app-user connection |
 | MIGRATION_DATABASE_URL | Yes | — | PostgreSQL owner connection (migrations) |
 | API_ADDR | No | :8080 | Listen address |
-| KINDE_ISSUER | Prod | — | Kinde tenant URL |
-| DEV_MODE | No | false | Skip auth, use fixed tenant |
-| DEV_TENANT_ID | No | dev-tenant-axiaops | Tenant ID in dev mode |
+| KINDE_ISSUER | Prod | — | Kinde organization URL |
+| DEV_MODE | No | false | Skip auth, use fixed organization |
+| DEV_TENANT_ID | No | dev-organization-axiaops | Organization ID in dev mode |
 | DEV_USER_ID | No | dev-user-axiaops | User ID seeded in dev mode; `EnsureDevMembership` assigns it `owner` |
 | DEV_USER_EMAIL | No | dev@axiaops.local | Email for the dev user row |
 | CORS_ORIGIN | No | * | Allowed CORS origin |

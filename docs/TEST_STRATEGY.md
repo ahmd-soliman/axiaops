@@ -44,14 +44,14 @@ Each serves a different purpose and has different constraints.
 
 **What they test:**
 - PostgreSQL storage layer
-- Row-Level Security (RLS) tenant isolation
+- Row-Level Security (RLS) organization isolation
 - Database migrations
 - Concurrent access patterns
 
 **Database:**
 - **PostgreSQL 16** — shared test database
 - Cleaned before each test (`TRUNCATE CASCADE`)
-- Each test creates own tenant for isolation
+- Each test creates own organization for isolation
 
 **Parallelization:**
 - ❌ **NOT safe to parallelize** — tests share same database
@@ -71,7 +71,7 @@ Each serves a different purpose and has different constraints.
 | Aspect | Unit Tests | Integration Tests |
 |--------|-----------|-------------------|
 | **Database** | None (mocks) | PostgreSQL (persistent) |
-| **Isolation** | Per-test mock | Per-test tenant |
+| **Isolation** | Per-test mock | Per-test organization |
 | **Parallelization** | Yes (4 parallel) | No (sequential only) |
 | **Speed** | Fast (~1s) | Moderate (~5s) |
 | **Environment** | No setup required | Requires PostgreSQL running |
@@ -94,9 +94,9 @@ func newTestStore(t *testing.T) *postgres.Store {
 
 // Layer 2: After test completes
 func setup(t *testing.T) {
-	db.Exec("TRUNCATE TABLE snapshots, resources, accounts, users, tenants CASCADE")
+	db.Exec("TRUNCATE TABLE snapshots, resources, accounts, users, organizations CASCADE")
 	t.Cleanup(func() {
-		db.Exec("TRUNCATE TABLE snapshots, resources, accounts, users, tenants CASCADE")
+		db.Exec("TRUNCATE TABLE snapshots, resources, accounts, users, organizations CASCADE")
 		db.Close()
 	})
 }
@@ -159,7 +159,7 @@ with no conflicts.
 ### ✅ Do
 
 1. **Use `t.Cleanup()`** for post-test cleanup
-2. **Create fresh tenants per test** via `newTenantCtx(t, store)`
+2. **Create fresh organizations per test** via `newOrgCtx(t, store)`
 3. **Run integration tests sequentially**: `go test ./storage/postgres/... -p=1`
 4. **Use `-count=1`** to disable test caching
 
@@ -190,7 +190,7 @@ No database required. Will run in parallel.
 // services/shared/storage/postgres/postgres_test.go
 func TestSaveWithComplexQuery(t *testing.T) {
 	s := newTestStore(t)  // setup + cleanup wired in
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 	// ... test with real PostgreSQL ...
 }
 ```
