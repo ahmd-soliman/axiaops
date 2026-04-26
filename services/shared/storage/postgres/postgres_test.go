@@ -67,7 +67,7 @@ func setup(t *testing.T) *pgx.Conn {
 		axiaops.cost_records,
 		axiaops.accounts,
 		axiaops.users,
-		axiaops.tenants
+		axiaops.organizations
 	CASCADE`
 	// Wipe everything to ensure a "known good state"
 	if _, err := conn.Exec(context.Background(), truncate); err != nil {
@@ -235,7 +235,7 @@ func TestSave_MissingTenantID_Errors(t *testing.T) {
 
 	_, err := s.Save(ctx, []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 10)})
 	if err == nil {
-		t.Error("expected error when tenant_id missing from context, got nil")
+		t.Error("expected error when organization_id missing from context, got nil")
 	}
 }
 
@@ -424,7 +424,7 @@ func TestUpsertUser_CreatesOnFirstLogin(t *testing.T) {
 		t.Error("expected non-empty user ID")
 	}
 	if user.OrganizationID != tenant.ID {
-		t.Errorf("expected tenant_id %s, got %s", tenant.ID, user.OrganizationID)
+		t.Errorf("expected organization_id %s, got %s", tenant.ID, user.OrganizationID)
 	}
 	if user.Email != "alice@acme.com" {
 		t.Errorf("expected email alice@acme.com, got %s", user.Email)
@@ -494,13 +494,13 @@ func TestEnsureUser_UpdatesOnConflict(t *testing.T) {
 	defer func() { _ = conn.Close(context.Background()) }()
 	var tenantID, email, name string
 	err := conn.QueryRow(context.Background(),
-		`SELECT tenant_id, email, name FROM axiaops.users WHERE id = $1`, id,
+		`SELECT organization_id, email, name FROM axiaops.users WHERE id = $1`, id,
 	).Scan(&tenantID, &email, &name)
 	if err != nil {
 		t.Fatalf("fetch row: %v", err)
 	}
 	if tenantID != tenant2.ID {
-		t.Errorf("tenant_id: got %q, want %q (self-correcting update)", tenantID, tenant2.ID)
+		t.Errorf("organization_id: got %q, want %q (self-correcting update)", tenantID, tenant2.ID)
 	}
 	if email != "new@axiaops.local" {
 		t.Errorf("email: got %q, want %q", email, "new@axiaops.local")
@@ -520,7 +520,7 @@ func TestUsersDevKindeSubCheckConstraint(t *testing.T) {
 
 	now := time.Now().UTC()
 	_, err := conn.Exec(context.Background(),
-		`INSERT INTO axiaops.users (id, tenant_id, kinde_sub, email, name, created_at, last_seen)
+		`INSERT INTO axiaops.users (id, organization_id, kinde_sub, email, name, created_at, last_seen)
 		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
 		"user-A", tenant.ID, "dev:user-B", "mismatch@axiaops.local", "Mismatch", now,
 	)
@@ -960,7 +960,7 @@ func TestSaveSnapshot_MissingTenantID_Errors(t *testing.T) {
 		Currency:         "USD",
 	}
 	if err := s.SaveSnapshot(ctx, snap); err == nil {
-		t.Error("expected error when tenant_id missing from context, got nil")
+		t.Error("expected error when organization_id missing from context, got nil")
 	}
 }
 
@@ -969,7 +969,7 @@ func TestListSnapshots_MissingTenantID_Errors(t *testing.T) {
 	ctx := context.Background() // no tenant in context
 
 	if _, err := s.ListSnapshots(ctx, ""); err == nil {
-		t.Error("expected error when tenant_id missing from context, got nil")
+		t.Error("expected error when organization_id missing from context, got nil")
 	}
 }
 
@@ -1139,9 +1139,9 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 	} else if got := events[1].IPAddress.String(); got != "203.0.113.7" {
 		t.Errorf("ip_address: got %q, want 203.0.113.7", got)
 	}
-	// tenant_id column should equal the tenant we wrote under.
+	// organization_id column should equal the tenant we wrote under.
 	if events[0].OrganizationID != tenant.ID {
-		t.Errorf("tenant_id: got %q, want %q", events[0].OrganizationID, tenant.ID)
+		t.Errorf("organization_id: got %q, want %q", events[0].OrganizationID, tenant.ID)
 	}
 }
 
@@ -1317,9 +1317,9 @@ func TestAuditLog_AnonymiseUser(t *testing.T) {
 func TestAuditLog_MissingTenant_Errors(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.AuditLogWrite(context.Background(), model.AuditEvent{Action: model.AuditActionDismissZombie}); err == nil {
-		t.Error("expected error when tenant_id missing from ctx, got nil")
+		t.Error("expected error when organization_id missing from ctx, got nil")
 	}
 	if _, err := s.AuditLogList(context.Background(), model.AuditFilter{}); err == nil {
-		t.Error("expected list error when tenant_id missing from ctx, got nil")
+		t.Error("expected list error when organization_id missing from ctx, got nil")
 	}
 }
