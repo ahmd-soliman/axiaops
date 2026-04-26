@@ -108,7 +108,7 @@ function formatDateTime(iso) {
 // ─── Snapshot merge ──────────────────────────────────────────────────────────
 // When multiple filter buckets are active (e.g. EC2 + RDS, or EC2 · Volumes +
 // EC2 · Snapshots), we fetch one time series per bucket and sum them here by
-// snapshot_at. Works because all buckets for a single tenant share the same
+// snapshot_at. Works because all buckets for a single organization share the same
 // snapshot timestamps.
 function mergeSnapshotSeries(seriesList) {
   const byTimestamp = new Map();

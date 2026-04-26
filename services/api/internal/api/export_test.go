@@ -116,7 +116,7 @@ func TestExport_Owner_200_HappyPath(t *testing.T) {
 		t.Fatalf("expected a %q audit row, got %d total events: %+v",
 			model.AuditActionDataExported, len(gotEvents), gotEvents)
 	}
-	if found.ResourceType != "tenant" || found.ResourceID != "tenant-me" {
+	if found.ResourceType != "organization" || found.ResourceID != "tenant-me" {
 		t.Errorf("audit row resource fields wrong: type=%q id=%q", found.ResourceType, found.ResourceID)
 	}
 	if found.Metadata == nil || found.Metadata["accounts"] == nil {

@@ -27,7 +27,7 @@ const RESOURCE_TYPES = [
   { value: 'dismissal',  label: 'Dismissals' },
   { value: 'account',    label: 'Accounts' },
   { value: 'membership', label: 'Members' },
-  { value: 'tenant',     label: 'Organization' },
+  { value: 'organization', label: 'Organization' },
 ];
 
 const PAGE_SIZE = 50;
