@@ -326,7 +326,7 @@ func TestListZombies_IncludeDismissedQueryParam(t *testing.T) {
 }
 
 // TestCreateDismissal_RecordsUserIdentityViaDevBypass verifies that when the
-// request flows through DevBypass (not just the storage.WithTenantID helper),
+// request flows through DevBypass (not just the storage.WithOrganizationID helper),
 // the stable user_id — not the tenant_id or email — lands in dismissed_by.
 // Guards against regressing the pre-audit-trail bug where dismissed_by held
 // tenant_id because user identity was never on the context.

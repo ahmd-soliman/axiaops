@@ -4,7 +4,7 @@
 //  1. HTTP server (default) — listens on :8081, accepts POST /scan to run on demand.
 //  2. One-shot CLI          — set RUN_ONCE=true to run a single ingestion and exit.
 //
-// The API service triggers scans via POST /scan with {"account_id","tenant_id"}.
+// The API service triggers scans via POST /scan with {"account_id","organization_id"}.
 // Credentials for the account are read from the accounts table in the database.
 package main
 
@@ -132,7 +132,7 @@ func main() {
 			return
 		}
 
-		ctx := storage.WithTenantID(context.Background(), req.OrganizationID)
+		ctx := storage.WithOrganizationID(context.Background(), req.OrganizationID)
 
 		if err := runScan(ctx, store, req.AccountID); err != nil {
 			slog.Error("scan: ingestion failed", "account_id", req.AccountID, "error", err)
@@ -355,7 +355,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	}
 	providers = append(providers, awsClient)
 
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		orgCode := "aws-" + awsClient.AccountID()
 		tenant, err := store.UpsertOrganization(ctx, orgCode, orgCode)
@@ -363,8 +363,8 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			return fmt.Errorf("upsert tenant: %w", err)
 		}
 		tenantID = tenant.ID
-		ctx = storage.WithTenantID(ctx, tenantID)
-		slog.Info("ingestion: using auto-created tenant", "tenant_id", tenantID, "org_code", orgCode)
+		ctx = storage.WithOrganizationID(ctx, tenantID)
+		slog.Info("ingestion: using auto-created tenant", "organization_id", tenantID, "org_code", orgCode)
 	}
 
 	end, start := dateRange()
@@ -729,10 +729,10 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Que
 			EnqueuedAt:     time.Now().UTC(),
 		}
 		if err := q.Enqueue(ctx, job); err != nil {
-			slog.Error("scan.failed_to_trigger", "account_id", acc.ID, "tenant_id", acc.OrganizationID, "error", err)
+			slog.Error("scan.failed_to_trigger", "account_id", acc.ID, "organization_id", acc.OrganizationID, "error", err)
 			continue
 		}
-		slog.Info("scan.scheduled", "account_id", acc.ID, "tenant_id", acc.OrganizationID, "interval_hours", acc.ScanIntervalHours)
+		slog.Info("scan.scheduled", "account_id", acc.ID, "organization_id", acc.OrganizationID, "interval_hours", acc.ScanIntervalHours)
 	}
 }
 

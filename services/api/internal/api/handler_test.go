@@ -49,7 +49,7 @@ func testHandler() (*api.Handler, *http.ServeMux) {
 // tenant_id and user_id off the context.
 func tenantRequest(method, path string) *http.Request {
 	r := httptest.NewRequest(method, path, nil)
-	ctx := storage.WithTenantID(r.Context(), "tenant-test-uuid")
+	ctx := storage.WithOrganizationID(r.Context(), "tenant-test-uuid")
 	r = r.WithContext(ctx)
 	return r.WithContext(injectIdentity(r.Context(), "tenant-test-uuid", "user-test-uuid", "test@x.com"))
 }
@@ -57,7 +57,7 @@ func tenantRequest(method, path string) *http.Request {
 func tenantRequestWithBody(method, path, body string) *http.Request {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	ctx := storage.WithTenantID(r.Context(), "tenant-test-uuid")
+	ctx := storage.WithOrganizationID(r.Context(), "tenant-test-uuid")
 	r = r.WithContext(ctx)
 	return r.WithContext(injectIdentity(r.Context(), "tenant-test-uuid", "user-test-uuid", "test@x.com"))
 }
