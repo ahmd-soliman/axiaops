@@ -1,6 +1,6 @@
 # Audit Trail — Implementation Plan
 
-> Source tasks: `docs/TASKS.md` **3.3 Remediation Actions** (migration `009_add_audit_log.sql`)
+> Source tasks: `Tasks.md` **3.3 Remediation Actions** (migration `009_add_audit_log.sql`)
 > and `docs/development_plan.md` **3.3 Remediation Actions** + **3.10 GDPR / Data Deletion**
 > (user deletion must anonymise audit entries, not hard-delete).
 >
