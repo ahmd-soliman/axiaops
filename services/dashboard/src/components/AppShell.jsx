@@ -62,6 +62,14 @@ function IconCost({ color, size = 18 }) {
   );
 }
 
+function IconCloud({ color, size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+    </svg>
+  );
+}
+
 function IconSettings({ color, size = 18 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -82,10 +90,11 @@ function IconSettings({ color, size = 18 }) {
 // filters tabs per-permission internally.
 
 const NAV_ITEMS = [
-  { label: 'Overview', path: '/',         Icon: IconOverview },
-  { label: 'Trends',   path: '/trend',    Icon: IconTrend },
-  { label: 'Costs',    path: '/cost',     Icon: IconCost },
-  { label: 'Settings', path: '/settings', Icon: IconSettings },
+  { label: 'Overview',       path: '/',                Icon: IconOverview },
+  { label: 'Trends',         path: '/trend',           Icon: IconTrend },
+  { label: 'Costs',          path: '/cost',            Icon: IconCost },
+  { label: 'Cloud Accounts', path: '/cloud-accounts',  Icon: IconCloud },
+  { label: 'Settings',       path: '/settings',        Icon: IconSettings },
 ];
 
 // ─── Top navbar ───────────────────────────────────────────────────────────────
