@@ -47,6 +47,11 @@ type Metrics struct {
 
 	// Audit trail metrics
 	AuditWritesTotal        *prometheus.CounterVec   // Audit log writes by action and status (ok|failed)
+
+	// GDPR / right-to-erasure metrics — these are the operational trail that
+	// survives the audit_log purge that tenant deletion performs.
+	TenantDeletionsTotal    *prometheus.CounterVec   // Tenant cascade deletes by status (ok|failed)
+	UserDeletionsTotal      *prometheus.CounterVec   // Per-user hard deletes by status (ok|failed|conflict)
 }
 
 // registry is the global Prometheus registry.
@@ -175,6 +180,18 @@ func newMetrics() *Metrics {
 			Name: "axiaops_audit_writes_total",
 			Help: "Total audit_log writes attempted, labelled by action and outcome. Alert when status=failed is non-zero — audit gaps are a compliance risk.",
 		}, []string{"action", "status"}),
+
+		// GDPR — the audit_log row for a tenant deletion gets purged with the
+		// rest of that tenant's data, so these counters are the durable
+		// operational record that the deletion happened.
+		TenantDeletionsTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_tenant_deletions_total",
+			Help: "Total tenant cascade deletions attempted, labelled by outcome (ok|failed).",
+		}, []string{"status"}),
+		UserDeletionsTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_user_deletions_total",
+			Help: "Total per-user hard deletions attempted, labelled by outcome (ok|failed|conflict). conflict means the user was the sole owner of a tenant and must transfer first.",
+		}, []string{"status"}),
 	}
 
 	return m

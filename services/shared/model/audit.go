@@ -43,6 +43,11 @@ const (
 	AuditActionMemberRoleChanged = "member_role_changed"
 	AuditActionMemberRemoved    = "member_removed"
 	AuditActionOwnershipTransferred = "ownership_transferred"
+	// AuditActionTenantDeleted is written immediately before a tenant cascade
+	// delete (DELETE /v1/tenants/me). The row itself gets purged with the
+	// rest of audit_log, so its only durable trace is the structured slog
+	// line and the axiaops_tenant_deletions_total Prometheus counter.
+	AuditActionTenantDeleted = "tenant_deleted"
 )
 
 // ValidAuditActions is the authoritative set of action codes accepted on write
@@ -59,6 +64,7 @@ var ValidAuditActions = map[string]bool{
 	AuditActionMemberRoleChanged:    true,
 	AuditActionMemberRemoved:        true,
 	AuditActionOwnershipTransferred: true,
+	AuditActionTenantDeleted:        true,
 }
 
 // AuditFilter parameterises AuditLogList queries. Zero-value fields are not

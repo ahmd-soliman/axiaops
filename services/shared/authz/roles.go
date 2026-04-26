@@ -44,6 +44,7 @@ const (
 	PermMembersManageAdmin   Permission = "members:manage_admin"
 
 	PermTenantTransfer Permission = "tenant:transfer"
+	PermTenantDelete   Permission = "tenant:delete"
 )
 
 // rolePermissions maps each role to its complete permission set, including
@@ -78,6 +79,7 @@ var directGrants = map[Role][]Permission{
 	RoleOwner: {
 		PermMembersManageAdmin,
 		PermTenantTransfer,
+		PermTenantDelete,
 	},
 }
 
