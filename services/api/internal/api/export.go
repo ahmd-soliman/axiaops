@@ -100,7 +100,7 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 	// export than miss a leak. Don't move this below enc.Encode.
 	audit.Record(r, h.store, model.AuditEvent{
 		Action:       model.AuditActionDataExported,
-		ResourceType: "tenant",
+		ResourceType: "organization",
 		ResourceID:   tid,
 		Metadata: map[string]any{
 			"members":             len(exp.Members),

@@ -79,7 +79,7 @@ func (h *Handler) deleteCurrentOrganization(w http.ResponseWriter, r *http.Reque
 	// permanent ops trail.
 	audit.Record(r, h.store, model.AuditEvent{
 		Action:       model.AuditActionOrganizationDeleted,
-		ResourceType: "tenant",
+		ResourceType: "organization",
 		ResourceID:   tid,
 	})
 
