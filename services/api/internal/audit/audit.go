@@ -47,8 +47,8 @@ func Record(r *http.Request, w Writer, e model.AuditEvent) {
 	}
 
 	ctx := r.Context()
-	tenantID := middleware.OrganizationID(ctx)
-	if tenantID == "" {
+	organizationID := middleware.OrganizationID(ctx)
+	if organizationID == "" {
 		// No tenant means RLS will reject the insert; don't even try.
 		observability.Global.AuditWritesTotal.WithLabelValues(e.Action, "failed").Inc()
 		slog.Error("audit: tenant_id missing from context — dropping event", "action", e.Action)
@@ -78,7 +78,7 @@ func Record(r *http.Request, w Writer, e model.AuditEvent) {
 	// slow DB to tie up resources either.
 	writeCtx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 	defer cancel()
-	writeCtx = storage.WithOrganizationID(writeCtx, tenantID)
+	writeCtx = storage.WithOrganizationID(writeCtx, organizationID)
 
 	if _, err := w.AuditLogWrite(writeCtx, e); err != nil {
 		observability.Global.AuditWritesTotal.WithLabelValues(e.Action, "failed").Inc()
@@ -86,7 +86,7 @@ func Record(r *http.Request, w Writer, e model.AuditEvent) {
 			"action", e.Action,
 			"resource_type", e.ResourceType,
 			"resource_id", e.ResourceID,
-			"organization_id", tenantID,
+			"organization_id", organizationID,
 			"error", err,
 		)
 		return

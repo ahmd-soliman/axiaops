@@ -15,13 +15,13 @@ import (
 
 func TestDeleteUser_RefusesSoleOwner(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
 	userID := "u-" + uuid.New().String()
-	if err := s.EnsureUser(ctx, model.User{ID: userID, OrganizationID: tenant.ID, Email: "owner@x.com"}); err != nil {
+	if err := s.EnsureUser(ctx, model.User{ID: userID, OrganizationID: org.ID, Email: "owner@x.com"}); err != nil {
 		t.Fatalf("EnsureUser: %v", err)
 	}
-	if err := s.EnsureDevMembership(ctx, tenant.ID, userID, "owner"); err != nil {
+	if err := s.EnsureDevMembership(ctx, org.ID, userID, "owner"); err != nil {
 		t.Fatalf("EnsureDevMembership: %v", err)
 	}
 
@@ -45,21 +45,21 @@ func TestDeleteUser_RefusesSoleOwner(t *testing.T) {
 
 func TestDeleteUser_AnonymisesAuditAndRemovesUser(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
 	// Two users so deleting one doesn't violate the sole-owner guard.
 	ownerID := "u-" + uuid.New().String()
 	leavingID := "u-" + uuid.New().String()
-	if err := s.EnsureUser(ctx, model.User{ID: ownerID, OrganizationID: tenant.ID, Email: "owner@x.com"}); err != nil {
+	if err := s.EnsureUser(ctx, model.User{ID: ownerID, OrganizationID: org.ID, Email: "owner@x.com"}); err != nil {
 		t.Fatalf("EnsureUser owner: %v", err)
 	}
-	if err := s.EnsureUser(ctx, model.User{ID: leavingID, OrganizationID: tenant.ID, Email: "leaving@x.com"}); err != nil {
+	if err := s.EnsureUser(ctx, model.User{ID: leavingID, OrganizationID: org.ID, Email: "leaving@x.com"}); err != nil {
 		t.Fatalf("EnsureUser leaving: %v", err)
 	}
-	if err := s.EnsureDevMembership(ctx, tenant.ID, ownerID, "owner"); err != nil {
+	if err := s.EnsureDevMembership(ctx, org.ID, ownerID, "owner"); err != nil {
 		t.Fatalf("EnsureDevMembership owner: %v", err)
 	}
-	if err := s.EnsureDevMembership(ctx, tenant.ID, leavingID, "member"); err != nil {
+	if err := s.EnsureDevMembership(ctx, org.ID, leavingID, "member"); err != nil {
 		t.Fatalf("EnsureDevMembership leaving: %v", err)
 	}
 
@@ -99,7 +99,7 @@ func TestDeleteUser_AnonymisesAuditAndRemovesUser(t *testing.T) {
 	if err := conn.QueryRow(context.Background(),
 		`SELECT COUNT(*) FROM axiaops.audit_log
 		 WHERE organization_id = $1 AND user_id IS NULL AND actor_email = 'deleted-user'`,
-		tenant.ID).Scan(&anonymisedAudit); err != nil {
+		org.ID).Scan(&anonymisedAudit); err != nil {
 		t.Fatalf("count anonymised: %v", err)
 	}
 	if anonymisedAudit != 2 {
@@ -111,14 +111,14 @@ func TestDeleteUser_AnonymisesAuditAndRemovesUser(t *testing.T) {
 
 func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
 	// User + membership in this tenant.
 	userID := "u-" + uuid.New().String()
-	if err := s.EnsureUser(ctx, model.User{ID: userID, OrganizationID: tenant.ID, Email: "u@x.com"}); err != nil {
+	if err := s.EnsureUser(ctx, model.User{ID: userID, OrganizationID: org.ID, Email: "u@x.com"}); err != nil {
 		t.Fatalf("EnsureUser: %v", err)
 	}
-	if err := s.EnsureDevMembership(ctx, tenant.ID, userID, "owner"); err != nil {
+	if err := s.EnsureDevMembership(ctx, org.ID, userID, "owner"); err != nil {
 		t.Fatalf("EnsureDevMembership: %v", err)
 	}
 
@@ -127,7 +127,7 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 	if err := s.SaveAccount(ctx, model.Account{
-		ID: "acc-" + uuid.New().String(), OrganizationID: tenant.ID,
+		ID: "acc-" + uuid.New().String(), OrganizationID: org.ID,
 		Provider: "aws", AccountID: "000000000000", Region: "eu-central-1", Status: "connected",
 	}); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
@@ -138,7 +138,7 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 		t.Fatalf("AuditLogWrite: %v", err)
 	}
 
-	if err := s.DeleteOrganizationCascade(ctx, tenant.ID); err != nil {
+	if err := s.DeleteOrganizationCascade(ctx, org.ID); err != nil {
 		t.Fatalf("DeleteOrganizationCascade: %v", err)
 	}
 
@@ -162,7 +162,7 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 		{"audit_log", `SELECT COUNT(*) FROM axiaops.audit_log WHERE organization_id = $1`},
 	} {
 		var n int
-		if err := conn.QueryRow(context.Background(), q.sql, tenant.ID).Scan(&n); err != nil {
+		if err := conn.QueryRow(context.Background(), q.sql, org.ID).Scan(&n); err != nil {
 			t.Fatalf("%s count: %v", q.label, err)
 		}
 		if n != 0 {
@@ -176,17 +176,17 @@ func TestDeleteOrganizationCascade_AnonymisesCrossTenantAudit(t *testing.T) {
 	// audit rows in B. When A is deleted (and U with it), U's audit rows in
 	// B must be anonymised — right to erasure travels with the user.
 	s := newTestStore(t)
-	ctxA, tenantA := newTenantCtx(t, s)
-	ctxB, tenantB := newTenantCtx(t, s)
+	ctxA, orgA := newOrgCtx(t, s)
+	ctxB, orgB := newOrgCtx(t, s)
 
 	userID := "u-" + uuid.New().String()
-	if err := s.EnsureUser(ctxA, model.User{ID: userID, OrganizationID: tenantA.ID, Email: "u@x.com"}); err != nil {
+	if err := s.EnsureUser(ctxA, model.User{ID: userID, OrganizationID: orgA.ID, Email: "u@x.com"}); err != nil {
 		t.Fatalf("EnsureUser: %v", err)
 	}
-	if err := s.EnsureDevMembership(ctxA, tenantA.ID, userID, "owner"); err != nil {
+	if err := s.EnsureDevMembership(ctxA, orgA.ID, userID, "owner"); err != nil {
 		t.Fatalf("EnsureDevMembership A: %v", err)
 	}
-	if err := s.EnsureDevMembership(ctxB, tenantB.ID, userID, "member"); err != nil {
+	if err := s.EnsureDevMembership(ctxB, orgB.ID, userID, "member"); err != nil {
 		t.Fatalf("EnsureDevMembership B: %v", err)
 	}
 	if _, err := s.AuditLogWrite(ctxB, model.AuditEvent{
@@ -195,7 +195,7 @@ func TestDeleteOrganizationCascade_AnonymisesCrossTenantAudit(t *testing.T) {
 		t.Fatalf("AuditLogWrite B: %v", err)
 	}
 
-	if err := s.DeleteOrganizationCascade(ctxA, tenantA.ID); err != nil {
+	if err := s.DeleteOrganizationCascade(ctxA, orgA.ID); err != nil {
 		t.Fatalf("DeleteOrganizationCascade: %v", err)
 	}
 
@@ -206,7 +206,7 @@ func TestDeleteOrganizationCascade_AnonymisesCrossTenantAudit(t *testing.T) {
 	if err := conn.QueryRow(context.Background(),
 		`SELECT COUNT(*) FROM axiaops.audit_log
 		 WHERE organization_id = $1 AND user_id IS NULL AND actor_email = 'deleted-user'`,
-		tenantB.ID).Scan(&anonymised); err != nil {
+		orgB.ID).Scan(&anonymised); err != nil {
 		t.Fatalf("count anonymised in B: %v", err)
 	}
 	if anonymised != 1 {
@@ -214,12 +214,12 @@ func TestDeleteOrganizationCascade_AnonymisesCrossTenantAudit(t *testing.T) {
 	}
 
 	// Tenant B itself should be untouched.
-	var tenantBStillThere int
+	var orgBStillThere int
 	if err := conn.QueryRow(context.Background(),
-		`SELECT COUNT(*) FROM axiaops.organizations WHERE id = $1`, tenantB.ID).Scan(&tenantBStillThere); err != nil {
+		`SELECT COUNT(*) FROM axiaops.organizations WHERE id = $1`, orgB.ID).Scan(&orgBStillThere); err != nil {
 		t.Fatalf("count tenant B: %v", err)
 	}
-	if tenantBStillThere != 1 {
-		t.Errorf("tenant B should not be deleted by cascading A; got count=%d", tenantBStillThere)
+	if orgBStillThere != 1 {
+		t.Errorf("tenant B should not be deleted by cascading A; got count=%d", orgBStillThere)
 	}
 }

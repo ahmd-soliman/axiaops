@@ -15,17 +15,17 @@ import (
 // existing data, TestMain panics and no tests run. Here we exercise the
 // remaining invariants that protect future writes.
 
-func TestMemberships_OneOwnerPerTenant(t *testing.T) {
+func TestMemberships_OneOwnerPerOrganization(t *testing.T) {
 	conn := setup(t)
 	ctx := context.Background()
 
-	tenantID, userA, userB := newTenantWithUsers(t, conn)
+	organizationID, userA, userB := newOrganizationWithUsers(t, conn)
 
 	// First owner insert succeeds.
 	if _, err := conn.Exec(ctx, `
 		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'owner', NOW(), NOW())`,
-		uuid.NewString(), tenantID, userA); err != nil {
+		uuid.NewString(), organizationID, userA); err != nil {
 		t.Fatalf("first owner insert: %v", err)
 	}
 
@@ -33,7 +33,7 @@ func TestMemberships_OneOwnerPerTenant(t *testing.T) {
 	_, err := conn.Exec(ctx, `
 		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'owner', NOW(), NOW())`,
-		uuid.NewString(), tenantID, userB)
+		uuid.NewString(), organizationID, userB)
 	if err == nil {
 		t.Fatal("expected second owner insert to fail, got nil")
 	}
@@ -46,12 +46,12 @@ func TestMemberships_RoleCheckConstraint(t *testing.T) {
 	conn := setup(t)
 	ctx := context.Background()
 
-	tenantID, userA, _ := newTenantWithUsers(t, conn)
+	organizationID, userA, _ := newOrganizationWithUsers(t, conn)
 
 	_, err := conn.Exec(ctx, `
 		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'superadmin', NOW(), NOW())`,
-		uuid.NewString(), tenantID, userA)
+		uuid.NewString(), organizationID, userA)
 	if err == nil {
 		t.Fatal("expected CHECK constraint violation for invalid role, got nil")
 	}
@@ -64,19 +64,19 @@ func TestMemberships_UserTenantUnique(t *testing.T) {
 	conn := setup(t)
 	ctx := context.Background()
 
-	tenantID, userA, _ := newTenantWithUsers(t, conn)
+	organizationID, userA, _ := newOrganizationWithUsers(t, conn)
 
 	if _, err := conn.Exec(ctx, `
 		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'admin', NOW(), NOW())`,
-		uuid.NewString(), tenantID, userA); err != nil {
+		uuid.NewString(), organizationID, userA); err != nil {
 		t.Fatalf("first insert: %v", err)
 	}
 
 	_, err := conn.Exec(ctx, `
 		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'viewer', NOW(), NOW())`,
-		uuid.NewString(), tenantID, userA)
+		uuid.NewString(), organizationID, userA)
 	if err == nil {
 		t.Fatal("expected UNIQUE(organization_id, user_id) violation, got nil")
 	}
@@ -89,13 +89,13 @@ func TestMemberships_DeletingUserCascadesMembership(t *testing.T) {
 	conn := setup(t)
 	ctx := context.Background()
 
-	tenantID, userA, _ := newTenantWithUsers(t, conn)
+	organizationID, userA, _ := newOrganizationWithUsers(t, conn)
 
 	mID := uuid.NewString()
 	if _, err := conn.Exec(ctx, `
 		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'admin', NOW(), NOW())`,
-		mID, tenantID, userA); err != nil {
+		mID, organizationID, userA); err != nil {
 		t.Fatalf("insert membership: %v", err)
 	}
 
@@ -114,18 +114,18 @@ func TestMemberships_DeletingUserCascadesMembership(t *testing.T) {
 	}
 }
 
-// newTenantWithUsers seeds a tenant with two users, returning their IDs.
+// newOrganizationWithUsers seeds a tenant with two users, returning their IDs.
 // Uses the raw owner connection — bypasses RLS, suitable for setup.
-func newTenantWithUsers(t *testing.T, conn *pgx.Conn) (tenantID, userAID, userBID string) {
+func newOrganizationWithUsers(t *testing.T, conn *pgx.Conn) (organizationID, userAID, userBID string) {
 	t.Helper()
 	ctx := context.Background()
 
-	tenantID = "t-" + uuid.NewString()
+	organizationID = "t-" + uuid.NewString()
 	orgCode := "org-" + uuid.NewString()
 	if _, err := conn.Exec(ctx, `
 		INSERT INTO axiaops.organizations (id, org_code, name, created_at)
 		VALUES ($1, $2, 'Test Org', NOW())`,
-		tenantID, orgCode); err != nil {
+		organizationID, orgCode); err != nil {
 		t.Fatalf("seed tenant: %v", err)
 	}
 
@@ -135,9 +135,9 @@ func newTenantWithUsers(t *testing.T, conn *pgx.Conn) (tenantID, userAID, userBI
 		if _, err := conn.Exec(ctx, `
 			INSERT INTO axiaops.users (id, organization_id, kinde_sub, email, name, created_at, last_seen)
 			VALUES ($1, $2, $3, '', '', NOW(), NOW())`,
-			uid, tenantID, "kinde-"+uid); err != nil {
+			uid, organizationID, "kinde-"+uid); err != nil {
 			t.Fatalf("seed user %s: %v", uid, err)
 		}
 	}
-	return tenantID, userAID, userBID
+	return organizationID, userAID, userBID
 }
