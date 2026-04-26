@@ -38,43 +38,43 @@ import (
 // Prometheus metrics for ingestion service
 var (
 	// axiaops_ingestion_records_fetched_total: Total number of cost records fetched.
-	// Labels: provider, tenant_id.
+	// Labels: provider, organization_id.
 	ingestionRecordsFetchedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "axiaops_ingestion_records_fetched_total",
 			Help: "Total number of cost records fetched by the ingestion service.",
 		},
-		[]string{"provider", "tenant_id"},
+		[]string{"provider", "organization_id"},
 	)
 
 	// axiaops_ingestion_records_saved_total: Total number of cost records successfully saved to the database.
-	// Labels: provider, tenant_id, status (inserted/skipped).
+	// Labels: provider, organization_id, status (inserted/skipped).
 	ingestionRecordsSavedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "axiaops_ingestion_records_saved_total",
 			Help: "Total number of cost records saved to the database.",
 		},
-		[]string{"provider", "tenant_id", "status"},
+		[]string{"provider", "organization_id", "status"},
 	)
 
 	// axiaops_zombies_detected_total: Total number of zombie resources detected in the current scan.
-	// Labels: tenant_id, provider.
+	// Labels: organization_id, provider.
 	ingestionZombiesDetectedTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "axiaops_ingestion_zombies_detected_total",
 			Help: "Total number of zombie resources detected in the current scan.",
 		},
-		[]string{"tenant_id", "provider"},
+		[]string{"organization_id", "provider"},
 	)
 
 	// axiaops_potential_monthly_savings_usd: Current potential monthly savings in USD.
-	// Labels: tenant_id, provider.
+	// Labels: organization_id, provider.
 	ingestionPotentialMonthlySavings = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "axiaops_potential_monthly_savings_usd",
 			Help: "Current potential monthly savings in USD.",
 		},
-		[]string{"tenant_id", "provider"},
+		[]string{"organization_id", "provider"},
 	)
 )
 
