@@ -355,16 +355,16 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	}
 	providers = append(providers, awsClient)
 
-	tenantID := storage.OrganizationIDFromCtx(ctx)
-	if tenantID == "" {
+	organizationID := storage.OrganizationIDFromCtx(ctx)
+	if organizationID == "" {
 		orgCode := "aws-" + awsClient.AccountID()
-		tenant, err := store.UpsertOrganization(ctx, orgCode, orgCode)
+		org, err := store.UpsertOrganization(ctx, orgCode, orgCode)
 		if err != nil {
-			return fmt.Errorf("upsert tenant: %w", err)
+			return fmt.Errorf("upsert organization: %w", err)
 		}
-		tenantID = tenant.ID
-		ctx = storage.WithOrganizationID(ctx, tenantID)
-		slog.Info("ingestion: using auto-created tenant", "organization_id", tenantID, "org_code", orgCode)
+		organizationID = org.ID
+		ctx = storage.WithOrganizationID(ctx, organizationID)
+		slog.Info("ingestion: using auto-created organization", "organization_id", organizationID, "org_code", orgCode)
 	}
 
 	end, start := dateRange()
@@ -406,9 +406,9 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		}
 		skipped := int64(len(records)) - inserted
 		slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted, "skipped", skipped)
-		ingestionRecordsFetchedTotal.WithLabelValues(p.Name(), tenantID).Add(float64(len(records)))
-		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), tenantID, "inserted").Add(float64(inserted))
-		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), tenantID, "skipped").Add(float64(skipped))
+		ingestionRecordsFetchedTotal.WithLabelValues(p.Name(), organizationID).Add(float64(len(records)))
+		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), organizationID, "inserted").Add(float64(inserted))
+		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), organizationID, "skipped").Add(float64(skipped))
 
 		allRecords = append(allRecords, records...)
 	}
@@ -609,8 +609,8 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 	summary := analyzer.Summarize(zombies)
 	slog.Info("analysis: detected zombie resources", "total", summary.TotalZombies, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
-	ingestionZombiesDetectedTotal.WithLabelValues(tenantID, awsClient.Name()).Set(float64(summary.TotalZombies))
-	ingestionPotentialMonthlySavings.WithLabelValues(tenantID, awsClient.Name()).Set(summary.PotentialMonthlySave)
+	ingestionZombiesDetectedTotal.WithLabelValues(organizationID, awsClient.Name()).Set(float64(summary.TotalZombies))
+	ingestionPotentialMonthlySavings.WithLabelValues(organizationID, awsClient.Name()).Set(summary.PotentialMonthlySave)
 
 	if err := store.SaveZombies(ctx, zombies); err != nil {
 		return fmt.Errorf("save zombies: %w", err)

@@ -529,17 +529,17 @@ func TestTenantIsolation_ListAccounts_ReceivesContextTenantID(t *testing.T) {
 // account scans simultaneously both receive HTTP 200 with status "scanning".
 func TestConcurrentScans_TenantIsolation(t *testing.T) {
 	const (
-		tenantA = "tenant-isolation-a"
-		tenantB = "tenant-isolation-b"
-		accA    = "acc-iso-alpha"
-		accB    = "acc-iso-beta"
+		orgA = "tenant-isolation-a"
+		orgB = "tenant-isolation-b"
+		accA = "acc-iso-alpha"
+		accB = "acc-iso-beta"
 	)
 
 	storeA := NewMockStore().WithAccounts([]model.Account{
-		{ID: accA, OrganizationID: tenantA, Provider: "aws", AccessKeyID: "AKIA_A", Region: "us-east-1"},
+		{ID: accA, OrganizationID: orgA, Provider: "aws", AccessKeyID: "AKIA_A", Region: "us-east-1"},
 	})
 	storeB := NewMockStore().WithAccounts([]model.Account{
-		{ID: accB, OrganizationID: tenantB, Provider: "aws", AccessKeyID: "AKIA_B", Region: "eu-west-1"},
+		{ID: accB, OrganizationID: orgB, Provider: "aws", AccessKeyID: "AKIA_B", Region: "eu-west-1"},
 	})
 
 	muxA := http.NewServeMux()
@@ -554,8 +554,8 @@ func TestConcurrentScans_TenantIsolation(t *testing.T) {
 	)
 	// Wrap each mux in DevBypass so the middleware context keys (read by
 	// Require + handlers) are populated. Each tenant gets a distinct dev user.
-	handlerA := middleware.DevBypass(tenantA, "dev-user-a", "a@x.com", muxA)
-	handlerB := middleware.DevBypass(tenantB, "dev-user-b", "b@x.com", muxB)
+	handlerA := middleware.DevBypass(orgA, "dev-user-a", "a@x.com", muxA)
+	handlerB := middleware.DevBypass(orgB, "dev-user-b", "b@x.com", muxB)
 
 	wg.Add(2)
 	go func() {

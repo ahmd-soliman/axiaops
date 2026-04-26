@@ -126,17 +126,17 @@ func newTestStore(t *testing.T) *postgres.Store {
 	return s
 }
 
-// newTenantCtx creates a fresh tenant and returns a context carrying its ID.
+// newOrgCtx creates a fresh tenant and returns a context carrying its ID.
 // Each test gets its own tenant so RLS isolates test data naturally.
-func newTenantCtx(t *testing.T, s *postgres.Store) (context.Context, model.Organization) {
+func newOrgCtx(t *testing.T, s *postgres.Store) (context.Context, model.Organization) {
 	t.Helper()
 	ctx := context.Background()
 	orgCode := "test-org-" + uuid.New().String()
-	tenant, err := s.UpsertOrganization(ctx, orgCode, "Test Org")
+	org, err := s.UpsertOrganization(ctx, orgCode, "Test Org")
 	if err != nil {
 		t.Fatalf("UpsertOrganization: %v", err)
 	}
-	return storage.WithOrganizationID(ctx, tenant.ID), tenant
+	return storage.WithOrganizationID(ctx, org.ID), org
 }
 
 func costRecord(service, region string, amount float64) model.CostRecord {
@@ -159,7 +159,7 @@ func costRecord(service, region string, amount float64) model.CostRecord {
 
 func TestSave_InsertsRecords(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	records := []model.CostRecord{
 		costRecord("AmazonEC2", "eu-central-1", 100.00),
@@ -177,7 +177,7 @@ func TestSave_InsertsRecords(t *testing.T) {
 
 func TestSave_DeduplicatesOnRerun(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	records := []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 100.00)}
 
@@ -200,7 +200,7 @@ func TestSave_DeduplicatesOnRerun(t *testing.T) {
 
 func TestSave_EmptyBatch(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	inserted, err := s.Save(ctx, nil)
 	if err != nil {
@@ -213,7 +213,7 @@ func TestSave_EmptyBatch(t *testing.T) {
 
 func TestSave_DifferentRegionIsNotDuplicate(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	records := []model.CostRecord{
 		costRecord("AmazonEC2", "eu-central-1", 100.00),
@@ -229,7 +229,7 @@ func TestSave_DifferentRegionIsNotDuplicate(t *testing.T) {
 	}
 }
 
-func TestSave_MissingTenantID_Errors(t *testing.T) {
+func TestSave_MissingOrganizationID_Errors(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background() // no tenant in context
 
@@ -264,7 +264,7 @@ func zombieResource(service string, cost float64) model.ZombieResource {
 
 func TestSaveZombies_LoadZombies_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	zombies := []model.ZombieResource{
 		zombieResource("AmazonEC2", 100.00),
@@ -286,7 +286,7 @@ func TestSaveZombies_LoadZombies_Roundtrip(t *testing.T) {
 
 func TestSaveZombies_ReplacesOnSecondRun(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	if err := s.SaveZombies(ctx, []model.ZombieResource{
 		zombieResource("AmazonEC2", 100.00),
@@ -319,7 +319,7 @@ func TestLoadZombies_EmptyWhenNoneSaved(t *testing.T) {
 		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to filter out other tenants' data")
 	}
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	zombies, err := s.LoadZombies(ctx)
 	if err != nil {
@@ -338,8 +338,8 @@ func TestZombies_TenantIsolation(t *testing.T) {
 	}
 	s := newTestStore(t)
 
-	ctxA, _ := newTenantCtx(t, s)
-	ctxB, _ := newTenantCtx(t, s)
+	ctxA, _ := newOrgCtx(t, s)
+	ctxB, _ := newOrgCtx(t, s)
 
 	// Tenant A saves zombies.
 	if err := s.SaveZombies(ctxA, []model.ZombieResource{zombieResource("AmazonEC2", 100)}); err != nil {
@@ -362,15 +362,15 @@ func TestUpsertOrganization_CreatesOnFirstCall(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	tenant, err := s.UpsertOrganization(ctx, "org_"+uuid.New().String(), "Acme Corp")
+	org, err := s.UpsertOrganization(ctx, "org_"+uuid.New().String(), "Acme Corp")
 	if err != nil {
 		t.Fatalf("UpsertOrganization: %v", err)
 	}
-	if tenant.ID == "" {
-		t.Error("expected non-empty tenant ID")
+	if org.ID == "" {
+		t.Error("expected non-empty organization ID")
 	}
-	if tenant.Name != "Acme Corp" {
-		t.Errorf("expected name Acme Corp, got %s", tenant.Name)
+	if org.Name != "Acme Corp" {
+		t.Errorf("expected name Acme Corp, got %s", org.Name)
 	}
 }
 
@@ -414,17 +414,17 @@ func TestUpsertOrganization_UpdatesName(t *testing.T) {
 
 func TestUpsertUser_CreatesOnFirstLogin(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
-	user, err := s.UpsertUser(ctx, tenant.ID, "kp_"+uuid.New().String(), "alice@acme.com", "Alice")
+	user, err := s.UpsertUser(ctx, org.ID, "kp_"+uuid.New().String(), "alice@acme.com", "Alice")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
 	if user.ID == "" {
 		t.Error("expected non-empty user ID")
 	}
-	if user.OrganizationID != tenant.ID {
-		t.Errorf("expected organization_id %s, got %s", tenant.ID, user.OrganizationID)
+	if user.OrganizationID != org.ID {
+		t.Errorf("expected organization_id %s, got %s", org.ID, user.OrganizationID)
 	}
 	if user.Email != "alice@acme.com" {
 		t.Errorf("expected email alice@acme.com, got %s", user.Email)
@@ -433,14 +433,14 @@ func TestUpsertUser_CreatesOnFirstLogin(t *testing.T) {
 
 func TestUpsertUser_ReturnsSameIDOnSecondLogin(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 	kindeSub := "kp_" + uuid.New().String()
 
-	first, err := s.UpsertUser(ctx, tenant.ID, kindeSub, "alice@acme.com", "Alice")
+	first, err := s.UpsertUser(ctx, org.ID, kindeSub, "alice@acme.com", "Alice")
 	if err != nil {
 		t.Fatalf("first UpsertUser: %v", err)
 	}
-	second, err := s.UpsertUser(ctx, tenant.ID, kindeSub, "alice@acme.com", "Alice")
+	second, err := s.UpsertUser(ctx, org.ID, kindeSub, "alice@acme.com", "Alice")
 	if err != nil {
 		t.Fatalf("second UpsertUser: %v", err)
 	}
@@ -453,9 +453,9 @@ func TestUpsertUser_ReturnsSameIDOnSecondLogin(t *testing.T) {
 
 func TestEnsureUser_CreatesRow(t *testing.T) {
 	s := newTestStore(t)
-	_, tenant := newTenantCtx(t, s)
+	_, org := newOrgCtx(t, s)
 
-	u := model.User{ID: "dev-user-" + uuid.New().String(), OrganizationID: tenant.ID, Email: "dev@axiaops.local", Name: "Dev User"}
+	u := model.User{ID: "dev-user-" + uuid.New().String(), OrganizationID: org.ID, Email: "dev@axiaops.local", Name: "Dev User"}
 	if err := s.EnsureUser(context.Background(), u); err != nil {
 		t.Fatalf("EnsureUser: %v", err)
 	}
@@ -479,28 +479,28 @@ func TestEnsureUser_CreatesRow(t *testing.T) {
 
 func TestEnsureUser_UpdatesOnConflict(t *testing.T) {
 	s := newTestStore(t)
-	_, tenant1 := newTenantCtx(t, s)
-	_, tenant2 := newTenantCtx(t, s)
+	_, org1 := newOrgCtx(t, s)
+	_, org2 := newOrgCtx(t, s)
 
 	id := "dev-user-" + uuid.New().String()
-	if err := s.EnsureUser(context.Background(), model.User{ID: id, OrganizationID: tenant1.ID, Email: "old@axiaops.local", Name: "Old"}); err != nil {
+	if err := s.EnsureUser(context.Background(), model.User{ID: id, OrganizationID: org1.ID, Email: "old@axiaops.local", Name: "Old"}); err != nil {
 		t.Fatalf("first EnsureUser: %v", err)
 	}
-	if err := s.EnsureUser(context.Background(), model.User{ID: id, OrganizationID: tenant2.ID, Email: "new@axiaops.local", Name: "New"}); err != nil {
+	if err := s.EnsureUser(context.Background(), model.User{ID: id, OrganizationID: org2.ID, Email: "new@axiaops.local", Name: "New"}); err != nil {
 		t.Fatalf("second EnsureUser: %v", err)
 	}
 
 	conn := connectTestDB(t)
 	defer func() { _ = conn.Close(context.Background()) }()
-	var tenantID, email, name string
+	var organizationID, email, name string
 	err := conn.QueryRow(context.Background(),
 		`SELECT organization_id, email, name FROM axiaops.users WHERE id = $1`, id,
-	).Scan(&tenantID, &email, &name)
+	).Scan(&organizationID, &email, &name)
 	if err != nil {
 		t.Fatalf("fetch row: %v", err)
 	}
-	if tenantID != tenant2.ID {
-		t.Errorf("organization_id: got %q, want %q (self-correcting update)", tenantID, tenant2.ID)
+	if organizationID != org2.ID {
+		t.Errorf("organization_id: got %q, want %q (self-correcting update)", organizationID, org2.ID)
 	}
 	if email != "new@axiaops.local" {
 		t.Errorf("email: got %q, want %q", email, "new@axiaops.local")
@@ -513,7 +513,7 @@ func TestEnsureUser_UpdatesOnConflict(t *testing.T) {
 // synthetic subs.
 func TestUsersDevKindeSubCheckConstraint(t *testing.T) {
 	_ = newTestStore(t) // ensures migrations (including 013) have applied
-	_, tenant := newTenantCtx(t, newTestStore(t))
+	_, org := newOrgCtx(t, newTestStore(t))
 
 	conn := connectTestDB(t)
 	defer func() { _ = conn.Close(context.Background()) }()
@@ -522,7 +522,7 @@ func TestUsersDevKindeSubCheckConstraint(t *testing.T) {
 	_, err := conn.Exec(context.Background(),
 		`INSERT INTO axiaops.users (id, organization_id, kinde_sub, email, name, created_at, last_seen)
 		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-		"user-A", tenant.ID, "dev:user-B", "mismatch@axiaops.local", "Mismatch", now,
+		"user-A", org.ID, "dev:user-B", "mismatch@axiaops.local", "Mismatch", now,
 	)
 	if err == nil {
 		t.Fatal("expected CHECK constraint violation for dev:user-B with id user-A, got nil")
@@ -531,10 +531,10 @@ func TestUsersDevKindeSubCheckConstraint(t *testing.T) {
 
 // ── Account CRUD ──────────────────────────────────────────────────────────────
 
-func testAccount(tenantID string) model.Account {
+func testAccount(organizationID string) model.Account {
 	return model.Account{
 		ID:                uuid.New().String(),
-		OrganizationID:    tenantID,
+		OrganizationID:    organizationID,
 		Provider:          "aws",
 		Label:             "dev account",
 		AccessKeyID:       "AKIAIOSFODNN7EXAMPLE",
@@ -551,9 +551,9 @@ func TestAccount_SaveAndList(t *testing.T) {
 		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope ListAccounts to this tenant")
 	}
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
-	a := testAccount(tenant.ID)
+	a := testAccount(org.ID)
 	if err := s.SaveAccount(ctx, a); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
 	}
@@ -575,9 +575,9 @@ func TestAccount_SaveAndList(t *testing.T) {
 
 func TestAccount_GetByID(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
-	a := testAccount(tenant.ID)
+	a := testAccount(org.ID)
 	if err := s.SaveAccount(ctx, a); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
 	}
@@ -599,9 +599,9 @@ func TestAccount_Delete(t *testing.T) {
 		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope ListAccounts to this tenant")
 	}
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
-	a := testAccount(tenant.ID)
+	a := testAccount(org.ID)
 	if err := s.SaveAccount(ctx, a); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
 	}
@@ -620,9 +620,9 @@ func TestAccount_Delete(t *testing.T) {
 
 func TestAccount_UpdateStatus(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
-	a := testAccount(tenant.ID)
+	a := testAccount(org.ID)
 	if err := s.SaveAccount(ctx, a); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
 	}
@@ -644,9 +644,9 @@ func TestAccount_UpdateStatus(t *testing.T) {
 
 func TestAccount_TryMarkAccountScanning(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
-	a := testAccount(tenant.ID)
+	a := testAccount(org.ID)
 	if err := s.SaveAccount(ctx, a); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
 	}
@@ -672,10 +672,10 @@ func TestAccount_TenantIsolation(t *testing.T) {
 		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS enforcement")
 	}
 	s := newTestStore(t)
-	ctxA, tenantA := newTenantCtx(t, s)
-	ctxB, _ := newTenantCtx(t, s)
+	ctxA, orgA := newOrgCtx(t, s)
+	ctxB, _ := newOrgCtx(t, s)
 
-	a := testAccount(tenantA.ID)
+	a := testAccount(orgA.ID)
 	if err := s.SaveAccount(ctxA, a); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
 	}
@@ -691,9 +691,9 @@ func TestAccount_TenantIsolation(t *testing.T) {
 
 func TestAccount_ScanIntervalHours(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
-	a := testAccount(tenant.ID)
+	a := testAccount(org.ID)
 	a.ScanIntervalHours = 12
 	if err := s.SaveAccount(ctx, a); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
@@ -748,7 +748,7 @@ func resourceRecord(service string, isZombie bool) model.ResourceRecord {
 
 func TestSaveResources_LoadResources_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	resources := []model.ResourceRecord{
 		resourceRecord("AmazonEC2", true),
@@ -770,7 +770,7 @@ func TestSaveResources_LoadResources_Roundtrip(t *testing.T) {
 
 func TestSaveResources_ReplacesOnSecondRun(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	if err := s.SaveResources(ctx, []model.ResourceRecord{
 		resourceRecord("AmazonEC2", true),
@@ -796,10 +796,10 @@ func TestSaveResources_ReplacesOnSecondRun(t *testing.T) {
 
 // ── SaveSnapshot / ListSnapshots ──────────────────────────────────────────────
 
-func zombieSnapshot(tenantID, accountID string, cost float64, zombieCount int) model.ZombieSnapshot {
+func zombieSnapshot(organizationID, accountID string, cost float64, zombieCount int) model.ZombieSnapshot {
 	return model.ZombieSnapshot{
 		ID:               uuid.New().String(),
-		OrganizationID:   tenantID,
+		OrganizationID:   organizationID,
 		AccountID:        accountID,
 		SnapshotAt:       time.Now().UTC(),
 		ZombieCount:      zombieCount,
@@ -810,9 +810,9 @@ func zombieSnapshot(tenantID, accountID string, cost float64, zombieCount int) m
 
 func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
-	snap := zombieSnapshot(tenant.ID, "acc-001", 150.00, 3)
+	snap := zombieSnapshot(org.ID, "acc-001", 150.00, 3)
 	if err := s.SaveSnapshot(ctx, snap); err != nil {
 		t.Fatalf("SaveSnapshot: %v", err)
 	}
@@ -844,14 +844,14 @@ func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
 
 func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
 	// Insert three snapshots with explicit timestamps spread one hour apart.
 	base := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
 	snapsToSave := []model.ZombieSnapshot{
-		{ID: uuid.New().String(), OrganizationID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(2 * time.Hour), ZombieCount: 5, TotalMonthlyCost: 500, Currency: "USD"},
-		{ID: uuid.New().String(), OrganizationID: tenant.ID, AccountID: "acc-1", SnapshotAt: base, ZombieCount: 1, TotalMonthlyCost: 100, Currency: "USD"},
-		{ID: uuid.New().String(), OrganizationID: tenant.ID, AccountID: "acc-1", SnapshotAt: base.Add(time.Hour), ZombieCount: 3, TotalMonthlyCost: 300, Currency: "USD"},
+		{ID: uuid.New().String(), OrganizationID: org.ID, AccountID: "acc-1", SnapshotAt: base.Add(2 * time.Hour), ZombieCount: 5, TotalMonthlyCost: 500, Currency: "USD"},
+		{ID: uuid.New().String(), OrganizationID: org.ID, AccountID: "acc-1", SnapshotAt: base, ZombieCount: 1, TotalMonthlyCost: 100, Currency: "USD"},
+		{ID: uuid.New().String(), OrganizationID: org.ID, AccountID: "acc-1", SnapshotAt: base.Add(time.Hour), ZombieCount: 3, TotalMonthlyCost: 300, Currency: "USD"},
 	}
 	for _, snap := range snapsToSave {
 		if err := s.SaveSnapshot(ctx, snap); err != nil {
@@ -885,16 +885,16 @@ func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 
 func TestListSnapshots_FilterByAccountID(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
 	// Two snapshots for acc-A, one for acc-B.
-	if err := s.SaveSnapshot(ctx, zombieSnapshot(tenant.ID, "acc-A", 100, 2)); err != nil {
+	if err := s.SaveSnapshot(ctx, zombieSnapshot(org.ID, "acc-A", 100, 2)); err != nil {
 		t.Fatalf("SaveSnapshot acc-A first: %v", err)
 	}
-	if err := s.SaveSnapshot(ctx, zombieSnapshot(tenant.ID, "acc-A", 200, 4)); err != nil {
+	if err := s.SaveSnapshot(ctx, zombieSnapshot(org.ID, "acc-A", 200, 4)); err != nil {
 		t.Fatalf("SaveSnapshot acc-A second: %v", err)
 	}
-	if err := s.SaveSnapshot(ctx, zombieSnapshot(tenant.ID, "acc-B", 50, 1)); err != nil {
+	if err := s.SaveSnapshot(ctx, zombieSnapshot(org.ID, "acc-B", 50, 1)); err != nil {
 		t.Fatalf("SaveSnapshot acc-B: %v", err)
 	}
 
@@ -936,7 +936,7 @@ func TestListSnapshots_EmptyWhenNoneSaved(t *testing.T) {
 		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to filter out other tenants' snapshots")
 	}
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	snaps, err := s.ListSnapshots(ctx, "")
 	if err != nil {
@@ -947,7 +947,7 @@ func TestListSnapshots_EmptyWhenNoneSaved(t *testing.T) {
 	}
 }
 
-func TestSaveSnapshot_MissingTenantID_Errors(t *testing.T) {
+func TestSaveSnapshot_MissingOrganizationID_Errors(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background() // no tenant in context
 
@@ -979,11 +979,11 @@ func TestSnapshot_TenantIsolation(t *testing.T) {
 	}
 	s := newTestStore(t)
 
-	ctxA, tenantA := newTenantCtx(t, s)
-	ctxB, _ := newTenantCtx(t, s)
+	ctxA, orgA := newOrgCtx(t, s)
+	ctxB, _ := newOrgCtx(t, s)
 
 	// Tenant A saves a snapshot.
-	if err := s.SaveSnapshot(ctxA, zombieSnapshot(tenantA.ID, "acc-1", 100, 2)); err != nil {
+	if err := s.SaveSnapshot(ctxA, zombieSnapshot(orgA.ID, "acc-1", 100, 2)); err != nil {
 		t.Fatalf("SaveSnapshot tenant A: %v", err)
 	}
 
@@ -999,11 +999,11 @@ func TestSnapshot_TenantIsolation(t *testing.T) {
 
 func TestSaveSnapshot_AccumulatesAcrossScans(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
 	// Simulate three consecutive scans — unlike zombie_records, snapshots must not be replaced.
 	for i := 1; i <= 3; i++ {
-		snap := zombieSnapshot(tenant.ID, "acc-1", float64(i)*100, i)
+		snap := zombieSnapshot(org.ID, "acc-1", float64(i)*100, i)
 		if err := s.SaveSnapshot(ctx, snap); err != nil {
 			t.Fatalf("SaveSnapshot scan %d: %v", i, err)
 		}
@@ -1022,7 +1022,7 @@ func TestSaveSnapshot_AccumulatesAcrossScans(t *testing.T) {
 
 func TestDeleteOldCostRecords_DeletesExpiredRows(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	old := costRecord("AmazonEC2", "eu-central-1", 10.00)
 	old.PeriodEnd = time.Now().UTC().AddDate(0, 0, -100)
@@ -1047,7 +1047,7 @@ func TestDeleteOldCostRecords_DeletesExpiredRows(t *testing.T) {
 
 func TestDeleteOldCostRecords_KeepsRecentRows(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	recent := costRecord("AmazonEC2", "eu-central-1", 50.00)
 	if _, err := s.Save(ctx, []model.CostRecord{recent}); err != nil {
@@ -1090,7 +1090,7 @@ func writeAudit(t *testing.T, s *postgres.Store, ctx context.Context, e model.Au
 
 func TestAuditLog_WriteAndList(t *testing.T) {
 	s := newTestStore(t)
-	ctx, tenant := newTenantCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
 
 	// At least one event has IPAddress set so the happy-path test exercises
 	// the INET → text codec path (see TestAuditLog_IPAddressRoundTrips for
@@ -1140,8 +1140,8 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 		t.Errorf("ip_address: got %q, want 203.0.113.7", got)
 	}
 	// organization_id column should equal the tenant we wrote under.
-	if events[0].OrganizationID != tenant.ID {
-		t.Errorf("organization_id: got %q, want %q", events[0].OrganizationID, tenant.ID)
+	if events[0].OrganizationID != org.ID {
+		t.Errorf("organization_id: got %q, want %q", events[0].OrganizationID, org.ID)
 	}
 }
 
@@ -1152,7 +1152,7 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 // when the dashboard hit the real endpoint with a real client address.
 func TestAuditLog_IPAddressRoundTrips(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	writeAudit(t, s, ctx, model.AuditEvent{
 		Action:    model.AuditActionScanTriggered,
@@ -1177,13 +1177,13 @@ func TestAuditLog_IPAddressRoundTrips(t *testing.T) {
 	}
 }
 
-func TestAuditLog_TenantIsolation(t *testing.T) {
+func TestAuditLog_OrganizationIsolation(t *testing.T) {
 	if !rlsEnforced() {
 		t.Skip("skipping: requires DATABASE_URL for RLS to scope queries")
 	}
 	s := newTestStore(t)
-	ctxA, _ := newTenantCtx(t, s)
-	ctxB, _ := newTenantCtx(t, s)
+	ctxA, _ := newOrgCtx(t, s)
+	ctxB, _ := newOrgCtx(t, s)
 
 	writeAudit(t, s, ctxA, model.AuditEvent{Action: model.AuditActionDismissZombie, UserID: "u-a"})
 	writeAudit(t, s, ctxB, model.AuditEvent{Action: model.AuditActionSnoozeZombie, UserID: "u-b"})
@@ -1206,7 +1206,7 @@ func TestAuditLog_TenantIsolation(t *testing.T) {
 
 func TestAuditLog_Filters(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionDismissZombie, UserID: "u1", ResourceType: "dismissal", ResourceID: "1"})
 	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionSnoozeZombie, UserID: "u2", ResourceType: "dismissal", ResourceID: "2"})
@@ -1233,7 +1233,7 @@ func TestAuditLog_Filters(t *testing.T) {
 
 func TestAuditLog_Pagination(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	const total = 25
 	for i := 0; i < total; i++ {
@@ -1282,7 +1282,7 @@ func TestAuditLog_Pagination(t *testing.T) {
 
 func TestAuditLog_AnonymiseUser(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionDismissZombie, UserID: "target", ActorEmail: "target@acme.com"})
 	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionSnoozeZombie, UserID: "target", ActorEmail: "target@acme.com"})
@@ -1314,7 +1314,7 @@ func TestAuditLog_AnonymiseUser(t *testing.T) {
 	}
 }
 
-func TestAuditLog_MissingTenant_Errors(t *testing.T) {
+func TestAuditLog_MissingOrganization_Errors(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.AuditLogWrite(context.Background(), model.AuditEvent{Action: model.AuditActionDismissZombie}); err == nil {
 		t.Error("expected error when organization_id missing from ctx, got nil")
