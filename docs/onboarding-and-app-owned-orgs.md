@@ -4,7 +4,7 @@
 >
 > This plan describes a refactor that **we have decided not to do**. It is preserved as the historical record of an alternative we evaluated and rejected, not as a forward-looking roadmap item.
 >
-> **What we're doing instead:** the `org_code`-from-Kinde model stays. Self-serve org creation happens by enabling Kinde's "Create organization on sign up" toggle (a Kinde admin setting, no code). Team invitations go through Kinde's Management API (org-scoped invitations sent by Kinde itself, redeemed in our auth middleware on the invitee's first authenticated request). Full design: **[`docs/invitation-flow.md`](./invitation-flow.md)**.
+> **What we're doing instead:** the `org_code`-from-Kinde model stays. Self-serve org creation happens by enabling Kinde's "Create organization on sign up" toggle (a Kinde admin setting, no code). Team invitations go through Kinde's Management API (org-scoped invitations sent by Kinde itself, redeemed in our auth middleware on the invitee's first authenticated request). Full design: **[`docs/invitation-flow.md`](./invitation-flow.md)**. The post-signup empty-state replacement is designed in **[`docs/onboarding-wizard.md`](./onboarding-wizard.md)**.
 >
 > **Why we changed direction:**
 >
