@@ -4,34 +4,24 @@ import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
+import { Overlay } from '../components/primitives';
+import { downloadBlob } from '../utils/csv';
 import {
   deleteCurrentTenant,
   deleteCurrentUser,
   exportTenantData,
 } from '../api/client';
 
-// GDPR right-to-erasure surface. Two destructive actions, each behind a
-// type-to-confirm modal:
-//
-//   - Delete my account (any logged-in user) → DELETE /v1/users/me
-//   - Delete this tenant (owners only)       → DELETE /v1/tenants/me
-//
-// On success either action invalidates the session entirely (the user or
-// their tenant is gone), so we hand off to AppProvider.onLogout which clears
-// the token + query cache and routes to /login.
-//
-// The 409 case on /users/me — "you are the sole owner of one or more tenants"
-// — is handled inline so the user is told to use the Users page (transfer
-// ownership) or to delete the tenant first, instead of being silently blocked.
+// Two destructive actions live behind a type-to-confirm modal so a stray
+// click can't detonate the tenant; the export sits above so users can
+// always grab a copy first. Success on either delete invalidates the
+// session — we hand off to AppProvider.onLogout.
 
 export default function Account() {
   const { theme: t, isDark } = useTheme();
   const { me, can } = useMe();
   const { orgName, onLogout } = useApp();
   const { toast } = useToast();
-
-  const canDeleteTenant = can('tenant:delete');
-  const canExport = can('data:export');
 
   return (
     <div style={{ padding: 24, color: t.textMid, maxWidth: 760 }}>
@@ -42,7 +32,7 @@ export default function Account() {
 
       <ProfileSection t={t} me={me} orgName={orgName} />
 
-      {canExport && <ExportSection t={t} toast={toast} />}
+      {can('data:export') && <ExportSection t={t} toast={toast} />}
 
       <DeleteUserSection
         t={t}
@@ -52,7 +42,7 @@ export default function Account() {
         onLogout={onLogout}
       />
 
-      {canDeleteTenant && (
+      {can('tenant:delete') && (
         <DeleteTenantSection
           t={t}
           isDark={isDark}
@@ -65,8 +55,6 @@ export default function Account() {
   );
 }
 
-// ── Profile (read-only for now) ─────────────────────────────────────────────
-
 function ProfileSection({ t, me, orgName }) {
   return (
     <Section t={t} title="Profile">
@@ -77,30 +65,16 @@ function ProfileSection({ t, me, orgName }) {
   );
 }
 
-// ── Export: Art. 15/20 download ─────────────────────────────────────────────
-
 function ExportSection({ t, toast }) {
   const [error, setError] = useState('');
 
   const mutation = useMutation({
     mutationFn: exportTenantData,
     onSuccess: ({ blob, filename }) => {
-      // Trigger a save dialog by clicking a synthetic anchor. createObjectURL
-      // returns a blob: URL that the browser knows how to download verbatim;
-      // revoking it on the next tick frees the memory once the click fires.
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      downloadBlob(blob, filename);
       toast('Export downloaded.', 'success');
     },
-    onError: (err) => {
-      setError(err.body || err.message || 'Failed to export data.');
-    },
+    onError: (err) => setError(err.body || err.message || 'Failed to export data.'),
   });
 
   return (
@@ -123,39 +97,17 @@ function ExportSection({ t, toast }) {
   );
 }
 
-// ── Danger zone: delete my user ─────────────────────────────────────────────
-
 function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
-  const [open, setOpen] = useState(false);
-  const [confirmText, setConfirmText] = useState('');
-  const [error, setError] = useState('');
-
-  const target = email || '';
-  const matches = target !== '' && confirmText === target;
-
-  const mutation = useMutation({
+  const ctrl = useDestructiveConfirm({
+    target: email || '',
     mutationFn: deleteCurrentUser,
-    onSuccess: () => {
-      toast('Your account has been deleted.', 'success');
-      onLogout();
-    },
-    onError: (err) => {
-      if (err.status === 409) {
-        setError(
-          err.body ||
-            'You are the sole owner of one or more tenants. Transfer ownership in Users, or delete the tenant first.',
-        );
-        return;
-      }
-      setError(err.body || err.message || 'Failed to delete account.');
-    },
+    successMessage: 'Your account has been deleted.',
+    onSuccess: onLogout,
+    toast,
+    on409: (err) =>
+      err.body ||
+      'You are the sole owner of one or more tenants. Transfer ownership in Users, or delete the tenant first.',
   });
-
-  const cancel = () => {
-    setOpen(false);
-    setConfirmText('');
-    setError('');
-  };
 
   return (
     <DangerSection
@@ -164,72 +116,27 @@ function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
       title="Delete my account"
       blurb="Permanently deletes your AxiaOps user. Your audit-log entries are anonymised across every tenant you belonged to. This cannot be undone."
       buttonLabel="Delete my account"
-      onClick={() => setOpen(true)}
+      onClick={ctrl.openModal}
     >
-      {open && (
-        <ConfirmModal
-          t={t}
-          isDark={isDark}
-          title="Delete my account?"
-          body={
-            <>
-              <p style={modalText(t)}>
-                This permanently deletes your user. You will be signed out and your audit-log
-                entries across every tenant will be anonymised. This cannot be undone.
-              </p>
-              <p style={modalText(t)}>
-                Type your email <strong style={{ color: t.text }}>{target}</strong> to confirm:
-              </p>
-              <input
-                type="text"
-                autoFocus
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                placeholder={target}
-                style={{ ...inputStyle(t), width: '100%', boxSizing: 'border-box' }}
-              />
-              {error && <Banner color="#fca5a5" bg="rgba(239,68,68,0.15)">{error}</Banner>}
-            </>
-          }
-          confirmLabel={mutation.isPending ? 'Deleting…' : 'Delete account'}
-          confirmDisabled={!matches || mutation.isPending}
-          onConfirm={() => {
-            setError('');
-            mutation.mutate();
-          }}
-          onCancel={cancel}
-        />
-      )}
+      <DestructiveConfirmModal
+        ctrl={ctrl}
+        title="Delete my account?"
+        warning="This permanently deletes your user. You will be signed out and your audit-log entries across every tenant will be anonymised. This cannot be undone."
+        targetLabel="email"
+        confirmLabel="Delete account"
+      />
     </DangerSection>
   );
 }
 
-// ── Danger zone: delete tenant ──────────────────────────────────────────────
-
 function DeleteTenantSection({ t, isDark, orgName, toast, onLogout }) {
-  const [open, setOpen] = useState(false);
-  const [confirmText, setConfirmText] = useState('');
-  const [error, setError] = useState('');
-
-  const target = orgName || '';
-  const matches = target !== '' && confirmText === target;
-
-  const mutation = useMutation({
+  const ctrl = useDestructiveConfirm({
+    target: orgName || '',
     mutationFn: deleteCurrentTenant,
-    onSuccess: () => {
-      toast('Tenant deleted.', 'success');
-      onLogout();
-    },
-    onError: (err) => {
-      setError(err.body || err.message || 'Failed to delete tenant.');
-    },
+    successMessage: 'Tenant deleted.',
+    onSuccess: onLogout,
+    toast,
   });
-
-  const cancel = () => {
-    setOpen(false);
-    setConfirmText('');
-    setError('');
-  };
 
   return (
     <DangerSection
@@ -238,56 +145,113 @@ function DeleteTenantSection({ t, isDark, orgName, toast, onLogout }) {
       title="Delete this tenant"
       blurb="Permanently deletes the entire tenant and every record it owns: cloud accounts, scan history, dismissals, audit log, and member memberships. Members lose access immediately. This cannot be undone."
       buttonLabel="Delete tenant"
-      onClick={() => setOpen(true)}
+      onClick={ctrl.openModal}
     >
-      {open && (
-        <ConfirmModal
-          t={t}
-          isDark={isDark}
-          title="Delete this tenant?"
-          body={
-            <>
-              <p style={modalText(t)}>
-                This permanently wipes everything for tenant <strong style={{ color: t.text }}>{target || '—'}</strong>:
-                accounts, resources, costs, snapshots, dismissals, audit log, and all memberships.
-                Every member is signed out. This cannot be undone.
-              </p>
-              {target ? (
-                <>
-                  <p style={modalText(t)}>
-                    Type the tenant name <strong style={{ color: t.text }}>{target}</strong> to confirm:
-                  </p>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={confirmText}
-                    onChange={(e) => setConfirmText(e.target.value)}
-                    placeholder={target}
-                    style={{ ...inputStyle(t), width: '100%', boxSizing: 'border-box' }}
-                  />
-                </>
-              ) : (
-                <Banner color="#fbbf24" bg="rgba(251,191,36,0.15)">
-                  Tenant name is unavailable; cannot proceed safely. Reload and try again.
-                </Banner>
-              )}
-              {error && <Banner color="#fca5a5" bg="rgba(239,68,68,0.15)">{error}</Banner>}
-            </>
-          }
-          confirmLabel={mutation.isPending ? 'Deleting…' : 'Delete tenant'}
-          confirmDisabled={!matches || mutation.isPending}
-          onConfirm={() => {
-            setError('');
-            mutation.mutate();
-          }}
-          onCancel={cancel}
-        />
-      )}
+      <DestructiveConfirmModal
+        ctrl={ctrl}
+        title="Delete this tenant?"
+        warning={`This permanently wipes everything for tenant ${orgName || '—'}: accounts, resources, costs, snapshots, dismissals, audit log, and all memberships. Every member is signed out. This cannot be undone.`}
+        targetLabel="tenant name"
+        confirmLabel="Delete tenant"
+      />
     </DangerSection>
   );
 }
 
-// ── Visual primitives ───────────────────────────────────────────────────────
+// useDestructiveConfirm owns the type-to-confirm state machine: open/close,
+// what was typed, comparison against the target string, mutation lifecycle,
+// and the special-case 409 handler (sole-owner refusal on /users/me).
+function useDestructiveConfirm({ target, mutationFn, successMessage, onSuccess, toast, on409 }) {
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [error, setError] = useState('');
+
+  const mutation = useMutation({
+    mutationFn,
+    onSuccess: () => {
+      toast(successMessage, 'success');
+      onSuccess?.();
+    },
+    onError: (err) => {
+      if (err.status === 409 && on409) {
+        setError(on409(err));
+        return;
+      }
+      setError(err.body || err.message || 'Action failed.');
+    },
+  });
+
+  return {
+    target,
+    open,
+    openModal: () => setOpen(true),
+    close: () => { setOpen(false); setConfirmText(''); setError(''); },
+    confirmText,
+    setConfirmText,
+    matches: target !== '' && confirmText === target,
+    error,
+    isPending: mutation.isPending,
+    confirm: () => { setError(''); mutation.mutate(); },
+  };
+}
+
+function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, confirmLabel }) {
+  const { theme: t, isDark } = useTheme();
+  const targetMissing = ctrl.target === '';
+
+  return (
+    <Overlay visible={ctrl.open} onClose={ctrl.close}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        style={{
+          backgroundColor: t.surface,
+          border: `1px solid ${isDark ? 'rgba(239,68,68,0.5)' : '#fecaca'}`,
+          borderRadius: 10,
+          padding: 20,
+          maxWidth: 480,
+          width: '100%',
+          boxShadow: '0 12px 32px rgba(0,0,0,0.3)',
+        }}
+      >
+        <h3 style={{ margin: 0, marginBottom: 12, fontSize: 16, fontWeight: 700, color: t.text }}>{title}</h3>
+        <p style={modalText(t)}>{warning}</p>
+        {targetMissing ? (
+          <Banner color="#fbbf24" bg="rgba(251,191,36,0.15)">
+            {targetLabel} is unavailable; cannot proceed safely. Reload and try again.
+          </Banner>
+        ) : (
+          <>
+            <p style={modalText(t)}>
+              Type the {targetLabel} <strong style={{ color: t.text }}>{ctrl.target}</strong> to confirm:
+            </p>
+            <input
+              type="text"
+              autoFocus
+              value={ctrl.confirmText}
+              onChange={(e) => ctrl.setConfirmText(e.target.value)}
+              placeholder={ctrl.target}
+              style={{ ...inputStyle(t), width: '100%', boxSizing: 'border-box' }}
+            />
+          </>
+        )}
+        {ctrl.error && <Banner color="#fca5a5" bg="rgba(239,68,68,0.15)">{ctrl.error}</Banner>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <button type="button" onClick={ctrl.close} style={ghostButton(t)}>Cancel</button>
+          <button
+            type="button"
+            onClick={ctrl.confirm}
+            disabled={!ctrl.matches || ctrl.isPending}
+            style={primaryDangerButton(!ctrl.matches || ctrl.isPending)}
+          >
+            {ctrl.isPending ? 'Working…' : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </Overlay>
+  );
+}
 
 function Section({ t, title, children }) {
   return (
@@ -300,9 +264,7 @@ function Section({ t, title, children }) {
         backgroundColor: t.surface,
       }}
     >
-      <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>
-        {title}
-      </h2>
+      <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>{title}</h2>
       {children}
     </section>
   );
@@ -321,15 +283,9 @@ function DangerSection({ t, isDark, title, blurb, buttonLabel, onClick, children
         backgroundColor: dangerTint,
       }}
     >
-      <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: '#ef4444' }}>
-        {title}
-      </h2>
-      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
-        {blurb}
-      </p>
-      <button type="button" onClick={onClick} style={primaryDangerButton()}>
-        {buttonLabel}
-      </button>
+      <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: '#ef4444' }}>{title}</h2>
+      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>{blurb}</p>
+      <button type="button" onClick={onClick} style={primaryDangerButton()}>{buttonLabel}</button>
       {children}
     </section>
   );
@@ -340,53 +296,6 @@ function Field({ t, label, value }) {
     <div style={{ display: 'flex', gap: 12, padding: '6px 0', fontSize: 13 }}>
       <div style={{ width: 96, color: t.textMuted }}>{label}</div>
       <div style={{ color: t.text, fontWeight: 500, wordBreak: 'break-all' }}>{value}</div>
-    </div>
-  );
-}
-
-function ConfirmModal({ t, isDark, title, body, confirmLabel, confirmDisabled, onConfirm, onCancel }) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      onClick={onCancel}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 200,
-        padding: 16,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          backgroundColor: t.surface,
-          border: `1px solid ${isDark ? 'rgba(239,68,68,0.5)' : '#fecaca'}`,
-          borderRadius: 10,
-          padding: 20,
-          maxWidth: 480,
-          width: '100%',
-          boxShadow: '0 12px 32px rgba(0,0,0,0.3)',
-        }}
-      >
-        <h3 style={{ margin: 0, marginBottom: 12, fontSize: 16, fontWeight: 700, color: t.text }}>
-          {title}
-        </h3>
-        {body}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-          <button type="button" onClick={onCancel} style={ghostButton(t)}>
-            Cancel
-          </button>
-          <button type="button" onClick={onConfirm} disabled={confirmDisabled} style={primaryDangerButton(confirmDisabled)}>
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
