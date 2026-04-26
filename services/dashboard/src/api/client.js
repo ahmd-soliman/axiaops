@@ -43,7 +43,7 @@ async function ifetch(url, opts) {
 // auth headers, intercepts 403 → dispatches FORBIDDEN_EVENT, and surfaces
 // non-2xx responses as Errors with a `.status` property so callers can
 // branch on (e.g.) 409 conflicts without parsing message strings.
-async function request(path, { method = 'GET', body, headers = {} } = {}) {
+async function request(path, { method = 'GET', body, headers = {}, raw = false } = {}) {
   const opts = {
     method,
     headers: { ...authHeaders(), ...headers },
@@ -63,6 +63,9 @@ async function request(path, { method = 'GET', body, headers = {} } = {}) {
     }
     throw err;
   }
+  // raw=true skips body parsing — for callers that need a Blob, stream, or
+  // the response headers (e.g. Content-Disposition for downloads).
+  if (raw) return res;
   if (res.status === 204) return null;
   const ctype = res.headers.get('Content-Type') || '';
   if (ctype.includes('application/json')) return res.json();
@@ -325,22 +328,13 @@ export async function deleteCurrentTenant() {
 }
 
 // exportTenantData fetches GET /v1/export and returns { blob, filename } so
-// the caller can wire it into a browser download. Bypasses request() because
-// that wrapper assumes JSON parsing of 2xx bodies, while we want the raw
-// bytes to forward straight into a Blob.
+// the caller can wire it into a browser download.
 export async function exportTenantData() {
-  const res = await ifetch(`${BASE_URL}/v1/export`, { headers: authHeaders() });
-  if (!res.ok) {
-    const err = new Error(`request failed: ${res.status}`);
-    err.status = res.status;
-    try { err.body = await res.text(); } catch { err.body = ''; }
-    throw err;
-  }
-  const blob = await res.blob();
-  // Server sets `attachment; filename="axiaops-export-<tenant>-<ts>.json"`.
-  // Parse it out so the saved file matches what the API named.
+  const res = await request('/v1/export', { raw: true });
   const cd = res.headers.get('Content-Disposition') || '';
   const match = cd.match(/filename="([^"]+)"/);
-  const filename = match ? match[1] : 'axiaops-export.json';
-  return { blob, filename };
+  return {
+    blob: await res.blob(),
+    filename: match ? match[1] : 'axiaops-export.json',
+  };
 }
