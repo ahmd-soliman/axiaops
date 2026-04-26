@@ -291,7 +291,12 @@ export async function listMemberships() {
   return request('/v1/memberships');
 }
 
-export async function inviteMember(email, role) {
+// addMember adds an existing AxiaOps user (looked up server-side by email)
+// to the calling org's memberships. Backend returns 404 if no user matches —
+// today there's no email-out invitation flow, the user must have signed in
+// at least once. See Tasks.md "Multi-organization UX" for the future
+// invite-by-email flow that supersedes this constraint.
+export async function addMember(email, role) {
   return request('/v1/memberships', { method: 'POST', body: { email, role } });
 }
 
