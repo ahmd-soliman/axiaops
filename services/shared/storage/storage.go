@@ -38,8 +38,8 @@ const organizationKey ctxKey = "organization_id"
 
 // WithOrganizationID returns a context carrying the given tenant ID.
 // The PostgreSQL store reads this to set app.tenant_id for Row-Level Security.
-func WithOrganizationID(ctx context.Context, tenantID string) context.Context {
-	return context.WithValue(ctx, organizationKey, tenantID)
+func WithOrganizationID(ctx context.Context, organizationID string) context.Context {
+	return context.WithValue(ctx, organizationKey, organizationID)
 }
 
 // OrganizationIDFromCtx returns the tenant ID stored in the context, or "".
@@ -84,7 +84,7 @@ type Store interface {
 
 	// UpsertUser creates a user on first login or updates last_seen.
 	// Keyed on kinde_sub — the stable Kinde user identifier.
-	UpsertUser(ctx context.Context, tenantID, kindeSub, email, name string) (model.User, error)
+	UpsertUser(ctx context.Context, organizationID, kindeSub, email, name string) (model.User, error)
 
 	// EnsureUser creates a user with a caller-supplied id, or updates
 	// tenant_id/email/name/last_seen if a row with that id already exists.
@@ -210,11 +210,11 @@ type Store interface {
 	// ── Memberships (RBAC Phase 1, see docs/rbac-design.md) ──────────────────
 
 	// RoleOf returns the role string ("owner"|"admin"|"member"|"viewer") for
-	// (tenantID, userID), or "" with nil error when no membership row exists.
+	// (organizationID, userID), or "" with nil error when no membership row exists.
 	// The implementation must enforce RLS — i.e. open its own transaction
 	// and SET LOCAL app.tenant_id before SELECTing. Called from the auth
 	// middleware on every request, so must be cheap.
-	RoleOf(ctx context.Context, tenantID, userID string) (string, error)
+	RoleOf(ctx context.Context, organizationID, userID string) (string, error)
 
 	// ListMemberships returns all memberships in the tenant in ctx, joined
 	// with users for email/name. Used by the admin user-management screen.
@@ -245,19 +245,19 @@ type Store interface {
 	// in this tenant.
 	TransferOwnership(ctx context.Context, toUserID string) error
 
-	// EnsureFirstMembership inserts an owner row for (tenantID, userID) only
+	// EnsureFirstMembership inserts an owner row for (organizationID, userID) only
 	// if no membership row exists yet for this tenant. Used by the auth
 	// middleware to bootstrap brand-new Kinde organisations on first login.
 	// Idempotent and race-safe: the partial unique index in migration 015
 	// rejects a second concurrent insert. Returns true when this call
 	// inserted the row, false if a membership already existed.
-	EnsureFirstMembership(ctx context.Context, tenantID, userID string) (bool, error)
+	EnsureFirstMembership(ctx context.Context, organizationID, userID string) (bool, error)
 
-	// EnsureDevMembership creates an owner row for (tenantID, userID) on
+	// EnsureDevMembership creates an owner row for (organizationID, userID) on
 	// startup in DEV_MODE. Mirrors EnsureUser's raw-pool shortcut (RLS
 	// would prevent reading app.tenant_id at startup before any handler runs).
 	// Idempotent. role is one of the four defined roles.
-	EnsureDevMembership(ctx context.Context, tenantID, userID, role string) error
+	EnsureDevMembership(ctx context.Context, organizationID, userID, role string) error
 
 	// GetUserByEmail looks up a user by email for the tenant in ctx. Used by
 	// the invite-by-email flow. Returns ErrUserNotFound when no match.
@@ -284,12 +284,12 @@ type Store interface {
 	// in FK-safe order, in a single transaction. Used by the per-tenant
 	// right-to-erasure flow (DELETE /v1/organizations/me). Steps:
 	//   1. Anonymise audit_log entries (in OTHER tenants) for users whose
-	//      users.tenant_id = tenantID — those users are about to be deleted
+	//      users.tenant_id = organizationID — those users are about to be deleted
 	//      and their attribution must be erased everywhere, not just here.
 	//   2. Delete per-tenant data: dismissed_zombies, zombie_snapshot_services,
 	//      zombie_snapshots, zombie_records, resource_records, cost_records,
 	//      accounts, audit_log.
-	//   3. Delete users with users.tenant_id = tenantID; CASCADE removes
+	//   3. Delete users with users.tenant_id = organizationID; CASCADE removes
 	//      their memberships in this and other tenants.
 	//   4. Delete the tenants row; CASCADE removes any remaining memberships
 	//      held by users from other tenants.
@@ -297,7 +297,7 @@ type Store interface {
 	// audit_log write recording the deletion intent — that record is purged
 	// along with everything else, but a Prometheus counter and structured
 	// log line should remain as the operations trail.
-	DeleteOrganizationCascade(ctx context.Context, tenantID string) error
+	DeleteOrganizationCascade(ctx context.Context, organizationID string) error
 
 	// Close releases any resources held by the store.
 	Close() error
