@@ -47,7 +47,7 @@ export default function CloudAccounts() {
         <div style={{ flex: 1 }}>
           <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Cloud Accounts</h1>
           <p style={{ marginTop: 4, marginBottom: 0, color: t.textMuted, fontSize: 13 }}>
-            AWS accounts AxiaOps is monitoring for this tenant.
+            AWS accounts AxiaOps is monitoring.
           </p>
         </div>
         {canConnect && (
