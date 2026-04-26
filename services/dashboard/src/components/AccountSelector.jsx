@@ -2,14 +2,7 @@ import { useState } from 'react';
 import { useTheme } from '../theme/ThemeContext';
 import { Overlay } from '../components/primitives';
 import { Spinner } from '../components/primitives';
-
-const STATUS_LABEL = {
-  connected:            'Connected',
-  scanning:             'Scanning…',
-  error:                'Error',
-  scan_timeout:         'Timed out',
-  circuit_breaker_open: 'Unavailable',
-};
+import { STATUS_LABEL } from '../utils/accountStatus';
 
 export default function AccountSelector({
   accounts,
