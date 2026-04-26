@@ -1,6 +1,6 @@
 # Phase 2 Completion Plan — Scheduled Auto-Scan, Redis, Dismiss/Snooze
 
-> **Source:** extends `docs/TASKS.md` sections 2.12, 2.14, 3.2 — pulling Dismiss/Snooze
+> **Source:** extends `Tasks.md` sections 2.12, 2.14, 3.2 — pulling Dismiss/Snooze
 > forward from Phase 3 because it unblocks paying customers, and reconciling a few
 > checkmarks in 2.12 that no longer reflect the repo state.
 >
@@ -632,8 +632,8 @@ Dependencies worth naming:
    Terraform module and a slightly higher floor cost.
 4. **Dead-letter surfacing.** Plan leaves DLQ inspection as a `redis-cli` task.
    Worth a small admin endpoint (`GET /v1/admin/dead_letters`) or can wait?
-5. **TASKS.md reconciliation.** The checkmarks on 2.12 need adjustment — the core
-   sub-items are done but history + retry aren't. Happy to update TASKS.md as part
+5. **Tasks.md reconciliation.** The checkmarks on 2.12 need adjustment — the core
+   sub-items are done but history + retry aren't. Happy to update Tasks.md as part
    of landing this plan, or we can leave it as a "see phase2-plan.md" redirect.
 
 ### Risks
@@ -698,7 +698,7 @@ services/api/internal/middleware/ratelimit.go             # (none — already Re
 services/dashboard/src/screens/DetailScreen.js            # dismiss/snooze actions
 services/dashboard/src/screens/DashboardScreen.js         # dismissed pill, filter toggle
 services/dashboard/src/api/client.js                      # 4 new methods
-docs/TASKS.md                                             # reconcile 2.12 checkmarks, mark 2.14 in-progress
+Tasks.md                                                  # reconcile 2.12 checkmarks, mark 2.14 in-progress
 ```
 
 ### Tests
