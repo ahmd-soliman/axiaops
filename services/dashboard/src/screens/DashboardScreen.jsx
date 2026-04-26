@@ -42,10 +42,23 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
   const currency = data?.currency || '$';
   const wastePercent = totalSpend > 0 ? (waste / totalSpend) * 100 : 0;
 
-  const latestSnap = trend.data?.[trend.data.length - 1];
-  const prevSnap   = trend.data?.[trend.data.length - 2];
-  const delta = latestSnap && prevSnap
-    ? ((latestSnap.total_monthly_cost - prevSnap.total_monthly_cost) / Math.max(prevSnap.total_monthly_cost, 0.01)) * 100
+  // /v1/trend returns one row per (account, scan), not one row per scan day.
+  // In All Accounts mode each scan day produces N rows (one per account that
+  // scanned), so naively comparing the last two rows compared two arbitrary
+  // accounts' totals — making the headline ▲/▼ % delta meaningless. Roll up
+  // by date here so the delta compares yesterday's org-wide total to today's.
+  const dailyTotals = useMemo(() => {
+    const m = new Map();
+    for (const s of trend.data ?? []) {
+      const day = s.snapshot_at.slice(0, 10);
+      m.set(day, (m.get(day) || 0) + s.total_monthly_cost);
+    }
+    return [...m.entries()].sort();
+  }, [trend.data]);
+  const latest = dailyTotals.at(-1)?.[1];
+  const prev   = dailyTotals.at(-2)?.[1];
+  const delta  = latest != null && prev != null
+    ? ((latest - prev) / Math.max(prev, 0.01)) * 100
     : null;
 
   return (
@@ -757,7 +770,7 @@ export default function DashboardScreen({
   const summary    = useQuery({ queryKey: ['summary', selectedAccount],    queryFn: () => fetchSummary(selectedAccount) });
   const resources  = useQuery({ queryKey: ['resources', selectedAccount],  queryFn: () => fetchResources(selectedAccount) });
   const costs      = useQuery({ queryKey: ['costs', selectedAccount, 30], queryFn: () => fetchCosts(selectedAccount, null, 30) });
-  const trend      = useQuery({ queryKey: ['trend'],                       queryFn: () => fetchTrend(null) });
+  const trend      = useQuery({ queryKey: ['trend', selectedAccount],      queryFn: () => fetchTrend(selectedAccount) });
   const dismissals = useQuery({ queryKey: ['dismissals', selectedAccount], queryFn: () => fetchDismissals(selectedAccount) });
 
   const totalSpend = useMemo(() => {

@@ -1774,6 +1774,121 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, e
 	return u, nil
 }
 
+// ── GDPR — right to erasure ─────────────────────────────────────────────────
+//
+// Both methods here use adminPool because:
+//   * audit_log only grants UPDATE to the app role (no DELETE) — the migration
+//     locks down purges to the owner role on purpose.
+//   * the operations span tenants (anonymising audit entries elsewhere when a
+//     user is deleted), so RLS would block half the work.
+// See docs/rbac-design.md §10 and docs/audit_trail_plan.md §7.
+
+// DeleteUser hard-deletes a user as part of right-to-erasure. Anonymises
+// the user's audit footprint across all tenants, then deletes the user row;
+// memberships in this and other tenants cascade away automatically.
+func (s *Store) DeleteUser(ctx context.Context, userID string) error {
+	if userID == "" {
+		return fmt.Errorf("postgres: delete user: userID required")
+	}
+	tx, err := s.adminPool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: delete user begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Refuse if the user is the sole owner of any tenant — they must transfer
+	// ownership or delete those tenants first. Same invariant the membership
+	// flow protects with ErrLastOwner.
+	var orphanCount int
+	err = tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM memberships m1
+		WHERE m1.user_id = $1 AND m1.role = 'owner'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM memberships m2
+		    WHERE m2.tenant_id = m1.tenant_id
+		      AND m2.role = 'owner'
+		      AND m2.user_id <> $1
+		  )`, userID).Scan(&orphanCount)
+	if err != nil {
+		return fmt.Errorf("postgres: delete user owner check: %w", err)
+	}
+	if orphanCount > 0 {
+		return storage.ErrLastOwner
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE audit_log
+		SET user_id = NULL, actor_email = 'deleted-user'
+		WHERE user_id = $1`, userID); err != nil {
+		return fmt.Errorf("postgres: delete user anonymise audit: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		return fmt.Errorf("postgres: delete user: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// DeleteTenantCascade purges every row scoped to tenantID in FK-safe order
+// and then drops the tenant row itself. See docs/audit_trail_plan.md §7
+// — this is the one path that purges audit_log.
+func (s *Store) DeleteTenantCascade(ctx context.Context, tenantID string) error {
+	if tenantID == "" {
+		return fmt.Errorf("postgres: delete tenant: tenantID required")
+	}
+	tx, err := s.adminPool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: delete tenant begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Anonymise audit entries (in OTHER tenants) for users whose primary
+	// tenant is the one being deleted — those users are about to be removed
+	// from the system entirely, so their attribution in any tenant they
+	// were a member of must also be anonymised.
+	if _, err := tx.Exec(ctx, `
+		UPDATE audit_log
+		SET user_id = NULL, actor_email = 'deleted-user'
+		WHERE tenant_id <> $1
+		  AND user_id IN (SELECT id FROM users WHERE tenant_id = $1)`,
+		tenantID,
+	); err != nil {
+		return fmt.Errorf("postgres: cascade anonymise audit: %w", err)
+	}
+
+	// Per-tenant data, FK-safe order.
+	tables := []string{
+		"dismissed_zombies",
+		"zombie_snapshot_services",
+		"zombie_snapshots",
+		"zombie_records",
+		"resource_records",
+		"cost_records",
+		"accounts",
+		"audit_log",
+	}
+	for _, t := range tables {
+		// #nosec — table name is a hardcoded literal from the slice above,
+		// not user input. pgx parameter binding does not support identifiers.
+		if _, err := tx.Exec(ctx, "DELETE FROM "+t+" WHERE tenant_id = $1", tenantID); err != nil {
+			return fmt.Errorf("postgres: cascade delete %s: %w", t, err)
+		}
+	}
+
+	// Users whose primary tenant is this one go away entirely. CASCADE on
+	// memberships.user_id removes their memberships in all other tenants too.
+	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE tenant_id = $1`, tenantID); err != nil {
+		return fmt.Errorf("postgres: cascade delete users: %w", err)
+	}
+
+	// Finally drop the tenant; CASCADE on memberships.tenant_id sweeps any
+	// remaining membership rows held by users whose primary tenant is elsewhere.
+	if _, err := tx.Exec(ctx, `DELETE FROM tenants WHERE id = $1`, tenantID); err != nil {
+		return fmt.Errorf("postgres: cascade delete tenant: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
 // Ping verifies the database connection is still alive.
 func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
