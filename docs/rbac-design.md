@@ -408,11 +408,31 @@ A user can remove themselves from any organization they're a member of — `DELE
 
 Common UX; many B2B apps shipped without it and regretted it (support tickets: "stop mailing me, I don't work there anymore").
 
-### Invitations (deferred to Phase 2)
+### Invitations (current scope)
 
-v1 scope: `POST /v1/memberships` only accepts `{user_id, role}` — the invitee must have logged in to AxiaOps at least once so `users.email` is populated and `user_id` is known. Admin looks them up, grants a role.
+Two endpoints, two primitives:
 
-"Invite by email before first login" (email → pending row → attach on first login) is a real UX improvement but adds: nullable `user_id`, new `invited_email` column, `UpsertUser` branching to attach pending rows, test coverage for the expiry and re-send flows. Two days of work that can ship standalone later without data migration. Moved to Phase 2.
+- **`POST /v1/memberships {user_id, role}`** — promote an **existing** AxiaOps user to a role. The invitee must already have a `users` row (i.e. authenticated via Kinde at least once). Useful when promoting someone who churned through the app previously, or — post multi-org support — adding a known user to a second organization.
+- **`POST /v1/invitations {email, role}`** — invite **by email**, including users who do not yet have a Kinde or AxiaOps account. AxiaOps writes a `pending_memberships` row, calls Kinde's Management API to send an org-scoped invitation, and redeems the pending row into a real `memberships` row when the invitee first authenticates (see `auth.go` redemption hook after `EnsureFirstMembership`).
+
+The `pending_memberships` table:
+
+| Column | Notes |
+|---|---|
+| `id` | UUID |
+| `organization_id` | FK to `organizations`, RLS-scoped |
+| `email` | stored verbatim, indexed by `lower(email)` |
+| `role` | `admin` / `member` / `viewer` (no `owner` — transferred via dedicated endpoint) |
+| `invited_by_user_id`, `invited_by_email` | the inviter, for audit |
+| `status` | `pending` / `expired` / `revoked` (no `accepted` — redemption deletes the row) |
+| `kinde_invitation_id`, `kinde_user_id` | from the Kinde Mgmt API response, used for revocation |
+| `expires_at` | default `NOW() + 14 days` |
+
+Partial unique index on `(organization_id, lower(email)) WHERE status='pending'` makes re-invites idempotent (upsert refreshes `expires_at` + `role`, re-issues the Kinde email).
+
+Permission tiers mirror `POST /v1/memberships`: `members:invite` for `member`/`viewer` targets, `members:manage_admin` for `admin` targets. Revocation (`DELETE /v1/invitations/{id}`) calls Kinde's `DELETE .../organizations/{org_code}/users/{kinde_user_id}` first, then flips the local row to `revoked`.
+
+See `docs/invitation-flow.md` for the full design contract — middleware hook, Kinde Mgmt API client, dashboard UX, edge cases, and testing plan.
 
 ### Deleted user with valid JWT
 
@@ -542,7 +562,7 @@ Drop migration 015. Remove `Require` wrappers. Since the backfill defaults every
 - API keys / service-account memberships
 - Per-cloud-account scoping (`membership_account_scopes` table + handler filtering)
 - SSO-driven default-role mapping (Kinde org-role → AxiaOps role on first login)
-- Invite-by-email (before first login) — adds nullable `user_id`, `invited_email` column, `UpsertUser` attachment logic, resend/expiry flows. See §8 "Invitations (deferred to Phase 2)".
+- ~~Invite-by-email (before first login)~~ — **shipped**. `POST /v1/invitations`, `pending_memberships` table, Kinde Mgmt API integration, middleware redemption hook. See §8 "Invitations (current scope)" and `docs/invitation-flow.md`.
 - Billing admin role (ships alongside the subscription/billing feature)
 - Internal / staff roles — see §11 (triggered by second hire, first paying customer, or billing system shipping)
 
