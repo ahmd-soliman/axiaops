@@ -19,7 +19,7 @@ and writes results to PostgreSQL. Triggered by the API service via `POST /scan`.
 ## Ingestion Flow
 
 ```
-POST /scan {account_id, tenant_id}
+POST /scan {account_id, organization_id}
   → Fetch account from DB
   → Decrypt AWS secret (AES-256-GCM)
   → Set AWS credentials as env vars
@@ -121,8 +121,8 @@ if err := store.SaveZombies(ctx, zombies); err != nil {
 saveObserver.Observe()
 
 // Update summary
-observability.Global.ZombiesDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalZombies))
-observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(summary.PotentialMonthlySave)
+observability.Global.ZombiesDetected.WithLabelValues("aws", organizationID).Set(float64(summary.TotalZombies))
+observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationID).Set(summary.PotentialMonthlySave)
 ```
 
 ## Environment Variables

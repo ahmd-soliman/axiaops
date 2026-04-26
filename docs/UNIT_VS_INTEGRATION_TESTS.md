@@ -10,7 +10,7 @@ Side-by-side comparison of unit tests and PostgreSQL integration tests for AxiaO
 |--------|-----------|-------------------|
 | **Purpose** | Test business logic, handlers, middleware | Test database layer, RLS, migrations |
 | **Database** | None (mocks) | PostgreSQL (shared instance) |
-| **Isolation** | Per-test mock | Per-tenant (same DB) |
+| **Isolation** | Per-test mock | Per-organization (same DB) |
 | **Parallelization** | YES (-parallel 4) | NO (-p=1 sequential) |
 | **Cleanup** | None needed | TRUNCATE CASCADE before/after |
 | **Speed** | Fast (~1-2 sec) | Moderate (~5 sec) |
@@ -55,7 +55,7 @@ func TestGetZombies_ReturnsJSON(t *testing.T) {
 // services/shared/storage/postgres/postgres_test.go
 func TestSave_InsertsRecords(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newTenantCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
 	records := []model.CostRecord{ ... }
 	inserted, err := s.Save(ctx, records)
@@ -97,16 +97,16 @@ func TestDetect_FlagsZeroUsageEC2(t *testing.T) {
 #### Integration Test (✓ Correct Approach)
 
 ```go
-func TestZombies_TenantIsolation(t *testing.T) {
+func TestZombies_OrganizationIsolation(t *testing.T) {
 	s := newTestStore(t)
-	ctx1, _ := newTenantCtx(t, s)
-	ctx2, _ := newTenantCtx(t, s)
+	ctx1, _ := newOrgCtx(t, s)
+	ctx2, _ := newOrgCtx(t, s)
 
 	s.SaveZombies(ctx1, []model.ZombieResource{{ResourceID: "res-1"}})
 
 	loaded2, _ := s.LoadZombies(ctx2)
 	if len(loaded2) != 0 {
-		t.Error("Tenant 2 can see Tenant 1's data — RLS failed")
+		t.Error("Organization 2 can see Organization 1's data — RLS failed")
 	}
 }
 ```
@@ -127,10 +127,10 @@ No database → no cleanup needed. Any temporary state is in-memory or via `t.Cl
 func setup(t *testing.T) {
 	db := connectTestDB(t)
 	// Truncate before test
-	db.Exec("TRUNCATE TABLE snapshots, resources, accounts, users, tenants CASCADE")
+	db.Exec("TRUNCATE TABLE snapshots, resources, accounts, users, organizations CASCADE")
 	t.Cleanup(func() {
 		// Truncate after test
-		db.Exec("TRUNCATE TABLE snapshots, resources, accounts, users, tenants CASCADE")
+		db.Exec("TRUNCATE TABLE snapshots, resources, accounts, users, organizations CASCADE")
 		db.Close()
 	})
 }

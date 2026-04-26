@@ -38,7 +38,7 @@ API service (always running on :8080)
   ├── GET /ghosts     → list of zombie resources
   ├── GET /summary    → aggregate savings
   ├── GET /health     → healthcheck (no auth)
-  ├── GET /accounts   → list connected cloud accounts for the current tenant
+  ├── GET /accounts   → list connected cloud accounts for the current organization
   ├── POST /accounts  → connect a new cloud account (encrypts secret with AES-256-GCM)
   ├── DELETE /accounts/{id}  → remove a connected account
   └── POST /accounts/{id}/scan → trigger on-demand ingestion scan
@@ -74,7 +74,7 @@ API service (always running on :8080)
 - `GET /ghosts` — list of detected zombie resources with cost, usage metric, reason, and owner
 - `GET /summary` — aggregate savings figure and per-service breakdown
 - `GET /health` — healthcheck, bypasses auth
-- `GET /accounts` — list connected cloud accounts for the current tenant
+- `GET /accounts` — list connected cloud accounts for the current organization
 - `POST /accounts` — connect a new cloud account (encrypts secret with AES-256-GCM)
 - `DELETE /accounts/{id}` — remove a connected account
 - `POST /accounts/{id}/scan` — trigger an on-demand ingestion scan for an account
@@ -85,7 +85,7 @@ API service (always running on :8080)
 - **Provider:** Kinde (chosen over Supabase Auth, Clerk, Cognito — see `docs/auth.md`)
 - **Flow:** PKCE OAuth via `expo-auth-session` on dashboard → JWT verified by Go middleware
 - **Middleware:** `services/api/internal/middleware/auth.go` — RS256 JWT verification via JWKS
-- **Tenant persistence:** `org_code` → internal UUID in `tenants` table on first login
+- **Organization persistence:** `org_code` → internal UUID in `organizations` table on first login
 - **User persistence:** `kinde_sub` + email in `users` table, `last_seen` updated on each login
 - **Migration path:** swap `AUTH_ISSUER` env var — schema is provider-agnostic (see `docs/auth.md`)
 
@@ -97,8 +97,8 @@ API service (always running on :8080)
 |---------|-------|-----------------|
 | `shared/analyzer` | 9 | Flags zero-usage resources, skips active, skips missing data, owner fallback, aggregate savings |
 | `api/internal/api` | 7 | GET /ghosts, GET /summary — 200, JSON payload, content type, CORS, OPTIONS preflight |
-| `api/internal/middleware` | 9 | Valid/invalid/expired/wrong-issuer tokens, missing org_code, OPTIONS passthrough, tenant in context |
-| `shared/storage/postgres` | 30+ | Insert, dedup, empty batch, region uniqueness, tags, UpsertTenant, UpsertUser, RLS isolation, accounts CRUD, snapshots |
+| `api/internal/middleware` | 9 | Valid/invalid/expired/wrong-issuer tokens, missing org_code, OPTIONS passthrough, organization in context |
+| `shared/storage/postgres` | 30+ | Insert, dedup, empty batch, region uniqueness, tags, UpsertOrganization, UpsertUser, RLS isolation, accounts CRUD, snapshots |
 | `ingestion/provider/aws` | 3 | Single-page response, multi-page pagination, API error propagation |
 
 **Test patterns used:**
@@ -155,8 +155,8 @@ PostgreSQL (same DB)
 ```sql
 cost_records   — raw billing data from Cost Explorer
 ghost_records  — detected zombie resources (replaced on each ingestion run)
-tenants        — Kinde org_code → internal UUID mapping
-users          — Kinde users, linked to tenant, last_seen updated on login
+organizations        — Kinde org_code → internal UUID mapping
+users          — Kinde users, linked to organization, last_seen updated on login
 accounts       — connected cloud accounts, secrets encrypted at rest
 ```
 
@@ -253,7 +253,7 @@ make stop           # kill all services
 ```sql
 CREATE TABLE IF NOT EXISTS accounts (
     id                TEXT        PRIMARY KEY,
-    tenant_id         TEXT        NOT NULL REFERENCES tenants(id),
+    organization_id         TEXT        NOT NULL REFERENCES organizations(id),
     provider          TEXT        NOT NULL DEFAULT 'aws',
     label             TEXT        NOT NULL DEFAULT '',
     access_key_id     TEXT        NOT NULL DEFAULT '',
@@ -264,8 +264,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     created_at        TIMESTAMPTZ NOT NULL
 );
 ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
-CREATE POLICY accounts_tenant_isolation ON accounts
-    USING (tenant_id = current_setting('app.tenant_id', true));
+CREATE POLICY accounts_organization_isolation ON accounts
+    USING (organization_id = current_setting('app.organization_id', true));
 ```
 
 > **Note:** Row-Level Security and `CREATE POLICY` are PostgreSQL-only features.
@@ -281,7 +281,7 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 1. API receives `POST /accounts/{id}/scan`
 2. API checks in-memory scan lock — rejects if account is already scanning
 3. API sets account status to `scanning`, fires async goroutine
-4. Goroutine POSTs `{account_id, tenant_id}` to ingestion service at `http://localhost:8081/scan`
+4. Goroutine POSTs `{account_id, organization_id}` to ingestion service at `http://localhost:8081/scan`
 5. Ingestion fetches account from DB, decrypts secret, sets AWS env vars, runs full ingestion
 6. API updates account status to `connected` or `error` on completion
 
@@ -293,7 +293,7 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 
 - Chosen over Supabase Auth, Clerk, Cognito — see `docs/auth.md`
 - JWT middleware in `services/api/internal/middleware/`
-- Tenant + user persisted on first login
+- Organization + user persisted on first login
 - Dashboard login screen with PKCE flow
 
 #### 2.4 PostgreSQL Migration ✅
@@ -318,7 +318,7 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 **Status: Complete**
 
 - `ghost_records` is currently replaced on every run — no history is retained
-- Add a `ghost_snapshots` table: `(id, tenant_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)`
+- Add a `ghost_snapshots` table: `(id, organization_id, account_id, snapshot_at, ghost_count, total_monthly_cost, currency)`
 - Ingestion job writes one snapshot row per scan instead of wiping ghost_records
 - `GET /trend` — returns snapshot series for charting savings over time
 - Dashboard: savings trend sparkline on the header
@@ -328,7 +328,7 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 **Priority: Must ship before production deployment.**
 
 - **Structured logging:** Replace `log.Printf` with `log/slog` (stdlib) — JSON output in production, text in dev
-  - Every log line includes: `tenant_id`, `account_id`, `request_id`, `service`
+  - Every log line includes: `organization_id`, `account_id`, `request_id`, `service`
   - Scan lifecycle: `scan.started`, `scan.completed`, `scan.failed` with duration and ghost count
 - **Error handling:** Structured logging via `log/slog` — errors logged as JSON to stdout for aggregation
 - **Metrics:** Prometheus client (`promhttp`) exposed on `/metrics` (internal port, not public)
@@ -358,10 +358,10 @@ CREATE POLICY accounts_tenant_isolation ON accounts
 
 **Priority: Must be in place before production, before Redis is available.**
 
-Redis-based rate limiting isn't available until 2.14, but the API is public-facing from day one. Add a per-tenant in-memory token bucket as a temporary guard that is replaced by the Redis implementation in 2.14.
+Redis-based rate limiting isn't available until 2.14, but the API is public-facing from day one. Add a per-organization in-memory token bucket as a temporary guard that is replaced by the Redis implementation in 2.14.
 
-- Implementation: `sync.Map` keyed by `tenant_id` + sliding window counter
-- Limits: 60 requests/minute per tenant (API endpoints); scan requests already have a concurrency guard
+- Implementation: `sync.Map` keyed by `organization_id` + sliding window counter
+- Limits: 60 requests/minute per organization (API endpoints); scan requests already have a concurrency guard
 - Returns `429 Too Many Requests` with `Retry-After` header
 - **Key file:** `services/api/internal/middleware/ratelimit.go`
 
@@ -403,7 +403,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 **Purpose:** `cost_records` grow unbounded — each scan inserts up to 30 days of billing data per account. Without a retention policy, the table will grow indefinitely and degrade query performance.
 
 - Retention window: 90 days (configurable via `COST_RECORDS_RETENTION_DAYS` env var)
-- Cleanup: background ticker in the ingestion service runs daily; `DELETE FROM cost_records WHERE period_end < NOW() - INTERVAL '90 days' AND tenant_id = $1`
+- Cleanup: background ticker in the ingestion service runs daily; `DELETE FROM cost_records WHERE period_end < NOW() - INTERVAL '90 days' AND organization_id = $1`
 - Log `cost_records.cleanup` with rows deleted and duration
 - Migration: add `created_at` index on `cost_records` if not already present for efficient range deletes
 
@@ -475,8 +475,8 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
   - **Team (€149/month):** Unlimited accounts, user roles, Slack alerts, priority support
 - **Billing provider:** Stripe — subscription management, invoicing, usage metering
 - **Implementation:**
-  - `services/api/internal/middleware/billing.go` — checks tenant plan tier, enforces limits
-  - `tenants` table extended with `plan`, `stripe_customer_id`, `stripe_subscription_id`
+  - `services/api/internal/middleware/billing.go` — checks organization plan tier, enforces limits
+  - `organizations` table extended with `plan`, `stripe_customer_id`, `stripe_subscription_id`
   - Stripe webhook handler: `POST /webhooks/stripe` — subscription lifecycle events
   - Dashboard: plan indicator in header, upgrade prompt when hitting limits
 - **Free trial:** 14 days of Pro tier on signup, no credit card required
@@ -484,7 +484,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 #### 3.2 Dismiss Ghost
 
 - `POST /ghosts/{id}/dismiss` — mark a ghost as intentional with a reason and optional note
-- `dismissed_ghosts` table: `(id, tenant_id, resource_id, reason, note, dismissed_by, dismissed_at)`
+- `dismissed_ghosts` table: `(id, organization_id, resource_id, reason, note, dismissed_by, dismissed_at)`
 - Dismissed ghosts are excluded from `/ghosts` and `/summary` by default; `?include_dismissed=true` shows them
 - Dashboard: "Dismiss" button on DetailScreen; dismissed ghosts shown with a grey "Intentional" badge
 - Snooze variant: `snooze_until` field — ghost reappears automatically after the date passes
@@ -510,7 +510,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 
 #### 3.5 Scan History Log
 
-- Track each scan run: `(id, tenant_id, account_id, started_at, finished_at, ghost_count, total_monthly_cost, status, error)`
+- Track each scan run: `(id, organization_id, account_id, started_at, finished_at, ghost_count, total_monthly_cost, status, error)`
 - `GET /accounts/{id}/scans` — returns scan history for an account
 - Dashboard: scan history list under each account (last N scans, ghost count, timestamp)
 
@@ -536,18 +536,18 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 
 - Invite team members via Kinde organisation invites
 - Roles: `admin` (full access) and `viewer` (read-only — no scan, no connect/disconnect)
-- `GET /users` — list users in tenant; `DELETE /users/{id}` — remove access
+- `GET /users` — list users in organization; `DELETE /users/{id}` — remove access
 - Plan-gated: Team tier only (see 3.1)
 
 #### 3.10 GDPR / Data Deletion
 
 **Priority: Must be in place before acquiring paying customers in the EU.**
 
-- ✅ **Right to erasure (tenant):** `DELETE /v1/tenants/me` — owner-only (`tenant:delete`); cascades through `dismissed_zombies`, `zombie_snapshot_services`, `zombie_snapshots`, `zombie_records`, `resource_records`, `cost_records`, `accounts`, `audit_log`, `memberships`, `users` (where this is their primary tenant), and finally `tenants`. Implemented in `Store.DeleteTenantCascade`.
-- ✅ **User deletion:** `DELETE /v1/users/me` — authn-only, refused with 409 if the caller is the sole owner of any tenant (must transfer ownership or delete those tenants first). Anonymises that user's audit_log rows across all tenants (`user_id = NULL`, `actor_email = 'deleted-user'`) before removing memberships and the user row. Implemented in `Store.DeleteUser`.
+- ✅ **Right to erasure (organization):** `DELETE /v1/organizations/me` — owner-only (`organization:delete`); cascades through `dismissed_zombies`, `zombie_snapshot_services`, `zombie_snapshots`, `zombie_records`, `resource_records`, `cost_records`, `accounts`, `audit_log`, `memberships`, `users` (where this is their primary organization), and finally `organizations`. Implemented in `Store.DeleteOrganizationCascade`.
+- ✅ **User deletion:** `DELETE /v1/users/me` — authn-only, refused with 409 if the caller is the sole owner of any organization (must transfer ownership or delete those organizations first). Anonymises that user's audit_log rows across all organizations (`user_id = NULL`, `actor_email = 'deleted-user'`) before removing memberships and the user row. Implemented in `Store.DeleteUser`.
 - **Data retention disclosure:** Document what is stored and for how long in the privacy policy.
-- **Account offboarding:** When a tenant deletes their account, encrypted AWS secrets are deleted immediately; billing is cancelled via Stripe webhook *(Stripe hook lands with the billing feature)*.
-- **Data portability:** `GET /v1/export` — full JSON dump of the tenant's data (zombies, accounts metadata without secrets, scan history). *Not yet implemented.*
+- **Account offboarding:** When a organization deletes their account, encrypted AWS secrets are deleted immediately; billing is cancelled via Stripe webhook *(Stripe hook lands with the billing feature)*.
+- **Data portability:** `GET /v1/export` — full JSON dump of the organization's data (zombies, accounts metadata without secrets, scan history). *Not yet implemented.*
 - Privacy policy and terms of service pages required before Phase 3 launch.
 
 #### 3.11 Expanded Detection Rules
@@ -560,7 +560,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
   - ElastiCache nodes (`CurrConnections = 0`)
   - S3 buckets (`GetRequests = 0` over 60 days, excluding buckets tagged `archival=true`)
   - CloudFront distributions (`Requests = 0` over 30 days)
-- Make detection rules configurable per tenant via `PATCH /settings/rules` — allow adjusting thresholds (e.g. EC2 CPU from 5% to 10%)
+- Make detection rules configurable per organization via `PATCH /settings/rules` — allow adjusting thresholds (e.g. EC2 CPU from 5% to 10%)
 - Store custom rules in a `detection_rules` table; fall back to built-in defaults
 
 #### 3.12 Operating Entity / Legal
@@ -672,7 +672,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | April 2026 | React Native web dashboard | ✅ Done |
 | April 2026 | Docker Compose full-stack + unit tests | ✅ Done |
 | April 2026 | AWS Cost Explorer + CloudWatch integration | ✅ Done |
-| April 2026 | Kinde auth + tenant/user persistence | ✅ Done |
+| April 2026 | Kinde auth + organization/user persistence | ✅ Done |
 | April 2026 | API/ingestion service split + ghost_records DB | ✅ Done |
 | April 2026 | Account management — connect AWS, encrypted secrets, on-demand scan | ✅ Done |
 | April 2026 | Resource inventory view — all resources with ghost/active annotation | ✅ Done |
@@ -681,7 +681,7 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | May 2026 | Observability — structured logging, Prometheus metrics | ✅ Done |
 | May 2026 | Scan recovery — timeout detection for stuck scans | ✅ Done |
 | May 2026 | API versioning — `/v1/` prefix on all endpoints | ✅ Done |
-| May 2026 | In-memory rate limiting — per-tenant token bucket before Redis | ✅ Done |
+| May 2026 | In-memory rate limiting — per-organization token bucket before Redis | ✅ Done |
 | May 2026 | Graceful shutdown — SIGTERM handling for API and ingestion | ✅ Done |
 | May 2026 | GitLab CI pipeline — test, build, deploy stages | ✅ Done |
 | June 2026 | Scheduled auto-scan (24h default interval per account) | Planned |
