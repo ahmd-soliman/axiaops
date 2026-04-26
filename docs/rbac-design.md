@@ -536,7 +536,7 @@ Drop migration 015. Remove `Require` wrappers. Since the backfill defaults every
 ### Phase 2 (post-MVP)
 
 - ~~Audit log (new `audit_log` table, written from mutation handlers)~~ — **shipped**. Migration 014, `Store.AuditLogWrite/List/AnonymiseUser`, `services/api/internal/audit` helper, `GET /v1/audit` with cursor pagination, dashboard `AuditScreen.jsx`. See `docs/audit_trail_plan.md`.
-- **GDPR — right to erasure** (`DELETE /v1/users/me`, `DELETE /v1/tenants/me`) — owner-only `tenant:delete` permission, `Store.DeleteUser`/`DeleteTenantCascade` (admin-pool, FK-safe order), audit_log purge baked into the tenant cascade. Sole-owner guard on user delete. Prometheus counters `axiaops_user_deletions_total` / `axiaops_tenant_deletions_total` are the durable ops trail (the audit row gets purged with the rest). Out of scope here: `GET /v1/export` (data portability), Stripe cancellation hook, dashboard UI for tenant deletion.
+- **GDPR — right to erasure** (`DELETE /v1/users/me`, `DELETE /v1/tenants/me`) — owner-only `tenant:delete` permission, `Store.DeleteUser`/`DeleteTenantCascade` (admin-pool, FK-safe order), audit_log purge baked into the tenant cascade. Sole-owner guard on user delete. Prometheus counters `axiaops_user_deletions_total` / `axiaops_organization_deletions_total` are the durable ops trail (the audit row gets purged with the rest). Out of scope here: `GET /v1/export` (data portability), Stripe cancellation hook, dashboard UI for tenant deletion.
 - API keys / service-account memberships
 - Per-cloud-account scoping (`membership_account_scopes` table + handler filtering)
 - SSO-driven default-role mapping (Kinde org-role → AxiaOps role on first login)

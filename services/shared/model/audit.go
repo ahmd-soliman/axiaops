@@ -46,7 +46,7 @@ const (
 	// AuditActionTenantDeleted is written immediately before a tenant cascade
 	// delete (DELETE /v1/tenants/me). The row itself gets purged with the
 	// rest of audit_log, so its only durable trace is the structured slog
-	// line and the axiaops_tenant_deletions_total Prometheus counter.
+	// line and the axiaops_organization_deletions_total Prometheus counter.
 	AuditActionTenantDeleted = "tenant_deleted"
 	// AuditActionDataExported is written when an owner downloads the tenant's
 	// GDPR data export (GET /v1/export). The Metadata map carries the row
