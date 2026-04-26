@@ -1,4 +1,4 @@
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
 import { PERM } from '../api/permissions';
@@ -18,20 +18,24 @@ const TABS = [
 
 export default function Settings() {
   const { theme: t, isDark } = useTheme();
-  const { can } = useMe();
+  const { can, loading } = useMe();
   const location = useLocation();
   const navigate = useNavigate();
 
+  // Wait for /v1/me before deciding what to render. On first paint
+  // `loading` is true and every `can()` returns false — without this gate
+  // the user sees the empty-state flash before the redirect can fire.
+  if (loading) return null;
+
   const visible = TABS.filter((tab) => can(tab.requires));
 
-  // Auto-redirect /settings to the first tab the caller can see. If none
-  // are visible (no audit:read — currently impossible since every role
-  // has it), the empty pane below tells them clearly.
-  if (location.pathname === '/settings' || location.pathname === '/settings/') {
-    if (visible.length > 0) {
-      navigate(visible[0].path, { replace: true });
-      return null;
-    }
+  // Land on first visible tab. <Navigate> is the declarative form;
+  // imperative navigate() during render fights React's render cycle.
+  if (
+    (location.pathname === '/settings' || location.pathname === '/settings/') &&
+    visible.length > 0
+  ) {
+    return <Navigate to={visible[0].path} replace />;
   }
 
   return (
