@@ -1,0 +1,4 @@
+FROM alpine:3.20
+RUN apk add --no-cache postgresql-client
+COPY init-organization.sh /init-organization.sh
+CMD ["sh", "/init-organization.sh"]
