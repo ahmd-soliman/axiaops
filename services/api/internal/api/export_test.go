@@ -154,6 +154,59 @@ func TestExport_NoIdentity_403(t *testing.T) {
 	}
 }
 
+func TestExport_AuditLog_PagesPastSinglePage(t *testing.T) {
+	// Seed 1500 audit events (3 × the 500-row page size) so the export must
+	// loop through cursor pagination at least three times. Distinct IDs +
+	// monotonically increasing CreatedAt make the DESC-sorted predicate
+	// strictly orderable, mirroring postgres.
+	const total = 1500
+	events := make([]model.AuditEvent, 0, total)
+	base := time.Now().UTC().Add(-time.Hour)
+	for i := 0; i < total; i++ {
+		events = append(events, model.AuditEvent{
+			ID:         int64(i + 1),
+			TenantID:   "tenant-me",
+			UserID:     "user-me",
+			ActorEmail: "me@example.com",
+			Action:     model.AuditActionAccountConnected,
+			CreatedAt:  base.Add(time.Duration(i) * time.Millisecond),
+		})
+	}
+
+	store := NewMockStore().WithRole("owner").WithAuditEvents(events)
+	mux := expHandler(store)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, meRequest(http.MethodGet, "/v1/export"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body bytes: %d)", w.Code, w.Body.Len())
+	}
+
+	var doc struct {
+		AuditLog          []model.AuditEvent `json:"audit_log"`
+		AuditLogTruncated bool               `json:"audit_log_truncated"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(doc.AuditLog) != total {
+		t.Fatalf("audit_log length: want %d (proves pagination loop terminated cleanly), got %d", total, len(doc.AuditLog))
+	}
+	if doc.AuditLogTruncated {
+		t.Errorf("audit_log_truncated should be false at %d rows (well under the 100k cap)", total)
+	}
+
+	// IDs should be unique — duplication would mean the cursor isn't advancing
+	// and the loop returned the same page repeatedly.
+	seen := make(map[int64]bool, total)
+	for _, e := range doc.AuditLog {
+		if seen[e.ID] {
+			t.Fatalf("duplicate audit ID %d in export — pagination cursor not advancing", e.ID)
+		}
+		seen[e.ID] = true
+	}
+}
+
 func TestExport_EmptyTenant_200(t *testing.T) {
 	// Owner with nothing in any table — every collection should encode as [],
 	// not null, so consumers can iterate without nil-checks.

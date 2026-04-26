@@ -44,6 +44,13 @@ const auditExportPageSize = 500
 // and the privacy lead falls back to a direct DB dump for the residual.
 const auditExportMaxPages = 200
 
+// exportConcurrency caps how many of the eight tenant-scoped reads run in
+// parallel. Each acquires its own pgx transaction (RLS sets app.tenant_id
+// per-tx), so unbounded fan-out × concurrent exports could starve the pool.
+// Four keeps the parallelism win (~4× over serial) without monopolising
+// connections under load.
+const exportConcurrency = 4
+
 type tenantExportMember struct {
 	UserID   string    `json:"user_id"`
 	Email    string    `json:"email,omitempty"`
@@ -147,6 +154,7 @@ func (h *Handler) buildTenantExport(ctx context.Context, tenantID string) (*tena
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(exportConcurrency)
 	var memberships []model.MembershipWithUser
 
 	g.Go(func() error {

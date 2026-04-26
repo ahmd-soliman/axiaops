@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"sync"
 	"time"
 
@@ -340,12 +341,35 @@ func (m *MockStore) AuditLogWrite(_ context.Context, e model.AuditEvent) (int64,
 	return e.ID, nil
 }
 
-func (m *MockStore) AuditLogList(_ context.Context, _ model.AuditFilter) ([]model.AuditEvent, error) {
+func (m *MockStore) AuditLogList(_ context.Context, f model.AuditFilter) ([]model.AuditEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// Handler tests only care that List returns what was written; filter
-	// semantics are exercised in the Postgres integration tests.
-	return append([]model.AuditEvent(nil), m.auditEvents...), nil
+
+	// Mirror postgres ORDER BY created_at DESC, id DESC + cursor predicate
+	// `(created_at, id) < cursor` so the export's pagination loop is actually
+	// exercised. Other filter fields (UserID, ResourceType, time range) stay
+	// no-ops — postgres integration tests cover those.
+	out := append([]model.AuditEvent(nil), m.auditEvents...)
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID > out[j].ID
+	})
+	if !f.Cursor.IsZero() {
+		filtered := out[:0]
+		for _, e := range out {
+			if e.CreatedAt.Before(f.Cursor.CreatedAt) ||
+				(e.CreatedAt.Equal(f.Cursor.CreatedAt) && e.ID < f.Cursor.ID) {
+				filtered = append(filtered, e)
+			}
+		}
+		out = filtered
+	}
+	if f.Limit > 0 && len(out) > f.Limit {
+		out = out[:f.Limit]
+	}
+	return out, nil
 }
 
 func (m *MockStore) AuditLogAnonymiseUser(_ context.Context, userID string) (int64, error) {
