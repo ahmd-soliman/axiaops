@@ -48,9 +48,12 @@ var permissionMatrix = []permissionMatrixCase{
 
 	// Owner-only.
 	{method: "POST", path: "/v1/tenants/transfer-ownership", body: `{}`, minRole: "owner"},
+	{method: "DELETE", path: "/v1/tenants/me", minRole: "owner"},
 
 	// Self-leave bypass — handler does its own check.
 	{method: "DELETE", path: "/v1/memberships/m-test", skipMatrix: true},
+	// /users/me deletion is authn-only (no perm gate); handler enforces.
+	{method: "DELETE", path: "/v1/users/me", skipMatrix: true},
 }
 
 // TestPermissionMatrix_DeniesEmptyRole asserts that every entry in the matrix

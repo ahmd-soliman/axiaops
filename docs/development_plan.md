@@ -543,12 +543,12 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 
 **Priority: Must be in place before acquiring paying customers in the EU.**
 
-- **Right to erasure:** `DELETE /tenants/me` — removes all tenant data: accounts, cost_records, ghost_records, ghost_snapshots, users, dismissed_ghosts, scan history
-- **Data retention disclosure:** Document what is stored and for how long in the privacy policy
-- **Account offboarding:** When a tenant deletes their account, encrypted AWS secrets are deleted immediately; billing is cancelled via Stripe webhook
-- **User deletion:** `DELETE /users/{id}` cascades to anonymise that user's audit log entries (replace `user_id` with a tombstone marker, not a hard delete — preserves audit trail integrity)
-- **Data portability:** `GET /export` — full JSON dump of the tenant's data (ghosts, accounts metadata without secrets, scan history)
-- Privacy policy and terms of service pages required before Phase 3 launch
+- ✅ **Right to erasure (tenant):** `DELETE /v1/tenants/me` — owner-only (`tenant:delete`); cascades through `dismissed_zombies`, `zombie_snapshot_services`, `zombie_snapshots`, `zombie_records`, `resource_records`, `cost_records`, `accounts`, `audit_log`, `memberships`, `users` (where this is their primary tenant), and finally `tenants`. Implemented in `Store.DeleteTenantCascade`.
+- ✅ **User deletion:** `DELETE /v1/users/me` — authn-only, refused with 409 if the caller is the sole owner of any tenant (must transfer ownership or delete those tenants first). Anonymises that user's audit_log rows across all tenants (`user_id = NULL`, `actor_email = 'deleted-user'`) before removing memberships and the user row. Implemented in `Store.DeleteUser`.
+- **Data retention disclosure:** Document what is stored and for how long in the privacy policy.
+- **Account offboarding:** When a tenant deletes their account, encrypted AWS secrets are deleted immediately; billing is cancelled via Stripe webhook *(Stripe hook lands with the billing feature)*.
+- **Data portability:** `GET /v1/export` — full JSON dump of the tenant's data (zombies, accounts metadata without secrets, scan history). *Not yet implemented.*
+- Privacy policy and terms of service pages required before Phase 3 launch.
 
 #### 3.11 Expanded Detection Rules
 

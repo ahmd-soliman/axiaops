@@ -111,6 +111,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("PATCH /v1/memberships/{id}/role", require(authz.PermMembersManageBasic, h.updateMembershipRole))
 	mux.HandleFunc("DELETE /v1/memberships/{id}", h.deleteMembership) // self-leave bypass — handler enforces
 	mux.Handle("POST /v1/tenants/transfer-ownership", require(authz.PermTenantTransfer, h.transferOwnership))
+
+	// GDPR — right to erasure (see docs/rbac-design.md §10).
+	// /users/me is authn-only: any logged-in user can delete themselves
+	// (subject to the sole-owner guard enforced by the store).
+	mux.HandleFunc("DELETE /v1/users/me", h.deleteCurrentUser)
+	mux.Handle("DELETE /v1/tenants/me", require(authz.PermTenantDelete, h.deleteCurrentTenant))
 }
 
 // cors wraps a handler with CORS headers.

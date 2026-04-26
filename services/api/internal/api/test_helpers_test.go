@@ -776,6 +776,114 @@ func (m *MockStore) GetUserByEmail(_ context.Context, email string) (model.User,
 	return model.User{}, storage.ErrUserNotFound
 }
 
+func (m *MockStore) DeleteUser(_ context.Context, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Sole-owner guard mirrors the postgres implementation.
+	for _, mb := range m.memberships {
+		if mb.UserID != userID || mb.Role != "owner" {
+			continue
+		}
+		others := 0
+		for _, mb2 := range m.memberships {
+			if mb2.TenantID == mb.TenantID && mb2.Role == "owner" && mb2.UserID != userID {
+				others++
+			}
+		}
+		if others == 0 {
+			return storage.ErrLastOwner
+		}
+	}
+
+	// Anonymise audit footprint across all tenants.
+	for i := range m.auditEvents {
+		if m.auditEvents[i].UserID == userID {
+			m.auditEvents[i].UserID = ""
+			m.auditEvents[i].ActorEmail = "deleted-user"
+		}
+	}
+
+	// Cascade memberships and the user row.
+	keptMemberships := m.memberships[:0]
+	for _, mb := range m.memberships {
+		if mb.UserID != userID {
+			keptMemberships = append(keptMemberships, mb)
+		}
+	}
+	m.memberships = keptMemberships
+
+	keptUsers := m.users[:0]
+	for _, u := range m.users {
+		if u.ID != userID {
+			keptUsers = append(keptUsers, u)
+		}
+	}
+	m.users = keptUsers
+	return nil
+}
+
+func (m *MockStore) DeleteTenantCascade(_ context.Context, tenantID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Identify users whose primary tenant is this one — they're going away.
+	purgedUsers := map[string]bool{}
+	for _, u := range m.users {
+		if u.TenantID == tenantID {
+			purgedUsers[u.ID] = true
+		}
+	}
+
+	// Anonymise audit entries in OTHER tenants for users about to be deleted.
+	for i := range m.auditEvents {
+		if m.auditEvents[i].TenantID != tenantID && purgedUsers[m.auditEvents[i].UserID] {
+			m.auditEvents[i].UserID = ""
+			m.auditEvents[i].ActorEmail = "deleted-user"
+		}
+	}
+
+	// Drop this tenant's audit, accounts, dismissals.
+	keptAudit := m.auditEvents[:0]
+	for _, e := range m.auditEvents {
+		if e.TenantID != tenantID {
+			keptAudit = append(keptAudit, e)
+		}
+	}
+	m.auditEvents = keptAudit
+
+	keptAccounts := m.accounts[:0]
+	for _, a := range m.accounts {
+		if a.TenantID != tenantID {
+			keptAccounts = append(keptAccounts, a)
+		}
+	}
+	m.accounts = keptAccounts
+
+	// Dismissals in the mock aren't tagged with tenant_id (the model omits it
+	// — RLS supplies isolation in the real DB). Clear the lot; multi-tenant
+	// dismissal coverage lives in the postgres integration test instead.
+	m.dismissals = nil
+
+	// Users whose primary tenant is this one + their memberships everywhere.
+	keptUsers := m.users[:0]
+	for _, u := range m.users {
+		if !purgedUsers[u.ID] {
+			keptUsers = append(keptUsers, u)
+		}
+	}
+	m.users = keptUsers
+
+	keptMemberships := m.memberships[:0]
+	for _, mb := range m.memberships {
+		if mb.TenantID != tenantID && !purgedUsers[mb.UserID] {
+			keptMemberships = append(keptMemberships, mb)
+		}
+	}
+	m.memberships = keptMemberships
+	return nil
+}
+
 func (m *MockStore) countOwnersLocked(tenantID string) int {
 	n := 0
 	for _, mu := range m.memberships {
