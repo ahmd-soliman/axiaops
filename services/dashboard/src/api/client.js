@@ -323,3 +323,24 @@ export async function deleteCurrentUser() {
 export async function deleteCurrentTenant() {
   return request('/v1/tenants/me', { method: 'DELETE' });
 }
+
+// exportTenantData fetches GET /v1/export and returns { blob, filename } so
+// the caller can wire it into a browser download. Bypasses request() because
+// that wrapper assumes JSON parsing of 2xx bodies, while we want the raw
+// bytes to forward straight into a Blob.
+export async function exportTenantData() {
+  const res = await ifetch(`${BASE_URL}/v1/export`, { headers: authHeaders() });
+  if (!res.ok) {
+    const err = new Error(`request failed: ${res.status}`);
+    err.status = res.status;
+    try { err.body = await res.text(); } catch { err.body = ''; }
+    throw err;
+  }
+  const blob = await res.blob();
+  // Server sets `attachment; filename="axiaops-export-<tenant>-<ts>.json"`.
+  // Parse it out so the saved file matches what the API named.
+  const cd = res.headers.get('Content-Disposition') || '';
+  const match = cd.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : 'axiaops-export.json';
+  return { blob, filename };
+}
