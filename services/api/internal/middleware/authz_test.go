@@ -110,10 +110,10 @@ func TestRequire_DeniesWhenIdentityMissing(t *testing.T) {
 // ctxWithIdentity inserts the same context keys that Auth.Wrap / DevBypass
 // would set in production. The keys are unexported in middleware, so we
 // pipe through DevBypass to reach them.
-func ctxWithIdentity(parent context.Context, tenantID, userID string) context.Context {
+func ctxWithIdentity(parent context.Context, organizationID, userID string) context.Context {
 	r := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(parent)
 	var captured context.Context
-	middleware.DevBypass(tenantID, userID, "", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	middleware.DevBypass(organizationID, userID, "", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		captured = r.Context()
 	})).ServeHTTP(httptest.NewRecorder(), r)
 	return captured

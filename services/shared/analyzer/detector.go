@@ -8,11 +8,11 @@ import "axiaops.io/shared/model"
 // billing period. Sourced from CloudWatch in production; from a fixture file
 // in dev mode.
 type UsageRecord struct {
-	ResourceID  string  `json:"resource_id"`
-	Metric      string  `json:"metric"`
-	Unit        string  `json:"unit"`
-	Avg         float64 `json:"avg"`
-	PeriodDays  int     `json:"period_days"`
+	ResourceID string  `json:"resource_id"`
+	Metric     string  `json:"metric"`
+	Unit       string  `json:"unit"`
+	Avg        float64 `json:"avg"`
+	PeriodDays int     `json:"period_days"`
 }
 
 // Detect joins cost records with usage metrics and returns any resources that
@@ -65,9 +65,9 @@ func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID str
 
 // Summary holds aggregate savings figures across all detected zombie resources.
 type Summary struct {
-	TotalZombies         int     `json:"total_zombies"`
-	PotentialMonthlySave float64 `json:"potential_monthly_savings"`
-	Currency             string  `json:"currency"`
+	TotalZombies         int                       `json:"total_zombies"`
+	PotentialMonthlySave float64                   `json:"potential_monthly_savings"`
+	Currency             string                    `json:"currency"`
 	ByService            map[string]ServiceSummary `json:"by_service"`
 }
 

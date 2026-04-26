@@ -9,9 +9,9 @@ Supersedes the role sketch in `docs/user_onboarding.md`.
 
 ### Goals (v1)
 
-- Authorization within a tenant. Every current endpoint gets a required permission. Unauthorized users receive `403 Forbidden`.
+- Authorization within an organization. Every current endpoint gets a required permission. Unauthorized users receive `403 Forbidden`.
 - Four roles with clear, non-overlapping semantics: `owner`, `admin`, `member`, `viewer`.
-- Role is a **property of (user, tenant)**, not a property of the user. A single Kinde user could in theory belong to multiple AxiaOps tenants with different roles. (Kinde supports multi-org per user; we preserve that.)
+- Role is a **property of (user, organization)**, not a property of the user. A single Kinde user could in theory belong to multiple AxiaOps organizations with different roles. (Kinde supports multi-org per user; we preserve that.)
 - Enforcement at the HTTP handler layer via a decorator. No change to the `storage.Store` interface. No change to RLS.
 - Admin UX to invite, promote, demote, and remove users.
 - Safe rollout: all existing users become `admin` on the v1 ship (no regression in capabilities).
@@ -23,7 +23,7 @@ Supersedes the role sketch in `docs/user_onboarding.md`.
 - **API keys / service accounts** as first-class principals with their own roles. Deferred to v2. The ingestion service talks to the API/DB as trusted infrastructure, not as a "user."
 - **SSO-driven role provisioning.** Kinde org-roles are not mapped to AxiaOps roles. Admins assign roles manually in v1.
 - **Audit log.** Deferred to v2. `dismissed_zombies.dismissed_by` already captures the most sensitive action; broader audit can come with the security track.
-- **Resource-level permissions** (per-zombie dismiss permissions, per-snapshot export, etc.). Dismissals are tenant-wide.
+- **Resource-level permissions** (per-zombie dismiss permissions, per-snapshot export, etc.). Dismissals are organization-wide.
 - **Billing admin** as a separate role. `owner` handles billing until a subscription system exists.
 - **Internal / staff roles** for AxiaOps employees (support, engineering, billing ops). These are a fundamentally different principal type — documented in §11 as a future scope, not implemented in v1.
 
@@ -41,8 +41,8 @@ owner > admin > member > viewer
 
 | Role | Intent | Typical user |
 |---|---|---|
-| `owner` | Controls the tenant itself: billing, delete org, transfer ownership. Exactly one (or a small number — see §8). | Founder, primary account holder. |
-| `admin` | Full operational control inside the tenant. Manages users, cloud accounts, dismissals. | Engineering lead, platform owner. |
+| `owner` | Controls the organization itself: billing, delete org, transfer ownership. Exactly one (or a small number — see §8). | Founder, primary account holder. |
+| `admin` | Full operational control inside the organization. Manages users, cloud accounts, dismissals. | Engineering lead, platform owner. |
 | `member` | Daily FinOps work: connect/update cloud accounts, trigger scans, dismiss/snooze zombies. | Platform engineer, SRE. |
 | `viewer` | Read-only. Sees zombies, summary, trends, costs. Cannot mutate anything. | Finance analyst, contractor observer, exec. |
 
@@ -75,13 +75,13 @@ Columns: endpoints registered in `services/api/internal/api/handler.go:40-58` an
 | `GET /v1/memberships` — new | yes | yes | yes | yes |
 | `PATCH /v1/memberships/{id}/role` — new | — | — | admin* | yes |
 | `DELETE /v1/memberships/{id}` — new | self** | self** | admin* | yes |
-| `POST /v1/tenants/transfer-ownership` — new | — | — | — | yes |
+| `POST /v1/organizations/transfer-ownership` — new | — | — | — | yes |
 
 *\* admin can promote/demote `member`↔`viewer`, and invite at member/viewer level. Only `owner` can promote to or demote from `admin`. This prevents an `admin` from creating another `admin` and escalating permanently.*
 
 *† **Pre-existing bug:** `/metrics` is registered on the same mux that gets wrapped by `Auth.Wrap` (`cmd/main.go:120-163`). The only auth bypass in `auth.go:115` is for `/health` and OPTIONS — not `/metrics`. In production a Prometheus scraper without a Kinde JWT gets a 401. Fixing this is out of scope for RBAC but should be tracked: the RBAC implementation should add `/metrics` to the auth-bypass list, not put it behind a permission.*
 
-*\*\* Any user can remove themselves (leave the tenant), subject to the last-owner guard in §8. Admins can remove any member/viewer but not another admin — see §7 for the permission split and the two-perm check (`members:manage_basic` for member/viewer targets, `members:manage_admin` for admin targets).*
+*\*\* Any user can remove themselves (leave the organization), subject to the last-owner guard in §8. Admins can remove any member/viewer but not another admin — see §7 for the permission split and the two-perm check (`members:manage_basic` for member/viewer targets, `members:manage_admin` for admin targets).*
 
 **Design rationale for `DELETE /v1/accounts/{id}` being admin-only:** deleting an account drops scan history and breaks dashboards. `member` can disconnect effectively by rotating keys or setting `scan_interval_hours=0` via `PATCH`, but the destructive act is admin-gated. This matches Datadog/New Relic patterns.
 
@@ -116,8 +116,8 @@ members:invite
 members:manage_basic   # promote/demote member↔viewer, remove member/viewer
 members:manage_admin   # promote/demote to/from admin
 
-tenant:transfer        # transfer ownership
-tenant:delete          # future
+organization:transfer        # transfer ownership
+organization:delete          # future
 ```
 
 ### Role → permissions table
@@ -148,7 +148,7 @@ var rolePermissions = map[Role]map[Permission]bool{
         "accounts:delete", "members:invite", "members:manage_basic",
     ),
     RoleOwner: perms( /* admin + */
-        "members:manage_admin", "tenant:transfer",
+        "members:manage_admin", "organization:transfer",
     ),
 }
 ```
@@ -172,28 +172,28 @@ When a new endpoint is added, add the permission string and slot it into the rig
 ```
 memberships
 ├── id          TEXT  PRIMARY KEY         -- UUID
-├── tenant_id   TEXT  NOT NULL REFERENCES tenants(id)  ON DELETE CASCADE
+├── organization_id   TEXT  NOT NULL REFERENCES organizations(id)  ON DELETE CASCADE
 ├── user_id     TEXT  NOT NULL REFERENCES users(id)    ON DELETE CASCADE
 ├── role        TEXT  NOT NULL CHECK (role IN ('owner','admin','member','viewer'))
 ├── invited_by  TEXT                                    -- users.id, nullable for the first owner
 ├── created_at  TIMESTAMPTZ NOT NULL
 ├── updated_at  TIMESTAMPTZ NOT NULL
-└── UNIQUE (tenant_id, user_id)
+└── UNIQUE (organization_id, user_id)
 
--- Partial unique index enforces at-most-one-owner per tenant at the DB level.
+-- Partial unique index enforces at-most-one-owner per organization at the DB level.
 -- Backstops the application-level "transfer ownership" flow against the
 -- first-login race condition described in §8.
-CREATE UNIQUE INDEX memberships_one_owner_per_tenant
-    ON memberships (tenant_id) WHERE role = 'owner';
+CREATE UNIQUE INDEX memberships_one_owner_per_organization
+    ON memberships (organization_id) WHERE role = 'owner';
 ```
 
-- `UNIQUE(tenant_id, user_id)` — a user has at most one role per tenant. Also provides the index used by `RoleOf` lookups on the hot path (no separate `CREATE INDEX` needed).
-- Not `users.role` because: (a) a user can belong to multiple tenants with different roles (Kinde supports this), (b) lets us delete membership without touching the user row.
-- RLS: `tenant_id = current_setting('app.tenant_id', true)` USING + WITH CHECK (same pattern as every other table — see `migrations/011_add_rls_with_check.up.sql`). **Bootstrap caveat:** the `Require` middleware's `RoleOf` call happens before any handler sets `app.tenant_id`. The `RoleOf` implementation must therefore open its own transaction, run `SET LOCAL app.tenant_id = $1` inside it, then SELECT — identical pattern to `postgres.setTenant` at `postgres.go:72-81`. Do not use `adminPool` here; we want RLS to enforce the tenant scope even during the auth check.
+- `UNIQUE(organization_id, user_id)` — a user has at most one role per organization. Also provides the index used by `RoleOf` lookups on the hot path (no separate `CREATE INDEX` needed).
+- Not `users.role` because: (a) a user can belong to multiple organizations with different roles (Kinde supports this), (b) lets us delete membership without touching the user row.
+- RLS: `organization_id = current_setting('app.organization_id', true)` USING + WITH CHECK (same pattern as every other table — see `migrations/011_add_rls_with_check.up.sql`). **Bootstrap caveat:** the `Require` middleware's `RoleOf` call happens before any handler sets `app.organization_id`. The `RoleOf` implementation must therefore open its own transaction, run `SET LOCAL app.organization_id = $1` inside it, then SELECT — identical pattern to `postgres.setOrganization` at `postgres.go:72-81`. Do not use `adminPool` here; we want RLS to enforce the organization scope even during the auth check.
 
-### No changes to `users` or `tenants`
+### No changes to `users` or `organizations`
 
-The existing `users` row is still populated on every authenticated request by `auth.go:152-164`. Membership is a pure join. Auth middleware gains one extra query: "given this tenant and user, what role?"
+The existing `users` row is still populated on every authenticated request by `auth.go:152-164`. Membership is a pure join. Auth middleware gains one extra query: "given this organization and user, what role?"
 
 ### Migration shape
 
@@ -201,11 +201,11 @@ The existing `users` row is still populated on every authenticated request by `a
 
 1. `CREATE TABLE memberships (...)`
 2. `ALTER TABLE memberships ENABLE ROW LEVEL SECURITY`
-3. `CREATE POLICY memberships_tenant_isolation ON memberships USING (...) WITH CHECK (...)`
+3. `CREATE POLICY memberships_organization_isolation ON memberships USING (...) WITH CHECK (...)`
 4. `GRANT SELECT, INSERT, UPDATE, DELETE ON memberships TO axiaops`
-5. **Backfill:** `INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) SELECT gen_random_uuid(), tenant_id, id, 'admin', NOW(), NOW() FROM users;` — every existing user becomes `admin`.
-6. **Promote one user per tenant to `owner`:** for each tenant, the user with the earliest `created_at` gets `UPDATE memberships SET role='owner' WHERE ...`. Single SQL with a CTE.
-7. **Safety check:** `DO $$ BEGIN IF EXISTS (SELECT 1 FROM tenants t WHERE NOT EXISTS (SELECT 1 FROM memberships m WHERE m.tenant_id = t.id AND m.role = 'owner')) THEN RAISE EXCEPTION 'migration 015: tenant(s) without an owner — refusing to proceed'; END IF; END $$;` — fails the migration if any tenant ended up ownerless (happens when a tenant row exists with zero users — the "earliest user" CTE produces no row for it). Surfaces the orphan tenant loudly rather than leaving the invariant broken.
+5. **Backfill:** `INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at) SELECT gen_random_uuid(), organization_id, id, 'admin', NOW(), NOW() FROM users;` — every existing user becomes `admin`.
+6. **Promote one user per organization to `owner`:** for each organization, the user with the earliest `created_at` gets `UPDATE memberships SET role='owner' WHERE ...`. Single SQL with a CTE.
+7. **Safety check:** `DO $$ BEGIN IF EXISTS (SELECT 1 FROM organizations t WHERE NOT EXISTS (SELECT 1 FROM memberships m WHERE m.organization_id = t.id AND m.role = 'owner')) THEN RAISE EXCEPTION 'migration 015: organization(s) without an owner — refusing to proceed'; END IF; END $$;` — fails the migration if any organization ended up ownerless (happens when an organization row exists with zero users — the "earliest user" CTE produces no row for it). Surfaces the orphan organization loudly rather than leaving the invariant broken.
 
 `services/shared/storage/postgres/migrations/015_memberships.down.sql` drops the table.
 
@@ -221,9 +221,9 @@ Kinde supports org-scoped roles and permissions natively — you can define role
 
 ### Why we don't
 
-1. **Vendor independence is a stated goal.** `docs/auth.md` explicitly calls out "Never put Kinde-specific claims in your business logic — only extract `tenant_id` in the middleware layer and pass it down as a plain string." Pulling roles from Kinde violates that.
+1. **Vendor independence is a stated goal.** `docs/auth.md` explicitly calls out "Never put Kinde-specific claims in your business logic — only extract `organization_id` in the middleware layer and pass it down as a plain string." Pulling roles from Kinde violates that.
 2. **No round-trip.** Role changes from the admin UI would have to call the Kinde Management API, wait, and then users would need to re-login for their JWT to refresh. With local roles: one `UPDATE memberships` and the next request sees the new role.
-3. **We already have `users` and `tenants`.** Adding a `memberships` table is natural. Maintaining role state in two places (Kinde + our DB) is the worst option.
+3. **We already have `users` and `organizations`.** Adding a `memberships` table is natural. Maintaining role state in two places (Kinde + our DB) is the worst option.
 4. **Testing.** Local roles are testable with `httptest` and a `Store` mock, which is the established pattern (see `handler_test.go`). Kinde-sourced roles would require a mock JWT per role or a Kinde API mock.
 5. **The permission vocabulary is ours.** `zombies:dismiss` is not a Kinde concept. Storing roles in Kinde but permissions in our code still means we'd fetch the role from the JWT and translate. If we're translating anyway, the source of truth might as well be our DB.
 
@@ -239,9 +239,9 @@ This section exists so the decision is visible. If priorities change, this is th
 
 **Shape of the implementation**
 
-1. Define four roles in the Kinde dashboard: `owner`, `admin`, `member`, `viewer`. Kinde scopes them per-organization, which matches our per-tenant model.
+1. Define four roles in the Kinde dashboard: `owner`, `admin`, `member`, `viewer`. Kinde scopes them per-organization, which matches our per-organization model.
 2. Attach them as custom claims in the Kinde token (Kinde supports this via the "Token customization" settings — they appear as a `roles` array claim on the JWT).
-3. In `auth.go`, after verifying the JWT, extract `claims.Roles[0]` and stash it on the request context next to `tenant_id`.
+3. In `auth.go`, after verifying the JWT, extract `claims.Roles[0]` and stash it on the request context next to `organization_id`.
 4. `middleware.Require(perm)` reads the role from context (not from a DB query) and checks against the same `rolePermissions` map described in §3. The permission vocabulary still lives in Go.
 5. User management UI: a "Manage users" button in the dashboard deep-links to Kinde's hosted org-management page. No in-app user admin screens are built.
 6. Role changes happen in Kinde. To take effect, the affected user must refresh their JWT (re-login, or wait for token expiry + silent refresh).
@@ -251,7 +251,7 @@ This section exists so the decision is visible. If priorities change, this is th
 
 - **~2–3 days of implementation** saved. No table, no migration, no CRUD endpoints, no dashboard user-management screen.
 - **SSO role provisioning comes free on day one.** Enterprise customer configures their SAML IdP to pass `role=admin` → Kinde maps it → it's in the JWT → it works. The DB-backed variant requires a custom mapping layer (§ Phase 2).
-- **One fewer table to keep in sync with users/tenants.** Simpler data model.
+- **One fewer table to keep in sync with users/organizations.** Simpler data model.
 - **Kinde's user-management UI is already polished.** Invitations, email delivery, resend, revoke — all built, all free.
 
 **What you lose**
@@ -290,7 +290,7 @@ The migration path is straightforward: create `memberships`, backfill from curre
 
 func Require(perm authz.Permission, store authz.RoleStore, next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        tid := TenantID(r.Context())
+        tid := OrganizationID(r.Context())
         uid := UserID(r.Context())  // new context key — set by auth.go after UpsertUser
         role, err := store.RoleOf(r.Context(), tid, uid)
         if err != nil || !authz.Allows(role, perm) {
@@ -306,20 +306,20 @@ func Require(perm authz.Permission, store authz.RoleStore, next http.Handler) ht
 
 The role lookup runs on every request. Two options:
 
-1. **No cache.** `SELECT role FROM memberships WHERE tenant_id = $1 AND user_id = $2` — hits the index provided by the `UNIQUE (tenant_id, user_id)` constraint (see §4). Sub-millisecond on any realistic load. Redis already caches JWKS; we're not running 10k RPS.
-2. **Cache in the existing Redis `cache.Cache` with a short TTL** (e.g. 30s) under `role:{tenant_id}:{user_id}`. Invalidate on role change in the mutation handler. Defer until metrics show it matters.
+1. **No cache.** `SELECT role FROM memberships WHERE organization_id = $1 AND user_id = $2` — hits the index provided by the `UNIQUE (organization_id, user_id)` constraint (see §4). Sub-millisecond on any realistic load. Redis already caches JWKS; we're not running 10k RPS.
+2. **Cache in the existing Redis `cache.Cache` with a short TTL** (e.g. 30s) under `role:{organization_id}:{user_id}`. Invalidate on role change in the mutation handler. Defer until metrics show it matters.
 
 **Recommendation: option 1 for v1.** Premature.
 
 ### How it composes with RLS
 
-RLS is still the last line of defence for tenant isolation. RBAC filters **what a user in tenant X can do to tenant X's data**. RLS filters **which tenant's data you touch at all**. They're orthogonal.
+RLS is still the last line of defence for organization isolation. RBAC filters **what a user in organization X can do to organization X's data**. RLS filters **which organization's data you touch at all**. They're orthogonal.
 
 **Ordering inside the middleware chain:**
 
-1. `Auth.Wrap` validates the JWT, upserts tenant + user, sets `tenant_id` and `user_id` on the request context. No DB query against `memberships` yet.
-2. `Require(perm)` calls `store.RoleOf(ctx, tenantID, userID)`. The `RoleOf` implementation opens a short transaction, executes `SET LOCAL app.tenant_id = $1`, then SELECTs — same `setTenant` pattern handlers use. RLS is active for this query: the row the middleware reads must be in the authenticated tenant, which is exactly what we want.
-3. Handler runs. It calls `storage.WithTenantID(ctx, tenantID)` as it does today — no change.
+1. `Auth.Wrap` validates the JWT, upserts organization + user, sets `organization_id` and `user_id` on the request context. No DB query against `memberships` yet.
+2. `Require(perm)` calls `store.RoleOf(ctx, organizationID, userID)`. The `RoleOf` implementation opens a short transaction, executes `SET LOCAL app.organization_id = $1`, then SELECTs — same `setOrganization` pattern handlers use. RLS is active for this query: the row the middleware reads must be in the authenticated organization, which is exactly what we want.
+3. Handler runs. It calls `storage.WithOrganizationID(ctx, organizationID)` as it does today — no change.
 
 The Store interface gains one method (`RoleOf`). No other surface moves.
 
@@ -362,14 +362,14 @@ Authoritative table. See §2 capability matrix for which role gets each permissi
 | `PATCH /v1/accounts/{id}` | `accounts:write` | |
 | `DELETE /v1/accounts/{id}` | `accounts:delete` | admin+ |
 | `POST /v1/accounts/{id}/scan` | `accounts:scan` | |
-| `POST /v1/dismissals` | `zombies:dismiss` | `DismissedBy` holds `user_id` (stable UUID) via `dismissActor()` — prefers `UserID`, falls back to email, then tenant-id |
+| `POST /v1/dismissals` | `zombies:dismiss` | `DismissedBy` holds `user_id` (stable UUID) via `dismissActor()` — prefers `UserID`, falls back to email, then organization-id |
 | `DELETE /v1/dismissals/{id}` | `zombies:dismiss` | |
 | `GET /v1/dismissals` | `zombies:read` | read-only listing |
 | `GET /v1/memberships` | `members:read` | new |
 | `POST /v1/memberships` | `members:invite` | new, admin+ |
 | `PATCH /v1/memberships/{id}/role` | `members:manage_basic` if target is/becomes member/viewer, `members:manage_admin` if target is/becomes admin | new; handler inspects both current and proposed roles and picks the stricter permission |
 | `DELETE /v1/memberships/{id}` | `members:manage_basic` if target is member/viewer, `members:manage_admin` if target is admin; **bypass permission check entirely if user is deleting their own membership** (self-leave, still subject to last-owner guard) | new |
-| `POST /v1/tenants/transfer-ownership` | `tenant:transfer` | new, owner only |
+| `POST /v1/organizations/transfer-ownership` | `organization:transfer` | new, owner only |
 
 ---
 
@@ -377,21 +377,21 @@ Authoritative table. See §2 capability matrix for which role gets each permissi
 
 ### Last-admin protection
 
-- **Rule:** a tenant must always have at least one `owner`. A `DELETE /v1/memberships/{id}` or role-demotion that would leave zero owners returns `409 Conflict`.
+- **Rule:** an organization must always have at least one `owner`. A `DELETE /v1/memberships/{id}` or role-demotion that would leave zero owners returns `409 Conflict`.
 - **Self-demotion:** allowed only if another owner exists.
-- **Owner deletion:** to remove the only owner, the owner must first `POST /v1/tenants/transfer-ownership` to another admin/member, which in one transaction demotes current user to `admin` and promotes target to `owner`.
+- **Owner deletion:** to remove the only owner, the owner must first `POST /v1/organizations/transfer-ownership` to another admin/member, which in one transaction demotes current user to `admin` and promotes target to `owner`.
 
 ### `DismissedBy` stores the stable user UUID
 
-`DismissedBy` is set by `dismissActor()` (`handler.go`), which prefers `middleware.UserID(ctx)` (the immutable UUID), falls back to `middleware.UserEmail(ctx)` when user ID is unavailable (e.g. test contexts with `store=nil`), and finally falls back to the tenant ID so rows are never written with an empty string. Emails can change (rename, re-marry, new company domain); UUIDs are immutable. This was implemented as part of RBAC Phase 1.
+`DismissedBy` is set by `dismissActor()` (`handler.go`), which prefers `middleware.UserID(ctx)` (the immutable UUID), falls back to `middleware.UserEmail(ctx)` when user ID is unavailable (e.g. test contexts with `store=nil`), and finally falls back to the organization ID so rows are never written with an empty string. Emails can change (rename, re-marry, new company domain); UUIDs are immutable. This was implemented as part of RBAC Phase 1.
 
 ### `DEV_MODE`
 
 `DEV_MODE=true` bypasses auth (`auth.go:185` → `DevBypass`). The dev-mode user has no JWT, no `kinde_sub`, no role row. Handling:
 
-- **At startup in `main.go`:** after `store.EnsureTenant(ctx, devTenantID, ...)`, also call `store.EnsureDevUser(ctx, devTenantID, devUserID, devEmail)` followed by `store.EnsureDevMembership(ctx, devTenantID, devUserID, authz.RoleOwner)`. Two helpers — the membership depends on a user row existing, and neither exists today.
-- **New env var:** `DEV_USER_ID` (default: `dev-user-axiaops`). `DEV_TENANT_ID` already exists.
-- **In `DevBypass`:** set both `tenant_id` **and** `user_id` on the context. Today it only sets tenant (see `auth.go:185-194`).
+- **At startup in `main.go`:** after `store.EnsureOrganization(ctx, devOrganizationID, ...)`, also call `store.EnsureDevUser(ctx, devOrganizationID, devUserID, devEmail)` followed by `store.EnsureDevMembership(ctx, devOrganizationID, devUserID, authz.RoleOwner)`. Two helpers — the membership depends on a user row existing, and neither exists today.
+- **New env var:** `DEV_USER_ID` (default: `dev-user-axiaops`). `DEV_ORGANIZATION_ID` already exists.
+- **In `DevBypass`:** set both `organization_id` **and** `user_id` on the context. Today it only sets organization (see `auth.go:185-194`).
 - **In the `Require` middleware:** no branching on dev mode — it just looks up the role, finds `owner`, and allows everything. Keeps prod and dev code paths identical. If you branched here, the permission-check path would only run in prod and bugs there wouldn't surface until staging.
 
 ### Self-service user management
@@ -402,7 +402,7 @@ Authoritative table. See §2 capability matrix for which role gets each permissi
 
 ### Self-leave
 
-A user can remove themselves from any tenant they're a member of — `DELETE /v1/memberships/{id}` where the target is the current user. Permission check bypassed (you don't need `members:manage_*` to leave), but the last-owner guard still applies: a sole owner must transfer first.
+A user can remove themselves from any organization they're a member of — `DELETE /v1/memberships/{id}` where the target is the current user. Permission check bypassed (you don't need `members:manage_*` to leave), but the last-owner guard still applies: a sole owner must transfer first.
 
 Common UX; many B2B apps shipped without it and regretted it (support tickets: "stop mailing me, I don't work there anymore").
 
@@ -416,7 +416,7 @@ v1 scope: `POST /v1/memberships` only accepts `{user_id, role}` — the invitee 
 
 A user whose membership row was deleted still has their JWT until it expires. Next request:
 
-1. `Auth.Wrap` validates the JWT → upserts tenant + user (the user row survived the membership deletion — that's intentional, §4).
+1. `Auth.Wrap` validates the JWT → upserts organization + user (the user row survived the membership deletion — that's intentional, §4).
 2. `Require` → `RoleOf` returns "no row." Middleware returns 403.
 3. Dashboard sees 403, calls `/v1/me`, also gets 403 (no permission beyond authn, but there's no row to return). UI logs the user out.
 
@@ -439,18 +439,18 @@ Deferred to v2. For v1, the existing `slog.Info` calls on mutating handlers are 
 
 Deferred to v2. Current architecture: the ingestion service writes zombies with `ListAllAccounts` (`storage.go:82`) — explicitly documented as "trusted internal code." That's the only non-human principal today and it doesn't need a role. The v2 API-key story will be "issue a token bound to a membership with a specific role" — the memberships table already supports this shape (`user_id` points to a user record of type `service_account`).
 
-### New tenant bootstrap
+### New organization bootstrap
 
-Migration 015 handles existing tenants by promoting the earliest-created user to `owner`. But when a **new** Kinde org signs up after v1 ships, the first authenticating user has no membership row at all.
+Migration 015 handles existing organizations by promoting the earliest-created user to `owner`. But when a **new** Kinde org signs up after v1 ships, the first authenticating user has no membership row at all.
 
-**Rule:** on first login to a tenant with zero memberships, the authenticating user is auto-promoted to `owner`. Implemented in `auth.go` after `UpsertUser`:
+**Rule:** on first login to an organization with zero memberships, the authenticating user is auto-promoted to `owner`. Implemented in `auth.go` after `UpsertUser`:
 
 1. Open a transaction.
-2. `INSERT INTO memberships (tenant_id, user_id, role, ...) VALUES ($1, $2, 'owner', ...) ON CONFLICT DO NOTHING`.
+2. `INSERT INTO memberships (organization_id, user_id, role, ...) VALUES ($1, $2, 'owner', ...) ON CONFLICT DO NOTHING`.
 3. If no row was inserted **and** no membership row exists for this user → they've joined a Kinde org they haven't been invited to in AxiaOps. Return 403 with "contact your organization admin".
 4. Commit.
 
-**Race protection:** the partial unique index `memberships_one_owner_per_tenant` in §4 guarantees at most one `owner` per tenant at the DB level. If two users from the same brand-new Kinde org authenticate simultaneously, one INSERT succeeds, the other hits the partial index conflict — the losing request falls through to the "no membership" 403 branch and the user is told to contact their organization admin (which is now the other user). Slightly awkward but safe; never produces two owners.
+**Race protection:** the partial unique index `memberships_one_owner_per_organization` in §4 guarantees at most one `owner` per organization at the DB level. If two users from the same brand-new Kinde org authenticate simultaneously, one INSERT succeeds, the other hits the partial index conflict — the losing request falls through to the "no membership" 403 branch and the user is told to contact their organization admin (which is now the other user). Slightly awkward but safe; never produces two owners.
 
 This is the **only** code-level auto-promotion. All subsequent users go through explicit invitation.
 
@@ -477,9 +477,9 @@ membership_account_scopes
 └── PRIMARY KEY (membership_id, account_id)
 ```
 
-Rule: if **any** rows exist for a membership, the user is restricted to those accounts. Zero rows = tenant-wide (default for everyone in v1). This lets v2 ship without migrating existing memberships — they just have no scope rows.
+Rule: if **any** rows exist for a membership, the user is restricted to those accounts. Zero rows = organization-wide (default for everyone in v1). This lets v2 ship without migrating existing memberships — they just have no scope rows.
 
-Filtering applies in the handler (add `WHERE account_id IN (scoped_ids)` to list queries) not in RLS (RLS stays purely tenant-scoped). Keeps RLS simple.
+Filtering applies in the handler (add `WHERE account_id IN (scoped_ids)` to list queries) not in RLS (RLS stays purely organization-scoped). Keeps RLS simple.
 
 ---
 
@@ -487,18 +487,18 @@ Filtering applies in the handler (add `WHERE account_id IN (scoped_ids)` to list
 
 ### Ship sequence
 
-1. **Migration 015:** create `memberships` (with partial unique index for owner), enable RLS, backfill all existing users as `admin`, elevate earliest-created user per tenant to `owner`, run the safety check that fails the migration if any tenant is ownerless.
-2. **Extend `Store` interface** with `RoleOf`, `ListMemberships`, `SaveMembership`, `DeleteMembership`, `EnsureDevUser`, `EnsureDevMembership`. Postgres impl. `RoleOf` opens its own tx and runs `SET LOCAL app.tenant_id` — it must not bypass RLS.
+1. **Migration 015:** create `memberships` (with partial unique index for owner), enable RLS, backfill all existing users as `admin`, elevate earliest-created user per organization to `owner`, run the safety check that fails the migration if any organization is ownerless.
+2. **Extend `Store` interface** with `RoleOf`, `ListMemberships`, `SaveMembership`, `DeleteMembership`, `EnsureDevUser`, `EnsureDevMembership`. Postgres impl. `RoleOf` opens its own tx and runs `SET LOCAL app.organization_id` — it must not bypass RLS.
 3. **Add `authz` package** in `services/shared/authz/` — roles, permissions, `Allows(role, perm)`.
-4. **Add `middleware.Require`** in `services/api/internal/middleware/authz.go`. Also add `UserID(ctx)` accessor alongside the existing `TenantID(ctx)`.
+4. **Add `middleware.Require`** in `services/api/internal/middleware/authz.go`. Also add `UserID(ctx)` accessor alongside the existing `OrganizationID(ctx)`.
 5. **Extend `auth.go`**:
    - Set `user_id` on the request context in both `Auth.Wrap` (after `UpsertUser`) and `DevBypass`.
-   - Add the new-tenant bootstrap logic (§8) in `Auth.Wrap` after upsert.
+   - Add the new-organization bootstrap logic (§8) in `Auth.Wrap` after upsert.
    - Add `/metrics` to the public-path bypass list (pre-existing bug — see §2 note †).
 6. **Wire `Require` into `Handler.Register`** — all current endpoints get a permission. Change `mux.HandleFunc` call sites that need a permission to `mux.Handle(method_path, Require(perm, store, http.HandlerFunc(handler)))`.
-7. **Add `/v1/me` endpoint** — returns `{user_id, tenant_id, role, permissions: [...]}`. No `Require` wrapping (any authenticated user can fetch their own role).
+7. **Add `/v1/me` endpoint** — returns `{user_id, organization_id, role, permissions: [...]}`. No `Require` wrapping (any authenticated user can fetch their own role).
 8. **Add membership endpoints** (invite, list, promote, demote, remove, transfer ownership). Implement last-owner guard and self-leave branch (§8).
-9. **Seed dev identity on startup:** in `main.go`, after `EnsureTenant`, call `EnsureDevUser` then `EnsureDevMembership` when `DEV_MODE=true`.
+9. **Seed dev identity on startup:** in `main.go`, after `EnsureOrganization`, call `EnsureDevUser` then `EnsureDevMembership` when `DEV_MODE=true`.
 10. **Dashboard:** add a `/settings/users` screen (owner/admin only). Hide `Connect AWS` nav from `viewer`. Implement 403 → `/v1/me` refresh flow; if `/v1/me` itself returns 403, redirect to the login/removed-user screen.
 
 ### Feature flag
@@ -507,8 +507,8 @@ Not recommended. Once the migration runs, every existing user has role `admin`, 
 
 ### Post-ship verification
 
-- Integration test: tenant A `member` cannot DELETE `/v1/accounts/...` even for their own tenant.
-- Integration test: tenant A `admin` cannot see tenant B data (RLS still works under RBAC).
+- Integration test: organization A `member` cannot DELETE `/v1/accounts/...` even for their own organization.
+- Integration test: organization A `admin` cannot see organization B data (RLS still works under RBAC).
 - Integration test: last-owner demotion returns 409.
 
 ### Rolling back
@@ -521,22 +521,22 @@ Drop migration 015. Remove `Require` wrappers. Since the backfill defaults every
 
 ### Phase 1 (MVP RBAC — shipped on feat/rbac-phase1)
 
-- `memberships` table + migration 015 (with partial unique index + ownerless-tenant safety check)
+- `memberships` table + migration 015 (with partial unique index + ownerless-organization safety check)
 - `authz` package (roles, permissions, `Allows`)
 - `middleware.Require` + `UserID(ctx)` accessor
-- `auth.go` changes: set `user_id` on ctx, new-tenant bootstrap via `EnsureFirstMembership`, `/metrics` auth bypass
+- `auth.go` changes: set `user_id` on ctx, new-organization bootstrap via `EnsureFirstMembership`, `/metrics` auth bypass
 - All current endpoints mapped to permissions
 - `GET /v1/me` endpoint
 - Membership endpoints: invite-by-user-id, list, promote/demote, remove, transfer-ownership, self-leave
 - Last-admin/last-owner guards (app-level) + partial unique index (DB-level)
 - Dashboard user-management screen + 403→`/v1/me` refresh flow
 - Dev identity seeding (`EnsureDevMembership` on startup in `cmd/main.go`)
-- `DismissedBy` uses `user_id` via `dismissActor()` (shipped — `handler.go` uses `middleware.UserID` with email and tenant-id fallbacks)
+- `DismissedBy` uses `user_id` via `dismissActor()` (shipped — `handler.go` uses `middleware.UserID` with email and organization-id fallbacks)
 
 ### Phase 2 (post-MVP)
 
 - ~~Audit log (new `audit_log` table, written from mutation handlers)~~ — **shipped**. Migration 014, `Store.AuditLogWrite/List/AnonymiseUser`, `services/api/internal/audit` helper, `GET /v1/audit` with cursor pagination, dashboard `AuditScreen.jsx`. See `docs/audit_trail_plan.md`.
-- **GDPR — right to erasure** (`DELETE /v1/users/me`, `DELETE /v1/tenants/me`) — owner-only `tenant:delete` permission, `Store.DeleteUser`/`DeleteTenantCascade` (admin-pool, FK-safe order), audit_log purge baked into the tenant cascade. Sole-owner guard on user delete. Prometheus counters `axiaops_user_deletions_total` / `axiaops_tenant_deletions_total` are the durable ops trail (the audit row gets purged with the rest). Out of scope here: `GET /v1/export` (data portability), Stripe cancellation hook, dashboard UI for tenant deletion.
+- **GDPR — right to erasure** (`DELETE /v1/users/me`, `DELETE /v1/organizations/me`) — owner-only `organization:delete` permission, `Store.DeleteUser`/`DeleteOrganizationCascade` (admin-pool, FK-safe order), audit_log purge baked into the organization cascade. Sole-owner guard on user delete. Prometheus counters `axiaops_user_deletions_total` / `axiaops_organization_deletions_total` are the durable ops trail (the audit row gets purged with the rest). Out of scope here: `GET /v1/export` (data portability), Stripe cancellation hook, dashboard UI for organization deletion.
 - API keys / service-account memberships
 - Per-cloud-account scoping (`membership_account_scopes` table + handler filtering)
 - SSO-driven default-role mapping (Kinde org-role → AxiaOps role on first login)
@@ -558,16 +558,16 @@ Do not build any of phase 3 without a named customer.
 
 **Scope:** This section is a placeholder for a future design. None of it is v1. When the trigger conditions arrive, spin this out into its own design doc — do not implement from this summary.
 
-Staff (AxiaOps employees) are a different principal type from tenant users: they are cross-tenant, must be audited unconditionally, and sometimes act as a tenant user for debugging. They don't fit into `memberships`.
+Staff (AxiaOps employees) are a different principal type from organization users: they are cross-organization, must be audited unconditionally, and sometimes act as an organization user for debugging. They don't fit into `memberships`.
 
 **Planned shape when built:**
 
 - Separate `staff_users` table. Separate Kinde org ("AxiaOps Internal"). Separate middleware chain on `/internal/*` routes. Customer routes (`/v1/*`) untouched.
-- Cross-tenant reads/writes use the `adminPool` pattern already present in `postgres.go:35` (same escape hatch `ListAllAccounts` uses) — **not** `BYPASSRLS` on a new role. Postgres `BYPASSRLS` is all-or-nothing per role and doesn't match the "some queries bypass, some don't" need.
-- Four proposed roles: `staff_support` (read-only cross-tenant), `staff_engineer` (read-write + impersonation), `staff_billing` (subscription ops only, explicit no-access to cost/zombie data — GDPR), `staff_admin` (everything, break-glass).
-- Impersonation uses a **short-lived scoped JWT**, not session cookies. AxiaOps is JWT-only; introducing cookie sessions adds CSRF/CORS/session-store work unrelated to the impersonation feature. Staff gets a JWT with both `staff_id` and `acting_as_tenant_id` claims; audit log always records the real `staff_id`.
-- Audit logging is mandatory for staff (unlike tenant-side audit which v1 defers). Every staff action on customer data logged.
-- `DEV_MODE` covers tenant-user dev. Staff-route dev needs a separate opt-in flag so `/internal/*` isn't accidentally exposed; design it then.
+- Cross-organization reads/writes use the `adminPool` pattern already present in `postgres.go:35` (same escape hatch `ListAllAccounts` uses) — **not** `BYPASSRLS` on a new role. Postgres `BYPASSRLS` is all-or-nothing per role and doesn't match the "some queries bypass, some don't" need.
+- Four proposed roles: `staff_support` (read-only cross-organization), `staff_engineer` (read-write + impersonation), `staff_billing` (subscription ops only, explicit no-access to cost/zombie data — GDPR), `staff_admin` (everything, break-glass).
+- Impersonation uses a **short-lived scoped JWT**, not session cookies. AxiaOps is JWT-only; introducing cookie sessions adds CSRF/CORS/session-store work unrelated to the impersonation feature. Staff gets a JWT with both `staff_id` and `acting_as_organization_id` claims; audit log always records the real `staff_id`.
+- Audit logging is mandatory for staff (unlike organization-side audit which v1 defers). Every staff action on customer data logged.
+- `DEV_MODE` covers organization-user dev. Staff-route dev needs a separate opt-in flag so `/internal/*` isn't accidentally exposed; design it then.
 
 **Until then:** direct DB access via `psql` with `MIGRATION_DATABASE_URL`. Fine for a solo founder with zero paying customers. The moment any of these is true, design it properly:
 
@@ -588,10 +588,10 @@ Expect ~2 weeks of work when it's time.
 - `services/shared/storage/postgres/migrations/015_memberships.down.sql` (new)
 - `services/shared/model/membership.go` (new)
 - `services/shared/storage/storage.go` (extend `Store`: `RoleOf`, `ListMemberships`, `SaveMembership`, `DeleteMembership`, `EnsureDevUser`, `EnsureDevMembership`)
-- `services/shared/storage/postgres/postgres.go` (implement new methods; `RoleOf` uses own tx with `SET LOCAL app.tenant_id`)
+- `services/shared/storage/postgres/postgres.go` (implement new methods; `RoleOf` uses own tx with `SET LOCAL app.organization_id`)
 - `services/shared/authz/roles.go` (new — `Role`, `Permission`, `rolePermissions`, `Allows`)
 - `services/shared/authz/roles_test.go` (new)
-- `services/api/internal/middleware/auth.go` (add `UserID` context key + accessor; set `user_id` on ctx in both `Auth.Wrap` and `DevBypass`; add new-tenant-bootstrap logic; add `/metrics` to public-path bypass — fixes the pre-existing bug flagged in §2 note †)
+- `services/api/internal/middleware/auth.go` (add `UserID` context key + accessor; set `user_id` on ctx in both `Auth.Wrap` and `DevBypass`; add new-organization-bootstrap logic; add `/metrics` to public-path bypass — fixes the pre-existing bug flagged in §2 note †)
 - `services/api/internal/middleware/authz.go` (new — `Require` decorator)
 - `services/api/internal/api/handler.go` (convert relevant `mux.HandleFunc` to `mux.Handle(path, Require(perm, store, http.HandlerFunc(handler)))`; `DismissedBy` now uses `dismissActor()` which calls `middleware.UserID`)
 - `services/api/internal/api/me.go` (new — `GET /v1/me` handler)

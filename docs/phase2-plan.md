@@ -58,7 +58,7 @@ retry logic without it.
 ```sql
 CREATE TABLE IF NOT EXISTS scan_runs (
     id                 BIGSERIAL   PRIMARY KEY,
-    tenant_id          TEXT        NOT NULL REFERENCES tenants(id),
+    organization_id          TEXT        NOT NULL REFERENCES organizations(id),
     account_id         TEXT        NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     trigger            TEXT        NOT NULL,  -- 'manual' | 'scheduled' | 'retry'
     status             TEXT        NOT NULL,  -- 'queued' | 'running' | 'succeeded' | 'failed' | 'timed_out' | 'dead_lettered'
@@ -76,12 +76,12 @@ CREATE TABLE IF NOT EXISTS scan_runs (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_scan_runs_account_started ON scan_runs (tenant_id, account_id, started_at DESC);
+CREATE INDEX idx_scan_runs_account_started ON scan_runs (organization_id, account_id, started_at DESC);
 CREATE INDEX idx_scan_runs_status          ON scan_runs (status) WHERE status IN ('queued','running');
 
 ALTER TABLE scan_runs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY scan_runs_tenant_isolation ON scan_runs
-    USING (tenant_id = current_setting('app.tenant_id', true));
+CREATE POLICY scan_runs_organization_isolation ON scan_runs
+    USING (organization_id = current_setting('app.organization_id', true));
 
 GRANT SELECT, INSERT, UPDATE ON scan_runs TO axiaops;
 GRANT USAGE, SELECT ON SEQUENCE scan_runs_id_seq TO axiaops;
@@ -96,7 +96,7 @@ GRANT USAGE, SELECT ON SEQUENCE scan_runs_id_seq TO axiaops;
   - `ListScanRuns(ctx, accountID, limit int) ([]ScanRun, error)`
   - `CountActiveScanRuns(ctx, accountID) (int, error)` — used by Track A.2 retry backoff.
 - `services/shared/storage/postgres/postgres.go` — implement the three methods; wrap
-  with `storage.WithTenantID` context propagation.
+  with `storage.WithOrganizationID` context propagation.
 - `services/ingestion/cmd/worker.go` and `cmd/main.go` (`runScan`) —
   - On dequeue: `CreateScanRun(status=running, started_at=now, trigger=job.Trigger, attempt=job.Attempt)`.
   - On success: `UpdateScanRun(status=succeeded, finished_at, duration_ms, ghost_count, total_monthly_cost)`.
@@ -108,7 +108,7 @@ GRANT USAGE, SELECT ON SEQUENCE scan_runs_id_seq TO axiaops;
 **Observability:**
 
 - Emit `scan.run.created`, `scan.run.succeeded`, `scan.run.failed`, `scan.run.dead_lettered`
-  slog events with the same key set used today (`tenant_id`, `account_id`,
+  slog events with the same key set used today (`organization_id`, `account_id`,
   `duration_ms`, `ghost_count`, `attempt`, `error_class`).
 - Add Prometheus counters:
   - `axiaops_scan_runs_total{trigger, status}`
@@ -127,7 +127,7 @@ GRANT USAGE, SELECT ON SEQUENCE scan_runs_id_seq TO axiaops;
 **Tests:**
 
 - Postgres test: insert three runs for one account, verify `ListScanRuns` returns them
-  descending and RLS blocks cross-tenant reads.
+  descending and RLS blocks cross-organization reads.
 - Handler test: seed runs, hit `GET /v1/accounts/{id}/scans?limit=2`, assert order
   and shape.
 - Integration test: call `POST /v1/accounts/{id}/scan`, poll `GET /v1/accounts/{id}/scans`
@@ -306,7 +306,7 @@ Three high-leverage additions, ordered by ROI:
 queued jobs.
 
 **Design:** Client may send `Idempotency-Key: <uuid>` header. Server does
-`cache.SetNX("idem:scan:"+tenantID+":"+key, runID, 5 minutes)`. If another request
+`cache.SetNX("idem:scan:"+organizationID+":"+key, runID, 5 minutes)`. If another request
 arrives with the same key, return `200 OK` with the prior `run_id` instead of
 enqueuing again.
 
@@ -315,24 +315,24 @@ enqueuing again.
 - `services/api/internal/api/handler.go` `scanAccount` (line 341) — accept header,
   short-circuit with prior run id.
 - `services/api/internal/middleware/idempotency.go` — helper for reading the header
-  and producing a stable key per `(tenant, account, endpoint)`.
+  and producing a stable key per `(organization, account, endpoint)`.
 - Dashboard `client.js` — generate a UUID per scan-button click and include it.
 
 #### B.3.2 `/v1/summary` and `/v1/trend` cache
 
-**Why:** Both endpoints hit the DB on every dashboard load. For a tenant with
+**Why:** Both endpoints hit the DB on every dashboard load. For an organization with
 300 ghost_records the summary query does a scan + aggregation; cacheable for 30s
 with no user-visible lag.
 
-**Design:** Cache-aside with a per-tenant key:
+**Design:** Cache-aside with a per-organization key:
 
 ```
-key:    summary:{tenant_id}
+key:    summary:{organization_id}
 value:  <json bytes>
 ttl:    30s
 ```
 
-Invalidate on scan completion (`cache.Del("summary:"+tenantID)` at the end of
+Invalidate on scan completion (`cache.Del("summary:"+organizationID)` at the end of
 `runScan` and after `POST/DELETE /v1/ghosts/{id}/dismiss` from Track C).
 
 **Code changes:**
@@ -390,7 +390,7 @@ CREATE TYPE dismiss_reason AS ENUM (
 
 CREATE TABLE IF NOT EXISTS dismissed_ghosts (
     id              BIGSERIAL       PRIMARY KEY,
-    tenant_id       TEXT            NOT NULL REFERENCES tenants(id),
+    organization_id       TEXT            NOT NULL REFERENCES organizations(id),
     account_id      TEXT            NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     -- Fingerprint: identifies a resource across scans.
     provider        TEXT            NOT NULL,
@@ -406,12 +406,12 @@ CREATE TABLE IF NOT EXISTS dismissed_ghosts (
     dismissed_at    TIMESTAMPTZ     NOT NULL DEFAULT now(),
     revoked_at      TIMESTAMPTZ,               -- soft-undo; row is kept for audit
     revoked_by      TEXT            REFERENCES users(id),
-    UNIQUE (tenant_id, account_id, provider, service, region, resource_id)
+    UNIQUE (organization_id, account_id, provider, service, region, resource_id)
         WHERE revoked_at IS NULL
 );
 
 CREATE INDEX idx_dismissed_ghosts_lookup
-    ON dismissed_ghosts (tenant_id, account_id, resource_id)
+    ON dismissed_ghosts (organization_id, account_id, resource_id)
     WHERE revoked_at IS NULL;
 
 CREATE INDEX idx_dismissed_ghosts_snooze_expiry
@@ -419,8 +419,8 @@ CREATE INDEX idx_dismissed_ghosts_snooze_expiry
     WHERE revoked_at IS NULL AND action='snooze';
 
 ALTER TABLE dismissed_ghosts ENABLE ROW LEVEL SECURITY;
-CREATE POLICY dismissed_ghosts_tenant_isolation ON dismissed_ghosts
-    USING (tenant_id = current_setting('app.tenant_id', true));
+CREATE POLICY dismissed_ghosts_organization_isolation ON dismissed_ghosts
+    USING (organization_id = current_setting('app.organization_id', true));
 
 GRANT SELECT, INSERT, UPDATE ON dismissed_ghosts TO axiaops;
 GRANT USAGE, SELECT ON SEQUENCE dismissed_ghosts_id_seq TO axiaops;
@@ -443,7 +443,7 @@ Key design choices:
 
 ```go
 type DismissAction struct {
-    TenantID     string
+    OrganizationID     string
     AccountID    string
     Provider     string
     Service      string
@@ -495,7 +495,7 @@ Validation rules:
 - `reason=other` requires non-empty `note` (HTTP 400 if missing).
 - `snooze_until` must be in the future and ≤ 90 days out (`$SNOOZE_MAX_DAYS`, default
   90). Anything longer is functionally a dismissal — nudge the user.
-- Resource must currently be a ghost for the given account/tenant — prevents
+- Resource must currently be a ghost for the given account/organization — prevents
   dismissing phantoms.
 
 ### C.4 Analyzer / ingestion integration
@@ -582,7 +582,7 @@ Copy for reason codes (tested for FinOps literacy):
 - Integration: dismiss → scan again → verify resource still hidden.
 - Integration: snooze 1 hour in future, advance clock, tick expiry, verify
   resource re-appears in `GET /v1/ghosts`.
-- RLS: tenant A cannot see tenant B's dismissals.
+- RLS: organization A cannot see organization B's dismissals.
 
 ---
 
@@ -621,8 +621,8 @@ Dependencies worth naming:
 
 ### Open questions
 
-1. **Dismiss scope per user vs per tenant.** The plan treats dismissals as
-   tenant-wide (any admin can dismiss, everyone sees the result). Confirm that's
+1. **Dismiss scope per user vs per organization.** The plan treats dismissals as
+   organization-wide (any admin can dismiss, everyone sees the result). Confirm that's
    the intended model — otherwise we need per-user visibility rules and the
    `dismissed_by` column alone is insufficient.
 2. **Snooze maximum.** Capped at 90 days in the plan. Matches AWS's cost horizon

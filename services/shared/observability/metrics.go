@@ -11,48 +11,48 @@ import (
 // These are pre-registered with the default Prometheus registry in init().
 type Metrics struct {
 	// HTTP API metrics
-	HTTPRequestsTotal       prometheus.Counter       // Total HTTP requests received
-	HTTPRequestsDuration    prometheus.Histogram     // HTTP request latency (seconds)
-	HTTPRequestsInFlight    prometheus.Gauge         // In-flight HTTP requests
-	HTTPResponsesTotal      *prometheus.CounterVec   // Total responses by method, route, status
-	HTTPErrorsTotal         *prometheus.CounterVec   // Total HTTP errors by method, route, status
+	HTTPRequestsTotal    prometheus.Counter     // Total HTTP requests received
+	HTTPRequestsDuration prometheus.Histogram   // HTTP request latency (seconds)
+	HTTPRequestsInFlight prometheus.Gauge       // In-flight HTTP requests
+	HTTPResponsesTotal   *prometheus.CounterVec // Total responses by method, route, status
+	HTTPErrorsTotal      *prometheus.CounterVec // Total HTTP errors by method, route, status
 
 	// Database metrics
-	DBQueryDuration         *prometheus.HistogramVec // Query latency by operation
-	DBQueryErrors           *prometheus.CounterVec   // Query errors by operation
-	DBConnectionsActive     prometheus.Gauge         // Active database connections
-	DBTransactionDuration   *prometheus.HistogramVec // Transaction latency
+	DBQueryDuration       *prometheus.HistogramVec // Query latency by operation
+	DBQueryErrors         *prometheus.CounterVec   // Query errors by operation
+	DBConnectionsActive   prometheus.Gauge         // Active database connections
+	DBTransactionDuration *prometheus.HistogramVec // Transaction latency
 
 	// AWS/Ingestion metrics
-	AWSAPICallDuration      *prometheus.HistogramVec // AWS API call latency by service
-	AWSAPICallErrors        *prometheus.CounterVec   // AWS API errors by service
-	CostRecordsFetched      *prometheus.CounterVec   // Cost records fetched by provider
-	ResourcesAnalyzed       prometheus.Counter       // Total resources analyzed
-	ZombiesDetected         *prometheus.GaugeVec     // Zombie resources detected by provider
-	PotentialMonthlySaving  *prometheus.GaugeVec     // Potential monthly savings USD by provider
+	AWSAPICallDuration     *prometheus.HistogramVec // AWS API call latency by service
+	AWSAPICallErrors       *prometheus.CounterVec   // AWS API errors by service
+	CostRecordsFetched     *prometheus.CounterVec   // Cost records fetched by provider
+	ResourcesAnalyzed      prometheus.Counter       // Total resources analyzed
+	ZombiesDetected        *prometheus.GaugeVec     // Zombie resources detected by provider
+	PotentialMonthlySaving *prometheus.GaugeVec     // Potential monthly savings USD by provider
 
 	// Scan lifecycle metrics
-	ScanDuration            *prometheus.HistogramVec // Scan operation duration by stage
-	ScanErrors              *prometheus.CounterVec   // Scan errors by account_id, error_type
-	ScanQueueDepth          prometheus.Gauge         // Current scan queue depth
-	AccountsScanning        prometheus.Gauge         // Accounts currently being scanned
+	ScanDuration     *prometheus.HistogramVec // Scan operation duration by stage
+	ScanErrors       *prometheus.CounterVec   // Scan errors by account_id, error_type
+	ScanQueueDepth   prometheus.Gauge         // Current scan queue depth
+	AccountsScanning prometheus.Gauge         // Accounts currently being scanned
 
 	// Cache metrics
-	CacheOperationsTotal    *prometheus.CounterVec   // Cache ops by op, backend, status
-	CacheOperationDuration  *prometheus.HistogramVec // Cache op latency by op, backend
+	CacheOperationsTotal   *prometheus.CounterVec   // Cache ops by op, backend, status
+	CacheOperationDuration *prometheus.HistogramVec // Cache op latency by op, backend
 
 	// Application/process metrics
-	ApplicationUptime       prometheus.Gauge         // Seconds since service startup
-	ApplicationErrors       prometheus.Counter       // Total application errors
+	ApplicationUptime prometheus.Gauge   // Seconds since service startup
+	ApplicationErrors prometheus.Counter // Total application errors
 
 	// Audit trail metrics
-	AuditWritesTotal        *prometheus.CounterVec   // Audit log writes by action and status (ok|failed)
+	AuditWritesTotal *prometheus.CounterVec // Audit log writes by action and status (ok|failed)
 
 	// GDPR / right-to-erasure metrics — these are the operational trail that
-	// survives the audit_log purge that tenant deletion performs.
-	TenantDeletionsTotal    *prometheus.CounterVec   // Tenant cascade deletes by status (ok|failed)
-	UserDeletionsTotal      *prometheus.CounterVec   // Per-user hard deletes by status (ok|failed|conflict)
-	DataExportsTotal        *prometheus.CounterVec   // GDPR data exports (GET /v1/export) by status (ok|failed)
+	// survives the audit_log purge that organization deletion performs.
+	OrganizationDeletionsTotal *prometheus.CounterVec // Organization cascade deletes by status (ok|failed)
+	UserDeletionsTotal         *prometheus.CounterVec // Per-user hard deletes by status (ok|failed|conflict)
+	DataExportsTotal           *prometheus.CounterVec // GDPR data exports (GET /v1/export) by status (ok|failed)
 }
 
 // registry is the global Prometheus registry.
@@ -122,7 +122,7 @@ func newMetrics() *Metrics {
 		CostRecordsFetched: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_cost_records_fetched_total",
 			Help: "Total cost records fetched by provider.",
-		}, []string{"provider", "tenant_id"}),
+		}, []string{"provider", "organization_id"}),
 		ResourcesAnalyzed: factory.NewCounter(prometheus.CounterOpts{
 			Name: "axiaops_resources_analyzed_total",
 			Help: "Total resources analyzed.",
@@ -130,11 +130,11 @@ func newMetrics() *Metrics {
 		ZombiesDetected: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "axiaops_zombies_detected",
 			Help: "Number of zombie resources detected by provider.",
-		}, []string{"provider", "tenant_id"}),
+		}, []string{"provider", "organization_id"}),
 		PotentialMonthlySaving: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "axiaops_potential_monthly_savings_usd",
 			Help: "Potential monthly savings in USD by provider.",
-		}, []string{"provider", "tenant_id"}),
+		}, []string{"provider", "organization_id"}),
 
 		// Scan lifecycle metrics
 		ScanDuration: factory.NewHistogramVec(prometheus.HistogramOpts{
@@ -182,16 +182,16 @@ func newMetrics() *Metrics {
 			Help: "Total audit_log writes attempted, labelled by action and outcome. Alert when status=failed is non-zero — audit gaps are a compliance risk.",
 		}, []string{"action", "status"}),
 
-		// GDPR — the audit_log row for a tenant deletion gets purged with the
-		// rest of that tenant's data, so these counters are the durable
+		// GDPR — the audit_log row for an organization deletion gets purged with the
+		// rest of that organization's data, so these counters are the durable
 		// operational record that the deletion happened.
-		TenantDeletionsTotal: factory.NewCounterVec(prometheus.CounterOpts{
-			Name: "axiaops_tenant_deletions_total",
-			Help: "Total tenant cascade deletions attempted, labelled by outcome (ok|failed).",
+		OrganizationDeletionsTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_organization_deletions_total",
+			Help: "Total organization cascade deletions attempted, labelled by outcome (ok|failed).",
 		}, []string{"status"}),
 		UserDeletionsTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_user_deletions_total",
-			Help: "Total per-user hard deletions attempted, labelled by outcome (ok|failed|conflict). conflict means the user was the sole owner of a tenant and must transfer first.",
+			Help: "Total per-user hard deletions attempted, labelled by outcome (ok|failed|conflict). conflict means the user was the sole owner of an organization and must transfer first.",
 		}, []string{"status"}),
 		DataExportsTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_data_exports_total",

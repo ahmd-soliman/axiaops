@@ -39,20 +39,20 @@ go test ./storage/postgres/...
 
 Migrations require DDL permissions (`CREATE TABLE`, `ALTER`, etc.) so they run as `axiaops_owner` (a PostgreSQL superuser). The store at runtime connects as `axiaops`, a non-superuser, which means Row-Level Security (RLS) is enforced.
 
-**Why superusers bypass RLS**: PostgreSQL superusers always skip RLS policies regardless of `FORCE ROW LEVEL SECURITY`. If the store connected as `axiaops_owner`, one tenant could read another tenant's data.
+**Why superusers bypass RLS**: PostgreSQL superusers always skip RLS policies regardless of `FORCE ROW LEVEL SECURITY`. If the store connected as `axiaops_owner`, one organization could read another organization's data.
 
 ## Test Isolation
 
-Each test creates a unique tenant via `uuid.New()` and uses a context carrying that tenant ID. RLS then filters all queries to that tenant's data automatically — no table truncation needed between tests.
+Each test creates a unique organization via `uuid.New()` and uses a context carrying that organization ID. RLS then filters all queries to that organization's data automatically — no table truncation needed between tests.
 
 ## What Is Tested
 
 | Group | Tests | RLS required |
 |---|---|---|
-| `Save` (cost records) | Insert, deduplication, empty batch, region uniqueness, missing tenant | No |
-| `SaveZombies` / `LoadZombies` | Roundtrip, replace-on-rerun, empty for new tenant | Partial |
-| Tenant isolation (zombies) | Tenant B cannot see Tenant A's zombies | Yes |
-| `UpsertTenant` | Create, idempotent ID, name update | No |
+| `Save` (cost records) | Insert, deduplication, empty batch, region uniqueness, missing organization | No |
+| `SaveZombies` / `LoadZombies` | Roundtrip, replace-on-rerun, empty for new organization | Partial |
+| Organization isolation (zombies) | Organization B cannot see Organization A's zombies | Yes |
+| `UpsertOrganization` | Create, idempotent ID, name update | No |
 | `UpsertUser` | Create on first login, same ID on second login | No |
-| Account CRUD | Save+list, get by ID, delete, status update, tenant isolation | Partial |
+| Account CRUD | Save+list, get by ID, delete, status update, organization isolation | Partial |
 | `SaveResources` / `LoadResources` | Roundtrip, replace-on-rerun | No |

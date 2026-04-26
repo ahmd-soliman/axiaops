@@ -22,15 +22,15 @@ func delHandler(store *MockStore) *http.ServeMux {
 // ── DELETE /v1/users/me ─────────────────────────────────────────────────────
 
 func TestDeleteCurrentUser_LastOwner_409(t *testing.T) {
-	// user-me is the sole owner of tenant-me — deletion must be refused.
+	// user-me is the sole owner of organization-me — deletion must be refused.
 	store := NewMockStore().
 		WithRole("owner").
 		WithMemberships([]model.MembershipWithUser{
-			{Membership: model.Membership{ID: "m-1", TenantID: "tenant-me", UserID: "user-me", Role: "owner",
+			{Membership: model.Membership{ID: "m-1", OrganizationID: "organization-me", UserID: "user-me", Role: "owner",
 				CreatedAt: time.Now(), UpdatedAt: time.Now()}},
 		}).
 		WithUsers([]model.User{
-			{ID: "user-me", TenantID: "tenant-me", Email: "me@example.com"},
+			{ID: "user-me", OrganizationID: "organization-me", Email: "me@example.com"},
 		})
 
 	mux := delHandler(store)
@@ -46,14 +46,14 @@ func TestDeleteCurrentUser_OwnerWithCoOwner_204(t *testing.T) {
 	store := NewMockStore().
 		WithRole("owner").
 		WithMemberships([]model.MembershipWithUser{
-			{Membership: model.Membership{ID: "m-1", TenantID: "tenant-me", UserID: "user-me", Role: "owner",
+			{Membership: model.Membership{ID: "m-1", OrganizationID: "organization-me", UserID: "user-me", Role: "owner",
 				CreatedAt: time.Now(), UpdatedAt: time.Now()}},
-			{Membership: model.Membership{ID: "m-2", TenantID: "tenant-me", UserID: "user-other", Role: "owner",
+			{Membership: model.Membership{ID: "m-2", OrganizationID: "organization-me", UserID: "user-other", Role: "owner",
 				CreatedAt: time.Now(), UpdatedAt: time.Now()}},
 		}).
 		WithUsers([]model.User{
-			{ID: "user-me", TenantID: "tenant-me", Email: "me@example.com"},
-			{ID: "user-other", TenantID: "tenant-me", Email: "other@example.com"},
+			{ID: "user-me", OrganizationID: "organization-me", Email: "me@example.com"},
+			{ID: "user-other", OrganizationID: "organization-me", Email: "other@example.com"},
 		})
 
 	mux := delHandler(store)
@@ -77,11 +77,11 @@ func TestDeleteCurrentUser_NonOwner_204(t *testing.T) {
 	store := NewMockStore().
 		WithRole("member").
 		WithMemberships([]model.MembershipWithUser{
-			{Membership: model.Membership{ID: "m-1", TenantID: "tenant-me", UserID: "user-me", Role: "member",
+			{Membership: model.Membership{ID: "m-1", OrganizationID: "organization-me", UserID: "user-me", Role: "member",
 				CreatedAt: time.Now(), UpdatedAt: time.Now()}},
 		}).
 		WithUsers([]model.User{
-			{ID: "user-me", TenantID: "tenant-me", Email: "me@example.com"},
+			{ID: "user-me", OrganizationID: "organization-me", Email: "me@example.com"},
 		})
 
 	mux := delHandler(store)
@@ -107,31 +107,31 @@ func TestDeleteCurrentUser_NoIdentity_403(t *testing.T) {
 	}
 }
 
-// ── DELETE /v1/tenants/me ───────────────────────────────────────────────────
+// ── DELETE /v1/organizations/me ───────────────────────────────────────────────────
 
-func TestDeleteCurrentTenant_Owner_204(t *testing.T) {
+func TestDeleteCurrentOrganization_Owner_204(t *testing.T) {
 	store := NewMockStore().
 		WithRole("owner").
 		WithUsers([]model.User{
-			{ID: "user-me", TenantID: "tenant-me", Email: "me@example.com"},
+			{ID: "user-me", OrganizationID: "organization-me", Email: "me@example.com"},
 		})
 
 	mux := delHandler(store)
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, meRequest(http.MethodDelete, "/v1/tenants/me"))
+	mux.ServeHTTP(w, meRequest(http.MethodDelete, "/v1/organizations/me"))
 
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d (body: %s)", w.Code, w.Body.String())
 	}
 }
 
-func TestDeleteCurrentTenant_NonOwnerRoles_403(t *testing.T) {
+func TestDeleteCurrentOrganization_NonOwnerRoles_403(t *testing.T) {
 	for _, role := range []string{"admin", "member", "viewer", ""} {
 		t.Run("role="+role, func(t *testing.T) {
 			store := NewMockStore().WithRole(role)
 			mux := delHandler(store)
 			w := httptest.NewRecorder()
-			mux.ServeHTTP(w, meRequest(http.MethodDelete, "/v1/tenants/me"))
+			mux.ServeHTTP(w, meRequest(http.MethodDelete, "/v1/organizations/me"))
 
 			if w.Code != http.StatusForbidden {
 				t.Errorf("role=%q: expected 403, got %d", role, w.Code)

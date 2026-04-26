@@ -11,14 +11,14 @@ import (
 	"axiaops.io/shared/queue"
 )
 
-// meRequest builds a request with full identity (tenant_id, user_id, email)
+// meRequest builds a request with full identity (organization_id, user_id, email)
 // via DevBypass — the unexported context keys can only be set through that
 // path. DevBypass populates the context for any non-public path; we feed it
 // the actual request so the caller's method and path are honoured.
 func meRequest(method, path string) *http.Request {
 	src := httptest.NewRequest(method, path, nil)
 	var captured *http.Request
-	middleware.DevBypass("tenant-me", "user-me", "me@example.com", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	middleware.DevBypass("organization-me", "user-me", "me@example.com", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		captured = r
 	})).ServeHTTP(httptest.NewRecorder(), src)
 	return captured
@@ -40,11 +40,11 @@ func TestGetMe_ReturnsRoleAndPermissions(t *testing.T) {
 	}
 
 	var resp struct {
-		UserID      string   `json:"user_id"`
-		TenantID    string   `json:"tenant_id"`
-		Email       string   `json:"email"`
-		Role        string   `json:"role"`
-		Permissions []string `json:"permissions"`
+		UserID         string   `json:"user_id"`
+		OrganizationID string   `json:"organization_id"`
+		Email          string   `json:"email"`
+		Role           string   `json:"role"`
+		Permissions    []string `json:"permissions"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -53,8 +53,8 @@ func TestGetMe_ReturnsRoleAndPermissions(t *testing.T) {
 	if resp.UserID != "user-me" {
 		t.Errorf("user_id=%q", resp.UserID)
 	}
-	if resp.TenantID != "tenant-me" {
-		t.Errorf("tenant_id=%q", resp.TenantID)
+	if resp.OrganizationID != "organization-me" {
+		t.Errorf("organization_id=%q", resp.OrganizationID)
 	}
 	if resp.Email != "me@example.com" {
 		t.Errorf("email=%q", resp.Email)

@@ -183,8 +183,8 @@ func TestClassifyECRImages_AllFresh_NoStale(t *testing.T) {
 func TestClassifyECRImages_UntaggedFlagged(t *testing.T) {
 	now := time.Now()
 	images := []ecrImageInfo{
-		{sizeBytes: 100_000_000, pushedAt: now.Add(-24 * time.Hour), tagged: true},  // latest, keep
-		{sizeBytes: 50_000_000, pushedAt: now.Add(-48 * time.Hour), tagged: false},  // untagged, stale
+		{sizeBytes: 100_000_000, pushedAt: now.Add(-24 * time.Hour), tagged: true}, // latest, keep
+		{sizeBytes: 50_000_000, pushedAt: now.Add(-48 * time.Hour), tagged: false}, // untagged, stale
 	}
 	count, size := classifyECRImages(images, 90*24*time.Hour, now)
 	if count != 1 {

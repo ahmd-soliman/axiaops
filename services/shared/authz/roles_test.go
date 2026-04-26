@@ -35,8 +35,8 @@ func TestAllows_CapabilityMatrix(t *testing.T) {
 
 		// Owner-only.
 		{authz.PermMembersManageAdmin, []authz.Role{authz.RoleOwner}},
-		{authz.PermTenantTransfer, []authz.Role{authz.RoleOwner}},
-		{authz.PermTenantDelete, []authz.Role{authz.RoleOwner}},
+		{authz.PermOrganizationTransfer, []authz.Role{authz.RoleOwner}},
+		{authz.PermOrganizationDelete, []authz.Role{authz.RoleOwner}},
 		{authz.PermDataExport, []authz.Role{authz.RoleOwner}},
 	}
 
@@ -64,7 +64,7 @@ func TestAllows_FailsClosed(t *testing.T) {
 	if authz.Allows("superuser", authz.PermAccountsRead) {
 		t.Error("unknown role must not grant any permission")
 	}
-	if authz.Allows(authz.RoleOwner, "tenant:nuke") {
+	if authz.Allows(authz.RoleOwner, "organization:nuke") {
 		t.Error("unknown permission must not be granted to any role")
 	}
 }

@@ -10,19 +10,19 @@ import (
 // AuditEvent is a single audit_log row. Only user-initiated mutating actions
 // are recorded — reads and scheduled/automated scans are excluded.
 type AuditEvent struct {
-	ID           int64          `json:"id"`
-	TenantID     string         `json:"tenant_id,omitempty"`
-	UserID       string         `json:"user_id,omitempty"` // NULL after GDPR anonymisation
-	ActorEmail   string         `json:"actor_email"`       // captured at event time
-	Action       string         `json:"action"`            // one of AuditAction* constants
-	ResourceType string         `json:"resource_type,omitempty"`
-	ResourceID   string         `json:"resource_id,omitempty"`
-	Reason       string         `json:"reason,omitempty"`
-	Metadata     map[string]any `json:"metadata,omitempty"`
-	RequestID    string         `json:"request_id,omitempty"`
-	IPAddress    net.IP         `json:"ip_address,omitempty"`
-	UserAgent    string         `json:"user_agent,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
+	ID             int64          `json:"id"`
+	OrganizationID string         `json:"organization_id,omitempty"`
+	UserID         string         `json:"user_id,omitempty"` // NULL after GDPR anonymisation
+	ActorEmail     string         `json:"actor_email"`       // captured at event time
+	Action         string         `json:"action"`            // one of AuditAction* constants
+	ResourceType   string         `json:"resource_type,omitempty"`
+	ResourceID     string         `json:"resource_id,omitempty"`
+	Reason         string         `json:"reason,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	RequestID      string         `json:"request_id,omitempty"`
+	IPAddress      net.IP         `json:"ip_address,omitempty"`
+	UserAgent      string         `json:"user_agent,omitempty"`
+	CreatedAt      time.Time      `json:"created_at"`
 }
 
 // Audit action constants. Values match the action column in audit_log.
@@ -32,23 +32,23 @@ type AuditEvent struct {
 // or opening a detail page does not belong here — CloudTrail handles real AWS
 // actions, and product telemetry is a better home for UX analytics.
 const (
-	AuditActionDismissZombie    = "dismiss_zombie"
-	AuditActionSnoozeZombie     = "snooze_zombie"
-	AuditActionRevokeDismissal  = "revoke_dismissal"
-	AuditActionScanTriggered    = "scan_triggered"
-	AuditActionAccountConnected = "account_connected"
-	AuditActionAccountUpdated   = "account_updated"
-	AuditActionAccountDeleted   = "account_deleted"
-	AuditActionMemberInvited    = "member_invited"
-	AuditActionMemberRoleChanged = "member_role_changed"
-	AuditActionMemberRemoved    = "member_removed"
+	AuditActionDismissZombie        = "dismiss_zombie"
+	AuditActionSnoozeZombie         = "snooze_zombie"
+	AuditActionRevokeDismissal      = "revoke_dismissal"
+	AuditActionScanTriggered        = "scan_triggered"
+	AuditActionAccountConnected     = "account_connected"
+	AuditActionAccountUpdated       = "account_updated"
+	AuditActionAccountDeleted       = "account_deleted"
+	AuditActionMemberInvited        = "member_invited"
+	AuditActionMemberRoleChanged    = "member_role_changed"
+	AuditActionMemberRemoved        = "member_removed"
 	AuditActionOwnershipTransferred = "ownership_transferred"
-	// AuditActionTenantDeleted is written immediately before a tenant cascade
-	// delete (DELETE /v1/tenants/me). The row itself gets purged with the
-	// rest of audit_log, so its only durable trace is the structured slog
-	// line and the axiaops_tenant_deletions_total Prometheus counter.
-	AuditActionTenantDeleted = "tenant_deleted"
-	// AuditActionDataExported is written when an owner downloads the tenant's
+	// AuditActionOrganizationDeleted is written immediately before an organization
+	// cascade delete (DELETE /v1/organizations/me). The row itself gets purged
+	// with the rest of audit_log, so its only durable trace is the structured
+	// slog line and the axiaops_organization_deletions_total Prometheus counter.
+	AuditActionOrganizationDeleted = "organization_deleted"
+	// AuditActionDataExported is written when an owner downloads the organization's
 	// GDPR data export (GET /v1/export). The Metadata map carries the row
 	// counts per table so a DSR audit can show *what* was exported, not just
 	// that an export happened.
@@ -69,12 +69,12 @@ var ValidAuditActions = map[string]bool{
 	AuditActionMemberRoleChanged:    true,
 	AuditActionMemberRemoved:        true,
 	AuditActionOwnershipTransferred: true,
-	AuditActionTenantDeleted:        true,
+	AuditActionOrganizationDeleted:  true,
 	AuditActionDataExported:         true,
 }
 
 // AuditFilter parameterises AuditLogList queries. Zero-value fields are not
-// applied — a zero filter returns the full tenant timeline (bounded by Limit).
+// applied — a zero filter returns the full organization timeline (bounded by Limit).
 type AuditFilter struct {
 	UserID       string
 	ResourceType string

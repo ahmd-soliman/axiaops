@@ -35,7 +35,7 @@ mux.HandleFunc("GET /path", handler)
 
 ```go
 func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
-    ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+    ctx := storage.WithOrganizationID(r.Context(), middleware.OrganizationID(r.Context()))
     zombies, err := h.store.LoadZombies(ctx)
     if err != nil {
         slog.Error("listZombies: load failed", "error", err)
@@ -52,7 +52,7 @@ func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
 import "axiaops.io/shared/observability"
 
 func (h *Handler) listZombies(w http.ResponseWriter, r *http.Request) {
-    ctx := storage.WithTenantID(r.Context(), middleware.TenantID(r.Context()))
+    ctx := storage.WithOrganizationID(r.Context(), middleware.OrganizationID(r.Context()))
     
     // Record database query latency
     observer := observability.NewDatabaseObserver("LOAD_ZOMBIES")
@@ -124,8 +124,8 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
     }
     
     // Record cost records fetched
-    tenantID := storage.TenantIDFromCtx(ctx)
-    observability.Global.CostRecordsFetched.WithLabelValues("aws", tenantID).Add(float64(len(records)))
+    organizationID := storage.OrganizationIDFromCtx(ctx)
+    observability.Global.CostRecordsFetched.WithLabelValues("aws", organizationID).Add(float64(len(records)))
     
     // ...
 }
@@ -134,7 +134,7 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
 **Metrics recorded:**
 - `axiaops_aws_api_call_duration_seconds{service="CostExplorer"}` — API latency
 - `axiaops_aws_api_errors_total{service="CostExplorer"}` — error count (if failed)
-- `axiaops_cost_records_fetched_total{provider="aws", tenant_id="..."}` — records count
+- `axiaops_cost_records_fetched_total{provider="aws", organization_id="..."}` — records count
 
 **Logs (JSON to stdout):**
 ```json
@@ -151,7 +151,7 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
 import "axiaops.io/shared/observability"
 
 func runIngestion(ctx context.Context, store storage.Store, accountID string, keys *scanAWS) error {
-    tenantID := storage.TenantIDFromCtx(ctx)
+    organizationID := storage.OrganizationIDFromCtx(ctx)
     
     // Record scan start
     observability.RecordScanStart(ctx)
@@ -181,7 +181,7 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
         
         skipped := int64(len(records)) - inserted
         slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted)
-        observability.Global.CostRecordsFetched.WithLabelValues(p.Name(), tenantID).Add(float64(len(records)))
+        observability.Global.CostRecordsFetched.WithLabelValues(p.Name(), organizationID).Add(float64(len(records)))
         
         allRecords = append(allRecords, records...)
     }
@@ -222,8 +222,8 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
     saveObserver.Observe()
     
     // === UPDATE SUMMARY METRICS ===
-    observability.Global.ZombiesDetected.WithLabelValues("aws", tenantID).Set(float64(summary.TotalZombies))
-    observability.Global.PotentialMonthlySaving.WithLabelValues("aws", tenantID).Set(summary.PotentialMonthlySave)
+    observability.Global.ZombiesDetected.WithLabelValues("aws", organizationID).Set(float64(summary.TotalZombies))
+    observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationID).Set(summary.PotentialMonthlySave)
     observability.Global.ResourcesAnalyzed.Add(float64(len(resources)))
     
     return nil
@@ -236,8 +236,8 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
 - `axiaops_scan_duration_seconds{stage="save"}` — save latency
 - `axiaops_accounts_scanning` — incremented at start, decremented at end
 - `axiaops_scan_errors_total{account_id="...", error_type="..."}` — error count
-- `axiaops_zombies_detected{provider="aws", tenant_id="..."}` — final zombie count
-- `axiaops_potential_monthly_savings_usd{provider="aws", tenant_id="..."}` — savings
+- `axiaops_zombies_detected{provider="aws", organization_id="..."}` — final zombie count
+- `axiaops_potential_monthly_savings_usd{provider="aws", organization_id="..."}` — savings
 - `axiaops_resources_analyzed_total` — total resources
 
 ---
@@ -249,14 +249,14 @@ Use structured logs to track the flow and debug issues:
 ```go
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
     accountID := r.PathValue("id")
-    tenantID := middleware.TenantID(r.Context())
+    organizationID := middleware.OrganizationID(r.Context())
     
-    ctx := storage.WithTenantID(r.Context(), tenantID)
+    ctx := storage.WithOrganizationID(r.Context(), organizationID)
     
     // Log account retrieval
     observability.LogInfo(ctx, "retrieving account",
         "account_id", accountID,
-        "tenant_id", tenantID,
+        "organization_id", organizationID,
     )
     
     account, err := h.store.GetAccount(ctx, accountID)
@@ -289,7 +289,7 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 
 **Log output** (JSON):
 ```json
-{"time":"2025-04-11T10:30:45.123Z","level":"INFO","msg":"retrieving account","account_id":"abc-123","tenant_id":"tenant-xyz"}
+{"time":"2025-04-11T10:30:45.123Z","level":"INFO","msg":"retrieving account","account_id":"abc-123","organization_id":"organization-xyz"}
 {"time":"2025-04-11T10:30:45.234Z","level":"INFO","msg":"decrypting credentials","account_id":"abc-123"}
 {"time":"2025-04-11T10:30:45.345Z","level":"ERROR","msg":"error","error":"decryption failed","operation":"decrypt_secret","account_id":"abc-123"}
 ```

@@ -39,11 +39,11 @@ func toMembershipResponse(m model.MembershipWithUser) membershipResponse {
 	}
 }
 
-// listMemberships returns all memberships in the caller's tenant.
-// Permission: members:read (every authenticated tenant user).
+// listMemberships returns all memberships in the caller's organization.
+// Permission: members:read (every authenticated organization user).
 func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
-	tid := middleware.TenantID(r.Context())
-	ctx := storage.WithTenantID(r.Context(), tid)
+	tid := middleware.OrganizationID(r.Context())
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	rows, err := h.store.ListMemberships(ctx)
 	if err != nil {
@@ -57,7 +57,7 @@ func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-// createMembership invites a user to the tenant by email. The user must have
+// createMembership invites a user to the organization by email. The user must have
 // already logged in to AxiaOps at least once — invite-by-email-before-first-
 // login is deferred to Phase 2 (see docs/rbac-design.md §8). Admins can invite
 // at member/viewer level; only owner can invite at admin level.
@@ -65,9 +65,9 @@ func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
 // Permission: members:invite for member/viewer roles, members:manage_admin
 // for admin role.
 func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	var req struct {
 		Email string `json:"email"`
@@ -114,14 +114,14 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m := model.Membership{
-		TenantID:  tid,
-		UserID:    target.ID,
-		Role:      req.Role,
-		InvitedBy: uid,
+		OrganizationID: tid,
+		UserID:         target.ID,
+		Role:           req.Role,
+		InvitedBy:      uid,
 	}
 	if err := h.store.SaveMembership(ctx, m); err != nil {
 		if errors.Is(err, storage.ErrMembershipExists) {
-			http.Error(w, "user is already a member of this tenant", http.StatusConflict)
+			http.Error(w, "user is already a member of this organization", http.StatusConflict)
 			return
 		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -152,9 +152,9 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 // members:manage_basic (admin) is enough.
 func (h *Handler) updateMembershipRole(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	var req struct {
 		Role string `json:"role"`
@@ -222,14 +222,14 @@ func (h *Handler) updateMembershipRole(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// deleteMembership removes a user from the tenant. Self-leave bypasses the
-// permission check (you don't need members:manage_* to leave a tenant). The
+// deleteMembership removes a user from the organization. Self-leave bypasses the
+// permission check (you don't need members:manage_* to leave an organization). The
 // last-owner guard still applies — a sole owner must transfer first.
 func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tid := middleware.TenantID(r.Context())
+	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	target, err := h.store.GetMembership(ctx, id)
 	if errors.Is(err, storage.ErrMembershipNotFound) {
@@ -272,8 +272,8 @@ func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {
 		ResourceType: "membership",
 		ResourceID:   id,
 		Metadata: map[string]any{
-			"user_id":   target.UserID,
-			"role":      target.Role,
+			"user_id":    target.UserID,
+			"role":       target.Role,
 			"self_leave": target.UserID == uid,
 		},
 	})
@@ -282,10 +282,10 @@ func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {
 }
 
 // transferOwnership atomically demotes the current owner to admin and
-// promotes the target user to owner. Permission: tenant:transfer (owner only).
+// promotes the target user to owner. Permission: organization:transfer (owner only).
 func (h *Handler) transferOwnership(w http.ResponseWriter, r *http.Request) {
-	tid := middleware.TenantID(r.Context())
-	ctx := storage.WithTenantID(r.Context(), tid)
+	tid := middleware.OrganizationID(r.Context())
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	var req struct {
 		ToUserID string `json:"to_user_id"`
@@ -303,7 +303,7 @@ func (h *Handler) transferOwnership(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.TransferOwnership(ctx, req.ToUserID); err != nil {
 		switch {
 		case errors.Is(err, storage.ErrMembershipNotFound):
-			http.Error(w, "target user is not a member of this tenant", http.StatusNotFound)
+			http.Error(w, "target user is not a member of this organization", http.StatusNotFound)
 		default:
 			http.Error(w, "internal error", http.StatusInternalServerError)
 		}
@@ -312,7 +312,7 @@ func (h *Handler) transferOwnership(w http.ResponseWriter, r *http.Request) {
 
 	audit.Record(r, h.store, model.AuditEvent{
 		Action:       model.AuditActionOwnershipTransferred,
-		ResourceType: "tenant",
+		ResourceType: "organization",
 		ResourceID:   tid,
 		Metadata: map[string]any{
 			"to_user_id": req.ToUserID,

@@ -43,23 +43,23 @@ func testHandler() (*api.Handler, *http.ServeMux) {
 	return h, mux
 }
 
-// tenantRequest creates a request with tenant_id, user_id, and email in
+// orgRequest creates a request with organization_id, user_id, and email in
 // context — matches what the real Auth.Wrap / DevBypass middleware sets.
 // Required for handlers wrapped in middleware.Require, which reads both
-// tenant_id and user_id off the context.
-func tenantRequest(method, path string) *http.Request {
+// organization_id and user_id off the context.
+func orgRequest(method, path string) *http.Request {
 	r := httptest.NewRequest(method, path, nil)
-	ctx := storage.WithTenantID(r.Context(), "tenant-test-uuid")
+	ctx := storage.WithOrganizationID(r.Context(), "organization-test-uuid")
 	r = r.WithContext(ctx)
-	return r.WithContext(injectIdentity(r.Context(), "tenant-test-uuid", "user-test-uuid", "test@x.com"))
+	return r.WithContext(injectIdentity(r.Context(), "organization-test-uuid", "user-test-uuid", "test@x.com"))
 }
 
-func tenantRequestWithBody(method, path, body string) *http.Request {
+func orgRequestWithBody(method, path, body string) *http.Request {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	ctx := storage.WithTenantID(r.Context(), "tenant-test-uuid")
+	ctx := storage.WithOrganizationID(r.Context(), "organization-test-uuid")
 	r = r.WithContext(ctx)
-	return r.WithContext(injectIdentity(r.Context(), "tenant-test-uuid", "user-test-uuid", "test@x.com"))
+	return r.WithContext(injectIdentity(r.Context(), "organization-test-uuid", "user-test-uuid", "test@x.com"))
 }
 
 // mockStoreWithFailingPing wraps MockStore and overrides Ping to simulate database failure.
@@ -109,7 +109,7 @@ func TestHealth_DatabasePingFails_Returns503(t *testing.T) {
 func TestGetZombies_Returns200(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/zombies"))
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -118,7 +118,7 @@ func TestGetZombies_Returns200(t *testing.T) {
 func TestGetZombies_ContentType(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/zombies"))
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("expected application/json, got %s", ct)
 	}
@@ -127,7 +127,7 @@ func TestGetZombies_ContentType(t *testing.T) {
 func TestGetZombies_ReturnsZombieList(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/zombies"))
 
 	var zombies []model.ZombieResource
 	if err := json.NewDecoder(w.Body).Decode(&zombies); err != nil {
@@ -147,7 +147,7 @@ func TestGetZombies_ReturnsZombieList(t *testing.T) {
 func TestGetZombies_CORSHeader(t *testing.T) {
 	h, mux := testHandler()
 	w := httptest.NewRecorder()
-	h.Handler(mux).ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/zombies"))
+	h.Handler(mux).ServeHTTP(w, orgRequest(http.MethodGet, "/v1/zombies"))
 	if w.Header().Get("Access-Control-Allow-Origin") != "*" {
 		t.Errorf("expected CORS header, got: %s", w.Header().Get("Access-Control-Allow-Origin"))
 	}
@@ -167,7 +167,7 @@ func TestGetZombies_OPTIONSPreflight(t *testing.T) {
 func TestGetSummary_Returns200(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/summary"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/summary"))
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -176,7 +176,7 @@ func TestGetSummary_Returns200(t *testing.T) {
 func TestGetSummary_ReturnsSavings(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/summary"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/summary"))
 
 	var summary analyzer.Summary
 	if err := json.NewDecoder(w.Body).Decode(&summary); err != nil {
@@ -198,7 +198,7 @@ func TestGetSummary_ReturnsSavings(t *testing.T) {
 func TestListAccounts_Returns200(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/accounts"))
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -207,7 +207,7 @@ func TestListAccounts_Returns200(t *testing.T) {
 func TestListAccounts_EmptyStoreReturnsEmptyArray(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/accounts"))
 
 	var accounts []model.Account
 	if err := json.NewDecoder(w.Body).Decode(&accounts); err != nil {
@@ -227,7 +227,7 @@ func TestListAccounts_ReturnsStoredAccounts(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/accounts"))
 
 	var accounts []model.Account
 	if err := json.NewDecoder(w.Body).Decode(&accounts); err != nil {
@@ -253,7 +253,7 @@ func TestListAccounts_SecretNotExposed(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/accounts"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/accounts"))
 
 	if strings.Contains(w.Body.String(), "super-secret-value") {
 		t.Error("response must not contain SecretEncrypted value")
@@ -272,7 +272,7 @@ func TestCreateAccount_Returns201(t *testing.T) {
 
 	body := `{"provider":"aws","label":"prod","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"us-east-1"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
 	if w.Code != http.StatusCreated {
 		t.Errorf("expected 201, got %d — body: %s", w.Code, w.Body.String())
@@ -289,7 +289,7 @@ func TestCreateAccount_ReturnsAccountJSON(t *testing.T) {
 
 	body := `{"provider":"aws","label":"prod","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI","region":"us-east-1"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
 	var account model.Account
 	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
@@ -316,7 +316,7 @@ func TestCreateAccount_DefaultsScanIntervalHoursTo24(t *testing.T) {
 
 	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
 	var account model.Account
 	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
@@ -337,7 +337,7 @@ func TestCreateAccount_DefaultsProviderAndRegion(t *testing.T) {
 
 	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
 	var account model.Account
 	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
@@ -362,7 +362,7 @@ func TestCreateAccount_SecretNotInResponse(t *testing.T) {
 	secret := "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"` + secret + `"}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
 	if strings.Contains(w.Body.String(), secret) {
 		t.Error("response must not contain the plaintext secret_key")
@@ -374,7 +374,7 @@ func TestCreateAccount_MissingAccessKeyID_Returns400(t *testing.T) {
 
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", `{"secret_key":"somekey"}`))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", `{"secret_key":"somekey"}`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -386,7 +386,7 @@ func TestCreateAccount_MissingSecretKey_Returns400(t *testing.T) {
 
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", `{"access_key_id":"AKIA123"}`))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", `{"access_key_id":"AKIA123"}`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -396,7 +396,7 @@ func TestCreateAccount_MissingSecretKey_Returns400(t *testing.T) {
 func TestCreateAccount_InvalidJSON_Returns400(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPost, "/v1/accounts", `not-json`))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", `not-json`))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -409,7 +409,7 @@ func TestCreateAccount_InvalidJSON_Returns400(t *testing.T) {
 
 func TestUpdateAccount_UpdatesScanIntervalHours(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -417,7 +417,7 @@ func TestUpdateAccount_UpdatesScanIntervalHours(t *testing.T) {
 
 	body := `{"scan_interval_hours":12}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d — body: %s", w.Code, w.Body.String())
@@ -434,7 +434,7 @@ func TestUpdateAccount_UpdatesScanIntervalHours(t *testing.T) {
 
 func TestUpdateAccount_UpdatesMultipleFields(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -442,7 +442,7 @@ func TestUpdateAccount_UpdatesMultipleFields(t *testing.T) {
 
 	body := `{"label":"staging","region":"eu-west-1","scan_interval_hours":6}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -465,7 +465,7 @@ func TestUpdateAccount_UpdatesMultipleFields(t *testing.T) {
 
 func TestUpdateAccount_ScanIntervalHoursZero(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -473,7 +473,7 @@ func TestUpdateAccount_ScanIntervalHoursZero(t *testing.T) {
 
 	body := `{"scan_interval_hours":0}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200 for zero interval (always eligible per scheduled tick), got %d", w.Code)
@@ -490,7 +490,7 @@ func TestUpdateAccount_ScanIntervalHoursZero(t *testing.T) {
 
 func TestUpdateAccount_NegativeScanIntervalHours_Returns400(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1", ScanIntervalHours: 24},
 	})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
@@ -498,7 +498,7 @@ func TestUpdateAccount_NegativeScanIntervalHours_Returns400(t *testing.T) {
 
 	body := `{"scan_interval_hours":-1}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for negative interval, got %d", w.Code)
@@ -517,7 +517,7 @@ func TestUpdateAccount_AccountNotFound_Returns404(t *testing.T) {
 
 	body := `{"scan_interval_hours":12}`
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequestWithBody(http.MethodPatch, "/v1/accounts/nonexistent", body))
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/nonexistent", body))
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -529,7 +529,7 @@ func TestUpdateAccount_AccountNotFound_Returns404(t *testing.T) {
 func TestDeleteAccount_Returns204(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodDelete, "/v1/accounts/acc-1"))
+	mux.ServeHTTP(w, orgRequest(http.MethodDelete, "/v1/accounts/acc-1"))
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("expected 204, got %d", w.Code)
@@ -540,14 +540,14 @@ func TestDeleteAccount_Returns204(t *testing.T) {
 
 func TestScanAccount_Returns200(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
 	})
 	h := api.New(store, &testCaptureQueue{})
 	mux := http.NewServeMux()
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
+	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d — body: %s", w.Code, w.Body.String())
@@ -556,14 +556,14 @@ func TestScanAccount_Returns200(t *testing.T) {
 
 func TestScanAccount_ReturnsScanningStatus(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1"},
 	})
 	h := api.New(store, &testCaptureQueue{})
 	mux := http.NewServeMux()
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
+	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
 
 	var resp map[string]string
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
@@ -581,7 +581,7 @@ func TestScanAccount_AccountNotFound_Returns404(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/nonexistent/scan"))
+	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/nonexistent/scan"))
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -591,7 +591,7 @@ func TestScanAccount_AccountNotFound_Returns404(t *testing.T) {
 func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
 	store := NewMockStore().
 		WithAccounts([]model.Account{
-			{ID: "acc-1", TenantID: "tenant-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1", Status: "scanning"},
+			{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA123", Region: "us-east-1", Status: "scanning"},
 		}).
 		WithAccountAlreadyScanning("acc-1")
 	h := api.New(store, noopQueue())
@@ -599,7 +599,7 @@ func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
+	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/acc-1/scan"))
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d — body: %s", w.Code, w.Body.String())
@@ -614,7 +614,7 @@ func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
 func TestGetTrend_Returns200(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend"))
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -623,7 +623,7 @@ func TestGetTrend_Returns200(t *testing.T) {
 func TestGetTrend_ContentType(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend"))
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("expected application/json, got %s", ct)
 	}
@@ -633,7 +633,7 @@ func TestGetTrend_EmptyStoreReturnsEmptyArray(t *testing.T) {
 	// testHandler stub returns nil snapshots — handler must coerce nil → [].
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend"))
 
 	var snaps []model.ZombieSnapshot
 	if err := json.NewDecoder(w.Body).Decode(&snaps); err != nil {
@@ -660,7 +660,7 @@ func TestGetTrend_ReturnsSnapshots(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -681,21 +681,21 @@ func TestGetTrend_ReturnsSnapshots(t *testing.T) {
 	}
 }
 
-func TestGetTrend_SnapshotTenantIDNotExposed(t *testing.T) {
+func TestGetTrend_SnapshotOrganizationIDNotExposed(t *testing.T) {
 	store := NewMockStore().
 		WithZombies([]model.ZombieResource{testZombie}).
 		WithSnapshots([]model.ZombieSnapshot{
-			{ID: "snap-1", AccountID: "acc-1", TenantID: "secret-tenant", ZombieCount: 1, TotalMonthlyCost: 50.00, Currency: "USD"},
+			{ID: "snap-1", AccountID: "acc-1", OrganizationID: "secret-organization", ZombieCount: 1, TotalMonthlyCost: 50.00, Currency: "USD"},
 		})
 	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend"))
 
-	if strings.Contains(w.Body.String(), "secret-tenant") {
-		t.Error("response must not expose tenant_id (json:\"-\" tag)")
+	if strings.Contains(w.Body.String(), "secret-organization") {
+		t.Error("response must not expose organization_id (json:\"-\" tag)")
 	}
 }
 
@@ -708,7 +708,7 @@ func TestGetTrend_StoreError_Returns500(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
@@ -722,7 +722,7 @@ func TestGetTrend_AccountIDQueryParamPassedToStore(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend?account_id=acc-42"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend?account_id=acc-42"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -739,7 +739,7 @@ func TestGetTrend_NoAccountIDQueryParam_PassesEmptyString(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, tenantRequest(http.MethodGet, "/v1/trend"))
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/trend"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
