@@ -14,8 +14,8 @@ import Dashboard  from './pages/Dashboard';
 import Detail     from './pages/Detail';
 import Trend      from './pages/Trend';
 import CostAnalytics from './pages/CostAnalytics';
-import Connect    from './pages/Connect';
-import Settings   from './pages/Settings';
+import Connect              from './pages/Connect';
+import CloudAccountSettings from './pages/CloudAccountSettings';
 import Audit      from './pages/Audit';
 import Users      from './pages/Users';
 import Account    from './pages/Account';
@@ -54,7 +54,7 @@ function AuthenticatedApp() {
               <Route path="/trend"               element={<Trend />} />
               <Route path="/cost"                element={<CostAnalytics />} />
               <Route path="/connect"             element={<Connect />} />
-              <Route path="/settings/:accountId" element={<Settings />} />
+              <Route path="/cloud-accounts/:accountId" element={<CloudAccountSettings />} />
               <Route path="/audit"               element={<Audit />} />
               <Route path="/users"               element={<Users />} />
               <Route path="/account"             element={<Account />} />

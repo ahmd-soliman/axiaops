@@ -24,7 +24,7 @@ export default function Dashboard() {
       onShowTrend={() => navigate('/trend')}
       onShowCosts={() => navigate(selectedAccount ? `/cost?account=${encodeURIComponent(selectedAccount)}` : '/cost')}
       onConnectAccount={() => navigate('/connect')}
-      onEditAccount={(acc) => navigate(`/settings/${acc.id}`)}
+      onEditAccount={(acc) => navigate(`/cloud-accounts/${acc.id}`)}
     />
   );
 }
