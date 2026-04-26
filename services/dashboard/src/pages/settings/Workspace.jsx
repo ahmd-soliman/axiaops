@@ -47,19 +47,19 @@ function DeleteTenantSection({ t, isDark, orgName, toast, onLogout }) {
     <DangerSection
       t={t}
       isDark={isDark}
-      title="Delete this tenant"
+      title="Delete This Tenant"
       blurb="Permanently deletes the entire tenant and every record it owns: cloud accounts, scan history, dismissals, audit log, and member memberships. Members lose access immediately. This cannot be undone."
-      buttonLabel="Delete tenant"
+      buttonLabel="Delete Tenant"
       onClick={ctrl.openModal}
       disabled={ctrl.target === ''}
       disabledHint="Tenant name unavailable on your session — reload and try again."
     >
       <DestructiveConfirmModal
         ctrl={ctrl}
-        title="Delete this tenant?"
+        title="Delete This Tenant?"
         warning={`This permanently wipes everything for tenant ${orgName || '—'}: accounts, resources, costs, snapshots, dismissals, audit log, and all memberships. Every member is signed out. This cannot be undone.`}
         targetLabel="tenant name"
-        confirmLabel="Delete tenant"
+        confirmLabel="Delete Tenant"
       />
     </DangerSection>
   );
