@@ -56,7 +56,7 @@ func TestRateLimiter_Wrap_Returns429(t *testing.T) {
 	}))
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
-	r = r.WithContext(context.WithValue(r.Context(), tenantIDKey, "alpha"))
+	r = r.WithContext(context.WithValue(r.Context(), organizationIDKey, "alpha"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -84,7 +84,7 @@ func TestRateLimiter_Wrap_BypassesHealthAndOptions(t *testing.T) {
 		{http.MethodGet, "/health"},
 	} {
 		r := httptest.NewRequest(tc.method, tc.path, nil)
-		r = r.WithContext(context.WithValue(r.Context(), tenantIDKey, "tenant-x"))
+		r = r.WithContext(context.WithValue(r.Context(), organizationIDKey, "tenant-x"))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
 		if w.Code != http.StatusOK {

@@ -136,7 +136,7 @@ func newTenantCtx(t *testing.T, s *postgres.Store) (context.Context, model.Organ
 	if err != nil {
 		t.Fatalf("UpsertOrganization: %v", err)
 	}
-	return storage.WithTenantID(ctx, tenant.ID), tenant
+	return storage.WithOrganizationID(ctx, tenant.ID), tenant
 }
 
 func costRecord(service, region string, amount float64) model.CostRecord {

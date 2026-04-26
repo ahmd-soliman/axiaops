@@ -31,7 +31,7 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	uid := middleware.UserID(r.Context())
 	email := middleware.UserEmail(r.Context())
 
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 	role, err := h.store.RoleOf(ctx, tid, uid)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

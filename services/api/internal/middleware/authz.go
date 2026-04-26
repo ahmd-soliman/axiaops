@@ -47,7 +47,7 @@ func Require(perm authz.Permission, store RoleStore, next http.Handler) http.Han
 		if !authz.Allows(authz.Role(role), perm) {
 			slog.Warn("authz: forbidden",
 				"method", r.Method, "path", r.URL.Path, "perm", perm,
-				"tenant_id", tid, "user_id", uid, "role", role)
+				"organization_id", tid, "user_id", uid, "role", role)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}

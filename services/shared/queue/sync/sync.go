@@ -37,8 +37,8 @@ func New(ingestionURL string) *Queue {
 // Enqueue fires a POST /scan to the ingestion service synchronously.
 func (q *Queue) Enqueue(ctx context.Context, job ScanJob) error {
 	body, err := json.Marshal(map[string]string{
-		"account_id": job.AccountID,
-		"tenant_id":  job.OrganizationID,
+		"account_id":      job.AccountID,
+		"organization_id": job.OrganizationID,
 	})
 	if err != nil {
 		return err

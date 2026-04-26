@@ -36,14 +36,14 @@ func startWorker(ctx context.Context, q queue.Queue, store storage.Store) {
 			wait := time.Since(job.EnqueuedAt)
 			slog.Info("worker: scan.dequeued",
 				"account_id", job.AccountID,
-				"tenant_id", job.OrganizationID,
+				"organization_id", job.OrganizationID,
 				"wait_ms", wait.Milliseconds(),
 				"request_id", job.RequestID,
 				"circuit_breaker_state", cb.State().String(),
 			)
 
-			scanCtx := storage.WithTenantID(ctx, job.OrganizationID)
-			statusCtx := storage.WithTenantID(context.Background(), job.OrganizationID)
+			scanCtx := storage.WithOrganizationID(ctx, job.OrganizationID)
+			statusCtx := storage.WithOrganizationID(context.Background(), job.OrganizationID)
 
 			// Execute scan with circuit breaker protection and timeout
 			scanTimeout := 10 * time.Minute // Configurable timeout for scan operations
