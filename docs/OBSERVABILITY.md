@@ -61,7 +61,7 @@ axiaops_potential_monthly_savings_usd     — Savings USD (gauge)
 **Labels:**
 - `service` — AWS service (CostExplorer, CloudWatch, EC2, etc.)
 - `provider` — Cloud provider (aws)
-- `tenant_id` — Tenant UUID
+- `organization_id` — Organization UUID
 
 ### Scan Lifecycle Metrics
 
