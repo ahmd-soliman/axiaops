@@ -6,6 +6,7 @@ import { useMe } from '../context/MeContext';
 import { fetchVersion } from '../api/client';
 import { PERM } from '../api/permissions';
 import { APP_VERSION, APP_COMMIT_SHA } from '../config';
+import AvatarMenu from './AvatarMenu';
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
 
@@ -85,15 +86,6 @@ function IconUsers({ color, size = 18 }) {
   );
 }
 
-function IconAccount({ color, size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" />
-    </svg>
-  );
-}
-
 // ─── Nav config ───────────────────────────────────────────────────────────────
 //
 // `requires` gates the entry on a permission grant from MeContext. Items
@@ -106,14 +98,13 @@ const NAV_ITEMS = [
   { label: 'Costs',    path: '/cost',  Icon: IconCost },
   { label: 'Audit',    path: '/audit', Icon: IconAudit },
   { label: 'Users',    path: '/users', Icon: IconUsers, requires: PERM.MEMBERS_INVITE },
-  { label: 'Account',  path: '/account', Icon: IconAccount },
 ];
 
 // ─── Top navbar ───────────────────────────────────────────────────────────────
 
 export default function AppShell() {
   const { theme, isDark, toggleTheme } = useTheme();
-  const { orgName, onLogout } = useApp();
+  const { orgName } = useApp();
   const { can } = useMe();
   const navigate  = useNavigate();
   const location  = useLocation();
@@ -223,20 +214,7 @@ export default function AppShell() {
             </div>
           )}
 
-          {/* Sign out */}
-          <button
-            onClick={onLogout}
-            aria-label="Sign out"
-            style={{
-              padding: '5px 11px',
-              borderRadius: 7,
-              border: `1px solid ${t.border}`,
-              backgroundColor: 'transparent',
-              cursor: 'pointer',
-            }}
-          >
-            <span style={{ fontSize: 12, fontWeight: 600, color: t.accentMuted }}>Sign out</span>
-          </button>
+          <AvatarMenu />
         </div>
       </header>
 
