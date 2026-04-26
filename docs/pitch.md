@@ -2,23 +2,25 @@
 
 Common objections and talking points for pitching AxiaOps to engineering teams and decision makers.
 
+> **April 2026 honesty pass:** earlier versions of this document promised features that are not yet in `main` — weekly digest, Azure/GCP, self-hosted, owner resolution, delegation. Each has been reframed to either "shipped today" or "roadmap (date)" so no claim made in a sales conversation surfaces as broken on day 14 of a trial. If you find a claim in this document that contradicts what's in `services/`, fix the document, not the conversation.
+
 ---
 
 ## "We can just write scripts for this"
 
 You can — and most teams do. The problem is not detection, it is everything after detection.
 
-| | Custom Scripts | AxiaOps |
+| | Custom Scripts | AxiaOps (today) |
 |---|---|---|
-| Setup | Days to weeks per account | Minutes |
+| Setup | Days to weeks per account | Under 30 minutes |
 | Maintenance | You own it forever | Maintained for you |
-| Multi-cloud | Build each integration | AWS → Azure → GCP included |
-| Output | Raw data dump | Remediation workflow + owner resolution |
-| Audit trail | None | Full history of decisions |
-| Alerting | Build it yourself | Weekly digest built-in |
+| Multi-cloud | Build each integration | AWS today; Azure/GCP roadmap 2028 |
+| Output | Raw data dump | Detection + dismiss/snooze workflow |
+| Audit trail | None | Full schema; actor attribution shipping Q2 2026 |
+| Alerting | Build it yourself | Email/Slack digest shipping Q3 2026 |
 | Onboarding | Tribal knowledge | Self-service dashboard |
 
-Scripts solve the detection problem. AxiaOps solves the **workflow** problem — who owns the resource, what to do about it, and proof that it was handled.
+Scripts solve the detection problem. AxiaOps solves the **workflow** problem on top of detection — what to do about each ghost, with structured dismiss reasons and snooze windows that survive across team members.
 
 ---
 
@@ -37,14 +39,15 @@ This is a valid concern. Here is the honest answer.
 
 **Mitigations:**
 
-- **Self-hosted** — run AxiaOps entirely inside your own VPC. Data never leaves your infrastructure. This is the primary answer for enterprise customers with strict data residency requirements.
-- **Read-only IAM** — the policy only calls `ce:GetCostAndUsage`. It cannot modify, delete, or provision any resource.
-- **No credential storage** — credentials stay in your environment via `~/.aws` or IAM instance roles. They are never sent to AxiaOps servers.
-- **SOC 2 compliance** — planned for Phase 3 once paying customers justify the audit cost.
+- **EU data residency by default** — data processed and stored in EU (Frankfurt). German legal entity. Built-in GDPR posture.
+- **Self-hosted (roadmap, target Q3 2026)** — packaged Docker Compose + license-key gating for customers who need data to stay in their own VPC. Pilots available on request from Q2 2026 — talk to sales. *Not generally available today.*
+- **Read-only IAM** — the policy only calls describe/list/get APIs. It cannot modify, delete, or provision any resource.
+- **Credential storage** — customer AWS credentials are encrypted at rest with AES-256-GCM. The IAM cross-account role onboarding flow (which removes the need to store access keys at all) is shipping Q2 2026; until then, customers paste read-only access keys.
+- **SOC 2 compliance** — Type II audit targeted Q4 2027, dependent on paying-customer revenue justifying the €15–€25K audit cost.
 
 **The positioning:**
 
-> If you are comfortable with your cloud provider seeing your spend data — and you have to be, they generate it — then AxiaOps adds no new exposure. For the most security-conscious teams, self-hosting is available with full data residency guarantees.
+> If you are comfortable with your cloud provider seeing your spend data — and you have to be, they generate it — then AxiaOps adds no new exposure. EU customers get Frankfurt-resident data and a German DPA. For the most security-conscious teams, self-hosted pilots are available on request from Q2 2026.
 
 ---
 
@@ -53,10 +56,10 @@ This is a valid concern. Here is the honest answer.
 Native cloud tools show you what you spent. They do not tell you whether the resource is still needed, who owns it, or what to do next.
 
 AxiaOps adds the layer above billing:
-- Cross-cloud single pane — one view across AWS, Azure, GCP
-- Zombie detection — flags resources with zero or near-zero usage
-- Owner resolution — maps resource tags to the responsible team
-- Remediation workflow — dismiss, delegate, or action with a full audit trail
+- Zombie detection — flags resources with zero or near-zero usage across 15+ AWS resource types
+- Dismiss-with-reason workflow — five reasons, optional note, snooze for 1/7/30/90 days
+- Trend history — track waste reduction over time per account
+- Multi-account view — one view across all your AWS accounts (multi-cloud Azure/GCP roadmap 2028)
 
 ---
 
@@ -120,12 +123,16 @@ Usage-based, tied to the number of cloud accounts connected. No per-seat fees �
 
 | Tier | Accounts | Price |
 |------|----------|-------|
-| Starter | 1 account | Free |
-| Growth | Up to 5 accounts | €49/month |
-| Scale | Up to 20 accounts | €149/month |
-| Enterprise | Unlimited + self-hosted | Custom |
+| Free | 1 account | €0 (manual scan only, 7-day retention) |
+| Starter | 3 accounts | €79/month |
+| Growth | 10 accounts | €249/month |
+| Team | 25 accounts | €599/month |
+| MSP | 30 included + €12/account over | €999/month (gated on multi-client dashboard shipping Q3 2026) |
+| Enterprise | Unlimited + self-hosted | Custom (~€2,500–€8,000/mo) |
 
 You only pay for the accounts you connect. Disconnect an account and the cost drops immediately.
+
+> Pricing revised April 2026. Earlier €49/€149 tiers were below market. See `market-readiness-2026-04.md` §5 for rationale.
 
 ---
 
@@ -156,14 +163,15 @@ The goal is a list you trust, not a long list.
 
 ## "Our engineers will just ignore the alerts"
 
-That is a process problem as much as a tooling problem — and AxiaOps is designed around it.
+That is a process problem as much as a tooling problem — and the AxiaOps roadmap is designed around it.
 
-- **Owner resolution** — every ghost shows the responsible team derived from resource tags, so alerts go to the right person
-- **Delegation** — a FinOps manager can assign a ghost to an engineer directly from the dashboard
-- **Audit trail** — dismissed or delegated items are recorded with who acted and when, visible to management
-- **Weekly digest** — a summary email/Slack message rather than per-resource noise
+- **Dismiss-with-reason** (shipped today) — every ghost can be dismissed with one of five structured reasons (intentional, scheduled deletion, false positive, cost accepted, other) plus an optional note. Forces the team to articulate *why* a ghost is acceptable rather than just ignore it.
+- **Snooze** (shipped today) — re-evaluate any ghost after 1, 7, 30, or 90 days. Avoids permanent dismissal of resources that may become wasteful again.
+- **Audit trail with actor attribution** (shipping Q2 2026 — schema exists, UI/actor hookup ~4 hours of work) — dismissed items are recorded with who acted and when, visible to management. *Ask whether this has shipped before pitching it.*
+- **Weekly email digest + Slack alerts** (shipping Q3 2026) — a summary message rather than per-resource noise.
+- **Owner resolution / delegation features** (not on near-term roadmap) — these were aspirational features in earlier pitch material; deferred until customer demand justifies the build. Tag-based filtering by `team` / `owner` is shipping Q3 2026 and partially addresses the same need.
 
-Ignored alerts usually mean the wrong person is getting them, or the list is too long to trust. Both are solvable.
+Ignored alerts usually mean the wrong person is getting them, or the list is too long to trust. Both are solvable, on the timeline above.
 
 ---
 
@@ -177,12 +185,15 @@ AxiaOps finds exactly those resources — the ones outside your IaC state.
 
 ## "How do you handle multi-account and multi-cloud setups?"
 
-Phase 1 supports a single AWS account. Phase 2 (Q3 2026) adds:
-- Multi-account via cross-account IAM role assumption — no need to create users in every account
-- Azure Cost Management API
-- GCP Billing API
+**Today:** AxiaOps supports multiple AWS accounts per tenant — connect each one with read-only credentials and see all detected ghosts in one dashboard, with per-account and aggregated views.
 
-Enterprise customers on the self-hosted plan can connect unlimited accounts from day one.
+**Q2 2026:** cross-account IAM role onboarding wizard replaces the access-key paste flow. One CloudFormation template per account, no long-lived credentials stored on AxiaOps's side.
+
+**Q3 2026 (validation-dependent):** multi-tenant client-switching dashboard for FinOps consultants and AWS Solution Provider partners managing multiple end-customers. Includes per-organization white-label branding and PDF report generation. Currently being scoped — see `gtm_assessment.md` §4.6 for the validation experiment that gates this build.
+
+**2028:** Azure Cost Management and GCP Billing APIs. We don't claim multi-cloud earlier because we haven't built it.
+
+Self-hosted pilots are available on request from Q2 2026 — talk to sales.
 
 ---
 
@@ -200,11 +211,13 @@ Auto-scaling groups are evaluated at the group level, not per-instance — a gro
 
 ---
 
-## "We tag resources inconsistently — will owner resolution work?"
+## "We tag resources inconsistently — will tag-based filtering work?"
 
-Partially — and we will tell you that upfront. Owner resolution works for resources that have `team`, `owner`, or `env` tags. For untagged resources, AxiaOps shows the account and service but marks the owner as unknown.
+Tag-based filtering by `team`, `owner`, or `env` is shipping Q3 2026. Until then, every detected ghost shows the resource's tags in the detail view and you can manually inspect them. For untagged resources, AxiaOps shows the account and service.
 
-This is often the most valuable output: a list of untagged resources is itself a compliance gap. AxiaOps gives you that list for free as a byproduct of ghost detection.
+The list of untagged ghosts is itself a useful output: it's a tagging-hygiene gap that AxiaOps surfaces as a byproduct of detection.
+
+> **Honesty note:** earlier versions of this document promised "owner resolution" as a shipped feature. It is not. The schema captures tags and the UI shows them, but there is no automatic mapping from tag values to a responsible engineer's contact info. That feature is not on the near-term roadmap.
 
 ---
 
@@ -230,7 +243,9 @@ The remediation workflow in Phase 3 adds a one-click option, but it still requir
 
 The data AxiaOps processes — cost line items, resource IDs, usage metrics — does not contain personal data. It is infrastructure billing data.
 
-For self-hosted deployments, all data stays within your own infrastructure in your chosen region. For the SaaS version, data is stored in EU data centers (Frankfurt) and never transferred outside the EU. A Data Processing Agreement (DPA) is available on request.
+**SaaS version:** data is stored in EU data centers (Frankfurt) and never transferred outside the EU. A Data Processing Agreement (DPA) is available on request. Right-to-erasure (full tenant deletion with cascade) is shipped today; data export endpoint is shipping Q2 2026.
+
+**Self-hosted:** pilots available Q2 2026 — talk to sales. Once available, all data stays within your own infrastructure in your chosen region.
 
 ---
 
