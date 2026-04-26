@@ -35,7 +35,10 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | GET | /audit | Yes | Organization audit timeline (?user_id, ?resource_type, ?resource_id, ?action, ?since, ?until, ?limit, ?cursor) |
 | GET | /me | Yes | Current user's role + permission set; no permission required beyond authn |
 | GET | /memberships | Yes | List organization memberships |
-| POST | /memberships | Yes | Invite an existing user (by user_id) and assign a role; admin+ only |
+| POST | /memberships | Yes | Promote an existing user (by user_id) and assign a role; admin+ only |
+| POST | /invitations | Yes | Invite by email (sends Kinde org-scoped invite). Writes `pending_memberships`; redemption happens in auth middleware on invitee's first login. Admin+ for member/viewer; owner for admin |
+| GET | /invitations | Yes | List pending invitations for the current org (?status=pending\|expired\|revoked) |
+| DELETE | /invitations/{id} | Yes | Revoke a pending invitation; calls Kinde Mgmt API to remove user from org first |
 | PATCH | /memberships/{id}/role | Yes | Promote or demote a member; permission tier depends on target role |
 | DELETE | /memberships/{id} | Yes | Remove a member; self-leave bypasses permission check (last-owner guard still applies) |
 | POST | /organizations/transfer-ownership | Yes | Atomically transfer owner role to another user; owner only |
@@ -68,6 +71,7 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 - Verifies RS256 signature + expiry
 - `DEV_MODE=true` → auth bypassed, uses `DEV_ORGANIZATION_ID`
 - Organization mapped: Kinde `org_code` → `organizations.id` via `UpsertOrganization()`
+- After `EnsureFirstMembership`, calls `RedeemPendingInvitation(ctx, orgID, userID, email)` to convert a matching `pending_memberships` row (from `POST /v1/invitations`) into a real membership in one transaction. No-op when no pending row matches. See `docs/invitation-flow.md`.
 
 ## Prometheus Metrics (Phase 2.6)
 

@@ -117,9 +117,28 @@ org automatically:
 
 1. Creates a row in `organizations` (keyed on `org_code`)
 2. Creates a row in `users` (keyed on Kinde `sub`)
-3. Sets the organization context for the rest of the request
+3. Auto-promotes the first authenticator to `owner` via `EnsureFirstMembership` (`auth.go:187`)
+4. Redeems any matching `pending_memberships` row for the user's email (see below)
+5. Sets the organization context for the rest of the request
 
 All subsequent requests for the same org hit the existing rows (upsert is a no-op).
+
+### Email-based invitation redemption
+
+After `EnsureFirstMembership` runs, the middleware also calls
+`store.RedeemPendingInvitation(ctx, organization.ID, user.ID, email)`. This handles the
+"invited teammate" path:
+
+- An admin posted `POST /v1/invitations {email, role}`. AxiaOps wrote a `pending_memberships`
+  row and asked Kinde's Management API to send the org-scoped invitation email.
+- The invitee clicks the link → Kinde signup → JWT carries the inviting org's `org_code`.
+- On their first authenticated request, `EnsureFirstMembership` is a no-op (the org already
+  has owners), and `RedeemPendingInvitation` atomically inserts a `memberships` row with the
+  recorded role and deletes the pending row in one transaction.
+
+If no pending row matches (the user signed up self-serve without an invite, or their email
+doesn't match), redemption is a silent no-op. See `docs/invitation-flow.md` for the full
+design.
 
 ---
 
