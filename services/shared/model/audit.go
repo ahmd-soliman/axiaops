@@ -11,7 +11,7 @@ import (
 // are recorded — reads and scheduled/automated scans are excluded.
 type AuditEvent struct {
 	ID             int64          `json:"id"`
-	OrganizationID string         `json:"tenant_id,omitempty"`
+	OrganizationID string         `json:"organization_id,omitempty"`
 	UserID         string         `json:"user_id,omitempty"` // NULL after GDPR anonymisation
 	ActorEmail     string         `json:"actor_email"`       // captured at event time
 	Action         string         `json:"action"`            // one of AuditAction* constants
