@@ -11,6 +11,7 @@ import {
   deleteCurrentUser,
   exportTenantData,
 } from '../api/client';
+import { PERM } from '../api/permissions';
 
 // Two destructive actions live behind a type-to-confirm modal so a stray
 // click can't detonate the tenant; the export sits above so users can
@@ -32,7 +33,7 @@ export default function Account() {
 
       <ProfileSection t={t} me={me} orgName={orgName} />
 
-      {can('data:export') && <ExportSection t={t} toast={toast} />}
+      {can(PERM.DATA_EXPORT) && <ExportSection t={t} toast={toast} />}
 
       <DeleteUserSection
         t={t}
@@ -42,7 +43,7 @@ export default function Account() {
         onLogout={onLogout}
       />
 
-      {can('tenant:delete') && (
+      {can(PERM.TENANT_DELETE) && (
         <DeleteTenantSection
           t={t}
           isDark={isDark}
