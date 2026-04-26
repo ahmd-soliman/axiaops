@@ -1,36 +1,27 @@
-import { useTheme } from '../theme/ThemeContext';
-import { useMe } from '../context/MeContext';
-import { useApp } from '../context/AppContext';
-import { useToast } from '../context/ToastContext';
-import { deleteCurrentTenant } from '../api/client';
-import { PERM } from '../api/permissions';
+import { useTheme } from '../../theme/ThemeContext';
+import { useApp } from '../../context/AppContext';
+import { useToast } from '../../context/ToastContext';
+import { deleteCurrentTenant } from '../../api/client';
 import {
   useDestructiveConfirm,
   DestructiveConfirmModal,
-} from '../components/DestructiveConfirm';
+} from '../../components/DestructiveConfirm';
 
-// Transitional shell after the personal sections moved to /profile. The
-// tenant-delete control will move to /settings/workspace in the next
-// commit and this file deletes. Kept here so /account doesn't 404 mid-PR.
-export default function Account() {
+// Workspace tab — tenant-level destructive controls. Only owners reach
+// this route (Settings sub-nav filters on PERM.TENANT_DELETE before
+// rendering the tab), so no extra in-page perm check is needed.
+//
+// Future home for transfer-ownership UI and billing controls.
+export default function Workspace() {
   const { theme: t, isDark } = useTheme();
-  const { can } = useMe();
   const { orgName, onLogout } = useApp();
   const { toast } = useToast();
-
-  if (!can(PERM.TENANT_DELETE)) {
-    return (
-      <div style={{ padding: 24, color: t.textMid }}>
-        <p style={{ fontSize: 13 }}>Nothing to manage here. See <a href="/profile" style={{ color: t.accent }}>My profile</a>.</p>
-      </div>
-    );
-  }
 
   return (
     <div style={{ padding: 24, color: t.textMid, maxWidth: 760 }}>
       <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Workspace</h1>
       <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
-        Tenant-level destructive controls.
+        Tenant-level controls.
       </p>
       <DeleteTenantSection
         t={t}
