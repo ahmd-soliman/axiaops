@@ -81,13 +81,13 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	exp, err := h.buildTenantExport(ctx, tid)
 	if err != nil {
 		observability.Global.DataExportsTotal.WithLabelValues("failed").Inc()
 		slog.Error("export tenant failed",
-			"tenant_id", tid,
+			"organization_id", tid,
 			"user_id", middleware.UserID(r.Context()),
 			"error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -132,13 +132,13 @@ func (h *Handler) exportTenantData(w http.ResponseWriter, r *http.Request) {
 		// nothing useful we can send back to the client. Log and bump the
 		// failure counter; the partial body is the user-visible signal.
 		observability.Global.DataExportsTotal.WithLabelValues("failed").Inc()
-		slog.Error("export tenant: encode failed", "tenant_id", tid, "error", err)
+		slog.Error("export tenant: encode failed", "organization_id", tid, "error", err)
 		return
 	}
 
 	observability.Global.DataExportsTotal.WithLabelValues("ok").Inc()
 	slog.Info("tenant data exported",
-		"tenant_id", tid,
+		"organization_id", tid,
 		"user_id", middleware.UserID(r.Context()),
 		"actor_email", middleware.UserEmail(r.Context()),
 		"members", len(exp.Members),

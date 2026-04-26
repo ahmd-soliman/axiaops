@@ -78,7 +78,7 @@ func Record(r *http.Request, w Writer, e model.AuditEvent) {
 	// slow DB to tie up resources either.
 	writeCtx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 	defer cancel()
-	writeCtx = storage.WithTenantID(writeCtx, tenantID)
+	writeCtx = storage.WithOrganizationID(writeCtx, tenantID)
 
 	if _, err := w.AuditLogWrite(writeCtx, e); err != nil {
 		observability.Global.AuditWritesTotal.WithLabelValues(e.Action, "failed").Inc()
@@ -86,7 +86,7 @@ func Record(r *http.Request, w Writer, e model.AuditEvent) {
 			"action", e.Action,
 			"resource_type", e.ResourceType,
 			"resource_id", e.ResourceID,
-			"tenant_id", tenantID,
+			"organization_id", tenantID,
 			"error", err,
 		)
 		return

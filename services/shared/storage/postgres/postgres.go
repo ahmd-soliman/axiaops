@@ -74,7 +74,7 @@ func newPool(ctx context.Context, url string) (*pgxpool.Pool, error) {
 // setTenant sets the app.tenant_id session variable for Row-Level Security.
 // Must be called inside a transaction so the setting is scoped to that tx.
 func setTenant(ctx context.Context, tx pgx.Tx) error {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -84,7 +84,7 @@ func setTenant(ctx context.Context, tx pgx.Tx) error {
 
 // Save inserts cost records in a single transaction, skipping duplicates.
 func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return 0, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -129,7 +129,7 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 
 // SaveZombies replaces the tenant's zombie records for the specified accounts with the latest detection results.
 func (s *Store) SaveZombies(ctx context.Context, zombies []model.ZombieResource) error {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -190,7 +190,7 @@ func (s *Store) SaveZombies(ctx context.Context, zombies []model.ZombieResource)
 
 // LoadZombies returns zombie records for the tenant in ctx.
 func (s *Store) LoadZombies(ctx context.Context) ([]model.ZombieResource, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -302,7 +302,7 @@ func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string
 // NOTE: this method uses the raw pool and does NOT set app.tenant_id. Safe here
 // only because `users` has no RLS policy and this is a startup bootstrap call.
 // Do NOT copy this pattern for handler-path writes to RLS-scoped tables —
-// those must use storage.WithTenantID and the transaction pattern.
+// those must use storage.WithOrganizationID and the transaction pattern.
 func (s *Store) EnsureUser(ctx context.Context, u model.User) error {
 	now := time.Now().UTC()
 	kindeSub := "dev:" + u.ID
@@ -552,7 +552,7 @@ func (s *Store) TryMarkAccountScanning(ctx context.Context, id string) (bool, er
 // SaveResources replaces resource records for the accounts present in the
 // provided slice, leaving all other accounts' records untouched.
 func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRecord) error {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -608,7 +608,7 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 
 // LoadResources returns all resource records for the tenant in ctx.
 func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -663,7 +663,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 // ListCostRecords returns cost records for the tenant in ctx, filtered by the given criteria.
 // Records with amount > 0 are returned, ordered by period_start (newest first) then amount (largest first).
 func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) ([]model.CostRecord, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -747,7 +747,7 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 
 // SaveSnapshot writes a zombie snapshot record (one per scan run).
 func (s *Store) SaveSnapshot(ctx context.Context, snap model.ZombieSnapshot) error {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -778,7 +778,7 @@ func (s *Store) SaveSnapshot(ctx context.Context, snap model.ZombieSnapshot) err
 // ListSnapshots returns zombie snapshots for the tenant, oldest-first.
 // If accountID is non-empty, only snapshots for that account are returned.
 func (s *Store) ListSnapshots(ctx context.Context, accountID string) ([]model.ZombieSnapshot, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -837,7 +837,7 @@ func (s *Store) SaveSnapshotServices(ctx context.Context, services []model.Snaps
 		return nil
 	}
 
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -872,7 +872,7 @@ func (s *Store) SaveSnapshotServices(ctx context.Context, services []model.Snaps
 // When resourceType is non-empty, only that sub-type is returned; otherwise
 // all resource types for the service are aggregated (SUM).
 func (s *Store) ListSnapshotsByService(ctx context.Context, service, resourceType, accountID string) ([]model.ZombieSnapshot, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -939,7 +939,7 @@ func (s *Store) ListSnapshotsByService(ctx context.Context, service, resourceTyp
 
 // ListTrendServices returns distinct services that have snapshot data for the tenant.
 func (s *Store) ListTrendServices(ctx context.Context) ([]string, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -978,7 +978,7 @@ func (s *Store) ListTrendServices(ctx context.Context) ([]string, error) {
 // ListTrendResourceTypes returns distinct resource types for a given service
 // that have snapshot data for the tenant.
 func (s *Store) ListTrendResourceTypes(ctx context.Context, service string) ([]string, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -1030,7 +1030,7 @@ func (s *Store) DeleteOldCostRecords(ctx context.Context, cutoff time.Time) (int
 // Returns ErrAlreadyDismissed if an active dismissal already exists for the fingerprint
 // (enforced by the partial unique index dismissed_zombies_active_fingerprint).
 func (s *Store) DismissZombie(ctx context.Context, d model.DismissAction) (int64, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return 0, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -1067,7 +1067,7 @@ func (s *Store) DismissZombie(ctx context.Context, d model.DismissAction) (int64
 
 // RevokeDismissal soft-deletes an active dismissal by setting revoked_at / revoked_by.
 func (s *Store) RevokeDismissal(ctx context.Context, id int64, revokedBy string) error {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -1100,7 +1100,7 @@ func (s *Store) RevokeDismissal(ctx context.Context, id int64, revokedBy string)
 // ListActiveDismissals returns all active (non-revoked, non-expired) dismissals
 // for the tenant in ctx.  If accountID is non-empty, filters to that account only.
 func (s *Store) ListActiveDismissals(ctx context.Context, accountID string) ([]model.DismissAction, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -1188,7 +1188,7 @@ const auditListMaxLimit = 500
 // AuditLogWrite inserts one audit event for the tenant in ctx. Callers must
 // treat this as best-effort — see Store interface doc for why.
 func (s *Store) AuditLogWrite(ctx context.Context, e model.AuditEvent) (int64, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return 0, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -1247,7 +1247,7 @@ func (s *Store) AuditLogWrite(ctx context.Context, e model.AuditEvent) (int64, e
 // Filter fields compose with AND; zero values are ignored. Pagination uses a
 // (created_at, id) cursor so inserts during paging don't shift rows.
 func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.AuditEvent, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return nil, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -1367,7 +1367,7 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 // AuditLogAnonymiseUser nulls user_id and replaces actor_email for all rows
 // matching (tenant_id, user_id). Called from the GDPR user-delete path.
 func (s *Store) AuditLogAnonymiseUser(ctx context.Context, userID string) (int64, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return 0, fmt.Errorf("postgres: tenant_id missing from context")
 	}
@@ -1645,7 +1645,7 @@ func (s *Store) TransferOwnership(ctx context.Context, toUserID string) error {
 		return err
 	}
 
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 
 	// Verify target membership exists in this tenant.
 	var targetID, targetRole string
@@ -1753,7 +1753,7 @@ func (s *Store) EnsureDevMembership(ctx context.Context, tenantID, userID, role 
 // GetUserByEmail looks up a user by email within the tenant in ctx. Used by
 // the invite-by-email flow.
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, error) {
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
 		return model.User{}, fmt.Errorf("postgres: tenant_id missing from context")
 	}
