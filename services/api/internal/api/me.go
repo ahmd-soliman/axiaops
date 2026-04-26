@@ -13,7 +13,7 @@ import (
 // authz package into the JS layer.
 type meResponse struct {
 	UserID         string   `json:"user_id"`
-	OrganizationID string   `json:"tenant_id"`
+	OrganizationID string   `json:"organization_id"`
 	Email          string   `json:"email"`
 	Role           string   `json:"role"`
 	Permissions    []string `json:"permissions"`

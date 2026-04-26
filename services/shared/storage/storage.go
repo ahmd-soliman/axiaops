@@ -282,7 +282,7 @@ type Store interface {
 
 	// DeleteOrganizationCascade hard-deletes a tenant and every row scoped to it,
 	// in FK-safe order, in a single transaction. Used by the per-tenant
-	// right-to-erasure flow (DELETE /v1/tenants/me). Steps:
+	// right-to-erasure flow (DELETE /v1/organizations/me). Steps:
 	//   1. Anonymise audit_log entries (in OTHER tenants) for users whose
 	//      users.tenant_id = tenantID — those users are about to be deleted
 	//      and their attribution must be erased everywhere, not just here.

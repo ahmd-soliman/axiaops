@@ -47,8 +47,8 @@ var permissionMatrix = []permissionMatrixCase{
 	{method: "POST", path: "/v1/memberships", body: `{}`, minRole: "admin"},
 
 	// Owner-only.
-	{method: "POST", path: "/v1/tenants/transfer-ownership", body: `{}`, minRole: "owner"},
-	{method: "DELETE", path: "/v1/tenants/me", minRole: "owner"},
+	{method: "POST", path: "/v1/organizations/transfer-ownership", body: `{}`, minRole: "owner"},
+	{method: "DELETE", path: "/v1/organizations/me", minRole: "owner"},
 
 	// Self-leave bypass — handler does its own check.
 	{method: "DELETE", path: "/v1/memberships/m-test", skipMatrix: true},

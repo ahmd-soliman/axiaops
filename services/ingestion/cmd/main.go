@@ -124,7 +124,7 @@ func main() {
 	mux.HandleFunc("POST /scan", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			AccountID      string `json:"account_id"`
-			OrganizationID string `json:"tenant_id"`
+			OrganizationID string `json:"organization_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			slog.Error("scan: invalid request", "error", err)
