@@ -21,9 +21,9 @@ import (
 type contextKey string
 
 const (
-	tenantIDKey  contextKey = "tenant_id"
-	userIDKey    contextKey = "user_id"
-	userEmailKey contextKey = "user_email"
+	organizationIDKey contextKey = "organization_id"
+	userIDKey         contextKey = "user_id"
+	userEmailKey      contextKey = "user_email"
 
 	jwksTTL = time.Hour
 )
@@ -190,7 +190,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 				return
 			}
 
-			ctx = context.WithValue(ctx, tenantIDKey, tenant.ID)
+			ctx = context.WithValue(ctx, organizationIDKey, tenant.ID)
 			ctx = context.WithValue(ctx, userIDKey, user.ID)
 			ctx = context.WithValue(ctx, userEmailKey, user.Email)
 		} else {
@@ -199,7 +199,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 			// instead of a users.id UUID, so anything using UserID(ctx) as a FK
 			// will fail. Never wire this path into production — it exists purely
 			// so middleware tests can exercise JWT parsing without a DB.
-			ctx = context.WithValue(ctx, tenantIDKey, orgCode)
+			ctx = context.WithValue(ctx, organizationIDKey, orgCode)
 			ctx = context.WithValue(ctx, userIDKey, sub)
 			ctx = context.WithValue(ctx, userEmailKey, email)
 		}
@@ -210,7 +210,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 
 // OrganizationID returns the internal tenant UUID from the request context.
 func OrganizationID(ctx context.Context) string {
-	id, _ := ctx.Value(tenantIDKey).(string)
+	id, _ := ctx.Value(organizationIDKey).(string)
 	return id
 }
 
@@ -241,7 +241,7 @@ func DevBypass(tenantID, userID, userEmail string, next http.Handler) http.Handl
 			return
 		}
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, tenantIDKey, tenantID)
+		ctx = context.WithValue(ctx, organizationIDKey, tenantID)
 		ctx = context.WithValue(ctx, userIDKey, userID)
 		ctx = context.WithValue(ctx, userEmailKey, userEmail)
 		next.ServeHTTP(w, r.WithContext(ctx))

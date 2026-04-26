@@ -55,7 +55,7 @@ func (rl *RateLimiter) Wrap(next http.Handler) http.Handler {
 		}
 
 		if !rl.Allow(r.Context(), tenantID) {
-			slog.Warn("ratelimit: too many requests", "tenant_id", tenantID)
+			slog.Warn("ratelimit: too many requests", "organization_id", tenantID)
 			w.Header().Set("Retry-After", "60")
 			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 			return

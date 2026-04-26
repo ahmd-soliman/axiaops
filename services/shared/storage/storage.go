@@ -34,17 +34,17 @@ var ErrMembershipExists = errors.New("storage: membership already exists for use
 
 type ctxKey string
 
-const tenantKey ctxKey = "tenant_id"
+const organizationKey ctxKey = "organization_id"
 
-// WithTenantID returns a context carrying the given tenant ID.
+// WithOrganizationID returns a context carrying the given tenant ID.
 // The PostgreSQL store reads this to set app.tenant_id for Row-Level Security.
-func WithTenantID(ctx context.Context, tenantID string) context.Context {
-	return context.WithValue(ctx, tenantKey, tenantID)
+func WithOrganizationID(ctx context.Context, tenantID string) context.Context {
+	return context.WithValue(ctx, organizationKey, tenantID)
 }
 
-// TenantIDFromCtx returns the tenant ID stored in the context, or "".
-func TenantIDFromCtx(ctx context.Context) string {
-	v, _ := ctx.Value(tenantKey).(string)
+// OrganizationIDFromCtx returns the tenant ID stored in the context, or "".
+func OrganizationIDFromCtx(ctx context.Context) string {
+	v, _ := ctx.Value(organizationKey).(string)
 	return v
 }
 
@@ -64,12 +64,12 @@ type Store interface {
 
 	// SaveZombies replaces all zombie records with the latest detection results.
 	// Called by the ingestion job after each analysis run.
-	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
+	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
 	SaveZombies(ctx context.Context, zombies []model.ZombieResource) error
 
 	// LoadZombies returns zombie records for the tenant in ctx.
 	// Called by the API service per request.
-	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
+	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
 	LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 
 	// UpsertOrganization creates a tenant on first login or returns the existing one.
@@ -124,23 +124,23 @@ type Store interface {
 
 	// SaveResources replaces all resource records with the latest inventory.
 	// Called by the ingestion job after each analysis run.
-	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
+	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
 	SaveResources(ctx context.Context, resources []model.ResourceRecord) error
 
 	// LoadResources returns all resource records for the tenant in ctx.
 	// Called by the API service per request.
-	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
+	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
 	LoadResources(ctx context.Context) ([]model.ResourceRecord, error)
 
 	// ListCostRecords returns cost records for the tenant in ctx, filtered by account, service, and time window.
 	// Records with amount > 0 are returned, ordered by period_start (newest first) then amount (largest first).
 	// If filter.Days is 0 or negative, defaults to 30 days.
-	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
+	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
 	ListCostRecords(ctx context.Context, filter CostFilter) ([]model.CostRecord, error)
 
 	// SaveSnapshot writes a zombie snapshot after each ingestion scan.
 	// Snapshots are never replaced — they accumulate to form the savings history.
-	// ctx must carry a tenant ID via WithTenantID when using PostgreSQL.
+	// ctx must carry a tenant ID via WithOrganizationID when using PostgreSQL.
 	SaveSnapshot(ctx context.Context, snap model.ZombieSnapshot) error
 
 	// ListSnapshots returns zombie snapshots for the tenant in ctx, ordered
@@ -189,7 +189,7 @@ type Store interface {
 	ExpireSnoozes(ctx context.Context) (int64, error)
 
 	// AuditLogWrite records a user-initiated mutation in audit_log.
-	// ctx must carry a tenant ID via WithTenantID.  Returns the new row ID.
+	// ctx must carry a tenant ID via WithOrganizationID.  Returns the new row ID.
 	// Callers must treat audit writes as best-effort — log the error, bump the
 	// axiaops_audit_writes_total{status="failed"} counter, and continue. Failing
 	// the underlying user operation because an audit row couldn't be written is

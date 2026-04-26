@@ -301,7 +301,7 @@ func (m *MockStore) SaveZombies(_ context.Context, z []model.ZombieResource) err
 
 func (m *MockStore) LoadZombies(ctx context.Context) ([]model.ZombieResource, error) {
 	m.mu.Lock()
-	m.capturedTenantIDs = append(m.capturedTenantIDs, storage.TenantIDFromCtx(ctx))
+	m.capturedTenantIDs = append(m.capturedTenantIDs, storage.OrganizationIDFromCtx(ctx))
 	err := m.errLoadZombies
 	zombies := append([]model.ZombieResource(nil), m.zombies...)
 	m.mu.Unlock()
@@ -394,7 +394,7 @@ func (m *MockStore) SaveAccount(_ context.Context, a model.Account) error {
 
 func (m *MockStore) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	m.mu.Lock()
-	m.capturedTenantIDs = append(m.capturedTenantIDs, storage.TenantIDFromCtx(ctx))
+	m.capturedTenantIDs = append(m.capturedTenantIDs, storage.OrganizationIDFromCtx(ctx))
 	err := m.errListAccounts
 	accounts := append([]model.Account(nil), m.accounts...)
 	m.mu.Unlock()
@@ -721,7 +721,7 @@ func (m *MockStore) DeleteMembership(_ context.Context, id string) error {
 func (m *MockStore) TransferOwnership(ctx context.Context, toUserID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	tenantID := storage.TenantIDFromCtx(ctx)
+	tenantID := storage.OrganizationIDFromCtx(ctx)
 	targetIdx := -1
 	for i, mu := range m.memberships {
 		if mu.OrganizationID == tenantID && mu.UserID == toUserID {

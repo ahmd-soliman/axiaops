@@ -43,7 +43,7 @@ func toMembershipResponse(m model.MembershipWithUser) membershipResponse {
 // Permission: members:read (every authenticated tenant user).
 func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
 	tid := middleware.OrganizationID(r.Context())
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	rows, err := h.store.ListMemberships(ctx)
 	if err != nil {
@@ -67,7 +67,7 @@ func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	var req struct {
 		Email string `json:"email"`
@@ -154,7 +154,7 @@ func (h *Handler) updateMembershipRole(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	var req struct {
 		Role string `json:"role"`
@@ -229,7 +229,7 @@ func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	target, err := h.store.GetMembership(ctx, id)
 	if errors.Is(err, storage.ErrMembershipNotFound) {
@@ -285,7 +285,7 @@ func (h *Handler) deleteMembership(w http.ResponseWriter, r *http.Request) {
 // promotes the target user to owner. Permission: tenant:transfer (owner only).
 func (h *Handler) transferOwnership(w http.ResponseWriter, r *http.Request) {
 	tid := middleware.OrganizationID(r.Context())
-	ctx := storage.WithTenantID(r.Context(), tid)
+	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	var req struct {
 		ToUserID string `json:"to_user_id"`
