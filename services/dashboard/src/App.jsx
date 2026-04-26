@@ -16,10 +16,11 @@ import Trend      from './pages/Trend';
 import CostAnalytics from './pages/CostAnalytics';
 import Connect              from './pages/Connect';
 import CloudAccountSettings from './pages/CloudAccountSettings';
-import Audit      from './pages/Audit';
-import Users      from './pages/Users';
-import Account    from './pages/Account';
-import Profile    from './pages/Profile';
+import Profile           from './pages/Profile';
+import Settings          from './pages/Settings';
+import SettingsTeam      from './pages/settings/Team';
+import SettingsAudit     from './pages/settings/Audit';
+import SettingsWorkspace from './pages/settings/Workspace';
 import Login      from './pages/Login';
 import Callback   from './pages/Callback';
 import NotFound   from './pages/NotFound';
@@ -56,10 +57,12 @@ function AuthenticatedApp() {
               <Route path="/cost"                element={<CostAnalytics />} />
               <Route path="/connect"             element={<Connect />} />
               <Route path="/cloud-accounts/:accountId" element={<CloudAccountSettings />} />
-              <Route path="/audit"               element={<Audit />} />
-              <Route path="/users"               element={<Users />} />
-              <Route path="/account"             element={<Account />} />
               <Route path="/profile"             element={<Profile />} />
+              <Route path="/settings"            element={<Settings />}>
+                <Route path="team"      element={<SettingsTeam />} />
+                <Route path="audit"     element={<SettingsAudit />} />
+                <Route path="workspace" element={<SettingsWorkspace />} />
+              </Route>
             </Route>
           </Route>
         </Routes>
