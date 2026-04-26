@@ -23,7 +23,7 @@ func TestMemberships_OneOwnerPerTenant(t *testing.T) {
 
 	// First owner insert succeeds.
 	if _, err := conn.Exec(ctx, `
-		INSERT INTO axiaops.memberships (id, tenant_id, user_id, role, created_at, updated_at)
+		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'owner', NOW(), NOW())`,
 		uuid.NewString(), tenantID, userA); err != nil {
 		t.Fatalf("first owner insert: %v", err)
@@ -31,13 +31,13 @@ func TestMemberships_OneOwnerPerTenant(t *testing.T) {
 
 	// Second owner insert in the same tenant must fail (partial unique index).
 	_, err := conn.Exec(ctx, `
-		INSERT INTO axiaops.memberships (id, tenant_id, user_id, role, created_at, updated_at)
+		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'owner', NOW(), NOW())`,
 		uuid.NewString(), tenantID, userB)
 	if err == nil {
 		t.Fatal("expected second owner insert to fail, got nil")
 	}
-	if !strings.Contains(err.Error(), "memberships_one_owner_per_tenant") {
+	if !strings.Contains(err.Error(), "memberships_one_owner_per_organization") {
 		t.Fatalf("expected partial unique index violation, got: %v", err)
 	}
 }
@@ -49,7 +49,7 @@ func TestMemberships_RoleCheckConstraint(t *testing.T) {
 	tenantID, userA, _ := newTenantWithUsers(t, conn)
 
 	_, err := conn.Exec(ctx, `
-		INSERT INTO axiaops.memberships (id, tenant_id, user_id, role, created_at, updated_at)
+		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'superadmin', NOW(), NOW())`,
 		uuid.NewString(), tenantID, userA)
 	if err == nil {
@@ -67,20 +67,20 @@ func TestMemberships_UserTenantUnique(t *testing.T) {
 	tenantID, userA, _ := newTenantWithUsers(t, conn)
 
 	if _, err := conn.Exec(ctx, `
-		INSERT INTO axiaops.memberships (id, tenant_id, user_id, role, created_at, updated_at)
+		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'admin', NOW(), NOW())`,
 		uuid.NewString(), tenantID, userA); err != nil {
 		t.Fatalf("first insert: %v", err)
 	}
 
 	_, err := conn.Exec(ctx, `
-		INSERT INTO axiaops.memberships (id, tenant_id, user_id, role, created_at, updated_at)
+		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'viewer', NOW(), NOW())`,
 		uuid.NewString(), tenantID, userA)
 	if err == nil {
-		t.Fatal("expected UNIQUE(tenant_id, user_id) violation, got nil")
+		t.Fatal("expected UNIQUE(organization_id, user_id) violation, got nil")
 	}
-	if !strings.Contains(err.Error(), "memberships_tenant_id_user_id_key") {
+	if !strings.Contains(err.Error(), "memberships_organization_id_user_id_key") {
 		t.Fatalf("expected unique violation, got: %v", err)
 	}
 }
@@ -93,7 +93,7 @@ func TestMemberships_DeletingUserCascadesMembership(t *testing.T) {
 
 	mID := uuid.NewString()
 	if _, err := conn.Exec(ctx, `
-		INSERT INTO axiaops.memberships (id, tenant_id, user_id, role, created_at, updated_at)
+		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'admin', NOW(), NOW())`,
 		mID, tenantID, userA); err != nil {
 		t.Fatalf("insert membership: %v", err)
@@ -123,7 +123,7 @@ func newTenantWithUsers(t *testing.T, conn *pgx.Conn) (tenantID, userAID, userBI
 	tenantID = "t-" + uuid.NewString()
 	orgCode := "org-" + uuid.NewString()
 	if _, err := conn.Exec(ctx, `
-		INSERT INTO axiaops.tenants (id, org_code, name, created_at)
+		INSERT INTO axiaops.organizations (id, org_code, name, created_at)
 		VALUES ($1, $2, 'Test Org', NOW())`,
 		tenantID, orgCode); err != nil {
 		t.Fatalf("seed tenant: %v", err)
@@ -133,7 +133,7 @@ func newTenantWithUsers(t *testing.T, conn *pgx.Conn) (tenantID, userAID, userBI
 	userBID = "u-" + uuid.NewString()
 	for _, uid := range []string{userAID, userBID} {
 		if _, err := conn.Exec(ctx, `
-			INSERT INTO axiaops.users (id, tenant_id, kinde_sub, email, name, created_at, last_seen)
+			INSERT INTO axiaops.users (id, organization_id, kinde_sub, email, name, created_at, last_seen)
 			VALUES ($1, $2, $3, '', '', NOW(), NOW())`,
 			uid, tenantID, "kinde-"+uid); err != nil {
 			t.Fatalf("seed user %s: %v", uid, err)

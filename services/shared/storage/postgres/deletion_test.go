@@ -98,7 +98,7 @@ func TestDeleteUser_AnonymisesAuditAndRemovesUser(t *testing.T) {
 	}
 	if err := conn.QueryRow(context.Background(),
 		`SELECT COUNT(*) FROM axiaops.audit_log
-		 WHERE tenant_id = $1 AND user_id IS NULL AND actor_email = 'deleted-user'`,
+		 WHERE organization_id = $1 AND user_id IS NULL AND actor_email = 'deleted-user'`,
 		tenant.ID).Scan(&anonymisedAudit); err != nil {
 		t.Fatalf("count anonymised: %v", err)
 	}
@@ -149,17 +149,17 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 		label string
 		sql   string
 	}{
-		{"tenants", `SELECT COUNT(*) FROM axiaops.tenants WHERE id = $1`},
-		{"users", `SELECT COUNT(*) FROM axiaops.users WHERE tenant_id = $1`},
-		{"memberships", `SELECT COUNT(*) FROM axiaops.memberships WHERE tenant_id = $1`},
-		{"accounts", `SELECT COUNT(*) FROM axiaops.accounts WHERE tenant_id = $1`},
-		{"cost_records", `SELECT COUNT(*) FROM axiaops.cost_records WHERE tenant_id = $1`},
-		{"zombie_records", `SELECT COUNT(*) FROM axiaops.zombie_records WHERE tenant_id = $1`},
-		{"resource_records", `SELECT COUNT(*) FROM axiaops.resource_records WHERE tenant_id = $1`},
-		{"zombie_snapshots", `SELECT COUNT(*) FROM axiaops.zombie_snapshots WHERE tenant_id = $1`},
-		{"zombie_snapshot_services", `SELECT COUNT(*) FROM axiaops.zombie_snapshot_services WHERE tenant_id = $1`},
-		{"dismissed_zombies", `SELECT COUNT(*) FROM axiaops.dismissed_zombies WHERE tenant_id = $1`},
-		{"audit_log", `SELECT COUNT(*) FROM axiaops.audit_log WHERE tenant_id = $1`},
+		{"organizations", `SELECT COUNT(*) FROM axiaops.organizations WHERE id = $1`},
+		{"users", `SELECT COUNT(*) FROM axiaops.users WHERE organization_id = $1`},
+		{"memberships", `SELECT COUNT(*) FROM axiaops.memberships WHERE organization_id = $1`},
+		{"accounts", `SELECT COUNT(*) FROM axiaops.accounts WHERE organization_id = $1`},
+		{"cost_records", `SELECT COUNT(*) FROM axiaops.cost_records WHERE organization_id = $1`},
+		{"zombie_records", `SELECT COUNT(*) FROM axiaops.zombie_records WHERE organization_id = $1`},
+		{"resource_records", `SELECT COUNT(*) FROM axiaops.resource_records WHERE organization_id = $1`},
+		{"zombie_snapshots", `SELECT COUNT(*) FROM axiaops.zombie_snapshots WHERE organization_id = $1`},
+		{"zombie_snapshot_services", `SELECT COUNT(*) FROM axiaops.zombie_snapshot_services WHERE organization_id = $1`},
+		{"dismissed_zombies", `SELECT COUNT(*) FROM axiaops.dismissed_zombies WHERE organization_id = $1`},
+		{"audit_log", `SELECT COUNT(*) FROM axiaops.audit_log WHERE organization_id = $1`},
 	} {
 		var n int
 		if err := conn.QueryRow(context.Background(), q.sql, tenant.ID).Scan(&n); err != nil {
@@ -205,7 +205,7 @@ func TestDeleteOrganizationCascade_AnonymisesCrossTenantAudit(t *testing.T) {
 	var anonymised int
 	if err := conn.QueryRow(context.Background(),
 		`SELECT COUNT(*) FROM axiaops.audit_log
-		 WHERE tenant_id = $1 AND user_id IS NULL AND actor_email = 'deleted-user'`,
+		 WHERE organization_id = $1 AND user_id IS NULL AND actor_email = 'deleted-user'`,
 		tenantB.ID).Scan(&anonymised); err != nil {
 		t.Fatalf("count anonymised in B: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestDeleteOrganizationCascade_AnonymisesCrossTenantAudit(t *testing.T) {
 	// Tenant B itself should be untouched.
 	var tenantBStillThere int
 	if err := conn.QueryRow(context.Background(),
-		`SELECT COUNT(*) FROM axiaops.tenants WHERE id = $1`, tenantB.ID).Scan(&tenantBStillThere); err != nil {
+		`SELECT COUNT(*) FROM axiaops.organizations WHERE id = $1`, tenantB.ID).Scan(&tenantBStillThere); err != nil {
 		t.Fatalf("count tenant B: %v", err)
 	}
 	if tenantBStillThere != 1 {
