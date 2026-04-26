@@ -27,7 +27,7 @@ const RESOURCE_TYPES = [
   { value: 'dismissal',  label: 'Dismissals' },
   { value: 'account',    label: 'Accounts' },
   { value: 'membership', label: 'Members' },
-  { value: 'tenant',     label: 'Tenant' },
+  { value: 'tenant',     label: 'Organization' },
 ];
 
 const PAGE_SIZE = 50;
@@ -280,10 +280,10 @@ export default function AuditScreen() {
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: theme.text }}>
-          Audit log
+          Audit Log
         </h1>
         <p style={{ margin: '6px 0 0', fontSize: 13, color: theme.textMuted }}>
-          Every dismiss, scan, and account change across the tenant. Click a row with metadata to expand.
+          Every dismiss, scan, and account change across your organization. Click a row with metadata to expand.
         </p>
       </div>
 

@@ -1,0 +1,225 @@
+package postgres_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"axiaops.io/shared/model"
+	"axiaops.io/shared/storage"
+)
+
+// ── DeleteUser ──────────────────────────────────────────────────────────────
+
+func TestDeleteUser_RefusesSoleOwner(t *testing.T) {
+	s := newTestStore(t)
+	ctx, tenant := newTenantCtx(t, s)
+
+	userID := "u-" + uuid.New().String()
+	if err := s.EnsureUser(ctx, model.User{ID: userID, TenantID: tenant.ID, Email: "owner@x.com"}); err != nil {
+		t.Fatalf("EnsureUser: %v", err)
+	}
+	if err := s.EnsureDevMembership(ctx, tenant.ID, userID, "owner"); err != nil {
+		t.Fatalf("EnsureDevMembership: %v", err)
+	}
+
+	err := s.DeleteUser(ctx, userID)
+	if !errors.Is(err, storage.ErrLastOwner) {
+		t.Fatalf("expected ErrLastOwner, got %v", err)
+	}
+
+	// User row must still exist.
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	var n int
+	if err := conn.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM axiaops.users WHERE id = $1`, userID).Scan(&n); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("user row should still exist; count=%d", n)
+	}
+}
+
+func TestDeleteUser_AnonymisesAuditAndRemovesUser(t *testing.T) {
+	s := newTestStore(t)
+	ctx, tenant := newTenantCtx(t, s)
+
+	// Two users so deleting one doesn't violate the sole-owner guard.
+	ownerID := "u-" + uuid.New().String()
+	leavingID := "u-" + uuid.New().String()
+	if err := s.EnsureUser(ctx, model.User{ID: ownerID, TenantID: tenant.ID, Email: "owner@x.com"}); err != nil {
+		t.Fatalf("EnsureUser owner: %v", err)
+	}
+	if err := s.EnsureUser(ctx, model.User{ID: leavingID, TenantID: tenant.ID, Email: "leaving@x.com"}); err != nil {
+		t.Fatalf("EnsureUser leaving: %v", err)
+	}
+	if err := s.EnsureDevMembership(ctx, tenant.ID, ownerID, "owner"); err != nil {
+		t.Fatalf("EnsureDevMembership owner: %v", err)
+	}
+	if err := s.EnsureDevMembership(ctx, tenant.ID, leavingID, "member"); err != nil {
+		t.Fatalf("EnsureDevMembership leaving: %v", err)
+	}
+
+	// Drop a couple of audit rows for the leaving user.
+	for i := 0; i < 2; i++ {
+		if _, err := s.AuditLogWrite(ctx, model.AuditEvent{
+			UserID:     leavingID,
+			ActorEmail: "leaving@x.com",
+			Action:     model.AuditActionDismissZombie,
+		}); err != nil {
+			t.Fatalf("AuditLogWrite: %v", err)
+		}
+	}
+
+	if err := s.DeleteUser(ctx, leavingID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+
+	var users, memberships, anonymisedAudit int
+	if err := conn.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM axiaops.users WHERE id = $1`, leavingID).Scan(&users); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if users != 0 {
+		t.Errorf("user row should be gone; count=%d", users)
+	}
+	if err := conn.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM axiaops.memberships WHERE user_id = $1`, leavingID).Scan(&memberships); err != nil {
+		t.Fatalf("count memberships: %v", err)
+	}
+	if memberships != 0 {
+		t.Errorf("memberships should cascade away; count=%d", memberships)
+	}
+	if err := conn.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM axiaops.audit_log
+		 WHERE tenant_id = $1 AND user_id IS NULL AND actor_email = 'deleted-user'`,
+		tenant.ID).Scan(&anonymisedAudit); err != nil {
+		t.Fatalf("count anonymised: %v", err)
+	}
+	if anonymisedAudit != 2 {
+		t.Errorf("expected 2 anonymised audit rows, got %d", anonymisedAudit)
+	}
+}
+
+// ── DeleteTenantCascade ─────────────────────────────────────────────────────
+
+func TestDeleteTenantCascade_PurgesEveryTable(t *testing.T) {
+	s := newTestStore(t)
+	ctx, tenant := newTenantCtx(t, s)
+
+	// User + membership in this tenant.
+	userID := "u-" + uuid.New().String()
+	if err := s.EnsureUser(ctx, model.User{ID: userID, TenantID: tenant.ID, Email: "u@x.com"}); err != nil {
+		t.Fatalf("EnsureUser: %v", err)
+	}
+	if err := s.EnsureDevMembership(ctx, tenant.ID, userID, "owner"); err != nil {
+		t.Fatalf("EnsureDevMembership: %v", err)
+	}
+
+	// Cost record + account + audit row.
+	if _, err := s.Save(ctx, []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 1.23)}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := s.SaveAccount(ctx, model.Account{
+		ID: "acc-" + uuid.New().String(), TenantID: tenant.ID,
+		Provider: "aws", AccountID: "000000000000", Region: "eu-central-1", Status: "connected",
+	}); err != nil {
+		t.Fatalf("SaveAccount: %v", err)
+	}
+	if _, err := s.AuditLogWrite(ctx, model.AuditEvent{
+		UserID: userID, ActorEmail: "u@x.com", Action: model.AuditActionAccountConnected,
+	}); err != nil {
+		t.Fatalf("AuditLogWrite: %v", err)
+	}
+
+	if err := s.DeleteTenantCascade(ctx, tenant.ID); err != nil {
+		t.Fatalf("DeleteTenantCascade: %v", err)
+	}
+
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+
+	for _, q := range []struct {
+		label string
+		sql   string
+	}{
+		{"tenants", `SELECT COUNT(*) FROM axiaops.tenants WHERE id = $1`},
+		{"users", `SELECT COUNT(*) FROM axiaops.users WHERE tenant_id = $1`},
+		{"memberships", `SELECT COUNT(*) FROM axiaops.memberships WHERE tenant_id = $1`},
+		{"accounts", `SELECT COUNT(*) FROM axiaops.accounts WHERE tenant_id = $1`},
+		{"cost_records", `SELECT COUNT(*) FROM axiaops.cost_records WHERE tenant_id = $1`},
+		{"zombie_records", `SELECT COUNT(*) FROM axiaops.zombie_records WHERE tenant_id = $1`},
+		{"resource_records", `SELECT COUNT(*) FROM axiaops.resource_records WHERE tenant_id = $1`},
+		{"zombie_snapshots", `SELECT COUNT(*) FROM axiaops.zombie_snapshots WHERE tenant_id = $1`},
+		{"zombie_snapshot_services", `SELECT COUNT(*) FROM axiaops.zombie_snapshot_services WHERE tenant_id = $1`},
+		{"dismissed_zombies", `SELECT COUNT(*) FROM axiaops.dismissed_zombies WHERE tenant_id = $1`},
+		{"audit_log", `SELECT COUNT(*) FROM axiaops.audit_log WHERE tenant_id = $1`},
+	} {
+		var n int
+		if err := conn.QueryRow(context.Background(), q.sql, tenant.ID).Scan(&n); err != nil {
+			t.Fatalf("%s count: %v", q.label, err)
+		}
+		if n != 0 {
+			t.Errorf("%s should be empty after cascade; count=%d", q.label, n)
+		}
+	}
+}
+
+func TestDeleteTenantCascade_AnonymisesCrossTenantAudit(t *testing.T) {
+	// User U has primary tenant A. U is also a member of tenant B and has
+	// audit rows in B. When A is deleted (and U with it), U's audit rows in
+	// B must be anonymised — right to erasure travels with the user.
+	s := newTestStore(t)
+	ctxA, tenantA := newTenantCtx(t, s)
+	ctxB, tenantB := newTenantCtx(t, s)
+
+	userID := "u-" + uuid.New().String()
+	if err := s.EnsureUser(ctxA, model.User{ID: userID, TenantID: tenantA.ID, Email: "u@x.com"}); err != nil {
+		t.Fatalf("EnsureUser: %v", err)
+	}
+	if err := s.EnsureDevMembership(ctxA, tenantA.ID, userID, "owner"); err != nil {
+		t.Fatalf("EnsureDevMembership A: %v", err)
+	}
+	if err := s.EnsureDevMembership(ctxB, tenantB.ID, userID, "member"); err != nil {
+		t.Fatalf("EnsureDevMembership B: %v", err)
+	}
+	if _, err := s.AuditLogWrite(ctxB, model.AuditEvent{
+		UserID: userID, ActorEmail: "u@x.com", Action: model.AuditActionDismissZombie,
+	}); err != nil {
+		t.Fatalf("AuditLogWrite B: %v", err)
+	}
+
+	if err := s.DeleteTenantCascade(ctxA, tenantA.ID); err != nil {
+		t.Fatalf("DeleteTenantCascade: %v", err)
+	}
+
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+
+	var anonymised int
+	if err := conn.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM axiaops.audit_log
+		 WHERE tenant_id = $1 AND user_id IS NULL AND actor_email = 'deleted-user'`,
+		tenantB.ID).Scan(&anonymised); err != nil {
+		t.Fatalf("count anonymised in B: %v", err)
+	}
+	if anonymised != 1 {
+		t.Errorf("expected user's audit row in tenant B to be anonymised; got %d", anonymised)
+	}
+
+	// Tenant B itself should be untouched.
+	var tenantBStillThere int
+	if err := conn.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM axiaops.tenants WHERE id = $1`, tenantB.ID).Scan(&tenantBStillThere); err != nil {
+		t.Fatalf("count tenant B: %v", err)
+	}
+	if tenantBStillThere != 1 {
+		t.Errorf("tenant B should not be deleted by cascading A; got count=%d", tenantBStillThere)
+	}
+}
