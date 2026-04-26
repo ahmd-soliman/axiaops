@@ -32,7 +32,7 @@ export default function Profile() {
       <Section t={t} title="Profile">
         <Field t={t} label="Email" value={me?.email || '—'} />
         <Field t={t} label="Role" value={me?.role || '—'} />
-        <Field t={t} label="Tenant" value={orgName || me?.tenant_id || '—'} />
+        <Field t={t} label="Organization" value={orgName || me?.tenant_id || '—'} />
       </Section>
 
       {can(PERM.DATA_EXPORT) && <ExportSection t={t} toast={toast} />}
@@ -63,7 +63,7 @@ function ExportSection({ t, toast }) {
   return (
     <Section t={t} title="Download My Data">
       <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
-        Generates a JSON file containing every per-tenant record we hold for this tenant — members,
+        Generates a JSON file containing every record AxiaOps holds for your organization — members,
         cloud accounts (without secrets), audit log, scan history, and detected resources. Satisfies
         GDPR Art. 15 (access) and Art. 20 (portability).
       </p>
@@ -89,7 +89,7 @@ function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
     toast,
     on409: (err) =>
       err.body ||
-      'You are the sole owner of one or more tenants. Transfer ownership in Settings → Team, or delete the tenant from Settings → Organization.',
+      'You are the sole owner of one or more organizations. Transfer ownership in Settings → Team, or delete the organization from Settings → Organization.',
   });
 
   return (
@@ -97,7 +97,7 @@ function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
       t={t}
       isDark={isDark}
       title="Delete My Account"
-      blurb="Permanently deletes your AxiaOps user. Your audit-log entries are anonymised across every tenant you belonged to. This cannot be undone."
+      blurb="Permanently deletes your AxiaOps user. Your audit-log entries are anonymised across your organizations. This cannot be undone."
       buttonLabel="Delete My Account"
       onClick={ctrl.openModal}
       disabled={ctrl.target === ''}
@@ -106,7 +106,7 @@ function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
       <DestructiveConfirmModal
         ctrl={ctrl}
         title="Delete My Account?"
-        warning="This permanently deletes your user. You will be signed out and your audit-log entries across every tenant will be anonymised. This cannot be undone."
+        warning="This permanently deletes your user. You will be signed out and your audit-log entries across your organizations will be anonymised. This cannot be undone."
         targetLabel="email"
         confirmLabel="Delete Account"
       />

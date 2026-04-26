@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../../theme/ThemeContext';
 import { useMe } from '../../context/MeContext';
 import {
-  inviteMember,
+  addMember,
   listMemberships,
   removeMember,
   transferOwnership,
@@ -22,9 +22,9 @@ export default function Team() {
   const { me, can, refresh } = useMe();
   const qc = useQueryClient();
 
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('member');
-  const [inviteError, setInviteError] = useState('');
+  const [addEmail, setAddEmail] = useState('');
+  const [addRole, setAddRole] = useState('member');
+  const [addError, setAddError] = useState('');
   const [error, setError] = useState('');
   const [transferTo, setTransferTo] = useState('');
 
@@ -35,15 +35,15 @@ export default function Team() {
     refresh();
   };
 
-  const inviteMutation = useMutation({
-    mutationFn: ({ email, role }) => inviteMember(email, role),
+  const addMutation = useMutation({
+    mutationFn: ({ email, role }) => addMember(email, role),
     onSuccess: () => {
-      setInviteEmail('');
-      setInviteRole('member');
-      setInviteError('');
+      setAddEmail('');
+      setAddRole('member');
+      setAddError('');
       invalidate();
     },
-    onError: (err) => setInviteError(humanize(err, 'Failed to add user')),
+    onError: (err) => setAddError(humanize(err, 'Failed to add user')),
   });
 
   const updateMutation = useMutation({
@@ -76,7 +76,7 @@ export default function Team() {
     <div style={{ padding: 24, color: t.textMid }}>
       <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Team</h1>
       <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
-        Manage the people in this AxiaOps tenant.
+        Manage the people in your organization.
       </p>
 
       {error && (
@@ -104,30 +104,30 @@ export default function Team() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (!inviteEmail.trim()) return;
-              inviteMutation.mutate({ email: inviteEmail.trim(), role: inviteRole });
+              if (!addEmail.trim()) return;
+              addMutation.mutate({ email: addEmail.trim(), role: addRole });
             }}
             style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
           >
             <input
               type="email"
               required
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
+              value={addEmail}
+              onChange={(e) => setAddEmail(e.target.value)}
               placeholder="user@example.com"
               style={inputStyle(t)}
             />
-            <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} style={inputStyle(t)}>
+            <select value={addRole} onChange={(e) => setAddRole(e.target.value)} style={inputStyle(t)}>
               {ASSIGNABLE_ROLES.filter((r) => r !== 'admin' || canManageAdmin).map((r) => (
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
-            <button type="submit" disabled={inviteMutation.isPending} style={primaryButton(t)}>
-              {inviteMutation.isPending ? 'Adding…' : 'Add'}
+            <button type="submit" disabled={addMutation.isPending} style={primaryButton(t)}>
+              {addMutation.isPending ? 'Adding…' : 'Add'}
             </button>
           </form>
-          {inviteError && (
-            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#ef4444' }}>{inviteError}</p>
+          {addError && (
+            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#ef4444' }}>{addError}</p>
           )}
         </section>
       )}
@@ -193,7 +193,7 @@ export default function Team() {
                           type="button"
                           onClick={() => {
                             const confirmText = isSelf
-                              ? 'Leave this tenant?'
+                              ? 'Leave this organization?'
                               : `Remove ${m.email || 'this user'}?`;
                             if (window.confirm(confirmText)) removeMutation.mutate(m.id);
                           }}
@@ -225,7 +225,7 @@ export default function Team() {
             Transfer ownership
           </h2>
           <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMuted }}>
-            Promote another tenant member to owner. You'll be demoted to admin in the same operation.
+            Promote another member to owner. You'll be demoted to admin in the same operation.
           </p>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <select
