@@ -125,7 +125,7 @@ Errors are logged to stdout with structured context (JSON format in production).
 | DATABASE_URL | Yes | — | PostgreSQL app-user connection |
 | MIGRATION_DATABASE_URL | Yes | — | PostgreSQL owner connection (migrations) |
 | API_ADDR | No | :8080 | Listen address |
-| KINDE_ISSUER | Prod | — | Kinde organization URL |
+| KINDE_ISSUER | Prod | — | Kinde issuer URL (OAuth 2.0 authorization server) |
 | DEV_MODE | No | false | Skip auth, use fixed organization |
 | DEV_ORGANIZATION_ID | No | dev-organization-axiaops | Organization ID in dev mode |
 | DEV_USER_ID | No | dev-user-axiaops | User ID seeded in dev mode; `EnsureDevMembership` assigns it `owner` |

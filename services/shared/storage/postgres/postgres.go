@@ -242,7 +242,7 @@ func (s *Store) LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 	return zombies, tx.Commit(ctx)
 }
 
-// UpsertOrganization creates a organization on first login or returns the existing one.
+// UpsertOrganization creates an organization on first login or returns the existing one.
 func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (model.Organization, error) {
 	now := time.Now().UTC()
 	id := uuid.New().String()
@@ -267,7 +267,7 @@ func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (m
 	return t, nil
 }
 
-// EnsureOrganization inserts a organization with a caller-supplied id if no row with that
+// EnsureOrganization inserts an organization with a caller-supplied id if no row with that
 // id exists yet. Unlike UpsertOrganization, the id is pinned and the row is never
 // modified on conflict. Used by dev mode to guarantee a known-id organization row
 // so that FK references from accounts/zombies/etc. resolve without requiring
@@ -1405,7 +1405,7 @@ func (s *Store) AuditLogAnonymiseUser(ctx context.Context, userID string) (int64
 // ── Memberships ─────────────────────────────────────────────────────────────
 //
 // RBAC Phase 1. See docs/rbac-design.md §4 for the data model and §6 for
-// enforcement semantics. All membership reads/writes go through RLS — a organization
+// enforcement semantics. All membership reads/writes go through RLS — an organization
 // can only see and mutate its own rows. The middleware path opens its own
 // transaction (rather than reading from adminPool) so RLS stays the last line
 // of defence even on the auth-check fast path.
