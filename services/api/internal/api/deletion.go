@@ -2,7 +2,7 @@
 //
 // These two endpoints implement the GDPR right-to-erasure flow described in
 // docs/rbac-design.md §10 and docs/audit_trail_plan.md §7. Both are guarded
-// by middleware (authn for /users/me, PermTenantDelete for /tenants/me) and
+// by middleware (authn for /users/me, PermOrganizationDelete for /tenants/me) and
 // both bump a Prometheus counter so the act of deletion has an operational
 // trail that survives the audit_log purge.
 package api
@@ -62,7 +62,7 @@ func (h *Handler) deleteCurrentUser(w http.ResponseWriter, r *http.Request) {
 
 // deleteCurrentTenant handles DELETE /v1/tenants/me.
 //
-// Permission gate: PermTenantDelete (owner-only). The audit_log entry is
+// Permission gate: PermOrganizationDelete (owner-only). The audit_log entry is
 // written BEFORE the cascade so the row exists momentarily — it will be
 // purged alongside the rest of the tenant's data, but the audit-write
 // counter and slog line endure.

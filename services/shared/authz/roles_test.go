@@ -35,8 +35,8 @@ func TestAllows_CapabilityMatrix(t *testing.T) {
 
 		// Owner-only.
 		{authz.PermMembersManageAdmin, []authz.Role{authz.RoleOwner}},
-		{authz.PermTenantTransfer, []authz.Role{authz.RoleOwner}},
-		{authz.PermTenantDelete, []authz.Role{authz.RoleOwner}},
+		{authz.PermOrganizationTransfer, []authz.Role{authz.RoleOwner}},
+		{authz.PermOrganizationDelete, []authz.Role{authz.RoleOwner}},
 		{authz.PermDataExport, []authz.Role{authz.RoleOwner}},
 	}
 
