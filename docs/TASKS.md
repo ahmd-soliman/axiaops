@@ -359,17 +359,33 @@
 - [ ] Integrate Kinde organisation invites for adding new users
 - [ ] Test: create viewer token, attempt to POST /scan, verify 403 returned
 
-### 3.10 GDPR / Data Deletion (September 2026)
+### 3.10 GDPR Compliance (September 2026)
 
 > Must be in place before acquiring paying customers in the EU.
+>
+> **Full plan:** [`docs/compliance/gdpr_plan.md`](compliance/gdpr_plan.md) — covers data inventory, lawful basis, retention, sub-processors, breach runbook, DPIA, RoPA. The bullets below are the engineering surface only; the plan owns the paperwork side.
 
-- [ ] Add `DELETE /v1/tenants/me` endpoint — cascade delete: accounts, cost_records, ghost_records, ghost_snapshots, users, dismissed_ghosts, scan_runs, audit_log
+Engineering deliverables:
+
+- [ ] Add `DELETE /v1/tenants/me` endpoint — soft-delete with 14-day grace, then cascade hard-delete: accounts, cost_records, zombie_records, zombie_snapshots, users, dismissed_zombies, scan_runs, audit_log
 - [ ] Trigger Stripe subscription cancellation on tenant deletion (via Stripe API, not just webhook)
-- [ ] Delete all encrypted AWS secrets immediately on tenant deletion
-- [ ] Add `GET /v1/export` endpoint — full JSON dump: ghosts, account metadata (no secrets), scan history
-- [ ] Write privacy policy and terms of service pages (required before Phase 3 launch)
-- [ ] Document data retention policy: what is stored, for how long, in which region
-- [ ] Test: create tenant, add data, call DELETE, verify all rows cascade-deleted from all tables
+- [ ] Delete all encrypted AWS secrets immediately on tenant deletion (zeroise, don't just unlink)
+- [ ] Add `GET /v1/export` endpoint — full JSON dump: zombies, account metadata (no secrets), scan history, audit log entries owned by the tenant
+- [ ] Hard-delete cron job — sweeps soft-deleted tenants past the 14-day grace window
+- [ ] Anonymise audit log on user hard-delete (replace `user_id` with tombstone, preserve row for 12 months)
+- [ ] Notification preferences UI + `POST /v1/settings/notifications` for legitimate-interest opt-out
+- [ ] CloudWatch log redaction — strip `tags` JSONB content from request logs
+- [ ] DSR intake mailbox (`gdpr@axiaops.io`) wired to a ticketing flow with audit log entries on every step
+- [ ] Test: create tenant, add data, call DELETE, verify soft-delete UX → hard-delete cascade → backup roll-off documented
+
+Paperwork deliverables (tracked in plan):
+
+- [ ] Privacy policy + terms of service + DPA template + sub-processors page (`legal/initial-policies` PR)
+- [ ] Records of Processing Activities (Art. 30) — `docs/compliance/ropa.md`
+- [ ] Data Protection Impact Assessment — `docs/compliance/dpia.md`
+- [ ] Breach response runbook — `docs/compliance/breach_runbook.md` + tabletop exercise #0
+- [ ] External pen-test (Phase 3, before first paying customer)
+- [ ] Restore drill #0 (also a SOC 2 deliverable)
 
 ### 3.Fake AWS Client for Tier 1 Testing
 
@@ -451,6 +467,54 @@ Remaining for Phase 3:
 - [ ] Integration test in `services/shared/storage/postgres/postgres_test.go` — after `Migrate()` runs on a clean DB, assert `migration_history` contains one row per embedded `*.up.sql` file with matching SHA-256 checksum
 - [ ] Integration test — simulate tampering: run migrations, manually `UPDATE migration_history SET checksum = 'bogus' WHERE version = 1`, run `Migrate()` again, assert a warning is logged (capture via `slog` handler)
 - [ ] Update `docs/migrations.md` — document the new table, how to read it, and the checksum drift warning
+
+### 3.16 SOC 2 Compliance — Type I → Type II (Q4 2026 → Q4 2027)
+
+> **Full plan:** [`docs/compliance/soc2_plan.md`](compliance/soc2_plan.md) — scope (Security + Availability + Confidentiality TSCs), control mapping, evidence pipeline, auditor selection.
+>
+> Targets aligned with `docs/business_plan.md`: Type I Q2 2027, Type II Q4 2027 (6-month window May–Oct 2027). Heavy overlap with §3.10 GDPR — pen-test, breach/incident runbook, restore drill, access review serve both plans. Gates Team / MSP / Enterprise tier sales.
+
+Phase 2 finish (May–Aug 2026) — set the stage:
+
+- [ ] Stand up status page (Instatus / Statuspage)
+- [ ] Hardware key (YubiKey) on AWS root, GitLab admin, Kinde admin
+- [ ] CloudWatch alarms — failed-auth spikes, secret access pattern, off-hours deploys
+- [ ] Data classification doc — `docs/compliance/data_classification.md`
+- [ ] Quarterly access review process (build the muscle even with one user)
+
+Phase 3 (Sep–Dec 2026) — operational baseline:
+
+- [ ] Sign Drata (or equivalent — Vanta / Secureframe / Sprinto). Target October 2026 — 12 months ahead of Type II window.
+- [ ] Policy library: 15 docs in `docs/compliance/policies/` (InfoSec, Access Control, Acceptable Use, Asset Mgmt, Change Mgmt, Code of Conduct, Data Classification, Encryption, Incident Response, Vendor Mgmt, BC/DR, Risk Mgmt, SDLC, Backup/Retention, Onboarding/Offboarding)
+- [ ] Risk register v1 — `docs/compliance/risk_register.md`
+- [ ] Incident response runbook — `docs/compliance/runbooks/incident_response.md` (security-focused; complements GDPR breach runbook)
+- [ ] Restore drill #1 — actually execute, capture evidence
+- [ ] Pen-test #0 (shared with GDPR §3.10)
+- [ ] Vendor questionnaire pack — answer template for buyer security forms
+- [ ] Public security page at `axiaops.io/security` — controls summary + sub-processors + status
+- [ ] "SOC 2 in progress, Type II Q4 2027" published statement (already promised in business plan)
+
+Phase 4 / Q1–Q2 2027 — Type I:
+
+- [ ] Drata gap-analysis pass — close any control showing "Not implemented"
+- [ ] Boutique auditor selection (Prescient / Schellman / A-LIGN / Insight / Johanson) — Q1 2027
+- [ ] Type I audit (Q2 2027) — point-in-time, 4–6 weeks
+- [ ] Publish Type I report (NDA-gated)
+
+Q2–Q4 2027 — Type II:
+
+- [ ] Type II observation window opens (May 1, 2027)
+- [ ] Quarterly cadence: access review, risk review, vendor review, restore drill — all evidence into Drata
+- [ ] Pen-test #2 within window
+- [ ] Tabletop exercise within window
+- [ ] Type II audit (Q4 2027) — fieldwork + report by Dec 2027
+- [ ] Publish Type II report
+
+Ongoing (2028+):
+
+- [ ] Annual Type II renewal (rolling 12-month windows)
+- [ ] Reconsider Privacy TSC if EU enterprise customers ask
+- [ ] Layer ISO 27001 if a major customer demands it (~70% control overlap)
 
 ---
 
@@ -535,10 +599,11 @@ Remaining for Phase 3:
 | June 2026 | GitLab CI pipeline, scheduled auto-scan, cost_records retention | Planned |
 | July 2026 | Redis (JWKS cache, scan queue, rate limiting), weekly digest + Slack alerts | Planned |
 | August 2026 | Production deployment (App Runner, RDS, ElastiCache, Terraform, CloudFront) | Planned |
-| September 2026 | Stripe billing, dismiss ghost, GDPR/data deletion, legal entity | Planned |
-| October 2026 | Remediation actions, scan history, tag filtering, CSV export, per-account summary | Planned |
+| September 2026 | Stripe billing, dismiss ghost, GDPR feature shipping (3.10), legal entity | Planned |
+| October 2026 | GDPR paperwork live (privacy/ToS/DPA, RoPA, DPIA, breach runbook, pen-test), remediation actions, scan history, tag filtering, CSV export, per-account summary | Planned |
 | November 2026 | Expanded detection rules, user management + roles, PDF report | Planned |
-| December 2026 | First paying customer · target: 10 customers, €5K MRR | Planned |
-| Q1 2027 | Cost forecasting, Azure integration | Planned |
-| Q2 2027 | GCP integration, FOCUS spec, mobile app | Planned |
-| Q3–Q4 2027 | IaC plan parser, cost estimation engine, CI/CD budget gate, CLI tool | Planned |
+| December 2026 | First paying customer · target: 10 customers, €5K MRR · Drata + SOC 2 policy library in place | Planned |
+| Q1 2027 | Cost forecasting, Azure integration, SOC 2 Type I prep (auditor selected) | Planned |
+| Q2 2027 | GCP integration, FOCUS spec, mobile app, **SOC 2 Type I audit + report** | Planned |
+| Q2–Q3 2027 | SOC 2 Type II observation window (May–Oct 2027) | Planned |
+| Q3–Q4 2027 | IaC plan parser, cost estimation engine, CI/CD budget gate, CLI tool, **SOC 2 Type II audit + report** | Planned |
