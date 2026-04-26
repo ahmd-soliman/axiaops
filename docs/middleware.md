@@ -62,6 +62,15 @@ Verifies Kinde RS256 JWTs on every request.
 - Returns `401` for missing, expired, wrong-issuer, or malformed tokens.
 - Passes `OPTIONS` preflight requests through without auth (CORS support).
 
+**Per-request side effects (in order):**
+
+1. `UpsertOrganization(org_code, org_name)` — creates the row on first auth, idempotent thereafter.
+2. `UpsertUser(...)` — creates the user row on first auth.
+3. `EnsureFirstMembership(...)` — auto-promotes the first authenticator in a brand-new org to `owner`. No-op once the org has any membership.
+4. `RedeemPendingInvitation(ctx, organization.ID, user.ID, email)` — converts a matching `pending_memberships` row (from `POST /v1/invitations`) into a real `memberships` row in one transaction. No-op when no pending row matches. See `docs/invitation-flow.md`.
+
+A user who lands without a membership row (e.g. signed up to an org they weren't invited to, or their email didn't match the pending invite) authenticates successfully but gets `403` from any `Require`-gated route until an admin grants access.
+
 **Context helpers:**
 ```go
 middleware.OrganizationID(ctx)   // internal organization UUID

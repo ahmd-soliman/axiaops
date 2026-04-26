@@ -52,6 +52,27 @@ See `docs/rbac-design.md` for the role model — `owner`, `admin`,
 per (user, organization)), not on the `users` row. AxiaOps
 deliberately ignores Kinde org-roles claims (`rbac-design.md §3`).
 
+## Invited User Flow (parallel onboarding path)
+
+Self-serve signup is one of two onboarding paths. The other is **invitation-based**: an existing org admin invites a teammate by email and the invitee joins the inviter's organization rather than creating a new one.
+
+```
+Admin posts POST /v1/invitations {email, role}
+  → AxiaOps writes pending_memberships row
+  → AxiaOps calls Kinde Mgmt API → Kinde sends invitation email
+  → Invitee clicks link → completes Kinde signup → JWT carries inviter's org_code
+  → First authenticated request to AxiaOps:
+      • UpsertOrganization (no-op — org exists)
+      • UpsertUser (creates row)
+      • EnsureFirstMembership (no-op — org has owners)
+      • RedeemPendingInvitation (inserts membership with stored role, deletes pending row)
+  → Invitee lands on dashboard with their role applied. No org-creation prompt.
+```
+
+The dashboard's onboarding form (above) is shown only when the user has zero memberships after redemption — i.e. they signed up self-serve. Invited users skip the org-name form entirely.
+
+See [`docs/invitation-flow.md`](./invitation-flow.md) for the full design (data model, API surface, middleware hook, edge cases).
+
 ## The shipped endpoint surface
 
 | Method | Path | Auth | Purpose |
