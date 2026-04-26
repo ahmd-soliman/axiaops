@@ -3,7 +3,7 @@
 // The model is intentionally coarse: four hardcoded roles in a strict hierarchy
 // (owner > admin > member > viewer), each granting a fixed set of permissions.
 // Permissions are checked at the HTTP middleware layer via Allows. The role
-// itself is stored per-(user, tenant) in the memberships table — see
+// itself is stored per-(user, organization) in the memberships table — see
 // docs/rbac-design.md §3 for full rationale.
 package authz
 

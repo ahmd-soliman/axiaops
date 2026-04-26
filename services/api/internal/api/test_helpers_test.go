@@ -36,7 +36,7 @@ func injectIdentity(parent context.Context, organizationID, userID, email string
 //   - Real data storage (zombies, accounts, snapshots, dismissals)
 //   - Method call tracking (who called what, in what order)
 //   - Per-method error injection (simulate failures)
-//   - Context value capture (verify tenant propagation)
+//   - Context value capture (verify organization propagation)
 //   - Async signaling (wait for background goroutines)
 //
 // Use MockStore for all handler tests — simple tests use basic fields,
@@ -60,7 +60,7 @@ type MockStore struct {
 		accountID string
 		status    string
 	}
-	capturedTenantIDs          []string
+	capturedOrganizationIDs    []string
 	lastListSnapshotsAccountID string
 	lastCostFilter             storage.CostFilter
 
@@ -264,12 +264,12 @@ func (m *MockStore) GetLastListSnapshotsAccountID() string {
 	return m.lastListSnapshotsAccountID
 }
 
-// GetCapturedTenantIDs returns all tenant IDs captured during store calls.
-// Use to verify tenant propagation through context.
-func (m *MockStore) GetCapturedTenantIDs() []string {
+// GetCapturedOrganizationIDs returns all organization IDs captured during store calls.
+// Use to verify organization propagation through context.
+func (m *MockStore) GetCapturedOrganizationIDs() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]string(nil), m.capturedTenantIDs...)
+	return append([]string(nil), m.capturedOrganizationIDs...)
 }
 
 // GetStatusUpdateCalls returns all UpdateAccountStatus calls in order.
@@ -301,7 +301,7 @@ func (m *MockStore) SaveZombies(_ context.Context, z []model.ZombieResource) err
 
 func (m *MockStore) LoadZombies(ctx context.Context) ([]model.ZombieResource, error) {
 	m.mu.Lock()
-	m.capturedTenantIDs = append(m.capturedTenantIDs, storage.OrganizationIDFromCtx(ctx))
+	m.capturedOrganizationIDs = append(m.capturedOrganizationIDs, storage.OrganizationIDFromCtx(ctx))
 	err := m.errLoadZombies
 	zombies := append([]model.ZombieResource(nil), m.zombies...)
 	m.mu.Unlock()
@@ -394,7 +394,7 @@ func (m *MockStore) SaveAccount(_ context.Context, a model.Account) error {
 
 func (m *MockStore) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	m.mu.Lock()
-	m.capturedTenantIDs = append(m.capturedTenantIDs, storage.OrganizationIDFromCtx(ctx))
+	m.capturedOrganizationIDs = append(m.capturedOrganizationIDs, storage.OrganizationIDFromCtx(ctx))
 	err := m.errListAccounts
 	accounts := append([]model.Account(nil), m.accounts...)
 	m.mu.Unlock()
@@ -407,7 +407,7 @@ func (m *MockStore) ListAccounts(ctx context.Context) ([]model.Account, error) {
 
 func (m *MockStore) ListAllAccounts(_ context.Context) ([]model.Account, error) {
 	m.mu.Lock()
-	// Note: Not capturing tenant ID for ListAllAccounts, as it intentionally bypasses tenant isolation
+	// Note: Not capturing organization ID for ListAllAccounts, as it intentionally bypasses organization isolation
 	err := m.errListAccounts
 	accounts := append([]model.Account(nil), m.accounts...)
 	m.mu.Unlock()
@@ -819,7 +819,7 @@ func (m *MockStore) DeleteUser(_ context.Context, userID string) error {
 		}
 	}
 
-	// Anonymise audit footprint across all tenants.
+	// Anonymise audit footprint across all organizations.
 	for i := range m.auditEvents {
 		if m.auditEvents[i].UserID == userID {
 			m.auditEvents[i].UserID = ""
@@ -850,7 +850,7 @@ func (m *MockStore) DeleteOrganizationCascade(_ context.Context, organizationID 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Identify users whose primary tenant is this one — they're going away.
+	// Identify users whose primary organization is this one — they're going away.
 	purgedUsers := map[string]bool{}
 	for _, u := range m.users {
 		if u.OrganizationID == organizationID {
@@ -858,7 +858,7 @@ func (m *MockStore) DeleteOrganizationCascade(_ context.Context, organizationID 
 		}
 	}
 
-	// Anonymise audit entries in OTHER tenants for users about to be deleted.
+	// Anonymise audit entries in OTHER organizations for users about to be deleted.
 	for i := range m.auditEvents {
 		if m.auditEvents[i].OrganizationID != organizationID && purgedUsers[m.auditEvents[i].UserID] {
 			m.auditEvents[i].UserID = ""
@@ -866,7 +866,7 @@ func (m *MockStore) DeleteOrganizationCascade(_ context.Context, organizationID 
 		}
 	}
 
-	// Drop this tenant's audit, accounts, dismissals.
+	// Drop this organization's audit, accounts, dismissals.
 	keptAudit := m.auditEvents[:0]
 	for _, e := range m.auditEvents {
 		if e.OrganizationID != organizationID {
@@ -883,12 +883,12 @@ func (m *MockStore) DeleteOrganizationCascade(_ context.Context, organizationID 
 	}
 	m.accounts = keptAccounts
 
-	// Dismissals in the mock aren't tagged with tenant_id (the model omits it
-	// — RLS supplies isolation in the real DB). Clear the lot; multi-tenant
+	// Dismissals in the mock aren't tagged with organization_id (the model omits it
+	// — RLS supplies isolation in the real DB). Clear the lot; multi-organization
 	// dismissal coverage lives in the postgres integration test instead.
 	m.dismissals = nil
 
-	// Users whose primary tenant is this one + their memberships everywhere.
+	// Users whose primary organization is this one + their memberships everywhere.
 	keptUsers := m.users[:0]
 	for _, u := range m.users {
 		if !purgedUsers[u.ID] {

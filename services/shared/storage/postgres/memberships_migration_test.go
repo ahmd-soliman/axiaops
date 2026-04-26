@@ -29,7 +29,7 @@ func TestMemberships_OneOwnerPerOrganization(t *testing.T) {
 		t.Fatalf("first owner insert: %v", err)
 	}
 
-	// Second owner insert in the same tenant must fail (partial unique index).
+	// Second owner insert in the same organization must fail (partial unique index).
 	_, err := conn.Exec(ctx, `
 		INSERT INTO axiaops.memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, 'owner', NOW(), NOW())`,
@@ -60,7 +60,7 @@ func TestMemberships_RoleCheckConstraint(t *testing.T) {
 	}
 }
 
-func TestMemberships_UserTenantUnique(t *testing.T) {
+func TestMemberships_UserOrganizationUnique(t *testing.T) {
 	conn := setup(t)
 	ctx := context.Background()
 
@@ -114,7 +114,7 @@ func TestMemberships_DeletingUserCascadesMembership(t *testing.T) {
 	}
 }
 
-// newOrganizationWithUsers seeds a tenant with two users, returning their IDs.
+// newOrganizationWithUsers seeds an organization with two users, returning their IDs.
 // Uses the raw owner connection — bypasses RLS, suitable for setup.
 func newOrganizationWithUsers(t *testing.T, conn *pgx.Conn) (organizationID, userAID, userBID string) {
 	t.Helper()
@@ -126,7 +126,7 @@ func newOrganizationWithUsers(t *testing.T, conn *pgx.Conn) (organizationID, use
 		INSERT INTO axiaops.organizations (id, org_code, name, created_at)
 		VALUES ($1, $2, 'Test Org', NOW())`,
 		organizationID, orgCode); err != nil {
-		t.Fatalf("seed tenant: %v", err)
+		t.Fatalf("seed organization: %v", err)
 	}
 
 	userAID = "u-" + uuid.NewString()

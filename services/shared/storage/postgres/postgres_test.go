@@ -84,7 +84,7 @@ func setup(t *testing.T) *pgx.Conn {
 }
 
 // rlsEnforced reports whether the store connects as a non-superuser (RLS is active).
-// Tests that rely on tenant isolation skip when connecting as a superuser.
+// Tests that rely on organization isolation skip when connecting as a superuser.
 func rlsEnforced() bool {
 	return os.Getenv("DATABASE_URL") != ""
 }
@@ -126,8 +126,8 @@ func newTestStore(t *testing.T) *postgres.Store {
 	return s
 }
 
-// newOrgCtx creates a fresh tenant and returns a context carrying its ID.
-// Each test gets its own tenant so RLS isolates test data naturally.
+// newOrgCtx creates a fresh organization and returns a context carrying its ID.
+// Each test gets its own organization so RLS isolates test data naturally.
 func newOrgCtx(t *testing.T, s *postgres.Store) (context.Context, model.Organization) {
 	t.Helper()
 	ctx := context.Background()
@@ -231,7 +231,7 @@ func TestSave_DifferentRegionIsNotDuplicate(t *testing.T) {
 
 func TestSave_MissingOrganizationID_Errors(t *testing.T) {
 	s := newTestStore(t)
-	ctx := context.Background() // no tenant in context
+	ctx := context.Background() // no organization in context
 
 	_, err := s.Save(ctx, []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 10)})
 	if err == nil {
@@ -316,7 +316,7 @@ func TestSaveZombies_ReplacesOnSecondRun(t *testing.T) {
 
 func TestLoadZombies_EmptyWhenNoneSaved(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to filter out other tenants' data")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to filter out other organizations' data")
 	}
 	s := newTestStore(t)
 	ctx, _ := newOrgCtx(t, s)
@@ -326,13 +326,13 @@ func TestLoadZombies_EmptyWhenNoneSaved(t *testing.T) {
 		t.Fatalf("LoadZombies: %v", err)
 	}
 	if len(zombies) != 0 {
-		t.Errorf("expected 0 zombies for new tenant, got %d", len(zombies))
+		t.Errorf("expected 0 zombies for new organization, got %d", len(zombies))
 	}
 }
 
-// ── Tenant isolation (RLS) ────────────────────────────────────────────────────
+// ── Organization isolation (RLS) ────────────────────────────────────────────────────
 
-func TestZombies_TenantIsolation(t *testing.T) {
+func TestZombies_OrganizationIsolation(t *testing.T) {
 	if !rlsEnforced() {
 		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS enforcement")
 	}
@@ -341,18 +341,18 @@ func TestZombies_TenantIsolation(t *testing.T) {
 	ctxA, _ := newOrgCtx(t, s)
 	ctxB, _ := newOrgCtx(t, s)
 
-	// Tenant A saves zombies.
+	// Organization A saves zombies.
 	if err := s.SaveZombies(ctxA, []model.ZombieResource{zombieResource("AmazonEC2", 100)}); err != nil {
-		t.Fatalf("SaveZombies tenant A: %v", err)
+		t.Fatalf("SaveZombies organization A: %v", err)
 	}
 
-	// Tenant B should see none.
+	// Organization B should see none.
 	zombiesB, err := s.LoadZombies(ctxB)
 	if err != nil {
-		t.Fatalf("LoadZombies tenant B: %v", err)
+		t.Fatalf("LoadZombies organization B: %v", err)
 	}
 	if len(zombiesB) != 0 {
-		t.Errorf("tenant B should see 0 zombies, got %d", len(zombiesB))
+		t.Errorf("organization B should see 0 zombies, got %d", len(zombiesB))
 	}
 }
 
@@ -388,7 +388,7 @@ func TestUpsertOrganization_ReturnsSameIDOnSecondCall(t *testing.T) {
 		t.Fatalf("second UpsertOrganization: %v", err)
 	}
 	if first.ID != second.ID {
-		t.Errorf("expected same tenant ID, got %s and %s", first.ID, second.ID)
+		t.Errorf("expected same organization ID, got %s and %s", first.ID, second.ID)
 	}
 }
 
@@ -548,7 +548,7 @@ func testAccount(organizationID string) model.Account {
 
 func TestAccount_SaveAndList(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope ListAccounts to this tenant")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope ListAccounts to this organization")
 	}
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
@@ -596,7 +596,7 @@ func TestAccount_GetByID(t *testing.T) {
 
 func TestAccount_Delete(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope ListAccounts to this tenant")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope ListAccounts to this organization")
 	}
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
@@ -667,7 +667,7 @@ func TestAccount_TryMarkAccountScanning(t *testing.T) {
 	}
 }
 
-func TestAccount_TenantIsolation(t *testing.T) {
+func TestAccount_OrganizationIsolation(t *testing.T) {
 	if !rlsEnforced() {
 		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS enforcement")
 	}
@@ -682,10 +682,10 @@ func TestAccount_TenantIsolation(t *testing.T) {
 
 	accountsB, err := s.ListAccounts(ctxB)
 	if err != nil {
-		t.Fatalf("ListAccounts tenant B: %v", err)
+		t.Fatalf("ListAccounts organization B: %v", err)
 	}
 	if len(accountsB) != 0 {
-		t.Errorf("tenant B should see 0 accounts, got %d", len(accountsB))
+		t.Errorf("organization B should see 0 accounts, got %d", len(accountsB))
 	}
 }
 
@@ -933,7 +933,7 @@ func TestListSnapshots_FilterByAccountID(t *testing.T) {
 
 func TestListSnapshots_EmptyWhenNoneSaved(t *testing.T) {
 	if !rlsEnforced() {
-		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to filter out other tenants' snapshots")
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to filter out other organizations' snapshots")
 	}
 	s := newTestStore(t)
 	ctx, _ := newOrgCtx(t, s)
@@ -943,13 +943,13 @@ func TestListSnapshots_EmptyWhenNoneSaved(t *testing.T) {
 		t.Fatalf("ListSnapshots: %v", err)
 	}
 	if len(snaps) != 0 {
-		t.Errorf("expected 0 snapshots for new tenant, got %d", len(snaps))
+		t.Errorf("expected 0 snapshots for new organization, got %d", len(snaps))
 	}
 }
 
 func TestSaveSnapshot_MissingOrganizationID_Errors(t *testing.T) {
 	s := newTestStore(t)
-	ctx := context.Background() // no tenant in context
+	ctx := context.Background() // no organization in context
 
 	snap := model.ZombieSnapshot{
 		ID:               uuid.New().String(),
@@ -964,16 +964,16 @@ func TestSaveSnapshot_MissingOrganizationID_Errors(t *testing.T) {
 	}
 }
 
-func TestListSnapshots_MissingTenantID_Errors(t *testing.T) {
+func TestListSnapshots_MissingOrganizationID_Errors(t *testing.T) {
 	s := newTestStore(t)
-	ctx := context.Background() // no tenant in context
+	ctx := context.Background() // no organization in context
 
 	if _, err := s.ListSnapshots(ctx, ""); err == nil {
 		t.Error("expected error when organization_id missing from context, got nil")
 	}
 }
 
-func TestSnapshot_TenantIsolation(t *testing.T) {
+func TestSnapshot_OrganizationIsolation(t *testing.T) {
 	if !rlsEnforced() {
 		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS enforcement")
 	}
@@ -982,18 +982,18 @@ func TestSnapshot_TenantIsolation(t *testing.T) {
 	ctxA, orgA := newOrgCtx(t, s)
 	ctxB, _ := newOrgCtx(t, s)
 
-	// Tenant A saves a snapshot.
+	// Organization A saves a snapshot.
 	if err := s.SaveSnapshot(ctxA, zombieSnapshot(orgA.ID, "acc-1", 100, 2)); err != nil {
-		t.Fatalf("SaveSnapshot tenant A: %v", err)
+		t.Fatalf("SaveSnapshot organization A: %v", err)
 	}
 
-	// Tenant B should see none of Tenant A's snapshots.
+	// Organization B should see none of Organization A's snapshots.
 	snapsB, err := s.ListSnapshots(ctxB, "")
 	if err != nil {
-		t.Fatalf("ListSnapshots tenant B: %v", err)
+		t.Fatalf("ListSnapshots organization B: %v", err)
 	}
 	if len(snapsB) != 0 {
-		t.Errorf("tenant B should see 0 snapshots, got %d", len(snapsB))
+		t.Errorf("organization B should see 0 snapshots, got %d", len(snapsB))
 	}
 }
 
@@ -1139,7 +1139,7 @@ func TestAuditLog_WriteAndList(t *testing.T) {
 	} else if got := events[1].IPAddress.String(); got != "203.0.113.7" {
 		t.Errorf("ip_address: got %q, want 203.0.113.7", got)
 	}
-	// organization_id column should equal the tenant we wrote under.
+	// organization_id column should equal the organization we wrote under.
 	if events[0].OrganizationID != org.ID {
 		t.Errorf("organization_id: got %q, want %q", events[0].OrganizationID, org.ID)
 	}
@@ -1193,14 +1193,14 @@ func TestAuditLog_OrganizationIsolation(t *testing.T) {
 		t.Fatalf("list A: %v", err)
 	}
 	if len(aEvents) != 1 || aEvents[0].UserID != "u-a" {
-		t.Errorf("tenant A must see only its own rows, got %+v", aEvents)
+		t.Errorf("organization A must see only its own rows, got %+v", aEvents)
 	}
 	bEvents, err := s.AuditLogList(ctxB, model.AuditFilter{})
 	if err != nil {
 		t.Fatalf("list B: %v", err)
 	}
 	if len(bEvents) != 1 || bEvents[0].UserID != "u-b" {
-		t.Errorf("tenant B must see only its own rows, got %+v", bEvents)
+		t.Errorf("organization B must see only its own rows, got %+v", bEvents)
 	}
 }
 

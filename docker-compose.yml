@@ -38,7 +38,7 @@ services:
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops
       # Dev mode defaults — overridable by .env or explicit env vars
       DEV_MODE: ${DEV_MODE:-true}
-      DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
+      DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     volumes:
@@ -69,7 +69,7 @@ services:
       API_ADDR: ":8080"
       # Dev mode defaults — overridable by .env or explicit env vars
       DEV_MODE: ${DEV_MODE:-true}
-      DEV_TENANT_ID: ${DEV_TENANT_ID:-dev-tenant-axiaops}
+      DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     ports:

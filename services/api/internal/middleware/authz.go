@@ -17,10 +17,10 @@ type RoleStore interface {
 
 // Require returns an http.Handler that allows the request only if the
 // authenticated user's role grants the given permission. Authentication is
-// assumed to have already populated tenant_id and user_id on the request
+// assumed to have already populated organization_id and user_id on the request
 // context (via Auth.Wrap or DevBypass). Failure modes:
 //
-//   - tenant_id or user_id missing on context → 403 (caller forgot to wrap
+//   - organization_id or user_id missing on context → 403 (caller forgot to wrap
 //     in Auth.Wrap)
 //   - RoleOf returns an error → 403 (fail-closed)
 //   - role does not grant perm → 403

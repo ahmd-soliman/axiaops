@@ -81,7 +81,7 @@ services:
       INGESTION_URL: http://ingestion:8081
       API_ADDR: ":8080"
       DEV_MODE: "true"
-      DEV_TENANT_ID: "ci-tenant"
+      DEV_ORGANIZATION_ID: "ci-tenant"
       ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
     depends_on:
       migrate:

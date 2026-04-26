@@ -2,7 +2,7 @@
 //
 // These two endpoints implement the GDPR right-to-erasure flow described in
 // docs/rbac-design.md §10 and docs/audit_trail_plan.md §7. Both are guarded
-// by middleware (authn for /users/me, PermOrganizationDelete for /tenants/me) and
+// by middleware (authn for /users/me, PermOrganizationDelete for /organizations/me) and
 // both bump a Prometheus counter so the act of deletion has an operational
 // trail that survives the audit_log purge.
 package api
@@ -22,11 +22,11 @@ import (
 // deleteCurrentUser handles DELETE /v1/users/me.
 //
 // Authn-only: any logged-in user can delete themselves. The store enforces
-// the sole-owner guard — a user who is the only owner of any tenant gets
-// 409 Conflict and is told to transfer or delete the tenant first.
+// the sole-owner guard — a user who is the only owner of any organization gets
+// 409 Conflict and is told to transfer or delete the organization first.
 //
 // Not audit-logged in audit_log: the user is leaving and audit_log is
-// per-tenant, so picking one tenant to record the event is arbitrary. The
+// per-organization, so picking one organization to record the event is arbitrary. The
 // Prometheus counter and slog line are the durable record.
 func (h *Handler) deleteCurrentUser(w http.ResponseWriter, r *http.Request) {
 	uid := middleware.UserID(r.Context())
@@ -40,7 +40,7 @@ func (h *Handler) deleteCurrentUser(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, storage.ErrLastOwner):
 			observability.Global.UserDeletionsTotal.WithLabelValues("conflict").Inc()
 			http.Error(w,
-				"you are the sole owner of one or more tenants — transfer ownership or delete those tenants first",
+				"you are the sole owner of one or more organizations — transfer ownership or delete those organizations first",
 				http.StatusConflict)
 		default:
 			observability.Global.UserDeletionsTotal.WithLabelValues("failed").Inc()
@@ -64,7 +64,7 @@ func (h *Handler) deleteCurrentUser(w http.ResponseWriter, r *http.Request) {
 //
 // Permission gate: PermOrganizationDelete (owner-only). The audit_log entry is
 // written BEFORE the cascade so the row exists momentarily — it will be
-// purged alongside the rest of the tenant's data, but the audit-write
+// purged alongside the rest of the organization's data, but the audit-write
 // counter and slog line endure.
 func (h *Handler) deleteCurrentOrganization(w http.ResponseWriter, r *http.Request) {
 	tid := middleware.OrganizationID(r.Context())
@@ -85,7 +85,7 @@ func (h *Handler) deleteCurrentOrganization(w http.ResponseWriter, r *http.Reque
 
 	if err := h.store.DeleteOrganizationCascade(r.Context(), tid); err != nil {
 		observability.Global.OrganizationDeletionsTotal.WithLabelValues("failed").Inc()
-		slog.Error("delete tenant failed",
+		slog.Error("delete organization failed",
 			"organization_id", tid,
 			"user_id", middleware.UserID(r.Context()),
 			"actor_email", middleware.UserEmail(r.Context()),
@@ -95,7 +95,7 @@ func (h *Handler) deleteCurrentOrganization(w http.ResponseWriter, r *http.Reque
 	}
 
 	observability.Global.OrganizationDeletionsTotal.WithLabelValues("ok").Inc()
-	slog.Info("tenant deleted",
+	slog.Info("organization deleted",
 		"organization_id", tid,
 		"user_id", middleware.UserID(r.Context()),
 		"actor_email", middleware.UserEmail(r.Context()))

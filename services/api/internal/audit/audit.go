@@ -32,7 +32,7 @@ type Writer interface {
 }
 
 // Record emits one audit event for the request. The event is enriched from
-// the request (tenant_id, user_id, actor_email, request_id, ip, user_agent)
+// the request (organization_id, user_id, actor_email, request_id, ip, user_agent)
 // before being handed to the store. Only Action is strictly required on the
 // caller-supplied event; the other fields are action-specific.
 //
@@ -49,9 +49,9 @@ func Record(r *http.Request, w Writer, e model.AuditEvent) {
 	ctx := r.Context()
 	organizationID := middleware.OrganizationID(ctx)
 	if organizationID == "" {
-		// No tenant means RLS will reject the insert; don't even try.
+		// No organization means RLS will reject the insert; don't even try.
 		observability.Global.AuditWritesTotal.WithLabelValues(e.Action, "failed").Inc()
-		slog.Error("audit: tenant_id missing from context — dropping event", "action", e.Action)
+		slog.Error("audit: organization_id missing from context — dropping event", "action", e.Action)
 		return
 	}
 

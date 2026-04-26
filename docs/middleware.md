@@ -69,7 +69,7 @@ middleware.OrganizationName(ctx) // organization display name
 middleware.UserID(ctx)     // internal user UUID
 ```
 
-**Dev mode:** when `DEV_MODE=true`, `DevBypass` replaces the JWT verifier and injects `DEV_TENANT_ID` into every request context. No token required.
+**Dev mode:** when `DEV_MODE=true`, `DevBypass` replaces the JWT verifier and injects `DEV_ORGANIZATION_ID` into every request context. No token required.
 
 ---
 

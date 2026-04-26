@@ -38,7 +38,7 @@ type Client struct {
 	pricing   *pricing.Config
 }
 
-// NewWithStaticCredentials builds a Client using the given access key (e.g. per-tenant scan)
+// NewWithStaticCredentials builds a Client using the given access key (e.g. per-organization scan)
 // without mutating process-wide environment variables.
 func NewWithStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey, region string) (*Client, error) {
 	if region == "" {

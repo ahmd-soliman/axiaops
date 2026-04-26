@@ -86,10 +86,10 @@ if [[ -n "$REMOTE_ENV" ]]; then
   echo ""
 fi
 
-# Dev tenant id — must match DEV_TENANT_ID env var used by the API's DevBypass
+# Dev tenant id — must match DEV_ORGANIZATION_ID env var used by the API's DevBypass
 # middleware. Stable string id (not a UUID), seeded once at API startup via
 # Store.EnsureTenant.
-DEV_TENANT_ID_VAL="${DEV_TENANT_ID:-dev-tenant-axiaops}"
+DEV_ORGANIZATION_ID_VAL="${DEV_ORGANIZATION_ID:-dev-organization-axiaops}"
 
 # ── Determine connection mode (local docker or remote) ────────────────────────
 # If MIGRATION_DATABASE_URL is set (by --remote or the caller), connect directly as schema owner.
@@ -158,7 +158,7 @@ PERIOD_END="$NOW"
 # ── Resolve tenant ID ─────────────────────────────────────────────────────────
 # Must match whatever tenant the API is serving data for:
 #   - Staging (Kinde auth): one real tenant created by Kinde login — pick the oldest.
-#   - Dev (DEV_MODE=true):  tenant id == DEV_TENANT_ID (ensured by the API at
+#   - Dev (DEV_MODE=true):  tenant id == DEV_ORGANIZATION_ID (ensured by the API at
 #     startup via Store.EnsureTenant). Seed mirrors that — pin the same id.
 
 if [[ "$REMOTE_ENV" == "staging" ]]; then
@@ -169,7 +169,7 @@ if [[ "$REMOTE_ENV" == "staging" ]]; then
   fi
   echo "Using staging tenant: ${TENANT_ID}"
 else
-  TENANT_ID="$DEV_TENANT_ID_VAL"
+  TENANT_ID="$DEV_ORGANIZATION_ID_VAL"
   psql_exec "INSERT INTO tenants (id, org_code, name, created_at)
     VALUES ('${TENANT_ID}', '${TENANT_ID}', '${TENANT_ID}', NOW())
     ON CONFLICT (id) DO NOTHING;"
@@ -992,7 +992,7 @@ echo ""
 
 echo "=== Done ==="
 echo "Dev tenant ID: ${TENANT_ID}"
-echo "DEV_TENANT_ID=${TENANT_ID} is set automatically by dev.sh"
+echo "DEV_ORGANIZATION_ID=${TENANT_ID} is set automatically by dev.sh"
 echo ""
 echo "Workflow:"
 echo "  make start-dev   — start all services (dev mode, no auth)"

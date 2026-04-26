@@ -166,7 +166,7 @@ func main() {
 		slog.Info("worker: skipped_no_redis")
 	}
 
-	// Background ticker: trigger scheduled auto-scans across all tenants.
+	// Background ticker: trigger scheduled auto-scans across all organizations.
 	go func() {
 		scanInterval := 60 * time.Minute
 		if v := os.Getenv("SCAN_INTERVAL"); v != "" {
@@ -700,7 +700,7 @@ func expireSnoozes(ctx context.Context, store storage.Store) {
 	}
 }
 
-// scanScheduledAccounts checks all accounts across all tenants and triggers scans for those overdue.
+// scanScheduledAccounts checks all accounts across all organizations and triggers scans for those overdue.
 func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue) {
 	accounts, err := store.ListAllAccounts(ctx)
 	if err != nil {

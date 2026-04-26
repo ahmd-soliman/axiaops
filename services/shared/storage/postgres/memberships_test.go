@@ -178,7 +178,7 @@ func TestTransferOwnership_Atomic(t *testing.T) {
 	}
 }
 
-func TestTransferOwnership_TargetNotInTenant(t *testing.T) {
+func TestTransferOwnership_TargetNotInOrganization(t *testing.T) {
 	s := newTestStore(t)
 	ctx, _ := newOrgCtx(t, s)
 
@@ -227,7 +227,7 @@ func TestEnsureFirstMembership_OnlyFirstWins(t *testing.T) {
 	}
 }
 
-func TestRoleOf_TenantIsolation(t *testing.T) {
+func TestRoleOf_OrganizationIsolation(t *testing.T) {
 	if !rlsEnforced() {
 		t.Skip("requires DATABASE_URL (app user) for RLS")
 	}
@@ -249,13 +249,13 @@ func TestRoleOf_TenantIsolation(t *testing.T) {
 		t.Fatalf("save B: %v", err)
 	}
 
-	// Looking up A's user from B's tenant must return empty (RLS).
+	// Looking up A's user from B's organization must return empty (RLS).
 	role, err := s.RoleOf(ctxB, orgB.ID, userA.ID)
 	if err != nil {
-		t.Fatalf("RoleOf cross-tenant: %v", err)
+		t.Fatalf("RoleOf cross-organization: %v", err)
 	}
 	if role != "" {
-		t.Fatalf("expected empty role for cross-tenant lookup, got %q", role)
+		t.Fatalf("expected empty role for cross-organization lookup, got %q", role)
 	}
 }
 
@@ -319,7 +319,7 @@ func TestEnsureDevMembership_WithoutOwnerPool(t *testing.T) {
 		t.Skip("requires DATABASE_URL (app user) for RLS")
 	}
 
-	// Seed the tenant + user via the raw owner connection so the test
+	// Seed the organization + user via the raw owner connection so the test
 	// doesn't depend on a Store that has the owner pool.
 	conn := setup(t)
 	organizationID, userAID, _ := newOrganizationWithUsers(t, conn)
