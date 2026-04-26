@@ -9,7 +9,7 @@ _Last updated: 2026-04-25_
 > customer questionnaires increasingly list "FOCUS-conformant" as a
 > requirement, especially in mid-market and MSP buyer profiles.
 >
-> **Targets** (aligned with `Tasks.md` Phase 4 #4 / `docs/TASKS.md` §4.4):
+> **Targets** (aligned with `Tasks.md` Phase 4 §4.4):
 > - **FOCUS Consumer (ingest)** — Q2 2027, supports customer-supplied FOCUS
 >   exports as a unified ingestion path across AWS / Azure / GCP
 > - **FOCUS Producer (export)** — Q3 2027, AxiaOps emits FOCUS-conformant
@@ -165,9 +165,9 @@ migrations and ingestion logic — these are tracked in §5.
 
 ## 5. Implementation Roadmap
 
-Mapped against existing Phase 3 / Phase 4 plans in `Tasks.md` and
-`docs/TASKS.md`. The §4.4 entry there is the "ship feature" line; this plan
-is the "ship feature + conformance + paperwork" wrapper.
+Mapped against existing Phase 3 / Phase 4 plans in `Tasks.md`. The §4.4 entry
+there is the "ship feature" line; this plan is the "ship feature + conformance
++ paperwork" wrapper.
 
 ### Phase 3 finish (Q3–Q4 2026) — foundations
 
@@ -297,8 +297,7 @@ This is the strategic reason we did all the above.
 
 - FinOps Foundation: <https://focus.finops.org> (spec, conformance roles, reference data — verify URL on next read; do not link blindly)
 - `docs/development_plan.md` Phase 4 — multi-cloud and FOCUS framing
-- `docs/TASKS.md` §4.4 — original FOCUS ingestion task (this plan supersedes the bullets there)
-- `Tasks.md` Phase 4 — entry tracker
+- `Tasks.md` Phase 4 §4.4 — engineering subtasks (this plan supersedes the bullets there for conformance + paperwork)
 - `services/shared/model/cost.go` — current `CostRecord` shape, the source of truth for the mapping in §4.2
 - `services/ingestion/internal/provider/` — `Provider` interface that `focusfile` will satisfy
 - `docs/compliance/gdpr_plan.md` §4.2 — `GET /v1/export` is the GDPR portability endpoint; `GET /v1/export/focus` is its FOCUS-shaped sibling for Producer role

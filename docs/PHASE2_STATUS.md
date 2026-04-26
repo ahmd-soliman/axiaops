@@ -1,6 +1,6 @@
 # AxiaOps Phase 2 Status — Updated April 19, 2026
 
-> Source of truth for the Phase 2 roadmap lives in `docs/TASKS.md` (section 2.x) and
+> Source of truth for the Phase 2 roadmap lives in `Tasks.md` (section 2.x) and
 > the detailed execution plan in `docs/phase2-plan.md`. This file is the at-a-glance
 > status readout — updated when a task materially changes state.
 
