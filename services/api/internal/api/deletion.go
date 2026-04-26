@@ -84,7 +84,7 @@ func (h *Handler) deleteCurrentTenant(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err := h.store.DeleteTenantCascade(r.Context(), tid); err != nil {
-		observability.Global.TenantDeletionsTotal.WithLabelValues("failed").Inc()
+		observability.Global.OrganizationDeletionsTotal.WithLabelValues("failed").Inc()
 		slog.Error("delete tenant failed",
 			"tenant_id", tid,
 			"user_id", middleware.UserID(r.Context()),
@@ -94,7 +94,7 @@ func (h *Handler) deleteCurrentTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	observability.Global.TenantDeletionsTotal.WithLabelValues("ok").Inc()
+	observability.Global.OrganizationDeletionsTotal.WithLabelValues("ok").Inc()
 	slog.Info("tenant deleted",
 		"tenant_id", tid,
 		"user_id", middleware.UserID(r.Context()),

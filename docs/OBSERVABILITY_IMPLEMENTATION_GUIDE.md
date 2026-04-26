@@ -134,7 +134,7 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
 **Metrics recorded:**
 - `axiaops_aws_api_call_duration_seconds{service="CostExplorer"}` — API latency
 - `axiaops_aws_api_errors_total{service="CostExplorer"}` — error count (if failed)
-- `axiaops_cost_records_fetched_total{provider="aws", tenant_id="..."}` — records count
+- `axiaops_cost_records_fetched_total{provider="aws", organization_id="..."}` — records count
 
 **Logs (JSON to stdout):**
 ```json
@@ -236,8 +236,8 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
 - `axiaops_scan_duration_seconds{stage="save"}` — save latency
 - `axiaops_accounts_scanning` — incremented at start, decremented at end
 - `axiaops_scan_errors_total{account_id="...", error_type="..."}` — error count
-- `axiaops_zombies_detected{provider="aws", tenant_id="..."}` — final zombie count
-- `axiaops_potential_monthly_savings_usd{provider="aws", tenant_id="..."}` — savings
+- `axiaops_zombies_detected{provider="aws", organization_id="..."}` — final zombie count
+- `axiaops_potential_monthly_savings_usd{provider="aws", organization_id="..."}` — savings
 - `axiaops_resources_analyzed_total` — total resources
 
 ---
