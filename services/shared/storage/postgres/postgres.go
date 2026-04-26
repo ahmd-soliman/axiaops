@@ -71,14 +71,14 @@ func newPool(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// setTenant sets the app.tenant_id session variable for Row-Level Security.
+// setOrganization sets the app.organization_id session variable for Row-Level Security.
 // Must be called inside a transaction so the setting is scoped to that tx.
-func setTenant(ctx context.Context, tx pgx.Tx) error {
+func setOrganization(ctx context.Context, tx pgx.Tx) error {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return fmt.Errorf("postgres: tenant_id missing from context")
+		return fmt.Errorf("postgres: organization_id missing from context")
 	}
-	_, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID)
+	_, err := tx.Exec(ctx, `SELECT set_config('app.organization_id', $1, true)`, tenantID)
 	return err
 }
 
@@ -86,7 +86,7 @@ func setTenant(ctx context.Context, tx pgx.Tx) error {
 func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return 0, fmt.Errorf("postgres: tenant_id missing from context")
+		return 0, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -95,7 +95,7 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return 0, err
 	}
 
@@ -107,10 +107,10 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 		}
 		res, err := tx.Exec(ctx, `
 			INSERT INTO cost_records
-				(tenant_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency,
+				(organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency,
 				 period_start, period_end, tags, fetched_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-			ON CONFLICT (tenant_id, provider, account_id, service, region, period_start, period_end)
+			ON CONFLICT (organization_id, provider, account_id, service, region, period_start, period_end)
 			DO NOTHING`,
 			tenantID,
 			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID,
@@ -131,7 +131,7 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 func (s *Store) SaveZombies(ctx context.Context, zombies []model.ZombieResource) error {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return fmt.Errorf("postgres: tenant_id missing from context")
+		return fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	if len(zombies) == 0 {
@@ -144,7 +144,7 @@ func (s *Store) SaveZombies(ctx context.Context, zombies []model.ZombieResource)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
@@ -158,7 +158,7 @@ func (s *Store) SaveZombies(ctx context.Context, zombies []model.ZombieResource)
 
 	// Delete existing zombie records only for the accounts being updated
 	for accountID := range accountIDs {
-		if _, err := tx.Exec(ctx, `DELETE FROM zombie_records WHERE tenant_id = $1 AND internal_account_id = $2`, tenantID, accountID); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM zombie_records WHERE organization_id = $1 AND internal_account_id = $2`, tenantID, accountID); err != nil {
 			return fmt.Errorf("postgres: clear zombies for account %s: %w", accountID, err)
 		}
 	}
@@ -171,7 +171,7 @@ func (s *Store) SaveZombies(ctx context.Context, zombies []model.ZombieResource)
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO zombie_records
-				(tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
+				(organization_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
 				 monthly_cost, currency, period_start, period_end,
 				 usage_metric, usage_avg, usage_unit, reason, owner, detected_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
@@ -192,7 +192,7 @@ func (s *Store) SaveZombies(ctx context.Context, zombies []model.ZombieResource)
 func (s *Store) LoadZombies(ctx context.Context) ([]model.ZombieResource, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+		return nil, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -201,7 +201,7 @@ func (s *Store) LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
@@ -248,7 +248,7 @@ func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (m
 	id := uuid.New().String()
 
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO tenants (id, org_code, name, created_at)
+		INSERT INTO organizations (id, org_code, name, created_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name`,
 		id, orgCode, name, now,
@@ -259,7 +259,7 @@ func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (m
 
 	var t model.Organization
 	err = s.pool.QueryRow(ctx,
-		`SELECT id, org_code, name, created_at FROM tenants WHERE org_code = $1`, orgCode,
+		`SELECT id, org_code, name, created_at FROM organizations WHERE org_code = $1`, orgCode,
 	).Scan(&t.ID, &t.OrgCode, &t.Name, &t.CreatedAt)
 	if err != nil {
 		return model.Organization{}, fmt.Errorf("postgres: fetch tenant: %w", err)
@@ -274,7 +274,7 @@ func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (m
 // a prior write path to have auto-created the row.
 func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO tenants (id, org_code, name, created_at)
+		INSERT INTO organizations (id, org_code, name, created_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (id) DO NOTHING`,
 		id, orgCode, name, time.Now().UTC(),
@@ -285,7 +285,7 @@ func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string
 	return nil
 }
 
-// EnsureUser inserts a user with a caller-supplied id, or updates tenant_id,
+// EnsureUser inserts a user with a caller-supplied id, or updates organization_id,
 // email, name, and last_seen if the row already exists. The id is pinned (not
 // generated). Used by dev mode at startup to guarantee a known-id user row so
 // DevBypass can inject user_id onto the request context.
@@ -296,10 +296,10 @@ func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string
 //
 // Conflict handling is DO UPDATE (not DO NOTHING) so that rotating DEV_TENANT_ID
 // or DEV_USER_EMAIL across runs self-corrects the existing row — otherwise the
-// stored tenant_id would silently diverge from the tenant id DevBypass injects
+// stored organization_id would silently diverge from the tenant id DevBypass injects
 // onto every request.
 //
-// NOTE: this method uses the raw pool and does NOT set app.tenant_id. Safe here
+// NOTE: this method uses the raw pool and does NOT set app.organization_id. Safe here
 // only because `users` has no RLS policy and this is a startup bootstrap call.
 // Do NOT copy this pattern for handler-path writes to RLS-scoped tables —
 // those must use storage.WithOrganizationID and the transaction pattern.
@@ -307,10 +307,10 @@ func (s *Store) EnsureUser(ctx context.Context, u model.User) error {
 	now := time.Now().UTC()
 	kindeSub := "dev:" + u.ID
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO users (id, tenant_id, kinde_sub, email, name, created_at, last_seen)
+		INSERT INTO users (id, organization_id, kinde_sub, email, name, created_at, last_seen)
 		VALUES ($1, $2, $3, $4, $5, $6, $6)
 		ON CONFLICT (id) DO UPDATE SET
-			tenant_id = EXCLUDED.tenant_id,
+			organization_id = EXCLUDED.organization_id,
 			email     = EXCLUDED.email,
 			name      = EXCLUDED.name,
 			last_seen = EXCLUDED.last_seen`,
@@ -328,7 +328,7 @@ func (s *Store) UpsertUser(ctx context.Context, tenantID, kindeSub, email, name 
 	id := uuid.New().String()
 
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO users (id, tenant_id, kinde_sub, email, name, created_at, last_seen)
+		INSERT INTO users (id, organization_id, kinde_sub, email, name, created_at, last_seen)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (kinde_sub) DO UPDATE SET
 			email     = EXCLUDED.email,
@@ -342,7 +342,7 @@ func (s *Store) UpsertUser(ctx context.Context, tenantID, kindeSub, email, name 
 
 	var u model.User
 	err = s.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, kinde_sub, email, name, created_at, last_seen FROM users WHERE kinde_sub = $1`, kindeSub,
+		`SELECT id, organization_id, kinde_sub, email, name, created_at, last_seen FROM users WHERE kinde_sub = $1`, kindeSub,
 	).Scan(&u.ID, &u.OrganizationID, &u.KindeSub, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
 	if err != nil {
 		return model.User{}, fmt.Errorf("postgres: fetch user: %w", err)
@@ -358,13 +358,13 @@ func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO accounts
-			(id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted, region, status, scan_interval_hours, created_at)
+			(id, organization_id, provider, label, account_id, access_key_id, secret_encrypted, region, status, scan_interval_hours, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (id) DO UPDATE SET
 			label               = EXCLUDED.label,
@@ -391,12 +391,12 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted,
+		SELECT id, organization_id, provider, label, account_id, access_key_id, secret_encrypted,
 		       region, status, last_scanned_at, scan_interval_hours, created_at
 		FROM accounts ORDER BY created_at`)
 	if err != nil {
@@ -422,7 +422,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 }
 
 // ListAllAccounts returns accounts for ALL tenants, bypassing row-level security.
-// Used internally by the scheduled scan scheduler. Does not respect tenant_id in context.
+// Used internally by the scheduled scan scheduler. Does not respect organization_id in context.
 func (s *Store) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
 	tx, err := s.adminPool.Begin(ctx)
 	if err != nil {
@@ -430,12 +430,12 @@ func (s *Store) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// NOTE: Deliberately NOT calling setTenant(ctx, tx) here.
+	// NOTE: Deliberately NOT calling setOrganization(ctx, tx) here.
 	// This allows the query to return accounts from all tenants.
 	// Only use this method for trusted internal operations (scheduler, background jobs).
 
 	rows, err := tx.Query(ctx, `
-		SELECT id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted,
+		SELECT id, organization_id, provider, label, account_id, access_key_id, secret_encrypted,
 		       region, status, last_scanned_at, scan_interval_hours, created_at
 		FROM accounts ORDER BY created_at`)
 	if err != nil {
@@ -468,13 +468,13 @@ func (s *Store) GetAccount(ctx context.Context, id string) (model.Account, error
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return model.Account{}, err
 	}
 
 	var a model.Account
 	err = tx.QueryRow(ctx, `
-		SELECT id, tenant_id, provider, label, account_id, access_key_id, secret_encrypted,
+		SELECT id, organization_id, provider, label, account_id, access_key_id, secret_encrypted,
 		       region, status, last_scanned_at, scan_interval_hours, created_at
 		FROM accounts WHERE id = $1`, id,
 	).Scan(&a.ID, &a.OrganizationID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
@@ -493,7 +493,7 @@ func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
@@ -512,7 +512,7 @@ func (s *Store) UpdateAccountStatus(ctx context.Context, id, status string) erro
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
@@ -533,7 +533,7 @@ func (s *Store) TryMarkAccountScanning(ctx context.Context, id string) (bool, er
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return false, err
 	}
 
@@ -554,7 +554,7 @@ func (s *Store) TryMarkAccountScanning(ctx context.Context, id string) (bool, er
 func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRecord) error {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return fmt.Errorf("postgres: tenant_id missing from context")
+		return fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -563,7 +563,7 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
@@ -589,7 +589,7 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO resource_records
-				(tenant_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
+				(organization_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, arn, tags,
 				 monthly_cost, currency, period_start, period_end,
 				 usage_metric, usage_avg, usage_unit, is_zombie, reason, owner, detected_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
@@ -610,7 +610,7 @@ func (s *Store) SaveResources(ctx context.Context, resources []model.ResourceRec
 func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+		return nil, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -619,7 +619,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
@@ -665,7 +665,7 @@ func (s *Store) LoadResources(ctx context.Context) ([]model.ResourceRecord, erro
 func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) ([]model.CostRecord, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+		return nil, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -674,7 +674,7 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
@@ -749,7 +749,7 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 func (s *Store) SaveSnapshot(ctx context.Context, snap model.ZombieSnapshot) error {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return fmt.Errorf("postgres: tenant_id missing from context")
+		return fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -758,13 +758,13 @@ func (s *Store) SaveSnapshot(ctx context.Context, snap model.ZombieSnapshot) err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO zombie_snapshots
-			(id, tenant_id, account_id, snapshot_at, zombie_count, total_monthly_cost, currency)
+			(id, organization_id, account_id, snapshot_at, zombie_count, total_monthly_cost, currency)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		snap.ID, tenantID, snap.AccountID, snap.SnapshotAt,
 		snap.ZombieCount, snap.TotalMonthlyCost, snap.Currency,
@@ -780,7 +780,7 @@ func (s *Store) SaveSnapshot(ctx context.Context, snap model.ZombieSnapshot) err
 func (s *Store) ListSnapshots(ctx context.Context, accountID string) ([]model.ZombieSnapshot, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+		return nil, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -789,7 +789,7 @@ func (s *Store) ListSnapshots(ctx context.Context, accountID string) ([]model.Zo
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
@@ -839,7 +839,7 @@ func (s *Store) SaveSnapshotServices(ctx context.Context, services []model.Snaps
 
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return fmt.Errorf("postgres: tenant_id missing from context")
+		return fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -848,14 +848,14 @@ func (s *Store) SaveSnapshotServices(ctx context.Context, services []model.Snaps
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
 	for _, svc := range services {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO zombie_snapshot_services
-				(id, snapshot_id, tenant_id, service, resource_type, zombie_count, monthly_cost, currency)
+				(id, snapshot_id, organization_id, service, resource_type, zombie_count, monthly_cost, currency)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 			svc.ID, svc.SnapshotID, tenantID, svc.Service, svc.ResourceType,
 			svc.ZombieCount, svc.MonthlyCost, svc.Currency,
@@ -874,7 +874,7 @@ func (s *Store) SaveSnapshotServices(ctx context.Context, services []model.Snaps
 func (s *Store) ListSnapshotsByService(ctx context.Context, service, resourceType, accountID string) ([]model.ZombieSnapshot, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+		return nil, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -883,7 +883,7 @@ func (s *Store) ListSnapshotsByService(ctx context.Context, service, resourceTyp
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
@@ -941,7 +941,7 @@ func (s *Store) ListSnapshotsByService(ctx context.Context, service, resourceTyp
 func (s *Store) ListTrendServices(ctx context.Context) ([]string, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+		return nil, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -950,7 +950,7 @@ func (s *Store) ListTrendServices(ctx context.Context) ([]string, error) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
@@ -980,7 +980,7 @@ func (s *Store) ListTrendServices(ctx context.Context) ([]string, error) {
 func (s *Store) ListTrendResourceTypes(ctx context.Context, service string) ([]string, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+		return nil, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -989,7 +989,7 @@ func (s *Store) ListTrendResourceTypes(ctx context.Context, service string) ([]s
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
@@ -1032,7 +1032,7 @@ func (s *Store) DeleteOldCostRecords(ctx context.Context, cutoff time.Time) (int
 func (s *Store) DismissZombie(ctx context.Context, d model.DismissAction) (int64, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return 0, fmt.Errorf("postgres: tenant_id missing from context")
+		return 0, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -1041,14 +1041,14 @@ func (s *Store) DismissZombie(ctx context.Context, d model.DismissAction) (int64
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return 0, err
 	}
 
 	var id int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO dismissed_zombies
-			(tenant_id, account_id, provider, service, region, resource_id,
+			(organization_id, account_id, provider, service, region, resource_id,
 			 action, reason, note, snoozed_until, dismissed_by, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
 		RETURNING id`,
@@ -1069,7 +1069,7 @@ func (s *Store) DismissZombie(ctx context.Context, d model.DismissAction) (int64
 func (s *Store) RevokeDismissal(ctx context.Context, id int64, revokedBy string) error {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return fmt.Errorf("postgres: tenant_id missing from context")
+		return fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -1078,7 +1078,7 @@ func (s *Store) RevokeDismissal(ctx context.Context, id int64, revokedBy string)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
@@ -1102,7 +1102,7 @@ func (s *Store) RevokeDismissal(ctx context.Context, id int64, revokedBy string)
 func (s *Store) ListActiveDismissals(ctx context.Context, accountID string) ([]model.DismissAction, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+		return nil, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -1111,7 +1111,7 @@ func (s *Store) ListActiveDismissals(ctx context.Context, accountID string) ([]m
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
@@ -1190,7 +1190,7 @@ const auditListMaxLimit = 500
 func (s *Store) AuditLogWrite(ctx context.Context, e model.AuditEvent) (int64, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return 0, fmt.Errorf("postgres: tenant_id missing from context")
+		return 0, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -1199,7 +1199,7 @@ func (s *Store) AuditLogWrite(ctx context.Context, e model.AuditEvent) (int64, e
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return 0, err
 	}
 
@@ -1224,7 +1224,7 @@ func (s *Store) AuditLogWrite(ctx context.Context, e model.AuditEvent) (int64, e
 	var id int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO audit_log (
-			tenant_id, user_id, actor_email, action,
+			organization_id, user_id, actor_email, action,
 			resource_type, resource_id, reason, metadata,
 			request_id, ip_address, user_agent
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -1249,7 +1249,7 @@ func (s *Store) AuditLogWrite(ctx context.Context, e model.AuditEvent) (int64, e
 func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.AuditEvent, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return nil, fmt.Errorf("postgres: tenant_id missing from context")
+		return nil, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	limit := f.Limit
@@ -1259,7 +1259,7 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 
 	// Build WHERE clause with positional placeholders.
 	args := []any{tenantID}
-	where := []string{"tenant_id = $1"}
+	where := []string{"organization_id = $1"}
 	add := func(clause string, val any) {
 		args = append(args, val)
 		where = append(where, fmt.Sprintf(clause, len(args)))
@@ -1297,7 +1297,7 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 		return nil, fmt.Errorf("postgres: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
@@ -1306,7 +1306,7 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 	// netip.Prefix or net.IPNet, neither of which fit our nullable-string
 	// field without a typed wrapper. The cast is cheap — inet → text is O(1).
 	query := fmt.Sprintf(`
-		SELECT id, tenant_id, user_id, actor_email, action,
+		SELECT id, organization_id, user_id, actor_email, action,
 		       resource_type, resource_id, reason, metadata,
 		       request_id, host(ip_address) AS ip_address, user_agent, created_at
 		FROM audit_log
@@ -1355,7 +1355,7 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("postgres: iterate audit rows: %w", err)
 	}
-	// Commit even on read-only tx so setTenant's SET doesn't leak. If Commit
+	// Commit even on read-only tx so setOrganization's SET doesn't leak. If Commit
 	// fails we can't trust that the rows we assembled were read under a
 	// consistent snapshot — surface the error rather than returning stale data.
 	if err := tx.Commit(ctx); err != nil {
@@ -1365,11 +1365,11 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 }
 
 // AuditLogAnonymiseUser nulls user_id and replaces actor_email for all rows
-// matching (tenant_id, user_id). Called from the GDPR user-delete path.
+// matching (organization_id, user_id). Called from the GDPR user-delete path.
 func (s *Store) AuditLogAnonymiseUser(ctx context.Context, userID string) (int64, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return 0, fmt.Errorf("postgres: tenant_id missing from context")
+		return 0, fmt.Errorf("postgres: organization_id missing from context")
 	}
 	if userID == "" {
 		return 0, fmt.Errorf("postgres: user_id required for anonymise")
@@ -1380,17 +1380,17 @@ func (s *Store) AuditLogAnonymiseUser(ctx context.Context, userID string) (int64
 		return 0, fmt.Errorf("postgres: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return 0, err
 	}
 
-	// The WHERE also includes tenant_id even though RLS would enforce it — this
+	// The WHERE also includes organization_id even though RLS would enforce it — this
 	// is a GDPR-critical path, so belt-and-suspenders tenant scoping is cheap
 	// insurance against an RLS misconfiguration slipping through code review.
 	tag, err := tx.Exec(ctx, `
 		UPDATE audit_log
 		SET user_id = NULL, actor_email = 'deleted-user'
-		WHERE tenant_id = $1 AND user_id = $2`,
+		WHERE organization_id = $1 AND user_id = $2`,
 		tenantID, userID,
 	)
 	if err != nil {
@@ -1423,13 +1423,13 @@ func (s *Store) RoleOf(ctx context.Context, tenantID, userID string) (string, er
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.organization_id', $1, true)`, tenantID); err != nil {
 		return "", fmt.Errorf("postgres: role_of set tenant: %w", err)
 	}
 
 	var role string
 	err = tx.QueryRow(ctx,
-		`SELECT role FROM memberships WHERE tenant_id = $1 AND user_id = $2`,
+		`SELECT role FROM memberships WHERE organization_id = $1 AND user_id = $2`,
 		tenantID, userID,
 	).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1450,12 +1450,12 @@ func (s *Store) ListMemberships(ctx context.Context) ([]model.MembershipWithUser
 		return nil, fmt.Errorf("postgres: list memberships begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return nil, err
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT m.id, m.tenant_id, m.user_id, m.role, COALESCE(m.invited_by, ''),
+		SELECT m.id, m.organization_id, m.user_id, m.role, COALESCE(m.invited_by, ''),
 		       m.created_at, m.updated_at, COALESCE(u.email, ''), COALESCE(u.name, '')
 		FROM memberships m
 		LEFT JOIN users u ON u.id = m.user_id
@@ -1489,13 +1489,13 @@ func (s *Store) GetMembership(ctx context.Context, id string) (model.Membership,
 		return model.Membership{}, fmt.Errorf("postgres: get membership begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return model.Membership{}, err
 	}
 
 	var m model.Membership
 	err = tx.QueryRow(ctx, `
-		SELECT id, tenant_id, user_id, role, COALESCE(invited_by, ''), created_at, updated_at
+		SELECT id, organization_id, user_id, role, COALESCE(invited_by, ''), created_at, updated_at
 		FROM memberships WHERE id = $1`, id,
 	).Scan(&m.ID, &m.OrganizationID, &m.UserID, &m.Role, &m.InvitedBy, &m.CreatedAt, &m.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1514,7 +1514,7 @@ func (s *Store) SaveMembership(ctx context.Context, m model.Membership) error {
 		return fmt.Errorf("postgres: save membership begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
@@ -1528,7 +1528,7 @@ func (s *Store) SaveMembership(ctx context.Context, m model.Membership) error {
 		invitedBy = m.InvitedBy
 	}
 	_, err = tx.Exec(ctx, `
-		INSERT INTO memberships (id, tenant_id, user_id, role, invited_by, created_at, updated_at)
+		INSERT INTO memberships (id, organization_id, user_id, role, invited_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $6)`,
 		id, m.OrganizationID, m.UserID, m.Role, invitedBy, now,
 	)
@@ -1551,14 +1551,14 @@ func (s *Store) UpdateMembershipRole(ctx context.Context, id, newRole string) er
 		return fmt.Errorf("postgres: update role begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
 	// Lock the target row and read current state.
 	var currentRole, tenantID string
 	err = tx.QueryRow(ctx,
-		`SELECT role, tenant_id FROM memberships WHERE id = $1 FOR UPDATE`, id,
+		`SELECT role, organization_id FROM memberships WHERE id = $1 FOR UPDATE`, id,
 	).Scan(&currentRole, &tenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storage.ErrMembershipNotFound
@@ -1571,7 +1571,7 @@ func (s *Store) UpdateMembershipRole(ctx context.Context, id, newRole string) er
 	if currentRole == "owner" && newRole != "owner" {
 		var ownerCount int
 		if err := tx.QueryRow(ctx,
-			`SELECT COUNT(*) FROM memberships WHERE tenant_id = $1 AND role = 'owner'`, tenantID,
+			`SELECT COUNT(*) FROM memberships WHERE organization_id = $1 AND role = 'owner'`, tenantID,
 		).Scan(&ownerCount); err != nil {
 			return fmt.Errorf("postgres: update role count owners: %w", err)
 		}
@@ -1600,13 +1600,13 @@ func (s *Store) DeleteMembership(ctx context.Context, id string) error {
 		return fmt.Errorf("postgres: delete membership begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
 	var role, tenantID string
 	err = tx.QueryRow(ctx,
-		`SELECT role, tenant_id FROM memberships WHERE id = $1 FOR UPDATE`, id,
+		`SELECT role, organization_id FROM memberships WHERE id = $1 FOR UPDATE`, id,
 	).Scan(&role, &tenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storage.ErrMembershipNotFound
@@ -1618,7 +1618,7 @@ func (s *Store) DeleteMembership(ctx context.Context, id string) error {
 	if role == "owner" {
 		var ownerCount int
 		if err := tx.QueryRow(ctx,
-			`SELECT COUNT(*) FROM memberships WHERE tenant_id = $1 AND role = 'owner'`, tenantID,
+			`SELECT COUNT(*) FROM memberships WHERE organization_id = $1 AND role = 'owner'`, tenantID,
 		).Scan(&ownerCount); err != nil {
 			return fmt.Errorf("postgres: delete membership count owners: %w", err)
 		}
@@ -1641,7 +1641,7 @@ func (s *Store) TransferOwnership(ctx context.Context, toUserID string) error {
 		return fmt.Errorf("postgres: transfer ownership begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := setTenant(ctx, tx); err != nil {
+	if err := setOrganization(ctx, tx); err != nil {
 		return err
 	}
 
@@ -1650,7 +1650,7 @@ func (s *Store) TransferOwnership(ctx context.Context, toUserID string) error {
 	// Verify target membership exists in this tenant.
 	var targetID, targetRole string
 	err = tx.QueryRow(ctx,
-		`SELECT id, role FROM memberships WHERE tenant_id = $1 AND user_id = $2 FOR UPDATE`,
+		`SELECT id, role FROM memberships WHERE organization_id = $1 AND user_id = $2 FOR UPDATE`,
 		tenantID, toUserID,
 	).Scan(&targetID, &targetRole)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1664,7 +1664,7 @@ func (s *Store) TransferOwnership(ctx context.Context, toUserID string) error {
 	if _, err := tx.Exec(ctx, `
 		UPDATE memberships
 		SET role = 'admin', updated_at = NOW()
-		WHERE tenant_id = $1 AND role = 'owner'`,
+		WHERE organization_id = $1 AND role = 'owner'`,
 		tenantID,
 	); err != nil {
 		return fmt.Errorf("postgres: transfer ownership demote: %w", err)
@@ -1684,7 +1684,7 @@ func (s *Store) TransferOwnership(ctx context.Context, toUserID string) error {
 // concurrent INSERT in a brand-new Kinde org loses on the index, the caller
 // sees err with constraint code 23505 → swallowed → ok=false.
 //
-// Opens its own transaction and sets app.tenant_id so the INSERT satisfies
+// Opens its own transaction and sets app.organization_id so the INSERT satisfies
 // the WITH CHECK clause of the memberships RLS policy. Works whether the
 // process connects as the owner (BYPASSRLS) or the app role (RLS-enforced).
 func (s *Store) EnsureFirstMembership(ctx context.Context, tenantID, userID string) (bool, error) {
@@ -1696,13 +1696,13 @@ func (s *Store) EnsureFirstMembership(ctx context.Context, tenantID, userID stri
 		return false, fmt.Errorf("postgres: ensure first membership begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.organization_id', $1, true)`, tenantID); err != nil {
 		return false, fmt.Errorf("postgres: ensure first membership set tenant: %w", err)
 	}
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at)
+		INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at)
 		SELECT $1, $2, $3, 'owner', NOW(), NOW()
-		WHERE NOT EXISTS (SELECT 1 FROM memberships WHERE tenant_id = $2)`,
+		WHERE NOT EXISTS (SELECT 1 FROM memberships WHERE organization_id = $2)`,
 		uuid.New().String(), tenantID, userID,
 	)
 	if err != nil {
@@ -1720,7 +1720,7 @@ func (s *Store) EnsureFirstMembership(ctx context.Context, tenantID, userID stri
 }
 
 // EnsureDevMembership creates an owner-or-other row for (tenantID, userID) on
-// startup. Idempotent. Opens its own transaction and sets app.tenant_id so
+// startup. Idempotent. Opens its own transaction and sets app.organization_id so
 // the INSERT satisfies the memberships RLS policy regardless of whether the
 // process connects as the owner role (BYPASSRLS) or the app role.
 func (s *Store) EnsureDevMembership(ctx context.Context, tenantID, userID, role string) error {
@@ -1734,13 +1734,13 @@ func (s *Store) EnsureDevMembership(ctx context.Context, tenantID, userID, role 
 		return fmt.Errorf("postgres: ensure dev membership begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.organization_id', $1, true)`, tenantID); err != nil {
 		return fmt.Errorf("postgres: ensure dev membership set tenant: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at)
+		INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, NOW(), NOW())
-		ON CONFLICT (tenant_id, user_id) DO UPDATE SET
+		ON CONFLICT (organization_id, user_id) DO UPDATE SET
 			role       = EXCLUDED.role,
 			updated_at = NOW()`,
 		uuid.New().String(), tenantID, userID, role,
@@ -1755,14 +1755,14 @@ func (s *Store) EnsureDevMembership(ctx context.Context, tenantID, userID, role 
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, error) {
 	tenantID := storage.OrganizationIDFromCtx(ctx)
 	if tenantID == "" {
-		return model.User{}, fmt.Errorf("postgres: tenant_id missing from context")
+		return model.User{}, fmt.Errorf("postgres: organization_id missing from context")
 	}
 	var u model.User
 	// users has no RLS; tenant scoping is explicit in the WHERE clause.
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, kinde_sub, email, name, created_at, last_seen
+		SELECT id, organization_id, kinde_sub, email, name, created_at, last_seen
 		FROM users
-		WHERE tenant_id = $1 AND lower(email) = lower($2)`,
+		WHERE organization_id = $1 AND lower(email) = lower($2)`,
 		tenantID, email,
 	).Scan(&u.ID, &u.OrganizationID, &u.KindeSub, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1805,7 +1805,7 @@ func (s *Store) DeleteUser(ctx context.Context, userID string) error {
 		WHERE m1.user_id = $1 AND m1.role = 'owner'
 		  AND NOT EXISTS (
 		    SELECT 1 FROM memberships m2
-		    WHERE m2.tenant_id = m1.tenant_id
+		    WHERE m2.organization_id = m1.organization_id
 		      AND m2.role = 'owner'
 		      AND m2.user_id <> $1
 		  )`, userID).Scan(&orphanCount)
@@ -1849,8 +1849,8 @@ func (s *Store) DeleteOrganizationCascade(ctx context.Context, tenantID string) 
 	if _, err := tx.Exec(ctx, `
 		UPDATE audit_log
 		SET user_id = NULL, actor_email = 'deleted-user'
-		WHERE tenant_id <> $1
-		  AND user_id IN (SELECT id FROM users WHERE tenant_id = $1)`,
+		WHERE organization_id <> $1
+		  AND user_id IN (SELECT id FROM users WHERE organization_id = $1)`,
 		tenantID,
 	); err != nil {
 		return fmt.Errorf("postgres: cascade anonymise audit: %w", err)
@@ -1870,20 +1870,20 @@ func (s *Store) DeleteOrganizationCascade(ctx context.Context, tenantID string) 
 	for _, t := range tables {
 		// #nosec — table name is a hardcoded literal from the slice above,
 		// not user input. pgx parameter binding does not support identifiers.
-		if _, err := tx.Exec(ctx, "DELETE FROM "+t+" WHERE tenant_id = $1", tenantID); err != nil {
+		if _, err := tx.Exec(ctx, "DELETE FROM "+t+" WHERE organization_id = $1", tenantID); err != nil {
 			return fmt.Errorf("postgres: cascade delete %s: %w", t, err)
 		}
 	}
 
 	// Users whose primary tenant is this one go away entirely. CASCADE on
 	// memberships.user_id removes their memberships in all other tenants too.
-	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE tenant_id = $1`, tenantID); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE organization_id = $1`, tenantID); err != nil {
 		return fmt.Errorf("postgres: cascade delete users: %w", err)
 	}
 
-	// Finally drop the tenant; CASCADE on memberships.tenant_id sweeps any
+	// Finally drop the tenant; CASCADE on memberships.organization_id sweeps any
 	// remaining membership rows held by users whose primary tenant is elsewhere.
-	if _, err := tx.Exec(ctx, `DELETE FROM tenants WHERE id = $1`, tenantID); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, tenantID); err != nil {
 		return fmt.Errorf("postgres: cascade delete tenant: %w", err)
 	}
 	return tx.Commit(ctx)
