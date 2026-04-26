@@ -4,7 +4,11 @@ import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
-import { deleteCurrentTenant, deleteCurrentUser } from '../api/client';
+import {
+  deleteCurrentTenant,
+  deleteCurrentUser,
+  exportTenantData,
+} from '../api/client';
 
 // GDPR right-to-erasure surface. Two destructive actions, each behind a
 // type-to-confirm modal:
@@ -27,15 +31,18 @@ export default function Account() {
   const { toast } = useToast();
 
   const canDeleteTenant = can('tenant:delete');
+  const canExport = can('data:export');
 
   return (
     <div style={{ padding: 24, color: t.textMid, maxWidth: 760 }}>
       <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Account</h1>
       <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
-        Your AxiaOps profile and data-erasure controls.
+        Your AxiaOps profile, data export, and erasure controls.
       </p>
 
       <ProfileSection t={t} me={me} orgName={orgName} />
+
+      {canExport && <ExportSection t={t} toast={toast} />}
 
       <DeleteUserSection
         t={t}
@@ -66,6 +73,52 @@ function ProfileSection({ t, me, orgName }) {
       <Field t={t} label="Email" value={me?.email || '—'} />
       <Field t={t} label="Role" value={me?.role || '—'} />
       <Field t={t} label="Tenant" value={orgName || me?.tenant_id || '—'} />
+    </Section>
+  );
+}
+
+// ── Export: Art. 15/20 download ─────────────────────────────────────────────
+
+function ExportSection({ t, toast }) {
+  const [error, setError] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: exportTenantData,
+    onSuccess: ({ blob, filename }) => {
+      // Trigger a save dialog by clicking a synthetic anchor. createObjectURL
+      // returns a blob: URL that the browser knows how to download verbatim;
+      // revoking it on the next tick frees the memory once the click fires.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      toast('Export downloaded.', 'success');
+    },
+    onError: (err) => {
+      setError(err.body || err.message || 'Failed to export data.');
+    },
+  });
+
+  return (
+    <Section t={t} title="Download my data">
+      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
+        Generates a JSON file containing every per-tenant record we hold for this tenant — members,
+        cloud accounts (without secrets), audit log, scan history, and detected resources. Satisfies
+        GDPR Art. 15 (access) and Art. 20 (portability).
+      </p>
+      <button
+        type="button"
+        onClick={() => { setError(''); mutation.mutate(); }}
+        disabled={mutation.isPending}
+        style={primaryButton(t, mutation.isPending)}
+      >
+        {mutation.isPending ? 'Preparing…' : 'Download my data'}
+      </button>
+      {error && <Banner color="#fca5a5" bg="rgba(239,68,68,0.15)">{error}</Banner>}
     </Section>
   );
 }
@@ -371,6 +424,20 @@ function ghostButton(t) {
     fontWeight: 600,
     fontSize: 13,
     cursor: 'pointer',
+  };
+}
+
+function primaryButton(t, disabled) {
+  return {
+    padding: '7px 14px',
+    border: 'none',
+    borderRadius: 6,
+    backgroundColor: t.accent,
+    color: '#fff',
+    fontWeight: 600,
+    fontSize: 13,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.55 : 1,
   };
 }
 

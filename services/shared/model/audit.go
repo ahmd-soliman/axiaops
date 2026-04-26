@@ -48,6 +48,11 @@ const (
 	// rest of audit_log, so its only durable trace is the structured slog
 	// line and the axiaops_tenant_deletions_total Prometheus counter.
 	AuditActionTenantDeleted = "tenant_deleted"
+	// AuditActionDataExported is written when an owner downloads the tenant's
+	// GDPR data export (GET /v1/export). The Metadata map carries the row
+	// counts per table so a DSR audit can show *what* was exported, not just
+	// that an export happened.
+	AuditActionDataExported = "data_exported"
 )
 
 // ValidAuditActions is the authoritative set of action codes accepted on write
@@ -65,6 +70,7 @@ var ValidAuditActions = map[string]bool{
 	AuditActionMemberRemoved:        true,
 	AuditActionOwnershipTransferred: true,
 	AuditActionTenantDeleted:        true,
+	AuditActionDataExported:         true,
 }
 
 // AuditFilter parameterises AuditLogList queries. Zero-value fields are not
