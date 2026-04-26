@@ -824,7 +824,11 @@ generate_snapshots() {
     -v base_z="$base_zombies" -v base_s="$base_savings" \
     -v days="$days" -v svcs="$services" \
     'BEGIN {
-      srand()
+      # Fixed seed makes the seeded data reproducible across runs and across
+      # machines (gawk/mawk/BSD awk all honour an integer arg the same way).
+      # Was bare srand() before — that reseeds from time-of-day, so every
+      # `make seed` produced different ±10% wobble on the same dashboard.
+      srand(42)
       pi = 3.14159265
 
       # Parse services — format: "service|resource_type:fraction" or "service:fraction"
