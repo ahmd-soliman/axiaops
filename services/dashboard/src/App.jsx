@@ -20,7 +20,7 @@ import Profile           from './pages/Profile';
 import Settings          from './pages/Settings';
 import SettingsTeam      from './pages/settings/Team';
 import SettingsAudit     from './pages/settings/Audit';
-import SettingsWorkspace from './pages/settings/Workspace';
+import SettingsOrganization from './pages/settings/Organization';
 import Login      from './pages/Login';
 import Callback   from './pages/Callback';
 import NotFound   from './pages/NotFound';
@@ -61,7 +61,7 @@ function AuthenticatedApp() {
               <Route path="/settings"            element={<Settings />}>
                 <Route path="team"      element={<SettingsTeam />} />
                 <Route path="audit"     element={<SettingsAudit />} />
-                <Route path="workspace" element={<SettingsWorkspace />} />
+                <Route path="organization" element={<SettingsOrganization />} />
               </Route>
             </Route>
           </Route>
