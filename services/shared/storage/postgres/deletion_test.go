@@ -113,7 +113,7 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
 
-	// User + membership in this tenant.
+	// User + membership in this organization.
 	userID := "u-" + uuid.New().String()
 	if err := s.EnsureUser(ctx, model.User{ID: userID, OrganizationID: org.ID, Email: "u@x.com"}); err != nil {
 		t.Fatalf("EnsureUser: %v", err)
@@ -171,8 +171,8 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 	}
 }
 
-func TestDeleteOrganizationCascade_AnonymisesCrossTenantAudit(t *testing.T) {
-	// User U has primary tenant A. U is also a member of tenant B and has
+func TestDeleteOrganizationCascade_AnonymisesCrossOrganizationAudit(t *testing.T) {
+	// User U has primary organization A. U is also a member of organization B and has
 	// audit rows in B. When A is deleted (and U with it), U's audit rows in
 	// B must be anonymised — right to erasure travels with the user.
 	s := newTestStore(t)
@@ -210,16 +210,16 @@ func TestDeleteOrganizationCascade_AnonymisesCrossTenantAudit(t *testing.T) {
 		t.Fatalf("count anonymised in B: %v", err)
 	}
 	if anonymised != 1 {
-		t.Errorf("expected user's audit row in tenant B to be anonymised; got %d", anonymised)
+		t.Errorf("expected user's audit row in organization B to be anonymised; got %d", anonymised)
 	}
 
-	// Tenant B itself should be untouched.
+	// Organization B itself should be untouched.
 	var orgBStillThere int
 	if err := conn.QueryRow(context.Background(),
 		`SELECT COUNT(*) FROM axiaops.organizations WHERE id = $1`, orgB.ID).Scan(&orgBStillThere); err != nil {
-		t.Fatalf("count tenant B: %v", err)
+		t.Fatalf("count organization B: %v", err)
 	}
 	if orgBStillThere != 1 {
-		t.Errorf("tenant B should not be deleted by cascading A; got count=%d", orgBStillThere)
+		t.Errorf("organization B should not be deleted by cascading A; got count=%d", orgBStillThere)
 	}
 }

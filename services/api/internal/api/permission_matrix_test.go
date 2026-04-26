@@ -132,5 +132,5 @@ func buildPermReq(method, path, body string) *http.Request {
 	} else {
 		r = httptest.NewRequest(method, path, nil)
 	}
-	return r.WithContext(injectIdentity(r.Context(), "tenant-test-uuid", "user-test-uuid", "u@x.com"))
+	return r.WithContext(injectIdentity(r.Context(), "organization-test-uuid", "user-test-uuid", "u@x.com"))
 }

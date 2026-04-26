@@ -12,7 +12,7 @@ import (
 )
 
 var testJob = queue.ScanJob{
-	OrganizationID: "tenant-1",
+	OrganizationID: "organization-1",
 	AccountID:      "account-1",
 	EnqueuedAt:     time.Now().UTC().Truncate(time.Second),
 	RequestID:      "req-1",
