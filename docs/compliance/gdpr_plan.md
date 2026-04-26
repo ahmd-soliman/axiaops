@@ -29,7 +29,7 @@ Processing Agreement (DPA).
 
 ### 1.2 Out of scope (explicitly)
 
-- We do not process special-category data (Art. 9). If a organization's AWS tags
+- We do not process special-category data (Art. 9). If an organization's AWS tags
   contain such data we treat it the same as ordinary identifiers — but our
   ToS prohibits putting it there.
 - We do not target individuals or data subjects directly. Our customers are

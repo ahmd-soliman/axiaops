@@ -276,8 +276,8 @@ _Single source of truth for project work. Last updated: 2026-04-26._
 | 5 | **Audit trail UI for dismissals** | ✅ | `GET /v1/audit` (with `user_id`/`resource_type`/`resource_id`/`action`/`since`/`until`/`limit`/`cursor` filters) backs `services/dashboard/src/screens/AuditScreen.jsx`, surfaced under Settings → Audit. Dismissal mutations write `audit_log` rows via `model.AuditAction*`. |
 | 6 | Scan history log | 🔲 | Per-account scan log with timestamps and zombie delta |
 | 7 | Cost forecast | 🔲 | "If nothing changes, you'll waste $X this month" — linear projection over `zombie_snapshots` |
-| 8 | **User management + roles** | ✅ | `memberships(user_id, tenant_id, role)` table (migration 015) + `model.Membership` with owner/admin/member/viewer roles. Endpoints: `GET/POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/tenants/transfer-ownership`, `GET /v1/me`. Permission constants (`PermMembersInvite`, `PermMembersManage`, …) enforced in handlers; Settings → Team tab exposes the UI. Invite-by-email is deferred to Phase 3 #14. |
-| 9 | **GDPR — engineering surface** | ✅ | `DELETE /v1/users/me`, `DELETE /v1/tenants/me`, `GET /v1/export` shipped (handlers in `services/api/internal/api/deletion.go` + `export.go`) |
+| 8 | **User management + roles** | ✅ | `memberships(user_id, organization_id, role)` table (migration 015 + 016 column rename) + `model.Membership` with owner/admin/member/viewer roles. Endpoints: `GET/POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/organizations/transfer-ownership`, `GET /v1/me`. Permission constants (`PermMembersInvite`, `PermMembersManage`, …) enforced in handlers; Settings → Team tab exposes the UI. Invite-by-email is deferred to Phase 3 #14. |
+| 9 | **GDPR — engineering surface** | ✅ | `DELETE /v1/users/me`, `DELETE /v1/organizations/me`, `GET /v1/export` shipped (handlers in `services/api/internal/api/deletion.go` + `export.go`) |
 | 9p | **GDPR — paperwork** | 🔲 | Privacy policy / ToS / DPA / sub-processors / RoPA / DPIA / breach runbook / pen-test. Implementation plan: `docs/compliance/gdpr_plan.md`. Must ship before first paying EU customer (Sep–Oct 2026). |
 | 10 | **Expanded detection rules — Custodian backlog** | 🔲 | 13+ new rules ported from `cloud-custodian/cloud-custodian` filters: unused security groups, idle ALB target groups, overprovisioned RDS, idle ElastiCache replication groups, VPC endpoints, TGW attachments, Lambda PCU, IAM access keys, etc. M1 (per-service file split) shipped. Full backlog with priorities, per-rule template, and milestone sequencing in `docs/custodian-rule-backlog.md`. The original entry ("EBS, S3, CloudFront, Redshift, ElastiCache") is superseded — those are all live. |
 | 11 | Operating entity | 🔲 | Holding GmbH + Operating UG (target August 2026) |
@@ -359,7 +359,7 @@ Shipped as part of the unified Phase 2 CSV export convention.
 
 - [x] `memberships(user_id, tenant_id, role)` table in migration `015_memberships.up.sql`
 - [x] Permission constants in `services/shared/authz/roles.go`: `PermMembersRead`, `PermMembersInvite`, `PermMembersManageBasic`, `PermMembersManageAdmin`, `PermTenantTransfer`
-- [x] Endpoints (handler.go:109–113): `GET/POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/tenants/transfer-ownership`, `GET /v1/me`
+- [x] Endpoints (handler.go:109–113): `GET/POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/organizations/transfer-ownership`, `GET /v1/me`
 - [x] Self-leave bypass on DELETE; last-owner guard at the store level
 - [x] Dashboard Settings → Team tab
 - [ ] **Deferred** Invite-by-email flow (`pending_invitations` table) — moved to Phase 3 #14 (Multi-organization UX)
@@ -372,7 +372,7 @@ Shipped as part of the unified Phase 2 CSV export convention.
 Engineering deliverables:
 
 - [x] `DELETE /v1/users/me` — anonymises audit log; sole-owner guard returns 409
-- [x] `DELETE /v1/tenants/me` — cascade hard-delete: accounts, cost_records, zombie_records, zombie_snapshots, users, dismissed_zombies, audit_log
+- [x] `DELETE /v1/organizations/me` — cascade hard-delete: accounts, cost_records, zombie_records, zombie_snapshots, users, dismissed_zombies, audit_log
 - [x] `GET /v1/export` — full JSON dump (zombies, account metadata sans secrets, scan history, audit log entries)
 - [x] Anonymise audit log on user hard-delete (replace `user_id` with tombstone, preserve row)
 - [ ] Trigger Stripe subscription cancellation on tenant deletion (depends on Stripe billing #1)

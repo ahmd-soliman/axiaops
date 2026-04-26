@@ -35,7 +35,7 @@ Acceptance Criteria:
 
     [ ] Worker uses Go routines to parse CSV and JSON concurrently.
 
-    [ ] Data is persisted to a PostgreSQL database with a organization_id for future multi-tenancy.
+    [ ] Data is persisted to a PostgreSQL database with an organization_id for future multi-tenancy.
 
     [ ] Successfully maps line_item_resource_id to its corresponding activity metrics.
 

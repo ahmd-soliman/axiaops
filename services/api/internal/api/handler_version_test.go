@@ -8,7 +8,7 @@ import (
 )
 
 // /v1/version is auth-required (sits under /v1/) but doesn't read organization data,
-// so a organization context is enough — no zombies/dismissals fixtures needed.
+// so an organization context is enough — no zombies/dismissals fixtures needed.
 
 func TestVersion_DefaultsWhenEnvUnset(t *testing.T) {
 	t.Setenv("APP_VERSION", "")

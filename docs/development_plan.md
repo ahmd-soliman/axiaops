@@ -546,7 +546,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 - ✅ **Right to erasure (organization):** `DELETE /v1/organizations/me` — owner-only (`organization:delete`); cascades through `dismissed_zombies`, `zombie_snapshot_services`, `zombie_snapshots`, `zombie_records`, `resource_records`, `cost_records`, `accounts`, `audit_log`, `memberships`, `users` (where this is their primary organization), and finally `organizations`. Implemented in `Store.DeleteOrganizationCascade`.
 - ✅ **User deletion:** `DELETE /v1/users/me` — authn-only, refused with 409 if the caller is the sole owner of any organization (must transfer ownership or delete those organizations first). Anonymises that user's audit_log rows across all organizations (`user_id = NULL`, `actor_email = 'deleted-user'`) before removing memberships and the user row. Implemented in `Store.DeleteUser`.
 - **Data retention disclosure:** Document what is stored and for how long in the privacy policy.
-- **Account offboarding:** When a organization deletes their account, encrypted AWS secrets are deleted immediately; billing is cancelled via Stripe webhook *(Stripe hook lands with the billing feature)*.
+- **Account offboarding:** When an organization deletes their account, encrypted AWS secrets are deleted immediately; billing is cancelled via Stripe webhook *(Stripe hook lands with the billing feature)*.
 - **Data portability:** `GET /v1/export` — full JSON dump of the organization's data (zombies, accounts metadata without secrets, scan history). *Not yet implemented.*
 - Privacy policy and terms of service pages required before Phase 3 launch.
 

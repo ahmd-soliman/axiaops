@@ -2,7 +2,7 @@
 # start.sh — start all AxiaOps services locally
 #
 # Usage:
-#   ./scripts/start.sh                    start in dev mode (bypass auth with fixed tenant)
+#   ./scripts/start.sh                    start in dev mode (bypass auth with fixed organization)
 #   ./scripts/start.sh stop               kill all running services
 #   DEV_MODE=false ./scripts/start.sh     start in staging mode (real Kinde auth)
 

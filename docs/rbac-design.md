@@ -205,7 +205,7 @@ The existing `users` row is still populated on every authenticated request by `a
 4. `GRANT SELECT, INSERT, UPDATE, DELETE ON memberships TO axiaops`
 5. **Backfill:** `INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at) SELECT gen_random_uuid(), organization_id, id, 'admin', NOW(), NOW() FROM users;` — every existing user becomes `admin`.
 6. **Promote one user per organization to `owner`:** for each organization, the user with the earliest `created_at` gets `UPDATE memberships SET role='owner' WHERE ...`. Single SQL with a CTE.
-7. **Safety check:** `DO $$ BEGIN IF EXISTS (SELECT 1 FROM organizations t WHERE NOT EXISTS (SELECT 1 FROM memberships m WHERE m.organization_id = t.id AND m.role = 'owner')) THEN RAISE EXCEPTION 'migration 015: organization(s) without an owner — refusing to proceed'; END IF; END $$;` — fails the migration if any organization ended up ownerless (happens when a organization row exists with zero users — the "earliest user" CTE produces no row for it). Surfaces the orphan organization loudly rather than leaving the invariant broken.
+7. **Safety check:** `DO $$ BEGIN IF EXISTS (SELECT 1 FROM organizations t WHERE NOT EXISTS (SELECT 1 FROM memberships m WHERE m.organization_id = t.id AND m.role = 'owner')) THEN RAISE EXCEPTION 'migration 015: organization(s) without an owner — refusing to proceed'; END IF; END $$;` — fails the migration if any organization ended up ownerless (happens when an organization row exists with zero users — the "earliest user" CTE produces no row for it). Surfaces the orphan organization loudly rather than leaving the invariant broken.
 
 `services/shared/storage/postgres/migrations/015_memberships.down.sql` drops the table.
 
@@ -377,7 +377,7 @@ Authoritative table. See §2 capability matrix for which role gets each permissi
 
 ### Last-admin protection
 
-- **Rule:** a organization must always have at least one `owner`. A `DELETE /v1/memberships/{id}` or role-demotion that would leave zero owners returns `409 Conflict`.
+- **Rule:** an organization must always have at least one `owner`. A `DELETE /v1/memberships/{id}` or role-demotion that would leave zero owners returns `409 Conflict`.
 - **Self-demotion:** allowed only if another owner exists.
 - **Owner deletion:** to remove the only owner, the owner must first `POST /v1/organizations/transfer-ownership` to another admin/member, which in one transaction demotes current user to `admin` and promotes target to `owner`.
 
@@ -443,7 +443,7 @@ Deferred to v2. Current architecture: the ingestion service writes zombies with 
 
 Migration 015 handles existing organizations by promoting the earliest-created user to `owner`. But when a **new** Kinde org signs up after v1 ships, the first authenticating user has no membership row at all.
 
-**Rule:** on first login to a organization with zero memberships, the authenticating user is auto-promoted to `owner`. Implemented in `auth.go` after `UpsertUser`:
+**Rule:** on first login to an organization with zero memberships, the authenticating user is auto-promoted to `owner`. Implemented in `auth.go` after `UpsertUser`:
 
 1. Open a transaction.
 2. `INSERT INTO memberships (organization_id, user_id, role, ...) VALUES ($1, $2, 'owner', ...) ON CONFLICT DO NOTHING`.
@@ -558,7 +558,7 @@ Do not build any of phase 3 without a named customer.
 
 **Scope:** This section is a placeholder for a future design. None of it is v1. When the trigger conditions arrive, spin this out into its own design doc — do not implement from this summary.
 
-Staff (AxiaOps employees) are a different principal type from organization users: they are cross-organization, must be audited unconditionally, and sometimes act as a organization user for debugging. They don't fit into `memberships`.
+Staff (AxiaOps employees) are a different principal type from organization users: they are cross-organization, must be audited unconditionally, and sometimes act as an organization user for debugging. They don't fit into `memberships`.
 
 **Planned shape when built:**
 
