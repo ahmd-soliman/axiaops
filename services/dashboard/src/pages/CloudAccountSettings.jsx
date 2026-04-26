@@ -6,7 +6,7 @@ import AccountSettingsScreen from '../screens/AccountSettingsScreen';
 import { Spinner } from '../components/primitives';
 import { useTheme } from '../theme/ThemeContext';
 
-export default function Settings() {
+export default function CloudAccountSettings() {
   const navigate = useNavigate();
   const { accountId } = useParams();
   const { theme } = useTheme();
