@@ -84,6 +84,15 @@ function IconUsers({ color, size = 18 }) {
   );
 }
 
+function IconAccount({ color, size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" />
+    </svg>
+  );
+}
+
 // ─── Nav config ───────────────────────────────────────────────────────────────
 //
 // `requires` gates the entry on a permission grant from MeContext. Items
@@ -96,6 +105,7 @@ const NAV_ITEMS = [
   { label: 'Costs',    path: '/cost',  Icon: IconCost },
   { label: 'Audit',    path: '/audit', Icon: IconAudit },
   { label: 'Users',    path: '/users', Icon: IconUsers, requires: 'members:invite' },
+  { label: 'Account',  path: '/account', Icon: IconAccount },
 ];
 
 // ─── Top navbar ───────────────────────────────────────────────────────────────
