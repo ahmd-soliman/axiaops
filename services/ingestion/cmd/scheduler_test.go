@@ -64,6 +64,9 @@ func (m *mockStoreForScheduler) DeleteAccount(context.Context, string) error { r
 func (m *mockStoreForScheduler) UpdateAccountStatus(context.Context, string, string) error {
 	return nil
 }
+func (m *mockStoreForScheduler) SetAccountError(context.Context, string, string) error {
+	return nil
+}
 func (m *mockStoreForScheduler) TryMarkAccountScanning(context.Context, string) (bool, error) {
 	return false, nil
 }
