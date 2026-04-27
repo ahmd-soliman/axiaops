@@ -60,12 +60,17 @@ const styles = {
     border: 'none',
     cursor: 'pointer',
   },
+  buttonSecondary: {
+    backgroundColor: 'transparent',
+    border: `1px solid ${C.accent}`,
+  },
+  buttonSecondaryText: { color: C.accent, fontSize: 16, fontWeight: 600 },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: C.white, fontSize: 16, fontWeight: 700 },
   hint: { fontSize: 12, color: C.textMuted, textAlign: 'center', marginTop: 4 },
 };
 
-export default function LoginScreen({ onLogin, loading }) {
+export default function LoginScreen({ onLogin, onSignUp, loading }) {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
@@ -79,6 +84,16 @@ export default function LoginScreen({ onLogin, loading }) {
         >
           {loading ? <Spinner size={20} color={C.white} /> : <span style={styles.buttonText}>Sign in</span>}
         </button>
+
+        {onSignUp && (
+          <button
+            style={{ ...styles.button, ...styles.buttonSecondary, ...(loading ? styles.buttonDisabled : {}) }}
+            onClick={onSignUp}
+            disabled={loading}
+          >
+            <span style={styles.buttonSecondaryText}>Create a new organization</span>
+          </button>
+        )}
 
         <span style={styles.hint}>You will be redirected to Kinde to authenticate.</span>
       </div>
