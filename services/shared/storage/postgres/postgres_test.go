@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -737,6 +738,165 @@ func TestAccount_ScanIntervalHours(t *testing.T) {
 	}
 	if got2.ScanIntervalHours != 6 {
 		t.Errorf("expected ScanIntervalHours 6 after update, got %d", got2.ScanIntervalHours)
+	}
+}
+
+// ── Role-based accounts (cross-account IAM role onboarding) ───────────────────
+
+func testRoleAccount(organizationID string) model.Account {
+	return model.Account{
+		ID:                uuid.New().String(),
+		OrganizationID:    organizationID,
+		Provider:          "aws",
+		Label:             "role account",
+		AuthMethod:        model.AuthMethodRole,
+		RoleARN:           "arn:aws:iam::123456789012:role/AxiaOpsIntegrationRole",
+		ExternalID:        "axops-ext-9f2a4d1e8b73",
+		Region:            "eu-central-1",
+		Status:            model.AccountStatusConnected,
+		ScanIntervalHours: 24,
+		CreatedAt:         time.Now().UTC(),
+	}
+}
+
+func TestAccount_RoleAuth_Roundtrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	a := testRoleAccount(org.ID)
+	if err := s.SaveAccount(ctx, a); err != nil {
+		t.Fatalf("SaveAccount role: %v", err)
+	}
+
+	got, err := s.GetAccount(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("GetAccount role: %v", err)
+	}
+	if got.AuthMethod != model.AuthMethodRole {
+		t.Errorf("AuthMethod = %q, want %q", got.AuthMethod, model.AuthMethodRole)
+	}
+	if got.RoleARN != a.RoleARN {
+		t.Errorf("RoleARN = %q, want %q", got.RoleARN, a.RoleARN)
+	}
+	if got.ExternalID != a.ExternalID {
+		t.Errorf("ExternalID = %q, want %q", got.ExternalID, a.ExternalID)
+	}
+	if got.AccessKeyID != "" || got.SecretEncrypted != "" {
+		t.Errorf("role-based account leaked access-key fields: AccessKeyID=%q SecretEncrypted=%q",
+			got.AccessKeyID, got.SecretEncrypted)
+	}
+}
+
+func TestAccount_AccessKey_DefaultAuthMethod(t *testing.T) {
+	// testAccount() leaves AuthMethod empty. The SaveAccount SQL must default
+	// it to 'access_key' so legacy callers (pre-MR3) keep working.
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	a := testAccount(org.ID)
+	if err := s.SaveAccount(ctx, a); err != nil {
+		t.Fatalf("SaveAccount: %v", err)
+	}
+
+	got, err := s.GetAccount(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if got.AuthMethod != model.AuthMethodAccessKey {
+		t.Errorf("AuthMethod = %q, want %q", got.AuthMethod, model.AuthMethodAccessKey)
+	}
+	if got.RoleARN != "" || got.ExternalID != "" {
+		t.Errorf("access-key account leaked role fields: RoleARN=%q ExternalID=%q",
+			got.RoleARN, got.ExternalID)
+	}
+}
+
+func TestAccount_RoleDraft_PendingStatus(t *testing.T) {
+	// Drafts have ExternalID populated but RoleARN empty until verify lands.
+	// The accounts_role_fields_present CHECK permits this only when
+	// status='pending_role_setup'.
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	a := testRoleAccount(org.ID)
+	a.RoleARN = ""
+	a.Status = model.AccountStatusPendingRoleSetup
+
+	if err := s.SaveAccount(ctx, a); err != nil {
+		t.Fatalf("SaveAccount draft: %v", err)
+	}
+
+	got, err := s.GetAccount(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if got.Status != model.AccountStatusPendingRoleSetup {
+		t.Errorf("Status = %q, want %q", got.Status, model.AccountStatusPendingRoleSetup)
+	}
+	if got.RoleARN != "" {
+		t.Errorf("RoleARN should be empty for draft, got %q", got.RoleARN)
+	}
+	if got.ExternalID == "" {
+		t.Error("ExternalID must be set on draft")
+	}
+}
+
+func TestAccount_RoleAuth_RejectsMissingExternalID(t *testing.T) {
+	// accounts_role_fields_present must reject auth_method='role' rows that
+	// lack an external_id.
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	a := testRoleAccount(org.ID)
+	a.ExternalID = ""
+
+	err := s.SaveAccount(ctx, a)
+	if err == nil {
+		t.Fatal("SaveAccount should reject role account with empty external_id")
+	}
+	// Postgres returns the constraint name in the error message.
+	if !strings.Contains(err.Error(), "accounts_role_fields_present") {
+		t.Errorf("expected accounts_role_fields_present violation, got: %v", err)
+	}
+}
+
+func TestAccount_RoleAuth_RejectsNonAWSProvider(t *testing.T) {
+	// accounts_role_only_for_aws keeps Azure/GCP rows out of the role auth
+	// method until those providers grow their own onboarding shape.
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	a := testRoleAccount(org.ID)
+	a.Provider = "azure"
+
+	err := s.SaveAccount(ctx, a)
+	if err == nil {
+		t.Fatal("SaveAccount should reject role account with provider=azure")
+	}
+	if !strings.Contains(err.Error(), "accounts_role_only_for_aws") {
+		t.Errorf("expected accounts_role_only_for_aws violation, got: %v", err)
+	}
+}
+
+func TestAccount_RoleAuth_RejectsInvalidAuthMethod(t *testing.T) {
+	// "oidc" trips both accounts_auth_method_check (value not in the IN list)
+	// and accounts_access_key_fields_present (value is neither 'access_key'
+	// nor 'role', so neither branch satisfies the constraint). Postgres only
+	// reports the first violation it hits, and the ordering is not stable —
+	// assert that *some* check rejects the row, which is what we actually care
+	// about.
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	a := testAccount(org.ID)
+	a.AuthMethod = "oidc"
+
+	err := s.SaveAccount(ctx, a)
+	if err == nil {
+		t.Fatal("SaveAccount should reject unknown auth_method")
+	}
+	if !strings.Contains(err.Error(), "check constraint") {
+		t.Errorf("expected a CHECK constraint violation, got: %v", err)
 	}
 }
 
