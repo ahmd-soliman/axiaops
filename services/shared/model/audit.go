@@ -36,9 +36,12 @@ const (
 	AuditActionSnoozeZombie         = "snooze_zombie"
 	AuditActionRevokeDismissal      = "revoke_dismissal"
 	AuditActionScanTriggered        = "scan_triggered"
-	AuditActionAccountConnected     = "account_connected"
-	AuditActionAccountUpdated       = "account_updated"
-	AuditActionAccountDeleted       = "account_deleted"
+	AuditActionAccountConnected           = "account_connected"
+	AuditActionAccountUpdated             = "account_updated"
+	AuditActionAccountDeleted             = "account_deleted"
+	AuditActionAccountRoleDraftCreated    = "account_role_draft_created"
+	AuditActionAccountRoleVerified        = "account_role_verified"
+	AuditActionAccountRoleVerifyFailed    = "account_role_verify_failed"
 	AuditActionMemberInvited        = "member_invited"
 	AuditActionMemberRoleChanged    = "member_role_changed"
 	AuditActionMemberRemoved        = "member_removed"
@@ -71,9 +74,12 @@ var ValidAuditActions = map[string]bool{
 	AuditActionSnoozeZombie:         true,
 	AuditActionRevokeDismissal:      true,
 	AuditActionScanTriggered:        true,
-	AuditActionAccountConnected:     true,
-	AuditActionAccountUpdated:       true,
-	AuditActionAccountDeleted:       true,
+	AuditActionAccountConnected:           true,
+	AuditActionAccountUpdated:             true,
+	AuditActionAccountDeleted:             true,
+	AuditActionAccountRoleDraftCreated:    true,
+	AuditActionAccountRoleVerified:        true,
+	AuditActionAccountRoleVerifyFailed:    true,
 	AuditActionMemberInvited:        true,
 	AuditActionMemberRoleChanged:    true,
 	AuditActionMemberRemoved:        true,

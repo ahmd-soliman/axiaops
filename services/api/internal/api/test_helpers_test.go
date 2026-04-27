@@ -61,6 +61,10 @@ type MockStore struct {
 		accountID string
 		status    string
 	}
+	lastSetAccountError struct {
+		accountID string
+		message   string
+	}
 	capturedOrganizationIDs    []string
 	lastListSnapshotsAccountID string
 	lastCostFilter             storage.CostFilter
@@ -391,8 +395,14 @@ func (m *MockStore) AuditLogAnonymiseUser(_ context.Context, userID string) (int
 
 func (m *MockStore) SaveAccount(_ context.Context, a model.Account) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.accounts {
+		if m.accounts[i].ID == a.ID {
+			m.accounts[i] = a
+			return nil
+		}
+	}
 	m.accounts = append(m.accounts, a)
-	m.mu.Unlock()
 	return nil
 }
 
@@ -438,6 +448,21 @@ func (m *MockStore) GetAccount(_ context.Context, id string) (model.Account, err
 	return model.Account{}, errors.New("not found")
 }
 
+// AccountByID is a test-only accessor that returns the latest persisted state
+// of an account from the in-memory store. Used by role-verify tests that need
+// to assert SaveAccount mutations after a handler returns.
+func (m *MockStore) AccountByID(id string) *model.Account {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.accounts {
+		if m.accounts[i].ID == id {
+			a := m.accounts[i]
+			return &a
+		}
+	}
+	return nil
+}
+
 func (m *MockStore) DeleteAccount(_ context.Context, _ string) error {
 	m.mu.Lock()
 	err := m.errDeleteAccount
@@ -463,6 +488,28 @@ func (m *MockStore) UpdateAccountStatus(_ context.Context, id, status string) er
 	return nil
 }
 
+func (m *MockStore) SetAccountError(_ context.Context, id, message string) error {
+	m.mu.Lock()
+	m.callsToUpdateStatus = append(m.callsToUpdateStatus, struct {
+		accountID string
+		status    string
+	}{id, "error"})
+	m.lastSetAccountError = struct {
+		accountID string
+		message   string
+	}{id, message}
+	ch := m.statusSignal
+	m.mu.Unlock()
+
+	if ch != nil {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+	return nil
+}
+
 func (m *MockStore) TryMarkAccountScanning(_ context.Context, id string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -476,6 +523,15 @@ func (m *MockStore) TryMarkAccountScanning(_ context.Context, id string) (bool, 
 	}
 	m.accountScanning[id] = true
 	return true, nil
+}
+
+// IsAccountScanning is a test-only accessor for the in-memory scan-lock map.
+// Used to assert that handlers short-circuited *before* calling
+// TryMarkAccountScanning (e.g. the pending_role_setup early return).
+func (m *MockStore) IsAccountScanning(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.accountScanning[id]
 }
 
 func (m *MockStore) SaveResources(_ context.Context, r []model.ResourceRecord) error {

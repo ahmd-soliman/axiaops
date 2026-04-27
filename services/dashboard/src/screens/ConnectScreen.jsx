@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { connectAccount, updateAccount } from '../api/client';
+import { connectAccount, updateAccount, draftAccount, verifyAccount } from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
+import { FEATURE_ROLE_AUTH, AXIAOPS_AWS_ACCOUNT_ID } from '../config';
 
-function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, theme }) {
+function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, theme, readOnly }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <label style={{ fontSize: 13, fontWeight: 600, color: theme.textMid }}>
@@ -21,21 +22,190 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint,
           fontFamily: mono ? 'monospace' : undefined,
         }}
         value={value}
-        onChange={e => onChange(e.target.value)}
+        onChange={e => onChange?.(e.target.value)}
         placeholder={placeholder}
         autoCapitalize="none"
         autoCorrect="off"
         type={type}
+        readOnly={readOnly}
       />
       {hint && <span style={{ fontSize: 12, color: theme.textMuted, fontStyle: 'italic' }}>{hint}</span>}
     </div>
   );
 }
 
-export default function ConnectScreen({ onConnected, onSkip, onCancel, account }) {
-  const { theme, isDark } = useTheme();
-  const isEdit = !!account;
+function CopyableBlock({ label, value, theme }) {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (_) { /* clipboard write may be blocked */ }
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <label style={{ fontSize: 13, fontWeight: 600, color: theme.textMid }}>{label}</label>
+        <button
+          onClick={handleCopy}
+          style={{ background: 'none', border: `1px solid ${theme.border}`, color: theme.textMid, fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <code style={{
+        display: 'block',
+        backgroundColor: theme.surfaceAlt,
+        border: `1px solid ${theme.border}`,
+        borderRadius: 8,
+        padding: '10px 12px',
+        fontSize: 13,
+        fontFamily: 'monospace',
+        color: theme.text,
+        wordBreak: 'break-all',
+      }}>{value}</code>
+    </div>
+  );
+}
 
+// Build the customer's trust policy JSON with the AxiaOps principal and the
+// per-account ExternalId already filled in. Mirrors design §3.1.
+function trustPolicyJSON(externalId) {
+  return JSON.stringify({
+    Version: '2012-10-17',
+    Statement: [{
+      Sid: 'AllowAxiaOpsToAssumeForReadOnlyScans',
+      Effect: 'Allow',
+      Principal: { AWS: `arn:aws:iam::${AXIAOPS_AWS_ACCOUNT_ID || '<AxiaOpsAccountId>'}:role/AxiaOpsScanner` },
+      Action: 'sts:AssumeRole',
+      Condition: { StringEquals: { 'sts:ExternalId': externalId } },
+    }],
+  }, null, 2);
+}
+
+// Role tab: two-step flow. Step 1 collects label + region and POSTs /draft.
+// Step 2 reveals ExternalId + the trust policy, lets the customer paste back
+// their freshly-created role ARN, and runs the verify round-trip.
+function RoleAuthTab({ onConnected, theme }) {
+  const [step, setStep] = useState('draft'); // 'draft' | 'verify'
+  const [draft, setDraft] = useState(null);
+  const [label, setLabel] = useState('');
+  const [region, setRegion] = useState('eu-central-1');
+  const [roleArn, setRoleArn] = useState('');
+  const [showJson, setShowJson] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [verifyHint, setVerifyHint] = useState('');
+
+  // Without AXIAOPS_AWS_ACCOUNT_ID the trust-policy template would render
+  // <AxiaOpsAccountId> literally and the customer would copy a broken policy
+  // into AWS. Block the flow with an explicit operator message instead.
+  const configMissing = !AXIAOPS_AWS_ACCOUNT_ID;
+
+  async function handleGenerate() {
+    setError('');
+    setLoading(true);
+    try {
+      const created = await draftAccount({
+        provider: 'aws',
+        label: label.trim() || 'My AWS Account',
+        region: region.trim() || 'eu-central-1',
+      });
+      setDraft(created);
+      setStep('verify');
+    } catch (e) {
+      setError('Failed to start onboarding. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerify() {
+    if (!roleArn.trim()) {
+      setError('Paste your role ARN before verifying.');
+      return;
+    }
+    setError('');
+    setVerifyHint('');
+    setLoading(true);
+    try {
+      const result = await verifyAccount(draft.id, { roleArn: roleArn.trim() });
+      onConnected(result);
+    } catch (e) {
+      setError(e.message || 'Verification failed.');
+      setVerifyHint(reasonToHint(e.reason));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (configMissing) {
+    return (
+      <ErrorBox
+        message="Role-based onboarding is not available in this environment."
+        hint="The dashboard was built without VITE_AXIAOPS_AWS_ACCOUNT_ID set. Use Access Keys instead, or contact your administrator."
+        theme={theme}
+      />
+    );
+  }
+
+  if (step === 'draft') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" theme={theme} />
+        <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono theme={theme} />
+        {error && <ErrorBox message={error} theme={theme} />}
+        <PrimaryButton onClick={handleGenerate} loading={loading} label="Generate connection" theme={theme} />
+      </div>
+    );
+  }
+
+  // step === 'verify'
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <CopyableBlock label="External ID (used in your trust policy)" value={draft.external_id} theme={theme} />
+      <CopyableBlock label="AxiaOps principal (allowed to assume your role)"
+        value={`arn:aws:iam::${AXIAOPS_AWS_ACCOUNT_ID || '<AxiaOpsAccountId>'}:role/AxiaOpsScanner`}
+        theme={theme} />
+
+      <button
+        onClick={() => setShowJson(s => !s)}
+        style={{ background: 'none', border: 'none', color: theme.textMid, fontSize: 13, textDecoration: 'underline', cursor: 'pointer', alignSelf: 'flex-start', padding: 0 }}
+      >
+        {showJson ? 'Hide trust policy JSON' : 'Show trust policy JSON'}
+      </button>
+      {showJson && <CopyableBlock label="Trust policy JSON" value={trustPolicyJSON(draft.external_id)} theme={theme} />}
+
+      <p style={{ fontSize: 13, color: theme.textMid, margin: 0 }}>
+        Once the role exists in your AWS account, paste its ARN below.
+      </p>
+      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::123456789012:role/AxiaOpsIntegrationRole" mono theme={theme} />
+
+      {error && <ErrorBox message={error} hint={verifyHint} theme={theme} />}
+      <PrimaryButton onClick={handleVerify} loading={loading} label="Verify and connect" theme={theme} />
+    </div>
+  );
+}
+
+function reasonToHint(reason) {
+  switch (reason) {
+    case 'trust_policy_mismatch':
+      return 'Make sure your role\'s trust policy lists the AxiaOps principal shown above.';
+    case 'external_id_mismatch':
+      return 'The ExternalId in your trust policy does not match the one we generated. Re-copy and re-apply it.';
+    case 'role_not_found':
+      return 'AWS could not find that role. Double-check the ARN and that the role exists in the same account.';
+    case 'malformed_policy':
+      return 'AWS rejected the trust policy as malformed. Compare against the JSON above.';
+    case 'access_denied':
+      return 'AWS returned AccessDenied. Verify the trust policy and ExternalId condition match exactly.';
+    default:
+      return '';
+  }
+}
+
+function AccessKeyTab({ onConnected, isEdit, account, theme, isDark }) {
   const [label, setLabel]             = useState(account?.label ?? '');
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
   const [secretKey, setSecretKey]     = useState('');
@@ -89,44 +259,217 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
   }
 
   return (
+    <>
+      {!isEdit && (
+        <div style={{
+          backgroundColor: isDark ? theme.surfaceRaised : '#EFF6FF',
+          border: `1px solid ${isDark ? theme.border : '#BFDBFE'}`,
+          borderRadius: 10,
+          padding: '14px 16px',
+          marginBottom: 18,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? theme.textMid : '#1D4ED8', display: 'block', marginBottom: 6 }}>
+            Required IAM permissions
+          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {['ReadOnlyAccess (or below)', 'ce:GetCostAndUsage', 'cloudwatch:GetMetricStatistics', 'ec2:DescribeAddresses'].map(p => (
+              <code key={p} style={{ fontSize: 12, color: theme.textMid, fontFamily: 'monospace', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', padding: '2px 6px', borderRadius: 4, display: 'inline-block', width: 'fit-content' }}>
+                {p}
+              </code>
+            ))}
+          </div>
+        </div>
+      )}
+      <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" theme={theme} />
+      <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono theme={theme} />
+      <Field
+        label="AWS Secret Access Key"
+        value={secretKey}
+        onChange={setSecretKey}
+        placeholder={isEdit ? 'Leave blank to keep existing' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'}
+        mono
+        type="password"
+        theme={theme}
+      />
+      <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono theme={theme} />
+      {isEdit && (
+        <Field
+          label="Auto-scan interval (hours)"
+          value={scanIntervalHours}
+          onChange={setScanIntervalHours}
+          placeholder="24"
+          type="number"
+          hint="0 = on-demand only, or enter hours between automatic scans"
+          theme={theme}
+        />
+      )}
+      {error && <ErrorBox message={error} theme={theme} />}
+      <PrimaryButton onClick={handleSubmit} loading={loading} label={isEdit ? 'Save Changes' : 'Connect Account'} theme={theme} />
+    </>
+  );
+}
+
+// RoleEditTab covers re-verification of a role-based account that already
+// exists. The customer can edit label, region, and scan interval; if the role
+// ARN itself needs to change, they paste a new one and we re-verify.
+function RoleEditTab({ account, onConnected, theme }) {
+  const [label, setLabel] = useState(account.label ?? '');
+  const [region, setRegion] = useState(account.region ?? 'eu-central-1');
+  const [scanIntervalHours, setScanIntervalHours] = useState(account.scan_interval_hours?.toString() ?? '24');
+  const [roleArn, setRoleArn] = useState(account.role_arn ?? '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [verifyHint, setVerifyHint] = useState('');
+
+  const roleArnChanged = roleArn.trim() !== (account.role_arn ?? '');
+
+  async function handleSubmit() {
+    setError('');
+    setVerifyHint('');
+    setLoading(true);
+    try {
+      const scanInterval = parseInt(scanIntervalHours, 10);
+      if (isNaN(scanInterval) || scanInterval < 0) {
+        setError('Scan interval must be a number ≥ 0.');
+        return;
+      }
+      // Apply non-credential edits first so label / region / scan interval
+      // changes do not get silently dropped when the user also changes the
+      // role ARN. PATCH /v1/accounts/{id} ignores role_arn here because it is
+      // not in the body — the verify round-trip happens in the second call.
+      const updated = await updateAccount(account.id, {
+        label: label.trim() || 'My AWS Account',
+        region: region.trim() || 'eu-central-1',
+        scan_interval_hours: scanInterval,
+      });
+      if (roleArnChanged) {
+        const verified = await verifyAccount(account.id, { roleArn: roleArn.trim() });
+        onConnected(verified);
+        return;
+      }
+      onConnected(updated);
+    } catch (e) {
+      setError(e.message || 'Failed to update.');
+      setVerifyHint(reasonToHint(e.reason));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <CopyableBlock label="External ID (read-only)" value={account.external_id ?? ''} theme={theme} />
+      <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production" theme={theme} />
+      <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono theme={theme} />
+      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::..." mono theme={theme}
+        hint={roleArnChanged ? 'Save will re-verify this role with AWS STS.' : 'Paste a new ARN to re-verify.'} />
+      <Field
+        label="Auto-scan interval (hours)"
+        value={scanIntervalHours}
+        onChange={setScanIntervalHours}
+        placeholder="24"
+        type="number"
+        hint="0 = on-demand only, or enter hours between automatic scans"
+        theme={theme}
+      />
+      {error && <ErrorBox message={error} hint={verifyHint} theme={theme} />}
+      <PrimaryButton onClick={handleSubmit} loading={loading} label="Save Changes" theme={theme} />
+    </>
+  );
+}
+
+function ErrorBox({ message, hint, theme }) {
+  return (
+    <div style={{ backgroundColor: `${theme.error}18`, border: `1px solid ${theme.error}40`, borderRadius: 8, padding: '10px 12px' }}>
+      <span style={{ fontSize: 13, color: theme.error, fontWeight: 500 }}>{message}</span>
+      {hint && <div style={{ fontSize: 12, color: theme.textMid, marginTop: 4 }}>{hint}</div>}
+    </div>
+  );
+}
+
+function PrimaryButton({ onClick, loading, label, theme }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      style={{
+        backgroundColor: theme.accent,
+        borderRadius: 10,
+        padding: '14px',
+        border: 'none',
+        cursor: loading ? 'not-allowed' : 'pointer',
+        opacity: loading ? 0.65 : 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
+        marginTop: 4,
+      }}
+    >
+      {loading
+        ? <Spinner size={20} color="#fff" />
+        : <span style={{ color: '#fff', fontSize: 15, fontWeight: 700 }}>{label}</span>
+      }
+    </button>
+  );
+}
+
+function TabButton({ active, label, onClick, theme }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        flex: 1,
+        background: active ? theme.surfaceRaised : 'transparent',
+        border: `1px solid ${active ? theme.accent : theme.border}`,
+        borderRadius: 8,
+        padding: '10px 12px',
+        cursor: 'pointer',
+        color: active ? theme.text : theme.textMid,
+        fontSize: 13,
+        fontWeight: active ? 700 : 500,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+export default function ConnectScreen({ onConnected, onSkip, onCancel, account }) {
+  const { theme, isDark } = useTheme();
+  const isEdit = !!account;
+  const isRoleEdit = isEdit && account.auth_method === 'role';
+
+  // Default to role tab when the feature flag is on and we are not editing an
+  // existing access-key account (where forcing a tab swap would be confusing).
+  const [activeTab, setActiveTab] = useState(
+    FEATURE_ROLE_AUTH && !isEdit ? 'role' : 'access_key',
+  );
+
+  return (
     <div style={{ minHeight: '100%', backgroundColor: theme.bg }}>
       <div style={{ maxWidth: 520, margin: '0 auto', padding: '32px 20px 64px' }}>
 
-        {/* Header */}
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: theme.text, margin: '0 0 6px' }}>
             {isEdit ? 'Edit AWS Account' : 'Connect AWS Account'}
           </h1>
           <p style={{ fontSize: 14, color: theme.textMid, lineHeight: '21px', margin: 0 }}>
             {isEdit
-              ? 'Update credentials or settings. Leave the secret key blank to keep the existing one.'
-              : 'Create a read-only IAM user in your AWS account and paste the credentials below.'}
+              ? (isRoleEdit
+                  ? 'Update settings or paste a new role ARN to re-verify the connection.'
+                  : 'Update credentials or settings. Leave the secret key blank to keep the existing one.')
+              : 'Pick how you would like to connect.'}
           </p>
         </div>
 
-        {/* IAM permissions info box */}
-        {!isEdit && (
-          <div style={{
-            backgroundColor: isDark ? theme.surfaceRaised : '#EFF6FF',
-            border: `1px solid ${isDark ? theme.border : '#BFDBFE'}`,
-            borderRadius: 10,
-            padding: '14px 16px',
-            marginBottom: 24,
-          }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? theme.textMid : '#1D4ED8', display: 'block', marginBottom: 6 }}>
-              Required IAM permissions
-            </span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {['ReadOnlyAccess (or below)', 'ce:GetCostAndUsage', 'cloudwatch:GetMetricStatistics', 'ec2:DescribeAddresses'].map(p => (
-                <code key={p} style={{ fontSize: 12, color: theme.textMid, fontFamily: 'monospace', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', padding: '2px 6px', borderRadius: 4, display: 'inline-block', width: 'fit-content' }}>
-                  {p}
-                </code>
-              ))}
-            </div>
+        {!isEdit && FEATURE_ROLE_AUTH && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+            <TabButton active={activeTab === 'role'} label="Role ARN (recommended)" onClick={() => setActiveTab('role')} theme={theme} />
+            <TabButton active={activeTab === 'access_key'} label="Access Keys" onClick={() => setActiveTab('access_key')} theme={theme} />
           </div>
         )}
 
-        {/* Form card */}
         <div style={{
           backgroundColor: theme.surface,
           border: `1px solid ${theme.border}`,
@@ -136,58 +479,13 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
           flexDirection: 'column',
           gap: 18,
         }}>
-          <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" theme={theme} />
-          <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono theme={theme} />
-          <Field
-            label="AWS Secret Access Key"
-            value={secretKey}
-            onChange={setSecretKey}
-            placeholder={isEdit ? 'Leave blank to keep existing' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'}
-            mono
-            type="password"
-            theme={theme}
-          />
-          <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono theme={theme} />
-          {isEdit && (
-            <Field
-              label="Auto-scan interval (hours)"
-              value={scanIntervalHours}
-              onChange={setScanIntervalHours}
-              placeholder="24"
-              type="number"
-              hint="0 = on-demand only, or enter hours between automatic scans"
-              theme={theme}
-            />
+          {isRoleEdit ? (
+            <RoleEditTab account={account} onConnected={onConnected} theme={theme} />
+          ) : activeTab === 'role' ? (
+            <RoleAuthTab onConnected={onConnected} theme={theme} />
+          ) : (
+            <AccessKeyTab onConnected={onConnected} isEdit={isEdit} account={account} theme={theme} isDark={isDark} />
           )}
-
-          {error && (
-            <div style={{ backgroundColor: `${theme.error}18`, border: `1px solid ${theme.error}40`, borderRadius: 8, padding: '10px 12px' }}>
-              <span style={{ fontSize: 13, color: theme.error, fontWeight: 500 }}>{error}</span>
-            </div>
-          )}
-
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            style={{
-              backgroundColor: theme.accent,
-              borderRadius: 10,
-              padding: '14px',
-              border: 'none',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.65 : 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '100%',
-              marginTop: 4,
-            }}
-          >
-            {loading
-              ? <Spinner size={20} color="#fff" />
-              : <span style={{ color: '#fff', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Save Changes' : 'Connect Account'}</span>
-            }
-          </button>
 
           {onSkip && (
             <button onClick={onSkip} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', textAlign: 'center', width: '100%' }}>

@@ -23,7 +23,6 @@ import (
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/shared/analyzer"
-	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/errors"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
@@ -136,13 +135,20 @@ func main() {
 
 		if err := runScan(ctx, store, req.AccountID); err != nil {
 			slog.Error("scan: ingestion failed", "account_id", req.AccountID, "error", err)
-			_ = store.UpdateAccountStatus(ctx, req.AccountID, "error")
+			// Persist the failure reason on the row so the dashboard can surface
+			// it without forcing operators into the logs (design §6.6). Same
+			// path serves access-key and role accounts.
+			_ = store.SetAccountError(ctx, req.AccountID, err.Error())
 			http.Error(w, "ingestion failed", http.StatusInternalServerError)
 			return
 		}
 		_ = store.UpdateAccountStatus(ctx, req.AccountID, "connected")
 		w.WriteHeader(http.StatusOK)
 	})
+
+	// Cross-account role verification — synchronous AssumeRole probe used by
+	// the dashboard's "Verify and connect" flow. Stateless: no DB writes.
+	mux.HandleFunc("POST /v1/credentials/verify", handleVerifyCredentials)
 
 	port := os.Getenv("INGESTION_PORT")
 	if port == "" {
@@ -277,15 +283,11 @@ func main() {
 }
 
 // scanAWS supplies per-account static credentials. Nil uses the default chain.
-type scanAWS struct {
-	AccessKeyID string
-	SecretKey   string
-	Region      string
-}
-
 // runScan fetches costs, detects zombies, and writes results to the store.
 // accountID is the internal DB account UUID; pass "" for one-shot/dev mode.
-// Credentials are loaded from the DB when accountID is non-empty.
+// Credentials are loaded from the DB when accountID is non-empty — and either
+// decrypted (access-key auth) or assumed via STS (role auth) inside
+// aws.NewForAccount, so this function no longer cares about the difference.
 func runScan(ctx context.Context, store storage.Store, accountID string) error {
 	// Production: require database credentials only
 	if accountID == "" {
@@ -296,8 +298,8 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 		}
 	}
 
-	var keys *scanAWS
 	var account model.Account
+	var hasAccount bool
 
 	if accountID != "" {
 		var err error
@@ -305,23 +307,14 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 		if err != nil {
 			return fmt.Errorf("get account: %w", err)
 		}
-		if account.SecretEncrypted == "" {
-			return fmt.Errorf("account %s has no credentials configured", accountID)
-		}
-		secret, err := crypto.Decrypt(account.SecretEncrypted)
-		if err != nil {
-			return fmt.Errorf("decrypt credentials: %w", err)
-		}
-		keys = &scanAWS{
-			AccessKeyID: account.AccessKeyID,
-			SecretKey:   secret,
-			Region:      account.Region,
-		}
+		hasAccount = true
 	}
 
-	// Before scanning, update account_id if empty by connecting to AWS and getting the account ID
-	if accountID != "" && account.AccountID == "" && keys != nil {
-		awsClient, err := aws.NewWithStaticCredentials(ctx, keys.AccessKeyID, keys.SecretKey, keys.Region)
+	// Before scanning, populate account_id (the customer's AWS account number)
+	// if it is missing. Both auth paths return it via GetCallerIdentity inside
+	// NewForAccount, so we just construct a client once and ask.
+	if hasAccount && account.AccountID == "" {
+		awsClient, err := aws.NewForAccount(ctx, account)
 		if err == nil {
 			account.AccountID = awsClient.AccountID()
 			if err := store.SaveAccount(ctx, account); err != nil {
@@ -331,25 +324,29 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 		}
 	}
 
-	return runIngestionCore(ctx, store, accountID, keys)
+	var accountPtr *model.Account
+	if hasAccount {
+		accountPtr = &account
+	}
+	return runIngestionCore(ctx, store, accountID, accountPtr)
 }
 
 // runIngestionCore is the shared implementation used by runScan and the HTTP handler.
-func runIngestionCore(ctx context.Context, store storage.Store, accountID string, keys *scanAWS) error {
-	// In DEV_MODE, skip scan only if no real credentials are provided
-	if os.Getenv("DEV_MODE") == "true" && keys == nil {
-		slog.Info("ingestion: DEV_MODE — skipping AWS scan (no credentials)", "account_id", accountID)
+func runIngestionCore(ctx context.Context, store storage.Store, accountID string, account *model.Account) error {
+	// In DEV_MODE, skip scan only if no account is configured
+	if os.Getenv("DEV_MODE") == "true" && account == nil {
+		slog.Info("ingestion: DEV_MODE — skipping AWS scan (no account)", "account_id", accountID)
 		return nil
 	}
 
-	// Require credentials for actual AWS scan
-	if keys == nil {
+	// Require an account row for any real scan
+	if account == nil {
 		return fmt.Errorf("AWS credentials required - configure account in database")
 	}
 
 	var providers []provider.Provider
 
-	awsClient, err := aws.NewWithStaticCredentials(ctx, keys.AccessKeyID, keys.SecretKey, keys.Region)
+	awsClient, err := aws.NewForAccount(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("aws init: %w", err)
 	}
@@ -710,6 +707,12 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Que
 	now := time.Now()
 	for _, acc := range accounts {
 		if acc.Status == "scanning" {
+			continue
+		}
+		// Drafts have no credentials yet — every tick would re-enqueue a
+		// guaranteed-to-fail scan and stuck-mark the row. Skip until the
+		// customer finishes the role-onboarding flow (PATCH /v1/accounts/{id}).
+		if acc.Status == model.AccountStatusPendingRoleSetup {
 			continue
 		}
 		if acc.ScanIntervalHours < 0 {
