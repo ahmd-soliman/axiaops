@@ -292,12 +292,22 @@ func main() {
 }
 
 // buildKindeClient picks the Kinde Management API client based on environment.
-// DEV_MODE=true → in-memory stub (no network). Otherwise constructs a real
-// HTTPClient if KINDE_M2M_CLIENT_ID/SECRET are set, else returns a stub which
-// causes invitation handlers to 503 (deliberate — operator must configure).
+//
+//	DEV_MODE=true                 → in-memory stub (no network)
+//	KINDE_USE_STUB=true           → in-memory stub (opt-in for staging without real M2M)
+//	M2M creds set                 → real HTTPClient
+//	M2M creds unset, no opt-in    → nil (handlers return 503 until configured)
+//
+// KINDE_USE_STUB is the escape hatch for `make start-staging` when the operator
+// hasn't wired up a real Kinde M2M app yet — invitation/rename flows succeed
+// locally without sending real Kinde calls. Never set this in production.
 func buildKindeClient() kinde.Client {
 	if os.Getenv("DEV_MODE") == "true" {
 		slog.Info("kinde: DEV_MODE — using in-memory stub")
+		return kinde.NewStub()
+	}
+	if os.Getenv("KINDE_USE_STUB") == "true" {
+		slog.Warn("kinde: KINDE_USE_STUB=true — using in-memory stub. Invitation emails and Kinde-side org renames are NO-OPS. Do not enable in production.")
 		return kinde.NewStub()
 	}
 	issuer := os.Getenv("KINDE_ISSUER")
@@ -305,7 +315,7 @@ func buildKindeClient() kinde.Client {
 	clientID := os.Getenv("KINDE_M2M_CLIENT_ID")
 	clientSecret := os.Getenv("KINDE_M2M_CLIENT_SECRET")
 	if issuer == "" || clientID == "" || clientSecret == "" {
-		slog.Warn("kinde: KINDE_M2M_CLIENT_ID/SECRET unset — invitations will return 503 until configured")
+		slog.Warn("kinde: KINDE_M2M_CLIENT_ID/SECRET unset — invitations will return 503. Set KINDE_USE_STUB=true for local staging.")
 		return nil
 	}
 	c, err := kinde.New(issuer, mgmtURL, clientID, clientSecret)
