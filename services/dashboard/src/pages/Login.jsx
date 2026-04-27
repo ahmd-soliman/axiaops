@@ -13,6 +13,16 @@ export default function Login() {
     if (DEV_MODE || getToken()) navigate('/', { replace: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reset the busy state when the user comes back via the browser back button.
+  // Both client.login() and client.register() redirect the browser away mid-call;
+  // bfcache restores this page with React state intact, leaving the button stuck
+  // showing the spinner. pageshow with persisted=true indicates bfcache restore.
+  useEffect(() => {
+    const handler = (e) => { if (e.persisted) setBusy(false); };
+    window.addEventListener('pageshow', handler);
+    return () => window.removeEventListener('pageshow', handler);
+  }, []);
+
   async function handleLogin() {
     setBusy(true);
     try {
