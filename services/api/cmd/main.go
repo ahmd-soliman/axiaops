@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"axiaops.io/api/internal/api"
+	"axiaops.io/api/internal/kinde"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/logging"
@@ -127,6 +128,11 @@ func main() {
 	if os.Getenv("REDIS_URL") != "" {
 		h = h.WithRedisCache(c)
 	}
+	// Wire the Kinde Mgmt API client. DEV_MODE=true uses an in-memory stub so
+	// invitations work locally without real Kinde credentials; production
+	// requires KINDE_M2M_CLIENT_ID + KINDE_M2M_CLIENT_SECRET. Without either,
+	// /v1/invitations and PATCH /v1/organizations/me return 503.
+	h = h.WithKinde(buildKindeClient())
 	h.Register(mux)
 	mux.Handle("/metrics", promhttp.Handler())
 
@@ -283,4 +289,30 @@ func main() {
 		shutdownDuration := time.Since(shutdownStart).Seconds()
 		slog.Info("api: shutdown complete", "duration_seconds", fmt.Sprintf("%.2f", shutdownDuration))
 	}
+}
+
+// buildKindeClient picks the Kinde Management API client based on environment.
+// DEV_MODE=true → in-memory stub (no network). Otherwise constructs a real
+// HTTPClient if KINDE_M2M_CLIENT_ID/SECRET are set, else returns a stub which
+// causes invitation handlers to 503 (deliberate — operator must configure).
+func buildKindeClient() kinde.Client {
+	if os.Getenv("DEV_MODE") == "true" {
+		slog.Info("kinde: DEV_MODE — using in-memory stub")
+		return kinde.NewStub()
+	}
+	issuer := os.Getenv("KINDE_ISSUER")
+	mgmtURL := os.Getenv("KINDE_MGMT_API_URL")
+	clientID := os.Getenv("KINDE_M2M_CLIENT_ID")
+	clientSecret := os.Getenv("KINDE_M2M_CLIENT_SECRET")
+	if issuer == "" || clientID == "" || clientSecret == "" {
+		slog.Warn("kinde: KINDE_M2M_CLIENT_ID/SECRET unset — invitations will return 503 until configured")
+		return nil
+	}
+	c, err := kinde.New(issuer, mgmtURL, clientID, clientSecret)
+	if err != nil {
+		slog.Error("kinde: client init failed", "error", err)
+		return nil
+	}
+	slog.Info("kinde: management API client initialised")
+	return c
 }
