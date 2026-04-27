@@ -124,7 +124,6 @@ All secrets are stored in AWS Secrets Manager — not in environment variables o
 - `ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM
 - `DATABASE_URL` / `MIGRATION_DATABASE_URL` — RDS connection strings
 - `REDIS_URL` — ElastiCache endpoint
-- `KINDE_CLIENT_SECRET` — Kinde OAuth client secret
 
 **Key rotation warning:** Rotating `ENCRYPTION_KEY` is not a simple env var swap.
 All `secret_encrypted` values in the `accounts` table must be decrypted with the
