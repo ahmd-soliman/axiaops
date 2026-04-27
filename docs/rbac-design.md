@@ -3,18 +3,7 @@
 Status: implemented (Phase 1 — branch feat/rbac-phase1).
 Supersedes the role sketch in `docs/user_onboarding.md`.
 
-> **Phase 3 #14 — app-owned organisations.** The decision in §3
-> ("AxiaOps owns authorization, ignores Kinde's role claims") is
-> being mirrored on the organisation primitive. Today the org
-> identity comes from Kinde's `org_code` JWT claim; Phase 3 #14
-> moves it fully app-side (`POST /v1/organizations`,
-> `pending_invitations`, `X-Organization-ID` header). See
-> `docs/onboarding-and-app-owned-orgs.md` for the design and
-> sequencing. Nothing in this RBAC doc changes — `memberships`,
-> roles, the four-role matrix, the permission model, RLS, and the
-> two-tier promote/demote rules all stay exactly as designed.
-> What changes is *how the org context arrives in a request* and
-> *how a new org gets created*.
+> **Org primitive: stays Kinde-coupled.** The §3 stance ("AxiaOps owns authorization, ignores Kinde's role claims") applies to *roles and permissions only*. The *org primitive* stays sourced from Kinde's `org_code` JWT claim — the alternative "app-owned organisations" plan was evaluated and explicitly **not pursued** (see `docs/onboarding-and-app-owned-orgs.md`, marked superseded). Self-serve org creation uses Kinde's "Create organization on sign up" toggle; email-based team invitations use Kinde's Management API and are redeemed in auth middleware (see `docs/invitation-flow.md`). Nothing in this doc changes — the four-role matrix, permission model, RLS, and promote/demote rules all stand.
 
 ---
 
