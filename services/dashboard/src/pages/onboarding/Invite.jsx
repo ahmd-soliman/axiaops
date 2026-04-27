@@ -50,16 +50,16 @@ export default function OnboardingInvite() {
         const code = err?.body?.error;
         const msg = err?.body?.message || `Could not invite ${row.email}.`;
         if (code === 'already_a_member') {
-          toast({ kind: 'info', message: `${row.email} is already a member.` });
+          toast(`${row.email} is already a member.`, 'info');
         } else if (code === 'user_exists_use_memberships') {
-          toast({ kind: 'info', message: `${row.email} already has an account — add them from Settings → Team.` });
+          toast(`${row.email} already has an account — add them from Settings → Team.`, 'info');
         } else {
-          toast({ kind: 'error', message: msg });
+          toast(msg, 'error');
         }
       }
     }
     if (succeeded > 0) {
-      toast({ kind: 'success', message: `Invitations sent to ${succeeded} teammate${succeeded === 1 ? '' : 's'}.` });
+      toast(`Invitations sent to ${succeeded} teammate${succeeded === 1 ? '' : 's'}.`, 'success');
     }
     setSending(false);
     navigate('/onboarding/aws-account');

@@ -72,6 +72,14 @@ services:
       DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Kinde Management API — set M2M creds for real invitation emails and
+      # outbound org rename. For local staging without a real M2M app set
+      # KINDE_USE_STUB=true (defaults to true here so `make start-staging`
+      # works out of the box). Set to false (and provide M2M creds) for prod.
+      KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
+      KINDE_M2M_CLIENT_ID: ${KINDE_M2M_CLIENT_ID:-}
+      KINDE_M2M_CLIENT_SECRET: ${KINDE_M2M_CLIENT_SECRET:-}
+      KINDE_USE_STUB: ${KINDE_USE_STUB:-true}
     ports:
       - "8080:8080"
     depends_on:
@@ -94,9 +102,18 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_KINDE_ISSUER: ${VITE_KINDE_ISSUER:-https://axiaops.kinde.com}
-        VITE_KINDE_CLIENT_ID: ${VITE_KINDE_CLIENT_ID:-7e07b95e4d2c45afad5f88a0fa8ebcba}
+        VITE_KINDE_CLIENT_ID: ${VITE_KINDE_CLIENT_ID:-9fc9d3b7d0024947bd3c9fa253dfd28c}
         VITE_API_URL: /api
         VITE_DEV_MODE: ${DEV_MODE:-true}
+    # Runtime env consumed by inject-env.sh (writes window.__ENV__ on
+    # container start). Without this block, KINDE_ISSUER / KINDE_CLIENT_ID
+    # are empty strings, the Kinde SDK rejects with "Please supply a valid
+    # Kinde domain", and login fails before redirecting.
+    environment:
+      DEV_MODE: ${DEV_MODE:-true}
+      KINDE_ISSUER: ${VITE_KINDE_ISSUER:-https://axiaops.kinde.com}
+      KINDE_CLIENT_ID: ${VITE_KINDE_CLIENT_ID:-9fc9d3b7d0024947bd3c9fa253dfd28c}
+      DEV_ORG_NAME: ${DEV_ORG_NAME:-AxiaOps Dev}
     container_name: axiaops-dashboard
     ports:
       - "8082:80"
