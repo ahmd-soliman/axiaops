@@ -91,7 +91,7 @@ export default function LoginScreen({ onLogin, onSignUp, loading }) {
             onClick={onSignUp}
             disabled={loading}
           >
-            <span style={styles.buttonSecondaryText}>Create a new organization</span>
+            <span style={styles.buttonSecondaryText}>Sign up</span>
           </button>
         )}
 
