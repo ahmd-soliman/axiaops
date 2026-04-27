@@ -26,12 +26,15 @@ export default function OnboardingOrgName() {
     setSaving(true);
     try {
       await patchOrganization(trimmed);
-      await refresh();
-      navigate('/onboarding/invite');
+      // Navigate before refresh — refreshing first can trigger MeContext state
+      // updates that re-evaluate OnboardingGate while we're still on this
+      // route, briefly remounting before navigation lands. Navigate first so
+      // the route transition happens cleanly, then refresh in the background.
+      navigate('/onboarding/invite', { replace: true });
+      refresh();
     } catch (err) {
       const msg = err?.body?.message || 'Could not save the name. Please retry.';
       toast(msg, 'error');
-    } finally {
       setSaving(false);
     }
   }
