@@ -130,6 +130,29 @@ func (m *mockStoreForScheduler) GetUserByEmail(context.Context, string) (model.U
 }
 func (m *mockStoreForScheduler) DeleteUser(context.Context, string) error                { return nil }
 func (m *mockStoreForScheduler) DeleteOrganizationCascade(context.Context, string) error { return nil }
+func (m *mockStoreForScheduler) CreatePendingInvitation(context.Context, model.PendingInvitation) (model.PendingInvitation, bool, error) {
+	return model.PendingInvitation{}, false, nil
+}
+func (m *mockStoreForScheduler) UpdateInvitationKindeIDs(context.Context, string, string, string) error {
+	return nil
+}
+func (m *mockStoreForScheduler) ListPendingInvitations(context.Context, string) ([]model.PendingInvitation, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) GetPendingInvitation(context.Context, string) (model.PendingInvitation, error) {
+	return model.PendingInvitation{}, nil
+}
+func (m *mockStoreForScheduler) RevokePendingInvitation(context.Context, string) error { return nil }
+func (m *mockStoreForScheduler) RedeemPendingInvitation(context.Context, string, string, string) (bool, error) {
+	return false, nil
+}
+func (m *mockStoreForScheduler) ExpirePendingInvitations(context.Context) (int64, error) {
+	return 0, nil
+}
+func (m *mockStoreForScheduler) RenameOrganization(context.Context, string) error { return nil }
+func (m *mockStoreForScheduler) MarkOnboardingComplete(context.Context) (time.Time, error) {
+	return time.Time{}, nil
+}
 
 // captureQueue records enqueued jobs.
 type captureQueue struct{ jobs []queue.ScanJob }

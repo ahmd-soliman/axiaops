@@ -318,6 +318,40 @@ export async function transferOwnership(toUserID) {
   });
 }
 
+// ── Email invitations (Phase 2) ─────────────────────────────────────────────
+
+export async function listInvitations(status) {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  return request(`/v1/invitations${qs}`);
+}
+
+// createInvitation sends an email invitation. Returns 201 on first invite,
+// 200 on re-invite (refreshed pending row), 409 on already-member or
+// existing-user-no-membership (with structured error code in body).
+export async function createInvitation(email, role, name) {
+  return request('/v1/invitations', {
+    method: 'POST',
+    body: { email, role, name },
+  });
+}
+
+export async function revokeInvitation(id) {
+  return request(`/v1/invitations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+// ── Organization rename + onboarding (Phase 2) ─────────────────────────────
+
+export async function patchOrganization(name) {
+  return request('/v1/organizations/me', { method: 'PATCH', body: { name } });
+}
+
+export async function completeOnboarding(stepsSkipped = []) {
+  return request('/v1/organizations/me/onboarding/complete', {
+    method: 'POST',
+    body: { steps_skipped: stepsSkipped },
+  });
+}
+
 // ── GDPR right-to-erasure ───────────────────────────────────────────────────
 //
 // Both go through `request()` so a 409 (sole-owner refusal on /users/me)

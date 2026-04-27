@@ -392,21 +392,39 @@ func TestUpsertOrganization_ReturnsSameIDOnSecondCall(t *testing.T) {
 	}
 }
 
-func TestUpsertOrganization_UpdatesName(t *testing.T) {
+// TestUpsertOrganization_PreservesLocalName is the regression guard for the
+// name-clobber bug fixed in docs/onboarding-wizard.md §3. Once an organization
+// row exists, AxiaOps owns the `name` field — subsequent UpsertOrganization
+// calls (which run on every authenticated request via the auth middleware)
+// must not overwrite a local rename with whatever org_name claim Kinde sent.
+// Renames go through PATCH /v1/organizations/me + RenameOrganization.
+func TestUpsertOrganization_PreservesLocalName(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	orgCode := "org_" + uuid.New().String()
 
-	_, err := s.UpsertOrganization(ctx, orgCode, "Old Name")
+	first, err := s.UpsertOrganization(ctx, orgCode, "Kinde Default")
 	if err != nil {
 		t.Fatalf("first UpsertOrganization: %v", err)
 	}
-	updated, err := s.UpsertOrganization(ctx, orgCode, "New Name")
+	if first.Name != "Kinde Default" {
+		t.Fatalf("first insert: expected Kinde Default, got %s", first.Name)
+	}
+
+	// Simulate a local rename (the path PATCH /v1/organizations/me would take).
+	rctx := storage.WithOrganizationID(ctx, first.ID)
+	if err := s.RenameOrganization(rctx, "Acme Corp"); err != nil {
+		t.Fatalf("RenameOrganization: %v", err)
+	}
+
+	// A subsequent UpsertOrganization (the auth middleware runs this on every
+	// request) carrying a different name — must NOT clobber the local rename.
+	preserved, err := s.UpsertOrganization(ctx, orgCode, "Some Other Name From JWT")
 	if err != nil {
 		t.Fatalf("second UpsertOrganization: %v", err)
 	}
-	if updated.Name != "New Name" {
-		t.Errorf("expected name New Name, got %s", updated.Name)
+	if preserved.Name != "Acme Corp" {
+		t.Errorf("expected local rename preserved (Acme Corp), got %s", preserved.Name)
 	}
 }
 

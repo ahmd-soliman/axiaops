@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,6 +82,9 @@ type MockStore struct {
 	users          []model.User
 	fixedRole      string // role returned by RoleOf when roleOverridden is true
 	roleOverridden bool   // distinguishes "explicitly empty" from "not set"
+
+	// ── Pending invitations (Phase 2 invitations) ──
+	pendingInvitations []model.PendingInvitation
 
 	// ── Account Status (for concurrency testing) ──
 	accountScanning map[string]bool // account ID → is scanning
@@ -915,4 +919,204 @@ func (m *MockStore) countOwnersLocked(organizationID string) int {
 		}
 	}
 	return n
+}
+
+// ── Organization rename + onboarding (Phase 2) ───────────────────────────────
+
+func (m *MockStore) RenameOrganization(_ context.Context, _ string) error {
+	// Tests don't yet exercise rename — minimal stub.
+	return nil
+}
+
+func (m *MockStore) MarkOnboardingComplete(_ context.Context) (time.Time, error) {
+	return time.Now().UTC(), nil
+}
+
+// ── Pending invitations (Phase 2) ────────────────────────────────────────────
+
+// WithPendingInvitations seeds the mock with pending invitation rows for tests.
+func (m *MockStore) WithPendingInvitations(invs []model.PendingInvitation) *MockStore {
+	m.mu.Lock()
+	m.pendingInvitations = append([]model.PendingInvitation(nil), invs...)
+	m.mu.Unlock()
+	return m
+}
+
+func (m *MockStore) CreatePendingInvitation(_ context.Context, inv model.PendingInvitation) (model.PendingInvitation, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	emailLower := strings.ToLower(inv.Email)
+
+	// Pre-check: existing user / membership in this org.
+	for _, u := range m.users {
+		if u.OrganizationID != inv.OrganizationID || strings.ToLower(u.Email) != emailLower {
+			continue
+		}
+		for _, mb := range m.memberships {
+			if mb.OrganizationID == inv.OrganizationID && mb.UserID == u.ID {
+				return model.PendingInvitation{}, false, storage.ErrInvitationAlreadyMember
+			}
+		}
+		return model.PendingInvitation{}, false, storage.ErrUserExistsNoMembership
+	}
+
+	now := time.Now().UTC()
+	if inv.ExpiresAt.IsZero() {
+		inv.ExpiresAt = now.Add(14 * 24 * time.Hour)
+	}
+
+	// Upsert against pending row.
+	for i, existing := range m.pendingInvitations {
+		if existing.OrganizationID != inv.OrganizationID || strings.ToLower(existing.Email) != emailLower {
+			continue
+		}
+		if existing.Status != model.InvitationStatusPending {
+			continue
+		}
+		// Update existing pending row in place.
+		m.pendingInvitations[i].Role = inv.Role
+		m.pendingInvitations[i].ExpiresAt = inv.ExpiresAt
+		m.pendingInvitations[i].InvitedByUserID = inv.InvitedByUserID
+		m.pendingInvitations[i].InvitedByEmail = inv.InvitedByEmail
+		m.pendingInvitations[i].UpdatedAt = now
+		return m.pendingInvitations[i], false, nil
+	}
+
+	if inv.ID == "" {
+		inv.ID = "inv-" + emailLower + "-" + inv.OrganizationID
+	}
+	inv.Status = model.InvitationStatusPending
+	inv.CreatedAt = now
+	inv.UpdatedAt = now
+	m.pendingInvitations = append(m.pendingInvitations, inv)
+	return inv, true, nil
+}
+
+func (m *MockStore) UpdateInvitationKindeIDs(_ context.Context, id, kindeInvitationID, kindeUserID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.pendingInvitations {
+		if m.pendingInvitations[i].ID == id {
+			m.pendingInvitations[i].KindeInvitationID = kindeInvitationID
+			m.pendingInvitations[i].KindeUserID = kindeUserID
+			m.pendingInvitations[i].UpdatedAt = time.Now().UTC()
+			return nil
+		}
+	}
+	return storage.ErrInvitationNotFound
+}
+
+func (m *MockStore) ListPendingInvitations(ctx context.Context, status string) ([]model.PendingInvitation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if status == "" {
+		status = model.InvitationStatusPending
+	}
+	organizationID := storage.OrganizationIDFromCtx(ctx)
+	out := []model.PendingInvitation{}
+	for _, inv := range m.pendingInvitations {
+		if inv.OrganizationID != organizationID {
+			continue
+		}
+		if inv.Status != status {
+			continue
+		}
+		out = append(out, inv)
+	}
+	return out, nil
+}
+
+func (m *MockStore) GetPendingInvitation(ctx context.Context, id string) (model.PendingInvitation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	organizationID := storage.OrganizationIDFromCtx(ctx)
+	for _, inv := range m.pendingInvitations {
+		if inv.ID == id && inv.OrganizationID == organizationID {
+			return inv, nil
+		}
+	}
+	return model.PendingInvitation{}, storage.ErrInvitationNotFound
+}
+
+func (m *MockStore) RevokePendingInvitation(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	organizationID := storage.OrganizationIDFromCtx(ctx)
+	for i := range m.pendingInvitations {
+		if m.pendingInvitations[i].ID != id || m.pendingInvitations[i].OrganizationID != organizationID {
+			continue
+		}
+		if m.pendingInvitations[i].Status != model.InvitationStatusPending {
+			return storage.ErrInvitationNotPending
+		}
+		m.pendingInvitations[i].Status = model.InvitationStatusRevoked
+		m.pendingInvitations[i].UpdatedAt = time.Now().UTC()
+		return nil
+	}
+	return storage.ErrInvitationNotFound
+}
+
+func (m *MockStore) RedeemPendingInvitation(_ context.Context, organizationID, userID, email string) (bool, error) {
+	if organizationID == "" || userID == "" || email == "" {
+		return false, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	emailLower := strings.ToLower(email)
+	for i, inv := range m.pendingInvitations {
+		if inv.OrganizationID != organizationID || strings.ToLower(inv.Email) != emailLower {
+			continue
+		}
+		if inv.Status != model.InvitationStatusPending {
+			continue
+		}
+		if !inv.ExpiresAt.IsZero() && time.Now().UTC().After(inv.ExpiresAt) {
+			continue
+		}
+		// Insert membership if not already present.
+		alreadyMember := false
+		for _, mb := range m.memberships {
+			if mb.OrganizationID == organizationID && mb.UserID == userID {
+				alreadyMember = true
+				break
+			}
+		}
+		if !alreadyMember {
+			m.memberships = append(m.memberships, model.MembershipWithUser{
+				Membership: model.Membership{
+					ID:             "mb-" + userID + "-" + organizationID,
+					OrganizationID: organizationID,
+					UserID:         userID,
+					Role:           inv.Role,
+					InvitedBy:      inv.InvitedByUserID,
+					CreatedAt:      time.Now().UTC(),
+					UpdatedAt:      time.Now().UTC(),
+				},
+			})
+		}
+		// Delete the pending row.
+		m.pendingInvitations = append(m.pendingInvitations[:i], m.pendingInvitations[i+1:]...)
+		return !alreadyMember, nil
+	}
+	return false, nil
+}
+
+func (m *MockStore) ExpirePendingInvitations(_ context.Context) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now().UTC()
+	var n int64
+	for i := range m.pendingInvitations {
+		if m.pendingInvitations[i].Status != model.InvitationStatusPending {
+			continue
+		}
+		if m.pendingInvitations[i].ExpiresAt.After(now) {
+			continue
+		}
+		m.pendingInvitations[i].Status = model.InvitationStatusExpired
+		m.pendingInvitations[i].UpdatedAt = now
+		n++
+	}
+	return n, nil
 }
