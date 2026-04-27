@@ -130,6 +130,11 @@ Errors are logged to stdout with structured context (JSON format in production).
 | MIGRATION_DATABASE_URL | Yes | — | PostgreSQL owner connection (migrations) |
 | API_ADDR | No | :8080 | Listen address |
 | KINDE_ISSUER | Prod | — | Kinde issuer URL (OAuth 2.0 authorization server) |
+| KINDE_M2M_CLIENT_ID | When invitations are enabled | — | M2M app client ID with scopes `read:users`, `create:users`, `update:user_properties`, `delete:users`, `read:organizations`, `update:organizations`, `update:organization_users`, `delete:organization_users`. Used by `POST /v1/invitations`, `DELETE /v1/invitations/{id}`, and `PATCH /v1/organizations/me`. |
+| KINDE_M2M_CLIENT_SECRET | When invitations are enabled | — | Secret for the M2M app. Loaded via env, never logged. |
+| KINDE_MGMT_API_URL | No | `KINDE_ISSUER` | Override the Mgmt API base URL when it differs from the issuer. |
+| KINDE_USE_STUB | No | false (true in `make start-staging`) | When `true`, the Mgmt API client is replaced with an in-memory stub. Invitation emails and Kinde-side org renames become no-ops. Set when running staging without a real M2M app. **Never enable in production.** |
+| INVITATION_TTL_DAYS | No | 14 | How long a `pending_memberships` row stays redeemable. |
 | DEV_MODE | No | false | Skip auth, use fixed organization |
 | DEV_ORGANIZATION_ID | No | dev-organization-axiaops | Organization ID in dev mode |
 | DEV_USER_ID | No | dev-user-axiaops | User ID seeded in dev mode; `EnsureDevMembership` assigns it `owner` |

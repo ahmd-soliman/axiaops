@@ -37,7 +37,7 @@ export default function OnboardingInvite() {
   async function sendAll() {
     const valid = rows.filter((r) => r.email.trim() !== '');
     if (valid.length === 0) {
-      navigate('/onboarding/aws-account');
+      navigate('/onboarding/aws-account', { replace: true });
       return;
     }
     setSending(true);
@@ -62,11 +62,11 @@ export default function OnboardingInvite() {
       toast(`Invitations sent to ${succeeded} teammate${succeeded === 1 ? '' : 's'}.`, 'success');
     }
     setSending(false);
-    navigate('/onboarding/aws-account');
+    navigate('/onboarding/aws-account', { replace: true });
   }
 
   function skip() {
-    navigate('/onboarding/aws-account');
+    navigate('/onboarding/aws-account', { replace: true });
   }
 
   return (
