@@ -243,6 +243,12 @@ func (s *Store) LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 }
 
 // UpsertOrganization creates an organization on first login or returns the existing one.
+//
+// The on-conflict clause is a no-op (`SET org_code = EXCLUDED.org_code`) — once
+// a row exists, AxiaOps owns the `name` field and renames go through
+// PATCH /v1/organizations/me which also pushes to Kinde. Without this, every
+// authenticated request would clobber any local rename with whatever org_name
+// claim is in the JWT. See docs/onboarding-wizard.md §3.
 func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (model.Organization, error) {
 	now := time.Now().UTC()
 	id := uuid.New().String()
@@ -250,7 +256,7 @@ func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (m
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO organizations (id, org_code, name, created_at)
 		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (org_code) DO UPDATE SET name = EXCLUDED.name`,
+		ON CONFLICT (org_code) DO UPDATE SET org_code = EXCLUDED.org_code`,
 		id, orgCode, name, now,
 	)
 	if err != nil {
@@ -259,12 +265,57 @@ func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (m
 
 	var t model.Organization
 	err = s.pool.QueryRow(ctx,
-		`SELECT id, org_code, name, created_at FROM organizations WHERE org_code = $1`, orgCode,
-	).Scan(&t.ID, &t.OrgCode, &t.Name, &t.CreatedAt)
+		`SELECT id, org_code, name, created_at, onboarding_completed_at FROM organizations WHERE org_code = $1`, orgCode,
+	).Scan(&t.ID, &t.OrgCode, &t.Name, &t.CreatedAt, &t.OnboardingCompletedAt)
 	if err != nil {
 		return model.Organization{}, fmt.Errorf("postgres: fetch organization: %w", err)
 	}
 	return t, nil
+}
+
+// RenameOrganization updates the organization name for the org in ctx. The
+// caller (PATCH /v1/organizations/me handler) wraps this in a sequence with
+// kinde.Client.RenameOrganization to push the change to Kinde — see
+// docs/onboarding-wizard.md §5.1.
+func (s *Store) RenameOrganization(ctx context.Context, name string) error {
+	organizationID := storage.OrganizationIDFromCtx(ctx)
+	if organizationID == "" {
+		return fmt.Errorf("postgres: rename organization: organization_id missing from context")
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE organizations SET name = $1 WHERE id = $2`, name, organizationID,
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: rename organization: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return storage.ErrOrganizationNotFound
+	}
+	return nil
+}
+
+// MarkOnboardingComplete sets onboarding_completed_at = NOW() if NULL.
+// Idempotent — returns the existing timestamp when already set.
+func (s *Store) MarkOnboardingComplete(ctx context.Context) (time.Time, error) {
+	organizationID := storage.OrganizationIDFromCtx(ctx)
+	if organizationID == "" {
+		return time.Time{}, fmt.Errorf("postgres: mark onboarding complete: organization_id missing from context")
+	}
+	var completed time.Time
+	err := s.pool.QueryRow(ctx, `
+		UPDATE organizations
+		SET onboarding_completed_at = COALESCE(onboarding_completed_at, NOW())
+		WHERE id = $1
+		RETURNING onboarding_completed_at`,
+		organizationID,
+	).Scan(&completed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, storage.ErrOrganizationNotFound
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("postgres: mark onboarding complete: %w", err)
+	}
+	return completed, nil
 }
 
 // EnsureOrganization inserts an organization with a caller-supplied id if no row with that
@@ -272,12 +323,17 @@ func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (m
 // modified on conflict. Used by dev mode to guarantee a known-id organization row
 // so that FK references from accounts/zombies/etc. resolve without requiring
 // a prior write path to have auto-created the row.
+//
+// Dev orgs are inserted with onboarding_completed_at = NOW() so the wizard is
+// skipped by default. To exercise the wizard locally, set the column back to
+// NULL via psql (or `make seed-fresh` if added).
 func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string) error {
+	now := time.Now().UTC()
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO organizations (id, org_code, name, created_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO organizations (id, org_code, name, created_at, onboarding_completed_at)
+		VALUES ($1, $2, $3, $4, $4)
 		ON CONFLICT (id) DO NOTHING`,
-		id, orgCode, name, time.Now().UTC(),
+		id, orgCode, name, now,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: ensure organization: %w", err)

@@ -4,8 +4,11 @@ import { useTheme } from '../../theme/ThemeContext';
 import { useMe } from '../../context/MeContext';
 import {
   addMember,
+  createInvitation,
+  listInvitations,
   listMemberships,
   removeMember,
+  revokeInvitation,
   transferOwnership,
   updateMemberRole,
 } from '../../api/client';
@@ -29,21 +32,41 @@ export default function Team() {
   const [transferTo, setTransferTo] = useState('');
 
   const memberships = useQuery({ queryKey: ['memberships'], queryFn: listMemberships });
+  const invitations = useQuery({ queryKey: ['invitations'], queryFn: () => listInvitations('pending') });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['memberships'] });
+    qc.invalidateQueries({ queryKey: ['invitations'] });
     refresh();
   };
 
+  // Email-first invite. Tries POST /v1/invitations, falls back to
+  // POST /v1/memberships if the API reports the user already exists without
+  // a membership (the user logged in once but was never added).
   const addMutation = useMutation({
-    mutationFn: ({ email, role }) => addMember(email, role),
+    mutationFn: async ({ email, role }) => {
+      try {
+        return await createInvitation(email, role);
+      } catch (err) {
+        if (err?.body?.error === 'user_exists_use_memberships') {
+          return await addMember(email, role);
+        }
+        throw err;
+      }
+    },
     onSuccess: () => {
       setAddEmail('');
       setAddRole('member');
       setAddError('');
       invalidate();
     },
-    onError: (err) => setAddError(humanize(err, 'Failed to add user')),
+    onError: (err) => setAddError(humanize(err, 'Failed to invite user')),
+  });
+
+  const revokeInvitationMutation = useMutation({
+    mutationFn: (id) => revokeInvitation(id),
+    onSuccess: invalidate,
+    onError: (err) => setError(humanize(err, 'Failed to revoke invitation')),
   });
 
   const updateMutation = useMutation({
@@ -96,10 +119,10 @@ export default function Team() {
           }}
         >
           <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>
-            Add a member
+            Invite a teammate
           </h2>
           <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMuted }}>
-            The user must have logged in to AxiaOps at least once before they can be added.
+            Sends an email invitation. They join with the role you pick on first sign-in.
           </p>
           <form
             onSubmit={(e) => {
@@ -123,12 +146,68 @@ export default function Team() {
               ))}
             </select>
             <button type="submit" disabled={addMutation.isPending} style={primaryButton(t)}>
-              {addMutation.isPending ? 'Adding…' : 'Add'}
+              {addMutation.isPending ? 'Sending…' : 'Send invite'}
             </button>
           </form>
           {addError && (
             <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#ef4444' }}>{addError}</p>
           )}
+        </section>
+      )}
+
+      {/* Pending invitations — visible to anyone with members:read. */}
+      {(invitations.data?.length || 0) > 0 && (
+        <section
+          style={{
+            border: `1px solid ${t.border}`,
+            borderRadius: 8,
+            backgroundColor: t.surface,
+            marginBottom: 24,
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ padding: '12px 16px', borderBottom: `1px solid ${t.border}`, backgroundColor: t.surfaceRaised }}>
+            <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: t.text }}>Pending invitations</h2>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.surface }}>
+                <Th t={t}>Email</Th>
+                <Th t={t}>Role</Th>
+                <Th t={t}>Invited</Th>
+                <Th t={t}></Th>
+              </tr>
+            </thead>
+            <tbody>
+              {(invitations.data || []).map((inv) => (
+                <tr key={inv.id} style={{ borderBottom: `1px solid ${t.border}` }}>
+                  <Td t={t}>{inv.email}</Td>
+                  <Td t={t}>{inv.role}</Td>
+                  <Td t={t}>{new Date(inv.created_at).toLocaleDateString()}</Td>
+                  <Td t={t}>
+                    {canInvite && (inv.role !== 'admin' || canManageAdmin) && (
+                      <button
+                        type="button"
+                        onClick={() => revokeInvitationMutation.mutate(inv.id)}
+                        disabled={revokeInvitationMutation.isPending}
+                        style={{
+                          padding: '4px 10px',
+                          border: `1px solid ${t.border}`,
+                          borderRadius: 4,
+                          backgroundColor: 'transparent',
+                          color: '#ef4444',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
       )}
 
