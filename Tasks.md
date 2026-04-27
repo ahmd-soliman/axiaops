@@ -276,14 +276,14 @@ _Single source of truth for project work. Last updated: 2026-04-26._
 | 5 | **Audit trail UI for dismissals** | ✅ | `GET /v1/audit` (with `user_id`/`resource_type`/`resource_id`/`action`/`since`/`until`/`limit`/`cursor` filters) backs `services/dashboard/src/screens/AuditScreen.jsx`, surfaced under Settings → Audit. Dismissal mutations write `audit_log` rows via `model.AuditAction*`. |
 | 6 | Scan history log | 🔲 | Per-account scan log with timestamps and zombie delta |
 | 7 | Cost forecast | 🔲 | "If nothing changes, you'll waste $X this month" — linear projection over `zombie_snapshots` |
-| 8 | **User management + roles** | ✅ | `memberships(user_id, organization_id, role)` table (migration 015 + 016 column rename) + `model.Membership` with owner/admin/member/viewer roles. Endpoints: `GET/POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/organizations/transfer-ownership`, `GET /v1/me`. Permission constants (`PermMembersInvite`, `PermMembersManage`, …) enforced in handlers; Settings → Team tab exposes the UI. Invite-by-email is deferred to Phase 3 #14. |
+| 8 | **User management + roles** | ✅ | `memberships(user_id, organization_id, role)` table (migration 015 + 016 column rename) + `model.Membership` with owner/admin/member/viewer roles. Endpoints: `GET/POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/organizations/transfer-ownership`, `GET /v1/me`. Permission constants (`PermMembersInvite`, `PermMembersManage`, …) enforced in handlers; Settings → Team tab exposes the UI. Invite-by-email is designed in [`docs/invitation-flow.md`](docs/invitation-flow.md) and tracked in 3.9b below. |
 | 9 | **GDPR — engineering surface** | ✅ | `DELETE /v1/users/me`, `DELETE /v1/organizations/me`, `GET /v1/export` shipped (handlers in `services/api/internal/api/deletion.go` + `export.go`) |
 | 9p | **GDPR — paperwork** | 🔲 | Privacy policy / ToS / DPA / sub-processors / RoPA / DPIA / breach runbook / pen-test. Implementation plan: `docs/compliance/gdpr_plan.md`. Must ship before first paying EU customer (Sep–Oct 2026). |
 | 10 | **Expanded detection rules — Custodian backlog** | 🔲 | 13+ new rules ported from `cloud-custodian/cloud-custodian` filters: unused security groups, idle ALB target groups, overprovisioned RDS, idle ElastiCache replication groups, VPC endpoints, TGW attachments, Lambda PCU, IAM access keys, etc. M1 (per-service file split) shipped. Full backlog with priorities, per-rule template, and milestone sequencing in `docs/custodian-rule-backlog.md`. The original entry ("EBS, S3, CloudFront, Redshift, ElastiCache") is superseded — those are all live. |
 | 11 | Operating entity | 🔲 | Holding GmbH + Operating UG (target August 2026) |
 | 12 | **Pricing rates — live from AWS Pricing API** | 🔲 | Migrate `services/shared/pricing/rates.yml` to a DB-backed `pricing_rates` table refreshed from `pricing:GetProducts`. YAML works fine while rates change ~yearly; this becomes load-bearing once (a) customers complain that numbers don't match their bill, (b) we add Azure/GCP and need multi-provider rate tables, or (c) we backfill historical savings and need point-in-time rates. Until one of those triggers, stay on YAML. |
 | 13 | **CUR ingestion — actual-cost mode** | 🔲 | Replace list-price estimates with customer-specific actual costs by ingesting AWS Cost and Usage Reports (CUR). Customer opts in, enables CUR to their S3 bucket, grants us cross-account read. Two deployment shapes: Athena in-place queries (customer pays ~$1–5/mo in query costs, zero egress for us) or ingest to our DB (faster queries, we pay egress). Unlocks exact per-resource cost including Savings Plans / RIs / EDP discounts — the numbers match the customer's actual invoice to the cent. The real differentiator vs Terraform cost estimators (Infracost, AWS Pricing Calculator) that can only use list prices. Ahead of #12 in priority — CUR solves accuracy, #12 only solves "keeping list prices fresh." |
-| 14 | **User onboarding + app-owned organisations (auth pattern B)** | 🔲 | Move org identity from Kinde-owned (`org_code` claim, mirrored locally) to fully app-owned (`organizations` row + `memberships`, no JWT coupling). Same architectural call we already made for roles in `rbac-design.md §3`; finishing it for orgs removes the manual "AxiaOps admin creates the Kinde org" step, the chicken-and-egg invite-by-`user_id` flow, and the implicit `EnsureFirstMembership` auto-promotion. Six pieces, ship as one feature: (a) **`POST /v1/organizations`** — self-serve org creation, atomic with owner-membership insert; (b) **`pending_invitations` table + `POST /v1/invitations` + accept-token flow** — owner emails a colleague via Resend, recipient clicks magic link, signs in via Kinde, lands with role pre-assigned; (c) **`OrgContext` middleware** — `X-Organization-ID` header validated against `memberships`, replaces JWT `org_code` as the source of truth; (d) **`auth.go` slimmed** — drops `UpsertOrganization` + `EnsureFirstMembership`, becomes "verify JWT + UpsertUser"; (e) **`/onboarding` + accept-invitation route + org switcher** in the dashboard — covers zero-membership signup, invitation redemption, and ≥2-membership users; (f) **migrations 017–019** — `pending_invitations`, then `organizations.org_code` nullable, then drop `users.organization_id`. Unblocks paid self-serve, the self-managed-license GTM path (Model B in `gtm_assessment.md`), and BYO-OIDC for enterprise SSO down the road. **Sequencing, AC checklist, risks, and what we deliberately keep:** see `docs/onboarding-and-app-owned-orgs.md` (~10 commits, `make test` green at every boundary). Estimated ~2 weeks. |
+| 14 | **Email-based team invitations (Kinde Mgmt API)** | 🔲 | _Replaces the previously-planned "User onboarding + app-owned organisations (pattern B)" — that plan is **superseded**, see `docs/onboarding-and-app-owned-orgs.md`._ Self-serve org creation uses Kinde's "Create organization on sign up" toggle (admin setting, no code). Email-based invitations go through Kinde's Management API: admin posts `POST /v1/invitations { email, role }`, AxiaOps writes a `pending_memberships` row and asks Kinde to send the org-scoped invitation, the auth middleware redeems the pending row into a real `memberships` row on the invitee's first authenticated request. **Kinde-org-per-AxiaOps-org 1:1 mapping stays.** No `OrgContext` middleware, no Resend/SMTP dependency, no `X-Organization-ID` header. Full design (data model, API surface, middleware hook, edge cases, testing): see `docs/invitation-flow.md` on `feat/team-invitations`. Estimated ~7.75 days vs. the original ~10 commits / ~2 weeks. |
 | 15 | **Org-level dashboard** | 🔲 | Promote the existing `/` (All Accounts mode) into a proper organization summary page. Lands after the tenant→organization rename so naming is correct from line one. Seven widgets: headline tiles, org-wide trend, per-account breakdown, by-service breakdown, top zombies, account health strip, member activity tile. **One new backend endpoint:** `GET /v1/summary/by-account`. **Frontend:** split `DashboardScreen.jsx` into `OrgSummaryScreen.jsx` + `AccountDetailScreen.jsx`. |
 | 16 | **Historical zombie lineage** | 🔲 | Today `zombie_records` is replaced on every scan — only the *current* zombies are queryable. Per-snapshot aggregates are preserved (`zombie_snapshots`, `zombie_snapshot_services`), but the per-resource history is lost. Add an append-only `zombie_history` table — one row per (snapshot, resource_id) with cost + service + reason + the existing zombie metadata. Storage cost ~36k rows/year/account at 100 zombies × daily scans. Unlocks per-resource timeline, stale reports, audit/compliance evidence, and per-resource snapshot drill-down. |
 | 17 | **SOC 2 compliance — Type I → Type II** | 🔲 | Implementation plan: `docs/compliance/soc2_plan.md`. Scope: Security + Availability + Confidentiality TSCs (Privacy deferred). Ship Drata + policy library + evidence pipeline by Q4 2026; Type I audit Q2 2027; Type II audit Q4 2027 (6-month observation window May–Oct 2027). Heavy overlap with GDPR Art. 32 controls. Required to unlock MSP / Team-tier / Enterprise sales. |
@@ -362,79 +362,54 @@ Shipped as part of the unified Phase 2 CSV export convention.
 - [x] Endpoints (handler.go:109–113): `GET/POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/organizations/transfer-ownership`, `GET /v1/me`
 - [x] Self-leave bypass on DELETE; last-owner guard at the store level
 - [x] Dashboard Settings → Team tab
-- [ ] **Deferred** Invite-by-email flow (`pending_invitations` table) — moved to Phase 3 #14 (User onboarding + app-owned orgs)
+- [ ] **Deferred** Invite-by-email flow (`pending_memberships` table + Kinde Mgmt API) — designed in [`docs/invitation-flow.md`](docs/invitation-flow.md), tracked in 3.9b below
 - [ ] **Deferred** `viewer` role enforcement audit — confirm middleware blocks scan/connect/dismiss for viewers across every endpoint
 
-#### 3.9b User onboarding + app-owned organisations (Phase 3 #14) 🔲
+#### 3.9b Email-based team invitations (Phase 3 #14) 🔲
 
-> Full design: [`docs/onboarding-and-app-owned-orgs.md`](onboarding-and-app-owned-orgs.md). Rationale recap: `rbac-design.md §3` already commits to "AxiaOps owns authorization." Today's auth couples *org identity* to Kinde while owning *roles* in AxiaOps — inconsistent and blocks paid self-serve + the self-managed-license GTM path. This work finishes the split.
+> **The previous "User onboarding + app-owned organisations (pattern B)" plan is superseded.** See [`docs/onboarding-and-app-owned-orgs.md`](onboarding-and-app-owned-orgs.md) (now marked superseded) for the rejected alternative — it called for an in-app `POST /v1/organizations`, a Resend-backed `pending_invitations` magic-link flow, an `OrgContext` middleware reading an `X-Organization-ID` header, dropping `UpsertOrganization`/`EnsureFirstMembership`, and migrations 017–019. We're not doing any of that.
+>
+> **What we're shipping instead:** a much smaller change that solves the same problems via Kinde primitives. Self-serve org creation flips a toggle in the Kinde admin ("Create organization on sign up"). Email invitations call Kinde's Management API; Kinde sends the org-scoped invitation; the AxiaOps auth middleware redeems a `pending_memberships` row into a real `memberships` row on the invitee's first authenticated request. The Kinde-org-per-AxiaOps-org 1:1 mapping stays. No SMTP/Resend dependency, no DNS/DKIM work, no header-based org context, no migration cascade.
+>
+> Full design (data model, API surface, middleware hook, edge cases, testing): [`docs/invitation-flow.md`](docs/invitation-flow.md) on `feat/team-invitations`. Effort plan: ~7.75 days (vs. the original ~10 commits / ~2 weeks).
 
-Migrations and Go-side:
+Backend (Go):
 
-- [ ] Migration `017_pending_invitations.up.sql` — `pending_invitations(id, token_hash, organization_id, email, role, invited_by, expires_at, created_at)`. RLS policy `pending_invitations_organization_isolation` (mirrors the other 9). **FK to `organizations(id)` with `ON DELETE CASCADE`** so deleting an org sweeps its pending invitations. **`invited_by` is plain TEXT (no FK to `users`)** so admin self-deletion doesn't orphan invitations they sent. Indexed on `token_hash` (unique) and `(organization_id, email)`.
-- [ ] `model.Invitation` + `Store` interface methods: `CreateInvitation`, `ListInvitations`, `GetInvitationByToken`, `AcceptInvitation`, `ExpireInvitations`. Postgres impl + tests.
-- [ ] **Token generator is an injectable interface** (`crypto/rand` reader by default, mockable in tests). Never returned in API responses — emailed by the handler from the original raw value before storing the hash.
-- [ ] `POST /v1/invitations { email, role }` — owner/admin only (`members:invite`). Generates 256-bit token, stores SHA-256 hash, sends via email. Audit-log `AuditActionInvitationSent`.
-- [ ] `GET /v1/invitations` — list pending invitations for current org (audit-friendly).
-- [ ] `DELETE /v1/invitations/{id}` — revoke. Permission: `members:invite`. Audit-log `AuditActionInvitationRevoked`.
-- [ ] `POST /v1/invitations/accept { token }` — auth-only. Reads pending row by `token_hash`, creates membership with the stored role, **deletes the pending row** (single-use by construction). Returns 410 if expired, 404 if token unknown or already redeemed. Audit-log `AuditActionInvitationAccepted` + `AuditActionMemberJoinedViaInvitation`. **Recommended: requires `email_verified=true` on the JWT** (rejects unverified — magic link goes to email, accepting without verification means a phisher could claim the invitation).
-- [ ] Background ticker (or `Store.ExpireInvitations` called daily) to sweep expired rows — 7-day TTL. Audit-log `AuditActionInvitationExpired` (one aggregated row per sweep, not per row).
-- [ ] **Email-side rate limit:** N invitations per IP per hour, M per recipient email per 24h. Default proposal: N=20, M=3. Uses the existing `RateLimiter` keyed on IP and email respectively.
-- [ ] `POST /v1/organizations { name }` — auth-only. Atomic transaction: insert `organizations` + `memberships` (role=owner). Audit-log `AuditActionOrganizationCreated`. Returns the new org. Rate-limited to **1 / user / 24h AND 3 / IP / 24h** via the existing limiter. Closed-beta default: gated by `SELF_SERVE_ORG_CREATION` feature flag — when false, writes a pending row + returns 202 (manual approval queue); when true, creates org directly.
-- [ ] **New `AuditAction*` constants** in `services/shared/model/audit.go`: `AuditActionOrganizationCreated`, `AuditActionInvitationSent`, `AuditActionInvitationAccepted`, `AuditActionInvitationRevoked`, `AuditActionInvitationExpired`, `AuditActionMemberJoinedViaInvitation`. Add to `ValidAuditActions` map.
+- [ ] Migration `017_pending_memberships.up.sql` / `.down.sql` — table per `docs/invitation-flow.md §3`. RLS policy `pending_memberships_organization_isolation`. Partial unique index on `(organization_id, lower(email)) WHERE status='pending'`.
+- [ ] `model.PendingInvitation` + invitation-status constants (`pending`, `expired`, `revoked`).
+- [ ] `Store` interface methods: `CreatePendingInvitation`, `ListPendingInvitations`, `GetPendingInvitation`, `RevokePendingInvitation`, `RedeemPendingInvitation`, `ExpirePendingInvitations`. Sentinel errors (`ErrInvitationAlreadyMember`, `ErrUserExistsNoMembership`, …). Postgres impl + integration tests.
+- [ ] `services/api/internal/kinde/` package — Management API client. M2M `client_credentials` token flow with in-process cache (refresh at 80% of TTL). Methods `InviteUser(ctx, orgCode, email, fullName)` and `RemoveUser(ctx, orgCode, kindeUserID)`. `httptest.NewServer`-backed unit tests. `NewStub()` for `DEV_MODE=true`.
+- [ ] `services/api/internal/api/invitations.go` — `POST /v1/invitations`, `GET /v1/invitations`, `DELETE /v1/invitations/{id}` handlers. Two-phase commit pattern (insert pending row → call Kinde → compensating-revoke on Kinde failure). Audit-log `AuditActionMemberInvited` (action constant already exists — `services/shared/model/audit.go:42`, no new constants needed).
+- [ ] `services/api/internal/middleware/auth.go` — add `RedeemPendingInvitation` call after `EnsureFirstMembership` (line 187), before the `ctx = context.WithValue(...)` assignment. Best-effort: errors logged, never block the request.
+- [ ] `services/api/cmd/main.go` — wire the Kinde client + `NewInvitationsHandler`. New env vars: `KINDE_M2M_CLIENT_ID`, `KINDE_M2M_CLIENT_SECRET`, `KINDE_MGMT_API_URL` (defaults to `KINDE_ISSUER`), `INVITATION_TTL_DAYS` (default 14).
 
-Email plumbing:
+Tests:
 
-- [ ] `services/shared/email/` package — interface contract `SendInvitation(ctx, to, token, orgName, role) error` + Resend client impl + stdout fallback. Configurable via `EMAIL_PROVIDER` env (default: stdout). Shared with the Phase 2 #5 weekly digest.
-- [ ] Invitation email template (HTML + plain text). Magic link points at `/accept?token=...`. Token never appears in subject lines or logs.
-- [ ] `RESEND_API_KEY` + `EMAIL_FROM` env vars documented in CLAUDE.md.
-- [ ] DNS / SPF / DKIM / DMARC for `axiaops.io` — ops follow-up, not engineering.
-
-Auth model refactor:
-
-- [ ] New middleware `services/api/internal/middleware/orgcontext.go` — reads `X-Organization-ID` header, validates membership for the JWT-authenticated user, sets `organizationIDKey` on context.
-- [ ] **Three explicit response branches** (see "OrgContext state machine" in design doc): valid header + membership → 200; valid header + no membership → 403; absent + has memberships → 409 `{needs:"pick_org", memberships:[…]}`; absent + zero memberships → whitelisted endpoints (`GET /v1/me`, `POST /v1/organizations`, `POST /v1/invitations/accept`) get 200, everything else gets 409 `{needs:"onboarding"}`.
-- [ ] **60-second Redis cache** for the `(user_id, org_id) → role` lookup, key `mem:{user_id}:{org_id}`. Falls back to direct DB hit when Redis is unavailable. Explicit DEL on `PATCH /v1/memberships/{id}/role` and `DELETE /v1/memberships/{id}`.
-- [ ] Wire `OrgContext` after `Auth` in the API mux. Initially: header absent → fall back to JWT `org_code` claim, log a `warn` "deprecated org context source" so we can monitor adoption before the hard cut.
-- [ ] `GET /v1/me` extended to return `{user, memberships: [{organization, role, joined_at}]}` — full list, not single-org. Existing single-org callers can read `memberships[0]` until they migrate.
-- [ ] After dashboard ships the `X-Organization-ID` header on every call, drop the JWT-claim fallback in `OrgContext` (separate commit).
-- [ ] **Pre-condition before commit 10**: disable Kinde-dashboard org creation in the Kinde tenant. Otherwise a brand-new Kinde org during the cutover signs in with no path to ownership (because `EnsureFirstMembership` is gone).
-- [ ] Drop `UpsertOrganization` and `EnsureFirstMembership` calls from `auth.go`. Auth becomes "verify JWT + `UpsertUser` + set userIDKey." Delete `Store.EnsureFirstMembership` interface method + impl + tests.
-- [ ] **Post-commit-10 grep gate**: confirm no code path outside `services/api/cmd/main.go` (DEV_MODE bootstrap) still calls `EnsureOrganization` / `UpsertOrganization` / `EnsureFirstMembership`.
-- [ ] Migration `018_organizations_org_code_nullable.up.sql` — make `organizations.org_code` nullable (it becomes an optional Kinde external-reference field for legacy customers).
-- [ ] **Pre-migration-019 scrub**: remove `users.organization_id` writes from `services/shared/storage/postgres/postgres.go` (`UpsertUser`, `EnsureUser` — `INSERT … organization_id` and `ON CONFLICT DO UPDATE SET organization_id = EXCLUDED.organization_id`), the `model.User.OrganizationID` field, the `services/api/cmd/main.go` dev-bootstrap line, and `scripts/seed_test_data.sh:195`. Without this scrub commit, migration 019 fails CI.
-- [ ] Migration `019_drop_users_organization_id.up.sql` — drop `users.organization_id` column.
+- [ ] Postgres integration tests: `CreatePendingInvitation` happy + upsert, sentinel errors, `RedeemPendingInvitation` insert+delete in one txn, expired/revoked filtering, RLS isolation.
+- [ ] Handler unit tests (mock `Store` + mock `kinde.Client`): 201 happy path, 403 permission tiers, 409 `already_a_member` / `user_exists_use_memberships`, 502 with compensating revoke on Kinde failure, re-invite returns 200, `DELETE` 410-on-already-revoked.
+- [ ] Auth middleware end-to-end test: seed pending row → JWT with matching email → assert `memberships` row created, pending row deleted, `RoleOf` returns the stored role.
+- [ ] Smoke test: `make test-smoke` flow that exercises `POST /v1/invitations` against the running stack with the dev-mode Kinde stub.
 
 Dashboard:
 
-- [ ] React `OrgContext` provider + localStorage persistence (data layer, separate from UI). On boot: read localStorage → call `/me` → if `me.memberships` empty → route to `/onboarding`; if `currentOrg` set and present in `me.memberships` → use it; else `currentOrg = me.memberships[0]`. Persist on change.
-- [ ] `services/dashboard/src/api/client.js` — every request includes `X-Organization-ID: <currentOrg>` from the React `OrgContext`. Whitelisted endpoints (`/v1/me`, `/v1/organizations`, `/v1/invitations/accept`) skip the header.
-- [ ] Org switcher navbar component (UI layer, separate from the data-layer task above) — visible when `me.memberships.length >= 2`. Renders a dropdown that updates `OrgContext.currentOrg`.
-- [ ] `services/dashboard/src/pages/Onboarding.jsx` — signed-in user with zero memberships sees "Create your organization" form (calls `POST /v1/organizations`) + "Have an invitation?" link.
-- [ ] `services/dashboard/src/pages/AcceptInvitation.jsx` — reads `?token=` from URL, calls `POST /v1/invitations/accept`, redirects to dashboard with the new org as context. Handles signed-out users by routing through Kinde sign-in first, preserving the token in localStorage.
-- [ ] Settings → Team tab: replace the "Add member by user_id" form with the new email-invitation flow. Old endpoint stays for back-compat but the UI no longer surfaces it.
-- [ ] Pending-invitations list in Settings → Team — owner/admin can see who's been invited, revoke, resend.
-- [ ] Audit-link query-param support: emails containing "view this audit row" links carry `?org=<id>` so the dashboard can hydrate `OrgContext.currentOrg` from the link before hitting the audit page.
+- [ ] Members screen with "Invite member" form (email + role + optional name) → `POST /v1/invitations`.
+- [ ] Pending invitations list with revoke button → `DELETE /v1/invitations/{id}`.
+- [ ] Active members list (existing data) — no UX change beyond now living next to the pending list.
+- [ ] Inline error handling for 409 (`already_a_member` / `user_exists_use_memberships`) and 502 retry.
+- [ ] Use the `dashboard-screen` skill — data shape and error states fully specified by `docs/invitation-flow.md §4`.
 
-Testing:
+Configuration:
 
-- [ ] Postgres integration test: invitation lifecycle (create → list → accept → membership exists → second click 404s — single-use by construction).
-- [ ] Postgres integration test: invitation expires after 7 days; accept returns 410.
-- [ ] Postgres integration test: deleting an org cascades pending invitations (`ON DELETE CASCADE`).
-- [ ] Postgres integration test: deleting `invited_by` user does NOT cascade — the pending invitation survives with the orphaned text reference.
-- [ ] API handler test: `POST /v1/organizations` creates org + owner membership atomically (FK consistency); both rate limits enforced.
-- [ ] API handler test: `OrgContext` middleware — all four states from the state-machine table return the documented status + body.
-- [ ] API handler test: 60-second Redis cache hit/miss; explicit invalidation on role change.
-- [ ] Dashboard E2E: zero-membership user lands on `/onboarding`, creates org, lands on dashboard.
-- [ ] Dashboard E2E: invited colleague clicks magic link, signs in via Kinde dev bypass, lands on dashboard with assigned role.
-- [ ] Dashboard E2E: user removed from currently-selected org while page is loaded → dashboard handles 403, reloads `/me`, falls back to `memberships[0]` or `/onboarding`.
+- [ ] Document the four new env vars in `services/api/CLAUDE.md` and `.env.example`.
+- [ ] Create the M2M application in Kinde admin and grant Management API scopes (`read:users`, `create:users`, `update:user_properties`, `delete:users`, `read:organizations`, `update:organization_users`, `delete:organization_users`).
+- [ ] Verify "Create organization on sign up" is enabled in Kinde admin so self-serve signup creates a fresh org.
 
-Cut-over and cleanup:
+Out of scope / explicit follow-ups:
 
-- [ ] **Phase 3 #14 unblocks #15 (Org-level dashboard) and #16 (zombie lineage)** — they assume a stable multi-org UX.
-- [ ] After ship, archive `docs/onboarding-and-app-owned-orgs.md` under the historical-changelog allow-list (it becomes immutable record like `docs/refactor-tenant-to-organization.md`).
-- [ ] Update `docs/user_onboarding.md` from "current state" to "shipped" — the two flows (today's pattern A and the new pattern B) collapse to one.
-- [ ] Document BYO-OIDC for self-managed-license customers as a follow-up: now-trivial because `auth.go` reads only generic OIDC claims.
+- [ ] Background sweeper for `ExpirePendingInvitations` — wire into the existing 5-min stuck-scan ticker (~0.25 d).
+- [ ] `audit.WriteFromContext` overload so middleware can emit audit events without `*http.Request` (~0.25 d).
+- [ ] Multi-org-per-user — out of scope per prior decision; revisit after first user request.
+- [ ] Kinde org membership sync (user removed from Kinde org out of band) — defer; needs Kinde webhooks (paid tier).
 
 #### 3.10 GDPR Compliance
 
