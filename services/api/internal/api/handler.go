@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"axiaops.io/api/internal/audit"
+	"axiaops.io/api/internal/kinde"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/authz"
@@ -36,6 +37,11 @@ type Handler struct {
 	// when REDIS_URL is set; the wider request path uses cache.Cache directly
 	// via middleware (auth JWKS, rate limiter), independent of this field.
 	redisCache cache.Cache
+
+	// kinde is the Kinde Management API client used by /v1/invitations and
+	// PATCH /v1/organizations/me. nil means "Kinde Mgmt API not configured" —
+	// those handlers return 503 in that case.
+	kinde kinde.Client
 }
 
 // New creates a Handler backed by the given store and queue.
@@ -52,6 +58,13 @@ func New(store storage.Store, q queue.Queue) *Handler {
 // receiver for fluent setup so main.go can chain `api.New(...).WithRedisCache(c)`.
 func (h *Handler) WithRedisCache(c cache.Cache) *Handler {
 	h.redisCache = c
+	return h
+}
+
+// WithKinde wires the Kinde Management API client. Required for invitations
+// and PATCH /v1/organizations/me; in DEV_MODE pass kinde.NewStub().
+func (h *Handler) WithKinde(c kinde.Client) *Handler {
+	h.kinde = c
 	return h
 }
 
@@ -111,6 +124,18 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("PATCH /v1/memberships/{id}/role", require(authz.PermMembersManageBasic, h.updateMembershipRole))
 	mux.HandleFunc("DELETE /v1/memberships/{id}", h.deleteMembership) // self-leave bypass — handler enforces
 	mux.Handle("POST /v1/organizations/transfer-ownership", require(authz.PermOrganizationTransfer, h.transferOwnership))
+
+	// Organization rename + onboarding completion (Phase 2).
+	// PATCH does a two-phase commit with Kinde — see docs/onboarding-wizard.md §5.
+	mux.Handle("PATCH /v1/organizations/me", require(authz.PermOrganizationUpdate, h.updateCurrentOrganization))
+	mux.Handle("POST /v1/organizations/me/onboarding/complete", require(authz.PermOrganizationUpdate, h.completeOnboarding))
+
+	// Email-based invitations (Phase 2). See docs/invitation-flow.md.
+	// createInvitation / revokeInvitation apply additional stricter-perm checks
+	// when the target role is admin (mirrors POST /v1/memberships).
+	mux.Handle("POST /v1/invitations", require(authz.PermMembersInvite, h.createInvitation))
+	mux.Handle("GET /v1/invitations", require(authz.PermMembersRead, h.listInvitations))
+	mux.Handle("DELETE /v1/invitations/{id}", require(authz.PermMembersInvite, h.revokeInvitation))
 
 	// GDPR — right to erasure (see docs/rbac-design.md §10).
 	// /users/me is authn-only: any logged-in user can delete themselves

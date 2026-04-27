@@ -45,6 +45,7 @@ const (
 
 	PermOrganizationTransfer Permission = "organization:transfer"
 	PermOrganizationDelete   Permission = "organization:delete"
+	PermOrganizationUpdate   Permission = "organization:update"
 	PermDataExport           Permission = "data:export"
 )
 
@@ -81,6 +82,7 @@ var directGrants = map[Role][]Permission{
 		PermMembersManageAdmin,
 		PermOrganizationTransfer,
 		PermOrganizationDelete,
+		PermOrganizationUpdate,
 		PermDataExport,
 	},
 }

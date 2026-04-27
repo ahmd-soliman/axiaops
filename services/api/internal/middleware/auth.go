@@ -21,9 +21,10 @@ import (
 type contextKey string
 
 const (
-	organizationIDKey contextKey = "organization_id"
-	userIDKey         contextKey = "user_id"
-	userEmailKey      contextKey = "user_email"
+	organizationIDKey   contextKey = "organization_id"
+	organizationCodeKey contextKey = "organization_code"
+	userIDKey           contextKey = "user_id"
+	userEmailKey        contextKey = "user_email"
 
 	jwksTTL = time.Hour
 )
@@ -190,7 +191,29 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 				return
 			}
 
+			// Best-effort invitation redemption. EnsureFirstMembership above is a
+			// no-op for invited users (their org already has owners); this step
+			// converts a matching pending_memberships row into a real membership.
+			// Soft-fail on error: a missing membership leaves the user at 403,
+			// which is correct fallback behaviour. See docs/invitation-flow.md §5.
+			if user.Email != "" {
+				redeemCtx := storage.WithOrganizationID(ctx, organization.ID)
+				redeemed, rerr := a.store.RedeemPendingInvitation(redeemCtx, organization.ID, user.ID, user.Email)
+				if rerr != nil {
+					slog.Error("auth: RedeemPendingInvitation failed",
+						"error", rerr,
+						"user_id", user.ID,
+						"organization_id", organization.ID)
+				} else if redeemed {
+					slog.Info("auth: invitation redeemed",
+						"user_id", user.ID,
+						"organization_id", organization.ID,
+						"email", user.Email)
+				}
+			}
+
 			ctx = context.WithValue(ctx, organizationIDKey, organization.ID)
+			ctx = context.WithValue(ctx, organizationCodeKey, organization.OrgCode)
 			ctx = context.WithValue(ctx, userIDKey, user.ID)
 			ctx = context.WithValue(ctx, userEmailKey, user.Email)
 		} else {
@@ -200,6 +223,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 			// will fail. Never wire this path into production — it exists purely
 			// so middleware tests can exercise JWT parsing without a DB.
 			ctx = context.WithValue(ctx, organizationIDKey, orgCode)
+			ctx = context.WithValue(ctx, organizationCodeKey, orgCode)
 			ctx = context.WithValue(ctx, userIDKey, sub)
 			ctx = context.WithValue(ctx, userEmailKey, email)
 		}
@@ -212,6 +236,15 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 func OrganizationID(ctx context.Context) string {
 	id, _ := ctx.Value(organizationIDKey).(string)
 	return id
+}
+
+// OrganizationCode returns the Kinde org_code claim from the request context.
+// Used by handlers that need to call Kinde Mgmt API endpoints scoped by
+// organization (invitations, rename). Returns "" under DevBypass with
+// no DEV_ORG_CODE configured — handlers must guard for that.
+func OrganizationCode(ctx context.Context) string {
+	code, _ := ctx.Value(organizationCodeKey).(string)
+	return code
 }
 
 // UserID returns the stable user identifier from the request context.
@@ -234,6 +267,11 @@ func UserEmail(ctx context.Context) string {
 // Only active when DEV_MODE=true — local development without auth.
 // The organization and user rows are ensured once at service startup (see cmd/main.go),
 // so this middleware does no DB work per request.
+//
+// The organization_code (Kinde org_code claim equivalent) is set to
+// organizationID — in dev mode they're equivalent by convention (EnsureOrganization
+// pins id == org_code), and handlers that hit the Kinde Mgmt API are guarded
+// by the kinde stub when DEV_MODE=true.
 func DevBypass(organizationID, userID, userEmail string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions || publicPath(r.URL.Path) {
@@ -242,6 +280,7 @@ func DevBypass(organizationID, userID, userEmail string, next http.Handler) http
 		}
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, organizationIDKey, organizationID)
+		ctx = context.WithValue(ctx, organizationCodeKey, organizationID)
 		ctx = context.WithValue(ctx, userIDKey, userID)
 		ctx = context.WithValue(ctx, userEmailKey, userEmail)
 		next.ServeHTTP(w, r.WithContext(ctx))

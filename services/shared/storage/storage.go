@@ -32,6 +32,27 @@ var ErrLastOwner = errors.New("storage: cannot remove or demote the last owner")
 // exists for (organization_id, user_id). Surface as HTTP 409.
 var ErrMembershipExists = errors.New("storage: membership already exists for user in organization")
 
+// ErrOrganizationNotFound is returned by organization reads/mutations when
+// the target row does not exist. Surface as HTTP 404.
+var ErrOrganizationNotFound = errors.New("storage: organization not found")
+
+// ErrInvitationNotFound is returned by invitation reads/mutations when the
+// target row does not exist. Surface as HTTP 404.
+var ErrInvitationNotFound = errors.New("storage: invitation not found")
+
+// ErrInvitationNotPending is returned by RevokePendingInvitation when the row
+// is already revoked or expired. Surface as HTTP 410.
+var ErrInvitationNotPending = errors.New("storage: invitation is not in pending state")
+
+// ErrInvitationAlreadyMember is returned by CreatePendingInvitation when the
+// email already has an active membership in the organization. Surface as HTTP 409.
+var ErrInvitationAlreadyMember = errors.New("storage: email already has a membership in this organization")
+
+// ErrUserExistsNoMembership is returned by CreatePendingInvitation when the
+// email matches an existing user without a membership in this organization.
+// Surface as HTTP 409 with a hint to use POST /v1/memberships.
+var ErrUserExistsNoMembership = errors.New("storage: email matches an existing user without membership — use POST /v1/memberships")
+
 type ctxKey string
 
 const organizationKey ctxKey = "organization_id"
@@ -75,6 +96,20 @@ type Store interface {
 	// UpsertOrganization creates an organization on first login or returns the existing one.
 	// Keyed on org_code — the Kinde organisation identifier.
 	UpsertOrganization(ctx context.Context, orgCode, name string) (model.Organization, error)
+
+	// RenameOrganization updates the organization name for the org in ctx.
+	// AxiaOps owns the name field after first insert; this is the only path
+	// that updates it (UpsertOrganization is now insert-only on name). The
+	// handler that calls this is responsible for pushing the same value to
+	// Kinde via kinde.Client.RenameOrganization to keep external surfaces
+	// (invitation emails, hosted UI) aligned. Returns ErrOrganizationNotFound
+	// when no row matches.
+	RenameOrganization(ctx context.Context, name string) error
+
+	// MarkOnboardingComplete sets onboarding_completed_at = NOW() on the
+	// organization in ctx if not already set. Returns the timestamp on the row
+	// (existing one if already complete, or the just-set one). Idempotent.
+	MarkOnboardingComplete(ctx context.Context) (time.Time, error)
 
 	// EnsureOrganization creates an organization with a caller-supplied id if no row with
 	// that id exists yet. Unlike UpsertOrganization, the id is pinned (not a UUID)
@@ -262,6 +297,57 @@ type Store interface {
 	// GetUserByEmail looks up a user by email for the organization in ctx. Used by
 	// the invite-by-email flow. Returns ErrUserNotFound when no match.
 	GetUserByEmail(ctx context.Context, email string) (model.User, error)
+
+	// ── Pending invitations (see docs/invitation-flow.md) ────────────────────
+
+	// CreatePendingInvitation inserts a pending_memberships row, or upserts an
+	// existing pending row for (organization_id, lower(email)) — refreshing
+	// expires_at and updating role on re-invite. The bool return is true when a
+	// new row was inserted, false when an existing pending row was updated
+	// (allows the handler to return 201 vs 200 respectively).
+	//
+	// Pre-checks the (organization, email) combination against memberships +
+	// users and returns ErrInvitationAlreadyMember (email is already a member)
+	// or ErrUserExistsNoMembership (email is a known user without membership)
+	// before hitting the partial unique index. ctx must carry organization_id.
+	CreatePendingInvitation(ctx context.Context, inv model.PendingInvitation) (model.PendingInvitation, bool, error)
+
+	// UpdateInvitationKindeIDs records the Kinde Mgmt API IDs returned after the
+	// invite was sent. Called from the handler immediately after a successful
+	// kinde.InviteUser. Returns ErrInvitationNotFound if the row doesn't exist.
+	UpdateInvitationKindeIDs(ctx context.Context, id, kindeInvitationID, kindeUserID string) error
+
+	// ListPendingInvitations returns invitations for the organization in ctx
+	// filtered by status. status="" returns only status='pending' rows.
+	ListPendingInvitations(ctx context.Context, status string) ([]model.PendingInvitation, error)
+
+	// GetPendingInvitation returns a single invitation by ID for the
+	// organization in ctx. Returns ErrInvitationNotFound when missing.
+	GetPendingInvitation(ctx context.Context, id string) (model.PendingInvitation, error)
+
+	// RevokePendingInvitation flips status to 'revoked'. Returns
+	// ErrInvitationNotFound if no row, ErrInvitationNotPending if already
+	// revoked/expired. Idempotent on subsequent revoke calls only via the
+	// not-pending sentinel — handler maps that to 410.
+	RevokePendingInvitation(ctx context.Context, id string) error
+
+	// RedeemPendingInvitation atomically inserts a memberships row and DELETES
+	// the matching pending_memberships row, in one transaction. The match key
+	// is (organization_id, lower(email)) WHERE status='pending' AND
+	// expires_at > NOW(). Returns true on redemption, (false, nil) if no
+	// matching pending row exists (silent no-op — correct for users not in
+	// the pending set, e.g. self-signup owners).
+	//
+	// Called by the auth middleware on every authenticated request after
+	// EnsureFirstMembership. Must be cheap — sub-millisecond on the hot path.
+	// ctx organization_id is set by the caller; userID and email are sourced
+	// from JWT claims.
+	RedeemPendingInvitation(ctx context.Context, organizationID, userID, email string) (bool, error)
+
+	// ExpirePendingInvitations flips status to 'expired' for ripe pending rows
+	// (expires_at <= NOW()). Cross-organization sweep — bypasses RLS via the
+	// admin pool. Returns the number of rows updated. Idempotent.
+	ExpirePendingInvitations(ctx context.Context) (int64, error)
 
 	// ── GDPR — right to erasure (see docs/rbac-design.md §10) ────────────────
 
