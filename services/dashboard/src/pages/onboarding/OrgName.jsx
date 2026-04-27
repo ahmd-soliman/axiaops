@@ -30,7 +30,7 @@ export default function OnboardingOrgName() {
       navigate('/onboarding/invite');
     } catch (err) {
       const msg = err?.body?.message || 'Could not save the name. Please retry.';
-      toast({ kind: 'error', message: msg });
+      toast(msg, 'error');
     } finally {
       setSaving(false);
     }

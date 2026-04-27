@@ -27,7 +27,7 @@ export default function OnboardingAwsAccount() {
     } catch (err) {
       // Soft-fail — completion is idempotent and the gate will re-route here
       // if the flag didn't flip. Toast and proceed.
-      toast({ kind: 'error', message: 'Could not save onboarding state. You may see the wizard again.' });
+      toast('Could not save onboarding state. You may see the wizard again.', 'error');
     }
     navigate('/');
   }

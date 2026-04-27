@@ -54,11 +54,11 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
     setSaving(true);
     try {
       await patchOrganization(trimmed);
-      toast({ kind: 'success', message: 'Organization renamed.' });
+      toast('Organization renamed.', 'success');
       await refresh();
     } catch (err) {
       const msg = err?.body?.message || 'Rename failed. Please retry.';
-      toast({ kind: 'error', message: msg });
+      toast(msg, 'error');
     } finally {
       setSaving(false);
     }
