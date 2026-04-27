@@ -7,22 +7,40 @@ import LoginScreen from '../screens/LoginScreen';
 
 export default function Login() {
   const navigate = useNavigate();
-  const [signingIn, setSigningIn] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (DEV_MODE || getToken()) navigate('/', { replace: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleLogin() {
-    setSigningIn(true);
+    setBusy(true);
     try {
       const client = await getKindeClient();
       await client.login(); // browser redirects; Promise never resolves
     } catch (e) {
       console.error('Login failed:', e);
-      setSigningIn(false);
+      setBusy(false);
     }
   }
 
-  return <LoginScreen onLogin={handleLogin} loading={signingIn} />;
+  // handleSignUp asks Kinde to create a brand-new organisation for this user
+  // and assign them as owner. Without is_create_org=true the signup flow joins
+  // the application's default Kinde org, so every signup ends up in the same
+  // AxiaOps organisation. With it, each signup gets a fresh org_code in their
+  // JWT and the auth middleware mints a new AxiaOps organisation row.
+  async function handleSignUp() {
+    setBusy(true);
+    try {
+      const client = await getKindeClient();
+      await client.register({
+        authUrlParams: { is_create_org: 'true' },
+      });
+    } catch (e) {
+      console.error('Sign-up failed:', e);
+      setBusy(false);
+    }
+  }
+
+  return <LoginScreen onLogin={handleLogin} onSignUp={handleSignUp} loading={busy} />;
 }
