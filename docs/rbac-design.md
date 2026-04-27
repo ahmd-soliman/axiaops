@@ -582,6 +582,81 @@ Expect ~2 weeks of work when it's time.
 
 ---
 
+## 12. Kinde-Native RBAC Evaluation
+
+We evaluated whether to replace AxiaOps' internal RBAC (the `memberships` table + Go permission decorators above) with Kinde's built-in roles and permissions. This section documents the evaluation, the decision, and the upgrade path.
+
+### What Kinde offers
+
+| Capability | Kinde behaviour |
+|---|---|
+| Native roles | **Yes**, scoped per-organization. The same user can hold different roles in different orgs. |
+| Native permissions | **Yes**, arbitrary strings (e.g. `members:invite`) bundled into roles. |
+| JWT delivery | **Opt-in.** Roles ship as a `roles` array claim, permissions as a `permissions` string array. Toggled in *Settings > Applications > [App] > Tokens > Token Customization*. Reflects the active `org_code`. No per-request callback to Kinde needed. |
+| Custom definitions | **Fully custom** name, description, key, bundled permissions. |
+| Multi-org users | JWT carries the role/permission set for the **active `org_code` only**. To switch orgs the user re-authorizes. Aligns with our `SET app.organization_id` model. |
+| Migration cost | **Moderate.** Role/permission keys live in Kinde, referenced by string in JWT. Mitigated by mirroring `(user_id, org_id, role_key)` into our DB on each login (which we already do via `memberships`). |
+
+Sources (verified during evaluation): [Kinde Pricing](https://kinde.com/pricing/), [Manage user roles](https://docs.kinde.com/manage-users/roles-and-permissions/user-roles/), [Apply roles and permissions](https://docs.kinde.com/manage-users/roles-and-permissions/apply-roles-and-permissions-to-users/), [Token customization](https://docs.kinde.com/build/tokens/token-customization/).
+
+### The blocker: free-tier caps
+
+The Kinde free tier caps custom RBAC at **2 roles and 10 permissions** (per business). AxiaOps already uses:
+
+- **4 roles** (`owner`, `admin`, `member`, `viewer`)
+- **~14 permissions** (`accounts:read`, `accounts:write`, `accounts:delete`, `accounts:scan`, `zombies:read`, `zombies:dismiss`, `snapshots:read`, `costs:read`, `resources:read`, `members:read`, `members:invite`, `members:manage_basic`, `members:manage_admin`, `organization:transfer`, plus `organization:delete` already shipped)
+
+Both numbers are over the free-tier cap. Adopting Kinde RBAC natively forces us onto **Pro at $25/mo day one**, which contradicts the Phase 2 €24–34/mo total infra envelope (`docs/development_plan.md`).
+
+### Decision: stay internal for now
+
+Keep the current model:
+
+- `memberships` table is the source of truth for `(user, organization, role)`.
+- Permissions are evaluated by Go decorators (`middleware.Require`) using the `rolePermissions` map in `services/shared/authz/roles.go`.
+- Kinde's JWT carries identity (`sub`, `email`, `org_code`) only. No `roles` or `permissions` claim is read or required.
+
+This matches the existing §3 stance ("AxiaOps owns authorization, ignores Kinde's role claims") and the Phase 3 #14 callout at the top of this doc — both already point in this direction.
+
+### Migration path if/when we move to Pro
+
+Should AxiaOps move to Kinde Pro for unrelated reasons (custom domain, advanced branding, more MAU), the **hybrid model** becomes attractive: let Kinde own role *assignment* (the painful UI part) while AxiaOps keeps the rich permission matrix in code.
+
+The migration is additive, not destructive:
+
+1. Define the 4 roles in Kinde with the same key strings used in `authz` (`owner`, `admin`, `member`, `viewer`). Define a single permission per role at first (or none — we don't need Kinde to model permissions if we keep the matrix in Go).
+2. Enable the `roles` JWT claim in Kinde token customization.
+3. Extend `auth.go` after `EnsureFirstMembership` / `RedeemPendingInvitation` (see `docs/invitation-flow.md`): read `roles` from the JWT, call a new `Store.SyncMembershipRole(ctx, userID, orgID, roleKey)` that updates the `memberships.role` column to match the Kinde claim. The `memberships` table becomes a **derived projection** of Kinde state.
+4. Membership-management endpoints (`POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/invitations`) call Kinde Mgmt API instead of writing the local row directly. The local row is updated when Kinde fires a webhook or on the user's next login.
+5. Permission decorators (`Require(perm, ...)`) are unchanged — they still consult the local `memberships.role` and the `rolePermissions` map.
+
+This gives us:
+
+- A single source of truth (Kinde) for role assignment, with all the UI Kinde provides.
+- Local cache (`memberships`) for fast permission checks without per-request Kinde calls.
+- Provider portability: if we ever leave Kinde, the local cache is already populated and we just stop syncing.
+
+Estimated effort when triggered: **~3 days** (Kinde role/permission setup, sync hook in middleware, Mgmt API client extensions for membership writes, integration tests). Not on any roadmap; trigger is "we're paying for Kinde Pro anyway."
+
+### Open questions for Kinde (deferred — not blocking)
+
+These would need confirmation before executing the hybrid migration:
+
+1. **Role-key stability:** if a role is renamed in Kinde's UI, does the `key` (used in JWT) stay stable, or get regenerated? Critical for our string-keyed `rolePermissions` map.
+2. **Token size:** with multi-org users, does the JWT carry only the active-org permissions, or all orgs' permissions? (Docs imply active-org only.)
+3. **Free-tier cap scope:** is the "2 roles / 10 permissions" cap per business or per organization? If per-org and AxiaOps customers are modelled as Kinde orgs, the cap effectively never bites for *internal* roles.
+4. **Webhook on role change:** is there a `role.assigned` / `role.revoked` webhook so the local mirror stays consistent without waiting for the user's next login?
+
+### Decision summary
+
+| When | What we do |
+|---|---|
+| Today (Free tier) | Internal RBAC. Kinde JWT carries identity only. **No change.** |
+| If we move to Kinde Pro | Hybrid: Kinde owns role assignment, `memberships` is a synced projection, Go decorators unchanged. ~3 days of work. |
+| If we leave Kinde entirely | Internal RBAC continues to work — `memberships` is already self-contained. The provider swap is a JWT-validation concern, not an RBAC concern. |
+
+---
+
 ## Appendix A — Files that change
 
 **Backend**
