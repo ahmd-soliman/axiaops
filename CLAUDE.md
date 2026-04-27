@@ -121,6 +121,13 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 - RDS Multi-AZ doubles cost — defer until necessary
 - App Runner scales to zero — no idle compute cost
 
+## Source Control
+
+- **Host:** GitLab (`git@gitlab.com:axiaops/axiaops.git`). There is no GitHub remote.
+- **CLI:** use `glab`, not `gh`. `gh pr ...` will fail — the equivalent is `glab mr ...`.
+- **Terminology:** "MR" / "merge request", not "PR" / "pull request". The default branch is `main`; MRs historically also targeted `develop` in older history.
+- Any instruction in a global skill that says "use `gh`" or "open a PR" applies via the GitLab equivalent in this repo.
+
 ## Agent Delegation
 
 - **Committing** — always delegate to the `commit` agent
