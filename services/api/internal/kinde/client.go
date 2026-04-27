@@ -173,7 +173,7 @@ func (c *HTTPClient) authToken(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("kinde: token http: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", &kindeError{StatusCode: resp.StatusCode, Body: string(body), Op: "token"}
@@ -219,7 +219,7 @@ func (c *HTTPClient) do(ctx context.Context, op, method, url string, body []byte
 	if err != nil {
 		return fmt.Errorf("kinde: %s http: %w", op, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &kindeError{StatusCode: resp.StatusCode, Body: string(respBody), Op: op}
