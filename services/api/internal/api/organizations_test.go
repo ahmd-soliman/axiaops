@@ -106,7 +106,7 @@ func TestPatchOrganization_ControlChars_400(t *testing.T) {
 	store := NewMockStore()
 	mux, _ := orgHandler(store)
 
-	body := `{"name":"AcmeCorp"}` // bell character
+	body := "{\"name\":\"Acme\u0007Corp\"}" // U+0007 bell—must be rejected as a control char
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgReq(http.MethodPatch, "/v1/organizations/me", body))
 
