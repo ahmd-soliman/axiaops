@@ -210,6 +210,60 @@ Key patterns:
 
 ---
 
+## Cost Metric & Aggregation Notes
+
+### Cost Metric: NetAmortizedCost
+
+The ingestion service requests `NetAmortizedCost` from Cost Explorer at all three call sites in `services/ingestion/internal/provider/aws/aws.go` (`FetchCosts`, `FetchResourceCosts`, `FetchCostExplorerAPICosts`). This was previously `UnblendedCost`; the switch was made on branch `feat/cost-screen-aggregation`.
+
+`NetAmortizedCost`:
+
+- **Net** — post-credits (matches the actual AWS invoice).
+- **Amortized** — RI/SP upfront fees spread across their term (matches Vantage's default).
+
+**Why it matters for AxiaOps specifically:** zombie savings projections need to reflect what would actually disappear from the bill if the resource is killed. If an EC2 is covered by a Savings Plan that has already been paid for, killing it does not save money. `UnblendedCost` overstated "potential monthly savings"; `NetAmortizedCost` does not.
+
+**Why it matters for parity with other cost tools:** Vantage's default cost view also amortizes RI/SP. The AWS console "Bills" view is closer to `NetAmortizedCost` than to `UnblendedCost`. Drift of a few percent is still expected — Cost Explorer has 24–48h refresh lag and tools rebucket time zones differently. Drift > 10% usually means a metric mismatch somewhere.
+
+`NetAmortizedCost` can be **negative** (credits, refunds, SP true-ups). All three fetch functions skip rows with `amount <= 0` so credits do not subtract from zombie savings totals.
+
+The Costs screen carries a small "Net amortized cost · post-credits, RI/SP amortized" caption under the total-spend hero. Do not remove this label without replacing the metric explanation somewhere visible.
+
+A per-organization `cost_metric` override is not built. Skip until a customer explicitly asks.
+
+#### One-time data hygiene after the metric switch
+
+`cost_records` upserts `ON CONFLICT DO NOTHING` on `(organization_id, provider, account_id, service, region, period_start, period_end)`. Existing rows written under `UnblendedCost` will not be overwritten by re-scans under `NetAmortizedCost` until they fall outside the lookback window (`DAYS_BACK`, default 30 days). For 30 days post-deploy, accounts with significant RI/SP coverage will see a mix of unblended (old) and net-amortized (new) totals on the dashboard.
+
+To eliminate the drift window in dev/staging, run on the database after the deploy:
+
+```sql
+DELETE FROM axiaops.cost_records WHERE fetched_at < $deploy_time;
+```
+
+Then trigger a fresh scan (`POST /v1/accounts/{id}/scan`). Production should leave the data alone — the drift self-resolves and the alternative is showing nothing for a day.
+
+### Service Aggregation in the Costs Screen
+
+`CostAnalyticsScreen.jsx` aggregates the cost-records table by service. Each row sums amount, counts records, lists distinct regions, and shows the date range covered. Rows are sorted by total descending. Clicking a row opens a side panel that drills down to a per-`resource_id` breakdown for that service (with regions and record count per resource).
+
+The CSV export still emits one row per raw Cost Explorer line item — the spreadsheet keeps full detail; only the on-screen list is aggregated.
+
+A second level of grouping (service → region → resource_id) is *not* implemented and not on the roadmap. The current single-level grouping is enough for the FinOps decisions AxiaOps cares about ("which service is leaking money, and which specific resource is the cause").
+
+### Why We Do Not Group by USAGE_TYPE
+
+Vantage and other generalist cost explorers expose an "API Request" row (and similar) by adding `USAGE_TYPE_GROUP` as a Cost Explorer group-by dimension. AxiaOps deliberately does not:
+
+- Cost Explorer allows max 2 group-bys per query, so adding usage type means a second pass per scan — every account scan would pay the CE API twice.
+- `cost_records` cardinality grows 5–20× per scan, hurting `/costs` and trend query latency.
+- Usage-type breakdown does not help detect idle EC2s, unattached EBS volumes, or any other zombie pattern. Zero detection benefit.
+- Shipping a Vantage-style cost explorer view dilutes AxiaOps's positioning ("zombie detection") and invites comparisons against tools that are better cost explorers than we are.
+
+If a customer asks for usage-type analysis, the right answer is "use Vantage / CloudHealth / the AWS console for that," not to grow into a generalist cost tool.
+
+---
+
 ## Testing
 
 ### Backend
