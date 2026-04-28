@@ -21,20 +21,34 @@ function authHeaders() {
 // needing the user to reload. See docs/rbac-design.md §8 "Role-change propagation".
 export const FORBIDDEN_EVENT = 'axiaops:forbidden';
 
-// notifyForbidden is decoupled from React deliberately — keeping client.js as
-// a plain JS module avoids importing React into the data layer. Listeners
-// register on window in MeContext.
+// UNAUTHORIZED_EVENT fires when a request returns 401 — i.e. the Kinde JWT is
+// missing, expired, or otherwise rejected by the API auth middleware. The app
+// shell listens and forces a logout + redirect to /login so the user can
+// re-authenticate instead of staring at a stuck UI with a stale token.
+export const UNAUTHORIZED_EVENT = 'axiaops:unauthorized';
+
+// notifyForbidden / notifyUnauthorized are decoupled from React deliberately —
+// keeping client.js as a plain JS module avoids importing React into the data
+// layer. Listeners register on window in MeContext / App.
 function notifyForbidden(detail) {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(FORBIDDEN_EVENT, { detail }));
   }
 }
 
-// ifetch wraps the global `fetch` to fire FORBIDDEN_EVENT on 403 without
-// changing the caller's error semantics. The pre-RBAC API methods call
-// ifetch instead of fetch so a 403 anywhere triggers MeContext refresh.
+function notifyUnauthorized(detail) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT, { detail }));
+  }
+}
+
+// ifetch wraps the global `fetch` to fire FORBIDDEN_EVENT on 403 and
+// UNAUTHORIZED_EVENT on 401 without changing the caller's error semantics.
+// The pre-RBAC API methods call ifetch instead of fetch so a 401/403 anywhere
+// triggers the right app-level reaction (logout vs MeContext refresh).
 async function ifetch(url, opts) {
   const res = await fetch(url, opts);
+  if (res.status === 401) notifyUnauthorized({ path: url });
   if (res.status === 403) notifyForbidden({ path: url });
   return res;
 }

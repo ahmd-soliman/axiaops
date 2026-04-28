@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { getToken, saveToken, clearToken } from './auth/storage';
-import { setAuthToken } from './api/client';
+import { setAuthToken, UNAUTHORIZED_EVENT } from './api/client';
 import { DEV_MODE, DEV_ORG_NAME } from './config';
 import { getKindeClient } from './auth/kinde';
 import { queryClient } from './main';
@@ -50,6 +50,20 @@ function AuthenticatedApp() {
     queryClient.clear();
     navigate('/login', { replace: true });
   }
+
+  // Stale / expired Kinde token: api/client.js fires UNAUTHORIZED_EVENT on any
+  // 401, and we react by clearing local auth state and bouncing to /login so
+  // the user can re-authenticate instead of being stuck on a half-broken page.
+  useEffect(() => {
+    const handler = () => {
+      clearToken();
+      setAuthToken(null);
+      queryClient.clear();
+      navigate('/login', { replace: true });
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, handler);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, handler);
+  }, [navigate]);
 
   return (
     <AppProvider orgName={orgName} onLogout={handleLogout}>
