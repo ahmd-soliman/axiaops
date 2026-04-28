@@ -105,6 +105,8 @@ services:
         VITE_KINDE_CLIENT_ID: ${VITE_KINDE_CLIENT_ID:-9fc9d3b7d0024947bd3c9fa253dfd28c}
         VITE_API_URL: /api
         VITE_DEV_MODE: ${DEV_MODE:-true}
+        VITE_FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
+        VITE_AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     # Runtime env consumed by inject-env.sh (writes window.__ENV__ on
     # container start). Without this block, KINDE_ISSUER / KINDE_CLIENT_ID
     # are empty strings, the Kinde SDK rejects with "Please supply a valid
@@ -114,6 +116,8 @@ services:
       KINDE_ISSUER: ${VITE_KINDE_ISSUER:-https://axiaops.kinde.com}
       KINDE_CLIENT_ID: ${VITE_KINDE_CLIENT_ID:-9fc9d3b7d0024947bd3c9fa253dfd28c}
       DEV_ORG_NAME: ${DEV_ORG_NAME:-AxiaOps Dev}
+      FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
+      AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     container_name: axiaops-dashboard
     ports:
       - "8082:80"
