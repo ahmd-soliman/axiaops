@@ -35,6 +35,11 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       REDIS_URL: ${REDIS_URL}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
+      KINDE_M2M_CLIENT_ID: ${KINDE_M2M_CLIENT_ID}
+      KINDE_M2M_CLIENT_SECRET: ${KINDE_M2M_CLIENT_SECRET}
+      KINDE_MGMT_API_URL: ${KINDE_MGMT_API_URL:-}
+      KINDE_USE_STUB: ${KINDE_USE_STUB:-false}
+      INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-14}
     networks:
       - gitlab-runner-network
 
