@@ -276,7 +276,7 @@ export default function AuditScreen() {
   const hasNext = query.hasNextPage;
 
   return (
-    <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ padding: 24 }}>
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: theme.text }}>
