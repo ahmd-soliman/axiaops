@@ -49,7 +49,8 @@ CI builds and deploys via `.gitlab-ci.yml`. Dev and staging are deployed manuall
 - `ENCRYPTION_KEY` (32-byte hex)
 - `KINDE_ISSUER`
 - `KINDE_CLIENT_ID`
-- `KINDE_CLIENT_SECRET`
+- `KINDE_M2M_CLIENT_ID` — required when invitations are enabled
+- `KINDE_M2M_CLIENT_SECRET` — required when invitations are enabled
 
 ### Optional (have defaults)
 - `SCAN_INTERVAL` (default: `60s` for dev, `1h` for staging)
