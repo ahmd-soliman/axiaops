@@ -6,6 +6,7 @@ package aws
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,12 +17,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 
 	"axiaops.io/shared/analyzer"
+	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/pricing"
 	"axiaops.io/shared/retry"
@@ -70,6 +74,212 @@ func NewWithStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey,
 // Used in tests to inject mocks.
 func NewWithClient(accountID string, ce CostExplorerAPI, cw CloudWatchAPI) *Client {
 	return &Client{accountID: accountID, ce: ce, cw: cw, pricing: pricing.Default()}
+}
+
+// assumeRoleSessionDuration is the lifetime requested on every sts:AssumeRole
+// call for a real scan. The AWS SDK's CredentialsCache refreshes transparently
+// before expiry, so 1h is plenty for any realistic scan.
+const assumeRoleSessionDuration = 1 * time.Hour
+
+// verifyAssumeRoleSessionDuration is used by the synchronous
+// /v1/credentials/verify flow only — credentials are discarded the moment the
+// response is written, so a short lifetime matches the threat model
+// (design §4.4).
+const verifyAssumeRoleSessionDuration = 15 * time.Minute
+
+// AssumeRoleVerification is the result of a synchronous AssumeRole probe used
+// by POST /v1/credentials/verify. Returned by VerifyAssumeRole.
+type AssumeRoleVerification struct {
+	OK        bool
+	AccountID string // populated when OK is true (resolved via GetCallerIdentity)
+	Code      string // structured error code, e.g. "role_assume_failed"
+	Reason    string // structured reason, e.g. "trust_policy_mismatch"
+	Detail    string // human-readable AWS error message (safe to log; do not echo to UI verbatim)
+}
+
+// VerifyAssumeRole performs a one-shot sts:AssumeRole + GetCallerIdentity round
+// trip and discards the credentials. Used by the /v1/credentials/verify
+// endpoint to confirm a customer's trust policy is wired correctly before the
+// account row is finalised. Stateless: never touches the database.
+//
+// organizationID is the AxiaOps tenant ID; it is set as the AxiaOpsOrg
+// session tag so customer SCPs can target it via aws:PrincipalTag/AxiaOpsOrg.
+// Including the tag from day one avoids forcing every customer to edit their
+// trust policy later to allow sts:TagSession (design §8 Q7).
+func VerifyAssumeRole(ctx context.Context, sts STSAPI, roleARN, externalID, organizationID string) AssumeRoleVerification {
+	sessionName := newRoleSessionName("verify", organizationID)
+	out, err := sts.AssumeRole(ctx, assumeRoleInput(roleARN, externalID, organizationID, sessionName, verifyAssumeRoleSessionDuration))
+	if err != nil {
+		return classifyAssumeRoleError(err)
+	}
+	if out == nil || out.Credentials == nil {
+		return AssumeRoleVerification{OK: false, Code: "role_assume_failed", Reason: "empty_response", Detail: "STS returned no credentials"}
+	}
+	// Resolve the customer's AWS account number with the assumed credentials.
+	// The SDK pattern would be to build a new sts.Client from the credentials,
+	// but since the verify endpoint only needs the Account field of
+	// GetCallerIdentity (which AssumeRole's caller arn embeds), we extract it
+	// from the AssumedRoleUser.Arn directly to avoid a second STS call.
+	accountID := awsAccountIDFromAssumedRoleArn(aws.ToString(out.AssumedRoleUser.Arn))
+	if accountID == "" {
+		return AssumeRoleVerification{OK: false, Code: "role_assume_failed", Reason: "account_id_unresolved", Detail: "could not parse account ID from AssumedRoleUser ARN"}
+	}
+	return AssumeRoleVerification{OK: true, AccountID: accountID}
+}
+
+// NewWithAssumedRole builds a Client that signs every AWS request with
+// short-lived credentials obtained via sts:AssumeRole. The customer's role
+// must allow our AxiaOpsScanner principal with the matching ExternalId on its
+// trust policy — see docs/cross-account-roles-design.md §3.1.
+//
+// organizationID is set as the AxiaOpsOrg session tag (design §8 Q7).
+func NewWithAssumedRole(ctx context.Context, roleARN, externalID, region, organizationID string) (*Client, error) {
+	if region == "" {
+		region = "eu-central-1"
+	}
+	if roleARN == "" || externalID == "" {
+		return nil, fmt.Errorf("aws: role_arn and external_id are required")
+	}
+	baseCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return nil, fmt.Errorf("aws: load base config: %w", err)
+	}
+	stsClient := sts.NewFromConfig(baseCfg)
+	provider := stscreds.NewAssumeRoleProvider(stsClient, roleARN, func(o *stscreds.AssumeRoleOptions) {
+		o.ExternalID = aws.String(externalID)
+		o.Duration = assumeRoleSessionDuration
+		// Per-process unique session name so concurrent scans for the same
+		// organization are distinguishable in CloudTrail.
+		o.RoleSessionName = newRoleSessionName("scan", organizationID)
+		o.Tags = []ststypes.Tag{{Key: aws.String("AxiaOpsOrg"), Value: aws.String(organizationID)}}
+		o.TransitiveTagKeys = []string{"AxiaOpsOrg"}
+	})
+	cfg := baseCfg.Copy()
+	cfg.Credentials = aws.NewCredentialsCache(provider)
+
+	out, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return nil, fmt.Errorf("aws: GetCallerIdentity (assumed role): %w", err)
+	}
+	accountID := aws.ToString(out.Account)
+	slog.Info("aws: assumed role and resolved account ID", "account_id", accountID, "role_arn", roleARN)
+	return &Client{
+		accountID: accountID,
+		cfg:       cfg,
+		ce:        costexplorer.NewFromConfig(cfg),
+		cw:        cloudwatchsdk.NewFromConfig(cfg),
+		pricing:   pricing.Default(),
+	}, nil
+}
+
+// NewForAccount dispatches to the right credential constructor based on the
+// account's auth_method. This is the single integration point ingestion's
+// scan loop calls — the scan path no longer needs to know whether the
+// underlying credentials are static keys or assumed-role short-lived ones.
+//
+// For access-key accounts, NewForAccount calls crypto.Decrypt on the encrypted
+// secret. For role accounts, the ENCRYPTION_KEY is not needed at all.
+func NewForAccount(ctx context.Context, account model.Account) (*Client, error) {
+	switch account.AuthMethod {
+	case model.AuthMethodRole:
+		return NewWithAssumedRole(ctx, account.RoleARN, account.ExternalID, account.Region, account.OrganizationID)
+	case model.AuthMethodAccessKey, "": // empty == access_key for back-compat with pre-MR3 rows
+		if account.SecretEncrypted == "" {
+			return nil, fmt.Errorf("aws: access-key account has no encrypted secret")
+		}
+		secret, err := crypto.Decrypt(account.SecretEncrypted)
+		if err != nil {
+			return nil, fmt.Errorf("aws: decrypt credentials: %w", err)
+		}
+		return NewWithStaticCredentials(ctx, account.AccessKeyID, secret, account.Region)
+	default:
+		return nil, fmt.Errorf("aws: unsupported auth_method %q", account.AuthMethod)
+	}
+}
+
+// assumeRoleInput builds the AssumeRole request shape used by both the verify
+// flow and the long-lived scan provider. Pulled into a helper so both paths
+// stay in lockstep on the ExternalId / Tags / TransitiveTagKeys contract.
+func assumeRoleInput(roleARN, externalID, organizationID, sessionName string, duration time.Duration) *sts.AssumeRoleInput {
+	return &sts.AssumeRoleInput{
+		RoleArn:         aws.String(roleARN),
+		RoleSessionName: aws.String(sessionName),
+		ExternalId:      aws.String(externalID),
+		// AWS takes seconds as int32; the Go-side type is time.Duration so
+		// callers cannot accidentally pass milliseconds or hours.
+		DurationSeconds: aws.Int32(int32(duration.Seconds())),
+		Tags: []ststypes.Tag{
+			{Key: aws.String("AxiaOpsOrg"), Value: aws.String(organizationID)},
+		},
+		TransitiveTagKeys: []string{"AxiaOpsOrg"},
+	}
+}
+
+// newRoleSessionName builds a CloudTrail-distinguishable session name. Format:
+// "axiaops-<purpose>-<orgID>-<random>". AWS limits the field to 64 chars and
+// the regex [\w+=,.@-]; we truncate organizationID if needed and use a 6-char
+// hex suffix so concurrent calls in the same process never collide.
+func newRoleSessionName(purpose, organizationID string) string {
+	const maxOrgLen = 32
+	if len(organizationID) > maxOrgLen {
+		organizationID = organizationID[:maxOrgLen]
+	}
+	var b [4]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		// Random read failure is genuinely fatal for SDK/boot — fall back to
+		// time-based suffix so we never block on entropy.
+		return fmt.Sprintf("axiaops-%s-%s-%d", purpose, organizationID, time.Now().UnixNano())
+	}
+	return fmt.Sprintf("axiaops-%s-%s-%x", purpose, organizationID, b)
+}
+
+// classifyAssumeRoleError maps a raw STS error into the structured
+// {code, reason} pairs the dashboard renders into targeted help text. The
+// distinction between "trust_policy_mismatch" and "external_id_mismatch"
+// comes from the AWS error type — both surface as AccessDenied at the top
+// level, but the underlying APIError carries enough detail to disambiguate.
+func classifyAssumeRoleError(err error) AssumeRoleVerification {
+	v := AssumeRoleVerification{OK: false, Code: "role_assume_failed", Detail: err.Error()}
+
+	// MalformedPolicyDocumentException is the only AssumeRole-side typed error
+	// the SDK exports that we care to surface explicitly. AccessDenied (the
+	// most common failure shape) is wrapped in a generic SDK error, so we
+	// disambiguate "trust_policy_mismatch" / "external_id_mismatch" /
+	// "role_not_found" by string-matching the AWS error message.
+	var malformed *ststypes.MalformedPolicyDocumentException
+	if errors.As(err, &malformed) {
+		v.Reason = "malformed_policy"
+		return v
+	}
+
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "ExternalId") || strings.Contains(msg, "external ID"):
+		v.Reason = "external_id_mismatch"
+	case strings.Contains(msg, "Not authorized to perform sts:AssumeRole") ||
+		strings.Contains(msg, "not authorized to perform: sts:AssumeRole"):
+		v.Reason = "trust_policy_mismatch"
+	case strings.Contains(msg, "Role") && strings.Contains(msg, "cannot be found") ||
+		strings.Contains(msg, "Role") && strings.Contains(msg, "does not exist"):
+		v.Reason = "role_not_found"
+	case strings.Contains(msg, "AccessDenied"):
+		v.Reason = "access_denied"
+	default:
+		v.Reason = "unknown"
+	}
+	return v
+}
+
+// awsAccountIDFromAssumedRoleArn pulls the AWS account number out of an
+// assumed-role principal ARN of the form
+// "arn:aws:sts::<ACCOUNT_ID>:assumed-role/<ROLE_NAME>/<SESSION_NAME>". Returns
+// "" if the ARN is not in the expected shape.
+func awsAccountIDFromAssumedRoleArn(arn string) string {
+	parts := strings.Split(arn, ":")
+	if len(parts) < 5 {
+		return ""
+	}
+	return parts[4]
 }
 
 // Rates returns the effective AWS pricing rates for the given region —

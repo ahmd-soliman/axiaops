@@ -129,6 +129,10 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 	if err := s.SaveAccount(ctx, model.Account{
 		ID: "acc-" + uuid.New().String(), OrganizationID: org.ID,
 		Provider: "aws", AccountID: "000000000000", Region: "eu-central-1", Status: "connected",
+		// access-key fields are required by the accounts_access_key_fields_present
+		// CHECK constraint introduced in migration 019. Use any non-empty values
+		// — this test cares about cascade behaviour, not credential validity.
+		AccessKeyID: "AKIAIOSFODNN7EXAMPLE", SecretEncrypted: "stub",
 	}); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
 	}
