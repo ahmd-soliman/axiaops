@@ -146,6 +146,45 @@ export async function updateAccount(id, { label, accessKeyId, secretKey, region,
   return res.json();
 }
 
+// draftAccount kicks off role-based onboarding. Returns the account row with
+// external_id populated; the dashboard renders the trust-policy template
+// against that ExternalId, then calls verifyAccount once the customer has
+// pasted back their role ARN. See docs/cross-account-roles-design.md §4.3.
+export async function draftAccount({ provider = 'aws', label, region }) {
+  const res = await ifetch(`${BASE_URL}/v1/accounts/draft`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, label, region }),
+  });
+  if (!res.ok) throw new Error('Failed to start role onboarding');
+  return res.json();
+}
+
+// verifyAccount triggers the synchronous AssumeRole probe. On success the
+// backend flips the row to status='connected' and resolves account_id from
+// GetCallerIdentity. On failure the response carries a structured
+// {code, reason, detail} the caller should surface to the user.
+export async function verifyAccount(id, { roleArn }) {
+  const res = await ifetch(`${BASE_URL}/v1/accounts/${id}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role_arn: roleArn }),
+  });
+  if (res.status === 400) {
+    let body;
+    try { body = await res.json(); } catch (_) { body = {}; }
+    // Use a generic top-line message — the structured `reason` drives the
+    // dashboard's user-facing copy via reasonToHint(). The API deliberately
+    // does not return raw AWS error strings (they carry ARNs and request IDs).
+    const err = new Error('Verification failed');
+    err.code = body.code;
+    err.reason = body.reason;
+    throw err;
+  }
+  if (!res.ok) throw new Error('Failed to verify role');
+  return res.json();
+}
+
 export async function deleteAccount(id) {
   const res = await ifetch(`${BASE_URL}/v1/accounts/${id}`, {
     method: 'DELETE',
