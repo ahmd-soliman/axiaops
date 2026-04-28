@@ -3,6 +3,15 @@
   "go.alternateTools": {
     "dlv": "/Users/ahmed/go/bin/dlv"
   },
+  "go.testFlags": ["-count=1"],
+  "go.lintTool": "golangci-lint",
+  "go.lintOnSave": "package",
+  "[go]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
   "files.associations": {
     "launch.json": "jsonc"
   },
