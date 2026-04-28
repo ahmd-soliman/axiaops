@@ -81,7 +81,7 @@ func TestFetchCosts_SinglePage(t *testing.T) {
 							{
 								Keys: []string{"AmazonEC2", "eu-central-1"},
 								Metrics: map[string]types.MetricValue{
-									"UnblendedCost": {
+									"NetAmortizedCost": {
 										Amount: ceaws.String("1243.87"),
 										Unit:   ceaws.String("USD"),
 									},
@@ -138,7 +138,7 @@ func TestFetchCosts_Pagination(t *testing.T) {
 							{
 								Keys: []string{"AmazonS3", "eu-central-1"},
 								Metrics: map[string]types.MetricValue{
-									"UnblendedCost": {Amount: ceaws.String("50.00"), Unit: ceaws.String("USD")},
+									"NetAmortizedCost": {Amount: ceaws.String("50.00"), Unit: ceaws.String("USD")},
 								},
 							},
 						},
@@ -156,7 +156,7 @@ func TestFetchCosts_Pagination(t *testing.T) {
 							{
 								Keys: []string{"AmazonRDS", "eu-central-1"},
 								Metrics: map[string]types.MetricValue{
-									"UnblendedCost": {Amount: ceaws.String("876.42"), Unit: ceaws.String("USD")},
+									"NetAmortizedCost": {Amount: ceaws.String("876.42"), Unit: ceaws.String("USD")},
 								},
 							},
 						},
@@ -384,7 +384,7 @@ func TestFetchCostExplorerAPICosts_SinglePage(t *testing.T) {
 							{
 								Keys: []string{"Amazon Cost Management APIs", "us-east-1"},
 								Metrics: map[string]types.MetricValue{
-									"UnblendedCost": {
+									"NetAmortizedCost": {
 										Amount: ceaws.String("0.47"),
 										Unit:   ceaws.String("USD"),
 									},
@@ -439,7 +439,7 @@ func TestFetchCostExplorerAPICosts_SkipsZeroAmount(t *testing.T) {
 							{
 								Keys: []string{"Amazon Cost Management APIs", "us-east-1"},
 								Metrics: map[string]types.MetricValue{
-									"UnblendedCost": {
+									"NetAmortizedCost": {
 										Amount: ceaws.String("0.00"),
 										Unit:   ceaws.String("USD"),
 									},
