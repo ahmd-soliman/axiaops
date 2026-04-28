@@ -136,7 +136,7 @@ Errors are logged to stdout with structured context (JSON format in production).
 | KINDE_USE_STUB | No | false (true in `make start-staging`) | When `true`, the Mgmt API client is replaced with an in-memory stub. Invitation emails and Kinde-side org renames become no-ops. Set when running staging without a real M2M app. **Never enable in production.** |
 | INVITATION_TTL_DAYS | No | 14 | How long a `pending_memberships` row stays redeemable. |
 | DEV_MODE | No | false | Skip auth, use fixed organization |
-| DEV_ORGANIZATION_ID | No | dev-organization-axiaops | Organization ID in dev mode |
+| DEV_ORGANIZATION_ID | When `DEV_MODE=true` | — | Organization ID for dev bypass. No default — startup `die()`s if unset while `DEV_MODE=true`. |
 | DEV_USER_ID | No | dev-user-axiaops | User ID seeded in dev mode; `EnsureDevMembership` assigns it `owner` |
 | DEV_USER_EMAIL | No | dev@axiaops.local | Email for the dev user row |
 | CORS_ORIGIN | No | * | Allowed CORS origin |
