@@ -4,7 +4,7 @@ import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, 
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
-import { Spinner } from '../components/primitives';
+import { Spinner, InfoTooltip } from '../components/primitives';
 import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { csvEncode, downloadCSV } from '../utils/csv';
@@ -34,6 +34,44 @@ const SNOOZE_OPTIONS = [
 ];
 
 // ─── Overview section ─────────────────────────────────────────────────────────
+
+// MonthlyWasteCard — clickable card replacement for the previous <button>.
+// We can't use a <button> here because the InfoTooltip inside is itself a
+// <button>, and nested interactives are invalid HTML. div role="button"
+// needs explicit keyboard handling and a visible focus ring (browsers don't
+// apply :focus-visible to non-button elements consistently).
+function MonthlyWasteCard({ onShowTrend, theme, children }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onShowTrend}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onShowTrend();
+        }
+      }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={{
+        flex: 1,
+        textAlign: 'left',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: 4,
+        margin: -4,
+        borderRadius: 6,
+        outline: focused ? `2px solid ${theme.accent}` : 'none',
+        outlineOffset: 2,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, theme }) {
   const data = summary.data;
@@ -82,15 +120,31 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
           </span>
         </button>
 
-        {/* Monthly Waste */}
-        <button
-          type="button"
-          onClick={onShowTrend}
-          style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-        >
-          <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
-            Monthly Waste
-          </span>
+        {/* Monthly Waste — clickable card; the InfoTooltip lives next to the
+            label, so we can't use a <button> wrapper (no nested interactives).
+            We use div role="button" with explicit Enter/Space + focus-ring. */}
+        <MonthlyWasteCard onShowTrend={onShowTrend} theme={theme}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
+              Monthly Waste
+            </span>
+            <InfoTooltip
+              label="What does Monthly Waste mean?"
+              placement="left"
+              body={
+                <>
+                  <p style={{ margin: 0 }}>
+                    Sum of monthly cost across detected zombie resources, based on net amortized cost.
+                  </p>
+                  <p style={{ margin: '8px 0 0', color: theme.textMid }}>
+                    <strong>Heads up</strong> — if a resource is covered by a Savings Plan or Reserved Instance,
+                    killing it may not reduce your bill until the commitment ends. AxiaOps does not yet detect
+                    SP/RI coverage, so this number can overstate savings for accounts with active commitments.
+                  </p>
+                </>
+              }
+            />
+          </div>
           <span style={{ fontSize: 28, fontWeight: 800, color: theme.accent, letterSpacing: -0.5, display: 'block' }}>
             {currency} {waste.toFixed(2)}
           </span>
@@ -104,7 +158,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
               </span>
             )}
           </div>
-        </button>
+        </MonthlyWasteCard>
       </div>
 
       {/* Waste bar */}
