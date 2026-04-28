@@ -54,6 +54,8 @@ services:
       API_HOST: axiaops-api-${DEPLOY_ENV}
       DEV_MODE: "true"
       DEV_ORG_NAME: ${DEV_ORG_NAME:-AxiaOps Dev}
+      FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
+      AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     networks:
       - gitlab-runner-network
 
