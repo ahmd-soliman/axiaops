@@ -29,6 +29,9 @@
       "envFile": "${workspaceFolder}/services/api/.env",
       "env": {
         "DEV_MODE": "true",
+        "DEV_ORGANIZATION_ID": "dev-organization-axiaops",
+        "DEV_USER_ID": "dev-user-axiaops",
+        "DEV_USER_EMAIL": "dev@axiaops.local",
         "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
         "MIGRATION_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
       },
@@ -63,6 +66,9 @@
       "envFile": "${workspaceFolder}/services/ingestion/.env",
       "env": {
         "DEV_MODE": "true",
+        "DEV_ORGANIZATION_ID": "dev-organization-axiaops",
+        "DEV_USER_ID": "dev-user-axiaops",
+        "DEV_USER_EMAIL": "dev@axiaops.local",
         "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
         "MIGRATION_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
       },
