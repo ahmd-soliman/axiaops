@@ -67,17 +67,9 @@
       "presentation": { "reveal": "silent", "panel": "dedicated" }
     },
     {
-      "label": "seed-dev",
+      "label": "seed",
       "type": "shell",
-      "command": "make seed-dev",
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": [],
-      "presentation": { "reveal": "always", "panel": "shared" }
-    },
-    {
-      "label": "seed-staging",
-      "type": "shell",
-      "command": "make seed-staging",
+      "command": "make seed",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared" }
@@ -99,9 +91,17 @@
       "presentation": { "reveal": "always", "panel": "shared" }
     },
     {
-      "label": "clean-remote-dev",
+      "label": "clean-remote-dev-1",
       "type": "shell",
-      "command": "make clean-remote-dev",
+      "command": "make clean-remote-dev-1",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "clean-remote-dev-2",
+      "type": "shell",
+      "command": "make clean-remote-dev-2",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared" }
