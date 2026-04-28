@@ -13,12 +13,19 @@ ARG VITE_DEV_MODE=false
 # still produces a usable image — production builds override via --build-arg.
 ARG VITE_APP_VERSION=dev
 ARG VITE_APP_COMMIT_SHA=local
+# Feature flag + AxiaOps AWS account ID for cross-account-role onboarding.
+# Both are also overridable at container start via inject-env.sh, so this
+# is a baked-in default for the case where window.__ENV__ is missing.
+ARG VITE_FEATURE_ROLE_AUTH=false
+ARG VITE_AXIAOPS_AWS_ACCOUNT_ID=
 ENV VITE_KINDE_ISSUER=$VITE_KINDE_ISSUER
 ENV VITE_KINDE_CLIENT_ID=$VITE_KINDE_CLIENT_ID
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_DEV_MODE=$VITE_DEV_MODE
 ENV VITE_APP_VERSION=$VITE_APP_VERSION
 ENV VITE_APP_COMMIT_SHA=$VITE_APP_COMMIT_SHA
+ENV VITE_FEATURE_ROLE_AUTH=$VITE_FEATURE_ROLE_AUTH
+ENV VITE_AXIAOPS_AWS_ACCOUNT_ID=$VITE_AXIAOPS_AWS_ACCOUNT_ID
 
 RUN npm run build
 
