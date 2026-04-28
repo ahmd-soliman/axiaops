@@ -153,6 +153,12 @@ type Store interface {
 	// UpdateAccountStatus sets the status and last_scanned_at for an account.
 	UpdateAccountStatus(ctx context.Context, id, status string) error
 
+	// SetAccountError marks the account as failed and stores a human-readable
+	// reason in error_message. Called from the scan loop and the role-verify
+	// failure path so the dashboard can surface a single source of truth for
+	// "why is this account broken" without operators reading logs.
+	SetAccountError(ctx context.Context, id, message string) error
+
 	// TryMarkAccountScanning sets status to scanning only if not already scanning.
 	// Returns true when the row was updated; false when another scan is in progress.
 	TryMarkAccountScanning(ctx context.Context, id string) (bool, error)

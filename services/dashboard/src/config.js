@@ -13,3 +13,17 @@ export const DEV_ORG_NAME    = env.DEV_ORG_NAME      ?? import.meta.env.VITE_DEV
 // `vite dev` and `vite build` without env vars still produce a usable string.
 export const APP_VERSION    = import.meta.env.VITE_APP_VERSION    || 'dev';
 export const APP_COMMIT_SHA = import.meta.env.VITE_APP_COMMIT_SHA || 'local';
+
+// Feature flags. Role-based AWS onboarding ships dark until staging end-to-end
+// is proven (see docs/cross-account-roles-design.md §4). Set
+// VITE_FEATURE_ROLE_AUTH=true to expose the "Role ARN (recommended)" tab on
+// the Connect screen.
+export const FEATURE_ROLE_AUTH =
+  (env.FEATURE_ROLE_AUTH ?? import.meta.env.VITE_FEATURE_ROLE_AUTH) === 'true';
+
+// AxiaOps' own AWS account ID — the principal that customer trust policies
+// must allow on sts:AssumeRole. Production and staging get distinct values
+// so dashboards rendered in different environments produce trust policies
+// that point at the right place.
+export const AXIAOPS_AWS_ACCOUNT_ID =
+  env.AXIAOPS_AWS_ACCOUNT_ID ?? import.meta.env.VITE_AXIAOPS_AWS_ACCOUNT_ID ?? '';

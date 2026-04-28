@@ -68,6 +68,14 @@ func (h *Handler) WithKinde(c kinde.Client) *Handler {
 	return h
 }
 
+// WithIngestionURL overrides the ingestion service URL. The default is read
+// from INGESTION_URL (falling back to http://localhost:8081). Tests use this
+// to point the role-verify call at an httptest.Server.
+func (h *Handler) WithIngestionURL(url string) *Handler {
+	h.ingestionURL = url
+	return h
+}
+
 // Register attaches the routes to the given mux. Each non-public route is
 // wrapped in middleware.Require, which 403s any caller whose role does not
 // grant the listed permission. Public routes (health, livez, readyz, version,
@@ -104,6 +112,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /v1/accounts", require(authz.PermAccountsRead, h.listAccounts))
 	mux.Handle("GET /v1/accounts/{id}", require(authz.PermAccountsRead, h.getAccount))
 	mux.Handle("POST /v1/accounts", require(authz.PermAccountsWrite, h.createAccount))
+	mux.Handle("POST /v1/accounts/draft", require(authz.PermAccountsWrite, h.createDraftAccount))
 	mux.Handle("PATCH /v1/accounts/{id}", require(authz.PermAccountsWrite, h.updateAccount))
 	mux.Handle("DELETE /v1/accounts/{id}", require(authz.PermAccountsDelete, h.deleteAccount))
 	mux.Handle("POST /v1/accounts/{id}/scan", require(authz.PermAccountsScan, h.scanAccount))
@@ -571,10 +580,13 @@ func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, account)
 }
 
-// createAccount saves a new cloud account with encrypted credentials.
+// createAccount saves a new cloud account with encrypted credentials. This
+// endpoint is the access-key path. Role-based onboarding goes through
+// POST /v1/accounts/draft → PATCH /v1/accounts/{id} (see account_role.go).
 func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Provider    string `json:"provider"`
+		AuthMethod  string `json:"auth_method"`
 		Label       string `json:"label"`
 		AccessKeyID string `json:"access_key_id"`
 		SecretKey   string `json:"secret_key"`
@@ -582,6 +594,10 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.AuthMethod == model.AuthMethodRole {
+		http.Error(w, "role accounts must be created via POST /v1/accounts/draft", http.StatusBadRequest)
 		return
 	}
 	if req.AccessKeyID == "" || req.SecretKey == "" {
@@ -607,6 +623,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		OrganizationID:    organizationID,
 		Provider:          req.Provider,
 		Label:             req.Label,
+		AuthMethod:        model.AuthMethodAccessKey,
 		AccessKeyID:       req.AccessKeyID,
 		SecretEncrypted:   secretEncrypted,
 		Region:            req.Region,
@@ -654,11 +671,21 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		Label             *string `json:"label"`
 		AccessKeyID       *string `json:"access_key_id"`
 		SecretKey         *string `json:"secret_key"`
+		RoleARN           *string `json:"role_arn"`
 		Region            *string `json:"region"`
 		ScanIntervalHours *int    `json:"scan_interval_hours"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Role verification: if role_arn is supplied on a role-based account,
+	// run a synchronous AssumeRole probe via ingestion before persisting.
+	// Done first so the rest of this handler operates on the post-verify
+	// state (status flipped to connected, account_id resolved).
+	if req.RoleARN != nil && existing.AuthMethod == model.AuthMethodRole {
+		h.handleRoleVerification(w, r, ctx, &existing, *req.RoleARN)
 		return
 	}
 
@@ -724,6 +751,99 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, existing)
 }
 
+// handleRoleVerification runs the synchronous verify round-trip against
+// ingestion for a role-based account. On success: persist role_arn, the
+// resolved AWS account number, and flip status to connected. On failure:
+// keep the existing status (pending_role_setup for first-time, error for
+// re-verify of a connected account) and write the structured reason into
+// error_message so the dashboard can surface it.
+func (h *Handler) handleRoleVerification(
+	w http.ResponseWriter,
+	r *http.Request,
+	ctx context.Context,
+	account *model.Account,
+	roleARN string,
+) {
+	if roleARN == "" {
+		http.Error(w, "role_arn is required", http.StatusBadRequest)
+		return
+	}
+
+	out, err := h.verifyRoleViaIngestion(ctx, roleARN, account.ExternalID, account.Region, account.OrganizationID)
+	if err != nil {
+		slog.Error("updateAccount: verify ingestion call failed", "account_id", account.ID, "error", err)
+		http.Error(w, "verification service unavailable", http.StatusBadGateway)
+		return
+	}
+
+	if !out.OK {
+		// Verification failed — persist the reason. Pre-existing connected
+		// accounts move to error; brand-new drafts stay pending so the user
+		// can fix the trust policy and click Verify again without re-running
+		// the draft step.
+		account.RoleARN = roleARN
+		account.ErrorMessage = out.Code + ": " + out.Reason
+		if account.Status == model.AccountStatusConnected {
+			account.Status = model.AccountStatusError
+		}
+		if err := h.store.SaveAccount(ctx, *account); err != nil {
+			slog.Error("updateAccount: save after verify failure", "account_id", account.ID, "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		audit.Record(r, h.store, model.AuditEvent{
+			Action:       model.AuditActionAccountRoleVerifyFailed,
+			ResourceType: "account",
+			ResourceID:   account.ID,
+			Metadata: map[string]any{
+				"reason": out.Reason,
+			},
+		})
+
+		// Surface a structured 400 so the dashboard can render targeted help.
+		// `out.Detail` is the raw AWS error string — it carries ARNs, account
+		// IDs, and request IDs, none of which belong in the customer's browser.
+		// Log it server-side and return only the structured {code, reason}.
+		slog.Info("updateAccount: role verify failed",
+			"account_id", account.ID,
+			"code", out.Code,
+			"reason", out.Reason,
+			"aws_detail", out.Detail)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"code":   out.Code,
+			"reason": out.Reason,
+		})
+		return
+	}
+
+	// Verified. Persist the AWS account number that ingestion resolved via
+	// GetCallerIdentity so the costs screen's internal_account_id filter
+	// works for role-based accounts the same way it does for access-key ones.
+	account.RoleARN = roleARN
+	account.AccountID = out.AccountID
+	account.Status = model.AccountStatusConnected
+	account.ErrorMessage = ""
+	if err := h.store.SaveAccount(ctx, *account); err != nil {
+		slog.Error("updateAccount: save after verify success", "account_id", account.ID, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       model.AuditActionAccountRoleVerified,
+		ResourceType: "account",
+		ResourceID:   account.ID,
+		Metadata: map[string]any{
+			"role_arn": roleARN,
+		},
+	})
+
+	writeJSON(w, *account)
+}
+
 // deleteAccount removes a connected account.
 func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -753,6 +873,15 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("scanAccount: account not found", "account_id", id, "error", err)
 		http.Error(w, "account not found", http.StatusNotFound)
+		return
+	}
+
+	// Drafts have no role_arn yet; running ingestion against them would either
+	// fail immediately (for role accounts) or use empty static keys, then leave
+	// the row stuck in 'scanning' until the 15-minute recovery sweep. Reject
+	// here so the dashboard can route the user to "Finish connecting" instead.
+	if account.Status == model.AccountStatusPendingRoleSetup {
+		http.Error(w, "account onboarding is not finished — verify the role connection first", http.StatusConflict)
 		return
 	}
 

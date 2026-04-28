@@ -418,20 +418,34 @@ func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
 		return err
 	}
 
+	// NULLIF($, '') keeps nullable columns honest: role-based accounts persist
+	// access_key_id/secret_encrypted as NULL (not ''), and access-key accounts
+	// persist role_arn/external_id as NULL. The CHECK constraints in
+	// migration 019_account_role_auth rely on IS NOT NULL semantics, which
+	// empty strings would silently subvert.
 	_, err = tx.Exec(ctx, `
 		INSERT INTO accounts
-			(id, organization_id, provider, label, account_id, access_key_id, secret_encrypted, region, status, scan_interval_hours, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			(id, organization_id, provider, label, account_id,
+			 auth_method, access_key_id, secret_encrypted, role_arn, external_id,
+			 region, status, scan_interval_hours, error_message, created_at)
+		VALUES ($1, $2, $3, $4, $5,
+			COALESCE(NULLIF($6,''),'access_key'), NULLIF($7,''), NULLIF($8,''), NULLIF($9,''), NULLIF($10,''),
+			$11, $12, $13, NULLIF($14,''), $15)
 		ON CONFLICT (id) DO UPDATE SET
 			label               = EXCLUDED.label,
 			account_id          = EXCLUDED.account_id,
+			auth_method         = EXCLUDED.auth_method,
 			access_key_id       = EXCLUDED.access_key_id,
 			secret_encrypted    = EXCLUDED.secret_encrypted,
+			role_arn            = EXCLUDED.role_arn,
+			external_id         = EXCLUDED.external_id,
 			region              = EXCLUDED.region,
 			status              = EXCLUDED.status,
-			scan_interval_hours = EXCLUDED.scan_interval_hours`,
+			scan_interval_hours = EXCLUDED.scan_interval_hours,
+			error_message       = EXCLUDED.error_message`,
 		a.ID, a.OrganizationID, a.Provider, a.Label, a.AccountID,
-		a.AccessKeyID, a.SecretEncrypted, a.Region, a.Status, a.ScanIntervalHours, a.CreatedAt,
+		a.AuthMethod, a.AccessKeyID, a.SecretEncrypted, a.RoleARN, a.ExternalID,
+		a.Region, a.Status, a.ScanIntervalHours, a.ErrorMessage, a.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: save account: %w", err)
@@ -451,10 +465,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 		return nil, err
 	}
 
-	rows, err := tx.Query(ctx, `
-		SELECT id, organization_id, provider, label, account_id, access_key_id, secret_encrypted,
-		       region, status, last_scanned_at, scan_interval_hours, created_at
-		FROM accounts ORDER BY created_at`)
+	rows, err := tx.Query(ctx, accountSelectSQL+` ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -462,11 +473,8 @@ func (s *Store) ListAccounts(ctx context.Context) ([]model.Account, error) {
 
 	var accounts []model.Account
 	for rows.Next() {
-		var a model.Account
-		if err := rows.Scan(
-			&a.ID, &a.OrganizationID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
-			&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt,
-		); err != nil {
+		a, err := scanAccount(rows)
+		if err != nil {
 			return nil, err
 		}
 		accounts = append(accounts, a)
@@ -490,10 +498,7 @@ func (s *Store) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
 	// This allows the query to return accounts from all organizations.
 	// Only use this method for trusted internal operations (scheduler, background jobs).
 
-	rows, err := tx.Query(ctx, `
-		SELECT id, organization_id, provider, label, account_id, access_key_id, secret_encrypted,
-		       region, status, last_scanned_at, scan_interval_hours, created_at
-		FROM accounts ORDER BY created_at`)
+	rows, err := tx.Query(ctx, accountSelectSQL+` ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -501,11 +506,8 @@ func (s *Store) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
 
 	var accounts []model.Account
 	for rows.Next() {
-		var a model.Account
-		if err := rows.Scan(
-			&a.ID, &a.OrganizationID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
-			&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt,
-		); err != nil {
+		a, err := scanAccount(rows)
+		if err != nil {
 			return nil, err
 		}
 		accounts = append(accounts, a)
@@ -528,17 +530,50 @@ func (s *Store) GetAccount(ctx context.Context, id string) (model.Account, error
 		return model.Account{}, err
 	}
 
-	var a model.Account
-	err = tx.QueryRow(ctx, `
-		SELECT id, organization_id, provider, label, account_id, access_key_id, secret_encrypted,
-		       region, status, last_scanned_at, scan_interval_hours, created_at
-		FROM accounts WHERE id = $1`, id,
-	).Scan(&a.ID, &a.OrganizationID, &a.Provider, &a.Label, &a.AccountID, &a.AccessKeyID, &a.SecretEncrypted,
-		&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours, &a.CreatedAt)
+	row := tx.QueryRow(ctx, accountSelectSQL+` WHERE id = $1`, id)
+	a, err := scanAccount(row)
 	if err != nil {
 		return model.Account{}, err
 	}
 	return a, tx.Commit(ctx)
+}
+
+// accountSelectSQL is the column list shared by GetAccount, ListAccounts, and
+// ListAllAccounts. COALESCE turns nullable columns (access_key_id,
+// secret_encrypted, role_arn, external_id, error_message) into empty strings
+// so callers can keep using plain string fields on model.Account.
+const accountSelectSQL = `
+	SELECT id, organization_id, provider, label, account_id,
+	       auth_method,
+	       COALESCE(access_key_id, '')    AS access_key_id,
+	       COALESCE(secret_encrypted, '') AS secret_encrypted,
+	       COALESCE(role_arn, '')         AS role_arn,
+	       COALESCE(external_id, '')      AS external_id,
+	       region, status, last_scanned_at, scan_interval_hours,
+	       COALESCE(error_message, '')    AS error_message,
+	       created_at
+	FROM accounts`
+
+// rowScanner is the subset of pgx.Row / pgx.Rows used by scanAccount.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanAccount(r rowScanner) (model.Account, error) {
+	var a model.Account
+	err := r.Scan(
+		&a.ID, &a.OrganizationID, &a.Provider, &a.Label, &a.AccountID,
+		&a.AuthMethod,
+		&a.AccessKeyID, &a.SecretEncrypted,
+		&a.RoleARN, &a.ExternalID,
+		&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours,
+		&a.ErrorMessage,
+		&a.CreatedAt,
+	)
+	if err != nil {
+		return model.Account{}, err
+	}
+	return a, nil
 }
 
 // DeleteAccount removes an account by ID for the organization in ctx.
@@ -560,7 +595,35 @@ func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 	return tx.Commit(ctx)
 }
 
-// UpdateAccountStatus sets status and last_scanned_at for an account.
+// SetAccountError sets status='error' and writes a human-readable reason
+// into error_message in one transaction. NULLIF turns empty strings into NULL
+// to match the column's nullable contract.
+func (s *Store) SetAccountError(ctx context.Context, id, message string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := setOrganization(ctx, tx); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE accounts
+		   SET status = 'error',
+		       error_message = NULLIF($1, ''),
+		       last_scanned_at = NOW()
+		 WHERE id = $2`, message, id)
+	if err != nil {
+		return fmt.Errorf("postgres: set account error: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// UpdateAccountStatus sets status and last_scanned_at for an account. When
+// the new status is anything other than 'error', error_message is cleared so
+// stale failure reasons do not linger after a recovery.
 func (s *Store) UpdateAccountStatus(ctx context.Context, id, status string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -573,8 +636,11 @@ func (s *Store) UpdateAccountStatus(ctx context.Context, id, status string) erro
 	}
 
 	_, err = tx.Exec(ctx, `
-		UPDATE accounts SET status = $1, last_scanned_at = NOW()
-		WHERE id = $2`, status, id)
+		UPDATE accounts
+		   SET status = $1,
+		       error_message = CASE WHEN $1 = 'error' THEN error_message ELSE NULL END,
+		       last_scanned_at = NOW()
+		 WHERE id = $2`, status, id)
 	if err != nil {
 		return fmt.Errorf("postgres: update account status: %w", err)
 	}
