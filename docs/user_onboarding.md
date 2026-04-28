@@ -91,8 +91,8 @@ happens in the Kinde dashboard.
 ## The DEV_MODE bootstrap
 
 In `DEV_MODE=true`, the Kinde dance is bypassed. The API instead:
-- Reads `DEV_ORGANIZATION_ID` env var (default
-  `dev-organization-axiaops`).
+- Reads `DEV_ORGANIZATION_ID` env var (no default — startup
+  `die()`s if unset).
 - Reads `DEV_USER_ID` env var (default `dev-user-axiaops`).
 - On startup, calls `EnsureDevOrganization`, `EnsureDevUser`, and
   `EnsureDevMembership(role='owner')` to guarantee a known-id
