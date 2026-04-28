@@ -45,23 +45,24 @@ ListCostRecords(ctx context.Context, filter CostFilter) ([]model.CostRecord, err
 
 ### Frontend
 
-**New Screen:**
-- `CostScreen.jsx` — main component with filters + display
-- `pages/Cost.jsx` — page wrapper (account selection state)
+**Screen:**
+- `CostAnalyticsScreen.jsx` — main component with filters + display
+- `pages/CostAnalytics.jsx` — page wrapper (account selection state)
 - Route: `/cost`
 - Nav item: "Cost" tab
 
 **Filters:**
-- Period buttons: 7d / 30d / 90d (same pattern as TrendScreen)
+- Period buttons: 7d / 30d / 90d / 6m / 1y (same pattern as TrendScreen)
 - Service filter pills (auto-derived from data)
 - Account selector (same as DashboardScreen)
 
 **Display:**
-- Cost records in table view grouped by service
-- Total cost summary + record count  
-- Service color indicators
-- Loading/error/empty states
-- Note: Account filtering is not supported in this phase because the Account model lacks AWS account ID field. To add account filtering in the future, extend the Account model with the AWS account ID.
+- Cost records aggregated by service in the table — sum amount, record count, distinct regions, date range. Sorted by total descending.
+- Click-to-drill-down side panel with a per-`resource_id` breakdown for the selected service.
+- Total cost summary, record count, and a "Net amortized cost · post-credits, RI/SP amortized" caption under the hero.
+- Service color indicators.
+- Loading/error/empty states.
+- Account filtering is supported: `GET /v1/costs?account_id=...` filters by `cost_records.account_id` (the AWS account number).
 
 ---
 
