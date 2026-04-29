@@ -537,9 +537,14 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                 </div>
 
                 <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 12 }}>
-                  <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
                     Resources · {selectedServiceBreakdown.length}
                   </div>
+                  {selectedServiceBreakdown.some(e => e.resourceId) && (
+                    <div style={{ fontSize: 10, color: t.textMuted, fontStyle: 'italic', marginBottom: 8 }}>
+                      Last 14 days · AWS limit on resource-level data
+                    </div>
+                  )}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
                     {selectedServiceBreakdown.map((e, i) => (
                       <div key={e.resourceId ?? `__none__${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: i < selectedServiceBreakdown.length - 1 ? `1px solid ${t.border}` : 'none' }}>
