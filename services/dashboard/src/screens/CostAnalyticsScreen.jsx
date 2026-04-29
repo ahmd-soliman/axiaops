@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { fetchCosts, fetchAccounts, scanAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
@@ -23,12 +23,6 @@ function formatCost(val) {
   if (val >= 1000) return `${(val / 1000).toFixed(2)}k`;
   if (val >= 1) return val.toFixed(2);
   return val.toFixed(6);
-}
-
-function formatDate(iso) {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-    + ' · ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
 function formatDateShort(iso) {
@@ -68,7 +62,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const [period, setPeriod] = useState(30);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
   const [filterServices, setFilterServices] = useState(() => new Set());
-  const [selectedCost, setSelectedCost] = useState(null);
+  const [selectedService, setSelectedService] = useState(null);
   const [selectedChartDate, setSelectedChartDate] = useState(null);
 
   // Use passed accounts or fetch if not provided
@@ -132,6 +126,106 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
       .sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
   }, [filteredCosts, effectiveGranularity]);
 
+  // Aggregate cost records by service for the table view.
+  const serviceGroups = useMemo(() => {
+    if (filteredCosts.length === 0) return [];
+    const byService = new Map();
+    for (const r of filteredCosts) {
+      const g = byService.get(r.service);
+      if (g) {
+        g.total += r.amount || 0;
+        g.count += 1;
+        g.regions.add(r.region || 'NoRegion');
+        if (r.period_start < g.periodStart) g.periodStart = r.period_start;
+        if (r.period_end   > g.periodEnd)   g.periodEnd   = r.period_end;
+      } else {
+        byService.set(r.service, {
+          service: r.service,
+          total: r.amount || 0,
+          count: 1,
+          regions: new Set([r.region || 'NoRegion']),
+          periodStart: r.period_start,
+          periodEnd: r.period_end,
+          currency: r.currency || 'USD',
+        });
+      }
+    }
+    return [...byService.values()]
+      .map(g => ({ ...g, regions: [...g.regions].sort() }))
+      .sort((a, b) => b.total - a.total);
+  }, [filteredCosts]);
+
+  // The drill-down side panel is clamped to a maximum 14-day window to match
+  // AWS Cost Explorer's resource-level data ceiling (GetCostAndUsageWithResources).
+  // Without this clamp, the panel's service total spans the user's selected
+  // period (up to a year) while the resource breakdown only spans the last
+  // 14 days — the two numbers don't reconcile and resource rows look like
+  // they're "missing" most of the cost.
+  const PANEL_MAX_DAYS = 14;
+  const panelWindowDays = Math.min(period, PANEL_MAX_DAYS);
+  const panelClamped = period > PANEL_MAX_DAYS;
+
+  // Records for the selected service within the panel's clamped window.
+  // Drives both the panel summary (total / period / regions / count) and
+  // the per-resource breakdown so the two always reconcile.
+  const panelServiceRecords = useMemo(() => {
+    if (!selectedService) return [];
+    const cutoff = Date.now() - panelWindowDays * 24 * 60 * 60 * 1000;
+    return filteredCosts.filter(r => {
+      if (r.service !== selectedService) return false;
+      return new Date(r.period_start).getTime() >= cutoff;
+    });
+  }, [selectedService, filteredCosts, panelWindowDays]);
+
+  // Aggregate the panel records: total, count, regions, period bounds.
+  const panelStats = useMemo(() => {
+    if (!selectedService || panelServiceRecords.length === 0) return null;
+    let total = 0;
+    let periodStart = panelServiceRecords[0].period_start;
+    let periodEnd   = panelServiceRecords[0].period_end;
+    const regions = new Set();
+    for (const r of panelServiceRecords) {
+      total += r.amount || 0;
+      if (r.period_start < periodStart) periodStart = r.period_start;
+      if (r.period_end   > periodEnd)   periodEnd   = r.period_end;
+      regions.add(r.region || 'NoRegion');
+    }
+    return {
+      service: selectedService,
+      total,
+      count: panelServiceRecords.length,
+      regions: [...regions].sort(),
+      periodStart,
+      periodEnd,
+      currency: panelServiceRecords[0].currency || 'USD',
+    };
+  }, [selectedService, panelServiceRecords]);
+
+  // Per-resource_id breakdown for the side panel — also scoped to the clamped window.
+  const selectedServiceBreakdown = useMemo(() => {
+    if (!selectedService) return null;
+    const byResource = new Map();
+    for (const r of panelServiceRecords) {
+      const key = r.resource_id || '__none__';
+      const e = byResource.get(key);
+      if (e) {
+        e.total += r.amount || 0;
+        e.count += 1;
+        e.regions.add(r.region || 'NoRegion');
+      } else {
+        byResource.set(key, {
+          resourceId: r.resource_id || null,
+          total: r.amount || 0,
+          count: 1,
+          regions: new Set([r.region || 'NoRegion']),
+        });
+      }
+    }
+    return [...byResource.values()]
+      .map(e => ({ ...e, regions: [...e.regions].sort() }))
+      .sort((a, b) => b.total - a.total);
+  }, [selectedService, panelServiceRecords]);
+
   // Scan account
   const scanMutation = useMutation({
     mutationFn: scanAccount,
@@ -163,17 +257,26 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
   const handleScanAccount = (accountId) => scanMutation.mutate(accountId);
 
-  // Toggle service filter
+  // Reset the drill-down panel when the account changes — the selected
+  // service may not exist on the new account, and even when it does
+  // by name, the data behind it has changed.
+  useEffect(() => {
+    setSelectedService(null);
+  }, [selectedAccount]);
+
+  // Toggle service filter. Only close the drill-down panel if the
+  // toggle actually hides the currently-selected service.
   const toggleServiceFilter = (svc) => {
     const next = new Set(filterServices);
     next.has(svc) ? next.delete(svc) : next.add(svc);
     setFilterServices(next);
-    setSelectedCost(null);
+    if (selectedService && next.size > 0 && !next.has(selectedService)) {
+      setSelectedService(null);
+    }
   };
 
   const clearServiceFilter = () => {
     setFilterServices(new Set());
-    setSelectedCost(null);
   };
 
   const records = filteredCosts;
@@ -225,6 +328,9 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
         <span style={{ fontSize: 13, color: t.textMid, marginTop: 4, display: 'block' }}>
           {records.length} record{records.length !== 1 ? 's' : ''} across {allServices.length} service{allServices.length !== 1 ? 's' : ''}
         </span>
+        <span style={{ fontSize: 11, color: t.textMuted, marginTop: 2, display: 'block' }}>
+          Net amortized cost · post-credits, RI/SP amortized
+        </span>
       </div>
 
       {/* Cost chart section */}
@@ -257,7 +363,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
             {PERIOD_OPTIONS.map(p => (
               <button
                 key={p.days}
-                onClick={() => { setPeriod(p.days); setSelectedCost(null); setSelectedChartDate(null); }}
+                onClick={() => { setPeriod(p.days); setSelectedService(null); setSelectedChartDate(null); }}
                 style={{
                   padding: '4px 10px',
                   borderRadius: 6,
@@ -368,7 +474,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
             {/* Summary header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${t.border}` }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Cost Records · {records.length}
+                By Service · {serviceGroups.length}
               </span>
               <button
                 onClick={() => exportCSV(records, {
@@ -390,15 +496,15 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               </button>
             </div>
 
-            {/* Records table-like view */}
+            {/* Service-group rows */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {records.map((record, idx) => {
-                const cfg = serviceConfig(record.service);
-                const isSelected = selectedCost === idx;
+              {serviceGroups.map(group => {
+                const cfg = serviceConfig(group.service);
+                const isSelected = selectedService === group.service;
                 return (
                   <div
-                    key={idx}
-                    onClick={() => setSelectedCost(isSelected ? null : idx)}
+                    key={group.service}
+                    onClick={() => setSelectedService(isSelected ? null : group.service)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -416,14 +522,14 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                         {cfg.label}
                       </div>
                       <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
-                        {record.region || 'NoRegion'}
+                        {group.count} record{group.count !== 1 ? 's' : ''} · {group.regions.length} region{group.regions.length !== 1 ? 's' : ''}
                       </div>
                     </div>
                     <div style={{ fontSize: 11, color: t.textMuted, textAlign: 'right', flexShrink: 0, minWidth: 100 }}>
-                      {formatDate(record.period_start)}
+                      {formatDateShort(group.periodStart)} – {formatDateShort(group.periodEnd)}
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: t.accent, textAlign: 'right', flexShrink: 0, minWidth: 70 }}>
-                      ${formatCost(record.amount)}
+                      ${formatCost(group.total)}
                     </div>
                   </div>
                 );
@@ -431,90 +537,79 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
             </div>
           </div>
 
-          {/* Details panel */}
-          {selectedCost !== null && records[selectedCost] && (
-            <div style={{ width: 350, backgroundColor: t.surface, borderRadius: 8, border: `1px solid ${t.border}`, padding: 16, height: 'fit-content', position: 'sticky', top: 16 }}>
-              {(() => {
-                const record = records[selectedCost];
-                const cfg = serviceConfig(record.service);
-                return (
+          {/* Service-detail panel — drill-down by resource_id, clamped to 14d */}
+          {selectedService && panelStats && selectedServiceBreakdown && (() => {
+            const cfg = serviceConfig(selectedService);
+            return (
+              <div style={{ width: 350, backgroundColor: t.surface, borderRadius: 8, border: `1px solid ${t.border}`, padding: 16, height: 'fit-content', position: 'sticky', top: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${t.border}` }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: cfg.color }} />
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${t.border}` }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: cfg.color }} />
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{cfg.label}</div>
-                        <div style={{ fontSize: 11, color: t.textMuted }}>{record.service}</div>
-                      </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{cfg.label}</div>
+                    <div style={{ fontSize: 11, color: t.textMuted }}>{selectedService}</div>
+                  </div>
+                </div>
+
+                {panelClamped && (
+                  <div style={{ fontSize: 10, color: t.textMuted, fontStyle: 'italic', marginBottom: 12, padding: '6px 8px', backgroundColor: t.surfaceRaised, borderRadius: 4 }}>
+                    Showing last {PANEL_MAX_DAYS} days · resource-level cost data is capped at {PANEL_MAX_DAYS} days by AWS Cost Explorer. The chart and the table to the left still reflect your selected period.
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+                      Total
                     </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      <div>
-                        <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-                          Amount
-                        </div>
-                        <div style={{ fontSize: 20, fontWeight: 700, color: t.accent }}>
-                          ${record.amount.toFixed(2)}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-                          Region
-                        </div>
-                        <div style={{ fontSize: 13, color: t.text }}>
-                          {record.region || 'N/A'}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-                          Period
-                        </div>
-                        <div style={{ fontSize: 12, color: t.text }}>
-                          {formatDateShort(record.period_start)} - {formatDateShort(record.period_end)}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-                          Currency
-                        </div>
-                        <div style={{ fontSize: 13, color: t.text }}>
-                          {record.currency}
-                        </div>
-                      </div>
-
-                      {record.resource_id && (
-                        <div>
-                          <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-                            Resource ID
-                          </div>
-                          <div style={{ fontSize: 12, color: t.text, wordBreak: 'break-all', fontFamily: 'monospace' }}>
-                            {record.resource_id}
-                          </div>
-                        </div>
-                      )}
-
-                      {record.tags && Object.keys(record.tags).length > 0 && (
-                        <div>
-                          <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-                            Tags
-                          </div>
-                          <div style={{ fontSize: 11, color: t.text }}>
-                            {Object.entries(record.tags).map(([k, v]) => (
-                              <div key={k} style={{ marginBottom: 4 }}>
-                                <span style={{ fontWeight: 600 }}>{k}:</span> {v}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                    <div style={{ fontSize: 20, fontWeight: 700, color: t.accent }}>
+                      ${panelStats.total.toFixed(2)} {panelStats.currency}
                     </div>
                   </div>
-                );
-              })()}
-            </div>
-          )}
+
+                  <div>
+                    <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+                      Period
+                    </div>
+                    <div style={{ fontSize: 12, color: t.text }}>
+                      {formatDateShort(panelStats.periodStart)} – {formatDateShort(panelStats.periodEnd)} · {panelStats.count} record{panelStats.count !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+                      Regions
+                    </div>
+                    <div style={{ fontSize: 12, color: t.text }}>
+                      {panelStats.regions.join(', ')}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 12 }}>
+                  <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 8 }}>
+                    Resources · {selectedServiceBreakdown.length}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
+                    {selectedServiceBreakdown.map((e, i) => (
+                      <div key={e.resourceId ?? `__none__${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: i < selectedServiceBreakdown.length - 1 ? `1px solid ${t.border}` : 'none' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 11, color: t.text, fontFamily: e.resourceId ? 'monospace' : 'inherit', fontStyle: e.resourceId ? 'normal' : 'italic', wordBreak: 'break-all' }}>
+                            {e.resourceId ?? 'No resource ID'}
+                          </div>
+                          <div style={{ fontSize: 10, color: t.textMuted, marginTop: 2 }}>
+                            {e.count} record{e.count !== 1 ? 's' : ''} · {e.regions.join(', ')}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: t.accent, flexShrink: 0 }}>
+                          ${formatCost(e.total)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
