@@ -36,7 +36,7 @@ These are settled before implementation starts. Flip explicitly via this doc if 
 | D2 | **Hard deprecation date**: 2026-10-30 (B1 ship + 6 months). After that, the Kinde code path is deleted in a single PR. Tasks.md item dated for it. | Without a deletion date, the strangler turns into permanent dual-path. |
 | D3 | **Token-based invitations, OOB delivery** — no SMTP. Admin POSTs an invite, gets a one-time URL containing the token, shares it via Slack/password manager/whatever. Invitee clicks → sets password → membership created. | No SMTP infrastructure required for self-hosted; matches GitLab/Mattermost/Outline self-hosted patterns. |
 | D4 | **Admin-mediated password reset** for v1. No self-service "forgot password" page. Admin POSTs `/v1/users/{id}/password-reset`, gets a one-time URL, shares OOB. | No SMTP means no link to email; self-service requires SMTP or in-app secondary channel. Revisit when SMTP is added. |
-| D5 | **First-owner bootstrap** via `BOOTSTRAP_OWNER_EMAIL` env var. Separate endpoint `POST /v1/auth/bootstrap` gated to "no organizations exist OR bootstrap email matches." | Self-service signup is forever invitation-only after bootstrap. Simpler attack surface than an open `/signup` endpoint. |
+| D5 | **First-owner bootstrap — GitLab-shaped install-token flow.** On first startup, if no organizations exist, the server generates a 32-byte hex install token, prints it to stdout, and writes it to `/var/run/axiaops/initial_setup_token`. Operator visits `/bootstrap`, supplies the token plus their own email/name/password via POST form (token in body, never in URL). Single-use; consumed and wiped from memory + disk after redemption. Endpoint returns 409 forever after. Optional `BOOTSTRAP_INSTALL_TOKEN` env var for unattended installs (suppresses log banner; same flow). | Server generates the entropy (operator doesn't have to know to run `openssl rand`). Token-in-POST-body avoids the URL leak channels (browser history, access logs, Referer headers). Matches the install-time UX of GitLab, Vault, Forgejo. The token gates the bootstrap *action* — it is **not** the user's password. The user picks their own password during the same form submission. |
 | D6 | **Password hashing**: argon2id, defaults `time=3, memory=64MiB, parallelism=2, saltLen=16, keyLen=32`. | OWASP ASVS recommendation. bcrypt acceptable but argon2id is the modern default. |
 | D7 | **Session storage**: PostgreSQL `sessions` table (not Redis). | Works in both `start-dev` (no Redis) and `start-staging`; auth must not require Redis to function. |
 | D8 | **DBs wiped on B1 cutover.** No migration of existing Kinde-authed users in dev/staging. | Confirmed by user; no production deployments exist yet. |
@@ -160,7 +160,7 @@ Down migration drops `sessions`, `password_resets`, removes the new columns. Sta
 | `services/api/internal/auth/handler.go` | Routes below. Uses `Store`, `password`, `session`. |
 | `services/api/internal/auth/cookie.go` | Cookie helpers — name `axiaops_session`, `HttpOnly`, `Secure` (in non-DEV_MODE), `SameSite=Lax`, path `/`. |
 | `services/api/internal/middleware/auth_native.go` | Reads cookie, validates session, attaches user/org/role to request context. |
-| `services/api/internal/auth/bootstrap.go` | `POST /v1/auth/bootstrap` handler. Allowed iff `(no organizations exist) OR (email == BOOTSTRAP_OWNER_EMAIL)`. Creates org + user + owner membership + session in one tx. |
+| `services/api/internal/auth/bootstrap.go` | `POST /v1/auth/bootstrap` handler + the install-token generator that runs on service startup. Generator: on `cmd/main.go` boot, if `Store.CountOrganizations(ctx)==0` and no token is already present, mint 32 random bytes (hex-encoded), keep in process memory, print a banner to stdout (see §4.5), and write to `BOOTSTRAP_TOKEN_FILE_PATH` with mode `0600`. Handler: validates the POSTed token via `subtle.ConstantTimeCompare`, then creates org + user + owner membership + session in one tx, then wipes the token from memory + deletes the file. Returns 409 if any org already exists or no token was generated (e.g. service restarted after bootstrap). |
 
 **Modified files:**
 
@@ -168,14 +168,14 @@ Down migration drops `sessions`, `password_resets`, removes the new columns. Sta
 |---|---|
 | `services/api/internal/middleware/auth.go` | At startup, branch on `AUTH_PROVIDER` env var. If `native`, install `auth_native` middleware. If `kinde`, keep current Kinde JWT validation. Increment `axiaops_auth_provider_active{provider=...}` counter. |
 | `services/api/internal/api/handler.go` | `/v1/me` returns `{user, org, role, auth_provider}` so frontend knows which auth path is active. |
-| `services/api/cmd/main.go` | Wire `auth.Handler.Register(mux)`. Init `BOOTSTRAP_OWNER_EMAIL` config. |
+| `services/api/cmd/main.go` | Wire `auth.Handler.Register(mux)`. On startup, call `bootstrap.GenerateInstallTokenIfNeeded(ctx, store)` — generates + prints + writes the token iff no orgs exist and `BOOTSTRAP_INSTALL_TOKEN` is unset. |
 | `services/api/internal/kinde/invitations.go` | **Adapt**, do not delete (still used under `AUTH_PROVIDER=kinde`). The new invitation creation path (under `AUTH_PROVIDER=native`) lives in `auth/handler.go` — generates a token, writes `pending_memberships`, returns redemption URL in the API response. |
 
 **New endpoints (all under `/v1/auth/`):**
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/v1/auth/bootstrap` | none (gated by D5) | Create the very first org + owner. Body: `{email, password, name}`. Returns session cookie. |
+| `POST` | `/v1/auth/bootstrap` | none (gated by D5) | Create the very first org + owner. Body: `{email, password, name, token}` — token from server-generated banner / token file / `BOOTSTRAP_INSTALL_TOKEN` env. Server constant-time-compares the token, then creates org + user + owner + session in one tx, then wipes the token. Returns session cookie. 409 if no token was generated or an org already exists. |
 | `POST` | `/v1/auth/login` | none (rate-limited) | Native email/password login. Body: `{email, password}`. Returns session cookie. |
 | `POST` | `/v1/auth/logout` | session | Revoke the current session. |
 | `POST` | `/v1/auth/invitations/redeem` | none (token-bound) | Body: `{token, password, name}`. Hashes token, looks up `pending_memberships`, creates user + membership, deletes pending row, mints session. |
@@ -219,7 +219,7 @@ Down migration drops `sessions`, `password_resets`, removes the new columns. Sta
 | `services/dashboard/src/screens/LoginScreen.jsx` | Replaces Kinde redirect. Email + password form. POSTs `/v1/auth/login`. On success, navigates to `/dashboard`. |
 | `services/dashboard/src/screens/AcceptInviteScreen.jsx` | Mounted at `/accept-invite`. Reads `?token=...` from URL, prompts for password + name, POSTs `/v1/auth/invitations/redeem`. |
 | `services/dashboard/src/screens/PasswordResetScreen.jsx` | Mounted at `/password-reset`. Reads token, prompts for new password, POSTs redeem. |
-| `services/dashboard/src/screens/BootstrapScreen.jsx` | Mounted at `/bootstrap`. Only available pre-first-org; POSTs `/v1/auth/bootstrap`. |
+| `services/dashboard/src/screens/BootstrapScreen.jsx` | Mounted at `/bootstrap`. Renders form: email, name, password, token. Token is its own field with `type="text"` (not `password` — operators paste from logs and need to see what they pasted), monospace, with a "show/hide" toggle. POSTs `/v1/auth/bootstrap` with all four fields in the body. **Token is never in the URL** — landing on `/bootstrap` shows the form; the token lives only in form state and the POST body. On 409 (already bootstrapped) → redirect to `/login`. |
 
 **Modified:**
 
@@ -237,10 +237,30 @@ Down migration drops `sessions`, `password_resets`, removes the new columns. Sta
 | Var | Default | Notes |
 |---|---|---|
 | `AUTH_PROVIDER` | `native` | `native\|kinde`. Selects the auth middleware at startup. |
-| `BOOTSTRAP_OWNER_EMAIL` | (unset) | If set, signup with this email creates the first org. Otherwise, the very first signup (any email) bootstraps the org. |
+| `BOOTSTRAP_INSTALL_TOKEN` | (unset) | **Optional override** for unattended installs (CI, k8s operator). When set, the server uses this value as the install token *instead of* generating a random one and skips the stdout banner. Same single-use semantics; the env var should be cleared from secret stores after first boot. |
+| `BOOTSTRAP_TOKEN_FILE_PATH` | `/var/run/axiaops/initial_setup_token` | Where the auto-generated token is written on first startup. Mode `0600`. Deleted on first successful bootstrap. Set to empty string to disable the file (rely on stdout banner only). |
 | `SESSION_TTL_HOURS` | `24` | Native session lifetime. |
 | `INVITATION_TTL_DAYS` | `14` (existing) | Reused for token-based invitations. |
 | `PASSWORD_RESET_TTL_HOURS` | `4` | Short — reset tokens are admin-issued and expected to be redeemed quickly. |
+
+**Install-time banner** — printed to stdout on first startup if `Store.CountOrganizations(ctx)==0`:
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║  AxiaOps first-run setup                                         ║
+║                                                                  ║
+║  Visit:   https://<your-host>/bootstrap                          ║
+║  Token:   4f8a9b2c1d6e3f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6  ║
+║                                                                  ║
+║  This token is single-use and grants creation of the first       ║
+║  organization owner. It will not be shown again.                 ║
+║                                                                  ║
+║  Token also written to: /var/run/axiaops/initial_setup_token     ║
+║  Delete it from logs and disk after first use.                   ║
+╚══════════════════════════════════════════════════════════════════╝
+```
+
+The banner is suppressed when `BOOTSTRAP_INSTALL_TOKEN` is set (unattended install).
 
 **Telemetry:**
 - New Prometheus counter: `axiaops_auth_provider_active{provider="native\|kinde"}` — incremented on every authenticated request. Used to prove zero Kinde traffic before deletion (D2).
@@ -254,9 +274,13 @@ Down migration drops `sessions`, `password_resets`, removes the new columns. Sta
 
 Tick each before opening `feat/sso/b1-native-auth` MR:
 
-- [ ] `make start-dev` boots with `AUTH_PROVIDER=native` and a fresh DB; bootstrap flow creates the first owner.
+- [ ] `make start-dev` boots with `AUTH_PROVIDER=native` and a fresh DB; the server prints the install-token banner to stdout; visiting `/bootstrap`, pasting the token + email/password, lands the operator in the dashboard as owner.
+- [ ] Token is also present at `/var/run/axiaops/initial_setup_token` with mode `0600`; deleted after successful bootstrap.
+- [ ] `BOOTSTRAP_INSTALL_TOKEN` env var override works for unattended install: banner suppressed, env value accepted by `/bootstrap`.
 - [ ] `make start-staging` boots with `AUTH_PROVIDER=kinde` and existing Kinde tenant works unchanged.
-- [ ] `AUTH_PROVIDER=native` with no bootstrap email + no orgs → `/v1/auth/bootstrap` is open. After first bootstrap, `/v1/auth/bootstrap` returns 409.
+- [ ] After first successful bootstrap, `/v1/auth/bootstrap` returns 409 across restarts (no token regeneration once an org exists).
+- [ ] Token comparison uses `subtle.ConstantTimeCompare` (verified by code inspection + a unit test that submits a near-miss).
+- [ ] Token never appears in the bootstrap URL — verified by an integration test that asserts `Location` and `Referer` headers do not contain the token.
 - [ ] `POST /v1/invitations` returns a redemption URL; visiting it lets the invitee set a password and lands them in the org with the assigned role.
 - [ ] `POST /v1/users/{id}/password-reset` returns a reset URL; visiting it updates the password and revokes other sessions for that user.
 - [ ] `axiaops_auth_provider_active` counter increments correctly under both providers in test.
@@ -465,7 +489,8 @@ AuthProviderActive   prometheus.CounterVec   // provider (native|kinde) — stra
 | Var | Phase | Default | Notes |
 |---|---|---|---|
 | `AUTH_PROVIDER` | B1 | `native` | Strangler toggle. |
-| `BOOTSTRAP_OWNER_EMAIL` | B1 | (unset) | Optional. |
+| `BOOTSTRAP_INSTALL_TOKEN` | B1 | (unset) | Optional override for unattended installs. |
+| `BOOTSTRAP_TOKEN_FILE_PATH` | B1 | `/var/run/axiaops/initial_setup_token` | Where the auto-generated token is written. Set empty to disable file. |
 | `SESSION_TTL_HOURS` | B1 | `24` | |
 | `INVITATION_TTL_DAYS` | B1 | `14` | Existing var, reused. |
 | `PASSWORD_RESET_TTL_HOURS` | B1 | `4` | |
@@ -516,7 +541,9 @@ These are **not blockers for B1**. Resolve at the boundaries indicated.
 | Strangler period extends past deprecation date because dogfood didn't migrate. | Calendar reminder on day 150; require dogfood on `AUTH_PROVIDER=native` by day 30. |
 | `crewjam/saml` CVE during Phase C development. | Pin to latest tagged release; subscribe to crewjam's security advisories before merge. |
 | Native session cookie security regression (e.g. missing `Secure` flag, wrong `SameSite`). | Black-box test asserts cookie attributes. Browser-based smoke test in Phase B1 acceptance. |
-| First-owner bootstrap endpoint left enabled accidentally (e.g. `BOOTSTRAP_OWNER_EMAIL` set in prod env). | Endpoint logs WARN every time it's invoked; metric counter on bootstrap usage; runbook says to unset the env var after first use. |
+| First-owner bootstrap endpoint left enabled accidentally (e.g. token file not deleted, `BOOTSTRAP_INSTALL_TOKEN` left set in prod). | Endpoint is sealed by `Store.CountOrganizations(ctx) > 0` — once any org exists, no token re-grants access. Token file is deleted on successful bootstrap. Endpoint logs WARN every time it's invoked. Metric counter `axiaops_bootstrap_attempts_total{outcome=...}` for monitoring. Runbook says to unset `BOOTSTRAP_INSTALL_TOKEN` from secret stores after first boot and verify the token file is gone. |
+| Install token leaked via stdout / log aggregator (CI logs forwarded to a third-party log service). | Token is single-use and the bootstrap endpoint is sealed after first claim. Operators with strict log-handling requirements can set `BOOTSTRAP_INSTALL_TOKEN` themselves to suppress the stdout banner. Banner explicitly says "delete from logs after first use." |
+| Operator pastes the token URL or token into Slack / chat. | Token is in the form body, never in the URL — no copyable URL contains the secret. The banner shows the token as a separate line item, easier to redact from screenshots. |
 | OIDC discovery doc TTL too long causes stale JWKS after IdP key rotation. | 24h TTL is a compromise. On signature-verification failure, force a single re-fetch before rejecting. Documented in B2 acceptance. |
 | SAML SP private key compromised. | Key rotation runbook in `docs/sso-key-rotation.md`. Annual rotation cadence; emergency rotation = deploy with new env var values. |
 | Token-based invitation URL leaked (e.g. admin pastes into a public Slack channel). | Tokens are single-use + 14-day TTL. Redemption invalidates. Audit log records redemption + the user-agent IP. Document recommended sharing channels in the admin UI. |
