@@ -110,7 +110,7 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, er
 				(organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency,
 				 period_start, period_end, tags, fetched_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-			ON CONFLICT (organization_id, provider, account_id, service, region, period_start, period_end)
+			ON CONFLICT (organization_id, provider, account_id, service, region, resource_id, period_start, period_end)
 			DO NOTHING`,
 			organizationID,
 			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID,
