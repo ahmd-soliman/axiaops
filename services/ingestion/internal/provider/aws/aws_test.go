@@ -15,11 +15,18 @@ import (
 )
 
 // mockCEClient is a test double for CostExplorerAPI.
-// pages holds successive responses to return on each call.
+// pages holds successive GetCostAndUsage responses; resourcePages holds
+// successive GetCostAndUsageWithResources responses. capturedResourceInput
+// records the most recent resource-API request so tests can assert call shape.
 type mockCEClient struct {
-	pages []costexplorer.GetCostAndUsageOutput
-	call  int
-	err   error
+	pages         []costexplorer.GetCostAndUsageOutput
+	resourcePages []costexplorer.GetCostAndUsageWithResourcesOutput
+	call          int
+	resourceCall  int
+	err           error
+	resourceErr   error
+
+	capturedResourceInput *costexplorer.GetCostAndUsageWithResourcesInput
 }
 
 func (m *mockCEClient) GetCostAndUsage(
@@ -32,6 +39,20 @@ func (m *mockCEClient) GetCostAndUsage(
 	}
 	page := m.pages[m.call]
 	m.call++
+	return &page, nil
+}
+
+func (m *mockCEClient) GetCostAndUsageWithResources(
+	_ context.Context,
+	input *costexplorer.GetCostAndUsageWithResourcesInput,
+	_ ...func(*costexplorer.Options),
+) (*costexplorer.GetCostAndUsageWithResourcesOutput, error) {
+	m.capturedResourceInput = input
+	if m.resourceErr != nil {
+		return nil, m.resourceErr
+	}
+	page := m.resourcePages[m.resourceCall]
+	m.resourceCall++
 	return &page, nil
 }
 
@@ -172,6 +193,180 @@ func TestFetchCosts_APIError(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestFetchResourceCosts_HappyPath(t *testing.T) {
+	mock := &mockCEClient{
+		resourcePages: []costexplorer.GetCostAndUsageWithResourcesOutput{
+			{
+				ResultsByTime: []types.ResultByTime{
+					{
+						TimePeriod: &types.DateInterval{
+							Start: ceaws.String("2026-04-20"),
+							End:   ceaws.String("2026-04-21"),
+						},
+						Groups: []types.Group{
+							{
+								Keys: []string{"Amazon Elastic Compute Cloud - Compute", "arn:aws:ec2:eu-central-1:123456789012:instance/i-0abc123"},
+								Metrics: map[string]types.MetricValue{
+									"UnblendedCost": {Amount: ceaws.String("12.34"), Unit: ceaws.String("USD")},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
+	end := time.Now()
+	start := end.Add(-7 * 24 * time.Hour)
+	records, err := client.FetchResourceCosts(context.Background(), start, end)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+
+	r := records[0]
+	if r.Service != "AmazonEC2" {
+		t.Errorf("expected service AmazonEC2 (normalized), got %s", r.Service)
+	}
+	if r.Region != "eu-central-1" {
+		t.Errorf("expected region eu-central-1 (parsed from ARN), got %s", r.Region)
+	}
+	if r.ResourceID != "i-0abc123" {
+		t.Errorf("expected short resource id i-0abc123, got %s", r.ResourceID)
+	}
+	if r.Amount != 12.34 {
+		t.Errorf("expected amount 12.34, got %f", r.Amount)
+	}
+
+	// Verify the call shape — Daily granularity, Filter present.
+	in := mock.capturedResourceInput
+	if in == nil {
+		t.Fatal("expected GetCostAndUsageWithResources to be invoked")
+	}
+	if in.Granularity != types.GranularityDaily {
+		t.Errorf("expected GranularityDaily, got %v", in.Granularity)
+	}
+	if in.Filter == nil || in.Filter.Dimensions == nil {
+		t.Error("expected Filter with service Dimensions; required by GetCostAndUsageWithResources")
+	}
+}
+
+func TestFetchResourceCosts_SkipsMissingAndNonPositive(t *testing.T) {
+	// Skip rows with empty / "NoResourceId" identifiers and rows with amount <= 0.
+	mock := &mockCEClient{
+		resourcePages: []costexplorer.GetCostAndUsageWithResourcesOutput{
+			{
+				ResultsByTime: []types.ResultByTime{
+					{
+						TimePeriod: &types.DateInterval{
+							Start: ceaws.String("2026-04-20"),
+							End:   ceaws.String("2026-04-21"),
+						},
+						Groups: []types.Group{
+							{
+								Keys: []string{"AWS Lambda", ""},
+								Metrics: map[string]types.MetricValue{
+									"UnblendedCost": {Amount: ceaws.String("12.00"), Unit: ceaws.String("USD")},
+								},
+							},
+							{
+								Keys: []string{"AWS Lambda", "NoResourceId"},
+								Metrics: map[string]types.MetricValue{
+									"UnblendedCost": {Amount: ceaws.String("8.00"), Unit: ceaws.String("USD")},
+								},
+							},
+							{
+								Keys: []string{"Amazon Relational Database Service", "arn:aws:rds:eu-central-1:123456789012:db:mydb"},
+								Metrics: map[string]types.MetricValue{
+									"UnblendedCost": {Amount: ceaws.String("0.00"), Unit: ceaws.String("USD")},
+								},
+							},
+							{
+								Keys: []string{"Amazon Relational Database Service", "arn:aws:rds:eu-central-1:123456789012:db:realdb"},
+								Metrics: map[string]types.MetricValue{
+									"UnblendedCost": {Amount: ceaws.String("47.25"), Unit: ceaws.String("USD")},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
+	end := time.Now()
+	records, err := client.FetchResourceCosts(context.Background(), end.Add(-7*24*time.Hour), end)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 surviving record, got %d", len(records))
+	}
+	if records[0].ResourceID != "realdb" {
+		t.Errorf("expected resource id realdb, got %s", records[0].ResourceID)
+	}
+}
+
+func TestFetchResourceCosts_ClampsLookbackTo14Days(t *testing.T) {
+	// GetCostAndUsageWithResources only supports the last 14 days. The function
+	// must clamp longer windows so AWS doesn't reject the request.
+	mock := &mockCEClient{
+		resourcePages: []costexplorer.GetCostAndUsageWithResourcesOutput{{}},
+	}
+	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
+
+	// Fixed `end` at midnight so the date-format truncation in the SDK input
+	// doesn't add wall-clock slack to the assertion below.
+	end := time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC)
+	start := end.Add(-30 * 24 * time.Hour) // caller asks for 30 days
+
+	_, err := client.FetchResourceCosts(context.Background(), start, end)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	in := mock.capturedResourceInput
+	if in == nil {
+		t.Fatal("expected GetCostAndUsageWithResources to be invoked")
+	}
+	gotStart, parseErr := time.Parse("2006-01-02", ceaws.ToString(in.TimePeriod.Start))
+	if parseErr != nil {
+		t.Fatalf("could not parse Start: %v", parseErr)
+	}
+	want := end.Add(-14 * 24 * time.Hour)
+	if !gotStart.Equal(want) {
+		t.Errorf("expected clamped Start = %s, got %s", want.Format("2006-01-02"), gotStart.Format("2006-01-02"))
+	}
+}
+
+func TestFetchResourceCosts_APIError_NonFatal(t *testing.T) {
+	// Customers without "hourly granularity & resource-level data" enabled in
+	// Cost Explorer get a DataUnavailableException-style error here.
+	// FetchResourceCosts is supplemental — return nil, nil and let the caller
+	// proceed with service-level cost data.
+	mock := &mockCEClient{
+		resourceErr: fmt.Errorf("DataUnavailableException: resource-level data is not enabled"),
+	}
+
+	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
+	end := time.Now()
+	records, err := client.FetchResourceCosts(context.Background(), end.Add(-7*24*time.Hour), end)
+
+	if err != nil {
+		t.Errorf("expected non-fatal error handling, got error: %v", err)
+	}
+	if len(records) != 0 {
+		t.Errorf("expected nil records on error, got %d", len(records))
 	}
 }
 
