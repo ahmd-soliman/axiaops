@@ -441,11 +441,31 @@ func normalizeService(ceService string) string {
 	return ceService
 }
 
-// FetchResourceCosts calls GetCostAndUsage grouped by SERVICE and RESOURCE_ID
-// to get per-resource cost data. This is only reliable for a subset of services.
-// Records returned have ResourceID populated, enabling Detect() to join with usage.
+// resourceCostMaxLookback is the maximum window GetCostAndUsageWithResources
+// supports. AWS rejects requests older than the past 14 days for this API.
+const resourceCostMaxLookback = 14 * 24 * time.Hour
+
+// FetchResourceCosts calls GetCostAndUsageWithResources grouped by SERVICE and
+// RESOURCE_ID to get per-resource cost data. Only this API supports the
+// RESOURCE_ID dimension — the regular GetCostAndUsage rejects it. Constraints
+// imposed by AWS: granularity must be DAILY (not MONTHLY), the time window is
+// capped at 14 days, and the customer's account must have opted in to
+// "hourly granularity and resource-level data" in Cost Explorer; without
+// opt-in the call returns DataUnavailableException and we fall through to
+// the non-fatal path.
+//
+// Records returned have ResourceID populated, enabling Detect() to join with
+// usage. This is supplemental data — failures are logged and swallowed.
 func (c *Client) FetchResourceCosts(ctx context.Context, start, end time.Time) ([]model.CostRecord, error) {
-	// Build OR filter for supported services.
+	// Clamp the window to the API's 14-day cap. Also handle reversed inputs
+	// (start after end) — the swallowed-error path would otherwise hide the
+	// misconfiguration silently behind a "resource-level costs failed" warning.
+	if start.After(end) || end.Sub(start) > resourceCostMaxLookback {
+		start = end.Add(-resourceCostMaxLookback)
+	}
+
+	// Filter is required for GetCostAndUsageWithResources. Restrict to services
+	// that reliably emit resource-level data.
 	filter := &types.Expression{
 		Dimensions: &types.DimensionValues{
 			Key:    types.DimensionService,
@@ -453,12 +473,12 @@ func (c *Client) FetchResourceCosts(ctx context.Context, start, end time.Time) (
 		},
 	}
 
-	input := &costexplorer.GetCostAndUsageInput{
+	input := &costexplorer.GetCostAndUsageWithResourcesInput{
 		TimePeriod: &types.DateInterval{
 			Start: aws.String(start.Format(dateLayout)),
 			End:   aws.String(end.Format(dateLayout)),
 		},
-		Granularity: types.GranularityMonthly,
+		Granularity: types.GranularityDaily,
 		Metrics:     []string{"UnblendedCost"},
 		Filter:      filter,
 		GroupBy: []types.GroupDefinition{
@@ -470,15 +490,17 @@ func (c *Client) FetchResourceCosts(ctx context.Context, start, end time.Time) (
 	var records []model.CostRecord
 
 	for {
-		var page *costexplorer.GetCostAndUsageOutput
+		var page *costexplorer.GetCostAndUsageWithResourcesOutput
 		err := retry.Do(ctx, retry.DefaultConfig(), func() error {
 			var err error
-			page, err = c.ce.GetCostAndUsage(ctx, input)
+			page, err = c.ce.GetCostAndUsageWithResources(ctx, input)
 			return err
 		})
 
 		if err != nil {
-			// Non-fatal: resource-level data is supplemental.
+			// Non-fatal: resource-level data is supplemental. Most common
+			// cause in practice is the customer not having enabled
+			// "hourly granularity and resource-level data" in Cost Explorer.
 			slog.Warn("aws: FetchResourceCosts failed, continuing without resource-level costs", "error", err)
 			return nil, nil
 		}
