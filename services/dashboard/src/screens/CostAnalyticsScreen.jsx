@@ -155,12 +155,57 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
       .sort((a, b) => b.total - a.total);
   }, [filteredCosts]);
 
-  // For the selected service, break down by resource_id (drill-down).
+  // The drill-down side panel is clamped to a maximum 14-day window to match
+  // AWS Cost Explorer's resource-level data ceiling (GetCostAndUsageWithResources).
+  // Without this clamp, the panel's service total spans the user's selected
+  // period (up to a year) while the resource breakdown only spans the last
+  // 14 days — the two numbers don't reconcile and resource rows look like
+  // they're "missing" most of the cost.
+  const PANEL_MAX_DAYS = 14;
+  const panelWindowDays = Math.min(period, PANEL_MAX_DAYS);
+  const panelClamped = period > PANEL_MAX_DAYS;
+
+  // Records for the selected service within the panel's clamped window.
+  // Drives both the panel summary (total / period / regions / count) and
+  // the per-resource breakdown so the two always reconcile.
+  const panelServiceRecords = useMemo(() => {
+    if (!selectedService) return [];
+    const cutoff = Date.now() - panelWindowDays * 24 * 60 * 60 * 1000;
+    return filteredCosts.filter(r => {
+      if (r.service !== selectedService) return false;
+      return new Date(r.period_start).getTime() >= cutoff;
+    });
+  }, [selectedService, filteredCosts, panelWindowDays]);
+
+  // Aggregate the panel records: total, count, regions, period bounds.
+  const panelStats = useMemo(() => {
+    if (!selectedService || panelServiceRecords.length === 0) return null;
+    let total = 0;
+    let periodStart = panelServiceRecords[0].period_start;
+    let periodEnd   = panelServiceRecords[0].period_end;
+    const regions = new Set();
+    for (const r of panelServiceRecords) {
+      total += r.amount || 0;
+      if (r.period_start < periodStart) periodStart = r.period_start;
+      if (r.period_end   > periodEnd)   periodEnd   = r.period_end;
+      regions.add(r.region || 'NoRegion');
+    }
+    return {
+      service: selectedService,
+      total,
+      count: panelServiceRecords.length,
+      regions: [...regions].sort(),
+      periodStart,
+      periodEnd,
+      currency: panelServiceRecords[0].currency || 'USD',
+    };
+  }, [selectedService, panelServiceRecords]);
+
+  // Per-resource_id breakdown for the side panel — also scoped to the clamped window.
   const selectedServiceBreakdown = useMemo(() => {
     if (!selectedService) return null;
     const byResource = new Map();
-    for (const r of filteredCosts) {
-      if (r.service !== selectedService) continue;
+    for (const r of panelServiceRecords) {
       const key = r.resource_id || '__none__';
       const e = byResource.get(key);
       if (e) {
@@ -179,7 +224,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
     return [...byResource.values()]
       .map(e => ({ ...e, regions: [...e.regions].sort() }))
       .sort((a, b) => b.total - a.total);
-  }, [selectedService, filteredCosts]);
+  }, [selectedService, panelServiceRecords]);
 
   // Scan account
   const scanMutation = useMutation({
@@ -492,10 +537,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
             </div>
           </div>
 
-          {/* Service-detail panel — drill-down by resource_id */}
-          {selectedService && selectedServiceBreakdown && (() => {
-            const group = serviceGroups.find(g => g.service === selectedService);
-            if (!group) return null;
+          {/* Service-detail panel — drill-down by resource_id, clamped to 14d */}
+          {selectedService && panelStats && selectedServiceBreakdown && (() => {
             const cfg = serviceConfig(selectedService);
             return (
               <div style={{ width: 350, backgroundColor: t.surface, borderRadius: 8, border: `1px solid ${t.border}`, padding: 16, height: 'fit-content', position: 'sticky', top: 16 }}>
@@ -507,13 +550,19 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                   </div>
                 </div>
 
+                {panelClamped && (
+                  <div style={{ fontSize: 10, color: t.textMuted, fontStyle: 'italic', marginBottom: 12, padding: '6px 8px', backgroundColor: t.surfaceRaised, borderRadius: 4 }}>
+                    Showing last {PANEL_MAX_DAYS} days · resource-level cost data is capped at {PANEL_MAX_DAYS} days by AWS Cost Explorer. The chart and the table to the left still reflect your selected period.
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
                   <div>
                     <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
                       Total
                     </div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: t.accent }}>
-                      ${group.total.toFixed(2)} {group.currency}
+                      ${panelStats.total.toFixed(2)} {panelStats.currency}
                     </div>
                   </div>
 
@@ -522,7 +571,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                       Period
                     </div>
                     <div style={{ fontSize: 12, color: t.text }}>
-                      {formatDateShort(group.periodStart)} – {formatDateShort(group.periodEnd)} · {group.count} record{group.count !== 1 ? 's' : ''}
+                      {formatDateShort(panelStats.periodStart)} – {formatDateShort(panelStats.periodEnd)} · {panelStats.count} record{panelStats.count !== 1 ? 's' : ''}
                     </div>
                   </div>
 
@@ -531,20 +580,15 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                       Regions
                     </div>
                     <div style={{ fontSize: 12, color: t.text }}>
-                      {group.regions.join(', ')}
+                      {panelStats.regions.join(', ')}
                     </div>
                   </div>
                 </div>
 
                 <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 12 }}>
-                  <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+                  <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 8 }}>
                     Resources · {selectedServiceBreakdown.length}
                   </div>
-                  {selectedServiceBreakdown.some(e => e.resourceId) && (
-                    <div style={{ fontSize: 10, color: t.textMuted, fontStyle: 'italic', marginBottom: 8 }}>
-                      Last 14 days · AWS limit on resource-level data
-                    </div>
-                  )}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
                     {selectedServiceBreakdown.map((e, i) => (
                       <div key={e.resourceId ?? `__none__${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: i < selectedServiceBreakdown.length - 1 ? `1px solid ${t.border}` : 'none' }}>
