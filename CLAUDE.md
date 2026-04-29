@@ -31,11 +31,13 @@ make start-staging  # Full Docker stack (API, ingestion, dashboard, Redis, Postg
                     # with DEV_MODE=false → Kinde JWT auth on. Mirrors deployed env.
 make stop           # Kill host-mode services AND `docker compose down` the stack.
 make seed           # Populate dummy organization/user/zombie records
-make test           # All Go unit tests
-make test-storage   # PostgreSQL tests (RLS, migrations) — needs running postgres
-make test-smoke     # Smoke tests — needs full stack running (make start-dev in a separate terminal)
-                    # Uses GOWORK=off so tests don't recompile services and kill running processes
-make test-all       # Unit + postgres tests
+make test               # All Go unit tests
+make test-storage       # PostgreSQL tests (RLS, migrations) — needs running postgres
+make test-all           # Unit + postgres tests
+make test-integration   # Spins up an isolated docker-compose stack (postgres, redis,
+                        # api, ingestion) and runs end-to-end tests against it.
+                        # `test-integration-api` / `test-integration-ingestion` run
+                        # only one service's suite.
 ```
 
 ## Dev Workflow
