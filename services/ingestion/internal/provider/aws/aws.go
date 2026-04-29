@@ -326,7 +326,7 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 			End:   aws.String(end.Format(dateLayout)),
 		},
 		Granularity: types.GranularityDaily,
-		Metrics:     []string{"UnblendedCost"},
+		Metrics:     []string{"NetAmortizedCost"},
 		GroupBy: []types.GroupDefinition{
 			{Type: types.GroupDefinitionTypeDimension, Key: aws.String("SERVICE")},
 			{Type: types.GroupDefinitionTypeDimension, Key: aws.String("REGION")},
@@ -361,8 +361,13 @@ func (c *Client) FetchCosts(ctx context.Context, start, end time.Time) ([]model.
 				ceService := group.Keys[0]
 				region := group.Keys[1]
 
-				metric := group.Metrics["UnblendedCost"]
+				metric := group.Metrics["NetAmortizedCost"]
 				amount, _ := strconv.ParseFloat(aws.ToString(metric.Amount), 64)
+				// NetAmortizedCost can be negative (credits, refunds, SP true-ups).
+				// Skip non-positive rows so they don't subtract from zombie savings.
+				if amount <= 0 {
+					continue
+				}
 
 				records = append(records, model.CostRecord{
 					Provider:    "aws",
@@ -478,8 +483,8 @@ func (c *Client) FetchResourceCosts(ctx context.Context, start, end time.Time) (
 			Start: aws.String(start.Format(dateLayout)),
 			End:   aws.String(end.Format(dateLayout)),
 		},
-		Granularity: types.GranularityDaily,
-		Metrics:     []string{"UnblendedCost"},
+		Granularity: types.GranularityMonthly,
+		Metrics:     []string{"NetAmortizedCost"},
 		Filter:      filter,
 		GroupBy: []types.GroupDefinition{
 			{Type: types.GroupDefinitionTypeDimension, Key: aws.String("SERVICE")},
@@ -517,7 +522,7 @@ func (c *Client) FetchResourceCosts(ctx context.Context, start, end time.Time) (
 					continue
 				}
 
-				metric := group.Metrics["UnblendedCost"]
+				metric := group.Metrics["NetAmortizedCost"]
 				amount, _ := strconv.ParseFloat(aws.ToString(metric.Amount), 64)
 				if amount <= 0 {
 					continue
@@ -569,7 +574,7 @@ func (c *Client) FetchCostExplorerAPICosts(ctx context.Context, start, end time.
 			End:   aws.String(end.Format(dateLayout)),
 		},
 		Granularity: types.GranularityDaily,
-		Metrics:     []string{"UnblendedCost"},
+		Metrics:     []string{"NetAmortizedCost"},
 		Filter:      filter,
 		GroupBy: []types.GroupDefinition{
 			{Type: types.GroupDefinitionTypeDimension, Key: aws.String("SERVICE")},
@@ -600,7 +605,7 @@ func (c *Client) FetchCostExplorerAPICosts(ctx context.Context, start, end time.
 			for _, group := range result.Groups {
 				region := group.Keys[1]
 
-				metric := group.Metrics["UnblendedCost"]
+				metric := group.Metrics["NetAmortizedCost"]
 				amount, _ := strconv.ParseFloat(aws.ToString(metric.Amount), 64)
 				if amount <= 0 {
 					continue
