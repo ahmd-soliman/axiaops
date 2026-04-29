@@ -253,7 +253,7 @@ func TestFetchCosts_SkipsNonPositiveAmounts(t *testing.T) {
 
 func TestFetchResourceCosts_SinglePage(t *testing.T) {
 	mock := &mockCEClient{
-		pages: []costexplorer.GetCostAndUsageOutput{
+		resourcePages: []costexplorer.GetCostAndUsageWithResourcesOutput{
 			{
 				ResultsByTime: []types.ResultByTime{
 					{
@@ -304,7 +304,7 @@ func TestFetchResourceCosts_SkipsMissingAndNonPositive(t *testing.T) {
 	// FetchResourceCosts must skip rows with empty / "NoResourceId" identifiers
 	// and rows with amount <= 0 (credits/refunds/SP true-ups under NetAmortizedCost).
 	mock := &mockCEClient{
-		pages: []costexplorer.GetCostAndUsageOutput{
+		resourcePages: []costexplorer.GetCostAndUsageWithResourcesOutput{
 			{
 				ResultsByTime: []types.ResultByTime{
 					{
@@ -360,7 +360,7 @@ func TestFetchResourceCosts_SkipsMissingAndNonPositive(t *testing.T) {
 
 func TestFetchResourceCosts_APIError_NonFatal(t *testing.T) {
 	mock := &mockCEClient{
-		err: fmt.Errorf("AccessDeniedException"),
+		resourceErr: fmt.Errorf("AccessDeniedException"),
 	}
 
 	client := aws.NewWithClient("123456789012", mock, &mockCWClient{})
