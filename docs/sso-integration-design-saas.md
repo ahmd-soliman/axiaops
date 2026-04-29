@@ -10,7 +10,7 @@ Status: **design preserved, not currently scheduled.** Sibling to [`sso-integrat
 > - User stories (§1), data model (§4), JIT logic (§10), most security properties (§11.1–§11.7), and testing primitives (§13) are **identical** between the two — cross-references throughout point at the sibling doc rather than duplicating.
 > - The architectural recommendation (§3), API surface (§5), frontend (§6), protocol-level responsibilities (§7, §8, §9), security boundary (§11.8, §11.9), migration (§12), phase plan (§14), open questions (§15), and file list (§16) **diverge** because Kinde owns the cryptographic surface and the auth boundary.
 >
-> **Coexistence assumption**: by the time this doc is reactivated, the self-hosted variant is the established v1 product and the SaaS variant is being added alongside. Both are built from one codebase using a `//go:build saashosted` build tag (or two top-level cmd binaries — see §16). The data model is shared; the runtime auth path differs.
+> **Coexistence assumption**: by the time this doc is reactivated, the self-hosted variant is the established v1 product and the SaaS variant is being added alongside. Both are built from one codebase using **two top-level `cmd` binaries** — `cmd/api-selfhosted` (default) and `cmd/api-saashosted` — see §16.4 for the build-separation rationale. The data model is shared; the runtime auth path differs.
 
 This document is the implementation contract for adding SAML 2.0 / OIDC / Microsoft Entra ID single sign-on to the **AxiaOps Cloud (managed-hosted)** SKU. It is written under the constraint that the AxiaOps Cloud build uses **Kinde for the entire authentication boundary** — social login, email/password, and enterprise SSO — and that JIT provisioning is the v1 user-creation model alongside the existing `pending_memberships` invitation flow (`docs/invitation-flow.md`).
 
@@ -31,7 +31,8 @@ The only delta is in story §1.6: under SaaS the session cookie is set by **Kind
 Same as sibling §2.1, plus:
 - **Social login** (Google/Microsoft personal/GitHub OAuth) is IN-scope — provided by Kinde at no incremental cost.
 - **Hosted login UI** is provided by Kinde; no native login page in the SaaS build.
-- **Existing Kinde-authed orgs preserved** during the reactivation transition.
+
+> *Original 2026-04 draft also listed "existing Kinde-authed orgs preserved during the reactivation transition" as a goal. That goal is moot under ADR-0001: Kinde is fully removed in self-hosted Phase B1 (sibling §14), so by reactivation time no Kinde-authed orgs exist to preserve. The internal AxiaOps dogfood instance is the only edge case — handled in §12.4 of the sibling doc.*
 
 ### 2.2 Non-goals (v1 — SaaS)
 
@@ -52,8 +53,8 @@ The self-hosted doc §3 weighs Options A (Kinde-brokered), B (native), and C (hy
 1. **Kinde does the cryptographic heavy lifting** — XML signature verification, OIDC token validation, JWKS rotation, replay caches, IdP metadata refresh. Months of pen-test surface stay outside our codebase.
 2. **One auth code path** in the SaaS binary (Kinde JWT validation), as it has been since Phase 1 — no rewrite of `auth.go` for SaaS.
 3. **SOC 2 evidence**: Kinde's SOC 2 Type II covers the auth control; AxiaOps Inc only evidences config + audit pipeline. Audit scope narrows.
-4. **Time to ship** for the SaaS variant: ~4–6 weeks (Phase B) once the build separation is in place vs. 8–10 weeks of native cryptography that was paid in the self-hosted v1 path. Reusing the self-hosted data model means Phase B is mostly admin-UX + Kinde Mgmt API wiring.
-5. **Native SSO already exists in the self-hosted code**. The SaaS variant could in principle reuse it. We choose not to because the operational benefit (riding Kinde's SOC 2, no per-customer key management at AxiaOps Inc) outweighs the codebase-deduplication benefit.
+4. **Time to ship** for the SaaS variant: ~4–6 weeks for Phase B itself, plus 2–3 weeks for Phase A (build-tag plumbing, Kinde tenant provisioning, ADR-0002) — total **6–9 weeks A+B** to first SaaS login, vs. 8–10 weeks of native cryptography that was paid in the self-hosted v1 path. Reusing the self-hosted data model means Phase B is mostly admin-UX + Kinde Mgmt API wiring.
+5. **Native SSO partially reused from self-hosted, runtime path differs**. The schema (§4), admin-UX backend (CRUD handlers, domain verification, group mappings), JIT logic (§10), and audit pipeline are **shared** between SKUs — no duplication there. What the SaaS build does **not** reuse is the cryptographic / runtime layer: the native OIDC RP, SAML SP, replay cache, and login screens are bypassed because Kinde provides equivalents. Operational benefit (riding Kinde's SOC 2, no per-customer key management at AxiaOps Inc) is concentrated in this thin runtime layer; everything else stays single-source.
 
 ### 3.2 Recommendation
 
@@ -61,7 +62,7 @@ The self-hosted doc §3 weighs Options A (Kinde-brokered), B (native), and C (hy
 
 This is **purely additive** to the self-hosted v1 path:
 - Self-hosted binary keeps its native auth — no change.
-- SaaS binary adds Kinde dependencies behind `//go:build saashosted`.
+- SaaS binary (`cmd/api-saashosted`) imports Kinde dependencies; self-hosted binary does not.
 - Data model unchanged — `kinde_connection_id` column populated in SaaS, empty under self-hosted.
 
 ### 3.3 What changes vs. the original (pre-2026-04-29) Option A design
@@ -109,8 +110,22 @@ These exist in self-hosted but are **owned by Kinde** in the SaaS build — Axia
 
 | Method | Path | Permission | Purpose |
 |---|---|---|---|
-| `POST` | `/v1/sso/kinde/webhook` | none (HMAC-signed by Kinde) | Receive Kinde lifecycle events: org created, user added/removed from org, SSO connection updated. Used to keep our `users` / `memberships` / `sso_connections` rows in sync with Kinde-side state. Verifies the `Kinde-Signature` header against `KINDE_WEBHOOK_SECRET`. |
+| `POST` | `/v1/sso/kinde/webhook` | none (HMAC-signed by Kinde) | Receive Kinde lifecycle events. Used to keep our `users` / `memberships` / `sso_connections` rows in sync with Kinde-side state. Verifies the `Kinde-Signature` header against `KINDE_WEBHOOK_SECRET`. Dispatch table below. |
 | `GET` | `/v1/sso/connections/{cid}/test` | `PermSSOManage` | Synthetic test now calls **Kinde's** test endpoint via Mgmt API. Reason enums map from Kinde's response. |
+
+**Webhook dispatch table** (`/v1/sso/kinde/webhook`) — handler is a single endpoint, but the body's `event_type` selects an internal handler. Document the dispatch up front so the handler doesn't grow into an unstructured switch:
+
+| Kinde event type | AxiaOps action | Tables touched |
+|---|---|---|
+| `organization.created` | Mirror as `organizations` row via `UpsertOrganization`. | `organizations` |
+| `organization.updated` | Sync `name`, `display_name` only. Never overwrite `id`. | `organizations` |
+| `organization.deleted` | **No-op for v1** — log + audit only. Org-delete is owner-driven via `DELETE /v1/organizations/me`, not Kinde-driven. Receiving this event probably indicates a Kinde-side admin action that needs human review. |  — |
+| `user.organization.added` | Upsert `users` row + `memberships` row (default role: `viewer` unless JIT group mapping resolves higher). | `users`, `memberships`, `audit_log` |
+| `user.organization.removed` | Soft-disable `memberships` row (set `status='disabled'`). Don't hard-delete — preserves audit lineage. | `memberships`, `audit_log` |
+| `connection.updated` | Refresh `sso_connections` row's status/enforcement; never overwrite `kinde_connection_id`. | `sso_connections`, `audit_log` |
+| (any other) | Log at `slog.Warn` with full event_type; do not 500 — Kinde re-delivers on non-2xx. | — |
+
+Replay protection: Kinde signs with timestamp; reject events older than 5 minutes regardless of signature. Tested in §13.3.
 
 ### 5.4 Login-page domain discovery (SaaS variant)
 
@@ -193,8 +208,8 @@ Owned by Kinde. We implement SP-initiated logout against Kinde (existing `/api/a
    replay protection. Mints a Kinde JWT containing email, sub, groups claim.
 6. Kinde redirects to AxiaOps `/callback?code=...`.
 7. Dashboard exchanges code for Kinde session cookie.
-8. AxiaOps API auth middleware validates the Kinde JWT (existing path,
-   `auth.go` Kinde branch under `//go:build saashosted`).
+8. AxiaOps API auth middleware validates the Kinde JWT — Kinde-specific
+   middleware is wired into `cmd/api-saashosted/main.go` only.
 9. After JWT validation, post-issuance hook runs:
      a. Look up sso_domains by JWT email domain.
      b. If verified domain → JIT provision via §10 logic.
@@ -259,7 +274,7 @@ Same as sibling, except all references to "AxiaOps must..." become "Kinde must..
 
 **See [`sso-integration-design.md` §10](sso-integration-design.md#10-jit-provisioning--role-mapping)** — identical logic, identical pseudocode, identical role-precedence rules.
 
-The only delta: the JIT hook fires **after Kinde JWT validation** in the SaaS auth middleware (the existing `auth.go` Kinde branch under `//go:build saashosted`), rather than after a native session is minted.
+The only delta: the JIT hook fires **after Kinde JWT validation** in the SaaS auth middleware (Kinde-specific middleware composed into `cmd/api-saashosted/main.go`), rather than after a native session is minted.
 
 `pending_memberships` invitation flow takes precedence over JIT — same as sibling §10.4. The Phase 3 #14 invitation flow under SaaS is **the original Kinde Mgmt API path** (sibling Tasks.md #14 pre-2026-04-29 design); under self-hosted it is the rescoped native SMTP/Resend version.
 
@@ -330,16 +345,16 @@ A SaaS customer signs up via Kinde Hosted Login — same flow as Phase 1. Owner-
 
 The two SKUs are **separate deployments built from one codebase**:
 
-- Self-hosted: `//go:build !saashosted` (default). Native auth. Customer runs the binary.
-- SaaS: `//go:build saashosted`. Kinde auth. AxiaOps Inc runs the binary on App Runner.
+- Self-hosted: `cmd/api-selfhosted` (default). Native auth. Customer runs the binary.
+- SaaS: `cmd/api-saashosted`. Kinde auth. AxiaOps Inc runs the binary on App Runner.
 
 **Customers do not move between SKUs.** A customer signed up on AxiaOps Cloud cannot drop into self-hosted without re-signing-up on the self-hosted instance (or vice versa). Cross-SKU migration tooling is **out of scope for SaaS reactivation v1**; revisit if customers ask.
 
 ### 12.3 Re-enabling Kinde when this doc is reactivated
 
 Steps when the managed-hosted SKU is committed:
-1. Re-introduce `services/api/internal/kinde/` package (deleted in self-hosted-first cleanup) under the `//go:build saashosted` tag.
-2. Re-introduce the `//go:build saashosted` branch in `services/api/internal/middleware/auth.go` for Kinde JWT validation.
+1. Re-introduce `services/api/internal/kinde/` package (deleted in self-hosted-first cleanup) — imported only by `cmd/api-saashosted`.
+2. Add `services/api/internal/middleware/auth_kinde.go` (Kinde JWT validation) and wire it from `cmd/api-saashosted/main.go`. The self-hosted `auth.go` is untouched.
 3. Re-add Kinde environment variables (`KINDE_ISSUER`, `KINDE_M2M_CLIENT_ID`, `KINDE_M2M_CLIENT_SECRET`, `KINDE_WEBHOOK_SECRET`) to the SaaS deployment config.
 4. Update `Tasks.md` Phase 3 #1 (Stripe), #9p (GDPR — full scope), #14 (invitations — Kinde Mgmt API path), #17 (SOC 2 — multi-tenant) to reactivated.
 5. Spin up internal AxiaOps Cloud tenant in Kinde with the SOC 2 + GDPR posture documented.
@@ -368,13 +383,14 @@ Fresh SaaS install ships with:
 
 Spin up a separate Kinde tenant for integration tests; load it with synthetic SSO connections (mock IdPs); CI runs `make test-integration-saas` which exercises the full Kinde-brokered flow against the sandbox.
 
-### 13.2 Build-tag discipline
+### 13.2 Test layout under separate-binaries
 
-Every test file is annotated with build tags:
-- `//go:build !saashosted` — self-hosted tests (native auth, native OIDC RP, native SAML SP).
-- `//go:build saashosted` — SaaS tests (Kinde Mgmt API integration, Kinde webhook signature verification).
+With Option β (§16.4), test files live next to the package they test — no build tags:
+- `services/api/internal/auth/*_test.go` — native auth tests. Run uniformly under `go test ./...`. Self-hosted-only because the package is self-hosted-only.
+- `services/api/internal/kinde/*_test.go` — Kinde Mgmt API + webhook signature tests. Run uniformly. SaaS-only because the package is SaaS-only.
+- `services/api/internal/sso/*_test.go` — shared SSO logic (CRUD, JIT, audit). Run uniformly under both.
 
-`make test` runs both build tags by default. CI matrix includes both.
+`make test` runs everything once. CI runs `make build-selfhosted` and `make build-saashosted` separately to confirm both binaries link.
 
 ### 13.3 Webhook signature verification tests
 
@@ -395,7 +411,7 @@ Same as sibling §13.4 + Kinde-specific:
 
 | Phase | Deliverables | Effort | Blocking deps | Success criteria |
 |---|---|---|---|---|
-| **A — SaaS reactivation prerequisites** | (1) Kinde Pro/Enterprise tier pricing confirmed and budgeted. (2) `//go:build saashosted` build tag plumbing in Makefile, Dockerfile, GitLab CI. (3) Re-introduce `services/api/internal/kinde/` package. (4) Internal AxiaOps Cloud Kinde tenant configured. (5) ADR-0002 written committing to dual-SKU. | M (2–3w) | Self-hosted v1 stable; ≥3 self-hosted customers paying. | Dual-SKU CI passes; SaaS binary builds; Kinde sandbox connected. |
+| **A — SaaS reactivation prerequisites** | (1) Kinde Pro/Enterprise tier pricing confirmed and budgeted. (2) Build separation in place per §16.4 (separate `cmd/api-saashosted` binary recommended). (3) Re-introduce `services/api/internal/kinde/` package under the SaaS binary. (4) Internal AxiaOps Cloud Kinde tenant configured. (5) ADR-0002 written committing to dual-SKU. | M (2–3w) | **Either** (a) self-hosted v1 stable + ≥3 self-hosted customers paying (the standard ADR-0001 review trigger), **or** (b) a high-quality SaaS design partner explicitly demanding hosted access who is willing to sign quickly (the alternative trigger called out at the top of this doc). Resolving either gate is sufficient. | Dual-SKU CI passes; SaaS binary builds; Kinde sandbox connected. |
 | **B — SaaS auth path + first SSO IdP (Entra OIDC, Kinde-brokered)** | (1) Build-tag-gated `auth.go` Kinde JWT branch reactivated. (2) Kinde Mgmt API SSO connector (`services/api/internal/kinde/sso.go`). (3) Admin UX wired through Kinde Mgmt API. (4) Domain discovery handler also queries Kinde. (5) Webhook handler `/v1/sso/kinde/webhook`. (6) Sub-processor disclosure on website (§11.9). | L (4–6w) | A. | Internal AxiaOps Cloud tenant logs in via our own Entra tenant via Kinde-brokered SSO with JIT provisioning. |
 | **C — SAML support (Kinde-brokered)** | Kinde Mgmt API SAML connector wired into admin UX; cert lifecycle surfaced (Kinde stores, we display). | M (2w) | B. | One paying customer's Okta-SAML works via SaaS. |
 | **D — Generic OIDC + Entra group overflow** | Generic OIDC admin form (Kinde supports); Microsoft Graph fallback **if Kinde supports** (else document as known limitation). | M (2w) | B. | Test against `mockoidc` + real customer. |
@@ -434,13 +450,14 @@ These should be revisited at the moment of reactivation, not before:
 ### 16.1 New files (SaaS reactivation)
 
 ```
-# Build-tag-gated; only present in saashosted build
+# SaaS-binary-only (imported only from cmd/api-saashosted)
+services/api/cmd/api-saashosted/main.go           # SaaS composition root — wires Kinde middleware + handlers
 services/api/internal/kinde/client.go             # M2M auth, retry, error mapping
 services/api/internal/kinde/sso.go                # Kinde Mgmt API SSO connector wrapper
 services/api/internal/kinde/users.go              # Kinde user CRUD via Mgmt API
 services/api/internal/kinde/orgs.go               # Kinde org CRUD via Mgmt API
-services/api/internal/kinde/webhook.go            # /v1/sso/kinde/webhook handler + HMAC verify
-services/api/internal/middleware/auth_kinde.go    # build-tag-gated Kinde JWT validation
+services/api/internal/kinde/webhook.go            # /v1/sso/kinde/webhook handler + HMAC verify + dispatch
+services/api/internal/middleware/auth_kinde.go    # Kinde JWT validation middleware
 
 # Test infra
 services/api/internal/kinde/testutil/             # Kinde sandbox helpers
@@ -454,18 +471,18 @@ docs/saas-runbook.md                              # operational runbook for Axia
 ### 16.2 Files modified (SaaS reactivation)
 
 ```
-# Build-tag-gated branches added
-services/api/internal/middleware/auth.go          # Kinde branch under //go:build saashosted
-services/api/internal/sso/handler.go              # Kinde Mgmt API calls under build tag
-services/api/internal/sso/discover.go             # also consults Kinde
-services/api/cmd/main.go                          # webhook route under build tag
+# Composition / shared
+services/api/cmd/api-selfhosted/main.go           # renamed from cmd/main.go in B1; minor cleanup only here
+services/api/internal/sso/handler.go              # Kinde Mgmt API calls behind a small interface that gets a Kinde-backed impl in cmd/api-saashosted and a noop/native impl in cmd/api-selfhosted
+services/api/internal/sso/discover.go             # also consults Kinde when the Kinde-backed impl is wired
 
-# Frontend (no code changes; behaviour differs based on build env)
-services/dashboard/src/screens/LoginScreen.jsx    # under saashosted, redirects to Kinde
+# Frontend (route-conditional, not build-conditional)
+services/dashboard/src/screens/LoginScreen.jsx    # detects whether the API exposes Kinde redirect; behaviour switches at runtime, not build time
+services/dashboard/src/screens/RegisterScreen.jsx # hidden when running against the SaaS API
 
 # CI / build
-Makefile                                          # add `make build-saashosted`, `make test-saashosted`
-Dockerfile                                        # multi-target: selfhosted (default) and saashosted
+Makefile                                          # add `make build-saashosted`; existing `make build` becomes `make build-selfhosted`
+Dockerfile                                        # multi-target: api-selfhosted (default) and api-saashosted
 .gitlab-ci.yml                                    # publish two image variants
 
 # Compliance
@@ -490,19 +507,27 @@ services/api/internal/sso/handler.go (CRUD parts)                # admin UX back
 
 Two viable options at reactivation:
 
-**Option α: Build tags (recommended)**
+**Option α: Build tags**
 - One repo, one Go module per service.
 - Files annotated with `//go:build saashosted` or `//go:build !saashosted`.
 - `make build-saashosted` produces the SaaS binary; `make build-selfhosted` (default) produces the self-hosted binary.
-- Pro: maximum code reuse. Con: build-tag discipline required; tests must run under both tags.
+- Pro: maximum code reuse at the file level.
+- Cons: every test runs under a 2× matrix (`go test` defaults to one tag set; CI must explicitly run both); IDE goto-definition / refactoring tools get confused by tagged files; "where does this symbol come from" becomes a coin flip; subtle bugs from `//go:build !saashosted` files referencing a symbol only declared under `//go:build saashosted` are easy to introduce and hard to catch.
 
-**Option β: Separate cmd binaries**
-- `services/api/cmd/api-selfhosted/main.go` and `services/api/cmd/api-saashosted/main.go`.
-- Each wires up its own auth middleware, handlers.
-- Shared internal packages (sso, audit, model, storage) imported by both.
-- Pro: clearer separation, no build-tag traps. Con: handler registration duplicated; risk of drift between cmd entrypoints.
+**Option β: Separate cmd binaries (recommended)**
+- `services/api/cmd/api-selfhosted/main.go` (default) and `services/api/cmd/api-saashosted/main.go` (additive).
+- Each `main.go` wires its own middleware chain (native auth vs Kinde) + composes shared packages.
+- Shared internal packages (`internal/sso/handler`, `internal/sso/jit`, `internal/audit`, `services/shared/model`, `services/shared/storage`) imported by both unchanged.
+- The Kinde-specific code lives in `services/api/internal/kinde/` and is imported only by `cmd/api-saashosted`. The native auth code in `services/api/internal/auth/` is imported only by `cmd/api-selfhosted`. No build tags on shared code.
+- Pro: divergence is concentrated at composition root; tests run uniformly; static analysis works; new contributors can see at a glance what each SKU is. Con: ~20–40 lines of handler-registration boilerplate in each `main.go` (acceptable — drift is detectable in code review).
 
-Recommend **Option α** for v1 SaaS reactivation — build tags scale better as more code becomes runtime-conditional. Reconsider Option β if build-tag discipline becomes a recurring bug source.
+**Recommend Option β.** Reasoning:
+1. **Divergence is small and concentrated**, not pervasive. ~6–8 files differ between SKUs (auth middleware, Kinde client, webhook handler, login screens). Spreading build tags across the codebase to fence off that small surface is heavier than just composing two `main.go`s.
+2. **Test ergonomics**. With build tags, `make test` either misses the SaaS-tagged tests or has to run a 2× matrix. With separate binaries, `make test` runs everything once; CI runs both binaries against integration tests separately.
+3. **Refactoring safety**. Build tags break IDE features and `go vet ./...`. Separate binaries don't.
+4. **Drift is a smaller risk than build-tag traps**. Two `main.go`s with explicit handler registration get caught by code review; a missing build-tag annotation gets caught by a runtime "undefined symbol" panic at the worst possible time.
+
+The original recommendation (Option α) was reversed on review — build-tag discipline scales worse than the doc originally claimed once a test matrix and IDE tooling are factored in.
 
 ### 16.5 Effort delta summary
 

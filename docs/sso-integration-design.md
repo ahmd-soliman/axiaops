@@ -486,7 +486,7 @@ Down migration drops the new tables in reverse FK order and removes the columns.
 - **`sso_connections.idp_metadata_url` and `idp_metadata_xml` both present**: customers split roughly 50/50 on which they can paste. Pick one; keep both columns nullable; handler validates exactly-one-set.
 - **`oidc_client_secret_ciphertext` is `BYTEA`**: same pattern as `accounts.aws_secret_key_ciphertext` — encrypted blob, never returned in API responses.
 - **`saml_previous_cert` + `saml_previous_cert_expires_at`**: enables zero-downtime cert rotation. UX is "paste new cert, old cert auto-expires in 30 days." Cron sweep clears expired previous-certs.
-- **`kinde_connection_id`**: only populated under Option A; lets us call back into Kinde Mgmt API by ID without round-tripping our org_code → IdP type → connection lookup. Empty string under Option B.
+- **`kinde_connection_id`**: only populated under Option A; lets us call back into Kinde Mgmt API by ID without round-tripping our org_code → IdP type → connection lookup. Empty string under Option B. **Validation under self-hosted (Option B)**: handlers in `services/api/internal/sso/handler.go` reject any non-empty value on `POST` / `PATCH` with a 422. (The mirror rule under a future SaaS reactivation — handlers reject the empty string — is captured in [`sso-integration-design-saas.md` §4](sso-integration-design-saas.md#4-data-model). Keeping both rules in their respective docs avoids drift.)
 - **`scim_endpoint` + `scim_token_ciphertext`**: forward-compat. Phase E populates these.
 - **`users.sso_external_id`**: the IdP's stable subject identifier (`sub` for OIDC, NameID for SAML). Indexed with `sso_connection_id` so re-login finds the same user even if email changes (hard requirement for SCIM later).
 - **`memberships.provisioned_via`**: lets the UI distinguish "JIT-provisioned, role from group claim" vs "manually invited" — important UX cue for admins reviewing the team list.
@@ -559,6 +559,8 @@ PermSSODomainVerify   Permission = "sso:domain_verify"  // owner only
 | `POST` | `/v1/sso/saml/{cid}/acs` | none (signed assertion) | SAML Assertion Consumer Service — IdP POSTs SAMLResponse here. Native (Option B) only. Under Option A, Kinde owns the ACS. |
 | `GET` | `/v1/sso/saml/{cid}/metadata` | none | Publish SP metadata XML for IdP admin. Native only. |
 | `GET` | `/v1/sso/oidc/{cid}/callback` | none (state-bound) | OIDC redirect URI. Native only. |
+| `GET` | `/v1/sso/oidc/{cid}/initiate` | none (rate-limited) | SP-initiated OIDC start: builds the IdP authorisation URL with PKCE + opaque `state`, 302s the browser. Email passed as a query param so the connection can be selected. Native only. |
+| `GET` | `/v1/sso/saml/{cid}/initiate` | none (rate-limited) | SP-initiated SAML start: builds `SAMLAuthRequest`, mints CSRF-bound `RelayState`, 302s the browser. Native only. |
 
 ### 5.3 Permission model
 
@@ -579,6 +581,11 @@ PermSSODomainVerify   Permission = "sso:domain_verify"  // owner only
 ```
 
 The `redirect_url` is always an AxiaOps-internal path — `/v1/sso/{protocol}/{cid}/initiate` — under self-hosted (no third-party broker). The initiate handler builds the IdP redirect with the appropriate protocol-specific parameters and 302s the browser to the IdP.
+
+**Domain enumeration / timing oracle**: the discovery endpoint exposes a `cid` in the `redirect_url` for `has_sso:true` responses. `cid` is an opaque random ID (not enumerable), so leakage is bounded — but the success path still differs from the not-found path in body size and processing time. To keep the response shape constant:
+- Both branches return HTTP 200 with the same JSON shape (`has_sso` toggles, `redirect_url` is `""` when false).
+- Add ~5ms of constant work to the `has_sso:false` branch to mask the DB lookup latency on the success path. Document the constant in code; revisit if it shows up as a measurable side channel during pen-test (§13.4).
+- Rate limit (30 req/min/IP) bounds enumeration regardless.
 
 ---
 
@@ -646,6 +653,8 @@ Every assertion has an `ID` attribute. Check:
 
 **Backend choice**: PostgreSQL is fine at MVP scale (1000s of assertions/day, single index lookup). At 100x that scale, move to Redis (`cache.Cache`) — interface stays identical. Don't premature-optimise.
 
+**Sweep integration**: the nightly purge of expired replay rows runs on the existing API-service background ticker pattern (the same shape as the stuck-scan recovery ticker registered in `services/api/cmd/main.go`). Add a `ssoSweep` ticker registered alongside it: 24h interval, reads all `expires_at < NOW()`, deletes in batches of 1000. The 90-day domain-verification expiry sweep (§1.3) and the 30-day SAML `previous_cert` sweep (§7.2 / §1.8) live on the same ticker — one cron, three queries.
+
 ### 7.4 Clock skew, NotBefore/NotOnOrAfter
 
 Standard `crewjam/saml` configuration: 60-second clock skew tolerance. Reject assertions where `NotBefore > NOW + 60s` or `NotOnOrAfter < NOW - 60s`.
@@ -684,15 +693,17 @@ Document as a non-goal (§2.2 update); revisit if 3+ customers ask.
 
 Step 6g is the bridge between SSO and the rest of the product: SSO authenticates the user, then we mint a native session that the rest of the app (handlers, RBAC, audit) consumes uniformly — same shape as a session minted by native email/password login. This is what makes auth code single-pathed (§3.4 reasoning #2).
 
+**Dependency on native auth design**: the `sessions` row, the JWT shape, and the cookie format are owned by **Phase B1 native auth** (§14) — see the forthcoming `docs/native-auth-design.md` (must exist before B1 starts). This SSO doc consumes them as primitives. If `native-auth-design.md` lands later than expected, B2 blocks on it — record that dependency in Tasks.md when the entry is created.
+
 ---
 
 ## 8. OIDC specifics
 
 ### 8.1 JWKS package
 
-Build a shared `axiaops.io/shared/jwks` package at the start of Phase B. API: `keyfuncFromCache(ctx, issuer, jwksURL, cache)` returning a `jwt.Keyfunc`. Cache key: `sso:jwks:{connection_id}`. TTL: 1h. Fail-open semantics: cache error → live fetch.
+Build a shared `axiaops.io/shared/jwks` package at the start of Phase B1. API: `keyfuncFromCache(ctx, issuer, jwksURL, cache)` returning a `jwt.Keyfunc`. Cache key: `sso:jwks:{connection_id}`. TTL: 1h. Resilience: a transient cache-layer error falls back to a live fetch (the security primitive — signature verification with the IdP's published key — is unchanged; only the latency path differs). A live-fetch failure surfaces to the caller as an auth error; do **not** silently accept tokens.
 
-> **Note 2026-04-29**: this section originally described extracting `keyfuncFromCache` from the Kinde path in `auth.go`. Under ADR-0001 + Option B, the Kinde path is being removed entirely; the JWKS package is built fresh as part of native auth (Phase 2.7.1) and consumed by the OIDC RP from day one.
+> **Note 2026-04-29**: this section originally described extracting `keyfuncFromCache` from the Kinde path in `auth.go`. Under ADR-0001 + Option B, the Kinde path is being removed entirely; the JWKS package is built fresh as part of Phase B1 (native auth) and consumed by the OIDC RP (Phase B2) from day one.
 
 ### 8.2 Discovery doc handling
 
@@ -760,10 +771,12 @@ The admin SSO screen surfaces a step-by-step:
 
 ### 10.1 First-login flow
 
-In auth middleware, after JWT verification (`auth.go:142`), before `UpsertUser` (`auth.go:174`):
+In auth middleware, after native session validation (the Phase B1 replacement for Kinde JWT verification at `auth.go:142`), before `UpsertUser`:
+
+> The fields `session.auth_mode` and `session.email` referenced below are part of the **native session model** owned by Phase B1 / `docs/native-auth-design.md` (forthcoming). The session row is set with `auth_mode='sso'` in step 6 of §7.7 (SAML) and the equivalent OIDC callback. Email/password sessions land with `auth_mode='password'` and skip this block.
 
 ```
-if session.auth_mode == 'sso' (set in step 6 of §7.7 / §8 callback):
+if session.auth_mode == 'sso':
     domain = parse_email(session.email).domain
     sso_domain_row = lookup sso_domains WHERE lower(domain)=$1 AND status='verified'
 
@@ -856,7 +869,7 @@ The existing invitation flow (`docs/invitation-flow.md`) and JIT coexist:
 **Attack**: switch `alg` from `RS256` to `HS256` and use the public key as HMAC secret.
 
 **Mitigation**:
-- `jwt.ParseWithClaims` must be called with a `Keyfunc` that explicitly inspects `token.Method` and rejects anything that isn't `*jwt.SigningMethodRSA`. Phase 2.7.1 (native auth replacement for Kinde) is the implementation point — write the assertion into the new `services/shared/jwks/` package's `Keyfunc` from day one. The same package backs both native session validation and SSO OIDC verification (§8.1), so the protection applies uniformly.
+- `jwt.ParseWithClaims` must be called with a `Keyfunc` that explicitly inspects `token.Method` and rejects anything that isn't `*jwt.SigningMethodRSA`. **Phase B1 (native auth replacement)** is the implementation point — write the assertion into the new `services/shared/jwks/` package's `Keyfunc` from day one. The same package backs both native session validation and SSO OIDC verification (§8.1), so the protection applies uniformly.
 - Reject `alg=none` and any HMAC algorithm at the `Keyfunc` level, before signature verification runs.
 - Unit-test in `services/api/internal/sso/oidc_test.go` (§13.1) — synthetic `id_token` with `alg=HS256` using the public key as secret must be rejected.
 
@@ -889,7 +902,7 @@ Every SSO event writes `audit_log` (§4.5). Failure-mode events include enough c
 
 ### 11.6 Authn vs authz separation
 
-SSO authenticates ("who are you"). RBAC (`memberships.role`) authorises ("what can you do"). A successful SSO login **never** grants `owner`. The only paths to `owner` are `EnsureFirstMembership` (first user in a brand-new org) and `TransferOwnership` (explicit owner-to-owner handoff). Documented as a security property; tested in `permission_matrix_test.go`.
+SSO authenticates ("who are you"). RBAC (`memberships.role`) authorises ("what can you do"). A successful SSO login **never** grants `owner`. The only paths to `owner` are `EnsureFirstMembership` (first user in a brand-new org) and `TransferOwnership` (explicit owner-to-owner handoff). Documented as a security property; tested in `services/api/internal/sso/permission_matrix_test.go` (forward-looking — written in Phase B2 alongside the JIT handler).
 
 ### 11.7 Rate limiting
 
@@ -949,7 +962,7 @@ Under enforcement `optional` or `preferred`, both login methods work. Risk: a us
 
 **Lockout prevention** (§1.4): the owner must have a recent successful SSO login (within 24h) before flipping to `required`. Server-side check via `audit_log` lookup. Frontend cannot bypass.
 
-**Session invalidation on enforcement change**: when an org flips from `optional`/`preferred` to `required`, native-password sessions issued before the flip should be invalidated immediately. Native auth controls session TTL directly (unlike Kinde) — implementation: `sessions.revoked_after` column updated to `NOW()` for the affected org's non-SSO sessions on enforcement change. Tracked as Phase 2.7.1 deliverable. *(See §15 Q7 — confirm whether to do this automatically or only on explicit owner action.)*
+**Session invalidation on enforcement change**: when an org flips from `optional`/`preferred` to `required`, native-password sessions issued before the flip should be invalidated immediately. Native auth controls session TTL directly (unlike Kinde) — implementation: `sessions.revoked_after` column (defined by the native session model in **Phase B1** / `docs/native-auth-design.md`) is updated to `NOW()` for the affected org's non-SSO sessions on enforcement change. The SSO doc consumes this column; the column itself is owned by the native auth design. *(See §15 Q7 — confirm whether to do this automatically or only on explicit owner action.)*
 
 ### 12.4 Backfill
 
@@ -1018,21 +1031,24 @@ This is the right time to engage an external pen-test (Phase 3 #9p backlog alrea
 ## 14. Phased delivery plan
 
 > **Rewritten 2026-04-29** to reflect the Option-B native path under ADR-0001. Phase B effort grows (no Kinde to do the heavy lifting); Phase F (native cutover) is removed entirely (there is no Kinde to cut over from).
+>
+> **Updated 2026-04-30**: Phase B split into **B1 (native auth replacement)** and **B2 (SSO OIDC + first IdP)**. The original combined Phase B was load-bearing for non-SSO auth without saying so; the split surfaces the dependency and lets B1 ship independently if SSO is descoped from v1. B1+B2 combined effort is unchanged from the original Phase B (8–10w).
 
 | Phase | Deliverables | Effort | Blocking deps | Success criteria |
 |---|---|---|---|---|
-| **A — Design alignment + ADR ratification** | ✅ This doc reviewed; ADR-0001 accepted (2026-04-29); §3 recommendation flipped from A to B; §11.9 sub-processor disclosure marked moot. | S (≤1w) | — | Done. |
-| **B — Native auth + native OIDC + first IdP (Entra)** | (1) **Replace Kinde in `auth.go`** with native session validation (email/password baseline + native JWT issuance). (2) Migration 021 (`sso_connections` + `sso_domains` + `sso_group_mappings` + `sso_assertion_replay`). (3) Native OIDC RP at `services/api/internal/sso/oidc.go` — discovery doc handling, JWKS fetch via shared `services/shared/jwks/`, PKCE + code flow, ID-token validation. (4) Callback handler `/v1/sso/oidc/{cid}/callback`. (5) Admin SSO UX (`services/dashboard/src/pages/settings/SSO.jsx`). (6) Domain discovery `/v1/sso/discover`. (7) JIT provisioning. (8) Audit-log wiring. | XL (8–10w) | A. | Internal AxiaOps team logs into self-hosted instance via Entra OIDC with JIT provisioning, with **zero Kinde calls**. |
-| **C — Native SAML support** | `crewjam/saml` integration; SP signing keypair + lifecycle (env-var-managed per deployment); SP metadata endpoint `/v1/sso/saml/{cid}/metadata`; ACS handler `/v1/sso/saml/{cid}/acs`; assertion replay cache (PG-backed initially, Redis later); cert rotation overlap; clock-skew handling; pen-test against `xml-attacker` corpus before going live. | L (4–6w) | B. | Test against `samltest.id` corpus + one real customer's Okta-SAML in staging. |
-| **D — Generic OIDC + Entra group overflow** | "Generic OIDC" admin form (single discovery URL + client ID/secret); Microsoft Graph fallback for >200 groups; cert/key rotation runbook (`docs/sso-key-rotation.md`); validation against Keycloak + Authentik in test stack. | M (2–3w) | B. | Mock-OIDC + real Keycloak + real Entra all pass integration tests. |
+| **A — Design alignment + ADR ratification** | ✅ This doc reviewed; ADR-0001 accepted (2026-04-29); §3 recommendation flipped from A to B; §11.9 sub-processor disclosure marked moot. ✅ Phase B split into B1/B2 (2026-04-30). | S (≤1w) | — | Done. |
+| **B1 — Native auth replacement for Kinde** | (1) Native session model (`sessions` table + migration), email/password baseline, native JWT issuance, password hashing (argon2id). (2) Replace Kinde JWT validation in `auth.go` with native session validation. (3) Native login + signup screens (`LoginScreen.jsx`, `RegisterScreen.jsx`). (4) Delete `services/api/internal/kinde/` package and Kinde env vars. (5) Migration adds `sessions` + `users.password_hash`. (6) Shared `services/shared/jwks/` package created (consumed by B2 OIDC RP). (7) `docs/native-auth-design.md` written **before** B1 starts — owns session shape, cookie format, password policy, and the `auth_mode` field consumed in §10.1. | L (4–6w) | A + `docs/native-auth-design.md`. | Self-hosted instance authenticates via email/password with **zero Kinde calls**; `services/api/internal/kinde/` directory deleted; existing handler tests pass against the new auth path. |
+| **B2 — Native OIDC RP + first IdP (Entra)** | (1) Migration 021 (`sso_connections` + `sso_domains` + `sso_group_mappings` + `sso_assertion_replay`). (2) Native OIDC RP at `services/api/internal/sso/oidc.go` — discovery doc handling, JWKS fetch via `services/shared/jwks/`, PKCE + code flow, ID-token validation. (3) Initiate handler `/v1/sso/oidc/{cid}/initiate` and callback handler `/v1/sso/oidc/{cid}/callback`. (4) Admin SSO UX (`services/dashboard/src/pages/settings/SSO.jsx`). (5) Domain discovery `/v1/sso/discover` (with the timing-oracle mitigation in §5.4). (6) JIT provisioning + permission matrix test (§11.6). (7) Audit-log wiring. (8) `ssoSweep` ticker for replay/expiry/cert-rotation cleanup (§7.3). | L (4–6w) | B1. | Internal AxiaOps team logs into self-hosted instance via Entra OIDC with JIT provisioning. |
+| **C — Native SAML support** | `crewjam/saml` integration; SP signing keypair + lifecycle (env-var-managed per deployment); SP metadata endpoint `/v1/sso/saml/{cid}/metadata`; ACS handler `/v1/sso/saml/{cid}/acs`; SAML initiate handler `/v1/sso/saml/{cid}/initiate`; assertion replay cache (PG-backed initially, Redis later); cert rotation overlap; clock-skew handling; pen-test against `xml-attacker` corpus. | L (4–6w) | B2. | (1) Test against `samltest.id` corpus + one real customer's Okta-SAML in staging. (2) **`xml-attacker` and open-redirect fuzzing pass clean** — explicit go/no-go gate before any external pilot (§13.4). |
+| **D — Generic OIDC + Entra group overflow** | "Generic OIDC" admin form (single discovery URL + client ID/secret); Microsoft Graph fallback for >200 groups; cert/key rotation runbook (`docs/sso-key-rotation.md`); validation against Keycloak + Authentik in test stack. | M (2–3w) | B2. | Mock-OIDC + real Keycloak + real Entra all pass integration tests. |
 | **E — SCIM 2.0** | SCIM endpoints (`/scim/v2/Users`, `/scim/v2/Groups`); SCIM token issuance + rotation; deprovisioning logic; mapping back to AxiaOps roles. | XL (8–10w) | D + paying customer asking for it. | Entra SCIM provisioning round-trips correctly (create, update, deactivate). |
 | ~~**F — Native cutover**~~ | ~~Migrate from Kinde-brokered to native.~~ **Removed 2026-04-29** — Option B is the v1 path; there is no Kinde to cut over from. | — | — | — |
 
 Effort labels: S=≤1w, M=2–3w, L=4–6w, XL=≥8w. Single-developer assumption.
 
-**Total v1 effort (A+B+C+D)**: ~16–20 weeks. Phase E (SCIM) is post-v1, conditional on customer demand.
+**Total v1 effort (A+B1+B2+C+D)**: ~16–20 weeks. Phase E (SCIM) is post-v1, conditional on customer demand.
 
-**Critical path note**: Phase B is now load-bearing for **non-SSO authentication too** (replacing Kinde with email/password is a Phase B deliverable, not a separate workstream). This couples SSO and base auth into one project — the ADR-0001 commitment.
+**Critical path note**: B1 is load-bearing for **non-SSO authentication** (replacing Kinde with email/password is in B1, not bundled with SSO). If SSO is descoped from v1 for time-to-market reasons, B1 still ships and the product runs on email/password — B2 becomes a fast-follow. This is the ADR-0001 commitment expressed in the phase plan.
 
 ### 14.1 Out of scope until further notice
 
@@ -1053,9 +1069,12 @@ These block downstream decisions; user input needed before Phase B starts.
 2. ~~**Kinde Pro/Enterprise pricing.**~~ → Moot; Kinde removed from product.
 11. ~~**Self-hosted / on-prem SKU within 12–24 months?**~~ → **Self-hosted-first as v1** per ADR-0001.
 
-**Still open — input needed before Phase B starts:**
+**Must resolve before Phase B2 starts (gating):**
 
-3. **Admin self-serve or gated onboarding?** Should owners configure SSO themselves, or is it a "contact AxiaOps support" gated process initially? Self-serve is cheaper to operate but exposes more failure modes; gated lets us learn from the first 10 deployments before automating.
+3. **Admin self-serve or gated onboarding?** Should owners configure SSO themselves, or is it a "contact AxiaOps support" gated process initially? Self-serve is cheaper to operate but exposes more failure modes; gated lets us learn from the first 10 deployments before automating. **Why gating**: §6.1 (admin SSO settings screen) is a Phase B2 deliverable, and its surface differs materially between self-serve (full wizard, domain TXT verification UI, group mapping editor) and gated (single read-only "SSO is configured" panel + a support-contact CTA). Pick before B2 scope is locked, otherwise the admin UX gets rebuilt mid-flight.
+
+**Still open — input needed before Phase B2 starts:**
+
 4. ~~**Pricing — paid-tier feature?**~~ — Stripe (Phase 3 #1) deferred per ADR-0001. SSO pricing is per design-partner contract, not tier-gated, until SaaS is reintroduced. Reopen if/when a managed-hosted SKU lands.
 5. **Which IdP gets first design partner?** Entra is most common in our ICP, but if the first paying customer is Okta-on-SAML, Phase C jumps ahead of Phase D. Need a customer signal.
 6. **Keep `pending_memberships` invitation flow alongside SSO+JIT, or require pre-invite for SSO orgs?** §10.4 keeps both. Alternative: once an org has `enforcement=required`, disable the invitation flow.
@@ -1068,33 +1087,39 @@ These block downstream decisions; user input needed before Phase B starts.
 
 ## 16. Appendix — files that will change
 
-### 16.1 New files (Phase B baseline, Option B native)
+### 16.1 New files (Phase B1/B2 baseline, Option B native)
 
 > **Updated 2026-04-29.** File list reshaped for the native runtime: removed Kinde Mgmt-API wrapper, added native OIDC RP + SAML SP + native session/auth modules.
+> **Updated 2026-04-30.** File list re-tagged by sub-phase (B1 = native auth; B2 = SSO OIDC; C = SAML).
 
 ```
+# Phase B1 — native auth (owns sessions, password, JWKS shared package)
+services/shared/jwks/jwks.go                    # JWKS fetch + cache (consumed by B2)
+services/api/internal/auth/native.go            # email/password baseline + native JWT issuance
+services/api/internal/auth/session.go           # native session model + TTL handling
+services/api/internal/auth/password.go          # argon2id password hashing
+services/shared/storage/postgres/migrations/0NN_native_sessions.up.sql   # owned by docs/native-auth-design.md
+services/shared/storage/postgres/migrations/0NN_native_sessions.down.sql # ↑ migration number assigned when that doc lands
+
+# Phase B2 — SSO core schema + native OIDC RP
 services/shared/storage/postgres/migrations/021_sso_core.up.sql
 services/shared/storage/postgres/migrations/021_sso_core.down.sql
 services/shared/model/sso.go                    # SSOConnection, SSODomain, SSOGroupMapping types
-services/shared/jwks/jwks.go                    # JWKS fetch + cache, used by OIDC RP
-
-# Native auth replacement for Kinde (Phase B core deliverable)
-services/api/internal/auth/native.go            # email/password baseline + native JWT issuance
-services/api/internal/auth/session.go           # native session model + TTL handling
-services/api/internal/auth/password.go          # bcrypt/argon2 password hashing
-
-# SSO — native OIDC RP and SAML SP
 services/api/internal/sso/handler.go            # connections, domains, group-mappings CRUD
 services/api/internal/sso/discover.go           # GET /v1/sso/discover
 services/api/internal/sso/jit.go                # JITResolveRole, JITProvisionMembership
 services/api/internal/sso/test.go               # POST /sso/connections/{cid}/test
-services/api/internal/sso/oidc.go               # native OIDC RP (Phase B — Entra/generic)
+services/api/internal/sso/oidc.go               # native OIDC RP (Entra/generic)
 services/api/internal/sso/oidc_callback.go      # /v1/sso/oidc/{cid}/callback
-services/api/internal/sso/saml.go               # crewjam/saml integration (Phase C)
+services/api/internal/sso/initiate.go           # SP-initiated flow start (OIDC + SAML)
+services/api/internal/sso/sweep.go              # ssoSweep ticker — replay/expiry/cert (§7.3)
+services/api/internal/sso/permission_matrix_test.go # owner-never-via-SSO test (§11.6)
+
+# Phase C — native SAML SP
+services/api/internal/sso/saml.go               # crewjam/saml integration
 services/api/internal/sso/saml_acs.go           # /v1/sso/saml/{cid}/acs
 services/api/internal/sso/saml_metadata.go      # /v1/sso/saml/{cid}/metadata
-services/api/internal/sso/replay.go             # assertion replay cache (Phase C)
-services/api/internal/sso/initiate.go           # SP-initiated flow start
+services/api/internal/sso/replay.go             # assertion replay cache
 
 # Frontend
 services/dashboard/src/pages/settings/SSO.jsx
@@ -1126,17 +1151,19 @@ Tasks.md                                        # rescoped Phase 3 (Stripe / SOC
 docs/decisions/0001-deployment-model.md         # ADR (already accepted)
 ```
 
-### 16.3 Files deleted
+### 16.3 Files to be deleted (in Phase B1)
+
+These exist in the current codebase as of 2026-04-30 and will be removed when Phase B1 lands; not yet deleted.
 
 ```
-# Kinde integration — removed entirely under ADR-0001
-services/api/internal/kinde/                    # whole package
-services/api/internal/middleware/kinde_*.go     # any Kinde-specific middleware
+# Kinde integration — to be removed under ADR-0001 (Phase B1)
+services/api/internal/kinde/                    # whole package — currently has client.go, client_test.go, invitations.go, stub.go
+services/api/internal/middleware/kinde_*.go     # any Kinde-specific middleware (none today; placeholder for cleanup)
 ```
 
-### 16.4 Effort total (Option B native, Phases A+B+C+D)
+### 16.4 Effort total (Option B native, Phases A+B1+B2+C+D)
 
-~16–20 weeks single-developer for v1. Breakdown: A=done; B=8–10w (native auth + OIDC + first IdP); C=4–6w (SAML); D=2–3w (generic OIDC + group overflow). Phase E (SCIM) is post-v1.
+~16–20 weeks single-developer for v1. Breakdown: A=done; B1=4–6w (native auth replacement); B2=4–6w (SSO OIDC + first IdP); C=4–6w (SAML); D=2–3w (generic OIDC + group overflow). Phase E (SCIM) is post-v1.
 
 The +6–7 weeks vs the original Option A estimate (~10–13 weeks) is the cost of:
 - (a) rewriting auth middleware for native sessions (Kinde was doing this work for us),
