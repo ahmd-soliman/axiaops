@@ -418,10 +418,24 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	}
 
 	// Fetch resource-level costs for services that support per-resource CE data.
-	// These records have ResourceID populated, enabling Detect() to join with usage.
+	// These records have ResourceID populated, enabling Detect() to join with
+	// usage AND per-resource drill-downs in the dashboard.
 	resourceCosts, _ := awsClient.FetchResourceCosts(ctx, start, end)
 	if len(resourceCosts) > 0 {
 		slog.Info("fetched resource-level costs", "count", len(resourceCosts))
+		for i := range resourceCosts {
+			resourceCosts[i].InternalAccountID = &accountID
+		}
+		inserted, saveErr := store.Save(ctx, resourceCosts)
+		if saveErr != nil {
+			return fmt.Errorf("save resource costs failed: %w", saveErr)
+		}
+		skipped := int64(len(resourceCosts)) - inserted
+		slog.Info("saved resource-level costs", "total", len(resourceCosts), "inserted", inserted, "skipped", skipped)
+		ingestionRecordsFetchedTotal.WithLabelValues("aws", organizationID).Add(float64(len(resourceCosts)))
+		ingestionRecordsSavedTotal.WithLabelValues("aws", organizationID, "inserted").Add(float64(inserted))
+		ingestionRecordsSavedTotal.WithLabelValues("aws", organizationID, "skipped").Add(float64(skipped))
+		allRecords = append(allRecords, resourceCosts...)
 	}
 
 	// Fetch Cost Explorer API costs (from Cost & Usage API).
@@ -650,11 +664,10 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		}
 	}
 
-	// Use resource-level costs for AnnotateAll so individual resources appear
-	// in the /resources endpoint. Append aggregate records for services without
-	// resource-level data.
-	annotateRecords := append(resourceCosts, allRecords...)
-	resources := analyzer.AnnotateAll(annotateRecords, usage, zombies)
+	// allRecords already contains resourceCosts (appended in the FetchResourceCosts
+	// branch above) plus the per-provider FetchCosts results plus apiCosts.
+	// AnnotateAll over the full union surfaces individual resources in /resources.
+	resources := analyzer.AnnotateAll(allRecords, usage, zombies)
 	// Set internal_account_id on all resources
 	for i := range resources {
 		resources[i].InternalAccountID = accountID
