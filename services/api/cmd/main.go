@@ -134,6 +134,21 @@ func main() {
 	// requires KINDE_M2M_CLIENT_ID + KINDE_M2M_CLIENT_SECRET. Without either,
 	// /v1/invitations and PATCH /v1/organizations/me return 503.
 	h = h.WithKinde(buildKindeClient())
+
+	// Switch /v1/invitations to the native (token-bearing) path when
+	// AUTH_PROVIDER selects it. PUBLIC_HOST is the externally-reachable
+	// origin used to build redemption URLs; empty produces relative
+	// URLs the frontend resolves against window.location.origin.
+	//
+	// DEV_MODE skips this entirely: DevBypass injects a fixed org so
+	// nothing exercises invitations, and the Kinde-stub path keeps the
+	// existing local-dev behaviour. Run `start-dev` with explicit
+	// AUTH_PROVIDER=native + DEV_MODE=false to exercise the native
+	// invitation flow against a fresh DB.
+	if mode := os.Getenv("AUTH_PROVIDER"); os.Getenv("DEV_MODE") != "true" && (mode == "" || mode == "native" || mode == "both") {
+		h = h.WithNativeInvitations(true, os.Getenv("PUBLIC_HOST"))
+	}
+
 	h.Register(mux)
 
 	// Native-auth ceremony endpoints (POST /v1/auth/{bootstrap,login,logout}).

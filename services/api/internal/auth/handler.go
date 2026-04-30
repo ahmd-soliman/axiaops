@@ -50,13 +50,15 @@ func NewHandler(store storage.NativeAuthStore, sessions *Manager, cookieCfg Cook
 
 // Register attaches the auth routes to the supplied mux. Endpoints:
 //
-//	POST /v1/auth/bootstrap   first-owner install token redemption
-//	POST /v1/auth/login       email + password → session cookie
-//	POST /v1/auth/logout      revoke + clear cookie
+//	POST /v1/auth/bootstrap            first-owner install token redemption
+//	POST /v1/auth/login                email + password → session cookie
+//	POST /v1/auth/logout               revoke + clear cookie
+//	POST /v1/auth/invitations/redeem   accept invite token → set password → session
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/bootstrap", h.bootstrap)
 	mux.HandleFunc("POST /v1/auth/login", h.login)
 	mux.HandleFunc("POST /v1/auth/logout", h.logout)
+	mux.HandleFunc("POST /v1/auth/invitations/redeem", h.redeemInvitation)
 }
 
 // ── POST /v1/auth/bootstrap ─────────────────────────────────────────────────
@@ -92,6 +94,7 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
+	req.Token = strings.TrimSpace(req.Token)
 	req.Email = strings.TrimSpace(req.Email)
 	req.Name = strings.TrimSpace(req.Name)
 	req.OrganizationName = strings.TrimSpace(req.OrganizationName)
@@ -164,6 +167,14 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	observability.Global.BootstrapAttemptsTotal.WithLabelValues("success").Inc()
+
+	// AC2 (plan §4.6): delete the install-token file post-consume. The
+	// hash is already wiped from `bootstrap_state` inside the same tx
+	// the consume ran in; removing the plaintext file closes the only
+	// remaining trace on disk. Honours the same env conventions as
+	// auth.MaybeGenerateInstallToken — explicit empty disables file
+	// management entirely. Best-effort: log + continue on failure.
+	removeInstallTokenFile()
 
 	// Pre-warm the session cache so the first authenticated request after
 	// bootstrap doesn't take the cache-miss path. Uses the Manager's now
@@ -305,6 +316,109 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 			ID:    u.ID,
 			Email: u.Email,
 			Name:  u.Name,
+			Role:  mship.Role,
+		},
+		Org: orgRecord{
+			ID: mship.OrganizationID,
+		},
+	})
+}
+
+// ── POST /v1/auth/invitations/redeem ────────────────────────────────────────
+
+type redeemInvitationRequest struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
+}
+
+type redeemInvitationResponse struct {
+	User user      `json:"user"`
+	Org  orgRecord `json:"organization"`
+}
+
+func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
+	var req redeemInvitationRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	// Trim the token so a copy-paste with leading/trailing whitespace
+	// still hashes correctly. Bootstrap takes the same precaution.
+	req.Token = strings.TrimSpace(req.Token)
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Token == "" || req.Password == "" || req.Name == "" {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "token, password, name required")
+		return
+	}
+	if err := CheckPolicy(req.Password); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "weak_password", err.Error())
+		return
+	}
+
+	passwordHash, err := Hash(req.Password)
+	if err != nil {
+		slog.Error("auth: invitation redeem hash failed", "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	in := storage.NativeInviteRedeem{
+		TokenHash:    HashToken(req.Token),
+		UserID:       uuid.New().String(), // ignored by store if email matches existing user
+		UserName:     req.Name,
+		PasswordHash: passwordHash,        // ignored if email matches existing user (B1.5 path)
+	}
+	resolvedUser, mship, err := h.store.RedeemNativeInvitation(r.Context(), in)
+	switch {
+	case errors.Is(err, storage.ErrInvitationNotFound):
+		// Single-source response for "token unknown / expired / already
+		// redeemed". Don't differentiate so callers can't probe which
+		// state a token is in.
+		observability.Global.AuthInvitationsTotal.WithLabelValues("expired").Inc()
+		writeAuthError(w, http.StatusGone, "invitation_invalid", "invitation token is invalid or expired")
+		return
+	case errors.Is(err, storage.ErrUserEmailExists):
+		// Race: a user with the same email was created concurrently
+		// (extraordinarily rare on a single-org install). Surface to
+		// the user as a generic "already taken" — they can sign in
+		// directly via /v1/auth/login.
+		writeAuthError(w, http.StatusConflict, "email_taken", "this email is already registered")
+		return
+	case err != nil:
+		slog.Error("auth: invitation redeem failed", "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	// Mint a session bound to the org from the consumed invitation.
+	mint, mintErr := h.sessions.MintSession(r.Context(), MintRequest{
+		UserID:         resolvedUser.ID,
+		OrganizationID: mship.OrganizationID,
+		AuthMode:       model.AuthModePassword,
+		IP:             requestIP(r),
+		UserAgent:      r.Header.Get("User-Agent"),
+	})
+	if mintErr != nil {
+		slog.Error("auth: invitation redeem mint session failed", "err", mintErr)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	observability.Global.AuthInvitationsTotal.WithLabelValues("redeemed").Inc()
+
+	if h.auditFn != nil {
+		h.auditFn(r.Context(), mship.OrganizationID, resolvedUser.ID,
+			model.AuditActionInvitationRedeemedNative,
+			map[string]any{"role": mship.Role})
+	}
+
+	SetSession(w, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
+	writeJSON(w, http.StatusOK, redeemInvitationResponse{
+		User: user{
+			ID:    resolvedUser.ID,
+			Email: resolvedUser.Email,
+			Name:  resolvedUser.Name,
 			Role:  mship.Role,
 		},
 		Org: orgRecord{

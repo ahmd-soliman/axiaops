@@ -41,6 +41,12 @@ type fakeStore struct {
 	// Memberships keyed by user_id (a slice — a user can belong to
 	// multiple orgs).
 	memberships map[string][]model.Membership
+
+	// Native invitations keyed by (org_id, lower(email)) (matches the
+	// production partial unique index on pending_memberships) plus a
+	// secondary index by token_hash for the redeem-path lookup.
+	invitations        map[string]model.PendingInvitation
+	invitationsByToken map[string]string // token_hash → primary key
 }
 
 type fakeBootstrap struct {
@@ -278,11 +284,109 @@ func (f *fakeStore) CreatePasswordReset(context.Context, string, string, string,
 func (f *fakeStore) RedeemPasswordReset(context.Context, string, string) (string, error) {
 	panic("not used by tests in this package")
 }
-func (f *fakeStore) CreateNativeInvitation(context.Context, model.PendingInvitation) (model.PendingInvitation, bool, error) {
-	panic("not used by tests in this package")
+// Invitations are stored keyed by (organization_id, lower(email)) —
+// matches the partial unique index on pending_memberships in production.
+// A separate index by token_hash is maintained for the redeem-path lookup.
+func invitationKey(orgID, email string) string {
+	return orgID + "|" + strings.ToLower(email)
 }
-func (f *fakeStore) RedeemNativeInvitation(context.Context, storage.NativeInviteRedeem) (model.User, model.Membership, error) {
-	panic("not used by tests in this package")
+
+func (f *fakeStore) seedInvitation(orgID, email, role, tokenHash string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.invitations == nil {
+		f.invitations = make(map[string]model.PendingInvitation)
+	}
+	if f.invitationsByToken == nil {
+		f.invitationsByToken = make(map[string]string)
+	}
+	key := invitationKey(orgID, email)
+	f.invitations[key] = model.PendingInvitation{
+		ID:              "inv-" + email,
+		OrganizationID:  orgID,
+		Email:           email,
+		Role:            role,
+		Status:          model.InvitationStatusPending,
+		InviteTokenHash: tokenHash,
+		ExpiresAt:       f.now().Add(24 * time.Hour),
+	}
+	f.invitationsByToken[tokenHash] = key
+}
+
+func (f *fakeStore) CreateNativeInvitation(_ context.Context, in model.PendingInvitation) (model.PendingInvitation, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.invitations == nil {
+		f.invitations = make(map[string]model.PendingInvitation)
+	}
+	if f.invitationsByToken == nil {
+		f.invitationsByToken = make(map[string]string)
+	}
+	if in.ID == "" {
+		in.ID = "inv-" + in.Email
+	}
+	in.Status = model.InvitationStatusPending
+	if in.ExpiresAt.IsZero() {
+		in.ExpiresAt = f.now().Add(14 * 24 * time.Hour)
+	}
+	in.CreatedAt = f.now()
+	in.UpdatedAt = f.now()
+	key := invitationKey(in.OrganizationID, in.Email)
+	prev, existed := f.invitations[key]
+	if existed {
+		// Re-invite: drop the previous token_hash → key mapping so a
+		// stale token can't be redeemed after rotation. Mirrors the
+		// production upsert behaviour on the partial unique index.
+		delete(f.invitationsByToken, prev.InviteTokenHash)
+	}
+	f.invitations[key] = in
+	f.invitationsByToken[in.InviteTokenHash] = key
+	return in, !existed, nil
+}
+
+func (f *fakeStore) RedeemNativeInvitation(_ context.Context, req storage.NativeInviteRedeem) (model.User, model.Membership, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key, ok := f.invitationsByToken[req.TokenHash]
+	if !ok {
+		return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
+	}
+	inv, ok := f.invitations[key]
+	if !ok || inv.Status != model.InvitationStatusPending || !inv.ExpiresAt.After(f.now()) {
+		return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
+	}
+	// Resolve user — match by lower(email).
+	user, ok := f.usersByEmail[strings.ToLower(inv.Email)]
+	if !ok {
+		// Create new user.
+		now := f.now()
+		user = model.User{
+			ID:            req.UserID,
+			OrganizationID: inv.OrganizationID,
+			Email:         inv.Email,
+			Name:          req.UserName,
+			PasswordHash:  req.PasswordHash,
+			PasswordSetAt: &now,
+			CreatedAt:     now,
+			LastSeen:      now,
+		}
+		f.usersByEmail[strings.ToLower(inv.Email)] = user
+		f.usersByID[user.ID] = user
+	}
+	// Add membership.
+	mship := model.Membership{
+		ID:             "m-" + inv.ID,
+		OrganizationID: inv.OrganizationID,
+		UserID:         user.ID,
+		Role:           inv.Role,
+		CreatedAt:      f.now(),
+		UpdatedAt:      f.now(),
+	}
+	f.memberships[user.ID] = append(f.memberships[user.ID], mship)
+	// Single-use enforcement — drop both the row and the token index.
+	delete(f.invitations, key)
+	delete(f.invitationsByToken, req.TokenHash)
+	return user, mship, nil
 }
 
 // newManager wires Manager + fakeStore + the in-memory cache impl exposed
