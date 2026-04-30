@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,6 +43,21 @@ type Handler struct {
 	// PATCH /v1/organizations/me. nil means "Kinde Mgmt API not configured" —
 	// those handlers return 503 in that case.
 	kinde kinde.Client
+
+	// nativeAuth selects the invitation creation path under
+	// AUTH_PROVIDER=native|both: when true, POST /v1/invitations writes
+	// a token-bearing pending_memberships row and returns the
+	// redemption URL in the response body (no Kinde Mgmt API call).
+	// When false (AUTH_PROVIDER=kinde, the legacy default), the
+	// existing Kinde-Mgmt-API path runs unchanged. Set via
+	// WithNativeInvitations from cmd/main.go after reading AUTH_PROVIDER.
+	nativeAuth bool
+
+	// publicHost is the externally-reachable origin used to build
+	// invitation redemption URLs (https://<host>/accept-invite?token=…).
+	// Defaults to the empty string; the handler falls back to building
+	// a relative URL when unset.
+	publicHost string
 }
 
 // New creates a Handler backed by the given store and queue.
@@ -65,6 +81,17 @@ func (h *Handler) WithRedisCache(c cache.Cache) *Handler {
 // and PATCH /v1/organizations/me; in DEV_MODE pass kinde.NewStub().
 func (h *Handler) WithKinde(c kinde.Client) *Handler {
 	h.kinde = c
+	return h
+}
+
+// WithNativeInvitations switches POST /v1/invitations to the native-auth
+// path: token-bearing pending_memberships row + OOB redemption URL in
+// the response. Pass true under AUTH_PROVIDER=native|both. Public host
+// is the origin (https://<host>) used to build the URL — pass empty to
+// emit a relative URL the frontend can resolve.
+func (h *Handler) WithNativeInvitations(enabled bool, publicHost string) *Handler {
+	h.nativeAuth = enabled
+	h.publicHost = strings.TrimRight(publicHost, "/")
 	return h
 }
 
@@ -131,6 +158,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /v1/memberships", require(authz.PermMembersRead, h.listMemberships))
 	mux.Handle("POST /v1/memberships", require(authz.PermMembersInvite, h.createMembership))
 	mux.Handle("PATCH /v1/memberships/{id}/role", require(authz.PermMembersManageBasic, h.updateMembershipRole))
+	mux.Handle("POST /v1/users/{id}/password-reset", require(authz.PermMembersManageBasic, h.issuePasswordReset))
 	mux.HandleFunc("DELETE /v1/memberships/{id}", h.deleteMembership) // self-leave bypass — handler enforces
 	mux.Handle("POST /v1/organizations/transfer-ownership", require(authz.PermOrganizationTransfer, h.transferOwnership))
 
