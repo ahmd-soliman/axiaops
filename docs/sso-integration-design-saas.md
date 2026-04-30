@@ -72,7 +72,7 @@ The original Option A design (preserved as historical context in `sso-integratio
 - The SaaS variant inherits all the §4 data-model improvements built for self-hosted (domain verification, group mapping, replay cache table, audit constants).
 - The SaaS variant inherits the admin UX written for self-hosted (Settings → Single Sign-On screen, domain TXT verification flow, group-mapping table) — handlers swap in Kinde Mgmt API calls instead of native CRUD.
 - The SaaS variant inherits the §1 user stories and §10 JIT logic verbatim.
-- What's **new for SaaS**: Kinde Mgmt API wrapper, Kinde sub-processor disclosure (§11.9), `cmd/api-saashosted/main.go` composition root, dual-SKU release pipeline (§16). Build separation is binary-level (§16.4 Option β), not build-tag-level.
+- What's **new for SaaS**: Kinde Mgmt API wrapper, Kinde sub-processor disclosure (§11.9), `cmd/api-saashosted/main.go` composition root, dual-SKU release pipeline (§16). Build separation is binary-level (§16.4 Option B), not build-tag-level.
 
 ---
 
@@ -407,7 +407,7 @@ Spin up a separate Kinde tenant for integration tests; load it with synthetic SS
 
 ### 13.2 Test layout under separate-binaries
 
-With Option β (§16.4), test files live next to the package they test — no build tags:
+With Option B (§16.4), test files live next to the package they test — no build tags:
 - `services/api/internal/auth/*_test.go` — native auth tests. Run uniformly under `go test ./...`. Self-hosted-only because the package is self-hosted-only.
 - `services/api/internal/kinde/*_test.go` — Kinde Mgmt API + webhook signature tests. Run uniformly. SaaS-only because the package is SaaS-only.
 - `services/api/internal/sso/*_test.go` — shared SSO logic (CRUD, JIT, audit). Run uniformly under both.
@@ -527,29 +527,31 @@ services/api/internal/sso/handler.go (CRUD parts)                # admin UX back
 
 ### 16.4 Build separation strategy
 
+> **Naming note:** the "Option A" and "Option B" labels in this section are *local to §16.4* and refer to **build-separation strategies**. They are distinct from the architectural Option A/B/C in §3 (which refer to Kinde-brokered vs native vs hybrid auth). When cross-referenced from elsewhere in the doc, always cite as "§16.4 Option B" so the scope is clear.
+
 Two viable options at reactivation:
 
-**Option α: Build tags**
+**Option A — Build tags**
 - One repo, one Go module per service.
 - Files annotated with `//go:build saashosted` or `//go:build !saashosted`.
 - `make build-saashosted` produces the SaaS binary; `make build-selfhosted` (default) produces the self-hosted binary.
 - Pro: maximum code reuse at the file level.
 - Cons: every test runs under a 2× matrix (`go test` defaults to one tag set; CI must explicitly run both); IDE goto-definition / refactoring tools get confused by tagged files; "where does this symbol come from" becomes a coin flip; subtle bugs from `//go:build !saashosted` files referencing a symbol only declared under `//go:build saashosted` are easy to introduce and hard to catch.
 
-**Option β: Separate cmd binaries (recommended)**
+**Option B — Separate cmd binaries (recommended)**
 - `services/api/cmd/api-selfhosted/main.go` (default) and `services/api/cmd/api-saashosted/main.go` (additive).
 - Each `main.go` wires its own middleware chain (native auth vs Kinde) + composes shared packages.
 - Shared internal packages (`internal/sso/handler`, `internal/sso/jit`, `internal/audit`, `services/shared/model`, `services/shared/storage`) imported by both unchanged.
 - The Kinde-specific code lives in `services/api/internal/kinde/` and is imported only by `cmd/api-saashosted`. The native auth code in `services/api/internal/auth/` is imported only by `cmd/api-selfhosted`. No build tags on shared code.
 - Pro: divergence is concentrated at composition root; tests run uniformly; static analysis works; new contributors can see at a glance what each SKU is. Con: ~20–40 lines of handler-registration boilerplate in each `main.go` (acceptable — drift is detectable in code review).
 
-**Recommend Option β.** Reasoning:
+**Recommend Option B.** Reasoning:
 1. **Divergence is small and concentrated**, not pervasive. ~6–8 files differ between SKUs (auth middleware, Kinde client, webhook handler, login screens). Spreading build tags across the codebase to fence off that small surface is heavier than just composing two `main.go`s.
 2. **Test ergonomics**. With build tags, `make test` either misses the SaaS-tagged tests or has to run a 2× matrix. With separate binaries, `make test` runs everything once; CI runs both binaries against integration tests separately.
 3. **Refactoring safety**. Build tags break IDE features and `go vet ./...`. Separate binaries don't.
 4. **Drift is a smaller risk than build-tag traps**. Two `main.go`s with explicit handler registration get caught by code review; a missing build-tag annotation gets caught by a runtime "undefined symbol" panic at the worst possible time.
 
-The original recommendation (Option α) was reversed on review — build-tag discipline scales worse than the doc originally claimed once a test matrix and IDE tooling are factored in.
+The original recommendation (Option A — build tags) was reversed on review — build-tag discipline scales worse than the doc originally claimed once a test matrix and IDE tooling are factored in.
 
 ### 16.5 Effort delta summary
 
@@ -586,4 +588,4 @@ This document is a **delta document** layered on top of [`sso-integration-design
 | §13 Testing | sibling §13 + Kinde sandbox | Separate-binary CI parity check (`make build-selfhosted` + `make build-saashosted`) |
 | §14 Phase plan | NEW | Faster than sibling because schema is reused |
 | §15 Open questions | sibling §15 + SaaS-specific | Kinde pricing, dual-SKU questions |
-| §16 Files | NEW | Separate-binary strategy (Option β — `cmd/api-{selfhosted,saashosted}`) |
+| §16 Files | NEW | Separate-binary strategy (§16.4 Option B — `cmd/api-{selfhosted,saashosted}`) |
