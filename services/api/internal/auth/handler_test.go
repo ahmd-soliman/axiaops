@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -203,6 +204,51 @@ func TestBootstrapMissingFieldsReturns400(t *testing.T) {
 	}, nil)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d; want 400; body = %s", w.Code, w.Body.String())
+	}
+}
+
+// TestBootstrapTokenNeverInURL nails plan §4.6 acceptance AC7: the
+// install token must NEVER appear in any URL — no Location header,
+// no Set-Cookie value, no Referer (the request URL itself is just
+// "/v1/auth/bootstrap"). Defence against accidental leakage via
+// browser history, access logs, or copy-paste.
+func TestBootstrapTokenNeverInURL(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedInstallToken(t, store)
+	const literalToken = "install-token-test-fixture-deadbeef"
+	if token != literalToken {
+		t.Fatalf("seedInstallToken changed; update the test fixture")
+	}
+
+	w := postJSON(t, mux(h), "/v1/auth/bootstrap", map[string]string{
+		"token": token, "email": "owner@example.com", "name": "Owner",
+		"password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d / %s", w.Code, w.Body.String())
+	}
+
+	// 1. Response Location header must not carry the token (we don't
+	//    redirect, but assert anyway in case a future change adds one).
+	if loc := w.Header().Get("Location"); strings.Contains(loc, literalToken) {
+		t.Errorf("Location header carries install token: %q", loc)
+	}
+
+	// 2. Set-Cookie must not carry the install token. The session
+	//    cookie carries a session token (separate value); the install
+	//    token must not appear anywhere in the cookie value.
+	for _, c := range w.Result().Cookies() {
+		if strings.Contains(c.Value, literalToken) {
+			t.Errorf("cookie %q carries install token: %q", c.Name, c.Value)
+		}
+	}
+
+	// 3. Response body must not echo the install token. The handler
+	//    returns user/org JSON; if a future change adds a debug field
+	//    that leaks the token, this catches it.
+	if strings.Contains(w.Body.String(), literalToken) {
+		t.Errorf("response body carries install token: %s", w.Body.String())
 	}
 }
 
