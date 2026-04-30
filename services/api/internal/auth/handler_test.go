@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,8 +18,47 @@ import (
 
 // newHandlerTest wires a Handler against the in-package fakeStore and
 // the in-memory cache. Returns the handler, the store, and the manager
-// (so individual tests can poke state directly).
+// (so individual tests can poke state directly). auditFn is nil — use
+// newHandlerTestWithAudit when a test needs to capture audit events.
 func newHandlerTest(t *testing.T) (*auth.Handler, *fakeStore, *auth.Manager) {
+	t.Helper()
+	h, store, mgr, _ := newHandlerTestWithAudit(t)
+	// Discard the audit capture — caller didn't ask for it.
+	return h, store, mgr
+}
+
+// auditCapture records calls to the auth.AuditWriter closure so tests
+// can assert that the bootstrap / invitation-redeem / password-reset
+// flows emitted the documented audit actions.
+type auditCapture struct {
+	mu     sync.Mutex
+	events []capturedAudit
+}
+
+type capturedAudit struct {
+	OrgID, UserID, Action string
+	Metadata              map[string]any
+}
+
+func (c *auditCapture) writer() auth.AuditWriter {
+	return func(_ context.Context, orgID, userID, action string, metadata map[string]any) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.events = append(c.events, capturedAudit{
+			OrgID: orgID, UserID: userID, Action: action, Metadata: metadata,
+		})
+	}
+}
+
+func (c *auditCapture) get() []capturedAudit {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]capturedAudit, len(c.events))
+	copy(out, c.events)
+	return out
+}
+
+func newHandlerTestWithAudit(t *testing.T) (*auth.Handler, *fakeStore, *auth.Manager, *auditCapture) {
 	t.Helper()
 	store := newFakeStore()
 	mem := cache.New("")
@@ -27,8 +67,9 @@ func newHandlerTest(t *testing.T) (*auth.Handler, *fakeStore, *auth.Manager) {
 		TTL:             time.Hour,
 		SessionsPerUser: 10,
 	})
-	h := auth.NewHandler(store, mgr, auth.NewCookieConfig(true /* DEV — Secure off */), nil)
-	return h, store, mgr
+	cap := &auditCapture{}
+	h := auth.NewHandler(store, mgr, auth.NewCookieConfig(true /* DEV — Secure off */), cap.writer())
+	return h, store, mgr, cap
 }
 
 func mux(h *auth.Handler) http.Handler {
@@ -162,6 +203,35 @@ func TestBootstrapMissingFieldsReturns400(t *testing.T) {
 	}, nil)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d; want 400; body = %s", w.Code, w.Body.String())
+	}
+}
+
+func TestBootstrapEmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+	h, store, _, cap := newHandlerTestWithAudit(t)
+	token := seedInstallToken(t, store)
+
+	w := postJSON(t, mux(h), "/v1/auth/bootstrap", map[string]string{
+		"token": token, "email": "owner@example.com", "name": "Owner",
+		"password":          "correct horse battery staple",
+		"organization_name": "Acme Inc",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("bootstrap status = %d / %s", w.Code, w.Body.String())
+	}
+
+	events := cap.get()
+	if len(events) != 1 {
+		t.Fatalf("audit events = %d; want 1", len(events))
+	}
+	if events[0].Action != model.AuditActionBootstrapCompleted {
+		t.Errorf("action = %q; want bootstrap_completed", events[0].Action)
+	}
+	if events[0].OrgID == "" || events[0].UserID == "" {
+		t.Errorf("event missing identity: %+v", events[0])
+	}
+	if events[0].Metadata["organization_name"] != "Acme Inc" {
+		t.Errorf("organization_name not recorded in metadata: %+v", events[0].Metadata)
 	}
 }
 
@@ -439,6 +509,33 @@ func TestRedeemInvitationUnknownTokenReturns410(t *testing.T) {
 	}
 }
 
+func TestRedeemInvitationEmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+	h, store, _, cap := newHandlerTestWithAudit(t)
+	token := seedNativeInvitation(t, store, "org-redeem", "joiner@example.com", "viewer")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token": token, "password": "correct horse battery staple", "name": "Joiner",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d / %s", w.Code, w.Body.String())
+	}
+	events := cap.get()
+	if len(events) != 1 {
+		t.Fatalf("audit events = %d; want 1", len(events))
+	}
+	got := events[0]
+	if got.Action != model.AuditActionInvitationRedeemedNative {
+		t.Errorf("action = %q; want invitation_redeemed_native", got.Action)
+	}
+	if got.OrgID != "org-redeem" {
+		t.Errorf("org = %q; want org-redeem (from invitation row)", got.OrgID)
+	}
+	if got.Metadata["role"] != "viewer" {
+		t.Errorf("role metadata = %v; want viewer", got.Metadata["role"])
+	}
+}
+
 func TestRedeemInvitationWeakPasswordReturns400(t *testing.T) {
 	t.Parallel()
 	h, store, _ := newHandlerTest(t)
@@ -578,6 +675,36 @@ func TestRedeemPasswordResetWeakPasswordReturns400(t *testing.T) {
 	}, nil)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d; want 400", w.Code)
+	}
+}
+
+func TestRedeemPasswordResetEmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+	h, store, _, cap := newHandlerTestWithAudit(t)
+	seedAccount(t, store, "audited@example.com", "old password 12345", 1)
+	token := seedPasswordReset(t, store, "u-audited@example.com")
+
+	w := postJSON(t, mux(h), "/v1/auth/password-reset/redeem", map[string]string{
+		"token": token, "new_password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", w.Code)
+	}
+	events := cap.get()
+	if len(events) != 1 {
+		t.Fatalf("audit events = %d; want 1", len(events))
+	}
+	got := events[0]
+	if got.Action != model.AuditActionUserPasswordResetRedeemed {
+		t.Errorf("action = %q; want user_password_reset_redeemed", got.Action)
+	}
+	// The redeem flow has no auth context — org must come from the
+	// password_resets row itself. seedPasswordReset uses "org-x".
+	if got.OrgID != "org-x" {
+		t.Errorf("org = %q; want org-x (from password_resets row)", got.OrgID)
+	}
+	if got.UserID != "u-audited@example.com" {
+		t.Errorf("user = %q; want u-audited@example.com", got.UserID)
 	}
 }
 
