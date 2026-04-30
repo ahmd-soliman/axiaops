@@ -30,6 +30,9 @@ import OnboardingAws     from './pages/onboarding/AwsAccount';
 import Login      from './pages/Login';
 import Callback   from './pages/Callback';
 import NotFound   from './pages/NotFound';
+import BootstrapScreen     from './screens/BootstrapScreen';
+import AcceptInviteScreen  from './screens/AcceptInviteScreen';
+import PasswordResetScreen from './screens/PasswordResetScreen';
 
 function parseJwt(token) {
   try {
@@ -51,9 +54,14 @@ function AuthenticatedApp() {
     navigate('/login', { replace: true });
   }
 
-  // Stale / expired Kinde token: api/client.js fires UNAUTHORIZED_EVENT on any
-  // 401, and we react by clearing local auth state and bouncing to /login so
-  // the user can re-authenticate instead of being stuck on a half-broken page.
+  // Authentication lost (any 401): api/client.js fires UNAUTHORIZED_EVENT
+  // and we bounce to /login so the user can re-authenticate. Two paths:
+  //   - Kinde mode: token in localStorage is stale/expired; clearToken
+  //     drops it so the next login starts fresh.
+  //   - Native mode: the HttpOnly cookie expired or was revoked
+  //     server-side; clearToken is a no-op (no localStorage token), but
+  //     the redirect + queryClient.clear are still needed to flush any
+  //     stale role/permission cache from MeContext.
   useEffect(() => {
     const handler = () => {
       clearToken();
@@ -122,10 +130,13 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login"    element={<Login />} />
-      <Route path="/callback" element={<Callback />} />
-      <Route path="/*"        element={<AuthenticatedApp />} />
-      <Route path="*"         element={<NotFound />} />
+      <Route path="/login"          element={<Login />} />
+      <Route path="/callback"       element={<Callback />} />
+      <Route path="/bootstrap"      element={<BootstrapScreen />} />
+      <Route path="/accept-invite"  element={<AcceptInviteScreen />} />
+      <Route path="/password-reset" element={<PasswordResetScreen />} />
+      <Route path="/*"              element={<AuthenticatedApp />} />
+      <Route path="*"               element={<NotFound />} />
     </Routes>
   );
 }

@@ -46,8 +46,16 @@ function notifyUnauthorized(detail) {
 // UNAUTHORIZED_EVENT on 401 without changing the caller's error semantics.
 // The pre-RBAC API methods call ifetch instead of fetch so a 401/403 anywhere
 // triggers the right app-level reaction (logout vs MeContext refresh).
+//
+// `credentials: 'include'` is forced on every call so the native session
+// cookie (axiaops_session) is sent cross-origin during local dev (Vite at
+// :5173 → API at :8080). In Docker prod the dashboard is same-origin so
+// the flag is a no-op. Under AUTH_PROVIDER=kinde the cookie won't exist
+// and the Authorization header carries the JWT instead — both paths
+// coexist during the strangler window.
 async function ifetch(url, opts) {
-  const res = await fetch(url, opts);
+  const merged = { ...(opts || {}), credentials: 'include' };
+  const res = await fetch(url, merged);
   if (res.status === 401) notifyUnauthorized({ path: url });
   if (res.status === 403) notifyForbidden({ path: url });
   return res;
@@ -172,7 +180,7 @@ export async function verifyAccount(id, { roleArn }) {
   });
   if (res.status === 400) {
     let body;
-    try { body = await res.json(); } catch (_) { body = {}; }
+    try { body = await res.json(); } catch { body = {}; }
     // Use a generic top-line message — the structured `reason` drives the
     // dashboard's user-facing copy via reasonToHint(). The API deliberately
     // does not return raw AWS error strings (they carry ARNs and request IDs).
@@ -417,6 +425,111 @@ export async function deleteCurrentUser() {
 
 export async function deleteCurrentOrganization() {
   return request('/v1/organizations/me', { method: 'DELETE' });
+}
+
+// ── Native auth (Phase B1) ──────────────────────────────────────────────────
+//
+// All four endpoints below work via the `axiaops_session` HttpOnly cookie —
+// the browser sends and stores it automatically (`credentials: 'include'`
+// is forced in ifetch). No Bearer token, no localStorage, no token
+// handling on the JS side. Under AUTH_PROVIDER=kinde these endpoints
+// either 401 (kinde-only) or coexist via the composite provider; the
+// dashboard chooses which login path to render based on VITE_AUTH_PROVIDER.
+
+// Maps a 4xx error from a native-auth POST to a structured object the
+// caller can switch on. Falls back to a generic error when the body
+// isn't a JSON envelope.
+async function decodeAuthError(res) {
+  try {
+    const body = await res.json();
+    const err = new Error(body.message || `request failed: ${res.status}`);
+    err.status = res.status;
+    err.code = body.error || '';
+    err.body = body;
+    return err;
+  } catch {
+    const err = new Error(`request failed: ${res.status}`);
+    err.status = res.status;
+    return err;
+  }
+}
+
+// authLogin posts email + password to /v1/auth/login. On success the
+// server sets the session cookie and returns {user, organization}.
+//
+// Two error shapes the caller must handle:
+//   - 401 invalid_credentials  — wrong email or password
+//   - 409 multi_org_not_supported — user has > 1 active membership;
+//                                   B1.5 will introduce the org picker
+export async function authLogin(email, password) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  return res.json();
+}
+
+// authLogout clears the server-side session and the cookie. Returns 204
+// regardless of cookie state — see handler.go logout for the tolerance
+// rationale. Always treat as success on the client.
+export async function authLogout() {
+  await ifetch(`${BASE_URL}/v1/auth/logout`, { method: 'POST' });
+}
+
+// authBootstrap consumes the install token and creates the first owner.
+// Body fields per plan §4.2: token, email, password, name,
+// organization_name (optional, defaults to "AxiaOps" server-side).
+// Returns {user, organization} and sets the session cookie.
+export async function authBootstrap({ token, email, name, password, organizationName }) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/bootstrap`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token,
+      email,
+      name,
+      password,
+      organization_name: organizationName || '',
+    }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  return res.json();
+}
+
+// authRedeemInvitation accepts an invite token and creates the user
+// + membership in one shot, then mints a session. Body: token, password,
+// name. Returns {user, organization}.
+export async function authRedeemInvitation({ token, name, password }) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/invitations/redeem`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, name, password }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  return res.json();
+}
+
+// authRedeemPasswordReset sets a new password from an admin-issued
+// token. Returns 204 on success. The server revokes every live session
+// for the user, so any open tab the user had stays logged out — the
+// dashboard should redirect to /login after this completes.
+export async function authRedeemPasswordReset({ token, newPassword }) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/password-reset/redeem`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+}
+
+// issuePasswordReset is the admin counterpart — POSTs to /v1/users/{id}/
+// password-reset to mint a one-time URL the admin shares OOB with the
+// user. Permission gate enforced server-side (admin+; owners-only when
+// target is owner). Returns {user_id, redemption_url, expires_at}.
+export async function issuePasswordReset(userId) {
+  return request(`/v1/users/${encodeURIComponent(userId)}/password-reset`, { method: 'POST' });
 }
 
 // exportOrganizationData fetches GET /v1/export and returns { blob, filename } so
