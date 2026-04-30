@@ -77,6 +77,16 @@ type NativeAuthStore interface {
 	// pool) because at startup no org context exists.
 	CountOrganizations(ctx context.Context) (int64, error)
 
+	// LookupMembership resolves the membership role and the user's email in
+	// a single SELECT joining memberships + users. Used on the native-auth
+	// request hot path: the auth provider needs both fields per request to
+	// populate Identity{Role, Email}.
+	//
+	// Returns (role="", email="", nil) when no membership row exists — the
+	// caller treats that as "no membership" and rejects the request.
+	// Returns a non-nil error only on transient DB failure.
+	LookupMembership(ctx context.Context, organizationID, userID string) (role, email string, err error)
+
 	// ── Sessions ────────────────────────────────────────────────────────────
 
 	// CreateSession inserts a session row. The caller has already minted the

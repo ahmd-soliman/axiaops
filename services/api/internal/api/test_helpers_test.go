@@ -1197,6 +1197,10 @@ func (m *MockStore) CountOrganizations(context.Context) (int64, error) {
 	return 0, nil
 }
 
+func (m *MockStore) LookupMembership(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
+
 func (m *MockStore) CreateSession(context.Context, model.Session) (model.Session, error) {
 	return model.Session{}, errors.New("MockStore.CreateSession not implemented")
 }
