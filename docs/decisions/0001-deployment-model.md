@@ -145,8 +145,8 @@ Stay SaaS, add self-hosted in Phase 5+.
 - Phase 3 task rescoping in `Tasks.md` (#1, #9p, #17 — all defer or narrow).
 - New Phase items needed in `Tasks.md`:
   - Helm chart + docker-compose bundle, on-host install runbook
-  - Native auth replacing Kinde (email/password + SSO Option B)
-  - License / entitlement model
+  - Native auth replacing Kinde (email/password + SSO Option B) — scoped in `docs/sso-implementation-plan.md` Phases B1/B1.5/B2/C
+  - License / entitlement model — **scoped in `docs/sso-implementation-plan.md` D12 / Phase B1.6 (advanced from this ADR's "deferred to 6+ customers" follow-up; see follow-ups section below)**
   - Self-hosted release versioning + upgrade policy
   - Opt-in telemetry channel
 - Sales/business deliverables (out of code scope but real):
@@ -175,5 +175,5 @@ Reopen this ADR (write a successor) if any of the following become true:
 
 - Pricing validation in the first 3 sales conversations (€5–10k/yr is a hypothesis, not data).
 - Telemetry-channel design (what's anonymized, what's opt-in granularity, where it's stored).
-- License/entitlement model design (deferred until 6+ self-hosted customers; build then).
+- ~~License/entitlement model design (deferred until 6+ self-hosted customers; build then).~~ **Resolved 2026-04-30**: advanced to v1 as `docs/sso-implementation-plan.md` D12 / Phase B1.6 (license-file TTL enforcement, ~1w). Reason for advancement: the original deferral relied on the "annual contracts + good faith" trust model, which breaks for any churned customer who keeps running yesterday's binary indefinitely. The B1.6 scope is deliberately bounded — TTL enforcement only, no license server, no feature-tier gating. Feature-tier gating remains deferred until pricing differentiation is a real product question.
 - Decision on whether to keep Kinde for an internal "AxiaOps Cloud" instance for our own dogfooding, or remove entirely.
