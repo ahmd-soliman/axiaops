@@ -158,6 +158,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /v1/memberships", require(authz.PermMembersRead, h.listMemberships))
 	mux.Handle("POST /v1/memberships", require(authz.PermMembersInvite, h.createMembership))
 	mux.Handle("PATCH /v1/memberships/{id}/role", require(authz.PermMembersManageBasic, h.updateMembershipRole))
+	mux.Handle("POST /v1/users/{id}/password-reset", require(authz.PermMembersManageBasic, h.issuePasswordReset))
 	mux.HandleFunc("DELETE /v1/memberships/{id}", h.deleteMembership) // self-leave bypass — handler enforces
 	mux.Handle("POST /v1/organizations/transfer-ownership", require(authz.PermOrganizationTransfer, h.transferOwnership))
 

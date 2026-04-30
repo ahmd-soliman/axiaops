@@ -1237,8 +1237,8 @@ func (m *MockStore) CreatePasswordReset(context.Context, string, string, string,
 	return errors.New("MockStore.CreatePasswordReset not implemented")
 }
 
-func (m *MockStore) RedeemPasswordReset(context.Context, string, string) (string, error) {
-	return "", storage.ErrPasswordResetNotFound
+func (m *MockStore) RedeemPasswordReset(context.Context, string, string) (string, string, error) {
+	return "", "", storage.ErrPasswordResetNotFound
 }
 
 func (m *MockStore) CreateBootstrapState(context.Context, string, string) (bool, error) {
