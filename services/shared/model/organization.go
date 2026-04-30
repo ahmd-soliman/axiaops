@@ -17,9 +17,16 @@ type Organization struct {
 type User struct {
 	ID             string // internal UUID
 	OrganizationID string // FK → Organization.ID
-	KindeSub       string // Kinde sub claim — stable user identifier
-	Email          string // from JWT email claim (may be empty)
-	Name           string // from JWT name claim (may be empty)
+	KindeSub       string // Kinde sub claim — stable user identifier (empty under AUTH_PROVIDER=native)
+	Email          string // from JWT email claim or native signup
+	Name           string
 	CreatedAt      time.Time
 	LastSeen       time.Time
+
+	// Native-auth fields (Phase B1, AUTH_PROVIDER=native|both). PasswordHash
+	// is empty for users provisioned via Kinde and for SSO-JIT users; both
+	// authenticate through other paths. PasswordSetAt is non-nil iff
+	// PasswordHash is non-empty.
+	PasswordHash  string
+	PasswordSetAt *time.Time
 }
