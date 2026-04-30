@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/authz"
 	"axiaops.io/shared/storage"
@@ -19,6 +20,20 @@ type meResponse struct {
 	Role           string                `json:"role"`
 	Permissions    []string              `json:"permissions"`
 	Organization   *organizationResponse `json:"organization,omitempty"`
+
+	// AuthProvider is the strangler tier that authenticated this
+	// request: "native" (cookie + sessions table — password / sso /
+	// bootstrap), "kinde" (legacy Bearer JWT), or "" under DEV_MODE
+	// where no provider ran. Frontend uses this to render the right
+	// login screen on 401 redirects and to show an SSO badge in the
+	// account menu. See plan §4.5.
+	AuthProvider string `json:"auth_provider"`
+
+	// AuthMode is the per-session detail behind AuthProvider —
+	// "password", "sso", "bootstrap" (under native), or "kinde". Lets
+	// the dashboard distinguish, e.g., a freshly-bootstrapped owner
+	// from a normal password login. Empty under DEV_MODE.
+	AuthMode string `json:"auth_mode,omitempty"`
 }
 
 // getMe returns the authenticated user's role and permissions. Used by the
@@ -47,12 +62,15 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		permStrs = append(permStrs, string(p))
 	}
 
+	authMode := middleware.AuthMode(r.Context())
 	resp := meResponse{
 		UserID:         uid,
 		OrganizationID: tid,
 		Email:          email,
 		Role:           role,
 		Permissions:    permStrs,
+		AuthProvider:   auth.AuthProviderTier(authMode),
+		AuthMode:       authMode,
 	}
 
 	// Organization block — best-effort. A user with no membership might still
@@ -67,3 +85,4 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, resp)
 }
+
