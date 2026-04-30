@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"axiaops.io/api/internal/api"
+	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/kinde"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/cache"
@@ -133,12 +134,59 @@ func main() {
 	// requires KINDE_M2M_CLIENT_ID + KINDE_M2M_CLIENT_SECRET. Without either,
 	// /v1/invitations and PATCH /v1/organizations/me return 503.
 	h = h.WithKinde(buildKindeClient())
+
+	// Switch /v1/invitations to the native (token-bearing) path when
+	// AUTH_PROVIDER selects it. PUBLIC_HOST is the externally-reachable
+	// origin used to build redemption URLs; empty produces relative
+	// URLs the frontend resolves against window.location.origin.
+	//
+	// DEV_MODE skips this entirely: DevBypass injects a fixed org so
+	// nothing exercises invitations, and the Kinde-stub path keeps the
+	// existing local-dev behaviour. Run `start-dev` with explicit
+	// AUTH_PROVIDER=native + DEV_MODE=false to exercise the native
+	// invitation flow against a fresh DB.
+	if mode := os.Getenv("AUTH_PROVIDER"); os.Getenv("DEV_MODE") != "true" && (mode == "" || mode == "native" || mode == "both") {
+		h = h.WithNativeInvitations(true, os.Getenv("PUBLIC_HOST"))
+	}
+
 	h.Register(mux)
+
+	// Native-auth ceremony endpoints (POST /v1/auth/{bootstrap,login,logout}).
+	// These are reachable only under AUTH_PROVIDER=native|both — under
+	// AUTH_PROVIDER=kinde we register them anyway because publicPath
+	// bypasses /v1/auth/* in the middleware regardless, and the handlers
+	// will simply return 401/409 if invoked. Cleaner to keep the routing
+	// surface uniform. DEV_MODE skips registration entirely — DevBypass
+	// makes them moot.
+	devMode := os.Getenv("DEV_MODE") == "true"
+	nativeAuthActive := false
+	if !devMode {
+		mode := os.Getenv("AUTH_PROVIDER")
+		if mode == "" {
+			mode = "native"
+		}
+		if mode == "native" || mode == "both" {
+			nativeAuthActive = true
+			authMgr := buildSessionManager(store, c)
+			authH := auth.NewHandler(store, authMgr, auth.NewCookieConfig(false), auth.NewAuditWriter(store))
+			authH.Register(mux)
+			// First-owner install-token generator. No-op when an
+			// organization already exists.
+			if res, err := auth.MaybeGenerateInstallToken(ctx, store); err != nil {
+				slog.Error("auth: install token generator failed", "err", err)
+			} else {
+				slog.Info("auth: install token state",
+					"generated", res.Generated,
+					"skipped", res.Skipped,
+					"file", res.FilePath)
+			}
+		}
+	}
+
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// ── Rate Limiting ─────────────────────────────────────────────────────────
 	root := http.Handler(mux)
-	devMode := os.Getenv("DEV_MODE") == "true"
 	rateLimitEnabled := os.Getenv("REDIS_URL") != ""
 	if rateLimitEnabled {
 		limiter := middleware.NewRateLimiter(c)
@@ -149,6 +197,8 @@ func main() {
 	}
 
 	// ── Auth ──────────────────────────────────────────────────────────────────
+	// DEV_MODE bypass takes precedence over AUTH_PROVIDER — local dev never
+	// pays the cost of cookie/JWT validation.
 	if devMode {
 		devOrganizationID := os.Getenv("DEV_ORGANIZATION_ID")
 		if devOrganizationID == "" {
@@ -187,17 +237,43 @@ func main() {
 		slog.Warn("auth: DEV_MODE — bypassing auth", "organization", devOrganizationID, "user", devUserID)
 		root = middleware.DevBypass(devOrganizationID, devUserID, devUserEmail, root)
 	} else {
-		kindeIssuer := os.Getenv("KINDE_ISSUER")
-		if kindeIssuer == "" {
-			slog.Warn("auth: KINDE_ISSUER not set — running without authentication")
-		} else {
-			auth, err := middleware.NewAuth(ctx, kindeIssuer, store, c)
-			if err != nil {
-				die("auth: init failed", "error", err)
-			}
-			slog.Info("auth: JWT verification enabled", "issuer", kindeIssuer)
-			root = auth.Wrap(root)
+		// Three-state strangler machine (D1, plan §4.5 / §4.8.1):
+		//
+		//   AUTH_PROVIDER=native  cookie + sessions table only (terminal state, default)
+		//   AUTH_PROVIDER=both    cookie OR Bearer JWT (transitional — required during
+		//                         the rolling deploy from kinde → native)
+		//   AUTH_PROVIDER=kinde   Bearer JWT only (legacy, deleted at D2 = 2026-10-30)
+		//
+		// The runbook MUST move kinde → both → native in that order;
+		// jumping straight from kinde to native causes auth flapping
+		// because mid-rolling-restart replicas land on different values.
+		mode := os.Getenv("AUTH_PROVIDER")
+		if mode == "" {
+			mode = "native"
 		}
+
+		var provider auth.Provider
+		switch mode {
+		case "native":
+			mgr := buildSessionManager(store, c)
+			provider = auth.NewNativeProvider(mgr, membershipLookup(store))
+			slog.Info("auth: native provider enabled (cookie + sessions table)")
+		case "kinde":
+			kindeAuth := mustNewKindeAuth(ctx, store, c)
+			provider = middleware.NewKindeProvider(kindeAuth)
+			slog.Info("auth: kinde provider enabled (Bearer JWT)")
+		case "both":
+			mgr := buildSessionManager(store, c)
+			kindeAuth := mustNewKindeAuth(ctx, store, c)
+			provider = auth.NewCompositeProvider(
+				auth.NewNativeProvider(mgr, membershipLookup(store)),
+				middleware.NewKindeProvider(kindeAuth),
+			)
+			slog.Warn("auth: composite provider enabled (native + kinde) — transitional only")
+		default:
+			die("auth: invalid AUTH_PROVIDER", "value", mode, "expected", "native|kinde|both")
+		}
+		root = middleware.WrapNative(provider, root)
 	}
 
 	// Request logger + metrics — outermost layer so every request is recorded.
@@ -240,6 +316,30 @@ func main() {
 			}
 		}
 	}()
+
+	// Background ticker: hard-delete sessions where expires_at OR
+	// revoked_at is older than 7 days. Bounds growth of the sessions
+	// table without affecting active users — by the time a row is
+	// older than 7 days it cannot be live (max TTL is 24h). Only
+	// runs when native auth is actually in use; under
+	// AUTH_PROVIDER=kinde the table stays empty and there's no work.
+	if nativeAuthActive {
+		go func() {
+			ticker := time.NewTicker(time.Hour)
+			defer ticker.Stop()
+			for range ticker.C {
+				cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
+				n, err := store.SweepExpiredSessions(context.Background(), cutoff)
+				if err != nil {
+					slog.Warn("session-sweep: failed", "error", err)
+					continue
+				}
+				if n > 0 {
+					slog.Info("session-sweep: deleted expired/revoked sessions", "count", n)
+				}
+			}
+		}()
+	}
 
 	// ── Graceful Shutdown ────────────────────────────────────────────────────────
 	// Wait for SIGTERM/SIGINT indefinitely (App Runner sends SIGTERM on shutdown).
@@ -325,4 +425,59 @@ func buildKindeClient() kinde.Client {
 	}
 	slog.Info("kinde: management API client initialised")
 	return c
+}
+
+// buildSessionManager wires the native-auth session orchestrator. Reads
+// SESSION_TTL_HOURS and SESSIONS_PER_USER_CAP — defaults match
+// docs/sso-implementation-plan.md §4.5 (24h TTL, cap 10).
+func buildSessionManager(store storage.Store, c cache.Cache) *auth.Manager {
+	cfg := auth.Config{
+		TTL:             auth.DefaultSessionTTL,
+		SessionsPerUser: auth.DefaultSessionsPerUserCap,
+	}
+	if v := os.Getenv("SESSION_TTL_HOURS"); v != "" {
+		if h, err := strconv.Atoi(v); err == nil && h > 0 {
+			cfg.TTL = time.Duration(h) * time.Hour
+		} else {
+			slog.Warn("auth: invalid SESSION_TTL_HOURS, using default", "value", v)
+		}
+	}
+	if v := os.Getenv("SESSIONS_PER_USER_CAP"); v != "" {
+		// SESSIONS_PER_USER_CAP=0 disables the cap (matches Config doc).
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.SessionsPerUser = n
+		} else {
+			slog.Warn("auth: invalid SESSIONS_PER_USER_CAP, using default", "value", v)
+		}
+	}
+	return auth.NewManager(store, auth.NewSessionCache(c), cfg)
+}
+
+// membershipLookup returns an auth.MembershipLookup bound to the given
+// store. Single SELECT joining memberships + users — see
+// services/shared/storage/postgres/native_auth.go.
+func membershipLookup(store storage.Store) auth.MembershipLookup {
+	return func(ctx context.Context, organizationID, userID string) (auth.MembershipDetails, error) {
+		role, email, err := store.LookupMembership(ctx, organizationID, userID)
+		if err != nil {
+			return auth.MembershipDetails{}, err
+		}
+		return auth.MembershipDetails{Role: role, Email: email}, nil
+	}
+}
+
+// mustNewKindeAuth constructs a *middleware.Auth or fatally exits. Used
+// under AUTH_PROVIDER=kinde and AUTH_PROVIDER=both — both modes require
+// KINDE_ISSUER + working JWKS fetch.
+func mustNewKindeAuth(ctx context.Context, store storage.Store, c cache.Cache) *middleware.Auth {
+	issuer := os.Getenv("KINDE_ISSUER")
+	if issuer == "" {
+		die("auth: AUTH_PROVIDER set to kinde or both requires KINDE_ISSUER to be set")
+	}
+	a, err := middleware.NewAuth(ctx, issuer, store, c)
+	if err != nil {
+		die("auth: kinde init failed", "error", err)
+	}
+	slog.Info("auth: kinde JWT verification ready", "issuer", issuer)
+	return a
 }
