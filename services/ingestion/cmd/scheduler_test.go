@@ -168,6 +168,9 @@ func (m *mockStoreForScheduler) UpdateUserPassword(context.Context, string, stri
 	return errors.New("UpdateUserPassword not implemented")
 }
 func (m *mockStoreForScheduler) CountOrganizations(context.Context) (int64, error) { return 0, nil }
+func (m *mockStoreForScheduler) LookupMembership(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
 func (m *mockStoreForScheduler) CreateSession(context.Context, model.Session) (model.Session, error) {
 	return model.Session{}, errors.New("CreateSession not implemented")
 }
