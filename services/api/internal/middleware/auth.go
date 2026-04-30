@@ -25,6 +25,8 @@ const (
 	organizationCodeKey contextKey = "organization_code"
 	userIDKey           contextKey = "user_id"
 	userEmailKey        contextKey = "user_email"
+	roleKey             contextKey = "role"
+	authModeKey         contextKey = "auth_mode"
 
 	jwksTTL = time.Hour
 )
@@ -112,14 +114,25 @@ func newWithKeyfunc(issuer string, kf jwt.Keyfunc) *Auth {
 }
 
 // publicPath reports whether the path bypasses authentication.
-// /metrics, /health, /livez, /readyz must remain reachable from
-// container orchestration and Prometheus without a JWT.
+// Three families bypass:
+//
+//  1. Infra: /metrics, /health, /livez, /readyz — must remain reachable
+//     from container orchestration and Prometheus without a session.
+//  2. Auth ceremony: /v1/auth/bootstrap, /v1/auth/login,
+//     /v1/auth/invitations/redeem, /v1/auth/password-reset/redeem —
+//     the endpoints used to *acquire* authentication. /v1/auth/logout
+//     is also bypassed (the handler tolerates a missing/invalid cookie
+//     and clears whatever's there).
+//
+// Plan §4.2 lists rate-limiting requirements (10/min/IP for login, etc.)
+// — those land in a follow-up slice; the bypass here is the routing
+// layer, not the abuse-protection layer.
 func publicPath(p string) bool {
 	switch p {
 	case "/health", "/livez", "/readyz", "/metrics":
 		return true
 	}
-	return false
+	return strings.HasPrefix(p, "/v1/auth/")
 }
 
 // Wrap returns an http.Handler that enforces JWT authentication.
@@ -261,6 +274,31 @@ func UserID(ctx context.Context) string {
 func UserEmail(ctx context.Context) string {
 	email, _ := ctx.Value(userEmailKey).(string)
 	return email
+}
+
+// Role returns the membership role ("owner"|"admin"|"member"|"viewer")
+// resolved by the auth middleware for the bound (organization, user)
+// pair. Empty under the legacy Kinde Wrap path (which doesn't preload
+// role) and under DevBypass.
+//
+// Handlers that need role for authorization decisions can either read
+// this value (when populated by WrapNative / native provider) or fall
+// back to store.RoleOf — the latter is what existing Kinde-path handlers
+// already do and remains correct.
+func Role(ctx context.Context) string {
+	role, _ := ctx.Value(roleKey).(string)
+	return role
+}
+
+// AuthMode returns the auth_mode of the active session: "password",
+// "sso", "bootstrap", or "kinde" (the legacy Bearer JWT path during the
+// strangler window). Empty when no auth has run on the request.
+//
+// Used by handlers that need to enforce SSO requirement (B2 §5.2 will
+// 403 native-password sessions for orgs whose enforcement is "required").
+func AuthMode(ctx context.Context) string {
+	mode, _ := ctx.Value(authModeKey).(string)
+	return mode
 }
 
 // DevBypass injects a fixed organization + user identity into every request context.

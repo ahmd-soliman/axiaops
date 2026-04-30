@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"axiaops.io/api/internal/api"
+	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/queue"
 )
@@ -64,6 +65,72 @@ func TestGetMe_ReturnsRoleAndPermissions(t *testing.T) {
 	}
 	if len(resp.Permissions) == 0 {
 		t.Error("permissions empty for admin")
+	}
+}
+
+// fakeAuthProvider is a stub auth.Provider used to drive WrapNative so
+// we can assert that /v1/me's auth_provider / auth_mode fields reflect
+// the active session's AuthMode. DevBypass never sets these context
+// keys, so we go through the real middleware here.
+type fakeAuthProvider struct {
+	identity auth.Identity
+}
+
+func (f fakeAuthProvider) Authenticate(*http.Request) (auth.Identity, error) {
+	return f.identity, nil
+}
+
+func TestGetMe_AuthProviderTier(t *testing.T) {
+	cases := []struct {
+		name             string
+		authMode         string
+		wantAuthProvider string
+	}{
+		{"password-maps-to-native", "password", "native"},
+		{"sso-maps-to-native", "sso", "native"},
+		{"bootstrap-maps-to-native", "bootstrap", "native"},
+		{"kinde-maps-to-kinde", "kinde", "kinde"},
+		{"empty-maps-to-empty", "", ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := NewMockStore().WithRole("admin")
+			h := api.New(store, newQueueShim())
+			mux := http.NewServeMux()
+			h.Register(mux)
+
+			provider := fakeAuthProvider{identity: auth.Identity{
+				UserID:         "u-1",
+				OrganizationID: "org-1",
+				Role:           "admin",
+				Email:          "x@example.com",
+				AuthMode:       tc.authMode,
+			}}
+			wrapped := middleware.WrapNative(provider, mux)
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+			wrapped.ServeHTTP(w, r)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d / %s", w.Code, w.Body.String())
+			}
+			var resp struct {
+				AuthProvider string `json:"auth_provider"`
+				AuthMode     string `json:"auth_mode"`
+			}
+			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if resp.AuthProvider != tc.wantAuthProvider {
+				t.Errorf("auth_provider = %q; want %q", resp.AuthProvider, tc.wantAuthProvider)
+			}
+			if resp.AuthMode != tc.authMode {
+				t.Errorf("auth_mode = %q; want %q", resp.AuthMode, tc.authMode)
+			}
+		})
 	}
 }
 

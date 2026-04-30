@@ -24,6 +24,12 @@ type PendingInvitation struct {
 	ExpiresAt         time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+
+	// InviteTokenHash is set on native-mode invitations (Phase B1) and is
+	// hex(SHA-256(plaintext token)). Empty for Kinde-mode rows. Used by
+	// RedeemNativeInvitation as the lookup key. The plaintext token never
+	// leaves the handler that minted it — never logged, never persisted.
+	InviteTokenHash string
 }
 
 // Invitation status constants. Values match the status column in pending_memberships.
