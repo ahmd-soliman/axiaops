@@ -298,14 +298,17 @@ func (s *Store) RevokeUserSessions(ctx context.Context, userID string) ([]string
 }
 
 // ListUserSessionTokenHashes returns the token hashes of live sessions for
-// userID. Read-only; no transaction.
+// userID, ordered oldest-first by created_at. The ordering is load-bearing
+// for the per-user cap (architect C2 / plan §4.6): when the cap kicks in,
+// the OLDEST session must be revoked, not an arbitrary one.
 func (s *Store) ListUserSessionTokenHashes(ctx context.Context, userID string) ([]string, error) {
 	if userID == "" {
 		return nil, fmt.Errorf("postgres: list user session hashes: userID required")
 	}
 	rows, err := s.adminPool.Query(ctx, `
 		SELECT session_token_hash FROM sessions
-		WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()`,
+		WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
+		ORDER BY created_at ASC, id ASC`,
 		userID,
 	)
 	if err != nil {
