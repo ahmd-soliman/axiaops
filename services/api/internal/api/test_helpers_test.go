@@ -1201,6 +1201,10 @@ func (m *MockStore) LookupMembership(context.Context, string, string) (string, s
 	return "", "", nil
 }
 
+func (m *MockStore) LookupUserByEmail(context.Context, string) (model.User, []model.Membership, error) {
+	return model.User{}, nil, storage.ErrUserNotFound
+}
+
 func (m *MockStore) CreateSession(context.Context, model.Session) (model.Session, error) {
 	return model.Session{}, errors.New("MockStore.CreateSession not implemented")
 }

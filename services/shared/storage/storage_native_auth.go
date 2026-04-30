@@ -87,6 +87,20 @@ type NativeAuthStore interface {
 	// Returns a non-nil error only on transient DB failure.
 	LookupMembership(ctx context.Context, organizationID, userID string) (role, email string, err error)
 
+	// LookupUserByEmail resolves the login candidate for the supplied
+	// email — global lookup, bypassing RLS, because login has no org
+	// context yet. Returns the user record (with password_hash for
+	// argon2 verification) plus a list of the user's live memberships
+	// across all organizations.
+	//
+	// Returns (zero, nil, ErrUserNotFound) when no user matches; an
+	// empty memberships slice when the user exists but has no
+	// organization (rare — a deleted org or pending invite that
+	// hasn't been redeemed yet). Login uses the slice length to
+	// distinguish single-org login (mint session) from multi-org
+	// (B1 returns 409; B1.5 will branch to org picker).
+	LookupUserByEmail(ctx context.Context, email string) (model.User, []model.Membership, error)
+
 	// ── Sessions ────────────────────────────────────────────────────────────
 
 	// CreateSession inserts a session row. The caller has already minted the

@@ -116,6 +116,60 @@ func (s *Store) CountOrganizations(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
+// LookupUserByEmail returns the user (with password_hash) plus the list
+// of live memberships across all organizations. Bypasses RLS — login is
+// pre-org-context. Used by POST /v1/auth/login: zero memberships → 401,
+// one → mint session, multi → 409 (B1.5 will branch to org picker).
+func (s *Store) LookupUserByEmail(ctx context.Context, email string) (model.User, []model.Membership, error) {
+	if email == "" {
+		return model.User{}, nil, storage.ErrUserNotFound
+	}
+
+	var u model.User
+	err := s.adminPool.QueryRow(ctx, `
+		SELECT id, organization_id, kinde_sub, email, name,
+		       password_hash, password_set_at, created_at, last_seen
+		FROM users
+		WHERE lower(email) = lower($1)`,
+		email,
+	).Scan(
+		&u.ID, &u.OrganizationID, &u.KindeSub, &u.Email, &u.Name,
+		&u.PasswordHash, &u.PasswordSetAt, &u.CreatedAt, &u.LastSeen,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, nil, storage.ErrUserNotFound
+	}
+	if err != nil {
+		return model.User{}, nil, fmt.Errorf("postgres: lookup user by email: %w", err)
+	}
+
+	rows, err := s.adminPool.Query(ctx, `
+		SELECT id, organization_id, user_id, role,
+		       COALESCE(invited_by, ''), created_at, updated_at
+		FROM memberships
+		WHERE user_id = $1
+		ORDER BY created_at ASC`,
+		u.ID,
+	)
+	if err != nil {
+		return model.User{}, nil, fmt.Errorf("postgres: lookup user memberships: %w", err)
+	}
+	defer rows.Close()
+
+	memberships := make([]model.Membership, 0, 2)
+	for rows.Next() {
+		var m model.Membership
+		if err := rows.Scan(&m.ID, &m.OrganizationID, &m.UserID, &m.Role, &m.InvitedBy, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return model.User{}, nil, fmt.Errorf("postgres: scan membership: %w", err)
+		}
+		memberships = append(memberships, m)
+	}
+	if err := rows.Err(); err != nil {
+		return model.User{}, nil, fmt.Errorf("postgres: lookup user memberships rows: %w", err)
+	}
+	return u, memberships, nil
+}
+
 // LookupMembership joins memberships + users in one SELECT. Bypasses RLS
 // (uses adminPool) because the native auth provider runs this lookup
 // BEFORE the request has an organization context — it's the lookup that
