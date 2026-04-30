@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -345,5 +346,156 @@ func TestLogoutToleratesUnknownToken(t *testing.T) {
 	})
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d; want 204 even for unknown token", w.Code)
+	}
+}
+
+// ── /v1/auth/invitations/redeem ─────────────────────────────────────────────
+
+func seedNativeInvitation(t *testing.T, store *fakeStore, orgID, email, role string) string {
+	t.Helper()
+	plaintext := "invite-token-fixture-" + email
+	store.seedInvitation(orgID, email, role, auth.HashToken(plaintext))
+	return plaintext
+}
+
+func TestRedeemInvitationHappyPath(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedNativeInvitation(t, store, "org-1", "newbie@example.com", "member")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token":    token,
+		"password": "correct horse battery staple",
+		"name":     "New Bee",
+	}, nil)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	var got struct {
+		User struct {
+			ID    string `json:"id"`
+			Email string `json:"email"`
+			Role  string `json:"role"`
+		} `json:"user"`
+		Org struct {
+			ID string `json:"id"`
+		} `json:"organization"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.User.Email != "newbie@example.com" {
+		t.Errorf("user.email = %q; want newbie@example.com", got.User.Email)
+	}
+	if got.User.Role != "member" {
+		t.Errorf("user.role = %q; want member", got.User.Role)
+	}
+	if got.Org.ID != "org-1" {
+		t.Errorf("org.id = %q; want org-1", got.Org.ID)
+	}
+	// Cookie set.
+	cookieFound := false
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName && c.Value != "" {
+			cookieFound = true
+		}
+	}
+	if !cookieFound {
+		t.Error("expected session cookie on successful invite redemption")
+	}
+}
+
+func TestRedeemInvitationSingleUse(t *testing.T) {
+	// A redeemed token can't be redeemed again — Store.RedeemNativeInvitation
+	// deletes the row in the same tx that creates the membership.
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedNativeInvitation(t, store, "org-1", "single@example.com", "viewer")
+
+	if w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token": token, "password": "correct horse battery staple", "name": "Once",
+	}, nil); w.Code != http.StatusOK {
+		t.Fatalf("first redeem status = %d", w.Code)
+	}
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token": token, "password": "another correct horse staple", "name": "Twice",
+	}, nil)
+	if w.Code != http.StatusGone {
+		t.Errorf("second redeem status = %d; want 410", w.Code)
+	}
+}
+
+func TestRedeemInvitationUnknownTokenReturns410(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token": "completely-unknown-token", "password": "correct horse battery staple", "name": "Ghost",
+	}, nil)
+	if w.Code != http.StatusGone {
+		t.Errorf("status = %d; want 410", w.Code)
+	}
+}
+
+func TestRedeemInvitationWeakPasswordReturns400(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedNativeInvitation(t, store, "org-1", "weak@example.com", "viewer")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token": token, "password": "short", "name": "Weak",
+	}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d; want 400", w.Code)
+	}
+}
+
+// ── AC2: install-token file is removed post-bootstrap ──────────────────────
+
+func TestBootstrapRemovesInstallTokenFile(t *testing.T) {
+	// t.Setenv is incompatible with t.Parallel(); env mutations must
+	// be process-global for the duration of the test.
+	dir := t.TempDir()
+	tokenFile := dir + "/initial_setup_token"
+	t.Setenv("BOOTSTRAP_TOKEN_FILE_PATH", tokenFile)
+
+	h, store, _ := newHandlerTest(t)
+	token := seedInstallToken(t, store)
+
+	// Plant the file as if MaybeGenerateInstallToken had written it.
+	if err := os.WriteFile(tokenFile, []byte(token), 0o600); err != nil {
+		t.Fatalf("seed token file: %v", err)
+	}
+
+	w := postJSON(t, mux(h), "/v1/auth/bootstrap", map[string]string{
+		"token": token, "email": "owner@example.com", "name": "Owner",
+		"password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("bootstrap failed: %d / %s", w.Code, w.Body.String())
+	}
+
+	if _, err := os.Stat(tokenFile); !os.IsNotExist(err) {
+		t.Errorf("token file %q should be removed post-bootstrap; stat err = %v", tokenFile, err)
+	}
+}
+
+func TestBootstrapWithDisabledFileSkipsRemoval(t *testing.T) {
+	// BOOTSTRAP_TOKEN_FILE_PATH="" disables file management. The
+	// bootstrap handler must not error trying to remove a path that
+	// was never written. (t.Setenv prohibits t.Parallel.)
+	t.Setenv("BOOTSTRAP_TOKEN_FILE_PATH", "")
+
+	h, store, _ := newHandlerTest(t)
+	token := seedInstallToken(t, store)
+
+	w := postJSON(t, mux(h), "/v1/auth/bootstrap", map[string]string{
+		"token": token, "email": "owner@example.com", "name": "Owner",
+		"password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("bootstrap status = %d / %s", w.Code, w.Body.String())
 	}
 }
