@@ -43,6 +43,7 @@ These are settled before implementation starts. Flip explicitly via this doc if 
 | D8 | **DBs wiped on B1 cutover.** No migration of existing Kinde-authed users in dev/staging. | Confirmed by user; no production deployments exist yet. |
 | D9 | **DEV_MODE preserved.** `DEV_MODE=true` continues to bypass auth and auto-login as `DEV_USER_ID` with owner role. | Dev ergonomics; no behavior change. |
 | D10 | **Same RBAC model** — owner / admin / member / viewer roles unchanged. SSO/JIT never grants `owner` (per design doc §11.6). | Roles are a separate axis from auth provider. |
+| D11 | **Five SaaS-extension seams introduced in B1/B2** (architect findings S1, S4, S6, S8, S9) so the SaaS variant in `sso-integration-design-saas.md` can be added later by writing a second composition root + plugging in alternate implementations — without touching handler/business-logic code. The seams are: `auth.Provider` (B1), `auth.Inviter` (B1), `serverbuild.ComposeServer` composition root (B1), `sso.Discoverer` (B2), `sso.Connector` (B2). Premature seams explicitly skipped: `PasswordResetIssuer`, `SessionMinter`, webhook router, mode-tagged migrations. See §4.8 for full spec. | The minimum set of interfaces such that SaaS reactivation Phase A reduces to writing a `cmd/api-saashosted/main.go` that swaps three to five constructors. Architect bar applied: only seams where `saving > effort + 1` were taken. |
 
 ---
 
@@ -435,6 +436,146 @@ Tick each before opening `feat/sso/b1-native-auth` MR:
 - [ ] Cache invalidated on org switch — old session token's cache key deleted.
 - [ ] Per-failure-mode observability: `axiaops_session_revocations_total{reason="org_switch"}` increments on every successful switch; `axiaops_auth_login_total{outcome="org_selection_required"}` increments on every multi-membership login.
 
+### 4.8 SaaS-extension seams (introduced in B1 / B2)
+
+> **Why these specifically**: a previous architect review of `sso-integration-design-saas.md` identified the minimum set of interfaces that, if introduced in B1/B2, make SaaS reactivation drop-in (~10–20 lines per seam in `cmd/api-saashosted/main.go`) instead of fork-the-codebase work. Premature interfaces (e.g. `PasswordResetIssuer`, generic `SessionMinter`, webhook router) were rejected because saving < effort + 1. The five below are the surviving set.
+
+#### 4.8.1 Seam — `auth.Provider` (B1, replaces the env-var branch)
+
+**File**: `services/api/internal/auth/provider.go`
+
+```go
+package auth
+
+type Identity struct {
+    UserID         string
+    OrganizationID string
+    Role           string
+    AuthMode       string  // "password" | "sso" | "bootstrap" | "kinde"
+}
+
+// Provider authenticates an incoming request and returns the caller's identity.
+// Self-hosted v1 ships nativeProvider (cookie + sessions table). SaaS reactivation
+// adds kindeProvider (Bearer JWT). The strangler `both` mode is a compositeProvider
+// that tries cookie first, falls back to JWT.
+type Provider interface {
+    Authenticate(r *http.Request) (Identity, error)
+}
+```
+
+The middleware in `services/api/internal/middleware/auth.go` becomes provider-agnostic — it calls `provider.Authenticate(r)` and is otherwise unchanged. The env-var branching from §4.5 happens *once* at startup in `cmd/main.go` to pick which `Provider` instance to inject.
+
+Implementations:
+- **B1**: `nativeProvider` (cookie + `sessions` table + cache-aside).
+- **B1 (transitional)**: `compositeProvider` for `AUTH_PROVIDER=both` — wraps native + the existing Kinde validator from `auth.go`.
+- **B1 (legacy)**: existing Kinde JWT validation extracted into `kindeProvider` for `AUTH_PROVIDER=kinde`. Already in the codebase today; just typed.
+- **SaaS reactivation (later)**: `kindeProvider` is the *only* provider; deletes the strangler complexity.
+
+#### 4.8.2 Seam — `auth.Inviter` (B1)
+
+**File**: `services/api/internal/auth/inviter.go`
+
+```go
+package auth
+
+type InvitationResult struct {
+    InvitationID    string
+    RedemptionURL   string  // populated under native; empty under Kinde-Mgmt impl
+    DeliveredViaIdP bool    // true under SaaS (Kinde sent the email)
+    ExpiresAt       time.Time
+}
+
+type Inviter interface {
+    Invite(ctx context.Context, email, role, orgID, invitedByUserID string) (InvitationResult, error)
+}
+```
+
+- **B1**: `nativeInviter` — generates a token, writes `pending_memberships`, returns the redemption URL. Caller (admin-UI handler) shows the URL in the modal for OOB sharing.
+- **SaaS (later)**: `kindeInviter` — calls Kinde Mgmt API; returns `DeliveredViaIdP=true` and an empty URL; the admin UI shows "invitation email sent."
+
+The handler at `POST /v1/invitations` is identical for both — branches on `result.DeliveredViaIdP` for the response message only.
+
+#### 4.8.3 Seam — `serverbuild.ComposeServer` composition root (B1)
+
+**File**: `services/api/internal/serverbuild/build.go`
+
+Move all wiring (handler construction, middleware composition, ticker startup) from `cmd/main.go` into a single `func ComposeServer(cfg Config, deps Deps) *http.Server`. `cmd/main.go` becomes ~10 lines — load config, build deps, call `ComposeServer`, run.
+
+```go
+package serverbuild
+
+type Deps struct {
+    Store        storage.Store
+    Cache        cache.Cache
+    AuthProvider auth.Provider     // ← seam S9
+    Inviter      auth.Inviter      // ← seam S1
+    // ... future seams (Discoverer, Connector) added here in B2
+}
+
+func ComposeServer(cfg Config, deps Deps) *http.Server { ... }
+```
+
+At SaaS reactivation, `cmd/api-saashosted/main.go` is also ~10 lines: load config, build *Kinde-backed* deps, call the same `ComposeServer`. Zero handler/business-logic code touched. This is the load-bearing seam — without it, reactivation requires editing `cmd/main.go` and risking divergence.
+
+#### 4.8.4 Seam — `sso.Discoverer` (B2)
+
+**File**: `services/api/internal/sso/discoverer.go`
+
+```go
+package sso
+
+type DiscoveryResult struct {
+    HasSSO      bool
+    RedirectURL string
+    Protocol    string  // "oidc" | "saml" | ""
+}
+
+type Discoverer interface {
+    Discover(ctx context.Context, email string) (DiscoveryResult, error)
+}
+```
+
+- **B2**: `nativeDiscoverer` — PG-only lookup against `sso_domains`. Constant-shape padding (architect §5.4 timing-oracle mitigation) lives here.
+- **SaaS (later)**: `compositeDiscoverer` — tries Kinde Mgmt API first (Kinde may know about the connection), falls back to native PG. Same handler, same response shape.
+
+#### 4.8.5 Seam — `sso.Connector` (B2)
+
+**File**: `services/api/internal/sso/connector.go`
+
+```go
+package sso
+
+type Connector interface {
+    Save(ctx context.Context, conn *model.SSOConnection) error
+    Test(ctx context.Context, connID string) (TestResult, error)
+    Delete(ctx context.Context, connID string) error
+}
+```
+
+- **B2**: `nativeConnector` — direct PG CRUD on `sso_connections`. Cert validation, OIDC discovery doc validation, etc.
+- **SaaS (later)**: `kindeConnector` — wraps native (still writes PG for admin-UX state) + calls Kinde Mgmt API to mirror the connection. Sets `kinde_connection_id` on save.
+
+Admin SSO settings handler is identical under both; constructor swaps in `cmd/api-saashosted/main.go`.
+
+#### 4.8.6 Acceptance criteria — seams
+
+Add to §4.6 (B1) and §5.5 (B2):
+
+- [ ] `auth.Provider` interface defined; `nativeProvider`, `kindeProvider`, `compositeProvider` all implement it; middleware calls only `provider.Authenticate(r)` (verified by code inspection — no `AUTH_PROVIDER` switch outside the `cmd/main.go` constructor selection).
+- [ ] `auth.Inviter` interface defined; `nativeInviter` implements it; `POST /v1/invitations` handler does not import any concrete invitation-building logic — only the interface.
+- [ ] `serverbuild.ComposeServer` is the single function building the HTTP server; `cmd/main.go` is ≤20 lines and contains no handler registrations.
+- [ ] (B2) `sso.Discoverer` and `sso.Connector` interfaces defined; native implementations the only concrete consumer in B2.
+- [ ] **Drop-in test**: a stub `cmd/api-saashosted-test/main.go` (test-only file, not committed beyond a smoke test) compiles and runs against the same `ComposeServer` with mock `Provider`/`Inviter`/`Discoverer`/`Connector`/etc. — proves the seams hold without actually shipping the SaaS binary.
+
+#### 4.8.7 Skipped seams (recorded so they're not re-litigated)
+
+| Skipped | Why |
+|---|---|
+| `PasswordResetIssuer` interface | One handler, one method — wrap when SMTP arrives. Saving=2, Effort=1, net +1, below bar. |
+| `SessionMinter` interface | SaaS may not need it — Kinde JWT validation is stateless on our side. Saving=2, Effort=3, net -1. |
+| Webhook handler skeleton in B1/B2 | Pre-emptive abstraction. Effort=4 (HMAC, replay, dispatch). Saving=1 (the dispatch is ~20 lines when needed). Net -3. |
+| Mode-tagged migrations | Linear numbering works fine — schema can be a superset; SaaS-only constraints can be `CHECK` clauses. Effort=3, Saving=1. |
+
 ---
 
 ## 5. Phase B2 — Native OIDC RP
@@ -462,7 +603,9 @@ All RLS policies as in design doc §4.3.
 | File | Routes / responsibility |
 |---|---|
 | `handler.go` | CRUD: connections, domains, group mappings. Permission-checked per [design doc §5](sso-integration-design.md#5-api-surface). |
-| `discover.go` | `GET /v1/sso/discover` with constant-shape response + ~5ms padding to mask DB lookup (per design doc §5.4). |
+| `discover.go` | `GET /v1/sso/discover` handler. Delegates to the `sso.Discoverer` interface (seam S4) — handler is impl-agnostic. |
+| `discoverer.go` | `Discoverer` interface + `nativeDiscoverer` impl. PG-only lookup against `sso_domains`; constant-shape response + ~5ms padding to mask DB lookup (per design doc §5.4). SaaS reactivation adds a `compositeDiscoverer` wrapping native + Kinde Mgmt API. |
+| `connector.go` | `Connector` interface + `nativeConnector` impl (seam S8). Save/Test/Delete on `sso_connections` with cert + discovery-doc validation. SaaS reactivation adds `kindeConnector` that mirrors connections to Kinde Mgmt API and populates `kinde_connection_id`. |
 | `initiate.go` | `GET /v1/sso/oidc/{cid}/initiate` — builds IdP authorization URL with PKCE + opaque `state`. |
 | `oidc.go` | OIDC RP core: discovery doc fetch + cache (`sso:oidc-discovery:{cid}`, 24h TTL), JWKS via shared `services/shared/jwks/`, ID-token validation. Algorithm-confusion mitigation in `Keyfunc` (per design doc §11.3). **JWKS auto-refresh on signature failure** (architect S5): on signature verification failure, the RP forces a single re-fetch of JWKS bypassing the cache and retries verification once before returning auth error. Without this, an IdP key rotation = 24h auth outage. |
 | `oidc_callback.go` | `GET /v1/sso/oidc/{cid}/callback` — exchanges code, validates token, calls `jit.go`, mints native session via `auth/session.go` with `auth_mode='sso'`. |
@@ -486,7 +629,8 @@ PermSSODomainVerify Permission = "sso:domain_verify" // owner only
 
 | File | Change |
 |---|---|
-| `services/api/cmd/main.go` | Register `sso.Handler.Register(mux)`; start `ssoSweep` ticker. |
+| `services/api/internal/serverbuild/build.go` | Extend `Deps` struct with `Discoverer sso.Discoverer` and `Connector sso.Connector` (seams S4 + S8 — see §4.8.4 / §4.8.5). Wire into `sso.Handler` constructor. |
+| `services/api/cmd/main.go` | In `Deps` construction: build `nativeDiscoverer` and `nativeConnector`; pass to `ComposeServer`. Start `ssoSweep` ticker (registered inside `ComposeServer`, not directly here). |
 | `services/api/internal/middleware/auth_native.go` | Enforcement check: if user's org has `enforcement='required'` and `session.auth_mode != 'sso'`, return 403 `{"error":"sso_required"}`. |
 | `services/api/internal/api/handler.go` | `/v1/me` returns `has_sso` and `enforcement_mode`. |
 
@@ -525,6 +669,8 @@ PermSSODomainVerify Permission = "sso:domain_verify" // owner only
 - [ ] `pending_memberships` invitation takes precedence over JIT (per design doc §10.4) — covered by integration test.
 - [ ] `ssoSweep` ticker runs and logs sweep count > 0 after seeded expired rows.
 - [ ] **JWKS package consumers parity** (architect S3): both `auth.go` (legacy Kinde validation) and `oidc.go` import from `services/shared/jwks/` and the package's tests cover both call shapes (issuer-bound JWKS for Kinde; per-connection JWKS for OIDC).
+- [ ] **Seams `sso.Discoverer` and `sso.Connector` defined** (D11 / §4.8.4 / §4.8.5): native impls registered in `cmd/main.go`; `discover.go` and `handler.go` import only the interfaces, not concrete types. Code inspection asserts no direct PG access from the handlers — all DB calls go through the `Discoverer` / `Connector` impls.
+- [ ] **Drop-in test extended** (D11 / §4.8.6): the smoke test compiles and runs against `ComposeServer` with mock `Discoverer` + `Connector` (in addition to the B1 mock `Provider` + `Inviter`) — proves all five seams hold without shipping the SaaS binary.
 
 ---
 
