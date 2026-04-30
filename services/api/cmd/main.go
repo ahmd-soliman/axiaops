@@ -168,7 +168,7 @@ func main() {
 		if mode == "native" || mode == "both" {
 			nativeAuthActive = true
 			authMgr := buildSessionManager(store, c)
-			authH := auth.NewHandler(store, authMgr, auth.NewCookieConfig(false), nil)
+			authH := auth.NewHandler(store, authMgr, auth.NewCookieConfig(false), auth.NewAuditWriter(store))
 			authH.Register(mux)
 			// First-owner install-token generator. No-op when an
 			// organization already exists.
