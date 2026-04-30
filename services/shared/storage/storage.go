@@ -79,6 +79,10 @@ type CostFilter struct {
 
 // Store persists and retrieves cost records, organizations, and users.
 type Store interface {
+	// NativeAuthStore — Phase B1 native auth methods. See
+	// storage_native_auth.go for the full method set.
+	NativeAuthStore
+
 	// Save inserts a batch of cost records, skipping duplicates.
 	// Returns the number of records actually inserted.
 	Save(ctx context.Context, records []model.CostRecord) (int64, error)

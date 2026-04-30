@@ -1176,3 +1176,87 @@ func (m *MockStore) ExpirePendingInvitations(_ context.Context) (int64, error) {
 	}
 	return n, nil
 }
+
+// ── Phase B1 native-auth method stubs ───────────────────────────────────────
+// MockStore implementations for the storage.NativeAuthStore methods. The
+// existing api-handler tests never exercise the native-auth paths (those are
+// covered by services/api/internal/auth/*_test.go and the
+// services/shared/storage/postgres integration tests), so each stub returns
+// a not-implemented error or zero value. When a test does need real
+// behaviour, override the relevant method via a per-test wrapper struct.
+
+func (m *MockStore) CreateUserWithPassword(context.Context, model.User) (model.User, error) {
+	return model.User{}, errors.New("MockStore.CreateUserWithPassword not implemented")
+}
+
+func (m *MockStore) UpdateUserPassword(context.Context, string, string) error {
+	return errors.New("MockStore.UpdateUserPassword not implemented")
+}
+
+func (m *MockStore) CountOrganizations(context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (m *MockStore) LookupMembership(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
+
+func (m *MockStore) LookupUserByEmail(context.Context, string) (model.User, []model.Membership, error) {
+	return model.User{}, nil, storage.ErrUserNotFound
+}
+
+func (m *MockStore) CreateSession(context.Context, model.Session) (model.Session, error) {
+	return model.Session{}, errors.New("MockStore.CreateSession not implemented")
+}
+
+func (m *MockStore) GetSessionByTokenHash(context.Context, string) (model.Session, error) {
+	return model.Session{}, storage.ErrSessionNotFound
+}
+
+func (m *MockStore) TouchSessionLastSeen(context.Context, string) error { return nil }
+
+func (m *MockStore) RevokeSession(context.Context, string) error { return nil }
+
+func (m *MockStore) RevokeUserSessions(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *MockStore) ListUserSessionTokenHashes(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *MockStore) CountSessionsForUser(context.Context, string) (int, error) {
+	return 0, nil
+}
+
+func (m *MockStore) SweepExpiredSessions(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *MockStore) CreatePasswordReset(context.Context, string, string, string, string, string, time.Time) error {
+	return errors.New("MockStore.CreatePasswordReset not implemented")
+}
+
+func (m *MockStore) RedeemPasswordReset(context.Context, string, string) (string, string, error) {
+	return "", "", storage.ErrPasswordResetNotFound
+}
+
+func (m *MockStore) CreateBootstrapState(context.Context, string, string) (bool, error) {
+	return false, storage.ErrBootstrapAlreadyDone
+}
+
+func (m *MockStore) GetBootstrapState(context.Context) (string, string, error) {
+	return "", "", storage.ErrBootstrapAlreadyDone
+}
+
+func (m *MockStore) ConsumeBootstrapState(context.Context, storage.BootstrapConsume) (storage.BootstrapResult, error) {
+	return storage.BootstrapResult{}, storage.ErrBootstrapAlreadyDone
+}
+
+func (m *MockStore) CreateNativeInvitation(context.Context, model.PendingInvitation) (model.PendingInvitation, bool, error) {
+	return model.PendingInvitation{}, false, errors.New("MockStore.CreateNativeInvitation not implemented")
+}
+
+func (m *MockStore) RedeemNativeInvitation(context.Context, storage.NativeInviteRedeem) (model.User, model.Membership, error) {
+	return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
+}

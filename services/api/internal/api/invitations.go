@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"axiaops.io/api/internal/audit"
+	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/authz"
 	"axiaops.io/shared/model"
@@ -30,6 +33,13 @@ type invitationResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// RedemptionURL is set only on POST /v1/invitations under
+	// AUTH_PROVIDER=native|both. The admin shares this URL OOB with
+	// the invitee. Empty (omitted) on the Kinde path and on
+	// list/get responses (a previously-minted token's plaintext
+	// can't be reconstructed from the stored hash).
+	RedemptionURL string `json:"redemption_url,omitempty"`
 }
 
 func toInvitationResponse(inv model.PendingInvitation) invitationResponse {
@@ -50,11 +60,19 @@ func toInvitationResponse(inv model.PendingInvitation) invitationResponse {
 
 // createInvitation handles POST /v1/invitations. See docs/invitation-flow.md §4.
 //
-// Two-phase commit: store insert → Kinde InviteUser → store kinde IDs.
-// On Kinde failure the pending row is revoked (compensating action) and 502
-// is returned. Permission gating is applied here on top of PermMembersInvite —
-// invites at admin role need PermMembersManageAdmin (owner-only).
+// Branches on h.nativeAuth (set by main.go from AUTH_PROVIDER):
+//   - true  → token-bearing pending_memberships row + OOB redemption URL.
+//   - false → legacy two-phase commit (store insert → Kinde InviteUser →
+//     store kinde IDs). On Kinde failure the pending row is revoked
+//     (compensating action) and 502 is returned.
+//
+// Permission gating is applied here on top of PermMembersInvite — invites
+// at admin role need PermMembersManageAdmin (owner-only).
 func (h *Handler) createInvitation(w http.ResponseWriter, r *http.Request) {
+	if h.nativeAuth {
+		h.createInvitationNative(w, r)
+		return
+	}
 	if h.kinde == nil {
 		http.Error(w, "invitations not configured", http.StatusServiceUnavailable)
 		return
@@ -169,6 +187,131 @@ func (h *Handler) createInvitation(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 	}
 	writeJSON(w, toInvitationResponse(inv))
+}
+
+// createInvitationNative is the AUTH_PROVIDER=native|both branch of
+// createInvitation. Generates a token, persists its hash via
+// Store.CreateNativeInvitation, and returns the redemption URL in the
+// response body. The plaintext token never leaves this handler — never
+// logged, never persisted server-side.
+func (h *Handler) createInvitationNative(w http.ResponseWriter, r *http.Request) {
+	tid := middleware.OrganizationID(r.Context())
+	uid := middleware.UserID(r.Context())
+	actorEmail := middleware.UserEmail(r.Context())
+	ctx := storage.WithOrganizationID(r.Context(), tid)
+
+	var req struct {
+		Email string `json:"email"`
+		Role  string `json:"role"`
+		Name  string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	req.Email = strings.TrimSpace(req.Email)
+	req.Role = strings.TrimSpace(req.Role)
+	if req.Email == "" || req.Role == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "email and role are required")
+		return
+	}
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_email", "invalid email")
+		return
+	}
+	if !model.ValidInvitationRoles[req.Role] {
+		if req.Role == string(authz.RoleOwner) {
+			writeError(w, http.StatusBadRequest, "invalid_role", "owner role can only be assigned via transfer-ownership")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "invalid_role", "invalid role")
+		return
+	}
+
+	if req.Role == string(authz.RoleAdmin) {
+		callerRole, _ := h.store.RoleOf(ctx, tid, uid)
+		if !authz.Allows(authz.Role(callerRole), authz.PermMembersManageAdmin) {
+			writeError(w, http.StatusForbidden, "forbidden", "inviting at admin role requires owner permission")
+			return
+		}
+	}
+
+	plaintext, err := newInvitationToken()
+	if err != nil {
+		slog.Error("invitations: token mint failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	inv, inserted, err := h.store.CreateNativeInvitation(ctx, model.PendingInvitation{
+		OrganizationID:  tid,
+		Email:           req.Email,
+		Role:            req.Role,
+		InvitedByUserID: uid,
+		InvitedByEmail:  actorEmail,
+		InviteTokenHash: hashInvitationToken(plaintext),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, storage.ErrInvitationAlreadyMember):
+			writeError(w, http.StatusConflict, "already_a_member", "user is already a member of this organization")
+		case errors.Is(err, storage.ErrUserExistsNoMembership):
+			writeError(w, http.StatusConflict, "user_exists_use_memberships", "user has logged in already; use POST /v1/memberships")
+		default:
+			slog.Error("invitations: CreateNativeInvitation failed", "error", err, "organization_id", tid)
+			writeError(w, http.StatusInternalServerError, "internal", "internal error")
+		}
+		return
+	}
+
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       model.AuditActionMemberInvited,
+		ResourceType: "invitation",
+		ResourceID:   inv.ID,
+		Metadata: map[string]any{
+			"email":  req.Email,
+			"role":   req.Role,
+			"resent": !inserted,
+			"native": true,
+		},
+	})
+
+	resp := toInvitationResponse(inv)
+	resp.RedemptionURL = h.buildRedemptionURL(plaintext)
+	if inserted {
+		w.WriteHeader(http.StatusCreated)
+	}
+	writeJSON(w, resp)
+}
+
+// buildRedemptionURL composes the OOB URL the admin shares with the
+// invitee. Empty publicHost emits a relative URL (the frontend resolves
+// against window.location.origin); non-empty produces an absolute URL.
+func (h *Handler) buildRedemptionURL(token string) string {
+	const path = "/accept-invite?token="
+	if h.publicHost == "" {
+		return path + token
+	}
+	return h.publicHost + path + token
+}
+
+// newInvitationToken returns 32 bytes of CSPRNG entropy hex-encoded —
+// 256 bits, well above the 128-bit floor for capability tokens.
+// Plaintext is returned to the caller; the store gets only the hash.
+func newInvitationToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// hashInvitationToken delegates to auth.HashToken so the on-disk hash
+// format is identical between session tokens and invitation tokens.
+// Centralising the format means a future migration to a different
+// hash function (e.g. BLAKE3) only changes one place.
+func hashInvitationToken(plaintext string) string {
+	return auth.HashToken(plaintext)
 }
 
 // listInvitations handles GET /v1/invitations[?status=pending|expired|revoked].

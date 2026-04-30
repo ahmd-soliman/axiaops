@@ -53,6 +53,19 @@ type Metrics struct {
 	OrganizationDeletionsTotal *prometheus.CounterVec // Organization cascade deletes by status (ok|failed)
 	UserDeletionsTotal         *prometheus.CounterVec // Per-user hard deletes by status (ok|failed|conflict)
 	DataExportsTotal           *prometheus.CounterVec // GDPR data exports (GET /v1/export) by status (ok|failed)
+
+	// Native-auth (Phase B1) — see docs/sso-implementation-plan.md §4.5.
+	// Used by services/api/internal/auth and the auth middleware. Cardinality
+	// is bounded by the labels — no user_id / org_id labels (those would
+	// blow up the series count under attack and don't help operators).
+	AuthLoginTotal              *prometheus.CounterVec // outcome (success|failure), reason (bad_password|unknown_user|rate_limited|locked|org_selection_required)
+	AuthInvitationsTotal        *prometheus.CounterVec // outcome (created|redeemed|expired|revoked)
+	AuthSessionRevocationsTotal *prometheus.CounterVec // reason (logout|password_reset|admin_revoke|cap_exceeded|enforcement_change|org_switch)
+	BootstrapAttemptsTotal      *prometheus.CounterVec // outcome (success|sealed|invalid_token)
+	SessionCacheTotal           *prometheus.CounterVec // outcome (hit|miss|error) — cache-aside health
+	SessionCacheErrorsTotal     prometheus.Counter     // backend errors (Redis down, deserialise failure) — drives the degradation alert
+	AuthProviderActive          *prometheus.CounterVec // provider (native|kinde|both) — strangler telemetry counter
+	AuthProviderLastSeen        *prometheus.GaugeVec   // provider — Unix-seconds gauge enabling low-traffic SLO queries (architect N1)
 }
 
 // registry is the global Prometheus registry.
@@ -197,6 +210,40 @@ func newMetrics() *Metrics {
 			Name: "axiaops_data_exports_total",
 			Help: "Total GDPR data exports served via GET /v1/export, labelled by outcome (ok|failed).",
 		}, []string{"status"}),
+
+		// Native-auth metrics — see docs/sso-implementation-plan.md §4.5/§7.2.
+		AuthLoginTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_auth_login_total",
+			Help: "Native-auth login attempts. Outcome is success or failure; reason narrows the failure mode for runbooks.",
+		}, []string{"outcome", "reason"}),
+		AuthInvitationsTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_auth_invitations_total",
+			Help: "Native-auth invitation lifecycle events.",
+		}, []string{"outcome"}),
+		AuthSessionRevocationsTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_auth_session_revocations_total",
+			Help: "Session revocations broken down by reason. cap_exceeded is the per-user cap kicking in (architect C2).",
+		}, []string{"reason"}),
+		BootstrapAttemptsTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_bootstrap_attempts_total",
+			Help: "First-owner bootstrap attempts. Outcomes: success (exactly once per install), sealed (org already exists), invalid_token (constant-time compare miss), email_taken (defence-in-depth — should be unreachable).",
+		}, []string{"outcome"}),
+		SessionCacheTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_session_cache_total",
+			Help: "Session cache-aside outcomes. miss is normal; error means the cache backend itself failed and we fell through to PG.",
+		}, []string{"outcome"}),
+		SessionCacheErrorsTotal: factory.NewCounter(prometheus.CounterOpts{
+			Name: "axiaops_session_cache_errors_total",
+			Help: "Session cache backend errors (Redis unreachable, deserialise failure). Drives the cache-degradation alert.",
+		}),
+		AuthProviderActive: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_auth_provider_active",
+			Help: "Authenticated requests by auth provider, monotonic counter. Use rate(...[7d]) for traffic alerts; for deletion-readiness checks under low traffic prefer axiaops_auth_provider_last_seen_seconds — counters never reset, so 'zero kinde traffic' must be expressed via the staleness gauge, not via this counter reaching zero.",
+		}, []string{"provider"}),
+		AuthProviderLastSeen: factory.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "axiaops_auth_provider_last_seen_seconds",
+			Help: "Unix timestamp of the most recent authenticated request handled per provider. Deletion-readiness query: time() - axiaops_auth_provider_last_seen_seconds{provider='kinde'} > 30*86400 (architect N1).",
+		}, []string{"provider"}),
 	}
 
 	return m
