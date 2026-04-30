@@ -12,10 +12,11 @@
 |---|---|---|
 | **B1** | Native email/password auth replacing Kinde (single-org-per-session constraint) | 4–6w |
 | **B1.5** | Multi-org access — login org-picker + live org switcher (§4.7) | 1w |
+| **B1.6** | License-file TTL enforcement — JWT-based subscription expiry (§4.9) | 1w |
 | **B2** | Native OIDC RP — Entra + generic OIDC SSO | 4–6w |
 | **C**  | Native SAML SP — Okta, ADFS, Keycloak SSO | 4–6w |
 
-**Total**: 13–19 weeks single-developer. Sequential, not parallel — B1.5 depends on B1's session model; B2 depends on B1.5's org-switcher endpoints (so OIDC JIT can mint sessions for the right active org); C depends on B2's `sso_*` schema.
+**Total**: 14–20 weeks single-developer. Sequential, not parallel — B1.5 depends on B1's session model; B1.6 is independent of B1.5 but cuts off B1 (license check is a startup concern, not a feature); B2 depends on B1.5's org-switcher endpoints; C depends on B2's `sso_*` schema. **B1.6 must ship before any paying customer** — without it, churned customers keep running the binary indefinitely.
 
 **Out of scope** (explicitly):
 - Social login (Google personal / GitHub OAuth)
@@ -44,6 +45,7 @@ These are settled before implementation starts. Flip explicitly via this doc if 
 | D9 | **DEV_MODE preserved.** `DEV_MODE=true` continues to bypass auth and auto-login as `DEV_USER_ID` with owner role. | Dev ergonomics; no behavior change. |
 | D10 | **Same RBAC model** — owner / admin / member / viewer roles unchanged. SSO/JIT never grants `owner` (per design doc §11.6). | Roles are a separate axis from auth provider. |
 | D11 | **Five SaaS-extension seams introduced in B1/B2** (architect findings S1, S4, S6, S8, S9) so the SaaS variant in `sso-integration-design-saas.md` can be added later by writing a second composition root + plugging in alternate implementations — without touching handler/business-logic code. The seams are: `auth.Provider` (B1), `auth.Inviter` (B1), `serverbuild.ComposeServer` composition root (B1), `sso.Discoverer` (B2), `sso.Connector` (B2). Premature seams explicitly skipped: `PasswordResetIssuer`, `SessionMinter`, webhook router, mode-tagged migrations. See §4.8 for full spec. | The minimum set of interfaces such that SaaS reactivation Phase A reduces to writing a `cmd/api-saashosted/main.go` that swaps three to five constructors. Architect bar applied: only seams where `saving > effort + 1` were taken. |
+| D12 | **License-file TTL enforcement** for self-hosted (Phase B1.6, §4.9). JWT signed by AxiaOps's offline RS256 key; public key embedded in the binary. License claims include `customer_id`, `expires_at`, `max_organizations`, `features`, `grace_period_days`. Binary refuses to start past `expires_at + grace_period_days`. **No license server, no phone-home** — verification is purely offline. SaaS binary (`cmd/api-saashosted`) does not check licenses (Stripe gates cloud access instead). | Without programmatic expiry, registry-access expiry only stops *new* pulls — the binary the customer has runs forever. License files (not servers) are the standard enterprise self-hosted pattern (GitLab EE, Atlassian Data Center, HashiCorp Enterprise, JetBrains, VMware). Advances ADR-0001's deferred "License/entitlement model" follow-up to v1, because ADR-0001's "annual contracts + good faith" trust model breaks down for any churned customer. Cost ~1w; bounded scope (TTL only, no feature gating). |
 
 ---
 
@@ -54,12 +56,14 @@ develop                                          (current)
   └─ feat/sso                                    (this branch — long-lived integration)
        ├─ feat/sso/b1-native-auth                (impl branch, MRs into feat/sso)
        ├─ feat/sso/b1.5-multi-org                (impl branch, blocked on b1 merge — see §4.7)
-       ├─ feat/sso/b2-oidc                       (impl branch, blocked on b1.5 merge)
+       ├─ feat/sso/b1.6-license                  (impl branch, blocked on b1 merge — see §4.9)
+       ├─ feat/sso/b2-oidc                       (impl branch, blocked on b1.5 + b1.6 merge)
        └─ feat/sso/c-saml                        (impl branch, blocked on b2 merge)
 ```
 
 - Each implementation branch MRs into `feat/sso`, **not** into `develop`.
-- `feat/sso` MRs into `develop` only when **all four phases pass acceptance criteria** (§4.6, §4.7, §5.5, §6.6).
+- `feat/sso` MRs into `develop` only when **all five phases pass acceptance criteria** (§4.6, §4.7, §4.9, §5.5, §6.6).
+- B1.5 and B1.6 are independent of each other (multi-org UX vs license enforcement) — can land in either order or in parallel after B1 merges.
 - `feat/sso` is rebased on `develop` at the start of each sub-phase to absorb unrelated `develop` progress.
 - This plan doc lives on `feat/sso`; updates land via direct commits or impl-branch MRs as the plan tightens.
 
@@ -576,6 +580,120 @@ Add to §4.6 (B1) and §5.5 (B2):
 | Webhook handler skeleton in B1/B2 | Pre-emptive abstraction. Effort=4 (HMAC, replay, dispatch). Saving=1 (the dispatch is ~20 lines when needed). Net -3. |
 | Mode-tagged migrations | Linear numbering works fine — schema can be a superset; SaaS-only constraints can be `CHECK` clauses. Effort=3, Saving=1. |
 
+### 4.9 Phase B1.6 — License-file TTL enforcement (1w follow-up)
+
+> **Why split from B1**: license verification is a startup concern, separate from the auth-provider swap. B1 ships first so dogfood can run; B1.6 lands before any *paying* customer onboards. ADR-0001's "License/entitlement model" follow-up was deferred to "6+ customers"; D12 advances it to v1 because the deferral relied on the high-trust 3–5-design-partner assumption — which breaks for any churned customer who keeps running yesterday's binary indefinitely.
+>
+> **Scope deliberately bounded**: TTL only, no feature gating, no license server, no phone-home. JWT verification is offline. The signing key lives in 1Password.
+
+#### 4.9.1 License JWT shape
+
+Signed with RS256. AxiaOps's private key is held offline (1Password). Public key is embedded in the binary at compile time (`go:embed`).
+
+```json
+{
+  "iss": "https://axiaops.io/licenses",
+  "sub": "acme-001",                          // customer_id
+  "aud": "axiaops-api",
+  "iat": 1714435200,
+  "exp": 1745971200,
+  "license_id": "lic_acme_2026_v1",
+  "contract_id": "MSA-2026-007",              // for cross-reference with billing/CRM
+  "max_organizations": 5,                     // soft cap (advisory; emits warnings)
+  "features": ["base"],                       // future-proofing — D12 ships only "base"
+  "grace_period_days": 30                     // soft expiry window after exp
+}
+```
+
+#### 4.9.2 Verification flow (binary startup)
+
+```
+1. Locate license:
+   - $AXIAOPS_LICENSE     — raw JWT in env (preferred for k8s secret-mount)
+   - $AXIAOPS_LICENSE_PATH — file path; default /etc/axiaops/license.jwt
+   - DEV_MODE=true        — skip license check entirely
+   - none of the above + DEV_MODE=false → refuse to start with clear "set
+     AXIAOPS_LICENSE=... — see https://axiaops.io/install for instructions"
+
+2. Verify JWT signature with embedded public key (RS256 only — reject alg=none, HS*).
+3. Validate standard claims: iss, aud, iat ≤ NOW(), license_id non-empty.
+4. Check expires_at:
+   - NOW() < exp                        → start normally; log "license valid until <date>"
+   - exp ≤ NOW() < exp + grace_days     → start with WARNING + UI banner;
+                                          audit_log: license.in_grace_period
+   - NOW() ≥ exp + grace_days           → refuse to start; print:
+                                          "License expired YYYY-MM-DD (grace ended YYYY-MM-DD).
+                                           Contact sales@axiaops.io to renew. License: lic_acme_2026_v1"
+                                          audit_log: license.expired_hard_fail
+5. Audit log: license.loaded with metadata={license_id, contract_id, expires_at, customer_id}.
+6. Surface state via /v1/version + Prometheus metrics (§4.9.4).
+```
+
+#### 4.9.3 Backend — files
+
+| File | Responsibility |
+|---|---|
+| `services/api/internal/license/license.go` | `Load(ctx) (*License, error)` reads env/file, verifies JWT, returns the parsed claims. `CheckExpiry(*License) State` returns `valid \| in_grace \| expired`. Pure functions; no globals. |
+| `services/api/internal/license/embed.go` | `//go:embed pubkey.pem` — embeds AxiaOps's RS256 public key at compile time. Tests use a separate `pubkey_test.pem` via build tag. |
+| `services/api/internal/license/license_test.go` | Black-box tests: valid, expired-within-grace, expired-past-grace, missing, tampered signature, alg=none, alg=HS256, wrong issuer, future iat. |
+| `services/api/cmd/main.go` | At startup, calls `license.Load + CheckExpiry` **before** `serverbuild.ComposeServer`. Refuses to start on hard-fail. |
+| `services/api/cmd/license-issue/main.go` | Operator-side CLI for issuing licenses. Reads signing key from `$LICENSE_SIGNING_KEY_PATH`, prompts for customer_id + contract_id + duration, outputs the JWT. Documented in `docs/license-issuance.md`. |
+| `services/api/internal/api/handler.go` | `/v1/version` returns `license: {customer_id, expires_at, days_remaining, state, max_organizations}`. |
+| `services/dashboard/src/components/LicenseBanner.jsx` | Top-of-page banner shown when license is in grace period or has <14 days remaining. Owners only. |
+| `services/shared/observability/license.go` | Prometheus metrics (§4.9.4). |
+| `services/shared/model/audit.go` | New audit actions: `license.loaded`, `license.in_grace_period`, `license.expired_hard_fail`, `license.renewed`, `license.invalid_signature`. |
+
+**No new database tables.** License events go to the existing `audit_log`. License state is process-memory only — re-read on restart.
+
+#### 4.9.4 Observability
+
+```go
+LicenseExpiresAt        prometheus.Gauge   // unix seconds; -1 if no license loaded
+LicenseDaysRemaining    prometheus.Gauge   // negative when in grace; -∞ when missing
+LicenseStateInfo        prometheus.GaugeVec  // labels: state="valid|in_grace|expired", customer_id
+LicenseLoadErrorsTotal  prometheus.Counter  // signature/format/missing
+```
+
+Alert rules:
+- `license_days_remaining < 30` → email `sales@axiaops.io` (renewal heads-up).
+- `license_days_remaining < 7` → page on-call.
+- `license_state_info{state="in_grace"} == 1` → page immediately (customer is past expiry; sales must engage).
+
+#### 4.9.5 Env vars (added to §7.4)
+
+| Var | Phase | Default | Notes |
+|---|---|---|---|
+| `AXIAOPS_LICENSE` | B1.6 | (unset) | Raw JWT. Preferred for k8s secret-mount + helm chart. |
+| `AXIAOPS_LICENSE_PATH` | B1.6 | `/etc/axiaops/license.jwt` | File path fallback. |
+| `LICENSE_PUBLIC_KEY_PATH` | B1.6 | (unset) | Override embedded pubkey for testing/dev only. **Never set in prod.** |
+
+Operator-side (license-issue CLI):
+- `LICENSE_SIGNING_KEY_PATH` — path to AxiaOps's private RS256 PEM. Held offline; never deployed to any AxiaOps service.
+
+#### 4.9.6 SaaS binary impact (none)
+
+`cmd/api-saashosted/main.go` does **not** call `license.Load` — the SaaS binary's access gating is via Stripe, not a license file. The `license` package is imported only by `cmd/api-selfhosted/main.go` (which today is `cmd/main.go` and gets renamed at SaaS reactivation Phase A per §16.4 of the SaaS doc).
+
+This is not a new seam — just a different composition root. The license package itself is self-contained and doesn't need an interface.
+
+#### 4.9.7 Acceptance criteria — B1.6
+
+- [ ] Valid license → API service starts; `/v1/version` reports `state: "valid"` and correct days-remaining.
+- [ ] Missing license + `DEV_MODE=false` → service refuses to start with the documented error message; CI test asserts the exit code and the message contains the renewal contact.
+- [ ] `DEV_MODE=true` → license check skipped entirely; service starts.
+- [ ] Expired license, within grace period → service starts with WARN log + audit row `license.in_grace_period`; UI shows banner.
+- [ ] Expired license, past grace period → service refuses to start; audit row `license.expired_hard_fail` written *before* the process exits.
+- [ ] Tampered signature → refuses to start; audit row `license.invalid_signature`.
+- [ ] `alg=none` and `alg=HS256` (with public key as HMAC secret) both rejected (architect §11.3 generalised to license JWT).
+- [ ] License with `iss != "https://axiaops.io/licenses"` → rejected.
+- [ ] License with `aud != "axiaops-api"` → rejected.
+- [ ] `cmd/license-issue` CLI produces a JWT that the API service accepts; round-trip test in CI uses an ephemeral RS256 keypair.
+- [ ] `/v1/version` response includes the license sub-object; frontend `LicenseBanner.jsx` renders correctly in grace and near-expiry states.
+- [ ] Prometheus metrics emitted; `license_days_remaining` updates after a license-renewal restart.
+- [ ] Alert rules added to the deployment's Prometheus rules file (or documented for operators to add — depends on deployment shape).
+- [ ] `docs/license-issuance.md` runbook written: how to issue a license, where the signing key lives, how to handle a leaked signing key (rotate the embedded pubkey + force re-issuance to all customers).
+- [ ] Signing-key custody documented: stored in 1Password under "AxiaOps License Signing Key (DO NOT EMAIL)"; quarterly access audit; never committed to git.
+
 ---
 
 ## 5. Phase B2 — Native OIDC RP
@@ -807,6 +925,9 @@ AuthProviderLastSeen        prometheus.GaugeVec     // provider — Unix-seconds
 | `REDIS_URL` | B1 | (existing) | When set, session reads use Redis cache via `services/shared/cache/`. When unset, in-memory cache fallback. PG remains the source of truth either way. |
 | `INVITATION_TTL_DAYS` | B1 | `14` | Existing var, reused. |
 | `PASSWORD_RESET_TTL_HOURS` | B1 | `4` | |
+| `AXIAOPS_LICENSE` | B1.6 | (unset) | Raw JWT. Preferred for k8s secret-mount. Self-hosted binary only — SaaS binary doesn't check licenses (§4.9.6). |
+| `AXIAOPS_LICENSE_PATH` | B1.6 | `/etc/axiaops/license.jwt` | File path fallback when `AXIAOPS_LICENSE` is unset. |
+| `LICENSE_PUBLIC_KEY_PATH` | B1.6 | (unset) | Override embedded public key for testing/dev. **Never set in prod.** |
 | `SSO_SP_PRIVATE_KEY_PEM` | C | — | Required when any SAML connection is active. |
 | `SSO_SP_CERT_PEM` | C | — | ditto. |
 | `KINDE_*` | (deprecated) | — | Required only while `AUTH_PROVIDER=kinde\|both`. Removed at deprecation date. |
@@ -872,6 +993,10 @@ These are **not blockers for B1**. Resolve at the boundaries indicated.
 | Bootstrap token leaked via stdout / log aggregator (CI logs forwarded to a third-party log service). | Default-secure: `BOOTSTRAP_PRINT_BANNER=false` writes only the file path to stdout, never the token value. Operator must `cat` the token file. Banner with token value is opt-in via `BOOTSTRAP_PRINT_BANNER=true` for local dev (architect S8). |
 | Multi-org gap: B1 ships before B1.5; a design partner with users belonging to multiple orgs can't log in until B1.5 lands (~1w later). | B1 returns a clear `409 multi_org_not_supported` with `b15_pending: true` so the frontend can show a helpful message ("contact your admin to consolidate, or wait for the next release"). B1.5 cuts off `feat/sso/b1-native-auth` immediately on merge — calendar reminder + Tasks.md item. Workaround: customer can have the user's other-org memberships temporarily revoked + restored after B1.5. |
 | Redis outage degrades performance silently. | Cache errors increment `axiaops_session_cache_errors_total` and log at `slog.Warn`. Alert rule fires when error rate > 1/min for 5 min. Auth still works on PG-only path during the outage. |
+| Customer churns but keeps running yesterday's binary indefinitely. | License-file TTL enforcement (D12 / §4.9). Binary refuses to start past `expires_at + grace_period_days`. Registry-access expiry blocks new versions; license expiry blocks the old one too. Grace period (default 30d) softens the cliff for accidental non-renewals. |
+| AxiaOps's license signing key leaks. | Compromise procedure: rotate the embedded public key in the next binary release; force re-issuance of every customer's license under the new key; revoke the old signing key. Documented in `docs/license-issuance.md`. Detection: any new license issued after the leak that was not signed in 1Password's audit log → assume compromised. |
+| License file accidentally committed to git or shared in chat. | License is customer-specific (carries `customer_id`, `contract_id`) — leaking it to attacker doesn't help: they can't redeem it as their own customer. Worst case is a competitor learning what tier/duration that customer bought. Mitigation: avoid the leak via deploy hygiene; runbook says "treat as low-sensitivity but not public." |
+| Operator misconfigures `LICENSE_PUBLIC_KEY_PATH` and points at a non-AxiaOps key. | The override only exists for testing — `LICENSE_PUBLIC_KEY_PATH` env emits a WARN at startup if set in non-DEV_MODE. CI test verifies the warning fires. Production deployments should never set this var. |
 
 ---
 
@@ -888,3 +1013,5 @@ These were considered and explicitly excluded from B1+B2+C. Tracked in this list
 - **IdP-initiated SAML SLO** — design doc §7.6 defer.
 - **B2C / consumer IdPs** (Sign in with Apple, Google personal) — AxiaOps is B2B.
 - **SaaS variant** — preserved as design-only in `sso-integration-design-saas.md`; reactivate per ADR-0001 review triggers.
+- **License server / online verification phone-home** — license is verified offline against an embedded public key (D12 / §4.9). Online verification is heavier infra (license-issuance server, customer-identity service, network reachability requirement) without proportional benefit at AxiaOps's scale. Revisit only if customer count + revenue justifies the operational cost.
+- **Feature-tier gating via license** — D12's license carries a `features: ["base"]` claim as forward-compat, but B1.6 ships only the `base` tier. Multi-tier gating (Free / Pro / Enterprise) is deferred until pricing differentiation is a real product question. The mechanism (license carries feature list; binary checks at feature-use sites) is straightforward to bolt on later.
