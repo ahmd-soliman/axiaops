@@ -108,8 +108,10 @@ type NativeAuthStore interface {
 	RevokeUserSessions(ctx context.Context, userID string) ([]string, error)
 
 	// ListUserSessionTokenHashes returns the token hashes of all live
-	// sessions for userID. Used by RevokeUserSessions internally and exposed
-	// for tests / cache-coherency checks.
+	// sessions for userID, ordered oldest-first by created_at. The ordering
+	// is contractual — the per-user cap (architect C2) revokes the oldest
+	// excess sessions, not an arbitrary subset. Used by RevokeUserSessions
+	// internally and exposed for tests / cache-coherency checks.
 	ListUserSessionTokenHashes(ctx context.Context, userID string) ([]string, error)
 
 	// CountSessionsForUser returns the number of currently-live sessions for
