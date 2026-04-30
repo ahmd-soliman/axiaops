@@ -79,21 +79,19 @@ func WrapNative(provider auth.Provider, next http.Handler) http.Handler {
 	})
 }
 
-// providerTier maps a per-session AuthMode to the strangler tier label
-// used by axiaops_auth_provider_active / _last_seen_seconds metrics.
-// Plan §4.5 reserves the labels {native, kinde, both} for the deletion-
-// readiness queries; AuthMode is finer-grained and only useful for
-// per-session debugging via the audit_log.
+// providerTier delegates to auth.AuthProviderTier — the canonical
+// AuthMode → strangler-tier mapping. Kept as a thin wrapper so the
+// existing call site at WrapNative reads cleanly and so a future
+// telemetry-specific override (e.g. a `both`-aware composite) has an
+// obvious place to land without touching the auth package.
 func providerTier(authMode string) string {
-	switch authMode {
-	case "password", "sso", "bootstrap":
-		return "native"
-	case "kinde":
-		return "kinde"
-	default:
-		// A provider that returns an Identity with an AuthMode the
-		// strangler doesn't recognise is a bug; bucket separately so
-		// the alert fires instead of silently bleeding into "native".
+	if authMode == "" {
+		// Telemetry deliberately diverges from /v1/me here: an empty
+		// AuthMode reaching the metric write means a Provider returned
+		// an Identity without setting AuthMode — that's a bug worth
+		// observing as `unknown` rather than dropping into the empty
+		// label (which could collide with cardinality scrubs).
 		return "unknown"
 	}
+	return auth.AuthProviderTier(authMode)
 }
