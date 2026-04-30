@@ -186,6 +186,26 @@ func writeTokenFile(path, plaintext string) error {
 	return nil
 }
 
+// removeInstallTokenFile deletes the install-token file post-bootstrap
+// (plan §4.6 AC2). Honours the same env conventions as
+// MaybeGenerateInstallToken: BOOTSTRAP_TOKEN_FILE_PATH unset → default
+// path; explicitly empty → file management disabled (no-op);
+// non-empty → that path. Best-effort: missing file is fine, other
+// errors are logged but never fail the bootstrap response.
+func removeInstallTokenFile() {
+	filePath := defaultTokenFile
+	if v, ok := os.LookupEnv(envTokenFilePath); ok {
+		filePath = strings.TrimSpace(v)
+	}
+	if filePath == "" {
+		return
+	}
+	if err := os.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Warn("auth: install token file removal failed",
+			"err", err, "path", filePath)
+	}
+}
+
 func printInstallBanner(token, filePath string) {
 	pathLine := "(file write disabled)"
 	if filePath != "" {
