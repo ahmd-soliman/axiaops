@@ -25,6 +25,8 @@ const (
 	organizationCodeKey contextKey = "organization_code"
 	userIDKey           contextKey = "user_id"
 	userEmailKey        contextKey = "user_email"
+	roleKey             contextKey = "role"
+	authModeKey         contextKey = "auth_mode"
 
 	jwksTTL = time.Hour
 )
@@ -261,6 +263,31 @@ func UserID(ctx context.Context) string {
 func UserEmail(ctx context.Context) string {
 	email, _ := ctx.Value(userEmailKey).(string)
 	return email
+}
+
+// Role returns the membership role ("owner"|"admin"|"member"|"viewer")
+// resolved by the auth middleware for the bound (organization, user)
+// pair. Empty under the legacy Kinde Wrap path (which doesn't preload
+// role) and under DevBypass.
+//
+// Handlers that need role for authorization decisions can either read
+// this value (when populated by WrapNative / native provider) or fall
+// back to store.RoleOf — the latter is what existing Kinde-path handlers
+// already do and remains correct.
+func Role(ctx context.Context) string {
+	role, _ := ctx.Value(roleKey).(string)
+	return role
+}
+
+// AuthMode returns the auth_mode of the active session: "password",
+// "sso", "bootstrap", or "kinde" (the legacy Bearer JWT path during the
+// strangler window). Empty when no auth has run on the request.
+//
+// Used by handlers that need to enforce SSO requirement (B2 §5.2 will
+// 403 native-password sessions for orgs whose enforcement is "required").
+func AuthMode(ctx context.Context) string {
+	mode, _ := ctx.Value(authModeKey).(string)
+	return mode
 }
 
 // DevBypass injects a fixed organization + user identity into every request context.
