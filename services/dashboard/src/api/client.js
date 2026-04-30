@@ -1,9 +1,23 @@
 // API client.
 //
-// VITE_API_URL is set at build time:
-//   - Docker:   /api  (nginx proxies to the api container — no CORS issues)
-//   - Local dev: not set → falls back to http://localhost:8080 (direct)
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+// VITE_API_URL controls where the dashboard fetches the API:
+//   - Docker:    "/api"  (nginx proxies /api/* to the api container)
+//   - Local dev: "/api"  (Vite's server.proxy in vite.config.js maps it
+//                         to http://localhost:8080)
+//   - Override:  set VITE_API_URL to an absolute URL when the dashboard
+//                lives on a different origin from the API (a true
+//                cross-origin deployment). The native-auth session
+//                cookie still rides along thanks to credentials:'include'
+//                in ifetch, and the API's CORS middleware echoes the
+//                origin + emits Allow-Credentials when CORS_ORIGIN is
+//                set to that origin.
+//
+// The default "/api" makes dev same-origin (browser sees :5173, Vite
+// hides the proxy hop) which mirrors the production same-origin shape
+// (nginx fronts both). Same-origin in both environments means the
+// session cookie's domain story is uniform — no separate dev/prod
+// CORS or SameSite quirks.
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 let authToken = null;
 
