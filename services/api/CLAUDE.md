@@ -36,14 +36,20 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | GET | /me | Yes | Current user's role + permission set; no permission required beyond authn |
 | GET | /memberships | Yes | List organization memberships |
 | POST | /memberships | Yes | Promote an existing user (by user_id) and assign a role; admin+ only |
-| POST | /invitations | Yes | Invite by email (sends Kinde org-scoped invite). Writes `pending_memberships`; redemption happens in auth middleware on invitee's first login. Admin+ for member/viewer; owner for admin |
+| POST | /invitations | Yes | Invite by email. Under `AUTH_PROVIDER=native\|both`: writes a token-bearing `pending_memberships` row and returns `redemption_url` in the response body for OOB sharing (admin pastes into Slack/email). Under `AUTH_PROVIDER=kinde`: sends Kinde org-scoped invite via Mgmt API. Admin+ for member/viewer; owner for admin |
 | GET | /invitations | Yes | List pending invitations for the current org (?status=pending\|expired\|revoked) |
-| DELETE | /invitations/{id} | Yes | Revoke a pending invitation; calls Kinde Mgmt API to remove user from org first |
+| DELETE | /invitations/{id} | Yes | Revoke a pending invitation; calls Kinde Mgmt API to remove user from org first (no-op under `AUTH_PROVIDER=native`) |
 | PATCH | /memberships/{id}/role | Yes | Promote or demote a member; permission tier depends on target role |
 | DELETE | /memberships/{id} | Yes | Remove a member; self-leave bypasses permission check (last-owner guard still applies) |
 | POST | /organizations/transfer-ownership | Yes | Atomically transfer owner role to another user; owner only |
 | DELETE | /users/me | Yes | Right-to-erasure: hard-delete the caller. 409 if sole owner of any organization — must transfer or delete those organizations first. Anonymises audit_log across all organizations. |
 | DELETE | /organizations/me | Yes | Right-to-erasure: cascade-delete the entire organization (every per-organization table including audit_log). Owner-only (`organization:delete`). |
+| POST | /users/{id}/password-reset | Yes | Mint an admin-issued password-reset token. Returns `{user_id, redemption_url, expires_at}` for OOB sharing. Admin+ via `members:manage_basic`; owners-only when target is owner (cross-tier escalation guard). TTL via `PASSWORD_RESET_TTL_HOURS` (default 4h). |
+| POST | /auth/bootstrap | No | First-owner install. Body `{token, email, name, password, organization_name}`. Sealed forever after first success — returns 409 on subsequent attempts. Token comes from `BOOTSTRAP_TOKEN_FILE_PATH` (mode 0600) or `BOOTSTRAP_INSTALL_TOKEN` env. |
+| POST | /auth/login | No | Native email + password. Returns `{user, organization}` and sets the `axiaops_session` cookie. Returns 409 `multi_org_not_supported` with `b15_pending:true` for users with >1 active membership (B1.5 will branch to org picker). Rate-limited 10/min/IP + 5/min/email. |
+| POST | /auth/logout | (cookie) | Revoke the current session and clear the cookie. Tolerant — 204 even when cookie is absent or unknown. |
+| POST | /auth/invitations/redeem | No | Accept an invite token. Body `{token, password, name}`. Atomically creates the user + membership and mints a session. 410 on unknown / expired / already-redeemed tokens. |
+| POST | /auth/password-reset/redeem | No | Set a new password from an admin-issued reset URL. Body `{token, new_password}`. Revokes EVERY live session for that user on success — frontend must redirect to `/login`. 410 on unknown / expired tokens. |
 
 ## Key Patterns
 
@@ -129,7 +135,15 @@ Errors are logged to stdout with structured context (JSON format in production).
 | DATABASE_URL | Yes | — | PostgreSQL app-user connection |
 | MIGRATION_DATABASE_URL | Yes | — | PostgreSQL owner connection (migrations) |
 | API_ADDR | No | :8080 | Listen address |
-| KINDE_ISSUER | Prod | — | Kinde issuer URL (OAuth 2.0 authorization server) |
+| AUTH_PROVIDER | No | native | Strangler tier: `native` (cookie + sessions table — terminal state), `both` (cookie OR Bearer JWT — transitional during rolling deploy), `kinde` (legacy Bearer JWT only — deletion gate D2 = 2026-10-30). The runbook MUST move kinde→both→native in that order; jumping kinde→native causes auth flapping mid-rolling-restart. |
+| SESSION_TTL_HOURS | No | 24 | Native session lifetime. |
+| SESSIONS_PER_USER_CAP | No | 10 | Max concurrent active sessions per user. The (cap+1)th login revokes the oldest. `0` disables the cap. |
+| BOOTSTRAP_INSTALL_TOKEN | No | — | Optional override for the auto-generated install token (unattended k8s installs). When set the banner is suppressed; same single-use semantics. Clear from secret stores after first boot. |
+| BOOTSTRAP_TOKEN_FILE_PATH | No | /var/run/axiaops/initial_setup_token | Where the install token is written on first startup (mode 0600). Deleted on first successful bootstrap. Set to empty string to disable file writing. |
+| BOOTSTRAP_PRINT_BANNER | No | false | Default-secure: when false, the install token is only written to the file (never stdout). Set `true` for ephemeral local dev where stdout-leak risk is zero. |
+| PASSWORD_RESET_TTL_HOURS | No | 4 | Admin-issued password-reset token lifetime. Short by design — admins are expected to share the URL OOB and the user redeems promptly. |
+| PUBLIC_HOST | No | — | Externally-reachable origin (`https://app.example.com`) used to build OOB redemption URLs for invitations and password resets. Empty produces relative URLs the frontend resolves against `window.location.origin`. |
+| KINDE_ISSUER | Prod (kinde\|both) | — | Kinde issuer URL (OAuth 2.0 authorization server). Required only under AUTH_PROVIDER=kinde or both. |
 | KINDE_M2M_CLIENT_ID | When invitations are enabled | — | M2M app client ID with scopes `read:users`, `create:users`, `update:user_properties`, `delete:users`, `read:organizations`, `update:organizations`, `update:organization_users`, `delete:organization_users`. Used by `POST /v1/invitations`, `DELETE /v1/invitations/{id}`, and `PATCH /v1/organizations/me`. |
 | KINDE_M2M_CLIENT_SECRET | When invitations are enabled | — | Secret for the M2M app. Loaded via env, never logged. |
 | KINDE_MGMT_API_URL | No | `KINDE_ISSUER` | Override the Mgmt API base URL when it differs from the issuer. |
@@ -139,7 +153,7 @@ Errors are logged to stdout with structured context (JSON format in production).
 | DEV_ORGANIZATION_ID | When `DEV_MODE=true` | — | Organization ID for dev bypass. No default — startup `die()`s if unset while `DEV_MODE=true`. |
 | DEV_USER_ID | No | dev-user-axiaops | User ID seeded in dev mode; `EnsureDevMembership` assigns it `owner` |
 | DEV_USER_EMAIL | No | dev@axiaops.local | Email for the dev user row |
-| CORS_ORIGIN | No | * | Allowed CORS origin |
+| CORS_ORIGIN | No | * | Allowed CORS origin. Two shapes: `*` (legacy posture, no credentials) or comma-separated allowlist (e.g. `http://localhost:5173`) which reflects the request Origin and emits `Access-Control-Allow-Credentials: true` so the native-auth session cookie round-trips. Required as a non-wildcard value when the dashboard is on a different origin from the API (e.g. local Vite dev). |
 | ENCRYPTION_KEY | Yes | — | 32-byte hex for AES-256-GCM |
 | APP_ENV | No | — | Environment (production, staging, development) |
 | APP_VERSION | No | — | Release version (e.g., 2.6.0); surfaced via `GET /v1/version` |
