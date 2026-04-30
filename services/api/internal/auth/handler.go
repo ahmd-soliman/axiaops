@@ -50,15 +50,17 @@ func NewHandler(store storage.NativeAuthStore, sessions *Manager, cookieCfg Cook
 
 // Register attaches the auth routes to the supplied mux. Endpoints:
 //
-//	POST /v1/auth/bootstrap            first-owner install token redemption
-//	POST /v1/auth/login                email + password → session cookie
-//	POST /v1/auth/logout               revoke + clear cookie
-//	POST /v1/auth/invitations/redeem   accept invite token → set password → session
+//	POST /v1/auth/bootstrap              first-owner install token redemption
+//	POST /v1/auth/login                  email + password → session cookie
+//	POST /v1/auth/logout                 revoke + clear cookie
+//	POST /v1/auth/invitations/redeem     accept invite token → set password → session
+//	POST /v1/auth/password-reset/redeem  redeem reset token → set new password → all sessions revoked
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/bootstrap", h.bootstrap)
 	mux.HandleFunc("POST /v1/auth/login", h.login)
 	mux.HandleFunc("POST /v1/auth/logout", h.logout)
 	mux.HandleFunc("POST /v1/auth/invitations/redeem", h.redeemInvitation)
+	mux.HandleFunc("POST /v1/auth/password-reset/redeem", h.redeemPasswordReset)
 }
 
 // ── POST /v1/auth/bootstrap ─────────────────────────────────────────────────
@@ -425,6 +427,77 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 			ID: mship.OrganizationID,
 		},
 	})
+}
+
+// ── POST /v1/auth/password-reset/redeem ─────────────────────────────────────
+
+type redeemPasswordResetRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
+func (h *Handler) redeemPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var req redeemPasswordResetRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	req.Token = strings.TrimSpace(req.Token)
+	if req.Token == "" || req.NewPassword == "" {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "token and new_password required")
+		return
+	}
+	if err := CheckPolicy(req.NewPassword); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "weak_password", err.Error())
+		return
+	}
+
+	newHash, err := Hash(req.NewPassword)
+	if err != nil {
+		slog.Error("auth: password reset hash failed", "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	userID, organizationID, err := h.store.RedeemPasswordReset(r.Context(), HashToken(req.Token), newHash)
+	switch {
+	case errors.Is(err, storage.ErrPasswordResetNotFound),
+		errors.Is(err, storage.ErrPasswordResetExpired):
+		// Collapse the two cases to a single 410 so an attacker can't
+		// distinguish "never issued" from "already redeemed/expired".
+		writeAuthError(w, http.StatusGone, "reset_invalid", "password reset token is invalid or expired")
+		return
+	case err != nil:
+		slog.Error("auth: password reset redeem failed", "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	// Critical: revoke EVERY live session for this user. A reset
+	// implies "the user (or a recovery flow) has the new password" —
+	// every existing cookie is potentially compromised. Manager.RevokeUserSessions
+	// already enumerates token hashes for explicit cache eviction
+	// (architect C4). Errors are logged + counted but not surfaced —
+	// the password change has already committed; a stale session
+	// can't survive its own ExpiresAt anyway.
+	if revoked, revErr := h.sessions.RevokeUserSessions(r.Context(), userID, RevokeReasonPasswordReset); revErr != nil {
+		slog.Error("auth: password reset session revoke failed",
+			"err", revErr, "user_id", userID)
+	} else {
+		slog.Info("auth: password reset — sessions revoked",
+			"user_id", userID, "count", revoked)
+	}
+
+	if h.auditFn != nil {
+		// organizationID comes from the password_resets row itself —
+		// the redeem flow has no auth context at this point, so the
+		// stored row is the only source of truth for which org owns
+		// the audit event. audit_log requires a non-empty org_id.
+		h.auditFn(r.Context(), organizationID, userID,
+			model.AuditActionUserPasswordResetRedeemed, nil)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── POST /v1/auth/logout ────────────────────────────────────────────────────

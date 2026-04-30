@@ -481,56 +481,57 @@ func (s *Store) CreatePasswordReset(ctx context.Context, id, userID, organizatio
 
 // RedeemPasswordReset atomically validates the token and updates the user's
 // password hash. See storage.NativeAuthStore.RedeemPasswordReset for the full
-// contract.
-func (s *Store) RedeemPasswordReset(ctx context.Context, tokenHash, newPasswordHash string) (string, error) {
+// contract. Returns (userID, organizationID) so the caller can audit
+// under the correct org.
+func (s *Store) RedeemPasswordReset(ctx context.Context, tokenHash, newPasswordHash string) (string, string, error) {
 	if tokenHash == "" || newPasswordHash == "" {
-		return "", fmt.Errorf("postgres: redeem password reset: token_hash and new_password_hash required")
+		return "", "", fmt.Errorf("postgres: redeem password reset: token_hash and new_password_hash required")
 	}
 	tx, err := s.adminPool.Begin(ctx)
 	if err != nil {
-		return "", fmt.Errorf("postgres: redeem password reset begin: %w", err)
+		return "", "", fmt.Errorf("postgres: redeem password reset begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var resetID, userID string
+	var resetID, userID, organizationID string
 	var expiresAt time.Time
 	var redeemedAt *time.Time
 	err = tx.QueryRow(ctx, `
-		SELECT id, user_id, expires_at, redeemed_at
+		SELECT id, user_id, organization_id, expires_at, redeemed_at
 		FROM password_resets
 		WHERE token_hash = $1
 		FOR UPDATE`,
 		tokenHash,
-	).Scan(&resetID, &userID, &expiresAt, &redeemedAt)
+	).Scan(&resetID, &userID, &organizationID, &expiresAt, &redeemedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", storage.ErrPasswordResetNotFound
+		return "", "", storage.ErrPasswordResetNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("postgres: redeem password reset lookup: %w", err)
+		return "", "", fmt.Errorf("postgres: redeem password reset lookup: %w", err)
 	}
 	if redeemedAt != nil {
-		return "", storage.ErrPasswordResetNotFound
+		return "", "", storage.ErrPasswordResetNotFound
 	}
 	if !time.Now().UTC().Before(expiresAt) {
-		return "", storage.ErrPasswordResetExpired
+		return "", "", storage.ErrPasswordResetExpired
 	}
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE users SET password_hash = $1, password_set_at = NOW() WHERE id = $2`,
 		newPasswordHash, userID,
 	); err != nil {
-		return "", fmt.Errorf("postgres: redeem password reset update user: %w", err)
+		return "", "", fmt.Errorf("postgres: redeem password reset update user: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE password_resets SET redeemed_at = NOW() WHERE id = $1`,
 		resetID,
 	); err != nil {
-		return "", fmt.Errorf("postgres: redeem password reset mark redeemed: %w", err)
+		return "", "", fmt.Errorf("postgres: redeem password reset mark redeemed: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return "", fmt.Errorf("postgres: redeem password reset commit: %w", err)
+		return "", "", fmt.Errorf("postgres: redeem password reset commit: %w", err)
 	}
-	return userID, nil
+	return userID, organizationID, nil
 }
 
 // ── Bootstrap singleton ─────────────────────────────────────────────────────
