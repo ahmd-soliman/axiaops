@@ -171,6 +171,9 @@ func (m *mockStoreForScheduler) CountOrganizations(context.Context) (int64, erro
 func (m *mockStoreForScheduler) LookupMembership(context.Context, string, string) (string, string, error) {
 	return "", "", nil
 }
+func (m *mockStoreForScheduler) LookupUserByEmail(context.Context, string) (model.User, []model.Membership, error) {
+	return model.User{}, nil, storage.ErrUserNotFound
+}
 func (m *mockStoreForScheduler) CreateSession(context.Context, model.Session) (model.Session, error) {
 	return model.Session{}, errors.New("CreateSession not implemented")
 }
