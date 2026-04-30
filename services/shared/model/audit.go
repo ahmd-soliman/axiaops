@@ -65,6 +65,17 @@ const (
 	// AuditActionOnboardingCompleted records the wizard reaching the final
 	// step. Metadata carries steps_skipped (subset of "invite", "aws-account").
 	AuditActionOnboardingCompleted = "onboarding_completed"
+	// Phase B1 — native auth lifecycle. The login/logout actions are
+	// intentionally absent: per docs/audit_trail_plan.md §2 audit_log is
+	// mutation-only, and authn-success / authn-failure belong in the
+	// auth-counter Prometheus metrics + slog (`axiaops_auth_login_total`).
+	// What lives here is the *state-changing* side of authn.
+	AuditActionUserPasswordChanged        = "user_password_changed"
+	AuditActionUserPasswordResetIssued    = "user_password_reset_issued"
+	AuditActionUserPasswordResetRedeemed  = "user_password_reset_redeemed"
+	AuditActionInvitationRedeemedNative   = "invitation_redeemed_native"
+	AuditActionBootstrapCompleted         = "bootstrap_completed"
+	AuditActionSessionRevokedByAdmin      = "session_revoked_by_admin"
 )
 
 // ValidAuditActions is the authoritative set of action codes accepted on write
@@ -88,6 +99,12 @@ var ValidAuditActions = map[string]bool{
 	AuditActionDataExported:         true,
 	AuditActionOrganizationRenamed:  true,
 	AuditActionOnboardingCompleted:  true,
+	AuditActionUserPasswordChanged:        true,
+	AuditActionUserPasswordResetIssued:    true,
+	AuditActionUserPasswordResetRedeemed:  true,
+	AuditActionInvitationRedeemedNative:   true,
+	AuditActionBootstrapCompleted:         true,
+	AuditActionSessionRevokedByAdmin:      true,
 }
 
 // AuditFilter parameterises AuditLogList queries. Zero-value fields are not
