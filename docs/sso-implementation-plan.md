@@ -10,11 +10,12 @@
 
 | Phase | Deliverable | Effort |
 |---|---|---|
-| **B1** | Native email/password auth replacing Kinde | 4–6w |
+| **B1** | Native email/password auth replacing Kinde (single-org-per-session constraint) | 4–6w |
+| **B1.5** | Multi-org access — login org-picker + live org switcher (§4.7) | 1w |
 | **B2** | Native OIDC RP — Entra + generic OIDC SSO | 4–6w |
 | **C**  | Native SAML SP — Okta, ADFS, Keycloak SSO | 4–6w |
 
-**Total**: 12–18 weeks single-developer. Sequential, not parallel — B2 depends on B1's `services/shared/jwks/` package and native session model; C depends on B2's `sso_*` schema.
+**Total**: 13–19 weeks single-developer. Sequential, not parallel — B1.5 depends on B1's session model; B2 depends on B1.5's org-switcher endpoints (so OIDC JIT can mint sessions for the right active org); C depends on B2's `sso_*` schema.
 
 **Out of scope** (explicitly):
 - Social login (Google personal / GitHub OAuth)
@@ -51,12 +52,13 @@ These are settled before implementation starts. Flip explicitly via this doc if 
 develop                                          (current)
   └─ feat/sso                                    (this branch — long-lived integration)
        ├─ feat/sso/b1-native-auth                (impl branch, MRs into feat/sso)
-       ├─ feat/sso/b2-oidc                       (impl branch, blocked on b1 merge)
+       ├─ feat/sso/b1.5-multi-org                (impl branch, blocked on b1 merge — see §4.7)
+       ├─ feat/sso/b2-oidc                       (impl branch, blocked on b1.5 merge)
        └─ feat/sso/c-saml                        (impl branch, blocked on b2 merge)
 ```
 
 - Each implementation branch MRs into `feat/sso`, **not** into `develop`.
-- `feat/sso` MRs into `develop` only when **all three phases pass acceptance criteria** (§4.5, §5.5, §6.5).
+- `feat/sso` MRs into `develop` only when **all four phases pass acceptance criteria** (§4.6, §4.7, §5.5, §6.6).
 - `feat/sso` is rebased on `develop` at the start of each sub-phase to absorb unrelated `develop` progress.
 - This plan doc lives on `feat/sso`; updates land via direct commits or impl-branch MRs as the plan tightens.
 
@@ -389,6 +391,49 @@ Tick each before opening `feat/sso/b1-native-auth` MR:
 - [ ] **Failure-mode observability** (architect N5): for each labeled failure outcome (`bad_password`, `unknown_user`, `rate_limited`, `locked`, cache `error`), there is a test that triggers the failure and asserts the corresponding counter increments by exactly 1. For each warning slog path (Redis miss, cache deserialise error), there is a test that captures slog output and asserts the warning was emitted.
 - [ ] OpenAPI / API docs updated for the new `/v1/auth/*` routes.
 - [ ] `Tasks.md` deprecation entry filed; `.gitlab-ci.yml` deploy gates configured (architect S7).
+- [ ] **Single-org-per-session constraint enforced explicitly.** A user with >1 active membership cannot log in via `/v1/auth/login`; the endpoint returns 409 `{"error":"multi_org_not_supported","detail":"contact admin","b15_pending":true}`. Acceptance test asserts this rejection. Multi-org support lands in B1.5 (§4.7).
+
+### 4.7 Phase B1.5 — Multi-org access (1w follow-up)
+
+> **Why split from B1**: keeps B1 focused on the auth-provider swap (correctness-critical, schema-heavy). Multi-org is a UX layer on top of the same data model — the `memberships` table already supports it; only the session/login layer needs the addition. Cuts off `feat/sso/b1.5-multi-org` immediately on B1 merge; lands before B2 starts so OIDC JIT can mint sessions bound to the right active org. Effort: ~1 week.
+
+#### 4.7.1 Endpoints
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `POST` | `/v1/auth/login` (modified) | none (rate-limited) | If user has 0 memberships → 401. If exactly 1 → mint session bound to it (existing B1 behaviour). If >1 → return 200 with `{needs_org_selection: true, orgs: [{id, name}, ...]}` and **do not mint a session**. |
+| `POST` | `/v1/auth/select-org` | none (rate-limited) | Body: `{email, password, organization_id}`. **Re-validates the password** (defence in depth — never trust the frontend to remember step 1). Confirms membership for the chosen org. Mints session bound to it. |
+| `POST` | `/v1/auth/switch-org` | session | Body: `{organization_id}`. Confirms caller has membership in target. Revokes current session (PG UPDATE + cache invalidation), mints new session bound to target, returns new `Set-Cookie`. Audit: `session.org_switched` with `from`/`to`. |
+
+#### 4.7.2 Frontend
+
+| File | Purpose |
+|---|---|
+| `services/dashboard/src/screens/OrgPickerScreen.jsx` | New. Mounted at `/select-org`. Shows the orgs the user is a member of after a login that returned `needs_org_selection: true`. POSTs `/v1/auth/select-org` with re-supplied creds + chosen org. |
+| `services/dashboard/src/components/OrgSwitcher.jsx` | New. Dropdown in the nav bar. Lists user's memberships from `/v1/me`. Clicking an entry POSTs `/v1/auth/switch-org`, on success refreshes the dashboard. |
+| `services/dashboard/src/screens/LoginScreen.jsx` (modify) | On successful login response, branch on `needs_org_selection`: if true → navigate to `/select-org` with creds in form state; if false → `/dashboard`. |
+| `services/dashboard/src/screens/AcceptInviteScreen.jsx` (modify) | When the email already exists in the DB: form asks for the *existing* password (not "set new"). On success, INSERT membership for the new org without touching other memberships. Optionally offer "switch to this org now" if user is currently logged in. |
+
+#### 4.7.3 Backend
+
+| File | Change |
+|---|---|
+| `services/api/internal/auth/handler.go` | Modify `Login`. Add `SelectOrg`, `SwitchOrg`. |
+| `services/api/internal/auth/session.go` | `RotateSessionForOrg(ctx, currentSessionID, targetOrgID)` — single-tx revoke + mint. Used by `SwitchOrg`. |
+| `services/shared/storage/storage.go` | Add `ListUserMemberships(userID)` returning `[]model.Membership` with org metadata. |
+| `services/api/internal/api/handler.go` | `/v1/me` returns `memberships: [{org_id, org_name, role}]` — frontend uses this for the switcher. |
+
+#### 4.7.4 Acceptance criteria — B1.5
+
+- [ ] Login with one membership → straight to dashboard (B1 behaviour preserved).
+- [ ] Login with two memberships → `needs_org_selection: true`, no session minted.
+- [ ] `/v1/auth/select-org` re-validates the password independently (test: pass right password to login, then wrong password to select-org → 401).
+- [ ] `/v1/auth/switch-org` revokes the old session (test: old cookie returns 401 after switch) and mints a new one with the target `organization_id`.
+- [ ] Audit row `session.org_switched` with `metadata={from, to, user_id}` written on every switch.
+- [ ] Switcher dropdown in nav reflects all of the user's active memberships and updates after revocation/addition.
+- [ ] Invitation redemption for an existing email creates a new membership without touching the user row or other memberships.
+- [ ] Cache invalidated on org switch — old session token's cache key deleted.
+- [ ] Per-failure-mode observability: `axiaops_session_revocations_total{reason="org_switch"}` increments on every successful switch; `axiaops_auth_login_total{outcome="org_selection_required"}` increments on every multi-membership login.
 
 ---
 
@@ -654,6 +699,12 @@ These are **not blockers for B1**. Resolve at the boundaries indicated.
 | Q4 | At deprecation date (2026-10-30), keep the empty `services/api/internal/kinde/` directory as a placeholder for future SaaS reactivation, or delete entirely (relying on git history)? | Deprecation date. |
 | Q5 | Magic-link login as a Phase D fast-follow if customer demand surfaces? Out of scope for v1 SSO; tracked here for visibility. | Post-v1. |
 
+**Resolved:**
+
+| # | Question | Resolution |
+|---|---|---|
+| ~~Q6~~ | Multi-org access: should B1 ship with multi-org login support or defer? | **Deferred to B1.5** (1-week follow-up between B1 and B2). B1 ships with single-org-per-session; B1.5 adds org-picker login + live switcher. Rationale: B1 is already large; data model already supports multi-org via `memberships`; only the session/login layer needs the addition; ICP risk is bounded by the 1-week B1.5 timeline. See §4.7. |
+
 ---
 
 ## 10. Risks
@@ -673,6 +724,7 @@ These are **not blockers for B1**. Resolve at the boundaries indicated.
 | Sessions table grows unbounded over time. | Per-user cap (`SESSIONS_PER_USER_CAP=10` default) bounds concurrent sessions; oldest-active is revoked on cap exceed. Hourly sweep ticker deletes rows where `expires_at < NOW() - 7d` OR `(revoked_at IS NOT NULL AND revoked_at < NOW() - 7d)`. Acceptance test seeds 11 sessions for one user and verifies cap enforcement + sweep behaviour (architect C2). |
 | Rolling deploy from `AUTH_PROVIDER=kinde` to `=native` causes auth flapping (some replicas validate JWTs, others validate cookies; load balancer routes mid-flight). | Three-state machine: deploy must move `kinde` → `both` → `native` in that order. `both` mode accepts either cookie or Bearer JWT — no auth flapping during the rolling restart. Documented in deploy runbook (architect S1). |
 | Bootstrap token leaked via stdout / log aggregator (CI logs forwarded to a third-party log service). | Default-secure: `BOOTSTRAP_PRINT_BANNER=false` writes only the file path to stdout, never the token value. Operator must `cat` the token file. Banner with token value is opt-in via `BOOTSTRAP_PRINT_BANNER=true` for local dev (architect S8). |
+| Multi-org gap: B1 ships before B1.5; a design partner with users belonging to multiple orgs can't log in until B1.5 lands (~1w later). | B1 returns a clear `409 multi_org_not_supported` with `b15_pending: true` so the frontend can show a helpful message ("contact your admin to consolidate, or wait for the next release"). B1.5 cuts off `feat/sso/b1-native-auth` immediately on merge — calendar reminder + Tasks.md item. Workaround: customer can have the user's other-org memberships temporarily revoked + restored after B1.5. |
 | Redis outage degrades performance silently. | Cache errors increment `axiaops_session_cache_errors_total` and log at `slog.Warn`. Alert rule fires when error rate > 1/min for 5 min. Auth still works on PG-only path during the outage. |
 
 ---
