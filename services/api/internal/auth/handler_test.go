@@ -357,6 +357,70 @@ func TestLoginMultiOrgReturns409(t *testing.T) {
 
 // ── /v1/auth/logout ─────────────────────────────────────────────────────────
 
+func TestLoginRateLimitedReturns429(t *testing.T) {
+	// Plan §4.2 acceptance: 11th login from same IP returns 429.
+	// Wires a 1/min limiter to keep the test fast.
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(1, 100))
+
+	body := map[string]string{"email": "alice@example.com", "password": "wrong password 12345"}
+
+	// First attempt: 401 (wrong password) — rate-limit budget consumed.
+	first := postJSON(t, mux(h), "/v1/auth/login", body, nil)
+	if first.Code != http.StatusUnauthorized {
+		t.Fatalf("first attempt status = %d; want 401", first.Code)
+	}
+
+	// Second attempt: blocked by rate limiter, 429 with Retry-After.
+	second := postJSON(t, mux(h), "/v1/auth/login", body, nil)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second attempt status = %d; want 429", second.Code)
+	}
+	if second.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on 429")
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(second.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode 429 body: %v", err)
+	}
+	if resp["error"] != "rate_limited" {
+		t.Errorf("error = %v; want rate_limited", resp["error"])
+	}
+}
+
+func TestLoginRateLimitedEmailCapReturns429(t *testing.T) {
+	// Same shape as the IP-cap test but parameterised so the per-email
+	// counter trips first. perIP=100 is effectively unlimited; perEmail=1
+	// means the second attempt against the same email — even from a
+	// different request — gets the 429.
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "victim@example.com", "correct horse battery staple", 1)
+
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(100, 1))
+
+	body := map[string]string{"email": "victim@example.com", "password": "wrong password 12345"}
+
+	first := postJSON(t, mux(h), "/v1/auth/login", body, nil)
+	if first.Code != http.StatusUnauthorized {
+		t.Fatalf("first attempt status = %d; want 401", first.Code)
+	}
+	second := postJSON(t, mux(h), "/v1/auth/login", body, nil)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second attempt status = %d; want 429 (email cap)", second.Code)
+	}
+	if second.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on 429 from email cap")
+	}
+}
+
 func TestLogoutRevokesSessionAndClearsCookie(t *testing.T) {
 	t.Parallel()
 	h, store, mgr := newHandlerTest(t)
