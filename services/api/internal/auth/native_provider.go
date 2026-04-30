@@ -2,7 +2,11 @@ package auth
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
+
+	"axiaops.io/shared/storage"
 )
 
 // MembershipDetails is what MembershipLookup returns for the (org, user)
@@ -55,13 +59,23 @@ func (p *NativeProvider) Authenticate(r *http.Request) (Identity, error) {
 	sess, err := p.mgr.ValidateSession(r.Context(), token)
 	if err != nil {
 		// storage.ErrSessionNotFound is the documented failure mode of
-		// ValidateSession; any other error is treated identically — we
-		// never leak whether the cookie was malformed, the session was
-		// revoked, or the cache backend was down.
+		// ValidateSession; any other error is treated identically on
+		// the wire — we never leak the reason. But operators need to
+		// see real DB / cache failures in logs to diagnose them, so
+		// log everything that ISN'T the expected "not found" case.
+		if !errors.Is(err, storage.ErrSessionNotFound) {
+			slog.Error("auth: native provider — session validation failed",
+				"err", err, "method", r.Method, "path", r.URL.Path)
+		}
 		return Identity{}, ErrUnauthenticated
 	}
 	m, err := p.membership(r.Context(), sess.OrganizationID, sess.UserID)
 	if err != nil {
+		// LookupMembership has no "not found" sentinel (missing rows
+		// return zero value, nil error). Any non-nil err is a real
+		// DB-side failure worth surfacing.
+		slog.Error("auth: native provider — membership lookup failed",
+			"err", err, "user_id", sess.UserID, "organization_id", sess.OrganizationID)
 		return Identity{}, ErrUnauthenticated
 	}
 	if m.Role == "" {
