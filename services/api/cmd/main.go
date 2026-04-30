@@ -135,11 +135,43 @@ func main() {
 	// /v1/invitations and PATCH /v1/organizations/me return 503.
 	h = h.WithKinde(buildKindeClient())
 	h.Register(mux)
+
+	// Native-auth ceremony endpoints (POST /v1/auth/{bootstrap,login,logout}).
+	// These are reachable only under AUTH_PROVIDER=native|both — under
+	// AUTH_PROVIDER=kinde we register them anyway because publicPath
+	// bypasses /v1/auth/* in the middleware regardless, and the handlers
+	// will simply return 401/409 if invoked. Cleaner to keep the routing
+	// surface uniform. DEV_MODE skips registration entirely — DevBypass
+	// makes them moot.
+	devMode := os.Getenv("DEV_MODE") == "true"
+	nativeAuthActive := false
+	if !devMode {
+		mode := os.Getenv("AUTH_PROVIDER")
+		if mode == "" {
+			mode = "native"
+		}
+		if mode == "native" || mode == "both" {
+			nativeAuthActive = true
+			authMgr := buildSessionManager(store, c)
+			authH := auth.NewHandler(store, authMgr, auth.NewCookieConfig(false), nil)
+			authH.Register(mux)
+			// First-owner install-token generator. No-op when an
+			// organization already exists.
+			if res, err := auth.MaybeGenerateInstallToken(ctx, store); err != nil {
+				slog.Error("auth: install token generator failed", "err", err)
+			} else {
+				slog.Info("auth: install token state",
+					"generated", res.Generated,
+					"skipped", res.Skipped,
+					"file", res.FilePath)
+			}
+		}
+	}
+
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// ── Rate Limiting ─────────────────────────────────────────────────────────
 	root := http.Handler(mux)
-	devMode := os.Getenv("DEV_MODE") == "true"
 	rateLimitEnabled := os.Getenv("REDIS_URL") != ""
 	if rateLimitEnabled {
 		limiter := middleware.NewRateLimiter(c)
@@ -269,6 +301,30 @@ func main() {
 			}
 		}
 	}()
+
+	// Background ticker: hard-delete sessions where expires_at OR
+	// revoked_at is older than 7 days. Bounds growth of the sessions
+	// table without affecting active users — by the time a row is
+	// older than 7 days it cannot be live (max TTL is 24h). Only
+	// runs when native auth is actually in use; under
+	// AUTH_PROVIDER=kinde the table stays empty and there's no work.
+	if nativeAuthActive {
+		go func() {
+			ticker := time.NewTicker(time.Hour)
+			defer ticker.Stop()
+			for range ticker.C {
+				cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
+				n, err := store.SweepExpiredSessions(context.Background(), cutoff)
+				if err != nil {
+					slog.Warn("session-sweep: failed", "error", err)
+					continue
+				}
+				if n > 0 {
+					slog.Info("session-sweep: deleted expired/revoked sessions", "count", n)
+				}
+			}
+		}()
+	}
 
 	// ── Graceful Shutdown ────────────────────────────────────────────────────────
 	// Wait for SIGTERM/SIGINT indefinitely (App Runner sends SIGTERM on shutdown).

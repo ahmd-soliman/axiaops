@@ -226,7 +226,7 @@ func newMetrics() *Metrics {
 		}, []string{"reason"}),
 		BootstrapAttemptsTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_bootstrap_attempts_total",
-			Help: "First-owner bootstrap attempts. invalid_token + sealed are both expected during routine traffic; success should occur exactly once per install.",
+			Help: "First-owner bootstrap attempts. Outcomes: success (exactly once per install), sealed (org already exists), invalid_token (constant-time compare miss), email_taken (defence-in-depth — should be unreachable).",
 		}, []string{"outcome"}),
 		SessionCacheTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_session_cache_total",
