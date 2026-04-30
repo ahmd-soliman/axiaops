@@ -47,6 +47,16 @@ type fakeStore struct {
 	// secondary index by token_hash for the redeem-path lookup.
 	invitations        map[string]model.PendingInvitation
 	invitationsByToken map[string]string // token_hash → primary key
+
+	// Password resets keyed by token_hash. Single-use: row gains a
+	// non-nil RedeemedAt on consume.
+	passwordResets map[string]*fakePasswordReset
+}
+
+type fakePasswordReset struct {
+	id, userID, organizationID, issuedBy string
+	expiresAt                            time.Time
+	redeemedAt                           *time.Time
 }
 
 type fakeBootstrap struct {
@@ -278,11 +288,41 @@ func (f *fakeStore) UpdateUserPassword(context.Context, string, string) error {
 func (f *fakeStore) LookupMembership(context.Context, string, string) (string, string, error) {
 	panic("not used by tests in this package")
 }
-func (f *fakeStore) CreatePasswordReset(context.Context, string, string, string, string, string, time.Time) error {
-	panic("not used by tests in this package")
+func (f *fakeStore) CreatePasswordReset(_ context.Context, id, userID, organizationID, tokenHash, issuedBy string, expiresAt time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.passwordResets == nil {
+		f.passwordResets = make(map[string]*fakePasswordReset)
+	}
+	f.passwordResets[tokenHash] = &fakePasswordReset{
+		id:             id,
+		userID:         userID,
+		organizationID: organizationID,
+		issuedBy:       issuedBy,
+		expiresAt:      expiresAt,
+	}
+	return nil
 }
-func (f *fakeStore) RedeemPasswordReset(context.Context, string, string) (string, error) {
-	panic("not used by tests in this package")
+
+func (f *fakeStore) RedeemPasswordReset(_ context.Context, tokenHash, newHash string) (string, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row, ok := f.passwordResets[tokenHash]
+	if !ok || row.redeemedAt != nil {
+		return "", "", storage.ErrPasswordResetNotFound
+	}
+	if !f.now().Before(row.expiresAt) {
+		return "", "", storage.ErrPasswordResetExpired
+	}
+	now := f.now()
+	row.redeemedAt = &now
+	if u, ok := f.usersByID[row.userID]; ok {
+		u.PasswordHash = newHash
+		u.PasswordSetAt = &now
+		f.usersByID[row.userID] = u
+		f.usersByEmail[strings.ToLower(u.Email)] = u
+	}
+	return row.userID, row.organizationID, nil
 }
 // Invitations are stored keyed by (organization_id, lower(email)) —
 // matches the partial unique index on pending_memberships in production.

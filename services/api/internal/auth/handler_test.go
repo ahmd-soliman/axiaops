@@ -482,6 +482,129 @@ func TestBootstrapRemovesInstallTokenFile(t *testing.T) {
 	}
 }
 
+// ── /v1/auth/password-reset/redeem ──────────────────────────────────────────
+
+func seedPasswordReset(t *testing.T, store *fakeStore, userID string) string {
+	t.Helper()
+	plaintext := "reset-token-fixture-" + userID
+	if err := store.CreatePasswordReset(
+		context.Background(),
+		"reset-"+userID, userID, "org-x",
+		auth.HashToken(plaintext),
+		"admin-1",
+		time.Now().UTC().Add(time.Hour),
+	); err != nil {
+		t.Fatalf("CreatePasswordReset: %v", err)
+	}
+	return plaintext
+}
+
+func TestRedeemPasswordResetHappyPath(t *testing.T) {
+	t.Parallel()
+	h, store, mgr := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "old password 12345", 1)
+
+	// Mint a session BEFORE the reset so we can assert it gets revoked.
+	mint, err := mgr.MintSession(context.Background(), auth.MintRequest{
+		UserID:         "u-alice@example.com",
+		OrganizationID: "org-alice@example.com-a",
+		AuthMode:       model.AuthModePassword,
+	})
+	if err != nil {
+		t.Fatalf("MintSession: %v", err)
+	}
+
+	token := seedPasswordReset(t, store, "u-alice@example.com")
+	w := postJSON(t, mux(h), "/v1/auth/password-reset/redeem", map[string]string{
+		"token":        token,
+		"new_password": "brand new password 67890",
+	}, nil)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d; want 204; body = %s", w.Code, w.Body.String())
+	}
+
+	// Pre-existing session must now be revoked (architect: reset
+	// implies all sessions are potentially compromised).
+	got, err := store.GetSessionByTokenHash(context.Background(), mint.Session.SessionTokenHash)
+	if err != nil {
+		t.Fatalf("GetSessionByTokenHash: %v", err)
+	}
+	if got.RevokedAt == nil {
+		t.Error("password reset must revoke all live sessions for the user")
+	}
+}
+
+func TestRedeemPasswordResetUnknownToken(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+
+	w := postJSON(t, mux(h), "/v1/auth/password-reset/redeem", map[string]string{
+		"token":        "completely-bogus-token",
+		"new_password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusGone {
+		t.Errorf("status = %d; want 410", w.Code)
+	}
+}
+
+func TestRedeemPasswordResetSingleUse(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "single@example.com", "old password 12345", 1)
+	token := seedPasswordReset(t, store, "u-single@example.com")
+
+	if w := postJSON(t, mux(h), "/v1/auth/password-reset/redeem", map[string]string{
+		"token": token, "new_password": "correct horse battery staple",
+	}, nil); w.Code != http.StatusNoContent {
+		t.Fatalf("first redeem status = %d", w.Code)
+	}
+
+	w := postJSON(t, mux(h), "/v1/auth/password-reset/redeem", map[string]string{
+		"token": token, "new_password": "another correct horse staple",
+	}, nil)
+	if w.Code != http.StatusGone {
+		t.Errorf("second redeem status = %d; want 410", w.Code)
+	}
+}
+
+func TestRedeemPasswordResetWeakPasswordReturns400(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "weak@example.com", "old password 12345", 1)
+	token := seedPasswordReset(t, store, "u-weak@example.com")
+
+	w := postJSON(t, mux(h), "/v1/auth/password-reset/redeem", map[string]string{
+		"token": token, "new_password": "short",
+	}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d; want 400", w.Code)
+	}
+}
+
+func TestRedeemPasswordResetExpiredReturns410(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "expired@example.com", "old password 12345", 1)
+
+	plaintext := "expired-reset-fixture"
+	// Insert a row with expires_at in the past.
+	if err := store.CreatePasswordReset(
+		context.Background(),
+		"reset-expired", "u-expired@example.com", "org-x",
+		auth.HashToken(plaintext),
+		"admin-1",
+		time.Now().UTC().Add(-1*time.Minute),
+	); err != nil {
+		t.Fatalf("CreatePasswordReset: %v", err)
+	}
+	w := postJSON(t, mux(h), "/v1/auth/password-reset/redeem", map[string]string{
+		"token": plaintext, "new_password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusGone {
+		t.Errorf("status = %d; want 410 for expired token", w.Code)
+	}
+}
+
 func TestBootstrapWithDisabledFileSkipsRemoval(t *testing.T) {
 	// BOOTSTRAP_TOKEN_FILE_PATH="" disables file management. The
 	// bootstrap handler must not error trying to remove a path that
