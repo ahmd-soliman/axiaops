@@ -167,8 +167,12 @@ type NativeAuthStore interface {
 	// ErrPasswordResetExpired on the obvious failure modes. The caller is
 	// expected to RevokeUserSessions in the same logical operation (separate
 	// transaction is fine — at most one stale session for a few ms).
-	// Returns the userID whose password was changed for the audit row.
-	RedeemPasswordReset(ctx context.Context, tokenHash, newPasswordHash string) (userID string, err error)
+	//
+	// Returns both userID and organizationID so the caller can write
+	// the audit row under the correct org context (audit_log requires
+	// a non-empty organization_id). The redemption flow has no auth
+	// context — the row itself is the only source of org identity.
+	RedeemPasswordReset(ctx context.Context, tokenHash, newPasswordHash string) (userID, organizationID string, err error)
 
 	// ── Bootstrap singleton ─────────────────────────────────────────────────
 

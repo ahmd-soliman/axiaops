@@ -197,8 +197,8 @@ func (m *mockStoreForScheduler) SweepExpiredSessions(context.Context, time.Time)
 func (m *mockStoreForScheduler) CreatePasswordReset(context.Context, string, string, string, string, string, time.Time) error {
 	return errors.New("CreatePasswordReset not implemented")
 }
-func (m *mockStoreForScheduler) RedeemPasswordReset(context.Context, string, string) (string, error) {
-	return "", storage.ErrPasswordResetNotFound
+func (m *mockStoreForScheduler) RedeemPasswordReset(context.Context, string, string) (string, string, error) {
+	return "", "", storage.ErrPasswordResetNotFound
 }
 func (m *mockStoreForScheduler) CreateBootstrapState(context.Context, string, string) (bool, error) {
 	return false, storage.ErrBootstrapAlreadyDone
