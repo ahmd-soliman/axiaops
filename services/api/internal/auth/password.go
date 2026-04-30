@@ -35,14 +35,6 @@ const (
 // the minimum length.
 var ErrPasswordTooShort = fmt.Errorf("password must be at least %d characters", PasswordPolicyMinLength)
 
-// ErrPasswordTooCommon is returned by CheckPolicy when the candidate matches
-// the embedded common-passwords list. The list is intentionally small (top
-// 1000) — it catches the obvious "Password123" cases without becoming a
-// blanket dictionary check (which the literature shows annoys users without
-// preventing real attacks; rate limiting + breach-corpus checks are the real
-// defences and live a layer above).
-var ErrPasswordTooCommon = errors.New("password is in the common-passwords list")
-
 // ErrInvalidHash is returned by Verify when the stored hash does not parse as
 // a PHC-string-encoded argon2id digest. Treat this identically to a wrong
 // password at the boundary — never echo the parser error to the client.
@@ -54,16 +46,25 @@ var ErrInvalidHash = errors.New("password hash is not a valid argon2id PHC strin
 var ErrIncompatibleVersion = errors.New("password hash uses an incompatible argon2 version")
 
 // CheckPolicy validates a candidate plaintext against the password policy.
-// Returns nil if acceptable, a sentinel error otherwise. The candidate is
-// passed by value (not pointer) deliberately — the Go runtime is permitted
-// to copy it on assignment, but no caller needs the original after
-// validation, so the surface area is bounded to one stack copy.
+// Returns nil if acceptable, a sentinel error otherwise.
+//
+// The policy is intentionally minimal: length only. The "blocklist of N
+// common passwords" approach was considered and dropped — at min-length
+// 12 the obvious weak passwords (123456, password, qwerty) are already
+// excluded by length, and a static blocklist of any practical size
+// covers <0.1% of the breach corpus. The real defences live a layer
+// above (rate-limiting per IP/email — slice 10) and a layer below (a
+// future HIBP k-anonymity integration that catches passwords known to
+// be compromised regardless of pattern). Tracked in Tasks.md under
+// "Password breach-corpus check (HIBP)".
+//
+// candidate is passed by value (not pointer) deliberately — the Go
+// runtime is permitted to copy it on assignment, but no caller needs
+// the original after validation, so the exposed surface is bounded to
+// one stack copy.
 func CheckPolicy(candidate string) error {
 	if len(candidate) < PasswordPolicyMinLength {
 		return ErrPasswordTooShort
-	}
-	if isCommonPassword(candidate) {
-		return ErrPasswordTooCommon
 	}
 	return nil
 }
