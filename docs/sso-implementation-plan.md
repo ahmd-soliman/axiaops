@@ -38,7 +38,7 @@ These are settled before implementation starts. Flip explicitly via this doc if 
 | D4 | **Admin-mediated password reset** for v1. No self-service "forgot password" page. Admin POSTs `/v1/users/{id}/password-reset`, gets a one-time URL, shares OOB. | No SMTP means no link to email; self-service requires SMTP or in-app secondary channel. Revisit when SMTP is added. |
 | D5 | **First-owner bootstrap — GitLab-shaped install-token flow.** On first startup, if no organizations exist, the server generates a 32-byte hex install token, prints it to stdout, and writes it to `/var/run/axiaops/initial_setup_token`. Operator visits `/bootstrap`, supplies the token plus their own email/name/password via POST form (token in body, never in URL). Single-use; consumed and wiped from memory + disk after redemption. Endpoint returns 409 forever after. Optional `BOOTSTRAP_INSTALL_TOKEN` env var for unattended installs (suppresses log banner; same flow). | Server generates the entropy (operator doesn't have to know to run `openssl rand`). Token-in-POST-body avoids the URL leak channels (browser history, access logs, Referer headers). Matches the install-time UX of GitLab, Vault, Forgejo. The token gates the bootstrap *action* — it is **not** the user's password. The user picks their own password during the same form submission. |
 | D6 | **Password hashing**: argon2id, defaults `time=3, memory=64MiB, parallelism=2, saltLen=16, keyLen=32`. | OWASP ASVS recommendation. bcrypt acceptable but argon2id is the modern default. |
-| D7 | **Session storage**: PostgreSQL `sessions` table (not Redis). | Works in both `start-dev` (no Redis) and `start-staging`; auth must not require Redis to function. |
+| D7 | **Session storage**: PostgreSQL `sessions` table is the source of truth. Read path wrapped by the existing `services/shared/cache/` abstraction — Redis when `REDIS_URL` is set (production / staging), in-memory cache otherwise. Write path always writes PG and invalidates the cache. | Production best practice (Architecture 3 — PG durable + Redis cache). Sub-ms reads when Redis is present; auth still works without Redis (degrades to PG SELECT per request). Self-hosted customers don't have to run Redis to use AxiaOps. Reuses existing cache machinery — no new infrastructure abstraction. |
 | D8 | **DBs wiped on B1 cutover.** No migration of existing Kinde-authed users in dev/staging. | Confirmed by user; no production deployments exist yet. |
 | D9 | **DEV_MODE preserved.** `DEV_MODE=true` continues to bypass auth and auto-login as `DEV_USER_ID` with owner role. | Dev ergonomics; no behavior change. |
 | D10 | **Same RBAC model** — owner / admin / member / viewer roles unchanged. SSO/JIT never grants `owner` (per design doc §11.6). | Roles are a separate axis from auth provider. |
@@ -156,10 +156,11 @@ Down migration drops `sessions`, `password_resets`, removes the new columns. Sta
 | File | Responsibility |
 |---|---|
 | `services/api/internal/auth/password.go` | argon2id wrapper. `Hash(plaintext)`, `Verify(plaintext, hash)`. Policy: ≥12 chars; reject top-1000 common passwords list. |
-| `services/api/internal/auth/session.go` | `MintSession(ctx, userID, orgID, authMode)` returns `(sessionID, plaintextToken)`. `ValidateSession(ctx, plaintextToken)` returns `(*Session, error)`. `RevokeSession(ctx, sessionID)`. TTL default 24h, configurable via `SESSION_TTL_HOURS`. |
+| `services/api/internal/auth/session.go` | `MintSession(ctx, userID, orgID, authMode)` returns `(sessionID, plaintextToken)`. `ValidateSession(ctx, plaintextToken)` returns `(*Session, error)`. `RevokeSession(ctx, sessionID)`. `RevokeUserSessions(ctx, userID)`. TTL default 24h, configurable via `SESSION_TTL_HOURS`. **Cache-aside pattern via `services/shared/cache/`**: `ValidateSession` checks `cache.Get("session:"+tokenHash)` first; on miss, SELECTs from PG and populates the cache with TTL = remaining session lifetime. `RevokeSession` and `RevokeUserSessions` always do the PG write first then `cache.Delete(...)` — write-through invalidation. Cache failures are non-fatal; the read path falls through to PG and logs a `slog.Warn`. |
+| `services/api/internal/auth/session_cache.go` | Thin wrapper that adapts `cache.Cache` for the session read path. Single key shape: `axiaops:session:<sha256(token)>`. Single value shape: serialized `model.Session`. No business logic — pure caching. Kept separate from `session.go` so the read-through behaviour can be unit-tested in isolation against an in-memory cache implementation. |
 | `services/api/internal/auth/handler.go` | Routes below. Uses `Store`, `password`, `session`. |
 | `services/api/internal/auth/cookie.go` | Cookie helpers — name `axiaops_session`, `HttpOnly`, `Secure` (in non-DEV_MODE), `SameSite=Lax`, path `/`. |
-| `services/api/internal/middleware/auth_native.go` | Reads cookie, validates session, attaches user/org/role to request context. |
+| `services/api/internal/middleware/auth_native.go` | Reads cookie, calls `auth.ValidateSession` (which goes through the cache layer), attaches user/org/role to request context. Middleware does **not** know whether the hit came from Redis or PG — that's invisible at this layer. |
 | `services/api/internal/auth/bootstrap.go` | `POST /v1/auth/bootstrap` handler + the install-token generator that runs on service startup. Generator: on `cmd/main.go` boot, if `Store.CountOrganizations(ctx)==0` and no token is already present, mint 32 random bytes (hex-encoded), keep in process memory, print a banner to stdout (see §4.5), and write to `BOOTSTRAP_TOKEN_FILE_PATH` with mode `0600`. Handler: validates the POSTed token via `subtle.ConstantTimeCompare`, then creates org + user + owner membership + session in one tx, then wipes the token from memory + deletes the file. Returns 409 if any org already exists or no token was generated (e.g. service restarted after bootstrap). |
 
 **Modified files:**
@@ -289,6 +290,8 @@ Tick each before opening `feat/sso/b1-native-auth` MR:
 - [ ] Native auth path covered by black-box tests in `services/api/internal/auth/*_test.go`: signup, login, logout, invitation redemption, password reset, expired token rejection, single-use token enforcement, rate limiting.
 - [ ] argon2id parameters verified via test (`time=3, memory=64MiB`).
 - [ ] No plaintext passwords or tokens in logs (grep `slog` outputs in test).
+- [ ] Session cache-aside path verified: integration test asserts (a) cold request hits PG, (b) warm request within TTL is served from cache without a PG roundtrip, (c) `RevokeSession` invalidates the cache so the next request misses, (d) `start-dev` works without `REDIS_URL` set (in-memory cache fallback).
+- [ ] Redis outage simulation: with `REDIS_URL` set but Redis down, auth still works (degrades to PG SELECT per request) and `axiaops_session_cache_errors_total` counter increments.
 - [ ] OpenAPI / API docs updated for the new `/v1/auth/*` routes.
 - [ ] `Tasks.md` deprecation entry filed.
 
@@ -463,12 +466,14 @@ Across all three phases:
 Add to `services/shared/observability/`:
 
 ```go
-AuthLoginTotal       prometheus.CounterVec   // outcome, reason
-AuthSessionsActive   prometheus.GaugeVec     // org_id (cardinality cap: 1000)
-AuthInvitationsTotal prometheus.CounterVec   // outcome
-SSOLoginTotal        prometheus.CounterVec   // outcome, reason, protocol
-SSOJITProvisioned    prometheus.CounterVec   // role, source_group_match
-AuthProviderActive   prometheus.CounterVec   // provider (native|kinde) — strangler telemetry
+AuthLoginTotal          prometheus.CounterVec   // outcome, reason
+AuthSessionsActive      prometheus.GaugeVec     // org_id (cardinality cap: 1000)
+AuthInvitationsTotal    prometheus.CounterVec   // outcome
+SessionCacheTotal       prometheus.CounterVec   // outcome (hit|miss|error) — cache-aside health
+SessionCacheErrorsTotal prometheus.Counter      // backend errors (Redis down, etc.) — drives degradation alerts
+SSOLoginTotal           prometheus.CounterVec   // outcome, reason, protocol
+SSOJITProvisioned       prometheus.CounterVec   // role, source_group_match
+AuthProviderActive      prometheus.CounterVec   // provider (native|kinde) — strangler telemetry
 ```
 
 ### 7.3 Docs to update
@@ -492,6 +497,7 @@ AuthProviderActive   prometheus.CounterVec   // provider (native|kinde) — stra
 | `BOOTSTRAP_INSTALL_TOKEN` | B1 | (unset) | Optional override for unattended installs. |
 | `BOOTSTRAP_TOKEN_FILE_PATH` | B1 | `/var/run/axiaops/initial_setup_token` | Where the auto-generated token is written. Set empty to disable file. |
 | `SESSION_TTL_HOURS` | B1 | `24` | |
+| `REDIS_URL` | B1 | (existing) | When set, session reads use Redis cache via `services/shared/cache/`. When unset, in-memory cache fallback. PG remains the source of truth either way. |
 | `INVITATION_TTL_DAYS` | B1 | `14` | Existing var, reused. |
 | `PASSWORD_RESET_TTL_HOURS` | B1 | `4` | |
 | `SSO_SP_PRIVATE_KEY_PEM` | C | — | Required when any SAML connection is active. |
@@ -541,6 +547,8 @@ These are **not blockers for B1**. Resolve at the boundaries indicated.
 | Strangler period extends past deprecation date because dogfood didn't migrate. | Calendar reminder on day 150; require dogfood on `AUTH_PROVIDER=native` by day 30. |
 | `crewjam/saml` CVE during Phase C development. | Pin to latest tagged release; subscribe to crewjam's security advisories before merge. |
 | Native session cookie security regression (e.g. missing `Secure` flag, wrong `SameSite`). | Black-box test asserts cookie attributes. Browser-based smoke test in Phase B1 acceptance. |
+| Stale cache after revocation — user keeps access after `RevokeSession`. | Write-through invalidation: revocation paths always do PG write *then* `cache.Delete`. Integration test in B1 acceptance verifies the next request after revocation misses the cache and sees `revoked_at != NULL`. Cache TTL is also bounded by remaining session lifetime as a backstop. |
+| Redis outage degrades performance silently. | Cache errors increment `axiaops_session_cache_errors_total` and log at `slog.Warn`. Alert rule fires when error rate > 1/min for 5 min. Auth still works on PG-only path during the outage. |
 | First-owner bootstrap endpoint left enabled accidentally (e.g. token file not deleted, `BOOTSTRAP_INSTALL_TOKEN` left set in prod). | Endpoint is sealed by `Store.CountOrganizations(ctx) > 0` — once any org exists, no token re-grants access. Token file is deleted on successful bootstrap. Endpoint logs WARN every time it's invoked. Metric counter `axiaops_bootstrap_attempts_total{outcome=...}` for monitoring. Runbook says to unset `BOOTSTRAP_INSTALL_TOKEN` from secret stores after first boot and verify the token file is gone. |
 | Install token leaked via stdout / log aggregator (CI logs forwarded to a third-party log service). | Token is single-use and the bootstrap endpoint is sealed after first claim. Operators with strict log-handling requirements can set `BOOTSTRAP_INSTALL_TOKEN` themselves to suppress the stdout banner. Banner explicitly says "delete from logs after first use." |
 | Operator pastes the token URL or token into Slack / chat. | Token is in the form body, never in the URL — no copyable URL contains the secret. The banner shows the token as a separate line item, easier to redact from screenshots. |
