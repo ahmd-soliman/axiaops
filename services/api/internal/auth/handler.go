@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -25,10 +26,11 @@ import (
 // publicPath() in middleware/auth.go matches the /v1/auth/ prefix to
 // keep them out of the WrapNative chain.
 type Handler struct {
-	store     storage.NativeAuthStore
-	sessions  *Manager
-	cookieCfg CookieConfig
-	auditFn   AuditWriter
+	store      storage.NativeAuthStore
+	sessions   *Manager
+	cookieCfg  CookieConfig
+	auditFn    AuditWriter
+	loginLimit *LoginRateLimiter // nil → no rate limiting (dev fallback)
 }
 
 // AuditWriter is the seam for hooking audit_log writes from this
@@ -39,6 +41,8 @@ type AuditWriter func(ctx context.Context, organizationID, userID, action string
 
 // NewHandler returns a wired Handler. cookieCfg is the same value the
 // app middleware uses (DEV_MODE flips Secure off). auditFn may be nil.
+// Rate limiting is added separately via WithLoginRateLimit so it stays
+// out of the constructor's required-arg list (most tests don't need it).
 func NewHandler(store storage.NativeAuthStore, sessions *Manager, cookieCfg CookieConfig, auditFn AuditWriter) *Handler {
 	return &Handler{
 		store:     store,
@@ -46,6 +50,14 @@ func NewHandler(store storage.NativeAuthStore, sessions *Manager, cookieCfg Cook
 		cookieCfg: cookieCfg,
 		auditFn:   auditFn,
 	}
+}
+
+// WithLoginRateLimit attaches the rate limiter that gates POST
+// /v1/auth/login. Pass nil to disable (dev fallback). Returns the
+// receiver for fluent setup so cmd/main.go can chain.
+func (h *Handler) WithLoginRateLimit(rl *LoginRateLimiter) *Handler {
+	h.loginLimit = rl
+	return h
 }
 
 // Register attaches the auth routes to the supplied mux. Endpoints:
@@ -238,6 +250,28 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	if req.Email == "" || req.Password == "" {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "email and password required")
 		return
+	}
+
+	// Rate-limit gate (plan §4.2: 10/min/IP, 5/min per email). Runs
+	// BEFORE LookupUserByEmail so an attacker probing valid emails
+	// can't drive DB load past the cap. Anti-stuffing: the per-email
+	// cap caps how many distinct passwords an attacker can try
+	// against one account from a botnet. Failing-open posture means a
+	// cache outage degrades to "no rate limiting" rather than locking
+	// users out — matches the legacy middleware/RateLimiter.
+	if h.loginLimit != nil {
+		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), req.Email)
+		if !outcome.Allowed {
+			retry := int(outcome.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			observability.Global.AuthLoginTotal.WithLabelValues("failure", "rate_limited").Inc()
+			writeAuthError(w, http.StatusTooManyRequests, "rate_limited",
+				"too many login attempts; please retry shortly")
+			return
+		}
 	}
 
 	u, memberships, err := h.store.LookupUserByEmail(r.Context(), req.Email)
