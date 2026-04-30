@@ -157,6 +157,59 @@ func (m *mockStoreForScheduler) MarkOnboardingComplete(context.Context) (time.Ti
 	return time.Time{}, nil
 }
 
+// ── Phase B1 native-auth method stubs ───────────────────────────────────────
+// The scheduler never calls into these — it only deals with accounts and
+// scans. Stubs return zero values / sentinel errors so compilation succeeds.
+
+func (m *mockStoreForScheduler) CreateUserWithPassword(context.Context, model.User) (model.User, error) {
+	return model.User{}, errors.New("CreateUserWithPassword not implemented")
+}
+func (m *mockStoreForScheduler) UpdateUserPassword(context.Context, string, string) error {
+	return errors.New("UpdateUserPassword not implemented")
+}
+func (m *mockStoreForScheduler) CountOrganizations(context.Context) (int64, error) { return 0, nil }
+func (m *mockStoreForScheduler) CreateSession(context.Context, model.Session) (model.Session, error) {
+	return model.Session{}, errors.New("CreateSession not implemented")
+}
+func (m *mockStoreForScheduler) GetSessionByTokenHash(context.Context, string) (model.Session, error) {
+	return model.Session{}, storage.ErrSessionNotFound
+}
+func (m *mockStoreForScheduler) TouchSessionLastSeen(context.Context, string) error { return nil }
+func (m *mockStoreForScheduler) RevokeSession(context.Context, string) error        { return nil }
+func (m *mockStoreForScheduler) RevokeUserSessions(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) ListUserSessionTokenHashes(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) CountSessionsForUser(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (m *mockStoreForScheduler) SweepExpiredSessions(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *mockStoreForScheduler) CreatePasswordReset(context.Context, string, string, string, string, string, time.Time) error {
+	return errors.New("CreatePasswordReset not implemented")
+}
+func (m *mockStoreForScheduler) RedeemPasswordReset(context.Context, string, string) (string, error) {
+	return "", storage.ErrPasswordResetNotFound
+}
+func (m *mockStoreForScheduler) CreateBootstrapState(context.Context, string, string) (bool, error) {
+	return false, storage.ErrBootstrapAlreadyDone
+}
+func (m *mockStoreForScheduler) GetBootstrapState(context.Context) (string, string, error) {
+	return "", "", storage.ErrBootstrapAlreadyDone
+}
+func (m *mockStoreForScheduler) ConsumeBootstrapState(context.Context, storage.BootstrapConsume) (storage.BootstrapResult, error) {
+	return storage.BootstrapResult{}, storage.ErrBootstrapAlreadyDone
+}
+func (m *mockStoreForScheduler) CreateNativeInvitation(context.Context, model.PendingInvitation) (model.PendingInvitation, bool, error) {
+	return model.PendingInvitation{}, false, errors.New("CreateNativeInvitation not implemented")
+}
+func (m *mockStoreForScheduler) RedeemNativeInvitation(context.Context, storage.NativeInviteRedeem) (model.User, model.Membership, error) {
+	return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
+}
+
 // captureQueue records enqueued jobs.
 type captureQueue struct{ jobs []queue.ScanJob }
 
