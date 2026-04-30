@@ -114,14 +114,25 @@ func newWithKeyfunc(issuer string, kf jwt.Keyfunc) *Auth {
 }
 
 // publicPath reports whether the path bypasses authentication.
-// /metrics, /health, /livez, /readyz must remain reachable from
-// container orchestration and Prometheus without a JWT.
+// Three families bypass:
+//
+//  1. Infra: /metrics, /health, /livez, /readyz — must remain reachable
+//     from container orchestration and Prometheus without a session.
+//  2. Auth ceremony: /v1/auth/bootstrap, /v1/auth/login,
+//     /v1/auth/invitations/redeem, /v1/auth/password-reset/redeem —
+//     the endpoints used to *acquire* authentication. /v1/auth/logout
+//     is also bypassed (the handler tolerates a missing/invalid cookie
+//     and clears whatever's there).
+//
+// Plan §4.2 lists rate-limiting requirements (10/min/IP for login, etc.)
+// — those land in a follow-up slice; the bypass here is the routing
+// layer, not the abuse-protection layer.
 func publicPath(p string) bool {
 	switch p {
 	case "/health", "/livez", "/readyz", "/metrics":
 		return true
 	}
-	return false
+	return strings.HasPrefix(p, "/v1/auth/")
 }
 
 // Wrap returns an http.Handler that enforces JWT authentication.

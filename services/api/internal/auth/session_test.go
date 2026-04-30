@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,21 +17,45 @@ import (
 	"axiaops.io/shared/storage"
 )
 
-// fakeStore is an in-memory storage.NativeAuthStore for unit tests. Only
-// the surface that auth.Manager actually exercises is implemented; calls
-// to other methods panic so a forgotten dependency surfaces immediately.
+// fakeStore is an in-memory storage.NativeAuthStore for unit tests.
+// Implements both Manager's surface (sessions, list/count) and the
+// Handler's surface (bootstrap, login, password reset). Methods not
+// reachable from any test panic so a forgotten dependency surfaces
+// immediately.
 type fakeStore struct {
-	mu       sync.Mutex
+	mu sync.Mutex
+
 	sessions map[string]model.Session // keyed by session_token_hash
 	touches  map[string]int           // session ID → TouchSessionLastSeen call count
 	now      func() time.Time
+
+	// Bootstrap singleton state. Only one row is allowed.
+	bootstrap          *fakeBootstrap
+	organizationsCount int64
+
+	// Users keyed by lower(email) for global login lookup, and by id
+	// for membership joins.
+	usersByEmail map[string]model.User
+	usersByID    map[string]model.User
+
+	// Memberships keyed by user_id (a slice — a user can belong to
+	// multiple orgs).
+	memberships map[string][]model.Membership
+}
+
+type fakeBootstrap struct {
+	tokenHash string
+	pod       string
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		sessions: make(map[string]model.Session),
-		touches:  make(map[string]int),
-		now:      func() time.Time { return time.Now().UTC() },
+		sessions:     make(map[string]model.Session),
+		touches:      make(map[string]int),
+		now:          func() time.Time { return time.Now().UTC() },
+		usersByEmail: make(map[string]model.User),
+		usersByID:    make(map[string]model.User),
+		memberships:  make(map[string][]model.Membership),
 	}
 }
 
@@ -145,40 +170,119 @@ func (f *fakeStore) CountSessionsForUser(_ context.Context, userID string) (int,
 
 func (f *fakeStore) SweepExpiredSessions(context.Context, time.Time) (int64, error) { return 0, nil }
 
-// ── unused interface methods — panic to surface accidental coupling ────────
+// ── handler-surface methods (CountOrganizations, bootstrap, login) ─────────
+
+func (f *fakeStore) CountOrganizations(context.Context) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.organizationsCount, nil
+}
+
+func (f *fakeStore) CreateBootstrapState(_ context.Context, tokenHash, pod string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.organizationsCount > 0 {
+		return false, storage.ErrBootstrapAlreadyDone
+	}
+	if f.bootstrap != nil {
+		return false, nil
+	}
+	f.bootstrap = &fakeBootstrap{tokenHash: tokenHash, pod: pod}
+	return true, nil
+}
+
+func (f *fakeStore) GetBootstrapState(context.Context) (string, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.bootstrap == nil {
+		return "", "", storage.ErrBootstrapAlreadyDone
+	}
+	return f.bootstrap.tokenHash, f.bootstrap.pod, nil
+}
+
+func (f *fakeStore) ConsumeBootstrapState(_ context.Context, in storage.BootstrapConsume) (storage.BootstrapResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.bootstrap == nil {
+		return storage.BootstrapResult{}, storage.ErrBootstrapAlreadyDone
+	}
+	if f.bootstrap.tokenHash != in.TokenHash {
+		return storage.BootstrapResult{}, storage.ErrBootstrapTokenMismatch
+	}
+	if _, exists := f.usersByEmail[strings.ToLower(in.UserEmail)]; exists {
+		return storage.BootstrapResult{}, storage.ErrUserEmailExists
+	}
+	now := f.now()
+	user := model.User{
+		ID:             in.UserID,
+		OrganizationID: in.OrganizationID,
+		Email:          in.UserEmail,
+		Name:           in.UserName,
+		PasswordHash:   in.UserPasswordHash,
+		PasswordSetAt:  &now,
+		CreatedAt:      now,
+		LastSeen:       now,
+	}
+	f.usersByEmail[strings.ToLower(in.UserEmail)] = user
+	f.usersByID[in.UserID] = user
+	f.memberships[in.UserID] = []model.Membership{{
+		ID:             "m-" + in.UserID,
+		OrganizationID: in.OrganizationID,
+		UserID:         in.UserID,
+		Role:           "owner",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	session := model.Session{
+		ID:               in.SessionID,
+		UserID:           in.UserID,
+		OrganizationID:   in.OrganizationID,
+		AuthMode:         model.AuthModeBootstrap,
+		SessionTokenHash: in.SessionTokenHash,
+		CreatedAt:        now,
+		ExpiresAt:        in.SessionExpiresAt,
+		LastSeenAt:       now,
+		UserAgentHash:    in.SessionUserAgentHash,
+	}
+	f.sessions[in.SessionTokenHash] = session
+	f.organizationsCount++
+	f.bootstrap = nil
+	return storage.BootstrapResult{User: user, Session: session}, nil
+}
+
+func (f *fakeStore) LookupUserByEmail(_ context.Context, email string) (model.User, []model.Membership, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.usersByEmail[strings.ToLower(email)]
+	if !ok {
+		return model.User{}, nil, storage.ErrUserNotFound
+	}
+	mships := append([]model.Membership(nil), f.memberships[u.ID]...)
+	return u, mships, nil
+}
+
+// ── unused-by-tests methods — panic to surface accidental coupling ─────────
 
 func (f *fakeStore) CreateUserWithPassword(context.Context, model.User) (model.User, error) {
-	panic("not used by Manager tests")
+	panic("not used by tests in this package")
 }
 func (f *fakeStore) UpdateUserPassword(context.Context, string, string) error {
-	panic("not used by Manager tests")
-}
-func (f *fakeStore) CountOrganizations(context.Context) (int64, error) {
-	panic("not used by Manager tests")
+	panic("not used by tests in this package")
 }
 func (f *fakeStore) LookupMembership(context.Context, string, string) (string, string, error) {
-	panic("not used by Manager tests")
+	panic("not used by tests in this package")
 }
 func (f *fakeStore) CreatePasswordReset(context.Context, string, string, string, string, string, time.Time) error {
-	panic("not used by Manager tests")
+	panic("not used by tests in this package")
 }
 func (f *fakeStore) RedeemPasswordReset(context.Context, string, string) (string, error) {
-	panic("not used by Manager tests")
-}
-func (f *fakeStore) CreateBootstrapState(context.Context, string, string) (bool, error) {
-	panic("not used by Manager tests")
-}
-func (f *fakeStore) GetBootstrapState(context.Context) (string, string, error) {
-	panic("not used by Manager tests")
-}
-func (f *fakeStore) ConsumeBootstrapState(context.Context, storage.BootstrapConsume) (storage.BootstrapResult, error) {
-	panic("not used by Manager tests")
+	panic("not used by tests in this package")
 }
 func (f *fakeStore) CreateNativeInvitation(context.Context, model.PendingInvitation) (model.PendingInvitation, bool, error) {
-	panic("not used by Manager tests")
+	panic("not used by tests in this package")
 }
 func (f *fakeStore) RedeemNativeInvitation(context.Context, storage.NativeInviteRedeem) (model.User, model.Membership, error) {
-	panic("not used by Manager tests")
+	panic("not used by tests in this package")
 }
 
 // newManager wires Manager + fakeStore + the in-memory cache impl exposed
