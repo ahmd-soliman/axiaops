@@ -116,6 +116,38 @@ func (s *Store) CountOrganizations(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
+// LookupMembership joins memberships + users in one SELECT. Bypasses RLS
+// (uses adminPool) because the native auth provider runs this lookup
+// BEFORE the request has an organization context — it's the lookup that
+// resolves the role for that context. Equivalent reasoning to
+// GetSessionByTokenHash; see migration 021 for the pattern.
+//
+// Returns ("", "", nil) when no membership row matches — the caller
+// treats that as authentication failure (defence in depth: a session
+// that points at a now-deleted membership must not authenticate).
+func (s *Store) LookupMembership(ctx context.Context, organizationID, userID string) (string, string, error) {
+	if organizationID == "" || userID == "" {
+		return "", "", nil
+	}
+	// users.email is NOT NULL DEFAULT '' (migration 001), so no COALESCE
+	// is needed — empty-string emails round-trip as empty strings.
+	var role, email string
+	err := s.adminPool.QueryRow(ctx, `
+		SELECT m.role, u.email
+		FROM memberships m
+		JOIN users u ON u.id = m.user_id
+		WHERE m.organization_id = $1 AND m.user_id = $2`,
+		organizationID, userID,
+	).Scan(&role, &email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("postgres: lookup membership: %w", err)
+	}
+	return role, email, nil
+}
+
 // ── Sessions ────────────────────────────────────────────────────────────────
 
 // CreateSession inserts a session row. Bypasses RLS — sessions has no RLS by

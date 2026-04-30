@@ -156,6 +156,9 @@ func (f *fakeStore) UpdateUserPassword(context.Context, string, string) error {
 func (f *fakeStore) CountOrganizations(context.Context) (int64, error) {
 	panic("not used by Manager tests")
 }
+func (f *fakeStore) LookupMembership(context.Context, string, string) (string, string, error) {
+	panic("not used by Manager tests")
+}
 func (f *fakeStore) CreatePasswordReset(context.Context, string, string, string, string, string, time.Time) error {
 	panic("not used by Manager tests")
 }
