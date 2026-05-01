@@ -69,7 +69,7 @@ func newHandlerTestWithAudit(t *testing.T) (*auth.Handler, *fakeStore, *auth.Man
 		SessionsPerUser: 10,
 	})
 	cap := &auditCapture{}
-	h := auth.NewHandler(store, mgr, auth.NewCookieConfig(true /* DEV — Secure off */), cap.writer())
+	h := auth.NewHandler(store, mgr, auth.NewCookieConfig(), cap.writer())
 	return h, store, mgr, cap
 }
 
