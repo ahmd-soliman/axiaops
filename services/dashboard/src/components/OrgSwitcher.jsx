@@ -17,23 +17,29 @@ import { queryClient } from '../main';
 //   - Multi-membership user: clickable button opens a dropdown listing
 //     every membership from /v1/me. The currently-active org is marked
 //     and not actionable; clicking a different one calls
-//     /v1/auth/switch-org. On success: clear the react-query cache
-//     (every cached query is bound to the OLD org_id at the cookie
-//     layer; refetching them under the new identity gives a clean
-//     slate), refresh MeContext, navigate to /. We intentionally leave
-//     the dashboard's current page unless the post-switch identity
-//     doesn't have access — easiest signal is "go home and let the
-//     user re-navigate."
+//     /v1/auth/switch-org. On success: drop org-bound react-query
+//     entries (every cached query is bound to the OLD org_id at the
+//     cookie layer; refetching them under the new identity gives a
+//     clean slate), refresh MeContext, navigate to /. We intentionally
+//     leave the dashboard's current page unless the post-switch
+//     identity doesn't have access — easiest signal is "go home and
+//     let the user re-navigate."
+//
+// `fallbackName` is shown during the initial /v1/me round-trip so the
+// navbar slot isn't blank on first paint — under Kinde mode this is the
+// JWT-decoded org_name; under native it's empty until /v1/me lands.
 //
 // Failure modes:
-//   - 403 not_a_member: the dropdown was stale (admin removed the
-//     membership between /v1/me fetch and the click). Refresh MeContext
-//     and surface a toast.
-//   - 401: session evaporated between the click and the request — the
-//     middleware will bounce the user to /login on the next request,
-//     so a toast + me.refresh is enough.
+//   - 403 not_a_member: usually a stale dropdown (admin removed the
+//     membership between /v1/me fetch and the click). After refresh,
+//     if the user has zero memberships left, bounce to /login — they
+//     have no recoverable state. Otherwise stay on / with a toast.
+//   - 401: session evaporated. The global UNAUTHORIZED_EVENT handler
+//     in App.jsx already navigates to /login on the originating
+//     ifetch's 401 dispatch, so this path just toasts (no double-
+//     fire of refresh, which would 401 again).
 //   - other: generic toast, log to console.
-export default function OrgSwitcher() {
+export default function OrgSwitcher({ fallbackName = '' }) {
   const { theme: t, isDark } = useTheme();
   const { me, refresh } = useMe();
   const { toast } = useToast();
@@ -61,6 +67,7 @@ export default function OrgSwitcher() {
   const activeOrgName =
     memberships.find((m) => m.organization_id === activeOrgID)?.organization_name ||
     me?.organization?.name ||
+    fallbackName ||
     '';
 
   // Single-membership (or zero, defensive) → render as a non-interactive
@@ -91,25 +98,47 @@ export default function OrgSwitcher() {
     setBusy(true);
     try {
       await authSwitchOrg(orgID);
-      // Drop every cached react-query result — they were keyed against
-      // the previous cookie's organization_id at the middleware layer.
-      // Refetching under the new cookie returns the new org's data.
-      queryClient.clear();
+      // Drop every org-bound react-query entry. Predicate-keyed remove
+      // (NOT queryClient.clear()) so session-stable queries like
+      // ['api-version'] survive — clear() would evict them and their
+      // staleTime: Infinity prevents a refetch, leaving the footer's
+      // API build-line permanently blank for the rest of the session.
+      queryClient.removeQueries({
+        predicate: (q) => {
+          const root = q.queryKey?.[0];
+          // Allowlist of session-stable keys whose data is identical
+          // across orgs. Everything else gets wiped.
+          return root !== 'api-version' && root !== 'app-version';
+        },
+      });
       // Re-pull /v1/me so the active org_id + role + memberships array
       // reflect the new binding. Triggers re-render of every component
       // that reads useMe().
       await refresh();
       setOpen(false);
+      setBusy(false);
       // Navigate home — pages like /detail/:id are bound to specific
       // resource IDs that don't exist in the new org.
       navigate('/', { replace: true });
     } catch (e) {
       if (e.status === 403) {
+        // Stale dropdown. Refresh MeContext, and if that comes back with
+        // zero memberships (membership removed across the board, not
+        // just from target), bounce to /login — there's no recoverable
+        // state. The 403 from ifetch already fired FORBIDDEN_EVENT
+        // which triggered MeContext's own refresh, but awaiting again
+        // here is harmless (fetchMe in-flight de-dupes).
         toast('You no longer have access to that organisation.', 'error');
         await refresh();
+        if (!me?.organization_id) {
+          navigate('/login', { replace: true });
+          return;
+        }
       } else if (e.status === 401) {
+        // ifetch already fired UNAUTHORIZED_EVENT which navigates to
+        // /login via App.jsx's global handler. Don't call refresh()
+        // here — it would 401 again and double-fire the event.
         toast('Sign-in expired. Please sign in again.', 'error');
-        await refresh();
       } else {
         toast('Could not switch organisations. Please try again.', 'error');
         // eslint-disable-next-line no-console
