@@ -6,6 +6,7 @@ import { useMe } from '../context/MeContext';
 import { fetchVersion } from '../api/client';
 import { APP_VERSION, APP_COMMIT_SHA } from '../config';
 import AvatarMenu from './AvatarMenu';
+import OrgSwitcher from './OrgSwitcher';
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
 
@@ -102,7 +103,8 @@ const NAV_ITEMS = [
 export default function AppShell() {
   const { theme, isDark, toggleTheme } = useTheme();
   const { orgName } = useApp();
-  const { can } = useMe();
+  const { me, can } = useMe();
+  const memberships = me?.memberships || [];
   const navigate  = useNavigate();
   const location  = useLocation();
   const t = theme;
@@ -199,8 +201,13 @@ export default function AppShell() {
             {isDark ? <IconSun color={t.accentMuted} /> : <IconMoon color={t.accentMuted} />}
           </button>
 
-          {/* Org badge */}
-          {orgName && (
+          {/* Org badge / switcher. OrgSwitcher renders the same static
+              badge shape for single-membership users (no UI change vs
+              B1) and an interactive dropdown for multi-membership
+              users that rotates the session via /v1/auth/switch-org.
+              Falls back to the legacy `orgName` only if /v1/me hasn't
+              loaded yet, so the navbar isn't blank during initial paint. */}
+          {memberships.length === 0 && orgName ? (
             <div style={{
               padding: '4px 10px',
               borderRadius: 7,
@@ -209,6 +216,8 @@ export default function AppShell() {
             }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: t.textMid }}>{orgName}</span>
             </div>
+          ) : (
+            <OrgSwitcher />
           )}
 
           <AvatarMenu />
