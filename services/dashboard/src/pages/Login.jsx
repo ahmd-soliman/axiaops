@@ -20,6 +20,12 @@ export default function Login() {
 
   useEffect(() => {
     if (DEV_MODE || getToken()) navigate('/', { replace: true });
+    // No /v1/me probe under native auth: it races with logout's
+    // authLogout — if the request is sent before the cookie is cleared,
+    // we get a 200 and navigate to "/" while MeContext immediately sees
+    // the dead cookie and bounces back to /login. That ping-pong is the
+    // "blinks while logging out" symptom. The "user is already logged in
+    // on /login" case is rare and the worst outcome is logging in again.
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset busy on bfcache restore (browser back from Kinde redirect).
