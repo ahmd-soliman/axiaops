@@ -14,6 +14,7 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"time"
 
@@ -205,16 +206,21 @@ func checkExpiryAt(l *License, now time.Time) State {
 }
 
 // DaysRemaining is the count of whole days from now until exp + grace_period.
-// Negative once past hard cutoff. Surfaced via /v1/version (slice 4) and the
+// Negative once past hard cutoff. Surfaced via /v1/version (slice 6) and the
 // LicenseDaysRemaining gauge (slice 2).
+//
+// Uses math.Floor on the hours-fraction so a license that crossed hard
+// cutoff one hour ago reports -1 (not 0). Plain `int(d / (24*time.Hour))`
+// truncates toward zero, which would mask the first 24 hours of expiry from
+// the `license_days_remaining < 0` alert.
 func (l *License) DaysRemaining() int {
 	return daysRemainingAt(l, time.Now())
 }
 
 func daysRemainingAt(l *License, now time.Time) int {
 	hardCutoff := l.ExpiresAt.Add(time.Duration(l.GracePeriodDays) * 24 * time.Hour)
-	d := hardCutoff.Sub(now)
-	return int(d / (24 * time.Hour))
+	hours := hardCutoff.Sub(now).Hours()
+	return int(math.Floor(hours / 24))
 }
 
 // readLicenseJWT returns the raw JWT string from EnvLicense (preferred) or

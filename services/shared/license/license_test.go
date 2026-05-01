@@ -326,6 +326,23 @@ func TestCheckExpiry_BoundaryAtExp(t *testing.T) {
 	}
 }
 
+// TestDaysRemaining_NegativeWithinFirstDayPastHardCutoff guards against the
+// integer-truncation bug where `int(d / 24h)` returned 0 for the first 24h
+// past hard cutoff (since negative durations truncate toward zero). The
+// `license_days_remaining < 0` Prometheus alert relies on this returning
+// -1 immediately after the hard-cutoff boundary, not 24h later.
+func TestDaysRemaining_NegativeWithinFirstDayPastHardCutoff(t *testing.T) {
+	now := time.Now()
+	// Hard cutoff = exp + grace = (now - 31d) + 30d = now - 24h.
+	lic := &license.License{
+		ExpiresAt:       now.Add(-31 * 24 * time.Hour),
+		GracePeriodDays: 30,
+	}
+	if dr := lic.DaysRemaining(); dr >= 0 {
+		t.Errorf("DaysRemaining = %d, want negative — math.Floor regression in daysRemainingAt", dr)
+	}
+}
+
 // flipChar returns a JWT-base64url char that is guaranteed different from c.
 // Used to corrupt a signature byte without producing an invalid base64 char.
 func flipChar(c byte) string {
