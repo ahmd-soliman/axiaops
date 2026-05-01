@@ -510,18 +510,47 @@ async function decodeAuthError(res) {
   }
 }
 
-// authLogin posts email + password to /v1/auth/login. On success the
-// server sets the session cookie and returns {user, organization}.
+// authLogin posts email + password to /v1/auth/login. The server returns
+// 200 in two distinct shapes:
+//   - Single-membership: {user, organization} — session cookie minted.
+//   - Multi-membership:  {needs_org_selection: true, orgs: [{id, name}]} —
+//                        no cookie; caller must POST /v1/auth/select-org
+//                        with the same creds + the chosen org_id.
 //
-// Two error shapes the caller must handle:
-//   - 401 invalid_credentials  — wrong email or password
-//   - 409 multi_org_not_supported — user has > 1 active membership;
-//                                   B1.5 will introduce the org picker
+// We only reset the in-memory /v1/me cache on the single-org branch where
+// a fresh cookie was actually minted. The picker branch leaves the prior
+// auth state untouched (no cookie, no me-cache invalidation needed).
+//
+// Error: 401 invalid_credentials — wrong email or password.
 export async function authLogin(email, password) {
   const res = await ifetch(`${BASE_URL}/v1/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  const body = await res.json();
+  if (!body.needs_org_selection) resetFetchMeCache();
+  return body;
+}
+
+// authSelectOrg is the picker step that pairs with authLogin's multi-org
+// branch. Re-posts {email, password, organization_id} so the server can
+// re-validate the password from scratch (defence in depth — never trust
+// the frontend to remember step 1) and mint a session bound to the
+// chosen org. Returns {user, organization} on success; the cookie is
+// set by the server.
+//
+// Error shapes the caller must handle:
+//   - 401 invalid_credentials — wrong password OR org_id not in the
+//     user's membership set (server collapses both to one shape so a
+//     no-creds attacker can't probe org existence).
+//   - 429 rate_limited — shared budget with /v1/auth/login.
+export async function authSelectOrg(email, password, organizationId) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/select-org`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, organization_id: organizationId }),
   });
   if (!res.ok) throw await decodeAuthError(res);
   resetFetchMeCache();

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { authLogin } from '../api/client';
 import { getKindeClient } from '../auth/kinde';
 import { getToken } from '../auth/storage';
@@ -15,8 +15,13 @@ import NativeLoginScreen from '../screens/NativeLoginScreen';
 // directly via DevBypass.
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // OrgPickerScreen bounces back here with a state.error message when
+  // /select-org returned 401 (limiter fired or something raced) — show
+  // it on first render so the user knows why they're back at /login
+  // rather than seeing a silently-empty form.
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(location.state?.error || '');
 
   useEffect(() => {
     if (DEV_MODE || getToken()) navigate('/', { replace: true });
@@ -42,18 +47,23 @@ export default function Login() {
     setBusy(true);
     setError('');
     try {
-      await authLogin(email, password);
-      // Cookie set by the server; no token to stash on the JS side.
+      const result = await authLogin(email, password);
+      // Multi-membership branch (B1.5): server returned the picker payload
+      // with no cookie. Hand the creds + orgs list to /select-org via
+      // route state. The state is in-memory only — refresh on /select-org
+      // bounces back to /login (creds aren't persisted anywhere).
+      if (result.needs_org_selection) {
+        navigate('/select-org', {
+          replace: true,
+          state: { email, password, orgs: result.orgs },
+        });
+        return;
+      }
+      // Single-membership branch: cookie set by the server, dashboard ready.
       navigate('/', { replace: true });
     } catch (e) {
       // The auth client throws a structured error with .code on 4xx.
-      if (e.code === 'multi_org_not_supported') {
-        setError(
-          'This account belongs to multiple organisations. Multi-org login lands ' +
-          'in the next release — please ask your administrator to consolidate or ' +
-          'wait for the update.',
-        );
-      } else if (e.status === 401) {
+      if (e.status === 401) {
         setError('Invalid email or password.');
       } else if (e.status === 400) {
         setError(e.message || 'Please check your input and try again.');
