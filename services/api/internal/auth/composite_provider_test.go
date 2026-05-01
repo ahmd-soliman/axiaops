@@ -80,3 +80,57 @@ func TestCompositeRequiresAtLeastOneProvider(t *testing.T) {
 	}()
 	_ = auth.NewCompositeProvider()
 }
+
+// TestCompositeRollingDeployBothShapesAccepted nails the architect-S1
+// acceptance: under AUTH_PROVIDER=both, the same replica must accept
+// either a native session cookie OR a Kinde Bearer JWT without
+// flapping. Drives two shaped requests through the same composite —
+// the native-shaped request returns the native Identity; the
+// kinde-shaped request falls through native and returns the kinde
+// Identity. Both succeed; neither order is sticky.
+func TestCompositeRollingDeployBothShapesAccepted(t *testing.T) {
+	t.Parallel()
+	// Stand-in providers that "accept" requests carrying their
+	// shape's marker header. Real native/kinde providers parse
+	// cookies / Bearer JWTs respectively; the composite logic is
+	// shape-agnostic, so a header-shape stub is sufficient.
+	nativeStub := shapedProvider{header: "X-Test-Cookie", id: auth.Identity{UserID: "u-native", AuthMode: "password"}}
+	kindeStub := shapedProvider{header: "Authorization", id: auth.Identity{UserID: "u-kinde", AuthMode: "kinde"}}
+	c := auth.NewCompositeProvider(nativeStub, kindeStub)
+
+	// Cookie-shaped request → native wins.
+	cookieReq := httptest.NewRequest("GET", "/x", nil)
+	cookieReq.Header.Set("X-Test-Cookie", "fixture")
+	id, err := c.Authenticate(cookieReq)
+	if err != nil {
+		t.Fatalf("cookie-shaped request: %v", err)
+	}
+	if id.UserID != "u-native" || id.AuthMode != "password" {
+		t.Errorf("cookie-shaped → identity = %+v; want native", id)
+	}
+
+	// Bearer-shaped request, same composite instance → native fails,
+	// kinde wins. No flapping; the ordering is deterministic per
+	// request, not stateful across requests.
+	bearerReq := httptest.NewRequest("GET", "/x", nil)
+	bearerReq.Header.Set("Authorization", "Bearer fixture")
+	id, err = c.Authenticate(bearerReq)
+	if err != nil {
+		t.Fatalf("bearer-shaped request: %v", err)
+	}
+	if id.UserID != "u-kinde" || id.AuthMode != "kinde" {
+		t.Errorf("bearer-shaped → identity = %+v; want kinde", id)
+	}
+}
+
+type shapedProvider struct {
+	header string
+	id     auth.Identity
+}
+
+func (p shapedProvider) Authenticate(r *http.Request) (auth.Identity, error) {
+	if r.Header.Get(p.header) == "" {
+		return auth.Identity{}, auth.ErrUnauthenticated
+	}
+	return p.id, nil
+}

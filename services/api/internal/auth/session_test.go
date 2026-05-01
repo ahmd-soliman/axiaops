@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -451,8 +452,10 @@ func newManager(t *testing.T) (*auth.Manager, *fakeStore, cache.Cache, *auth.Ses
 func TestSetSessionRoundTrip(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/v1/auth/login", nil)
+	r.Header.Set("X-Forwarded-Proto", "https") // simulates production behind a TLS terminator
 	expires := time.Now().Add(time.Hour)
-	auth.SetSession(w, auth.NewCookieConfig(false), "abc.def.ghi", expires)
+	auth.SetSession(w, r, auth.NewCookieConfig(), "abc.def.ghi", expires)
 	cookies := w.Result().Cookies()
 	if len(cookies) != 1 {
 		t.Fatalf("expected one Set-Cookie, got %d", len(cookies))
@@ -468,7 +471,7 @@ func TestSetSessionRoundTrip(t *testing.T) {
 		t.Error("cookie HttpOnly should be set")
 	}
 	if !c.Secure {
-		t.Error("cookie Secure should be set when not in DEV_MODE")
+		t.Error("cookie Secure should be set when X-Forwarded-Proto is https")
 	}
 	if c.SameSite != http.SameSiteLaxMode {
 		t.Errorf("cookie SameSite = %v; want Lax", c.SameSite)
@@ -478,13 +481,66 @@ func TestSetSessionRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSetSessionDevModeSecureOff(t *testing.T) {
+func TestSetSessionPlainHTTPNotSecure(t *testing.T) {
+	// Plain HTTP request — no TLS, no X-Forwarded-Proto header.
+	// Browsers silently drop Secure cookies on HTTP origins, so the
+	// helper must NOT mark the cookie Secure here. This is the local
+	// dev / test path (also covers any deployment that exposes the
+	// API on plain HTTP, which is unsupported in production).
 	t.Parallel()
 	w := httptest.NewRecorder()
-	auth.SetSession(w, auth.NewCookieConfig(true), "x", time.Now().Add(time.Hour))
+	r := httptest.NewRequest("POST", "/v1/auth/login", nil)
+	auth.SetSession(w, r, auth.NewCookieConfig(), "x", time.Now().Add(time.Hour))
 	c := w.Result().Cookies()[0]
 	if c.Secure {
-		t.Error("cookie Secure must be off in DEV_MODE so localhost works")
+		t.Error("cookie Secure must be off when the request is plain HTTP")
+	}
+}
+
+func TestSetSessionTLSRequestIsSecure(t *testing.T) {
+	// Request with r.TLS set (direct HTTPS to the API — uncommon for
+	// our deployments since we sit behind a TLS terminator, but we
+	// honour it anyway).
+	t.Parallel()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/v1/auth/login", nil)
+	r.TLS = &tls.ConnectionState{} // non-nil signals direct TLS to the API
+	auth.SetSession(w, r, auth.NewCookieConfig(), "x", time.Now().Add(time.Hour))
+	c := w.Result().Cookies()[0]
+	if !c.Secure {
+		t.Error("cookie Secure must be set when r.TLS is non-nil")
+	}
+}
+
+func TestSetSessionXForwardedProtoHTTPSIsSecure(t *testing.T) {
+	// Production shape: TLS terminator (App Runner / nginx) sets
+	// X-Forwarded-Proto on the proxied request. The API container
+	// itself receives plain HTTP from the LB but knows the original
+	// edge was HTTPS — cookies must be marked Secure.
+	t.Parallel()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/v1/auth/login", nil)
+	r.Header.Set("X-Forwarded-Proto", "https")
+	auth.SetSession(w, r, auth.NewCookieConfig(), "x", time.Now().Add(time.Hour))
+	c := w.Result().Cookies()[0]
+	if !c.Secure {
+		t.Error("cookie Secure must be set when X-Forwarded-Proto is https")
+	}
+}
+
+func TestSetSessionXForwardedProtoHTTPIsNotSecure(t *testing.T) {
+	// Defensive: explicit X-Forwarded-Proto: http (a proxy that
+	// terminates TLS for some routes but not others, or a
+	// misconfigured local LB) must NOT mark the cookie Secure. The
+	// fallback is "anything that isn't 'https' is treated as plain".
+	t.Parallel()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/v1/auth/login", nil)
+	r.Header.Set("X-Forwarded-Proto", "http")
+	auth.SetSession(w, r, auth.NewCookieConfig(), "x", time.Now().Add(time.Hour))
+	c := w.Result().Cookies()[0]
+	if c.Secure {
+		t.Error("cookie Secure must be off when X-Forwarded-Proto is http")
 	}
 }
 
@@ -508,10 +564,15 @@ func TestReadSessionPresent(t *testing.T) {
 func TestClearSessionExpiresImmediately(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
-	auth.ClearSession(w, auth.NewCookieConfig(false))
+	r := httptest.NewRequest("POST", "/v1/auth/logout", nil)
+	r.Header.Set("X-Forwarded-Proto", "https")
+	auth.ClearSession(w, r, auth.NewCookieConfig())
 	c := w.Result().Cookies()[0]
 	if c.MaxAge >= 0 {
 		t.Errorf("expected MaxAge < 0 (immediate expiry), got %d", c.MaxAge)
+	}
+	if !c.Secure {
+		t.Error("clear cookie must match the original Secure attribute (set was https → clear should be Secure too)")
 	}
 }
 
@@ -819,5 +880,80 @@ func TestExpiredSessionRejected(t *testing.T) {
 	}
 	if _, err := mgr.ValidateSession(context.Background(), mint.PlaintextToken); !errors.Is(err, storage.ErrSessionNotFound) {
 		t.Errorf("expired session validated = %v; want ErrSessionNotFound", err)
+	}
+}
+
+// ── requestIP rate-limiter spoofing resistance ───────────────────────────────
+
+// TestRequestIP_PrefersXRealIP locks in the order of preference. nginx sets
+// X-Real-IP to the actual peer; a client-supplied X-Real-IP doesn't make it
+// past nginx (proxy_set_header overwrites), so when we see one we trust it.
+func TestRequestIP_PrefersXRealIP(t *testing.T) {
+	t.Parallel()
+	r := httptest.NewRequest("POST", "/v1/auth/login", nil)
+	r.RemoteAddr = "127.0.0.1:54321"
+	r.Header.Set("X-Real-IP", "203.0.113.7")
+	r.Header.Set("X-Forwarded-For", "1.1.1.1, 203.0.113.7") // both present
+	got := auth.RequestIP(r).String()
+	if got != "203.0.113.7" {
+		t.Errorf("RequestIP = %s; want 203.0.113.7 (X-Real-IP wins)", got)
+	}
+}
+
+// TestRequestIP_RightmostXForwardedFor is the security-critical case: a client
+// that sends `X-Forwarded-For: 1.2.3.4` arrives at the API as
+// `X-Forwarded-For: 1.2.3.4, <real-peer>` because nginx and App Runner both
+// APPEND. Taking the leftmost token (the previous behaviour) returned the
+// attacker-controlled value and let an attacker rotate spoofed IPs to defeat
+// the per-IP rate-limit cap. We must take the rightmost.
+func TestRequestIP_RightmostXForwardedFor(t *testing.T) {
+	t.Parallel()
+	r := httptest.NewRequest("POST", "/v1/auth/login", nil)
+	r.RemoteAddr = "127.0.0.1:54321"
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 198.51.100.42")
+	got := auth.RequestIP(r).String()
+	if got != "198.51.100.42" {
+		t.Errorf("RequestIP = %s; want 198.51.100.42 (rightmost-trusted, not spoofed leftmost)", got)
+	}
+}
+
+// TestRequestIP_SingleXForwardedForToken — no proxy chain, just one entry.
+func TestRequestIP_SingleXForwardedForToken(t *testing.T) {
+	t.Parallel()
+	r := httptest.NewRequest("POST", "/v1/auth/login", nil)
+	r.RemoteAddr = "127.0.0.1:54321"
+	r.Header.Set("X-Forwarded-For", "203.0.113.5")
+	got := auth.RequestIP(r).String()
+	if got != "203.0.113.5" {
+		t.Errorf("RequestIP = %s; want 203.0.113.5", got)
+	}
+}
+
+// TestRequestIP_FallbackRemoteAddr — direct request to API (tests, dev).
+func TestRequestIP_FallbackRemoteAddr(t *testing.T) {
+	t.Parallel()
+	r := httptest.NewRequest("POST", "/v1/auth/login", nil)
+	r.RemoteAddr = "192.0.2.10:1234"
+	got := auth.RequestIP(r).String()
+	if got != "192.0.2.10" {
+		t.Errorf("RequestIP = %s; want 192.0.2.10", got)
+	}
+}
+
+// TestRequestIP_AttackerSpoofedXRealIPIgnoredOverProxy — defence-in-depth:
+// even if a client managed to send X-Real-IP through (it shouldn't past
+// nginx), the rightmost X-Forwarded-For still gives us the real peer. This
+// test asserts X-Real-IP is preferred — which means a deployment without
+// nginx's `proxy_set_header X-Real-IP` overwrite would give an attacker a
+// way in. Documented in requestIP's threat-model comment.
+func TestRequestIP_XRealIPPreferredEvenWithXForwardedFor(t *testing.T) {
+	t.Parallel()
+	r := httptest.NewRequest("POST", "/v1/auth/login", nil)
+	r.RemoteAddr = "127.0.0.1:54321"
+	r.Header.Set("X-Real-IP", "10.0.0.1")
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 198.51.100.42")
+	got := auth.RequestIP(r).String()
+	if got != "10.0.0.1" {
+		t.Errorf("RequestIP = %s; want 10.0.0.1 (X-Real-IP precedence)", got)
 	}
 }

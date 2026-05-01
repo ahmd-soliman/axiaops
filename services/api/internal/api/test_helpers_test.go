@@ -324,6 +324,10 @@ func (m *MockStore) UpsertOrganization(_ context.Context, externalID, name strin
 	return model.Organization{ID: externalID, Name: name}, nil
 }
 
+func (m *MockStore) GetOrganizationByID(_ context.Context, id string) (model.Organization, error) {
+	return model.Organization{ID: id}, nil
+}
+
 func (m *MockStore) EnsureOrganization(_ context.Context, _, _, _ string) error {
 	return nil
 }

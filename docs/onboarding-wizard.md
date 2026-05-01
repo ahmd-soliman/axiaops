@@ -1,7 +1,9 @@
 # Onboarding Wizard & Organization Rename
 
-Status: design — not yet implemented.
+Status: shipped, partially superseded by Phase B1 (native auth).
 Owner: API service + dashboard. Touches `services/shared` (storage, model, migrations), `services/api` (handler, middleware, kinde package), and `services/dashboard` (new wizard routes + Settings → Organization).
+
+**Post-B1 reality (2026-04-30 update):** the wizard's "name your org" step was dropped because native-auth bootstrap (`POST /v1/auth/bootstrap`) already collects `organization_name` at install time. The wizard is now 2 steps: invite teammates → connect AWS. Renaming after the fact stays at Settings → Organization. The Kinde-clobber bug described in §3 is no longer reachable because `UpsertOrganization` is unused under `AUTH_PROVIDER=native` — kept here for Kinde-mode history until D2.
 
 This document is the implementation contract for the post-signup setup wizard, the organization-rename surface (with Kinde Management API sync), and the dashboard "What's next" panel that replaces the empty-state landing for fresh orgs. It assumes `docs/invitation-flow.md` (Phase 1, email invitations) ships first — the wizard's invite step calls `POST /v1/invitations` directly.
 

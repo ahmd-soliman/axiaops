@@ -186,14 +186,46 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 // cors wraps a handler with CORS headers.
-// CORS_ORIGIN env var sets the allowed origin (defaults to "*" for local development).
+//
+// CORS_ORIGIN sets the allowed origin. Two shapes are supported:
+//   - "*"  — wildcard, fine for unauthenticated APIs but INCOMPATIBLE
+//            with credentialed requests (the browser drops responses
+//            that combine `Allow-Origin: *` with `Allow-Credentials: true`).
+//   - "<origin>" or "<origin>,<origin>,…" — comma-separated allowlist;
+//     the request's Origin header is reflected back when it matches,
+//     and `Access-Control-Allow-Credentials: true` is emitted so the
+//     browser sends/accepts the native-auth session cookie.
+//
+// In local dev set `CORS_ORIGIN=http://localhost:5173`. In production
+// the dashboard is same-origin (nginx serves both) and the value is
+// effectively unused. Default stays `*` for back-compat with the
+// pre-native-auth CORS posture; the absence of credentials in that
+// mode keeps responses readable.
 func cors(next http.Handler) http.Handler {
-	origin := os.Getenv("CORS_ORIGIN")
-	if origin == "" {
-		origin = "*"
+	rawOrigin := os.Getenv("CORS_ORIGIN")
+	if rawOrigin == "" {
+		rawOrigin = "*"
 	}
+	allowlist := strings.Split(rawOrigin, ",")
+	for i := range allowlist {
+		allowlist[i] = strings.TrimSpace(allowlist[i])
+	}
+	wildcard := len(allowlist) == 1 && allowlist[0] == "*"
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
+		reqOrigin := r.Header.Get("Origin")
+		switch {
+		case wildcard:
+			// Legacy posture — wildcard origin, no credentials. Native
+			// auth requests from a different origin will land but the
+			// session cookie will not round-trip; operators of native
+			// auth must set CORS_ORIGIN to a concrete value.
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		case reqOrigin != "" && originAllowed(allowlist, reqOrigin):
+			w.Header().Set("Access-Control-Allow-Origin", reqOrigin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Add("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
@@ -202,6 +234,17 @@ func cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// originAllowed reports whether origin is in the allowlist (exact match).
+// Pulled out so it can be unit-tested in isolation.
+func originAllowed(allowlist []string, origin string) bool {
+	for _, allowed := range allowlist {
+		if allowed == origin {
+			return true
+		}
+	}
+	return false
 }
 
 // Handler wraps the given handler with CORS middleware.

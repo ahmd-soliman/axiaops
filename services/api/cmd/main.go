@@ -90,7 +90,7 @@ func main() {
 		slog.Warn("startup: reset stuck scanning accounts", "count", n)
 	}
 
-	s, err := postgres.New(ctx, dbURL)
+	s, err := postgres.NewWithOwner(ctx, dbURL, migrationURL)
 	if err != nil {
 		die("storage: postgres init failed", "error", err)
 	}
@@ -168,7 +168,8 @@ func main() {
 		if mode == "native" || mode == "both" {
 			nativeAuthActive = true
 			authMgr := buildSessionManager(store, c)
-			authH := auth.NewHandler(store, authMgr, auth.NewCookieConfig(false), auth.NewAuditWriter(store))
+			authH := auth.NewHandler(store, authMgr, auth.NewCookieConfig(), auth.NewAuditWriter(store)).
+				WithLoginRateLimit(auth.NewLoginRateLimiter(c))
 			authH.Register(mux)
 			// First-owner install-token generator. No-op when an
 			// organization already exists.
