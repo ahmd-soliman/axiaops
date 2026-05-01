@@ -745,6 +745,28 @@ func (h *Handler) previewInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Rate-limit gate: this endpoint reveals (a) whether a token is
+	// valid and (b) whether the invited email already maps to a user
+	// (existing_user) plus their display name. Without this gate, an
+	// attacker who can guess or harvest tokens can use it to enumerate
+	// AxiaOps users globally. We don't have an email at request time
+	// (that's what the response reveals), so the per-IP cap is the
+	// only key. Email key passed empty — ratelimit.go treats that as
+	// "IP only" (no per-email amplification).
+	if h.loginLimit != nil {
+		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), "")
+		if !outcome.Allowed {
+			retry := int(outcome.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			writeAuthError(w, http.StatusTooManyRequests, "rate_limited",
+				"too many invitation lookups; please retry shortly")
+			return
+		}
+	}
+
 	peek, err := h.store.LookupInvitationByToken(r.Context(), HashToken(req.Token))
 	switch {
 	case errors.Is(err, storage.ErrInvitationNotFound):
@@ -806,6 +828,37 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 	// and existing-user (verify existing password) flow. The token row
 	// is NOT consumed here.
 	peek, err := h.store.LookupInvitationByToken(r.Context(), tokenHash)
+	// Rate-limit gate. Defer until AFTER the peek so we have the email
+	// to key the per-email cap on — without it, the limiter only sees
+	// the per-IP key and an attacker rotating IPs (or a botnet)
+	// trivially bypasses the per-email cap that's the actual
+	// brute-force defence. The peek result determines email; the
+	// password attempt comes after.
+	//
+	// Pre-condition: ErrInvitationNotFound is handled below the gate
+	// (we don't want to reveal "valid token" by 410ing without the
+	// rate-limit check), but we DO want to short-circuit malformed
+	// tokens — the gate runs unconditionally on lookup success/failure
+	// alike, so an attacker probing thousands of garbage tokens is
+	// also limited.
+	if h.loginLimit != nil {
+		emailKey := ""
+		if err == nil {
+			emailKey = peek.Email
+		}
+		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), emailKey)
+		if !outcome.Allowed {
+			retry := int(outcome.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			observability.Global.AuthInvitationsTotal.WithLabelValues("rate_limited").Inc()
+			writeAuthError(w, http.StatusTooManyRequests, "rate_limited",
+				"too many invitation redeem attempts; please retry shortly")
+			return
+		}
+	}
 	switch {
 	case errors.Is(err, storage.ErrInvitationNotFound):
 		observability.Global.AuthInvitationsTotal.WithLabelValues("expired").Inc()

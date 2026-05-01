@@ -1139,6 +1139,63 @@ func TestRedeemInvitationExistingUser_WrongPasswordReturns401(t *testing.T) {
 	}
 }
 
+// TestRedeemInvitationRateLimited: the existing-user flow Verify()s a
+// supplied password against a stored argon2id hash — without rate limit,
+// an attacker who has the invitation token can brute-force the user's
+// password. Plan §4.2 contract (10/min/IP, 5/min/email) is shared with
+// /v1/auth/login. We assert with a 1/100 limit for a fast deterministic
+// test.
+func TestRedeemInvitationRateLimited(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+	token := seedNativeInvitation(t, store, "org-rate", "alice@example.com", "viewer")
+
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	h = h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(1, 100))
+
+	body := map[string]string{
+		"token":    token,
+		"password": "wrong password attempt 12345",
+	}
+	// First attempt: 401 invalid_credentials. Budget consumed.
+	first := postJSON(t, mux(h), "/v1/auth/invitations/redeem", body, nil)
+	if first.Code != http.StatusUnauthorized {
+		t.Fatalf("first attempt status = %d; want 401", first.Code)
+	}
+	// Second attempt: blocked by IP cap → 429 with Retry-After header.
+	second := postJSON(t, mux(h), "/v1/auth/invitations/redeem", body, nil)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second attempt status = %d; want 429", second.Code)
+	}
+	if second.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on 429")
+	}
+}
+
+// TestPreviewInvitationRateLimited: token oracle / user enumeration
+// defence. Same shared limiter; the per-IP cap fires regardless of which
+// token (or email) is being probed.
+func TestPreviewInvitationRateLimited(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedNativeInvitation(t, store, "org-preview-rl", "victim@example.com", "viewer")
+
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	h = h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(1, 100))
+
+	first := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{"token": token}, nil)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first preview status = %d; want 200", first.Code)
+	}
+	second := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{"token": token}, nil)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second preview status = %d; want 429", second.Code)
+	}
+}
+
 // TestRedeemInvitationNewUser_RequiresName: the new-user flow demands a
 // name (the existing-user flow doesn't). Existing TestRedeemInvitationHappyPath
 // covers the success case; this test is the negative path.
