@@ -578,18 +578,38 @@ var placeholderHash = func() string {
 }()
 
 // requestIP extracts the client IP from common proxy headers, falling
-// back to RemoteAddr. The IP is captured into sessions.ip purely for
-// forensics — never used for authorization.
+// back to RemoteAddr. Used for both forensics (sessions.ip) and the
+// rate-limiter key — the latter is security-critical, so the order
+// here is deliberately attacker-resistant.
+//
+// Threat: nginx and App Runner both *append* the connecting peer's IP
+// to whatever X-Forwarded-For header the client sent. So a request from
+// `attacker-ip` carrying `X-Forwarded-For: 1.2.3.4` becomes
+// `X-Forwarded-For: 1.2.3.4, attacker-ip` by the time it reaches us.
+// Taking the *leftmost* token (the previous version of this helper)
+// returned `1.2.3.4` — attacker-controlled — letting the attacker
+// rotate spoofed values to bypass the per-IP rate-limit cap entirely.
+//
+// We instead trust:
+//  1. X-Real-IP — set by nginx via `proxy_set_header X-Real-IP $remote_addr`,
+//     which unconditionally overwrites any client-supplied value. Reliable
+//     in the staging shape; not set by App Runner.
+//  2. The *rightmost* token of X-Forwarded-For — the one our trusted
+//     proxy added, i.e. the actual peer that connected to it. Reliable
+//     in both staging (single nginx hop) and production (single App
+//     Runner LB hop). If a future deployment introduces a second trusted
+//     proxy, this needs to take the rightmost-N-th token instead.
+//  3. RemoteAddr — for direct-to-API requests (tests, dev mode).
 func requestIP(r *http.Request) net.IP {
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		if i := strings.IndexByte(v, ','); i >= 0 {
-			v = v[:i]
-		}
+	if v := r.Header.Get("X-Real-IP"); v != "" {
 		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
 			return ip
 		}
 	}
-	if v := r.Header.Get("X-Real-IP"); v != "" {
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		if i := strings.LastIndexByte(v, ','); i >= 0 {
+			v = v[i+1:]
+		}
 		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
 			return ip
 		}
