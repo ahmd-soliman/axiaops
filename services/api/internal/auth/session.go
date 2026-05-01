@@ -269,24 +269,37 @@ func (m *Manager) RevokeSession(ctx context.Context, sessionID, tokenHash string
 // the practical equivalent and avoid that coupling.
 //
 // Cache invalidation: the old session's token hash is deleted from the
-// cache immediately after the PG revoke (write-through), so a parallel
-// validation request can't read a now-revoked row from cache and
-// authenticate. Plan §4.7.4 acceptance row 7.
+// cache immediately after the PG revoke. The delete *minimises* the
+// stale-hit window — between the PG UPDATE and the cache.Delete a
+// parallel ValidateSession can still read the pre-revoke snapshot
+// (RevokedAt was nil at Put time), see Live() return true, and
+// authenticate with the old token. The fallback protection is that PG
+// is the source of truth: as soon as the cache TTL expires (or is
+// evicted), the next ValidateSession falls through to PG and the
+// revoked row fails Live(). Window in production: a few microseconds.
+// Plan §4.7.4 acceptance row 7.
+//
+// TOCTOU note: callers (handler.switchOrg) typically call
+// ValidateSession first, then this. A concurrent revocation between
+// those two calls is benign — store.RevokeSession's UPDATE on an
+// already-revoked row is a no-op (no error), and we proceed to mint a
+// fresh session for an already-authenticated user. Worst case: a user
+// whose session was being revoked elsewhere (logout in another tab,
+// admin revoke) gets a brand-new session bound to target. They were
+// already logged in the moment switchOrg started; the rotation just
+// rebinds their identity rather than terminating it.
 //
 // Records `axiaops_session_revocations_total{reason="org_switch"}` per
 // plan §4.7.4 acceptance row 8 for every successful rotation.
+// Delegates to m.RevokeSession so the cache + metric + error wrap
+// logic stays in one place.
 func (m *Manager) RotateSessionForOrg(ctx context.Context, currentSessionID, currentTokenHash string, mint MintRequest) (MintResult, error) {
 	if currentSessionID == "" {
 		return MintResult{}, errors.New("auth: rotate session: current session_id required")
 	}
-	if err := m.store.RevokeSession(ctx, currentSessionID); err != nil {
-		return MintResult{}, fmt.Errorf("auth: rotate session: revoke: %w", err)
+	if err := m.RevokeSession(ctx, currentSessionID, currentTokenHash, RevokeReasonOrgSwitch); err != nil {
+		return MintResult{}, fmt.Errorf("auth: rotate session: %w", err)
 	}
-	if m.cache != nil && currentTokenHash != "" {
-		m.cache.Delete(ctx, currentTokenHash)
-	}
-	observability.Global.AuthSessionRevocationsTotal.WithLabelValues(string(RevokeReasonOrgSwitch)).Inc()
-
 	return m.MintSession(ctx, mint)
 }
 
