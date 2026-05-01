@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 
 	"axiaops.io/api/internal/auth"
@@ -103,19 +104,30 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 
 	// Memberships block — best-effort, populates the org-switcher
 	// payload (B1.5). Always non-nil so the frontend can serialise as
-	// `[]` rather than `null`. Failures are non-fatal — degrades to an
-	// empty list rather than 500ing /v1/me, since the user can still
-	// operate inside their current org.
+	// `[]` rather than `null`. Failures degrade to an empty list rather
+	// than 500ing /v1/me — the user already has a valid session and can
+	// operate inside their current org; the only consequence of an empty
+	// list is that the switcher dropdown is hidden until the next
+	// refresh succeeds.
+	//
+	// IMPORTANT for slice 2: the modified /v1/auth/login MUST NOT inherit
+	// this swallow pattern. There, an empty membership list materially
+	// changes the auth flow (single-org → mint vs multi-org → org
+	// picker), and a transient DB error must surface as 500, never
+	// silently land the user in the wrong org.
 	resp.Memberships = []membershipSummary{}
 	if uid != "" {
-		if rows, err := h.store.ListUserMemberships(ctx, uid); err == nil {
-			for _, m := range rows {
-				resp.Memberships = append(resp.Memberships, membershipSummary{
-					OrganizationID:   m.OrganizationID,
-					OrganizationName: m.OrganizationName,
-					Role:             m.Role,
-				})
-			}
+		rows, err := h.store.ListUserMemberships(ctx, uid)
+		if err != nil {
+			slog.Warn("me: list user memberships failed; serving empty switcher",
+				"user_id", uid, "error", err)
+		}
+		for _, m := range rows {
+			resp.Memberships = append(resp.Memberships, membershipSummary{
+				OrganizationID:   m.OrganizationID,
+				OrganizationName: m.OrganizationName,
+				Role:             m.Role,
+			})
 		}
 	}
 
