@@ -378,7 +378,13 @@ export async function fetchMe() {
   if (_meLastError && Date.now() - _meLastErrorAt < 250) {
     throw _meLastError;
   }
-  _meInFlight = request('/v1/me')
+  // Capture a local reference to the new promise so the .finally below
+  // can identity-compare before nulling. Without this guard, an old
+  // promise's .finally — running after resetFetchMeCache + a new
+  // fetchMe started a fresh in-flight — would clobber the new pointer
+  // and break in-flight coalescing. Identity check ensures only the
+  // promise that "owns" the pointer is allowed to clear it.
+  const promise = request('/v1/me')
     .then((data) => {
       _meLastError = null;
       return data;
@@ -389,9 +395,10 @@ export async function fetchMe() {
       throw err;
     })
     .finally(() => {
-      _meInFlight = null;
+      if (_meInFlight === promise) _meInFlight = null;
     });
-  return _meInFlight;
+  _meInFlight = promise;
+  return promise;
 }
 
 // resetFetchMeCache clears the 250ms error cache AND drops any in-flight
@@ -435,6 +442,12 @@ function resetFetchMeCache() {
 //     cancel, and on the 401 bounce. After clear: a refresh on /select-org
 //     finds null and the route bounces to /login.
 let _pendingOrgPick = null;
+
+// setPendingOrgPick: ONLY called by `pages/Login.jsx` after authLogin
+// returns the multi-org branch. Exported because module-private symbols
+// can't cross file boundaries in JS without a build-step trick we don't
+// want; treat this as package-private. Any future caller must justify
+// why they're stuffing a password into module state.
 export function setPendingOrgPick(payload) {
   _pendingOrgPick = payload;
 }
