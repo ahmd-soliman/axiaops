@@ -348,9 +348,13 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		// Defensive: LookupUserByEmail just told us len(memberships) >= 2.
 		// If the JOIN returned fewer, an organizations row is missing for a
 		// membership we just read. That's a referential-integrity break —
-		// 500 rather than guessing.
+		// 500 rather than guessing. The JOIN cannot return MORE rows than
+		// the source (organizations.id is the PK on the right side, so a
+		// membership row matches at most one org row), so `<` is the only
+		// inconsistency direction and `len(orgRows) == 0` is the worst case
+		// of it (every org row missing). Both manifest as 500.
 		if len(orgRows) < len(memberships) {
-			slog.Error("auth: login org-list join shorter than memberships",
+			slog.Error("auth: login org-list join shorter than memberships — referential-integrity break (organizations row missing for a membership we just read)",
 				"user_id", u.ID,
 				"memberships", len(memberships),
 				"joined", len(orgRows),
