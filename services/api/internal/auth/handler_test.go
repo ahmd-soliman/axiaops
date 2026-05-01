@@ -524,6 +524,17 @@ func TestSelectOrg_OrgNotInMembershipsReturns401(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d; want 401", w.Code)
 	}
+	// Pin the no-session invariant: even with a valid email + password,
+	// a wrong org_id must NOT mint a session. A future refactor that
+	// accidentally moved MintSession before the !found check would 200
+	// the response (caught by status check) but might still leave a
+	// half-baked Set-Cookie behind in some intermediate state — guard
+	// against that explicitly.
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			t.Errorf("invalid org_id select-org set %s cookie to %q; must not mint", c.Name, c.Value)
+		}
+	}
 	body := mustDecode[map[string]any](t, w)
 	if body["error"] != "invalid_credentials" {
 		t.Errorf("error = %v; want invalid_credentials (collapsed shape, not org_not_in_set)", body["error"])
@@ -568,6 +579,12 @@ func TestSelectOrg_MissingFieldsReturns400(t *testing.T) {
 // TestSelectOrgRateLimitedSharesBudgetWithLogin: an attacker can't double
 // their per-IP budget against one email by alternating /login and
 // /select-org. The shared rate limiter is the contract.
+//
+// Test exercises the per-IP cap (perIP=1, perEmail=100). The per-email cap
+// path is covered for /login by TestLoginRateLimitedEmailCapReturns429 —
+// /select-org inherits the same limiter instance so it's transitively
+// covered. A dedicated cross-endpoint email-cap test isn't worth the
+// scaffolding for B1.5.
 func TestSelectOrgRateLimitedSharesBudgetWithLogin(t *testing.T) {
 	t.Parallel()
 	h, store, _ := newHandlerTest(t)
@@ -575,7 +592,11 @@ func TestSelectOrgRateLimitedSharesBudgetWithLogin(t *testing.T) {
 
 	mem := cache.New("")
 	t.Cleanup(func() { _ = mem.Close() })
-	h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(1, 100))
+	// WithLoginRateLimit returns the receiver — we assign the return value
+	// to keep the test resilient if the method is ever changed to clone
+	// (rather than mutate in place). Today it's a pointer-receiver mutation,
+	// but writing it the right way costs nothing.
+	h = h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(1, 100))
 
 	body := map[string]string{
 		"email": "alice@example.com", "password": "wrong password 12345",
