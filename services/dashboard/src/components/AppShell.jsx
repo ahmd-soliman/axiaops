@@ -103,8 +103,7 @@ const NAV_ITEMS = [
 export default function AppShell() {
   const { theme, isDark, toggleTheme } = useTheme();
   const { orgName } = useApp();
-  const { me, can } = useMe();
-  const memberships = me?.memberships || [];
+  const { can } = useMe();
   const navigate  = useNavigate();
   const location  = useLocation();
   const t = theme;
@@ -205,20 +204,11 @@ export default function AppShell() {
               badge shape for single-membership users (no UI change vs
               B1) and an interactive dropdown for multi-membership
               users that rotates the session via /v1/auth/switch-org.
-              Falls back to the legacy `orgName` only if /v1/me hasn't
-              loaded yet, so the navbar isn't blank during initial paint. */}
-          {memberships.length === 0 && orgName ? (
-            <div style={{
-              padding: '4px 10px',
-              borderRadius: 7,
-              border: `1px solid ${t.border}`,
-              backgroundColor: t.surfaceRaised,
-            }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: t.textMid }}>{orgName}</span>
-            </div>
-          ) : (
-            <OrgSwitcher />
-          )}
+              The `fallbackName` fills the navbar slot during the
+              initial /v1/me round-trip so it isn't blank on first
+              paint — under Kinde mode this is the JWT-decoded
+              org_name; under native it's empty until /v1/me lands. */}
+          <OrgSwitcher fallbackName={orgName} />
 
           <AvatarMenu />
         </div>
