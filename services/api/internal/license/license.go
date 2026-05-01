@@ -46,12 +46,18 @@ const (
 const clockSkewLeeway = 60 * time.Second
 
 // State classifies a loaded license against the current wall clock.
+//
+// StateNotLoaded is a separate value (not a permissive default of StateValid)
+// so callers like the scan-gate in slice 5 can decide policy explicitly:
+// DEV_MODE / SaaS / pre-license-ceremony all surface as StateNotLoaded and
+// the policy lives at the call site, not buried in this accessor.
 type State int
 
 const (
 	StateValid State = iota
 	StateInGrace
 	StateExpired
+	StateNotLoaded
 )
 
 func (s State) String() string {
@@ -62,6 +68,8 @@ func (s State) String() string {
 		return "in_grace"
 	case StateExpired:
 		return "expired"
+	case StateNotLoaded:
+		return "not_loaded"
 	default:
 		return "unknown"
 	}
