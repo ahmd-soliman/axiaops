@@ -216,3 +216,65 @@ func TestFromBytes_InvalidPayload(t *testing.T) {
 		t.Fatal("FromBytes(invalid JSON) succeeded; want parse error")
 	}
 }
+
+// TestFromCache_NonOKStatus — a 404 / 503 from the IdP must surface a
+// status error rather than reaching FromBytes and producing a confusing
+// "parse" error. Also asserts the cache is NOT populated with the error
+// body.
+func TestFromCache_NonOKStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	c := newMockCache()
+	cacheID := "broken_idp"
+	if _, err := jwks.FromCache(context.Background(), cacheID, srv.URL+"/.well-known/jwks.json", c); err == nil {
+		t.Fatal("FromCache(503) succeeded; want status error")
+	}
+	if _, ok := c.data[jwks.CacheKey(cacheID)]; ok {
+		t.Fatal("FromCache(503) cached the error body; cache should be untouched on non-2xx")
+	}
+}
+
+// TestFromCache_ForceRefreshViaCacheKey — exercises the auto-refresh
+// pattern (plan §5 architect S5): caller can force a re-fetch by deleting
+// the cache key and calling FromCache again. Proves the exported CacheKey
+// helper produces the same key FromCache writes.
+func TestFromCache_ForceRefreshViaCacheKey(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fetchCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fetchCount++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(rsaPublicKeyToJWKS(t, &priv.PublicKey))
+	}))
+	defer srv.Close()
+
+	cacheID := "conn_rotated"
+	jwksURL := srv.URL + "/.well-known/jwks.json"
+	c := newMockCache()
+
+	// Prime the cache.
+	if _, err := jwks.FromCache(context.Background(), cacheID, jwksURL, c); err != nil {
+		t.Fatalf("prime FromCache: %v", err)
+	}
+	if fetchCount != 1 {
+		t.Fatalf("expected 1 fetch, got %d", fetchCount)
+	}
+
+	// Force eviction via the exported helper, then re-call.
+	if err := c.Del(context.Background(), jwks.CacheKey(cacheID)); err != nil {
+		t.Fatalf("Del: %v", err)
+	}
+	if _, err := jwks.FromCache(context.Background(), cacheID, jwksURL, c); err != nil {
+		t.Fatalf("post-evict FromCache: %v", err)
+	}
+	if fetchCount != 2 {
+		t.Fatalf("expected re-fetch after eviction, got %d total fetches", fetchCount)
+	}
+}
