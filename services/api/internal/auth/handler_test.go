@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,9 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"axiaops.io/api/internal/auth"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/observability"
 )
 
 // newHandlerTest wires a Handler against the in-package fakeStore and
@@ -322,14 +326,16 @@ func seedAccount(t *testing.T, store *fakeStore, email, password string, mships 
 	store.organizationsCount += int64(mships)
 	out := make([]model.Membership, 0, mships)
 	for i := 0; i < mships; i++ {
+		orgID := "org-" + email + "-" + string(rune('a'+i))
 		out = append(out, model.Membership{
 			ID:             "m-" + email + "-" + string(rune('a'+i)),
-			OrganizationID: "org-" + email + "-" + string(rune('a'+i)),
+			OrganizationID: orgID,
 			UserID:         id,
 			Role:           "owner",
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		})
+		store.orgsByID[orgID] = "Org " + string(rune('A'+i))
 	}
 	store.memberships[id] = out
 }
@@ -381,23 +387,465 @@ func TestLoginUnknownEmailReturns401(t *testing.T) {
 	}
 }
 
-func TestLoginMultiOrgReturns409(t *testing.T) {
-	t.Parallel()
+// TestLoginMultiOrgReturns200WithPicker is the B1.5 §4.7.1 contract: a user
+// with >1 active membership gets 200 OK with `{needs_org_selection: true,
+// orgs: [{id, name}, ...]}` and **no Set-Cookie**. The frontend lands on
+// /select-org and POSTs the chosen org_id back to /v1/auth/select-org with
+// re-supplied credentials (slice 3).
+//
+// NOT t.Parallel(): increments the same labeled counter
+// (AuthLoginTotal{outcome="org_selection_required"}) that
+// TestLogin_IncrementsOrgSelectionRequiredOutcome uses for its
+// before/after delta. Running parallel would race the snapshot.
+func TestLoginMultiOrgReturns200WithPicker(t *testing.T) {
 	h, store, _ := newHandlerTest(t)
 	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
 
 	w := postJSON(t, mux(h), "/v1/auth/login", map[string]string{
 		"email": "alice@example.com", "password": "correct horse battery staple",
 	}, nil)
-	if w.Code != http.StatusConflict {
-		t.Fatalf("status = %d; want 409; body = %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	// No session cookie on the picker branch — the picker step (slice 3)
+	// re-validates the password before minting.
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			t.Errorf("multi-org login set %s cookie to %q; expected no session cookie at all", c.Name, c.Value)
+		}
 	}
 	body := mustDecode[map[string]any](t, w)
-	if body["error"] != "multi_org_not_supported" {
-		t.Errorf("error code = %v; want multi_org_not_supported", body["error"])
+	if body["needs_org_selection"] != true {
+		t.Errorf("needs_org_selection = %v; want true", body["needs_org_selection"])
 	}
-	if body["b15_pending"] != true {
-		t.Errorf("b15_pending = %v; want true (frontend marker for B1.5 picker)", body["b15_pending"])
+	orgs, ok := body["orgs"].([]any)
+	if !ok {
+		t.Fatalf("orgs is not an array: %v", body["orgs"])
+	}
+	if len(orgs) != 2 {
+		t.Fatalf("orgs length = %d; want 2 (seedAccount mships=2)", len(orgs))
+	}
+	first, _ := orgs[0].(map[string]any)
+	if first["id"] == "" || first["name"] == "" {
+		t.Errorf("first org missing id/name: %+v", first)
+	}
+}
+
+// TestLoginMultiOrg_DBErrorReturns500 closes the slice-1 review concern: if
+// ListUserMemberships fails on the multi-org branch, the handler must 500
+// rather than silently degrade to the single-org flow (which would land
+// the user in whichever org happened to be first in the list — wrong org).
+func TestLoginMultiOrg_DBErrorReturns500(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	store.mu.Lock()
+	store.listUserMembershipsErr = errors.New("simulated db outage")
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/login", map[string]string{
+		"email": "alice@example.com", "password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d; want 500 on ListUserMemberships failure; body = %s", w.Code, w.Body.String())
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			t.Errorf("DB-error path set %s cookie to %q; must not mint", c.Name, c.Value)
+		}
+	}
+}
+
+// ── /v1/auth/switch-org (Phase B1.5 slice 4) ──────────────────────────────
+
+// loginAndCookie runs the multi-org-aware login flow against the picker
+// step and returns a session cookie bound to a specific membership index.
+// Used by switch-org tests to set up a "currently authenticated as org N"
+// state. Bypasses the normal /login → /select-org dance because the
+// fakeStore can mint sessions directly via the Manager.
+func mintSessionCookie(t *testing.T, h *auth.Handler, store *fakeStore, email string, mshipIdx int) *http.Cookie {
+	t.Helper()
+	store.mu.Lock()
+	mship := store.memberships["u-"+email][mshipIdx]
+	store.mu.Unlock()
+	w := postJSON(t, mux(h), "/v1/auth/select-org", map[string]string{
+		"email":           email,
+		"password":        "correct horse battery staple",
+		"organization_id": mship.OrganizationID,
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed cookie via select-org: status = %d body = %s", w.Code, w.Body.String())
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			return c
+		}
+	}
+	t.Fatal("seed cookie: select-org returned 200 but no session cookie")
+	return nil
+}
+
+// TestSwitchOrgHappyPath: caller is in org A, switches to org B, gets a
+// new session cookie bound to org B and the matching role for that org.
+//
+// NOT t.Parallel(): see comment on TestLoginMultiOrgReturns200WithPicker
+// — successful switch-org increments AuthSessionRevocationsTotal
+// {reason="org_switch"} which TestSwitchOrg_IncrementsOrgSwitchRevocationMetric
+// snapshots.
+func TestSwitchOrgHappyPath(t *testing.T) {
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+	store.mu.Lock()
+	to := store.memberships["u-alice@example.com"][1].OrganizationID
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{"organization_id": to}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	var newCookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			newCookie = c
+		}
+	}
+	if newCookie == nil {
+		t.Fatal("expected new session cookie after switch")
+	}
+	if newCookie.Value == cookie.Value {
+		t.Errorf("cookie value did not rotate: still %q", newCookie.Value)
+	}
+	body := mustDecode[map[string]any](t, w)
+	org, _ := body["organization"].(map[string]any)
+	if got := org["id"]; got != to {
+		t.Errorf("response organization.id = %v; want %s", got, to)
+	}
+	// Wire shape is the slim {id, role} — assert email/name fields are
+	// NOT present (they'd be empty strings if the wide `user` struct
+	// were used; the slim `switchOrgUser` skips them entirely).
+	u, _ := body["user"].(map[string]any)
+	if _, present := u["email"]; present {
+		t.Errorf("user.email should be absent from switch-org response; got %+v", u)
+	}
+	if _, present := u["name"]; present {
+		t.Errorf("user.name should be absent from switch-org response; got %+v", u)
+	}
+}
+
+// TestSwitchOrg_OldCookieReturns401AfterSwitch: plan §4.7.4 row 4. After a
+// successful switch, the OLD cookie must NOT authenticate any request. We
+// don't have a fully-wired authenticated route in this test layer; assert
+// at the manager level: ValidateSession on the old token returns
+// ErrSessionNotFound (the row was revoked + cache invalidated).
+// NOT t.Parallel(): increments AuthSessionRevocationsTotal{reason="org_switch"}.
+func TestSwitchOrg_OldCookieReturns401AfterSwitch(t *testing.T) {
+	h, store, mgr := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+	store.mu.Lock()
+	to := store.memberships["u-alice@example.com"][1].OrganizationID
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{"organization_id": to}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("setup switch-org: status = %d body = %s", w.Code, w.Body.String())
+	}
+
+	// Old cookie's plaintext is in cookie.Value — ValidateSession against
+	// it must now fail closed (revoked + evicted from cache).
+	if _, err := mgr.ValidateSession(context.Background(), cookie.Value); err == nil {
+		t.Error("ValidateSession on old token returned nil error after switch; expected revocation")
+	}
+}
+
+// TestSwitchOrg_NotMemberReturns403: caller has a valid session but tries
+// to switch to an org they don't belong to. Distinct from /select-org's
+// 401 collapse — the caller IS authenticated; "not a member" is a
+// different posture from "wrong creds".
+func TestSwitchOrg_NotMemberReturns403(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{
+		"organization_id": "org-some-other-org",
+	}, cookie)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d; want 403", w.Code)
+	}
+	body := mustDecode[map[string]any](t, w)
+	if body["error"] != "not_a_member" {
+		t.Errorf("error = %v; want not_a_member", body["error"])
+	}
+}
+
+// TestSwitchOrg_NoCookieReturns401: switch-org with no session is a
+// client bug — we don't grace-degrade like logout does.
+func TestSwitchOrg_NoCookieReturns401(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{
+		"organization_id": "org-anything",
+	}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", w.Code)
+	}
+}
+
+// TestSwitchOrg_SameOrgIsNoOp: idempotent contract for racy clients.
+// POSTing the currently-bound org doesn't rotate the session, doesn't
+// audit, doesn't change the cookie.
+func TestSwitchOrg_SameOrgIsNoOp(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+	store.mu.Lock()
+	current := store.memberships["u-alice@example.com"][0].OrganizationID
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{
+		"organization_id": current,
+	}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", w.Code)
+	}
+	// No new cookie minted — Set-Cookie absent.
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			t.Errorf("same-org no-op set new %s cookie to %q; should not rotate", c.Name, c.Value)
+		}
+	}
+}
+
+// TestSwitchOrg_AuditRowWritten: plan §4.7.4 row 5. Every successful
+// switch produces one audit row in the FROM org with action
+// `session.org_switched` and metadata {from, to}.
+//
+// NOT t.Parallel(): increments AuthSessionRevocationsTotal{reason="org_switch"}.
+func TestSwitchOrg_AuditRowWritten(t *testing.T) {
+	h, store, _, cap := newHandlerTestWithAudit(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+	store.mu.Lock()
+	from := store.memberships["u-alice@example.com"][0].OrganizationID
+	to := store.memberships["u-alice@example.com"][1].OrganizationID
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{"organization_id": to}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+
+	events := cap.get()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Action != model.AuditActionSessionOrgSwitched {
+		t.Errorf("action = %q; want %q", e.Action, model.AuditActionSessionOrgSwitched)
+	}
+	if e.OrgID != from {
+		t.Errorf("audit org = %q; want from-org %q (audit lands in originating org)", e.OrgID, from)
+	}
+	if got := e.Metadata["from"]; got != from {
+		t.Errorf("metadata.from = %v; want %s", got, from)
+	}
+	if got := e.Metadata["to"]; got != to {
+		t.Errorf("metadata.to = %v; want %s", got, to)
+	}
+}
+
+// ── /v1/auth/select-org (Phase B1.5 slice 3) ──────────────────────────────
+
+// TestSelectOrgHappyPath: multi-org user picks one of their orgs, password
+// is re-validated, session minted bound to the chosen org, response carries
+// the matching role.
+func TestSelectOrgHappyPath(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	chosen := store.memberships["u-alice@example.com"][1].OrganizationID
+
+	w := postJSON(t, mux(h), "/v1/auth/select-org", map[string]string{
+		"email":           "alice@example.com",
+		"password":        "correct horse battery staple",
+		"organization_id": chosen,
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	var sessionCookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			sessionCookie = c
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatal("expected non-empty session cookie after successful org pick")
+	}
+	body := mustDecode[map[string]any](t, w)
+	org, _ := body["organization"].(map[string]any)
+	if got := org["id"]; got != chosen {
+		t.Errorf("response organization.id = %v; want %s (the picked org)", got, chosen)
+	}
+}
+
+// TestSelectOrg_WrongPasswordReturns401: defence in depth — even if the
+// caller passed the picker step, a wrong password here must reject. Never
+// trust the frontend to remember step 1.
+func TestSelectOrg_WrongPasswordReturns401(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	chosen := store.memberships["u-alice@example.com"][0].OrganizationID
+
+	w := postJSON(t, mux(h), "/v1/auth/select-org", map[string]string{
+		"email":           "alice@example.com",
+		"password":        "wrong password 123456",
+		"organization_id": chosen,
+	}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", w.Code)
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			t.Errorf("wrong-password select-org set %s cookie to %q", c.Name, c.Value)
+		}
+	}
+}
+
+// TestSelectOrg_OrgNotInMembershipsReturns401: same 401 shape as
+// wrong-password — distinguishing them at the wire level would let an
+// attacker who has valid creds probe arbitrary org IDs for membership.
+func TestSelectOrg_OrgNotInMembershipsReturns401(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+
+	w := postJSON(t, mux(h), "/v1/auth/select-org", map[string]string{
+		"email":           "alice@example.com",
+		"password":        "correct horse battery staple",
+		"organization_id": "org-someone-else",
+	}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", w.Code)
+	}
+	// Pin the no-session invariant: even with a valid email + password,
+	// a wrong org_id must NOT mint a session. A future refactor that
+	// accidentally moved MintSession before the !found check would 200
+	// the response (caught by status check) but might still leave a
+	// half-baked Set-Cookie behind in some intermediate state — guard
+	// against that explicitly.
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			t.Errorf("invalid org_id select-org set %s cookie to %q; must not mint", c.Name, c.Value)
+		}
+	}
+	body := mustDecode[map[string]any](t, w)
+	if body["error"] != "invalid_credentials" {
+		t.Errorf("error = %v; want invalid_credentials (collapsed shape, not org_not_in_set)", body["error"])
+	}
+}
+
+// TestSelectOrg_UnknownEmailReturns401: timing-flat 401 (we do a
+// placeholder Verify in the handler to keep the latency envelope flat).
+func TestSelectOrg_UnknownEmailReturns401(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+
+	w := postJSON(t, mux(h), "/v1/auth/select-org", map[string]string{
+		"email":           "ghost@example.com",
+		"password":        "correct horse battery staple",
+		"organization_id": "org-anything",
+	}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", w.Code)
+	}
+}
+
+// TestSelectOrg_MissingFieldsReturns400: organization_id is mandatory; not
+// supplying it (or email/password) is a client-side bug, not a credential
+// failure — distinguish with 400.
+func TestSelectOrg_MissingFieldsReturns400(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+	cases := []map[string]string{
+		{"email": "a@b.com", "password": "x"},                                  // no org_id
+		{"email": "a@b.com", "organization_id": "org-x"},                       // no password
+		{"password": "correct horse battery staple", "organization_id": "org"}, // no email
+	}
+	for i, body := range cases {
+		w := postJSON(t, mux(h), "/v1/auth/select-org", body, nil)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("case %d body %+v status = %d; want 400", i, body, w.Code)
+		}
+	}
+}
+
+// TestSelectOrgRateLimitedSharesBudgetWithLogin: an attacker can't double
+// their per-IP budget against one email by alternating /login and
+// /select-org. The shared rate limiter is the contract.
+//
+// Test exercises the per-IP cap (perIP=1, perEmail=100). The per-email cap
+// path is covered for /login by TestLoginRateLimitedEmailCapReturns429 —
+// /select-org inherits the same limiter instance so it's transitively
+// covered. A dedicated cross-endpoint email-cap test isn't worth the
+// scaffolding for B1.5.
+func TestSelectOrgRateLimitedSharesBudgetWithLogin(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	// WithLoginRateLimit returns the receiver — we assign the return value
+	// to keep the test resilient if the method is ever changed to clone
+	// (rather than mutate in place). Today it's a pointer-receiver mutation,
+	// but writing it the right way costs nothing.
+	h = h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(1, 100))
+
+	body := map[string]string{
+		"email": "alice@example.com", "password": "wrong password 12345",
+		"organization_id": store.memberships["u-alice@example.com"][0].OrganizationID,
+	}
+
+	// First attempt: 401 (wrong password). Budget consumed by /login.
+	loginBody := map[string]string{"email": "alice@example.com", "password": "wrong password 12345"}
+	first := postJSON(t, mux(h), "/v1/auth/login", loginBody, nil)
+	if first.Code != http.StatusUnauthorized {
+		t.Fatalf("login first attempt status = %d; want 401", first.Code)
+	}
+
+	// Second attempt at /select-org: same IP, same email — must 429
+	// because /login already consumed the budget.
+	second := postJSON(t, mux(h), "/v1/auth/select-org", body, nil)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("select-org status = %d; want 429 (shared budget with /login)", second.Code)
+	}
+}
+
+// TestLoginSingleOrg_DoesNotCallListUserMemberships locks in that the
+// happy single-org path doesn't pay for the org-picker join — that lookup
+// only fires in the multi-membership branch. We assert this by injecting
+// an error and confirming login still succeeds for a single-org user.
+func TestLoginSingleOrg_DoesNotCallListUserMemberships(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+	store.mu.Lock()
+	store.listUserMembershipsErr = errors.New("should not be called")
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/login", map[string]string{
+		"email": "alice@example.com", "password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (single-org happy path); body = %s", w.Code, w.Body.String())
 	}
 }
 
@@ -535,7 +983,304 @@ func seedNativeInvitation(t *testing.T, store *fakeStore, orgID, email, role str
 	t.Helper()
 	plaintext := "invite-token-fixture-" + email
 	store.seedInvitation(orgID, email, role, auth.HashToken(plaintext))
+	store.mu.Lock()
+	if _, ok := store.orgsByID[orgID]; !ok {
+		store.orgsByID[orgID] = "Org for " + orgID
+	}
+	store.mu.Unlock()
 	return plaintext
+}
+
+// ── /v1/auth/invitations/preview (B1.5 slice 6.5) ──────────────────────────
+
+// TestPreviewInvitationNewUser: a token for an email that doesn't yet exist
+// in the system returns existing_user=false. The frontend renders the
+// "set a new password" form.
+func TestPreviewInvitationNewUser(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedNativeInvitation(t, store, "org-preview-new", "newbie@example.com", "member")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{
+		"token": token,
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	body := mustDecode[map[string]any](t, w)
+	if body["existing_user"] != false {
+		t.Errorf("existing_user = %v; want false", body["existing_user"])
+	}
+	if body["email"] != "newbie@example.com" {
+		t.Errorf("email = %v; want newbie@example.com", body["email"])
+	}
+	if body["role"] != "member" {
+		t.Errorf("role = %v; want member", body["role"])
+	}
+}
+
+// TestPreviewInvitationExistingUser: a token for an email that already
+// exists globally (e.g. invited to a second org) returns
+// existing_user=true. The frontend prompts for the existing password.
+func TestPreviewInvitationExistingUser(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+	token := seedNativeInvitation(t, store, "org-preview-existing", "alice@example.com", "viewer")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{
+		"token": token,
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	body := mustDecode[map[string]any](t, w)
+	if body["existing_user"] != true {
+		t.Errorf("existing_user = %v; want true", body["existing_user"])
+	}
+}
+
+// TestPreviewInvitationDoesNotLeakPasswordHash: defence-in-depth — the
+// preview response must NEVER carry the existing user's password hash.
+// A bug that exposed it would let any caller with a valid token enumerate
+// the argon2 hash of the invited user.
+func TestPreviewInvitationDoesNotLeakPasswordHash(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+	token := seedNativeInvitation(t, store, "org-leak-check", "alice@example.com", "viewer")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{
+		"token": token,
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	bodyText := w.Body.String()
+	// argon2id hashes start with `$argon2id$` — assert that no field in
+	// the response carries one. Cheap byte-string check works for any
+	// future field that might inadvertently include it.
+	if strings.Contains(bodyText, "argon2") || strings.Contains(bodyText, "password_hash") {
+		t.Errorf("preview response leaked password material: %s", bodyText)
+	}
+}
+
+func TestPreviewInvitationUnknownTokenReturns410(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+	w := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{
+		"token": "completely-unknown-token",
+	}, nil)
+	if w.Code != http.StatusGone {
+		t.Errorf("status = %d; want 410", w.Code)
+	}
+}
+
+// ── /v1/auth/invitations/redeem (existing-user flow, B1.5 slice 6.5) ──────
+
+// TestRedeemInvitationExistingUser_HappyPath: an existing user accepts an
+// invitation to a second org by supplying their CURRENT password (verified
+// against their existing argon2id hash). On success: a new membership row,
+// a session bound to the new org, and the user's display name + password
+// stay untouched.
+func TestRedeemInvitationExistingUser_HappyPath(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	const password = "correct horse battery staple"
+	seedAccount(t, store, "alice@example.com", password, 1)
+	token := seedNativeInvitation(t, store, "org-second", "alice@example.com", "viewer")
+
+	store.mu.Lock()
+	originalUser := store.usersByEmail["alice@example.com"]
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token":    token,
+		"password": password,
+		// Name intentionally provided — handler must IGNORE it for the
+		// existing-user flow; it would otherwise overwrite the user's
+		// display name in their other org.
+		"name": "ATTACKER OVERWRITE",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	now := store.usersByEmail["alice@example.com"]
+	if now.ID != originalUser.ID {
+		t.Errorf("user.ID changed: %q → %q", originalUser.ID, now.ID)
+	}
+	if now.Name != originalUser.Name {
+		t.Errorf("user.Name overwritten: %q → %q (must stay untouched)", originalUser.Name, now.Name)
+	}
+	if now.PasswordHash != originalUser.PasswordHash {
+		t.Errorf("password_hash changed; existing-user flow must not touch it")
+	}
+}
+
+// TestRedeemInvitationExistingUser_WrongPasswordReturns401: defence in
+// depth — even if an attacker has the invitation token, they need the
+// existing user's password to claim membership in the target org.
+func TestRedeemInvitationExistingUser_WrongPasswordReturns401(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+	token := seedNativeInvitation(t, store, "org-second", "alice@example.com", "viewer")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token":    token,
+		"password": "wrong password attempt 12345",
+		"name":     "ignored",
+	}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", w.Code)
+	}
+	body := mustDecode[map[string]any](t, w)
+	if body["error"] != "invalid_credentials" {
+		t.Errorf("error = %v; want invalid_credentials", body["error"])
+	}
+	// The token must NOT be consumed on a failed verify — the user
+	// can retry with the right password.
+	store.mu.Lock()
+	_, present := store.invitationsByToken[auth.HashToken(token)]
+	store.mu.Unlock()
+	if !present {
+		t.Error("token consumed on failed verify; should remain pending for retry")
+	}
+}
+
+// ── B1.5 observability acceptance (plan §4.7.4 row 9) ─────────────────────
+
+// TestSwitchOrg_IncrementsOrgSwitchRevocationMetric pins the
+// `axiaops_session_revocations_total{reason="org_switch"}` counter
+// increments on every successful switch. The metric drives the
+// strangler-rollout dashboard and an alert that catches a switch storm
+// (e.g. an admin script switching wrong) — silent regressions here are
+// hard to spot, so we assert it explicitly.
+//
+// NOT t.Parallel(): reads the global Prometheus counter via
+// testutil.ToFloat64; another parallel test incrementing the same
+// labeled series would race the before/after delta.
+func TestSwitchOrg_IncrementsOrgSwitchRevocationMetric(t *testing.T) {
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+	store.mu.Lock()
+	to := store.memberships["u-alice@example.com"][1].OrganizationID
+	store.mu.Unlock()
+
+	counter := observability.Global.AuthSessionRevocationsTotal.WithLabelValues("org_switch")
+	before := testutil.ToFloat64(counter)
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{"organization_id": to}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("switch-org status = %d; want 200", w.Code)
+	}
+
+	after := testutil.ToFloat64(counter)
+	if after-before != 1 {
+		t.Errorf("axiaops_session_revocations_total{reason=org_switch} delta = %v; want 1", after-before)
+	}
+}
+
+// TestLogin_IncrementsOrgSelectionRequiredOutcome pins the
+// `axiaops_auth_login_total{outcome="org_selection_required"}` counter
+// increments on every multi-membership /v1/auth/login. Plan §4.7.4 row 9.
+func TestLogin_IncrementsOrgSelectionRequiredOutcome(t *testing.T) {
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+
+	counter := observability.Global.AuthLoginTotal.WithLabelValues("org_selection_required", "")
+	before := testutil.ToFloat64(counter)
+
+	w := postJSON(t, mux(h), "/v1/auth/login", map[string]string{
+		"email": "alice@example.com", "password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login status = %d; want 200 (multi-org picker)", w.Code)
+	}
+
+	after := testutil.ToFloat64(counter)
+	if after-before != 1 {
+		t.Errorf("axiaops_auth_login_total{outcome=org_selection_required} delta = %v; want 1", after-before)
+	}
+}
+
+// TestRedeemInvitationRateLimited: the existing-user flow Verify()s a
+// supplied password against a stored argon2id hash — without rate limit,
+// an attacker who has the invitation token can brute-force the user's
+// password. Plan §4.2 contract (10/min/IP, 5/min/email) is shared with
+// /v1/auth/login. We assert with a 1/100 limit for a fast deterministic
+// test.
+func TestRedeemInvitationRateLimited(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+	token := seedNativeInvitation(t, store, "org-rate", "alice@example.com", "viewer")
+
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	h = h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(1, 100))
+
+	body := map[string]string{
+		"token":    token,
+		"password": "wrong password attempt 12345",
+	}
+	// First attempt: 401 invalid_credentials. Budget consumed.
+	first := postJSON(t, mux(h), "/v1/auth/invitations/redeem", body, nil)
+	if first.Code != http.StatusUnauthorized {
+		t.Fatalf("first attempt status = %d; want 401", first.Code)
+	}
+	// Second attempt: blocked by IP cap → 429 with Retry-After header.
+	second := postJSON(t, mux(h), "/v1/auth/invitations/redeem", body, nil)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second attempt status = %d; want 429", second.Code)
+	}
+	if second.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on 429")
+	}
+}
+
+// TestPreviewInvitationRateLimited: token oracle / user enumeration
+// defence. Same shared limiter; the per-IP cap fires regardless of which
+// token (or email) is being probed.
+func TestPreviewInvitationRateLimited(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedNativeInvitation(t, store, "org-preview-rl", "victim@example.com", "viewer")
+
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	h = h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(1, 100))
+
+	first := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{"token": token}, nil)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first preview status = %d; want 200", first.Code)
+	}
+	second := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{"token": token}, nil)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second preview status = %d; want 429", second.Code)
+	}
+}
+
+// TestRedeemInvitationNewUser_RequiresName: the new-user flow demands a
+// name (the existing-user flow doesn't). Existing TestRedeemInvitationHappyPath
+// covers the success case; this test is the negative path.
+func TestRedeemInvitationNewUser_RequiresName(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedNativeInvitation(t, store, "org-no-name", "newbie@example.com", "member")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token":    token,
+		"password": "correct horse battery staple",
+		// no "name" field
+	}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d; want 400", w.Code)
+	}
 }
 
 func TestRedeemInvitationHappyPath(t *testing.T) {

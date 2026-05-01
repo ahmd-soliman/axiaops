@@ -63,14 +63,20 @@ func (h *Handler) WithLoginRateLimit(rl *LoginRateLimiter) *Handler {
 // Register attaches the auth routes to the supplied mux. Endpoints:
 //
 //	POST /v1/auth/bootstrap              first-owner install token redemption
-//	POST /v1/auth/login                  email + password → session cookie
+//	POST /v1/auth/login                  email + password → session cookie (or org picker on multi-org)
+//	POST /v1/auth/select-org             email + password + organization_id → session cookie (B1.5 multi-org follow-up)
+//	POST /v1/auth/switch-org             organization_id (session-authenticated) → rotated session bound to target org
 //	POST /v1/auth/logout                 revoke + clear cookie
-//	POST /v1/auth/invitations/redeem     accept invite token → set password → session
+//	POST /v1/auth/invitations/preview    peek invite token → {email, organization_name, existing_user}
+//	POST /v1/auth/invitations/redeem     accept invite token → set password (new user) or verify password (existing user) → session
 //	POST /v1/auth/password-reset/redeem  redeem reset token → set new password → all sessions revoked
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/bootstrap", h.bootstrap)
 	mux.HandleFunc("POST /v1/auth/login", h.login)
+	mux.HandleFunc("POST /v1/auth/select-org", h.selectOrg)
+	mux.HandleFunc("POST /v1/auth/switch-org", h.switchOrg)
 	mux.HandleFunc("POST /v1/auth/logout", h.logout)
+	mux.HandleFunc("POST /v1/auth/invitations/preview", h.previewInvitation)
 	mux.HandleFunc("POST /v1/auth/invitations/redeem", h.redeemInvitation)
 	mux.HandleFunc("POST /v1/auth/password-reset/redeem", h.redeemPasswordReset)
 }
@@ -230,14 +236,25 @@ type loginResponse struct {
 	Org  orgRecord `json:"organization"`
 }
 
-// loginMultiOrgResponse is the 409 body returned to users with >1 active
-// membership in B1. B1.5 will replace this with an org-picker flow; the
-// `b15_pending` flag is the marker for the frontend to swap in the
-// picker once available.
-type loginMultiOrgResponse struct {
-	Error      string `json:"error"`
-	Detail     string `json:"detail"`
-	B15Pending bool   `json:"b15_pending"`
+// loginNeedsOrgSelectionResponse is the 200 body returned to users with >1
+// active membership (B1.5 §4.7.1). Mirror of the bootstrap-style picker:
+// the frontend lands on /select-org, displays orgs[], and POSTs the
+// chosen organization_id back to /v1/auth/select-org along with the
+// re-supplied credentials. No session is minted by /v1/auth/login on
+// this branch — defence in depth, the picker step re-validates the
+// password before cutting a session.
+type loginNeedsOrgSelectionResponse struct {
+	NeedsOrgSelection bool             `json:"needs_org_selection"`
+	Orgs              []orgPickerEntry `json:"orgs"`
+}
+
+// orgPickerEntry is the slim per-org shape inside
+// loginNeedsOrgSelectionResponse.Orgs. Just enough for the picker to
+// render — the user picks one and slice 3's /v1/auth/select-org
+// authenticates the choice via organization_id (UUID), not name.
+type orgPickerEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
@@ -319,14 +336,47 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
 		return
 	case 1:
-		// Single-membership: mint session bound to that org.
+		// Single-membership: mint session bound to that org. Falls
+		// through to the MintSession block below.
 	default:
-		// B1: multi-membership users can't log in until B1.5 ships.
-		observability.Global.AuthLoginTotal.WithLabelValues("failure", "org_selection_required").Inc()
-		writeJSON(w, http.StatusConflict, loginMultiOrgResponse{
-			Error:      "multi_org_not_supported",
-			Detail:     "multi-organization login lands in B1.5; contact your admin to consolidate or wait for the next release",
-			B15Pending: true,
+		// Multi-membership: redirect to the org picker. Per slice-1
+		// review: a DB error here MUST surface as 500, not silently
+		// degrade to single-org. The user has already passed the
+		// password check; an empty org list at this point would
+		// land them on a dead-end picker.
+		orgRows, err := h.store.ListUserMemberships(r.Context(), u.ID)
+		if err != nil {
+			slog.Error("auth: login list user memberships failed", "user_id", u.ID, "err", err)
+			observability.Global.AuthLoginTotal.WithLabelValues("failure", "internal").Inc()
+			writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
+		}
+		// Defensive: LookupUserByEmail just told us len(memberships) >= 2.
+		// If the JOIN returned fewer, an organizations row is missing for a
+		// membership we just read. That's a referential-integrity break —
+		// 500 rather than guessing. The JOIN cannot return MORE rows than
+		// the source (organizations.id is the PK on the right side, so a
+		// membership row matches at most one org row), so `<` is the only
+		// inconsistency direction and `len(orgRows) == 0` is the worst case
+		// of it (every org row missing). Both manifest as 500.
+		if len(orgRows) < len(memberships) {
+			slog.Error("auth: login org-list join shorter than memberships — referential-integrity break (organizations row missing for a membership we just read)",
+				"user_id", u.ID,
+				"memberships", len(memberships),
+				"joined", len(orgRows),
+			)
+			observability.Global.AuthLoginTotal.WithLabelValues("failure", "internal").Inc()
+			writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
+		}
+		orgs := make([]orgPickerEntry, 0, len(orgRows))
+		for _, m := range orgRows {
+			orgs = append(orgs, orgPickerEntry{ID: m.OrganizationID, Name: m.OrganizationName})
+		}
+		observability.Global.AuthLoginTotal.WithLabelValues("org_selection_required", "").Inc()
+		writeJSON(w, http.StatusOK, loginNeedsOrgSelectionResponse{
+			NeedsOrgSelection: true,
+			Orgs:              orgs,
 		})
 		return
 	}
@@ -360,12 +410,395 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ── POST /v1/auth/select-org ────────────────────────────────────────────────
+
+// selectOrgRequest is the body for the multi-org picker step. Email +
+// password are re-supplied so the picker step can re-run the password
+// check independently — defence in depth, the frontend never holds
+// state we trust to round-trip a credential through.
+type selectOrgRequest struct {
+	Email          string `json:"email"`
+	Password       string `json:"password"`
+	OrganizationID string `json:"organization_id"`
+}
+
+// selectOrgResponse is identical in shape to loginResponse — once
+// the picker step succeeds we're back on the single-org login path,
+// session minted, dashboard ready.
+//
+// NOTE: this is a type alias, not a struct copy. Adding a field to
+// loginResponse silently widens select-org's wire shape too. That's
+// the intent (single-org login and post-picker login should agree on
+// the same envelope), but the silent inheritance means the zero value
+// of any new field must be sensible for the picker path. Audit the
+// JSON shape on every loginResponse field addition.
+type selectOrgResponse = loginResponse
+
+// selectOrg is the picker counterpart to login. Plan §4.7.1: a
+// multi-membership user is bounced from /v1/auth/login with the
+// `needs_org_selection` payload; the dashboard collects the chosen
+// organization_id (UUID) and POSTs it here along with the *same* email
+// + password the user just typed. We re-validate the password from
+// scratch — never trust the frontend to remember step 1 — and confirm
+// the user actually holds a membership in the chosen org before
+// minting a session bound to that org.
+//
+// Failure modes are deliberately collapsed to one 401 shape: wrong
+// password, unknown email, AND chosen-org-not-in-memberships all return
+// the same `invalid_credentials` body. The narrow benefit: an attacker
+// *without* valid credentials can't distinguish "org exists but you
+// don't belong" from "org does not exist" — both look like a generic
+// 401. (Against an attacker WITH valid credentials, the collapse buys
+// nothing — they already see the org list via the 200 response on
+// /v1/auth/login. The defence is for the no-creds case only.)
+func (h *Handler) selectOrg(w http.ResponseWriter, r *http.Request) {
+	var req selectOrgRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	req.Email = strings.TrimSpace(req.Email)
+	req.OrganizationID = strings.TrimSpace(req.OrganizationID)
+	if req.Email == "" || req.Password == "" || req.OrganizationID == "" {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "email, password, and organization_id required")
+		return
+	}
+
+	// Same rate-limit contract as /v1/auth/login (10/min/IP, 5/min/email).
+	// Sharing the same limiter instance means an attacker can't
+	// alternate /login and /select-org to double their budget against
+	// one email.
+	if h.loginLimit != nil {
+		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), req.Email)
+		if !outcome.Allowed {
+			retry := int(outcome.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			observability.Global.AuthLoginTotal.WithLabelValues("failure", "rate_limited").Inc()
+			writeAuthError(w, http.StatusTooManyRequests, "rate_limited",
+				"too many login attempts; please retry shortly")
+			return
+		}
+	}
+
+	u, memberships, err := h.store.LookupUserByEmail(r.Context(), req.Email)
+	switch {
+	case errors.Is(err, storage.ErrUserNotFound):
+		// Same timing-flat treatment as /v1/auth/login — verify against
+		// placeholder so an attacker can't time-detect unknown emails.
+		_ = Verify(req.Password, placeholderHash)
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "unknown_user").Inc()
+		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+		return
+	case err != nil:
+		slog.Error("auth: select-org lookup failed", "err", err)
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "internal").Inc()
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	if u.PasswordHash == "" {
+		_ = Verify(req.Password, placeholderHash)
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "unknown_user").Inc()
+		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+		return
+	}
+	if err := Verify(req.Password, u.PasswordHash); err != nil {
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "bad_password").Inc()
+		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+		return
+	}
+
+	// Membership check: the chosen organization_id must be in the
+	// user's live membership set. Linear scan is fine — users with
+	// dozens of memberships are not a realistic profile, and skipping
+	// a SQL roundtrip on the hot path matters more than the loop cost.
+	var chosen model.Membership
+	var found bool
+	for _, m := range memberships {
+		if m.OrganizationID == req.OrganizationID {
+			chosen = m
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Org not in user's set. Same 401 shape as wrong-password to
+		// avoid widening the membership-probe channel — the org-picker
+		// list on /login already exposes this to an authenticated
+		// caller, but emitting a distinct error here would let an
+		// attacker who has the right email-and-password test arbitrary
+		// org_ids without ever holding a session in those orgs.
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "unknown_user").Inc()
+		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+		return
+	}
+
+	mint, err := h.sessions.MintSession(r.Context(), MintRequest{
+		UserID:         u.ID,
+		OrganizationID: chosen.OrganizationID,
+		AuthMode:       model.AuthModePassword,
+		IP:             requestIP(r),
+		UserAgent:      r.Header.Get("User-Agent"),
+	})
+	if err != nil {
+		slog.Error("auth: select-org mint session failed", "err", err)
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "internal").Inc()
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+	observability.Global.AuthLoginTotal.WithLabelValues("success", "").Inc()
+
+	SetSession(w, r, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
+	writeJSON(w, http.StatusOK, selectOrgResponse{
+		User: user{
+			ID:    u.ID,
+			Email: u.Email,
+			Name:  u.Name,
+			Role:  chosen.Role,
+		},
+		Org: orgRecord{
+			ID: chosen.OrganizationID,
+		},
+	})
+}
+
+// ── POST /v1/auth/switch-org ────────────────────────────────────────────────
+
+type switchOrgRequest struct {
+	OrganizationID string `json:"organization_id"`
+}
+
+// switchOrgUser is the slim user shape returned by /v1/auth/switch-org —
+// just id + role. Defined as a separate struct (not a reuse of `user`)
+// so empty-email and empty-name don't end up on the wire as `""`. The
+// frontend already has email/name from /v1/me; rebinding to a different
+// org doesn't change them.
+type switchOrgUser struct {
+	ID   string `json:"id"`
+	Role string `json:"role"`
+}
+
+// switchOrgResponse is a deliberately slim confirmation payload —
+// `{user: {id, role}, organization: {id}}`. Job is to confirm the new
+// binding and surface the role at target so the dashboard can re-render
+// UI gates without re-fetching /v1/me.
+type switchOrgResponse struct {
+	User switchOrgUser `json:"user"`
+	Org  orgRecord     `json:"organization"`
+}
+
+// switchOrg flips the caller's session from one org they belong to to
+// another (B1.5 §4.7.1). Authentication is via the existing session
+// cookie — the user is already logged in; this is just a re-binding,
+// no fresh password check. Slice-2 review confirmed: collapsing the
+// "wrong org" channel to a generic 401 was for the no-creds case, but
+// here the caller IS authenticated, so we use 403 `not_a_member` to
+// distinguish "you don't belong" from "your session is dead" (401).
+//
+// Failure modes:
+//   - missing/invalid session  → 401 (handler enforces — /v1/auth/* paths
+//     bypass WrapNative, so we read the cookie ourselves).
+//   - missing organization_id  → 400.
+//   - target == current org    → 200 no-op (don't rotate, don't audit;
+//     idempotent contract for clients that may double-fire on UI race).
+//   - target not in caller's memberships → 403 `not_a_member`.
+//   - rotation failure → 500. Note: if the PG revoke succeeded and the
+//     mint failed, the caller is logged out — they re-auth via /login.
+//     This is the documented worst case in RotateSessionForOrg.
+//
+// Audit: writes one row to the FROM org's audit_log with action
+// `session.org_switched` and metadata `{from, to}`. The user_id is
+// the actor on the audit row already, so duplicating it in metadata
+// (as plan §4.7.4 row 5 loosely suggests) would just inflate the row.
+func (h *Handler) switchOrg(w http.ResponseWriter, r *http.Request) {
+	// /v1/auth/* paths bypass WrapNative — read + validate the session
+	// cookie inline. Same shape logout uses, but strict (no tolerance for
+	// missing/invalid cookies — switching orgs without a session is a
+	// client bug, not a graceful degrade).
+	token := ReadSession(r)
+	if token == "" {
+		writeAuthError(w, http.StatusUnauthorized, "unauthorized", "no session")
+		return
+	}
+	sess, err := h.sessions.ValidateSession(r.Context(), token)
+	if err != nil {
+		writeAuthError(w, http.StatusUnauthorized, "unauthorized", "no session")
+		return
+	}
+
+	var req switchOrgRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	target := strings.TrimSpace(req.OrganizationID)
+	if target == "" {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "organization_id required")
+		return
+	}
+
+	// Verify the target is in the user's membership set. Use the wider
+	// ListUserMemberships (joined with organizations) so we have the
+	// org name + role in hand for the response without a second roundtrip.
+	rows, err := h.store.ListUserMemberships(r.Context(), sess.UserID)
+	if err != nil {
+		slog.Error("auth: switch-org list memberships failed", "user_id", sess.UserID, "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+	var chosen model.MembershipWithOrganization
+	var found bool
+	for _, m := range rows {
+		if m.OrganizationID == target {
+			chosen = m
+			found = true
+			break
+		}
+	}
+	if !found {
+		// 403, not 401 — the user IS authenticated; they just lack a
+		// membership in target. Distinct from the /select-org collapse
+		// because the no-creds-membership-probe channel doesn't exist
+		// here (caller already proved a valid session).
+		writeAuthError(w, http.StatusForbidden, "not_a_member", "you are not a member of that organization")
+		return
+	}
+
+	// Same-org no-op: don't rotate, don't audit. Reuses sess.OrganizationID
+	// rather than mutating the cookie so the caller's clock-bound expires_at
+	// doesn't shift. Idempotent for racy clients.
+	if target == sess.OrganizationID {
+		writeJSON(w, http.StatusOK, switchOrgResponse{
+			User: switchOrgUser{ID: sess.UserID, Role: chosen.Role},
+			Org:  orgRecord{ID: target},
+		})
+		return
+	}
+
+	// Rotate: revoke old session (PG + cache + metric) then mint new one
+	// bound to target. The Manager.RotateSessionForOrg ordering guarantee
+	// is "revoke first → if mint fails, user is logged out (recoverable)".
+	mint, err := h.sessions.RotateSessionForOrg(r.Context(), sess.ID, sess.SessionTokenHash, MintRequest{
+		UserID:         sess.UserID,
+		OrganizationID: target,
+		AuthMode:       model.AuthModePassword,
+		IP:             requestIP(r),
+		UserAgent:      r.Header.Get("User-Agent"),
+	})
+	if err != nil {
+		slog.Error("auth: switch-org rotate failed", "user_id", sess.UserID, "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	// Audit on the FROM org (where the action originated). Failure
+	// non-fatal — the rotation already committed; an audit miss is a
+	// telemetry gap, not a security regression.
+	if h.auditFn != nil {
+		h.auditFn(r.Context(), sess.OrganizationID, sess.UserID, model.AuditActionSessionOrgSwitched,
+			map[string]any{"from": sess.OrganizationID, "to": target})
+	}
+
+	SetSession(w, r, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
+	writeJSON(w, http.StatusOK, switchOrgResponse{
+		User: switchOrgUser{ID: sess.UserID, Role: chosen.Role},
+		Org:  orgRecord{ID: target},
+	})
+}
+
+// ── POST /v1/auth/invitations/preview ───────────────────────────────────────
+
+type previewInvitationRequest struct {
+	Token string `json:"token"`
+}
+
+// previewInvitationResponse is the wire shape returned to AcceptInviteScreen.
+// Drives the UI choice: when ExistingUser is true, the form prompts for the
+// existing password; when false, it prompts to set a new one and a name.
+//
+// The user's password_hash is intentionally NOT exposed — only the boolean.
+// The actual hash stays inside the storage layer for redeem-time verification.
+type previewInvitationResponse struct {
+	Email            string `json:"email"`
+	OrganizationName string `json:"organization_name"`
+	Role             string `json:"role"`
+	ExistingUser     bool   `json:"existing_user"`
+	// ExistingUserName is the existing user's display name (if any),
+	// shown by the UI as "Welcome back, <name>" so the picker step
+	// doesn't feel anonymous. Empty when ExistingUser is false or the
+	// user's name was never set.
+	ExistingUserName string `json:"existing_user_name,omitempty"`
+}
+
+func (h *Handler) previewInvitation(w http.ResponseWriter, r *http.Request) {
+	var req previewInvitationRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	req.Token = strings.TrimSpace(req.Token)
+	if req.Token == "" {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "token required")
+		return
+	}
+
+	// Rate-limit gate: this endpoint reveals (a) whether a token is
+	// valid and (b) whether the invited email already maps to a user
+	// (existing_user) plus their display name. Without this gate, an
+	// attacker who can guess or harvest tokens can use it to enumerate
+	// AxiaOps users globally. We don't have an email at request time
+	// (that's what the response reveals), so the per-IP cap is the
+	// only key. Email key passed empty — ratelimit.go treats that as
+	// "IP only" (no per-email amplification).
+	if h.loginLimit != nil {
+		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), "")
+		if !outcome.Allowed {
+			retry := int(outcome.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			writeAuthError(w, http.StatusTooManyRequests, "rate_limited",
+				"too many invitation lookups; please retry shortly")
+			return
+		}
+	}
+
+	peek, err := h.store.LookupInvitationByToken(r.Context(), HashToken(req.Token))
+	switch {
+	case errors.Is(err, storage.ErrInvitationNotFound):
+		writeAuthError(w, http.StatusGone, "invitation_invalid", "invitation token is invalid or expired")
+		return
+	case err != nil:
+		slog.Error("auth: invitation preview failed", "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	resp := previewInvitationResponse{
+		Email:            peek.Email,
+		OrganizationName: peek.OrganizationName,
+		Role:             peek.Role,
+		ExistingUser:     peek.ExistingUser != nil,
+	}
+	if peek.ExistingUser != nil {
+		resp.ExistingUserName = peek.ExistingUser.Name
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // ── POST /v1/auth/invitations/redeem ────────────────────────────────────────
 
 type redeemInvitationRequest struct {
 	Token    string `json:"token"`
 	Password string `json:"password"`
-	Name     string `json:"name"`
+	// Name is required only on the new-user flow. The existing-user
+	// flow ignores it (the user's name in their other organisation
+	// stays unchanged).
+	Name string `json:"name"`
 }
 
 type redeemInvitationResponse struct {
@@ -383,43 +816,110 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 	// still hashes correctly. Bootstrap takes the same precaution.
 	req.Token = strings.TrimSpace(req.Token)
 	req.Name = strings.TrimSpace(req.Name)
-	if req.Token == "" || req.Password == "" || req.Name == "" {
-		writeAuthError(w, http.StatusBadRequest, "bad_request", "token, password, name required")
-		return
-	}
-	if err := CheckPolicy(req.Password); err != nil {
-		writeAuthError(w, http.StatusBadRequest, "weak_password", err.Error())
+	if req.Token == "" || req.Password == "" {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "token and password required")
 		return
 	}
 
-	passwordHash, err := Hash(req.Password)
-	if err != nil {
-		slog.Error("auth: invitation redeem hash failed", "err", err)
+	tokenHash := HashToken(req.Token)
+
+	// Peek to discover whether the email already maps to a global user.
+	// This is what selects between the new-user (set password + name)
+	// and existing-user (verify existing password) flow. The token row
+	// is NOT consumed here.
+	peek, err := h.store.LookupInvitationByToken(r.Context(), tokenHash)
+	// Rate-limit gate. Defer until AFTER the peek so we have the email
+	// to key the per-email cap on — without it, the limiter only sees
+	// the per-IP key and an attacker rotating IPs (or a botnet)
+	// trivially bypasses the per-email cap that's the actual
+	// brute-force defence. The peek result determines email; the
+	// password attempt comes after.
+	//
+	// Pre-condition: ErrInvitationNotFound is handled below the gate
+	// (we don't want to reveal "valid token" by 410ing without the
+	// rate-limit check), but we DO want to short-circuit malformed
+	// tokens — the gate runs unconditionally on lookup success/failure
+	// alike, so an attacker probing thousands of garbage tokens is
+	// also limited.
+	if h.loginLimit != nil {
+		emailKey := ""
+		if err == nil {
+			emailKey = peek.Email
+		}
+		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), emailKey)
+		if !outcome.Allowed {
+			retry := int(outcome.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			observability.Global.AuthInvitationsTotal.WithLabelValues("rate_limited").Inc()
+			writeAuthError(w, http.StatusTooManyRequests, "rate_limited",
+				"too many invitation redeem attempts; please retry shortly")
+			return
+		}
+	}
+	switch {
+	case errors.Is(err, storage.ErrInvitationNotFound):
+		observability.Global.AuthInvitationsTotal.WithLabelValues("expired").Inc()
+		writeAuthError(w, http.StatusGone, "invitation_invalid", "invitation token is invalid or expired")
+		return
+	case err != nil:
+		slog.Error("auth: invitation redeem peek failed", "err", err)
 		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
 	}
 
-	in := storage.NativeInviteRedeem{
-		TokenHash:    HashToken(req.Token),
-		UserID:       uuid.New().String(), // ignored by store if email matches existing user
-		UserName:     req.Name,
-		PasswordHash: passwordHash,        // ignored if email matches existing user (B1.5 path)
+	in := storage.NativeInviteRedeem{TokenHash: tokenHash}
+	if peek.ExistingUser != nil {
+		// Existing-user flow (B1.5): verify the supplied password
+		// against the user's stored hash. We never trust the
+		// frontend's "I'm an existing user" claim; the truth lives in
+		// the password column.
+		if err := Verify(req.Password, peek.ExistingUser.PasswordHash); err != nil {
+			writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid password")
+			return
+		}
+		in.ExistingUserID = peek.ExistingUser.ID
+		// Name from req is intentionally ignored — the existing
+		// user's display name belongs to them, not to whoever types
+		// in the picker.
+	} else {
+		// New-user flow: require name and enforce the password policy.
+		if req.Name == "" {
+			writeAuthError(w, http.StatusBadRequest, "bad_request", "name required for new user")
+			return
+		}
+		if err := CheckPolicy(req.Password); err != nil {
+			writeAuthError(w, http.StatusBadRequest, "weak_password", err.Error())
+			return
+		}
+		passwordHash, hashErr := Hash(req.Password)
+		if hashErr != nil {
+			slog.Error("auth: invitation redeem hash failed", "err", hashErr)
+			writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
+		}
+		in.UserID = uuid.New().String()
+		in.UserName = req.Name
+		in.PasswordHash = passwordHash
 	}
+
 	resolvedUser, mship, err := h.store.RedeemNativeInvitation(r.Context(), in)
 	switch {
 	case errors.Is(err, storage.ErrInvitationNotFound):
-		// Single-source response for "token unknown / expired / already
-		// redeemed". Don't differentiate so callers can't probe which
-		// state a token is in.
+		// Race between the peek and the redeem — token consumed by
+		// another caller in the gap. Single-source response for
+		// "token unknown / expired / already redeemed".
 		observability.Global.AuthInvitationsTotal.WithLabelValues("expired").Inc()
 		writeAuthError(w, http.StatusGone, "invitation_invalid", "invitation token is invalid or expired")
 		return
 	case errors.Is(err, storage.ErrUserEmailExists):
-		// Race: a user with the same email was created concurrently
-		// (extraordinarily rare on a single-org install). Surface to
-		// the user as a generic "already taken" — they can sign in
-		// directly via /v1/auth/login.
-		writeAuthError(w, http.StatusConflict, "email_taken", "this email is already registered")
+		// Race: a global user with this email was created between the
+		// peek (which saw none) and the INSERT. The right thing for the
+		// caller is to retry — peek will now route through the
+		// existing-user flow.
+		writeAuthError(w, http.StatusConflict, "email_taken", "this email was just registered — please refresh and try again")
 		return
 	case err != nil:
 		slog.Error("auth: invitation redeem failed", "err", err)

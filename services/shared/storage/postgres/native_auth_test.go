@@ -282,3 +282,154 @@ func TestSessionsTable_NoRLS(t *testing.T) {
 		t.Errorf("got session id %q; want %q", got.ID, sess.ID)
 	}
 }
+
+// ── LookupInvitationByToken (B1.5 slice 6.5) ───────────────────────────────
+
+// TestLookupInvitationByToken_HappyPath_NewUser pins the SQL contract for
+// the peek when the invited email is brand new. ExistingUser is nil — the
+// redeem handler will route through the new-user flow.
+func TestLookupInvitationByToken_HappyPath_NewUser(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+	inviter := seedUser(t, s, org.ID, "owner@example.com")
+	if err := s.SaveMembership(ctx, model.Membership{
+		ID: uuid.NewString(), OrganizationID: org.ID, UserID: inviter.ID, Role: "owner",
+	}); err != nil {
+		t.Fatalf("SaveMembership: %v", err)
+	}
+
+	tokenHash := "hash-newuser-fixture"
+	if _, _, err := s.CreateNativeInvitation(ctx, model.PendingInvitation{
+		ID:              uuid.NewString(),
+		OrganizationID:  org.ID,
+		Email:           "newcomer@example.com",
+		Role:            "member",
+		InvitedByUserID: inviter.ID,
+		InvitedByEmail:  inviter.Email,
+		ExpiresAt:       time.Now().Add(24 * time.Hour),
+		InviteTokenHash: tokenHash,
+	}); err != nil {
+		t.Fatalf("CreateNativeInvitation: %v", err)
+	}
+
+	peek, err := s.LookupInvitationByToken(context.Background(), tokenHash)
+	if err != nil {
+		t.Fatalf("LookupInvitationByToken: %v", err)
+	}
+	if peek.Email != "newcomer@example.com" {
+		t.Errorf("Email = %q; want newcomer@example.com", peek.Email)
+	}
+	if peek.OrganizationID != org.ID {
+		t.Errorf("OrganizationID = %q; want %q", peek.OrganizationID, org.ID)
+	}
+	if peek.OrganizationName == "" {
+		t.Error("OrganizationName empty; expected joined value")
+	}
+	if peek.Role != "member" {
+		t.Errorf("Role = %q; want member", peek.Role)
+	}
+	if peek.ExistingUser != nil {
+		t.Errorf("ExistingUser = %+v; want nil for fresh email", peek.ExistingUser)
+	}
+}
+
+// TestLookupInvitationByToken_HappyPath_ExistingUser is the B1.5 critical
+// path: an email that already maps to a user in another organisation
+// returns ExistingUser populated. Confirms the lookup is GLOBAL across
+// orgs (the previous per-org SQL would have missed this).
+func TestLookupInvitationByToken_HappyPath_ExistingUser(t *testing.T) {
+	s := newTestStore(t)
+	// Seed the user in org A.
+	ctxA, orgA := newOrgCtx(t, s)
+	alice := seedUser(t, s, orgA.ID, "alice@example.com")
+	if err := s.SaveMembership(ctxA, model.Membership{
+		ID: uuid.NewString(), OrganizationID: orgA.ID, UserID: alice.ID, Role: "admin",
+	}); err != nil {
+		t.Fatalf("SaveMembership orgA: %v", err)
+	}
+
+	// Create org B and an invitation for the same email.
+	ctxB, orgB := newOrgCtx(t, s)
+	inviter := seedUser(t, s, orgB.ID, "owner-b@example.com")
+	tokenHash := "hash-existinguser-fixture"
+	if _, _, err := s.CreateNativeInvitation(ctxB, model.PendingInvitation{
+		ID:              uuid.NewString(),
+		OrganizationID:  orgB.ID,
+		Email:           "alice@example.com",
+		Role:            "viewer",
+		InvitedByUserID: inviter.ID,
+		InvitedByEmail:  inviter.Email,
+		ExpiresAt:       time.Now().Add(24 * time.Hour),
+		InviteTokenHash: tokenHash,
+	}); err != nil {
+		t.Fatalf("CreateNativeInvitation: %v", err)
+	}
+
+	peek, err := s.LookupInvitationByToken(context.Background(), tokenHash)
+	if err != nil {
+		t.Fatalf("LookupInvitationByToken: %v", err)
+	}
+	if peek.ExistingUser == nil {
+		t.Fatal("ExistingUser is nil; the global email lookup missed alice (this is the B1.5 bug fix regression test)")
+	}
+	if peek.ExistingUser.ID != alice.ID {
+		t.Errorf("ExistingUser.ID = %q; want %q", peek.ExistingUser.ID, alice.ID)
+	}
+	if peek.OrganizationID != orgB.ID {
+		t.Errorf("OrganizationID = %q; want orgB %q", peek.OrganizationID, orgB.ID)
+	}
+}
+
+// TestLookupInvitationByToken_ExpiredToken returns ErrInvitationNotFound.
+func TestLookupInvitationByToken_ExpiredToken(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+	inviter := seedUser(t, s, org.ID, "owner@example.com")
+	tokenHash := "hash-expired-fixture"
+	// Insert with an expires_at in the past via direct SQL (CreateNativeInvitation
+	// would reject; we want the row present-but-expired).
+	if _, _, err := s.CreateNativeInvitation(ctx, model.PendingInvitation{
+		ID:              uuid.NewString(),
+		OrganizationID:  org.ID,
+		Email:           "expired@example.com",
+		Role:            "member",
+		InvitedByUserID: inviter.ID,
+		InvitedByEmail:  inviter.Email,
+		ExpiresAt:       time.Now().Add(time.Hour),
+		InviteTokenHash: tokenHash,
+	}); err != nil {
+		t.Fatalf("CreateNativeInvitation: %v", err)
+	}
+	// Force-expire via a direct UPDATE.
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	if _, err := conn.Exec(context.Background(),
+		`UPDATE axiaops.pending_memberships SET expires_at = NOW() - INTERVAL '1 hour' WHERE invite_token_hash = $1`,
+		tokenHash,
+	); err != nil {
+		t.Fatalf("force-expire: %v", err)
+	}
+
+	_, err := s.LookupInvitationByToken(context.Background(), tokenHash)
+	if !errors.Is(err, storage.ErrInvitationNotFound) {
+		t.Errorf("err = %v; want ErrInvitationNotFound for expired token", err)
+	}
+}
+
+// TestLookupInvitationByToken_UnknownToken returns ErrInvitationNotFound.
+func TestLookupInvitationByToken_UnknownToken(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.LookupInvitationByToken(context.Background(), "non-existent-token-hash")
+	if !errors.Is(err, storage.ErrInvitationNotFound) {
+		t.Errorf("err = %v; want ErrInvitationNotFound", err)
+	}
+}
+
+// TestLookupInvitationByToken_EmptyHash short-circuits without hitting PG.
+func TestLookupInvitationByToken_EmptyHash(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.LookupInvitationByToken(context.Background(), "")
+	if !errors.Is(err, storage.ErrInvitationNotFound) {
+		t.Errorf("err = %v; want ErrInvitationNotFound for empty hash", err)
+	}
+}
