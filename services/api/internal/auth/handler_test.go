@@ -392,8 +392,12 @@ func TestLoginUnknownEmailReturns401(t *testing.T) {
 // orgs: [{id, name}, ...]}` and **no Set-Cookie**. The frontend lands on
 // /select-org and POSTs the chosen org_id back to /v1/auth/select-org with
 // re-supplied credentials (slice 3).
+//
+// NOT t.Parallel(): increments the same labeled counter
+// (AuthLoginTotal{outcome="org_selection_required"}) that
+// TestLogin_IncrementsOrgSelectionRequiredOutcome uses for its
+// before/after delta. Running parallel would race the snapshot.
 func TestLoginMultiOrgReturns200WithPicker(t *testing.T) {
-	t.Parallel()
 	h, store, _ := newHandlerTest(t)
 	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
 
@@ -483,8 +487,12 @@ func mintSessionCookie(t *testing.T, h *auth.Handler, store *fakeStore, email st
 
 // TestSwitchOrgHappyPath: caller is in org A, switches to org B, gets a
 // new session cookie bound to org B and the matching role for that org.
+//
+// NOT t.Parallel(): see comment on TestLoginMultiOrgReturns200WithPicker
+// — successful switch-org increments AuthSessionRevocationsTotal
+// {reason="org_switch"} which TestSwitchOrg_IncrementsOrgSwitchRevocationMetric
+// snapshots.
 func TestSwitchOrgHappyPath(t *testing.T) {
-	t.Parallel()
 	h, store, _ := newHandlerTest(t)
 	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
 	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
@@ -531,8 +539,8 @@ func TestSwitchOrgHappyPath(t *testing.T) {
 // don't have a fully-wired authenticated route in this test layer; assert
 // at the manager level: ValidateSession on the old token returns
 // ErrSessionNotFound (the row was revoked + cache invalidated).
+// NOT t.Parallel(): increments AuthSessionRevocationsTotal{reason="org_switch"}.
 func TestSwitchOrg_OldCookieReturns401AfterSwitch(t *testing.T) {
-	t.Parallel()
 	h, store, mgr := newHandlerTest(t)
 	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
 	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
@@ -617,8 +625,9 @@ func TestSwitchOrg_SameOrgIsNoOp(t *testing.T) {
 // TestSwitchOrg_AuditRowWritten: plan §4.7.4 row 5. Every successful
 // switch produces one audit row in the FROM org with action
 // `session.org_switched` and metadata {from, to}.
+//
+// NOT t.Parallel(): increments AuthSessionRevocationsTotal{reason="org_switch"}.
 func TestSwitchOrg_AuditRowWritten(t *testing.T) {
-	t.Parallel()
 	h, store, _, cap := newHandlerTestWithAudit(t)
 	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
 	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
