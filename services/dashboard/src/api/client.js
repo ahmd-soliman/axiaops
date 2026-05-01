@@ -394,14 +394,55 @@ export async function fetchMe() {
   return _meInFlight;
 }
 
-// resetFetchMeCache clears the 250ms error cache. Called from every auth
-// ceremony entry point (login, bootstrap, redeem-invitation) — a fresh
-// cookie has just been minted, any cached 401 from before the credential
-// exchange is stale and would otherwise briefly block the post-login
-// /v1/me probe in MeContext.refresh().
+// resetFetchMeCache clears the 250ms error cache AND drops any in-flight
+// /v1/me promise pointer. Called from every auth ceremony entry point
+// (login, bootstrap, redeem-invitation, select-org) — a fresh cookie has
+// just been minted, any cached 401 OR any in-flight pre-auth /v1/me
+// promise is stale and would otherwise briefly block (or actively poison)
+// the post-login MeContext.refresh().
+//
+// Nulling _meInFlight does NOT cancel the underlying fetch — that one
+// resolves to wherever the network goes, but its result is discarded
+// because no caller awaits it. The next fetchMe() call gets a fresh
+// promise tied to the current cookie.
 function resetFetchMeCache() {
   _meLastError = null;
   _meLastErrorAt = 0;
+  _meInFlight = null;
+}
+
+// ── Multi-org picker handoff ────────────────────────────────────────────────
+// Login → /select-org needs to ferry the user's email + password + orgs
+// list across the route boundary so the picker can re-POST to
+// /v1/auth/select-org. Three options were considered:
+//
+//   1. React Router state (navigate(path, { state })). REJECTED — react-router
+//      v6 stores this in window.history.state, which the browser session-
+//      history manager persists across hard refreshes within the tab. The
+//      password would survive a refresh on /select-org. Not catastrophic
+//      (session-history is tab-scoped), but unnecessary durability.
+//   2. sessionStorage. REJECTED — survives refresh too, and is enumerable
+//      from any same-origin code (DevTools, browser extensions).
+//   3. Module-level variable. ACCEPTED — wiped when the JS bundle re-inits
+//      (hard refresh, navigation that reloads the SPA). Lives in the same
+//      tab's runtime memory only. Genuinely transient.
+//
+// Lifecycle:
+//   - Login.jsx sets it on the multi-org branch of authLogin.
+//   - OrgPickerScreen.jsx reads it on mount (idempotent — a re-read returns
+//     the same value, important for React StrictMode double-render).
+//   - OrgPickerScreen calls clearPendingOrgPick on successful pick, on
+//     cancel, and on the 401 bounce. After clear: a refresh on /select-org
+//     finds null and the route bounces to /login.
+let _pendingOrgPick = null;
+export function setPendingOrgPick(payload) {
+  _pendingOrgPick = payload;
+}
+export function getPendingOrgPick() {
+  return _pendingOrgPick;
+}
+export function clearPendingOrgPick() {
+  _pendingOrgPick = null;
 }
 
 export async function listMemberships() {
