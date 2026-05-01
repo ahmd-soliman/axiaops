@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"axiaops.io/shared/license"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
@@ -13,14 +14,16 @@ import (
 
 // mockStoreForScheduler is a minimal mock store for testing the scheduler.
 type mockStoreForScheduler struct {
-	accounts []model.Account
-	listErr  error
+	accounts  []model.Account
+	listErr   error
+	listCalls int
 }
 
 func (m *mockStoreForScheduler) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	return m.ListAllAccounts(ctx)
 }
 func (m *mockStoreForScheduler) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
+	m.listCalls++
 	if m.listErr != nil {
 		return nil, m.listErr
 	}
@@ -315,5 +318,62 @@ func TestScanScheduledAccounts_ZeroInterval_AlwaysOverdue(t *testing.T) {
 	scanScheduledAccounts(context.Background(), store, q)
 	if len(q.jobs) != 1 {
 		t.Fatalf("expected 1 job for zero-interval account, got %d", len(q.jobs))
+	}
+}
+
+// TestScanScheduledAccounts_SkippedWhenLicenseExpired — Phase B1.6 slice 5c.
+// Past-grace boots block scheduled scans wholesale. Single check at the top
+// of the pass, not per-account — license state is binary-wide.
+func TestScanScheduledAccounts_SkippedWhenLicenseExpired(t *testing.T) {
+	license.SetCurrent(&license.License{
+		LicenseID:       "lic_test",
+		CustomerID:      "test-001",
+		ExpiresAt:       time.Now().Add(-60 * 24 * time.Hour),
+		GracePeriodDays: 30,
+	})
+	t.Cleanup(func() { license.SetCurrent(nil) })
+
+	now := time.Now()
+	store := &mockStoreForScheduler{
+		accounts: []model.Account{{
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
+		}},
+	}
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 0 {
+		t.Fatalf("license_expired should suppress all scheduled scans, got %d jobs", len(q.jobs))
+	}
+	// Defensive: also confirm ListAllAccounts was NOT called — the gate
+	// short-circuits before any DB read so an expired license also stops
+	// burning DB load on every tick.
+	if store.listCalls > 0 {
+		t.Errorf("expected ListAllAccounts to be skipped under expired license, got %d calls", store.listCalls)
+	}
+}
+
+// TestScanScheduledAccounts_AllowedInGrace — in-grace deliberately keeps
+// scans running (plan §4.9 Option-3 scope). The dashboard banner + slog
+// warns are the renewal-pressure mechanism for grace; only past-grace
+// silences the scheduler.
+func TestScanScheduledAccounts_AllowedInGrace(t *testing.T) {
+	license.SetCurrent(&license.License{
+		LicenseID:       "lic_test",
+		CustomerID:      "test-001",
+		ExpiresAt:       time.Now().Add(-2 * 24 * time.Hour),
+		GracePeriodDays: 30,
+	})
+	t.Cleanup(func() { license.SetCurrent(nil) })
+
+	now := time.Now()
+	store := &mockStoreForScheduler{
+		accounts: []model.Account{{
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
+		}},
+	}
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 1 {
+		t.Fatalf("in-grace must allow scheduled scans, got %d jobs", len(q.jobs))
 	}
 }

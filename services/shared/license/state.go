@@ -29,14 +29,29 @@ func Snapshot() *License {
 
 // SnapshotState classifies the boot-time license against time.Now(), or
 // returns StateNotLoaded when no license is set (DEV_MODE / SaaS binary /
-// pre-VerifyAtBoot). Callers decide policy on the result — slice 5's
-// scan-gate treats StateExpired as 403 and falls through on StateNotLoaded;
-// slice 4's ticker watches for transitions and ignores StateNotLoaded
-// entirely. Lock-free read.
+// pre-VerifyAtBoot). Lock-free read.
+//
+// Most call sites should prefer IsScanAllowed (the policy-encoded predicate);
+// SnapshotState is the right call only when the caller needs the specific
+// state value — e.g. the ticker's transition detection, or the /v1/version
+// handler exposing state to the dashboard banner.
 func SnapshotState() State {
 	l := Snapshot()
 	if l == nil {
 		return StateNotLoaded
 	}
 	return CheckExpiry(l)
+}
+
+// IsScanAllowed encodes the Option-3 scan-gate policy decided in plan §4.9
+// scope intro: only the explicit StateExpired blocks scans; valid, in-grace,
+// and not-loaded all fall through.
+//
+// Both api and ingestion scan-gate sites route through this single predicate.
+// If the policy ever widens (e.g. block in-grace per a future B1.7 customer
+// signal), the change is one edit here, compiler-verified across every
+// consumer — without it the policy was spelled out in 4 places with no
+// compiler help (slice 5c review).
+func IsScanAllowed() bool {
+	return SnapshotState() != StateExpired
 }

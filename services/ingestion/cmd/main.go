@@ -24,6 +24,7 @@ import (
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/errors"
+	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
@@ -93,6 +94,16 @@ func die(msg string, args ...any) {
 
 func main() {
 	logging.Init("ingestion")
+
+	// ── License (B1.6) ───────────────────────────────────────────────────────
+	// Ingestion enforces the same license posture as api: refuse to start
+	// past grace, run an hourly classifier so the Prometheus gauges advance
+	// with the wall clock, and have scanScheduledAccounts skip enqueueing
+	// jobs once state == expired (plan §4.9.2b). DEV_MODE bypasses the
+	// check entirely; the SaaS binary doesn't run this code path.
+	if err := license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true"); err != nil {
+		die("license: refusing to start", "error", err.Error())
+	}
 
 	store := newStore()
 
@@ -171,6 +182,14 @@ func main() {
 	} else {
 		slog.Info("worker: skipped_no_redis")
 	}
+
+	// Background ticker: re-classify the loaded license every hour. Mirrors
+	// the api binary's ticker — both run independently so each binary's
+	// Prometheus gauges advance with the wall clock, and slog.Warn fires on
+	// transitions in both processes. No-op under DEV_MODE. Bound to sigCtx
+	// for clean SIGTERM behaviour (the api-side ticker has a TODO to do the
+	// same; tracking that under a single follow-up).
+	go license.RunTicker(sigCtx, license.DefaultTickerInterval)
 
 	// Background ticker: trigger scheduled auto-scans across all organizations.
 	go func() {
@@ -712,6 +731,15 @@ func expireSnoozes(ctx context.Context, store storage.Store) {
 
 // scanScheduledAccounts checks all accounts across all organizations and triggers scans for those overdue.
 func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue) {
+	// License gate (plan §4.9.2b). Past-grace blocks every account in this
+	// pass with a single check, not a per-account one — license state is
+	// binary-wide, and all accounts share its enforcement posture.
+	// Routed through license.IsScanAllowed so this gate stays in sync with
+	// the api-side scanAccount handler — single predicate owns the policy.
+	if !license.IsScanAllowed() {
+		slog.Info("scan-scheduler: skipped — license expired past grace")
+		return
+	}
 	accounts, err := store.ListAllAccounts(ctx)
 	if err != nil {
 		slog.Error("scan-scheduler: failed to list accounts", "error", err)

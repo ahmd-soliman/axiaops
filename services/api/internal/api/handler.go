@@ -940,10 +940,14 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 	// License gate (plan §4.9.2b). The single mid-flight feature gate B1.6
 	// ships: once the boot-time license has crossed exp + grace_period_days
 	// the scan path goes silent, both for user-triggered scans here and the
-	// scheduled-scan ticker in services/ingestion. StateNotLoaded
-	// (DEV_MODE / SaaS) and StateInGrace fall through — gating is reserved
-	// for the explicit past-grace state.
-	if license.SnapshotState() == license.StateExpired {
+	// scheduled-scan ticker in services/ingestion. The policy ("only
+	// StateExpired blocks") lives in license.IsScanAllowed so this gate
+	// stays in sync with the ingestion-side gate via a single predicate.
+	//
+	// Content-Type set BEFORE WriteHeader because once headers are flushed
+	// the Header() map mutations are dropped — writeJSON's set-then-encode
+	// pattern only works correctly for implicit-200 responses.
+	if !license.IsScanAllowed() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"error":"license_expired","detail":"License past grace period — contact sales@axiaops.io to renew"}`))

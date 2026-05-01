@@ -41,6 +41,9 @@ func TestScanAccount_LicenseGate_ExpiredReturns403(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d — body: %s", w.Code, w.Body.String())
 	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json — set before WriteHeader so the dashboard parses the body correctly", ct)
+	}
 	var body map[string]string
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("body not JSON: %v — %s", err, w.Body.String())
