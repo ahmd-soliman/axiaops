@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { getToken, saveToken, clearToken } from './auth/storage';
-import { setAuthToken, UNAUTHORIZED_EVENT } from './api/client';
+import { authLogout, setAuthToken, UNAUTHORIZED_EVENT } from './api/client';
 import { DEV_MODE, DEV_ORG_NAME } from './config';
 import { getKindeClient } from './auth/kinde';
-import { queryClient } from './main';
 import { AppProvider } from './context/AppContext';
 import { MeProvider } from './context/MeContext';
 
@@ -24,7 +23,6 @@ import SettingsTeam      from './pages/settings/Team';
 import SettingsAudit     from './pages/settings/Audit';
 import SettingsOrganization from './pages/settings/Organization';
 import OnboardingLayout  from './pages/onboarding/OnboardingLayout';
-import OnboardingOrgName from './pages/onboarding/OrgName';
 import OnboardingInvite  from './pages/onboarding/Invite';
 import OnboardingAws     from './pages/onboarding/AwsAccount';
 import Login      from './pages/Login';
@@ -47,26 +45,29 @@ function AuthenticatedApp() {
   const claims  = parseJwt(getToken() ?? '');
   const orgName = claims.org_name || claims.org_code || '';
 
+  // Navigate first, revoke the session after. Doing it the other way
+  // round invalidates the cookie while the dashboard's react-query
+  // hooks are still mounted — they refetch, each 401 fires
+  // UNAUTHORIZED_EVENT, each handler call cleared the cache and
+  // refetched again, and Chrome eventually throttled the navigate
+  // flood. The navigate-first version unmounts AuthenticatedApp before
+  // the cookie dies, so no in-flight request ever sees a 401.
   function handleLogout() {
+    navigate('/login', { replace: true });
+    authLogout().catch(() => { /* tolerant — server returns 204 anyway */ });
     clearToken();
     setAuthToken(null);
-    queryClient.clear();
-    navigate('/login', { replace: true });
   }
 
-  // Authentication lost (any 401): api/client.js fires UNAUTHORIZED_EVENT
-  // and we bounce to /login so the user can re-authenticate. Two paths:
-  //   - Kinde mode: token in localStorage is stale/expired; clearToken
-  //     drops it so the next login starts fresh.
-  //   - Native mode: the HttpOnly cookie expired or was revoked
-  //     server-side; clearToken is a no-op (no localStorage token), but
-  //     the redirect + queryClient.clear are still needed to flush any
-  //     stale role/permission cache from MeContext.
+  // Authentication lost mid-session (cookie expired or revoked
+  // server-side): api/client.js fires UNAUTHORIZED_EVENT and we bounce
+  // to /login. Same navigate-first ordering as handleLogout —
+  // queryClient.clear() here would cascade with concurrent 401s into a
+  // navigate-throttle loop.
   useEffect(() => {
     const handler = () => {
       clearToken();
       setAuthToken(null);
-      queryClient.clear();
       navigate('/login', { replace: true });
     };
     window.addEventListener(UNAUTHORIZED_EVENT, handler);
@@ -80,8 +81,7 @@ function AuthenticatedApp() {
           <Route element={<AuthGuard />}>
             <Route element={<OnboardingGate />}>
               <Route path="/onboarding" element={<OnboardingLayout />}>
-                <Route index element={<Navigate to="org-name" replace />} />
-                <Route path="org-name"    element={<OnboardingOrgName />} />
+                <Route index element={<Navigate to="invite" replace />} />
                 <Route path="invite"      element={<OnboardingInvite />} />
                 <Route path="aws-account" element={<OnboardingAws />} />
               </Route>
