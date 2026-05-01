@@ -43,12 +43,12 @@ make test-integration   # Spins up an isolated docker-compose stack (postgres, r
 ## Dev Workflow
 
 - `start-dev` = host-mode Go (API :8080, ingestion :8081, Vite dashboard :5173) against a local Postgres container. No Redis, no auth. Use this for most coding.
-- `start-staging` = full docker-compose stack: Postgres + Redis + ingestion + API + dashboard. Native auth enforced (`AUTH_PROVIDER=native`). Dashboard served by nginx with TLS at **`https://localhost:8443`**; HTTP on `:8082` 308-redirects to HTTPS so stale bookmarks land in the right place. Use when debugging auth flows, Redis features, or verifying container parity.
+- `start-staging` = full docker-compose stack: Postgres + Redis + ingestion + API + dashboard. Native auth enforced (`AUTH_PROVIDER=native`). Dashboard served by nginx on plain HTTP at **`http://localhost:8082`** — TLS termination is the edge proxy's job in every real deployment (App Runner / customer ingress / on-prem reverse proxy in front of dev/staging) and is intentionally absent locally. Use when debugging auth flows, Redis features, or verifying container parity.
 - Both modes use real AWS Cost Explorer + CloudWatch data.
 - `start-dev` requires AWS credentials in `services/*/.env` or environment.
-- `start-staging` additionally requires (a) [mkcert](https://github.com/FiloSottile/mkcert) installed (`brew install mkcert nss` on macOS) — `make start-staging` runs `make tls-certs` automatically to generate locally-trusted dev certs into `services/dashboard/certs/`; (b) under `AUTH_PROVIDER=kinde`/`both` only: `KINDE_*` env vars populated.
-- In `start-dev` the dashboard proxies `/api/*` through Vite → API on 8080. In `start-staging` nginx terminates TLS, serves the built bundle, and proxies `/api/*` to the containerised API with `X-Forwarded-Proto: https` so the API marks the session cookie `Secure`.
-- **Native-auth first-run** (bootstrap → login → dashboard) is documented in [`docs/native-auth-bootstrap.md`](docs/native-auth-bootstrap.md). Includes the `make tls-certs` setup, where to find the install token, and known-issue diagnostics.
+- `start-staging` additionally requires (under `AUTH_PROVIDER=kinde`/`both` only): `KINDE_*` env vars populated. No local TLS setup is needed.
+- In `start-dev` the dashboard proxies `/api/*` through Vite → API on 8080. In `start-staging` nginx serves the built bundle on HTTP and proxies `/api/*` to the containerised API, propagating `X-Forwarded-Proto` from the request — non-Secure cookie under direct-HTTP access (correct), Secure cookie when an edge proxy terminates TLS in front of this stack.
+- **Native-auth first-run** (bootstrap → login → dashboard) is documented in [`docs/native-auth-bootstrap.md`](docs/native-auth-bootstrap.md).
 
 ## Database
 

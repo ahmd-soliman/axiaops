@@ -7,6 +7,7 @@ import { fetchVersion } from '../api/client';
 import { APP_VERSION, APP_COMMIT_SHA } from '../config';
 import AvatarMenu from './AvatarMenu';
 import OrgSwitcher from './OrgSwitcher';
+import LicenseBanner from './LicenseBanner';
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
 
@@ -213,6 +214,10 @@ export default function AppShell() {
           <AvatarMenu />
         </div>
       </header>
+
+      {/* ── License banner (B1.6 slice 8) ── */}
+      {/* Owners only; renders nothing when license is valid + ≥14 days out. */}
+      <LicenseBanner />
 
       {/* ── Page content ── */}
       <main id="main-content" style={{ flex: 1, overflowY: 'auto' }}>
