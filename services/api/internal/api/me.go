@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 
 	"axiaops.io/api/internal/auth"
@@ -21,6 +22,13 @@ type meResponse struct {
 	Permissions    []string              `json:"permissions"`
 	Organization   *organizationResponse `json:"organization,omitempty"`
 
+	// Memberships is every org this user belongs to with the role they
+	// hold there. Drives the org-switcher dropdown in the nav (B1.5
+	// §4.7.2) and tells the frontend whether to even render it (no point
+	// for single-org users). Always present under native auth; empty
+	// under Kinde where multi-org isn't modelled. Plan §4.7.3.
+	Memberships []membershipSummary `json:"memberships"`
+
 	// AuthProvider is the strangler tier that authenticated this
 	// request: "native" (cookie + sessions table — password / sso /
 	// bootstrap), "kinde" (legacy Bearer JWT), or "" under DEV_MODE
@@ -34,6 +42,16 @@ type meResponse struct {
 	// the dashboard distinguish, e.g., a freshly-bootstrapped owner
 	// from a normal password login. Empty under DEV_MODE.
 	AuthMode string `json:"auth_mode,omitempty"`
+}
+
+// membershipSummary is the slim per-membership shape returned in /v1/me's
+// memberships array — just enough for the org switcher to render and for
+// the frontend to highlight the active row (by matching organization_id
+// against meResponse.OrganizationID).
+type membershipSummary struct {
+	OrganizationID   string `json:"organization_id"`
+	OrganizationName string `json:"organization_name"`
+	Role             string `json:"role"`
 }
 
 // getMe returns the authenticated user's role and permissions. Used by the
@@ -81,6 +99,35 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		if org, err := h.store.GetOrganizationByID(ctx, tid); err == nil {
 			orgResp := toOrganizationResponse(org)
 			resp.Organization = &orgResp
+		}
+	}
+
+	// Memberships block — best-effort, populates the org-switcher
+	// payload (B1.5). Always non-nil so the frontend can serialise as
+	// `[]` rather than `null`. Failures degrade to an empty list rather
+	// than 500ing /v1/me — the user already has a valid session and can
+	// operate inside their current org; the only consequence of an empty
+	// list is that the switcher dropdown is hidden until the next
+	// refresh succeeds.
+	//
+	// IMPORTANT for slice 2: the modified /v1/auth/login MUST NOT inherit
+	// this swallow pattern. There, an empty membership list materially
+	// changes the auth flow (single-org → mint vs multi-org → org
+	// picker), and a transient DB error must surface as 500, never
+	// silently land the user in the wrong org.
+	resp.Memberships = []membershipSummary{}
+	if uid != "" {
+		rows, err := h.store.ListUserMemberships(ctx, uid)
+		if err != nil {
+			slog.Warn("me: list user memberships failed; serving empty switcher",
+				"user_id", uid, "error", err)
+		}
+		for _, m := range rows {
+			resp.Memberships = append(resp.Memberships, membershipSummary{
+				OrganizationID:   m.OrganizationID,
+				OrganizationName: m.OrganizationName,
+				Role:             m.Role,
+			})
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -43,6 +44,16 @@ type fakeStore struct {
 	// multiple orgs).
 	memberships map[string][]model.Membership
 
+	// Organization display names keyed by org_id. Populated by
+	// seedAccount alongside memberships so ListUserMemberships' join
+	// returns realistic data.
+	orgsByID map[string]string
+
+	// listUserMembershipsErr, when non-nil, makes the next
+	// ListUserMemberships call fail. Used by the multi-org login DB-error
+	// test to assert the handler 500s instead of silently degrading.
+	listUserMembershipsErr error
+
 	// Native invitations keyed by (org_id, lower(email)) (matches the
 	// production partial unique index on pending_memberships) plus a
 	// secondary index by token_hash for the redeem-path lookup.
@@ -73,6 +84,7 @@ func newFakeStore() *fakeStore {
 		usersByEmail: make(map[string]model.User),
 		usersByID:    make(map[string]model.User),
 		memberships:  make(map[string][]model.Membership),
+		orgsByID:     make(map[string]string),
 	}
 }
 
@@ -278,6 +290,23 @@ func (f *fakeStore) LookupUserByEmail(_ context.Context, email string) (model.Us
 	return u, mships, nil
 }
 
+func (f *fakeStore) ListUserMemberships(_ context.Context, userID string) ([]model.MembershipWithOrganization, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.listUserMembershipsErr != nil {
+		return nil, f.listUserMembershipsErr
+	}
+	src := f.memberships[userID]
+	out := make([]model.MembershipWithOrganization, 0, len(src))
+	for _, m := range src {
+		out = append(out, model.MembershipWithOrganization{
+			Membership:       m,
+			OrganizationName: f.orgsByID[m.OrganizationID],
+		})
+	}
+	return out, nil
+}
+
 // ── unused-by-tests methods — panic to surface accidental coupling ─────────
 
 func (f *fakeStore) CreateUserWithPassword(context.Context, model.User) (model.User, error) {
@@ -385,6 +414,30 @@ func (f *fakeStore) CreateNativeInvitation(_ context.Context, in model.PendingIn
 	return in, !existed, nil
 }
 
+func (f *fakeStore) LookupInvitationByToken(_ context.Context, tokenHash string) (storage.PeekedInvitation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key, ok := f.invitationsByToken[tokenHash]
+	if !ok {
+		return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
+	}
+	inv, ok := f.invitations[key]
+	if !ok || inv.Status != model.InvitationStatusPending || !inv.ExpiresAt.After(f.now()) {
+		return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
+	}
+	out := storage.PeekedInvitation{
+		Email:            inv.Email,
+		OrganizationID:   inv.OrganizationID,
+		OrganizationName: f.orgsByID[inv.OrganizationID],
+		Role:             inv.Role,
+	}
+	if u, ok := f.usersByEmail[strings.ToLower(inv.Email)]; ok {
+		copy := u
+		out.ExistingUser = &copy
+	}
+	return out, nil
+}
+
 func (f *fakeStore) RedeemNativeInvitation(_ context.Context, req storage.NativeInviteRedeem) (model.User, model.Membership, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -396,25 +449,39 @@ func (f *fakeStore) RedeemNativeInvitation(_ context.Context, req storage.Native
 	if !ok || inv.Status != model.InvitationStatusPending || !inv.ExpiresAt.After(f.now()) {
 		return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
 	}
-	// Resolve user — match by lower(email).
-	user, ok := f.usersByEmail[strings.ToLower(inv.Email)]
-	if !ok {
-		// Create new user.
+	var user model.User
+	if req.ExistingUserID != "" {
+		// Existing-user flow.
+		u, ok := f.usersByID[req.ExistingUserID]
+		if !ok {
+			return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
+		}
+		if !strings.EqualFold(u.Email, inv.Email) {
+			return model.User{}, model.Membership{}, fmt.Errorf("fake: existing user email mismatch")
+		}
+		user = u
+	} else {
+		// New-user flow.
+		if existing, ok := f.usersByEmail[strings.ToLower(inv.Email)]; ok {
+			// Race: another path created this user between peek and
+			// redeem. Mirrors postgres behaviour.
+			_ = existing
+			return model.User{}, model.Membership{}, storage.ErrUserEmailExists
+		}
 		now := f.now()
 		user = model.User{
-			ID:            req.UserID,
+			ID:             req.UserID,
 			OrganizationID: inv.OrganizationID,
-			Email:         inv.Email,
-			Name:          req.UserName,
-			PasswordHash:  req.PasswordHash,
-			PasswordSetAt: &now,
-			CreatedAt:     now,
-			LastSeen:      now,
+			Email:          inv.Email,
+			Name:           req.UserName,
+			PasswordHash:   req.PasswordHash,
+			PasswordSetAt:  &now,
+			CreatedAt:      now,
+			LastSeen:       now,
 		}
 		f.usersByEmail[strings.ToLower(inv.Email)] = user
 		f.usersByID[user.ID] = user
 	}
-	// Add membership.
 	mship := model.Membership{
 		ID:             "m-" + inv.ID,
 		OrganizationID: inv.OrganizationID,
@@ -424,7 +491,6 @@ func (f *fakeStore) RedeemNativeInvitation(_ context.Context, req storage.Native
 		UpdatedAt:      f.now(),
 	}
 	f.memberships[user.ID] = append(f.memberships[user.ID], mship)
-	// Single-use enforcement — drop both the row and the token index.
 	delete(f.invitations, key)
 	delete(f.invitationsByToken, req.TokenHash)
 	return user, mship, nil
