@@ -235,6 +235,55 @@ func (m *mockStoreForScheduler) LookupInvitationByToken(context.Context, string)
 	return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
 }
 
+func (m *mockStoreForScheduler) GetMembershipByOrgUser(context.Context, string, string) (model.Membership, error) {
+	return model.Membership{}, storage.ErrMembershipNotFound
+}
+
+// ── Phase B2 SSO — fail-loud stubs (scheduler doesn't touch SSO) ────────────
+
+func (m *mockStoreForScheduler) CreateSSOConnection(context.Context, model.SSOConnection) (model.SSOConnection, error) {
+	return model.SSOConnection{}, errors.New("mockStoreForScheduler.CreateSSOConnection not implemented")
+}
+func (m *mockStoreForScheduler) GetSSOConnection(context.Context, string) (model.SSOConnection, error) {
+	return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
+}
+func (m *mockStoreForScheduler) ListSSOConnections(context.Context) ([]model.SSOConnection, error) {
+	return nil, errors.New("mockStoreForScheduler.ListSSOConnections not implemented")
+}
+func (m *mockStoreForScheduler) UpdateSSOConnection(context.Context, model.SSOConnection) error {
+	return errors.New("mockStoreForScheduler.UpdateSSOConnection not implemented")
+}
+func (m *mockStoreForScheduler) DeleteSSOConnection(context.Context, string) error {
+	return storage.ErrSSOConnectionNotFound
+}
+func (m *mockStoreForScheduler) CreateSSODomain(context.Context, model.SSODomain) (model.SSODomain, error) {
+	return model.SSODomain{}, errors.New("mockStoreForScheduler.CreateSSODomain not implemented")
+}
+func (m *mockStoreForScheduler) GetSSODomain(context.Context, string) (model.SSODomain, error) {
+	return model.SSODomain{}, storage.ErrSSODomainNotFound
+}
+func (m *mockStoreForScheduler) GetVerifiedSSODomainByName(context.Context, string) (model.SSODomain, error) {
+	return model.SSODomain{}, storage.ErrSSODomainNotFound
+}
+func (m *mockStoreForScheduler) ListSSODomains(context.Context) ([]model.SSODomain, error) {
+	return nil, errors.New("mockStoreForScheduler.ListSSODomains not implemented")
+}
+func (m *mockStoreForScheduler) UpdateSSODomainStatus(context.Context, string, string, time.Time, time.Time) error {
+	return errors.New("mockStoreForScheduler.UpdateSSODomainStatus not implemented")
+}
+func (m *mockStoreForScheduler) DeleteSSODomain(context.Context, string) error {
+	return storage.ErrSSODomainNotFound
+}
+func (m *mockStoreForScheduler) SweepStaleSSODomains(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *mockStoreForScheduler) ListSSOGroupMappings(context.Context, string) ([]model.SSOGroupMapping, error) {
+	return nil, errors.New("mockStoreForScheduler.ListSSOGroupMappings not implemented")
+}
+func (m *mockStoreForScheduler) ReplaceSSOGroupMappings(context.Context, string, []model.SSOGroupMapping) error {
+	return errors.New("mockStoreForScheduler.ReplaceSSOGroupMappings not implemented")
+}
+
 // captureQueue records enqueued jobs and optionally returns pre-seeded jobs
 // from Dequeue (used by the worker tests). When `pending` is empty, Dequeue
 // blocks on ctx — same shape as the production Redis queue under quiet load.
