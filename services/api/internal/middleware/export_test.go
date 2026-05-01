@@ -1,11 +1,20 @@
 package middleware
 
-import "context"
+import (
+	"context"
+
+	"github.com/golang-jwt/jwt/v5"
+)
 
 // NewWithKeyfunc exposes the unexported test helper newWithKeyfunc to
 // black-box (`package middleware_test`) test files. Same shape and
 // contract as newWithKeyfunc — see auth.go for the comment.
-var NewWithKeyfunc = newWithKeyfunc
+//
+// Function (not var) so test files can't reassign it and silently break
+// parallel tests.
+func NewWithKeyfunc(issuer string, kf jwt.Keyfunc) *Auth {
+	return newWithKeyfunc(issuer, kf)
+}
 
 // RateLimitMax exposes the unexported package constant rateLimitMax so
 // black-box rate-limit tests can iterate up to the cap without hardcoding
