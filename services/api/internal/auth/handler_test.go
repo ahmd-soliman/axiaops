@@ -971,7 +971,190 @@ func seedNativeInvitation(t *testing.T, store *fakeStore, orgID, email, role str
 	t.Helper()
 	plaintext := "invite-token-fixture-" + email
 	store.seedInvitation(orgID, email, role, auth.HashToken(plaintext))
+	store.mu.Lock()
+	if _, ok := store.orgsByID[orgID]; !ok {
+		store.orgsByID[orgID] = "Org for " + orgID
+	}
+	store.mu.Unlock()
 	return plaintext
+}
+
+// ── /v1/auth/invitations/preview (B1.5 slice 6.5) ──────────────────────────
+
+// TestPreviewInvitationNewUser: a token for an email that doesn't yet exist
+// in the system returns existing_user=false. The frontend renders the
+// "set a new password" form.
+func TestPreviewInvitationNewUser(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedNativeInvitation(t, store, "org-preview-new", "newbie@example.com", "member")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{
+		"token": token,
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	body := mustDecode[map[string]any](t, w)
+	if body["existing_user"] != false {
+		t.Errorf("existing_user = %v; want false", body["existing_user"])
+	}
+	if body["email"] != "newbie@example.com" {
+		t.Errorf("email = %v; want newbie@example.com", body["email"])
+	}
+	if body["role"] != "member" {
+		t.Errorf("role = %v; want member", body["role"])
+	}
+}
+
+// TestPreviewInvitationExistingUser: a token for an email that already
+// exists globally (e.g. invited to a second org) returns
+// existing_user=true. The frontend prompts for the existing password.
+func TestPreviewInvitationExistingUser(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+	token := seedNativeInvitation(t, store, "org-preview-existing", "alice@example.com", "viewer")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{
+		"token": token,
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	body := mustDecode[map[string]any](t, w)
+	if body["existing_user"] != true {
+		t.Errorf("existing_user = %v; want true", body["existing_user"])
+	}
+}
+
+// TestPreviewInvitationDoesNotLeakPasswordHash: defence-in-depth — the
+// preview response must NEVER carry the existing user's password hash.
+// A bug that exposed it would let any caller with a valid token enumerate
+// the argon2 hash of the invited user.
+func TestPreviewInvitationDoesNotLeakPasswordHash(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+	token := seedNativeInvitation(t, store, "org-leak-check", "alice@example.com", "viewer")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{
+		"token": token,
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	bodyText := w.Body.String()
+	// argon2id hashes start with `$argon2id$` — assert that no field in
+	// the response carries one. Cheap byte-string check works for any
+	// future field that might inadvertently include it.
+	if strings.Contains(bodyText, "argon2") || strings.Contains(bodyText, "password_hash") {
+		t.Errorf("preview response leaked password material: %s", bodyText)
+	}
+}
+
+func TestPreviewInvitationUnknownTokenReturns410(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+	w := postJSON(t, mux(h), "/v1/auth/invitations/preview", map[string]string{
+		"token": "completely-unknown-token",
+	}, nil)
+	if w.Code != http.StatusGone {
+		t.Errorf("status = %d; want 410", w.Code)
+	}
+}
+
+// ── /v1/auth/invitations/redeem (existing-user flow, B1.5 slice 6.5) ──────
+
+// TestRedeemInvitationExistingUser_HappyPath: an existing user accepts an
+// invitation to a second org by supplying their CURRENT password (verified
+// against their existing argon2id hash). On success: a new membership row,
+// a session bound to the new org, and the user's display name + password
+// stay untouched.
+func TestRedeemInvitationExistingUser_HappyPath(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	const password = "correct horse battery staple"
+	seedAccount(t, store, "alice@example.com", password, 1)
+	token := seedNativeInvitation(t, store, "org-second", "alice@example.com", "viewer")
+
+	store.mu.Lock()
+	originalUser := store.usersByEmail["alice@example.com"]
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token":    token,
+		"password": password,
+		// Name intentionally provided — handler must IGNORE it for the
+		// existing-user flow; it would otherwise overwrite the user's
+		// display name in their other org.
+		"name": "ATTACKER OVERWRITE",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	now := store.usersByEmail["alice@example.com"]
+	if now.ID != originalUser.ID {
+		t.Errorf("user.ID changed: %q → %q", originalUser.ID, now.ID)
+	}
+	if now.Name != originalUser.Name {
+		t.Errorf("user.Name overwritten: %q → %q (must stay untouched)", originalUser.Name, now.Name)
+	}
+	if now.PasswordHash != originalUser.PasswordHash {
+		t.Errorf("password_hash changed; existing-user flow must not touch it")
+	}
+}
+
+// TestRedeemInvitationExistingUser_WrongPasswordReturns401: defence in
+// depth — even if an attacker has the invitation token, they need the
+// existing user's password to claim membership in the target org.
+func TestRedeemInvitationExistingUser_WrongPasswordReturns401(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+	token := seedNativeInvitation(t, store, "org-second", "alice@example.com", "viewer")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token":    token,
+		"password": "wrong password attempt 12345",
+		"name":     "ignored",
+	}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", w.Code)
+	}
+	body := mustDecode[map[string]any](t, w)
+	if body["error"] != "invalid_credentials" {
+		t.Errorf("error = %v; want invalid_credentials", body["error"])
+	}
+	// The token must NOT be consumed on a failed verify — the user
+	// can retry with the right password.
+	store.mu.Lock()
+	_, present := store.invitationsByToken[auth.HashToken(token)]
+	store.mu.Unlock()
+	if !present {
+		t.Error("token consumed on failed verify; should remain pending for retry")
+	}
+}
+
+// TestRedeemInvitationNewUser_RequiresName: the new-user flow demands a
+// name (the existing-user flow doesn't). Existing TestRedeemInvitationHappyPath
+// covers the success case; this test is the negative path.
+func TestRedeemInvitationNewUser_RequiresName(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedNativeInvitation(t, store, "org-no-name", "newbie@example.com", "member")
+
+	w := postJSON(t, mux(h), "/v1/auth/invitations/redeem", map[string]string{
+		"token":    token,
+		"password": "correct horse battery staple",
+		// no "name" field
+	}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d; want 400", w.Code)
+	}
 }
 
 func TestRedeemInvitationHappyPath(t *testing.T) {

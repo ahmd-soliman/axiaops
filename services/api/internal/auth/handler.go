@@ -67,7 +67,8 @@ func (h *Handler) WithLoginRateLimit(rl *LoginRateLimiter) *Handler {
 //	POST /v1/auth/select-org             email + password + organization_id → session cookie (B1.5 multi-org follow-up)
 //	POST /v1/auth/switch-org             organization_id (session-authenticated) → rotated session bound to target org
 //	POST /v1/auth/logout                 revoke + clear cookie
-//	POST /v1/auth/invitations/redeem     accept invite token → set password → session
+//	POST /v1/auth/invitations/preview    peek invite token → {email, organization_name, existing_user}
+//	POST /v1/auth/invitations/redeem     accept invite token → set password (new user) or verify password (existing user) → session
 //	POST /v1/auth/password-reset/redeem  redeem reset token → set new password → all sessions revoked
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/bootstrap", h.bootstrap)
@@ -75,6 +76,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/select-org", h.selectOrg)
 	mux.HandleFunc("POST /v1/auth/switch-org", h.switchOrg)
 	mux.HandleFunc("POST /v1/auth/logout", h.logout)
+	mux.HandleFunc("POST /v1/auth/invitations/preview", h.previewInvitation)
 	mux.HandleFunc("POST /v1/auth/invitations/redeem", h.redeemInvitation)
 	mux.HandleFunc("POST /v1/auth/password-reset/redeem", h.redeemPasswordReset)
 }
@@ -707,12 +709,74 @@ func (h *Handler) switchOrg(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ── POST /v1/auth/invitations/preview ───────────────────────────────────────
+
+type previewInvitationRequest struct {
+	Token string `json:"token"`
+}
+
+// previewInvitationResponse is the wire shape returned to AcceptInviteScreen.
+// Drives the UI choice: when ExistingUser is true, the form prompts for the
+// existing password; when false, it prompts to set a new one and a name.
+//
+// The user's password_hash is intentionally NOT exposed — only the boolean.
+// The actual hash stays inside the storage layer for redeem-time verification.
+type previewInvitationResponse struct {
+	Email            string `json:"email"`
+	OrganizationName string `json:"organization_name"`
+	Role             string `json:"role"`
+	ExistingUser     bool   `json:"existing_user"`
+	// ExistingUserName is the existing user's display name (if any),
+	// shown by the UI as "Welcome back, <name>" so the picker step
+	// doesn't feel anonymous. Empty when ExistingUser is false or the
+	// user's name was never set.
+	ExistingUserName string `json:"existing_user_name,omitempty"`
+}
+
+func (h *Handler) previewInvitation(w http.ResponseWriter, r *http.Request) {
+	var req previewInvitationRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	req.Token = strings.TrimSpace(req.Token)
+	if req.Token == "" {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "token required")
+		return
+	}
+
+	peek, err := h.store.LookupInvitationByToken(r.Context(), HashToken(req.Token))
+	switch {
+	case errors.Is(err, storage.ErrInvitationNotFound):
+		writeAuthError(w, http.StatusGone, "invitation_invalid", "invitation token is invalid or expired")
+		return
+	case err != nil:
+		slog.Error("auth: invitation preview failed", "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	resp := previewInvitationResponse{
+		Email:            peek.Email,
+		OrganizationName: peek.OrganizationName,
+		Role:             peek.Role,
+		ExistingUser:     peek.ExistingUser != nil,
+	}
+	if peek.ExistingUser != nil {
+		resp.ExistingUserName = peek.ExistingUser.Name
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // ── POST /v1/auth/invitations/redeem ────────────────────────────────────────
 
 type redeemInvitationRequest struct {
 	Token    string `json:"token"`
 	Password string `json:"password"`
-	Name     string `json:"name"`
+	// Name is required only on the new-user flow. The existing-user
+	// flow ignores it (the user's name in their other organisation
+	// stays unchanged).
+	Name string `json:"name"`
 }
 
 type redeemInvitationResponse struct {
@@ -730,43 +794,79 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 	// still hashes correctly. Bootstrap takes the same precaution.
 	req.Token = strings.TrimSpace(req.Token)
 	req.Name = strings.TrimSpace(req.Name)
-	if req.Token == "" || req.Password == "" || req.Name == "" {
-		writeAuthError(w, http.StatusBadRequest, "bad_request", "token, password, name required")
-		return
-	}
-	if err := CheckPolicy(req.Password); err != nil {
-		writeAuthError(w, http.StatusBadRequest, "weak_password", err.Error())
+	if req.Token == "" || req.Password == "" {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "token and password required")
 		return
 	}
 
-	passwordHash, err := Hash(req.Password)
-	if err != nil {
-		slog.Error("auth: invitation redeem hash failed", "err", err)
+	tokenHash := HashToken(req.Token)
+
+	// Peek to discover whether the email already maps to a global user.
+	// This is what selects between the new-user (set password + name)
+	// and existing-user (verify existing password) flow. The token row
+	// is NOT consumed here.
+	peek, err := h.store.LookupInvitationByToken(r.Context(), tokenHash)
+	switch {
+	case errors.Is(err, storage.ErrInvitationNotFound):
+		observability.Global.AuthInvitationsTotal.WithLabelValues("expired").Inc()
+		writeAuthError(w, http.StatusGone, "invitation_invalid", "invitation token is invalid or expired")
+		return
+	case err != nil:
+		slog.Error("auth: invitation redeem peek failed", "err", err)
 		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
 	}
 
-	in := storage.NativeInviteRedeem{
-		TokenHash:    HashToken(req.Token),
-		UserID:       uuid.New().String(), // ignored by store if email matches existing user
-		UserName:     req.Name,
-		PasswordHash: passwordHash,        // ignored if email matches existing user (B1.5 path)
+	in := storage.NativeInviteRedeem{TokenHash: tokenHash}
+	if peek.ExistingUser != nil {
+		// Existing-user flow (B1.5): verify the supplied password
+		// against the user's stored hash. We never trust the
+		// frontend's "I'm an existing user" claim; the truth lives in
+		// the password column.
+		if err := Verify(req.Password, peek.ExistingUser.PasswordHash); err != nil {
+			writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid password")
+			return
+		}
+		in.ExistingUserID = peek.ExistingUser.ID
+		// Name from req is intentionally ignored — the existing
+		// user's display name belongs to them, not to whoever types
+		// in the picker.
+	} else {
+		// New-user flow: require name and enforce the password policy.
+		if req.Name == "" {
+			writeAuthError(w, http.StatusBadRequest, "bad_request", "name required for new user")
+			return
+		}
+		if err := CheckPolicy(req.Password); err != nil {
+			writeAuthError(w, http.StatusBadRequest, "weak_password", err.Error())
+			return
+		}
+		passwordHash, hashErr := Hash(req.Password)
+		if hashErr != nil {
+			slog.Error("auth: invitation redeem hash failed", "err", hashErr)
+			writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
+		}
+		in.UserID = uuid.New().String()
+		in.UserName = req.Name
+		in.PasswordHash = passwordHash
 	}
+
 	resolvedUser, mship, err := h.store.RedeemNativeInvitation(r.Context(), in)
 	switch {
 	case errors.Is(err, storage.ErrInvitationNotFound):
-		// Single-source response for "token unknown / expired / already
-		// redeemed". Don't differentiate so callers can't probe which
-		// state a token is in.
+		// Race between the peek and the redeem — token consumed by
+		// another caller in the gap. Single-source response for
+		// "token unknown / expired / already redeemed".
 		observability.Global.AuthInvitationsTotal.WithLabelValues("expired").Inc()
 		writeAuthError(w, http.StatusGone, "invitation_invalid", "invitation token is invalid or expired")
 		return
 	case errors.Is(err, storage.ErrUserEmailExists):
-		// Race: a user with the same email was created concurrently
-		// (extraordinarily rare on a single-org install). Surface to
-		// the user as a generic "already taken" — they can sign in
-		// directly via /v1/auth/login.
-		writeAuthError(w, http.StatusConflict, "email_taken", "this email is already registered")
+		// Race: a global user with this email was created between the
+		// peek (which saw none) and the INSERT. The right thing for the
+		// caller is to retry — peek will now route through the
+		// existing-user flow.
+		writeAuthError(w, http.StatusConflict, "email_taken", "this email was just registered — please refresh and try again")
 		return
 	case err != nil:
 		slog.Error("auth: invitation redeem failed", "err", err)
