@@ -21,7 +21,7 @@ DROP TABLE IF EXISTS sso_group_mappings;
 -- sso_domains
 DROP INDEX IF EXISTS sso_domains_expiry_idx;
 DROP INDEX IF EXISTS sso_domains_lookup_idx;
-DROP INDEX IF EXISTS sso_domains_one_verified_per_domain;
+DROP INDEX IF EXISTS sso_domains_one_active_claim_per_domain;
 DROP TABLE IF EXISTS sso_domains;
 
 -- sso_connections — last; FK target for the others above.

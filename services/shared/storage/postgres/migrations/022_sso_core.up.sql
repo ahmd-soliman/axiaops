@@ -41,18 +41,29 @@ CREATE TABLE IF NOT EXISTS sso_connections (
     default_role                  TEXT        NOT NULL DEFAULT 'viewer'
                                               CHECK (default_role IN ('admin','member','viewer')),
 
-    -- IdP metadata (both protocols)
+    -- IdP metadata (both protocols). Customers split roughly 50/50 on whether
+    -- they paste a metadata URL or the XML blob; exactly one is canonical SAML
+    -- config. The DB CHECK below forbids both being non-empty; both empty is
+    -- fine for OIDC connections (which use oidc_discovery_url instead) and
+    -- for draft SAML rows.
     idp_issuer                    TEXT        NOT NULL DEFAULT '',
     idp_metadata_url              TEXT        NOT NULL DEFAULT '',
     idp_metadata_xml              TEXT        NOT NULL DEFAULT '',
 
-    -- OIDC fields
+    -- OIDC fields. oidc_client_secret_ciphertext is intentionally an
+    -- empty-bytea sentinel by default — draft rows have no secret yet. The
+    -- active-OIDC CHECK below promotes it to a hard requirement at the
+    -- activation boundary. Don't cargo-cult `'\x'::bytea` for new ciphertext
+    -- columns where every row should always carry data; follow the
+    -- `accounts.aws_secret_key_ciphertext` pattern (NOT NULL, no default).
     oidc_client_id                TEXT        NOT NULL DEFAULT '',
     oidc_client_secret_ciphertext BYTEA       NOT NULL DEFAULT '\x'::bytea,
     oidc_discovery_url            TEXT        NOT NULL DEFAULT '',
     oidc_tenant_id                TEXT        NOT NULL DEFAULT '',
 
-    -- SAML fields (Phase C)
+    -- SAML fields (Phase C). saml_previous_cert + saml_previous_cert_expires_at
+    -- are paired by the CHECK below — Phase C cert-rotation logic relies on
+    -- the invariant that both are populated together or both are empty/NULL.
     saml_sso_url                  TEXT        NOT NULL DEFAULT '',
     saml_signing_cert             TEXT        NOT NULL DEFAULT '',
     saml_previous_cert            TEXT        NOT NULL DEFAULT '',
@@ -62,7 +73,8 @@ CREATE TABLE IF NOT EXISTS sso_connections (
     -- (self-hosted v1 — handlers MUST reject non-empty values per design §4.2).
     kinde_connection_id           TEXT        NOT NULL DEFAULT '',
 
-    -- SCIM forward-compat (filled later, never read in v1)
+    -- SCIM forward-compat (filled later, never read in v1). Same empty-bytea
+    -- sentinel rationale as oidc_client_secret_ciphertext above.
     scim_token_ciphertext         BYTEA       NOT NULL DEFAULT '\x'::bytea,
     scim_endpoint                 TEXT        NOT NULL DEFAULT '',
 
@@ -78,6 +90,22 @@ CREATE TABLE IF NOT EXISTS sso_connections (
     CONSTRAINT sso_connections_oidc_active_secret_present CHECK (
         NOT (status = 'active' AND protocol = 'oidc')
         OR octet_length(oidc_client_secret_ciphertext) > 0
+    ),
+
+    -- IdP metadata is exactly-one-of: URL or XML. The handler validates this
+    -- on POST/PATCH but a direct UPDATE (admin psql, future SCIM sync, data
+    -- fix migration) would bypass it. Both empty is permitted (draft row, or
+    -- OIDC connection — those use oidc_discovery_url instead).
+    CONSTRAINT sso_connections_idp_metadata_mutex CHECK (
+        NOT (idp_metadata_url <> '' AND idp_metadata_xml <> '')
+    ),
+
+    -- saml_previous_cert and its expiry must move together — Phase C
+    -- cert-rotation code can rely on this invariant rather than guarding
+    -- every read site for the half-populated case.
+    CONSTRAINT sso_connections_saml_previous_cert_paired CHECK (
+        (saml_previous_cert = '' AND saml_previous_cert_expires_at IS NULL)
+        OR (saml_previous_cert <> '' AND saml_previous_cert_expires_at IS NOT NULL)
     )
 );
 
@@ -122,9 +150,14 @@ CREATE TABLE IF NOT EXISTS sso_domains (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- A domain can be verified by exactly one org globally.
-CREATE UNIQUE INDEX IF NOT EXISTS sso_domains_one_verified_per_domain
-    ON sso_domains (lower(domain)) WHERE status = 'verified';
+-- A domain can be claimed (pending or verified) by exactly one org globally.
+-- Wider than "verified-only" so two orgs can't pre-claim the same domain and
+-- race to verify — domain hijacking is blocked at INSERT time, not at
+-- "verify-button-clicked-second" time. `stale` and `revoked` rows don't
+-- block re-claim — that's the legitimate re-acquisition path when an org
+-- lets a verification lapse or admin-revokes their claim.
+CREATE UNIQUE INDEX IF NOT EXISTS sso_domains_one_active_claim_per_domain
+    ON sso_domains (lower(domain)) WHERE status IN ('pending', 'verified');
 
 -- Login-page hot path: email → (lower(domain), status='verified') → sso_connection_id.
 -- sso_connection_id is included as a covering column so the index serves the
@@ -152,6 +185,11 @@ END $$;
 -- compare with strings; case-sensitivity preserved (Entra is case-sensitive on
 -- GUIDs, Okta is case-insensitive on names — admins stage their inputs).
 -- Owner is deliberately excluded from the role check (sticky owner property).
+--
+-- Future Okta support may require a `lower(group_external_id)` variant or
+-- per-protocol normalisation so an admin pasting "Engineering" matches an
+-- assertion carrying "engineering". Revisit when Okta is onboarded; for B2
+-- (Entra-first) the case-sensitive shape is correct.
 CREATE TABLE IF NOT EXISTS sso_group_mappings (
     id                  TEXT        PRIMARY KEY,
     organization_id     TEXT        NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -223,6 +261,22 @@ CREATE INDEX IF NOT EXISTS users_sso_external_idx
 
 -- provisioned_via lets the UI distinguish "JIT-provisioned, role from group
 -- claim" vs "manually invited" — important UX cue for admins reviewing teams.
+--
+-- Backfill caveat: pending_memberships rows are deleted on redemption (see
+-- invitations.go and native_auth.go), so we have no way to reconstruct
+-- whether an EXISTING pre-B2 membership came in via the invitation flow vs.
+-- the bootstrap-owner / direct-POST-membership path. Rather than mislabel
+-- every pre-B2 row as 'manual' (incorrect for invited members), we use a
+-- 'legacy' sentinel for the ALTER then flip the column default to 'manual'
+-- so NEW rows get the correct value going forward.
+--
+-- New code that adds memberships MUST set provisioned_via explicitly
+-- ('invitation' from the redemption handler, 'jit' from the SSO callback,
+-- 'scim' from a future SCIM provider, 'manual' for the explicit
+-- POST /v1/memberships path). Relying on the column default produces
+-- 'manual', which is correct only for the manual path.
 ALTER TABLE memberships
-    ADD COLUMN IF NOT EXISTS provisioned_via TEXT NOT NULL DEFAULT 'manual'
-        CHECK (provisioned_via IN ('manual','invitation','jit','scim'));
+    ADD COLUMN IF NOT EXISTS provisioned_via TEXT NOT NULL DEFAULT 'legacy'
+        CHECK (provisioned_via IN ('manual','invitation','jit','scim','legacy'));
+
+ALTER TABLE memberships ALTER COLUMN provisioned_via SET DEFAULT 'manual';
