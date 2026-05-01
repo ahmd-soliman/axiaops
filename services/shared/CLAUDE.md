@@ -23,6 +23,7 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 | `observability/` | **Phase 2.6** — Prometheus metrics, HTTP middleware |
 | `cache/` | **Phase 2.14** — `Cache` interface + Redis + memory implementations. `cache.New(redisURL)` selects backend. |
 | `queue/` | **Phase 2.14** — `Queue` interface + Redis (LPUSH/BRPOP) + sync HTTP fallback. `queue.New(redisURL, ingestionURL)` selects backend. |
+| `license/` | **Phase B1.6** — self-hosted license JWT verification. Embedded RS256 public key (`pubkey.pem`); `Load`, `CheckExpiry`, `VerifyAtBoot`, `RunTicker`, `IsScanAllowed`. Both api and ingestion call `VerifyAtBoot` at startup and run `RunTicker`; both consult `IsScanAllowed` at their scan-gate sites. |
 | `model/audit.go` | **Phase 3.3** — `AuditEvent`, `AuditFilter`, `AuditCursor`, and the `AuditAction*` constants. Consumed by `Store.AuditLogWrite/List/AnonymiseUser` and by the `axiaops.io/api/internal/audit` helper that handlers call after mutations. |
 
 ## Store Interface

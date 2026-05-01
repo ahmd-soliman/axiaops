@@ -335,11 +335,12 @@ func main() {
 	// transitions are observability events; slice 5's scan-gate is what
 	// actually blocks behaviour. No-op under DEV_MODE (no license loaded).
 	//
-	// TODO: pass sigCtx to all background tickers in a follow-up so SIGTERM
-	// triggers coordinated shutdown. All three tickers in this file currently
-	// use context.Background() for symmetry — none have in-flight work that
-	// risks corruption on process termination, but the pattern is worth
-	// fixing once for everything (slice 4 of B1.6 documents the gap).
+	// Uses context.Background() to match the existing stuck-scan + session-
+	// sweep tickers below. No in-flight work here risks corruption on
+	// process termination (read-only Prometheus + slog), so the pattern is
+	// safe — but inconsistent with the ingestion-side license ticker which
+	// uses sigCtx. Consolidating all three tickers in this file onto sigCtx
+	// is a clean follow-up; not blocking B1.6.
 	go license.RunTicker(context.Background(), license.DefaultTickerInterval)
 
 	// Background ticker: hard-delete sessions where expires_at OR
