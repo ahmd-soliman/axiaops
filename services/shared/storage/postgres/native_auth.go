@@ -981,8 +981,10 @@ func (s *Store) RedeemNativeInvitation(ctx context.Context, in storage.NativeInv
 		// Catches a caller that supplied a spoofed ExistingUserID
 		// belonging to a different email — without this guard, that
 		// would silently add a membership for the wrong user.
+		// Returns the dedicated sentinel so log triage distinguishes
+		// "caller passed the wrong inputs" from "transient DB error".
 		if !strings.EqualFold(user.Email, email) {
-			return model.User{}, model.Membership{}, fmt.Errorf("postgres: redeem native invitation: existing user email mismatch")
+			return model.User{}, model.Membership{}, storage.ErrInvitationUserMismatch
 		}
 	} else {
 		// Flow 1: new user. Require the inputs the INSERT needs.
