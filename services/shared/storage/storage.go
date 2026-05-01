@@ -272,6 +272,24 @@ type Store interface {
 	// with users for email/name. Used by the admin user-management screen.
 	ListMemberships(ctx context.Context) ([]model.MembershipWithUser, error)
 
+	// ListUserMemberships returns every active membership for the given user,
+	// across all organizations they belong to, joined with organization
+	// metadata for display. Bypasses RLS via the admin pool — by definition
+	// the result spans organizations, so a per-org RLS filter cannot apply.
+	//
+	// Safety: callers MUST pass a userID that came from a validated auth
+	// context (session or JWT). Never accept this from request input — the
+	// query returns one user's full org list, which is sensitive. Used by
+	// `/v1/me` to populate the org-switcher payload (B1.5) and by
+	// `/v1/auth/select-org` to validate that the caller actually belongs to
+	// the org they picked at login time.
+	//
+	// Returns an empty slice (not an error) when the user exists but has no
+	// memberships — same convention as RoleOf returning "" for the no-row
+	// case. Sorted by created_at ASC so the picker's display order is stable
+	// across calls.
+	ListUserMemberships(ctx context.Context, userID string) ([]model.MembershipWithOrganization, error)
+
 	// GetMembership returns a single membership by ID for the organization in ctx.
 	// Returns ErrMembershipNotFound if the row does not exist (or belongs to
 	// another organization — RLS hides it the same way).
