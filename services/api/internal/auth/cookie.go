@@ -14,13 +14,13 @@ import (
 // admin-revocation paths are the back-line.
 const SessionCookieName = "axiaops_session"
 
-// CookieConfig controls cookie attributes. The defaults via NewCookieConfig()
-// match the production posture; tests / DEV_MODE flip Secure off so the
-// browser doesn't drop the cookie on plaintext localhost.
+// CookieConfig controls the per-deployment cookie attributes that don't
+// depend on the request: Path and Domain. The Secure flag is decided
+// per-request from the request's TLS state (see secureFromRequest) so
+// production-behind-TLS and local-dev-via-HTTPS both work without an
+// env-var knob, and a misconfigured deployment can't accidentally set
+// Secure=false on real production traffic.
 type CookieConfig struct {
-	// Secure adds the Secure attribute — the cookie is only sent over HTTPS.
-	// Set to false in DEV_MODE so http://localhost:5173 can authenticate.
-	Secure bool
 	// Domain optionally pins the cookie to a host. Empty leaves it
 	// host-only — the browser scopes to the exact host that issued it.
 	Domain string
@@ -30,24 +30,41 @@ type CookieConfig struct {
 	Path string
 }
 
-// NewCookieConfig returns the default config for a given DEV_MODE flag.
-// devMode=true means we are running on plaintext localhost; everywhere else,
-// Secure is set.
-func NewCookieConfig(devMode bool) CookieConfig {
-	return CookieConfig{
-		Secure: !devMode,
-		Path:   "/",
+// NewCookieConfig returns the default config — Path "/", no Domain.
+// The Secure attribute is no longer a config knob; it's derived
+// per-request from r.TLS / X-Forwarded-Proto.
+func NewCookieConfig() CookieConfig {
+	return CookieConfig{Path: "/"}
+}
+
+// secureFromRequest reports whether the request arrived over HTTPS,
+// either directly (r.TLS != nil — uncommon for our deployments since
+// we sit behind a TLS terminator) or transitively via a proxy that
+// set X-Forwarded-Proto. The header is trusted because in every
+// supported deployment shape (App Runner, Docker-Compose-with-nginx,
+// production behind any reverse proxy) the LB / nginx is the only
+// hop that talks to the API container — direct exposure of :8080 to
+// the public internet is unsupported and documented as such.
+//
+// In local docker-compose the dashboard nginx terminates TLS at
+// :8443 and forwards to api:8080 with X-Forwarded-Proto: https,
+// matching the production shape exactly.
+func secureFromRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
 	}
+	return r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
 // SetSession writes the session cookie. token is the PLAINTEXT token
 // (never the hash). The caller has already minted it via session.MintSession.
+// Secure is derived from the incoming request's TLS state.
 //
 // SameSite=Lax is the right default for a server-rendered admin tool — it
 // blocks CSRF on most cross-site POSTs while still letting top-level GET
 // navigations from /accept-invite-style links carry the cookie. Strict
 // would break the OOB redemption URL flow (the link is external by design).
-func SetSession(w http.ResponseWriter, cfg CookieConfig, token string, expires time.Time) {
+func SetSession(w http.ResponseWriter, r *http.Request, cfg CookieConfig, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    token,
@@ -56,7 +73,7 @@ func SetSession(w http.ResponseWriter, cfg CookieConfig, token string, expires t
 		Expires:  expires,
 		MaxAge:   int(time.Until(expires).Seconds()),
 		HttpOnly: true,
-		Secure:   cfg.Secure,
+		Secure:   secureFromRequest(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -74,9 +91,10 @@ func ReadSession(r *http.Request) string {
 
 // ClearSession overwrites the cookie with an immediately-expired one — the
 // browser drops it on the next render. The Path/Domain MUST match the
-// originally-set cookie; passing the same CookieConfig used by SetSession
-// keeps that aligned without the caller having to remember.
-func ClearSession(w http.ResponseWriter, cfg CookieConfig) {
+// originally-set cookie; the Secure attribute MUST also match (browsers
+// scope cookies by Secure flag), so we derive it from the same request
+// state as SetSession would.
+func ClearSession(w http.ResponseWriter, r *http.Request, cfg CookieConfig) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    "",
@@ -85,7 +103,7 @@ func ClearSession(w http.ResponseWriter, cfg CookieConfig) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   cfg.Secure,
+		Secure:   secureFromRequest(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }

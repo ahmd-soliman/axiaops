@@ -101,6 +101,13 @@ type Store interface {
 	// Keyed on org_code — the Kinde organisation identifier.
 	UpsertOrganization(ctx context.Context, orgCode, name string) (model.Organization, error)
 
+	// GetOrganizationByID returns the organization with the given UUID, or
+	// ErrOrganizationNotFound when no row matches. Pure read — does not
+	// mutate. Used by /v1/me under native auth where the request already
+	// carries the real organization_id and upserting by org_code would
+	// silently create a phantom row.
+	GetOrganizationByID(ctx context.Context, id string) (model.Organization, error)
+
 	// RenameOrganization updates the organization name for the org in ctx.
 	// AxiaOps owns the name field after first insert; this is the only path
 	// that updates it (UpsertOrganization is now insert-only on name). The

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -25,10 +26,11 @@ import (
 // publicPath() in middleware/auth.go matches the /v1/auth/ prefix to
 // keep them out of the WrapNative chain.
 type Handler struct {
-	store     storage.NativeAuthStore
-	sessions  *Manager
-	cookieCfg CookieConfig
-	auditFn   AuditWriter
+	store      storage.NativeAuthStore
+	sessions   *Manager
+	cookieCfg  CookieConfig
+	auditFn    AuditWriter
+	loginLimit *LoginRateLimiter // nil → no rate limiting (dev fallback)
 }
 
 // AuditWriter is the seam for hooking audit_log writes from this
@@ -39,6 +41,8 @@ type AuditWriter func(ctx context.Context, organizationID, userID, action string
 
 // NewHandler returns a wired Handler. cookieCfg is the same value the
 // app middleware uses (DEV_MODE flips Secure off). auditFn may be nil.
+// Rate limiting is added separately via WithLoginRateLimit so it stays
+// out of the constructor's required-arg list (most tests don't need it).
 func NewHandler(store storage.NativeAuthStore, sessions *Manager, cookieCfg CookieConfig, auditFn AuditWriter) *Handler {
 	return &Handler{
 		store:     store,
@@ -46,6 +50,14 @@ func NewHandler(store storage.NativeAuthStore, sessions *Manager, cookieCfg Cook
 		cookieCfg: cookieCfg,
 		auditFn:   auditFn,
 	}
+}
+
+// WithLoginRateLimit attaches the rate limiter that gates POST
+// /v1/auth/login. Pass nil to disable (dev fallback). Returns the
+// receiver for fluent setup so cmd/main.go can chain.
+func (h *Handler) WithLoginRateLimit(rl *LoginRateLimiter) *Handler {
+	h.loginLimit = rl
+	return h
 }
 
 // Register attaches the auth routes to the supplied mux. Endpoints:
@@ -191,7 +203,7 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"organization_name": req.OrganizationName})
 	}
 
-	SetSession(w, h.cookieCfg, plaintextSessionToken, res.Session.ExpiresAt)
+	SetSession(w, r, h.cookieCfg, plaintextSessionToken, res.Session.ExpiresAt)
 	writeJSON(w, http.StatusOK, bootstrapResponse{
 		User: user{
 			ID:    res.User.ID,
@@ -238,6 +250,28 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	if req.Email == "" || req.Password == "" {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "email and password required")
 		return
+	}
+
+	// Rate-limit gate (plan §4.2: 10/min/IP, 5/min per email). Runs
+	// BEFORE LookupUserByEmail so an attacker probing valid emails
+	// can't drive DB load past the cap. Anti-stuffing: the per-email
+	// cap caps how many distinct passwords an attacker can try
+	// against one account from a botnet. Failing-open posture means a
+	// cache outage degrades to "no rate limiting" rather than locking
+	// users out — matches the legacy middleware/RateLimiter.
+	if h.loginLimit != nil {
+		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), req.Email)
+		if !outcome.Allowed {
+			retry := int(outcome.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			observability.Global.AuthLoginTotal.WithLabelValues("failure", "rate_limited").Inc()
+			writeAuthError(w, http.StatusTooManyRequests, "rate_limited",
+				"too many login attempts; please retry shortly")
+			return
+		}
 	}
 
 	u, memberships, err := h.store.LookupUserByEmail(r.Context(), req.Email)
@@ -312,7 +346,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	}
 	observability.Global.AuthLoginTotal.WithLabelValues("success", "").Inc()
 
-	SetSession(w, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
+	SetSession(w, r, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
 	writeJSON(w, http.StatusOK, loginResponse{
 		User: user{
 			ID:    u.ID,
@@ -415,7 +449,7 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"role": mship.Role})
 	}
 
-	SetSession(w, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
+	SetSession(w, r, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
 	writeJSON(w, http.StatusOK, redeemInvitationResponse{
 		User: user{
 			ID:    resolvedUser.ID,
@@ -521,7 +555,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	ClearSession(w, h.cookieCfg)
+	ClearSession(w, r, h.cookieCfg)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -544,18 +578,38 @@ var placeholderHash = func() string {
 }()
 
 // requestIP extracts the client IP from common proxy headers, falling
-// back to RemoteAddr. The IP is captured into sessions.ip purely for
-// forensics — never used for authorization.
+// back to RemoteAddr. Used for both forensics (sessions.ip) and the
+// rate-limiter key — the latter is security-critical, so the order
+// here is deliberately attacker-resistant.
+//
+// Threat: nginx and App Runner both *append* the connecting peer's IP
+// to whatever X-Forwarded-For header the client sent. So a request from
+// `attacker-ip` carrying `X-Forwarded-For: 1.2.3.4` becomes
+// `X-Forwarded-For: 1.2.3.4, attacker-ip` by the time it reaches us.
+// Taking the *leftmost* token (the previous version of this helper)
+// returned `1.2.3.4` — attacker-controlled — letting the attacker
+// rotate spoofed values to bypass the per-IP rate-limit cap entirely.
+//
+// We instead trust:
+//  1. X-Real-IP — set by nginx via `proxy_set_header X-Real-IP $remote_addr`,
+//     which unconditionally overwrites any client-supplied value. Reliable
+//     in the staging shape; not set by App Runner.
+//  2. The *rightmost* token of X-Forwarded-For — the one our trusted
+//     proxy added, i.e. the actual peer that connected to it. Reliable
+//     in both staging (single nginx hop) and production (single App
+//     Runner LB hop). If a future deployment introduces a second trusted
+//     proxy, this needs to take the rightmost-N-th token instead.
+//  3. RemoteAddr — for direct-to-API requests (tests, dev mode).
 func requestIP(r *http.Request) net.IP {
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		if i := strings.IndexByte(v, ','); i >= 0 {
-			v = v[:i]
-		}
+	if v := r.Header.Get("X-Real-IP"); v != "" {
 		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
 			return ip
 		}
 	}
-	if v := r.Header.Get("X-Real-IP"); v != "" {
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		if i := strings.LastIndexByte(v, ','); i >= 0 {
+			v = v[i+1:]
+		}
 		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
 			return ip
 		}

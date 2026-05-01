@@ -12,7 +12,7 @@ set -e
 INDEX=/usr/share/nginx/html/index.html
 
 SNIPPET=$(awk 'BEGIN {
-  n = split("DEV_MODE KINDE_ISSUER KINDE_CLIENT_ID DEV_ORG_NAME FEATURE_ROLE_AUTH AXIAOPS_AWS_ACCOUNT_ID", keys, " ")
+  n = split("DEV_MODE KINDE_ISSUER KINDE_CLIENT_ID DEV_ORG_NAME FEATURE_ROLE_AUTH AXIAOPS_AWS_ACCOUNT_ID AUTH_PROVIDER", keys, " ")
   printf "<script>window.__ENV__={"
   for (i = 1; i <= n; i++) {
     v = ENVIRON[keys[i]]

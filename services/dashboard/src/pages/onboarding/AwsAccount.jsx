@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../../theme/ThemeContext';
 import { useToast } from '../../context/ToastContext';
+import { useMe } from '../../context/MeContext';
 import { completeOnboarding } from '../../api/client';
 
 // Step 3 of 3 — connect first AWS account. Skippable. Whether the user
@@ -15,32 +16,33 @@ export default function OnboardingAwsAccount() {
   const { theme: t, isDark } = useTheme();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { refresh } = useMe();
   const [finishing, setFinishing] = useState(false);
 
   const border = isDark ? 'rgba(255,255,255,0.12)' : '#e5e7eb';
 
-  async function finish(stepsSkipped) {
+  // finish marks onboarding complete and pulls the fresh me payload before
+  // navigating. The refresh is load-bearing: without it MeContext still
+  // holds onboarding_completed_at=null when navigate runs, OnboardingGate
+  // re-fires, and the user bounces back to step 1.
+  async function finish(stepsSkipped, dest) {
     if (finishing) return;
     setFinishing(true);
     try {
       await completeOnboarding(stepsSkipped);
     } catch (err) {
-      // Soft-fail — completion is idempotent and the gate will re-route here
-      // if the flag didn't flip. Toast and proceed.
       toast('Could not save onboarding state. You may see the wizard again.', 'error');
     }
-    navigate('/');
+    await refresh();
+    navigate(dest);
   }
 
   function goConnect() {
-    // The connect screen will live at /connect post-onboarding. Mark
-    // onboarding done first (only invite was potentially skipped), then
-    // forward there. Connect's own form posts to /v1/accounts.
-    finish([]).then(() => navigate('/connect'));
+    finish([], '/connect');
   }
 
   function skip() {
-    finish(['aws-account']);
+    finish(['aws-account'], '/');
   }
 
   return (
