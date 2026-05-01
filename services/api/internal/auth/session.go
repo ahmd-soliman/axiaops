@@ -249,6 +249,47 @@ func (m *Manager) RevokeSession(ctx context.Context, sessionID, tokenHash string
 	return nil
 }
 
+// RotateSessionForOrg revokes the caller's current session and mints a new
+// one bound to the target organization, in that order. Used by the
+// /v1/auth/switch-org handler (Phase B1.5 slice 4) when a multi-org user
+// flips between organizations they belong to.
+//
+// Ordering choice — revoke first, then mint:
+//   - revoke succeeds, mint fails  → user is logged out, must re-auth.
+//     Recoverable via /login.
+//   - revoke fails                  → return error before any mint. Caller
+//     keeps their current session.
+//   - mint first, revoke second     → would briefly leave TWO live sessions
+//     for the same user. Reject this ordering — it widens the window where
+//     a stolen old token still authenticates.
+//
+// The plan calls this "single-tx revoke + mint." A literal DB transaction
+// would require coupling the Manager to tx boundaries that today live in
+// Store; the failure semantics above (worst case: user must re-auth) are
+// the practical equivalent and avoid that coupling.
+//
+// Cache invalidation: the old session's token hash is deleted from the
+// cache immediately after the PG revoke (write-through), so a parallel
+// validation request can't read a now-revoked row from cache and
+// authenticate. Plan §4.7.4 acceptance row 7.
+//
+// Records `axiaops_session_revocations_total{reason="org_switch"}` per
+// plan §4.7.4 acceptance row 8 for every successful rotation.
+func (m *Manager) RotateSessionForOrg(ctx context.Context, currentSessionID, currentTokenHash string, mint MintRequest) (MintResult, error) {
+	if currentSessionID == "" {
+		return MintResult{}, errors.New("auth: rotate session: current session_id required")
+	}
+	if err := m.store.RevokeSession(ctx, currentSessionID); err != nil {
+		return MintResult{}, fmt.Errorf("auth: rotate session: revoke: %w", err)
+	}
+	if m.cache != nil && currentTokenHash != "" {
+		m.cache.Delete(ctx, currentTokenHash)
+	}
+	observability.Global.AuthSessionRevocationsTotal.WithLabelValues(string(RevokeReasonOrgSwitch)).Inc()
+
+	return m.MintSession(ctx, mint)
+}
+
 // RevokeUserSessions revokes EVERY live session for userID and clears the
 // cache for each. Used by password-reset, admin "log out everywhere",
 // SESSIONS_PER_USER_CAP enforcement, and SSO enforcement-change flips.
