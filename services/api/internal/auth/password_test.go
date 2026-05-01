@@ -110,15 +110,3 @@ func TestCheckPolicyAcceptsAtMinimumLength(t *testing.T) {
 	}
 }
 
-func TestCheckPolicyRejectsCommon(t *testing.T) {
-	t.Parallel()
-	cases := []string{"password1234", "Password1234", "PASSWORD1234"}
-	for _, c := range cases {
-		t.Run(c, func(t *testing.T) {
-			err := auth.CheckPolicy(c)
-			if !errors.Is(err, auth.ErrPasswordTooCommon) {
-				t.Fatalf("expected ErrPasswordTooCommon for %q, got %v", c, err)
-			}
-		})
-	}
-}

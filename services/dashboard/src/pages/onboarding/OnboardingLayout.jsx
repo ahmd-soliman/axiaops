@@ -2,7 +2,6 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useTheme } from '../../theme/ThemeContext';
 
 const STEPS = [
-  { path: '/onboarding/org-name', label: 'Name your org' },
   { path: '/onboarding/invite', label: 'Invite teammates' },
   { path: '/onboarding/aws-account', label: 'Connect AWS' },
 ];

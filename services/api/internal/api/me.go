@@ -45,7 +45,6 @@ type meResponse struct {
 // to login."
 func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	tid := middleware.OrganizationID(r.Context())
-	orgCode := middleware.OrganizationCode(r.Context())
 	uid := middleware.UserID(r.Context())
 	email := middleware.UserEmail(r.Context())
 
@@ -73,11 +72,13 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		AuthMode:       authMode,
 	}
 
-	// Organization block — best-effort. A user with no membership might still
-	// have a valid organization (e.g. invited user pre-redemption); fall back
-	// to whatever UpsertOrganization returns for the org_code in the JWT.
-	if orgCode != "" {
-		if org, err := h.store.UpsertOrganization(ctx, orgCode, ""); err == nil {
+	// Organization block — best-effort. A pure read keyed on the
+	// organization_id from the request context. Using UpsertOrganization
+	// here would silently create a phantom row under native auth, where
+	// the context carries the org's UUID but the existing row's org_code
+	// has a "native:" prefix — no match → INSERT.
+	if tid != "" {
+		if org, err := h.store.GetOrganizationByID(ctx, tid); err == nil {
 			orgResp := toOrganizationResponse(org)
 			resp.Organization = &orgResp
 		}
