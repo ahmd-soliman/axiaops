@@ -668,9 +668,32 @@ export async function authBootstrap({ token, email, name, password, organization
   return res.json();
 }
 
-// authRedeemInvitation accepts an invite token and creates the user
-// + membership in one shot, then mints a session. Body: token, password,
-// name. Returns {user, organization}.
+// authPreviewInvitation peeks at an invitation token without consuming
+// it. Drives the AcceptInviteScreen UI variation: when `existing_user`
+// is true, the form prompts for the user's existing password (verified
+// server-side against the global users table); when false, it prompts
+// for a new password + name.
+//
+// Errors:
+//   - 410 invitation_invalid: token unknown / expired / already redeemed.
+export async function authPreviewInvitation(token) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/invitations/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  return res.json();
+}
+
+// authRedeemInvitation accepts an invite token. Two flows the server
+// disambiguates from the email on the token:
+//   - New user: pass {token, password, name}. Server hashes the
+//     password, creates the user, inserts the membership, mints a session.
+//   - Existing user (B1.5): pass {token, password}. Name is ignored
+//     server-side. Server verifies the password against the user's
+//     existing argon2id hash and only inserts the membership.
+// Returns {user, organization} on success.
 export async function authRedeemInvitation({ token, name, password }) {
   const res = await ifetch(`${BASE_URL}/v1/auth/invitations/redeem`, {
     method: 'POST',

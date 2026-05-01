@@ -221,6 +221,9 @@ func (m *mockStoreForScheduler) CreateNativeInvitation(context.Context, model.Pe
 func (m *mockStoreForScheduler) RedeemNativeInvitation(context.Context, storage.NativeInviteRedeem) (model.User, model.Membership, error) {
 	return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
 }
+func (m *mockStoreForScheduler) LookupInvitationByToken(context.Context, string) (storage.PeekedInvitation, error) {
+	return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
+}
 
 // captureQueue records enqueued jobs.
 type captureQueue struct{ jobs []queue.ScanJob }

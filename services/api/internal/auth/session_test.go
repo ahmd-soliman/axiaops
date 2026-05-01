@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -413,6 +414,30 @@ func (f *fakeStore) CreateNativeInvitation(_ context.Context, in model.PendingIn
 	return in, !existed, nil
 }
 
+func (f *fakeStore) LookupInvitationByToken(_ context.Context, tokenHash string) (storage.PeekedInvitation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key, ok := f.invitationsByToken[tokenHash]
+	if !ok {
+		return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
+	}
+	inv, ok := f.invitations[key]
+	if !ok || inv.Status != model.InvitationStatusPending || !inv.ExpiresAt.After(f.now()) {
+		return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
+	}
+	out := storage.PeekedInvitation{
+		Email:            inv.Email,
+		OrganizationID:   inv.OrganizationID,
+		OrganizationName: f.orgsByID[inv.OrganizationID],
+		Role:             inv.Role,
+	}
+	if u, ok := f.usersByEmail[strings.ToLower(inv.Email)]; ok {
+		copy := u
+		out.ExistingUser = &copy
+	}
+	return out, nil
+}
+
 func (f *fakeStore) RedeemNativeInvitation(_ context.Context, req storage.NativeInviteRedeem) (model.User, model.Membership, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -424,25 +449,39 @@ func (f *fakeStore) RedeemNativeInvitation(_ context.Context, req storage.Native
 	if !ok || inv.Status != model.InvitationStatusPending || !inv.ExpiresAt.After(f.now()) {
 		return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
 	}
-	// Resolve user — match by lower(email).
-	user, ok := f.usersByEmail[strings.ToLower(inv.Email)]
-	if !ok {
-		// Create new user.
+	var user model.User
+	if req.ExistingUserID != "" {
+		// Existing-user flow.
+		u, ok := f.usersByID[req.ExistingUserID]
+		if !ok {
+			return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
+		}
+		if !strings.EqualFold(u.Email, inv.Email) {
+			return model.User{}, model.Membership{}, fmt.Errorf("fake: existing user email mismatch")
+		}
+		user = u
+	} else {
+		// New-user flow.
+		if existing, ok := f.usersByEmail[strings.ToLower(inv.Email)]; ok {
+			// Race: another path created this user between peek and
+			// redeem. Mirrors postgres behaviour.
+			_ = existing
+			return model.User{}, model.Membership{}, storage.ErrUserEmailExists
+		}
 		now := f.now()
 		user = model.User{
-			ID:            req.UserID,
+			ID:             req.UserID,
 			OrganizationID: inv.OrganizationID,
-			Email:         inv.Email,
-			Name:          req.UserName,
-			PasswordHash:  req.PasswordHash,
-			PasswordSetAt: &now,
-			CreatedAt:     now,
-			LastSeen:      now,
+			Email:          inv.Email,
+			Name:           req.UserName,
+			PasswordHash:   req.PasswordHash,
+			PasswordSetAt:  &now,
+			CreatedAt:      now,
+			LastSeen:       now,
 		}
 		f.usersByEmail[strings.ToLower(inv.Email)] = user
 		f.usersByID[user.ID] = user
 	}
-	// Add membership.
 	mship := model.Membership{
 		ID:             "m-" + inv.ID,
 		OrganizationID: inv.OrganizationID,
@@ -452,7 +491,6 @@ func (f *fakeStore) RedeemNativeInvitation(_ context.Context, req storage.Native
 		UpdatedAt:      f.now(),
 	}
 	f.memberships[user.ID] = append(f.memberships[user.ID], mship)
-	// Single-use enforcement — drop both the row and the token index.
 	delete(f.invitations, key)
 	delete(f.invitationsByToken, req.TokenHash)
 	return user, mship, nil

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -848,9 +849,79 @@ func (s *Store) CreateNativeInvitation(ctx context.Context, inv model.PendingInv
 	return out, inserted, nil
 }
 
+// LookupInvitationByToken is the read-only peek that discovers whether a
+// pending invitation exists and whether the invited email matches a user
+// that already exists globally. Used by both:
+//
+//  1. GET /v1/auth/invitations/preview (drives the AcceptInviteScreen
+//     UI variation — "set a new password" vs "enter your existing
+//     password"). The wire shape redacts ExistingUser.PasswordHash.
+//  2. POST /v1/auth/invitations/redeem (handler verifies the supplied
+//     password against ExistingUser.PasswordHash before calling
+//     RedeemNativeInvitation with ExistingUserID set).
+//
+// Bypasses RLS — the user lookup must see across organisations.
+func (s *Store) LookupInvitationByToken(ctx context.Context, tokenHash string) (storage.PeekedInvitation, error) {
+	if tokenHash == "" {
+		return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
+	}
+
+	var p storage.PeekedInvitation
+	err := s.adminPool.QueryRow(ctx, `
+		SELECT pm.email, pm.organization_id, pm.role, COALESCE(pm.invited_by_user_id, ''),
+		       COALESCE(o.name, '')
+		FROM pending_memberships pm
+		JOIN organizations o ON o.id = pm.organization_id
+		WHERE pm.invite_token_hash = $1
+		  AND pm.status = 'pending'
+		  AND pm.expires_at > NOW()`,
+		tokenHash,
+	).Scan(&p.Email, &p.OrganizationID, &p.Role, &p.InvitedBy, &p.OrganizationName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
+	}
+	if err != nil {
+		return storage.PeekedInvitation{}, fmt.Errorf("postgres: peek invitation: %w", err)
+	}
+
+	// Existing-user lookup — global, not per-org. The users table has a
+	// global lower(email) constraint (per the existing schema), so at
+	// most one row matches.
+	var u model.User
+	err = s.adminPool.QueryRow(ctx, `
+		SELECT id, organization_id, kinde_sub, email, COALESCE(name, ''),
+		       password_hash, password_set_at, created_at, last_seen
+		FROM users
+		WHERE lower(email) = lower($1)`,
+		p.Email,
+	).Scan(
+		&u.ID, &u.OrganizationID, &u.KindeSub, &u.Email, &u.Name,
+		&u.PasswordHash, &u.PasswordSetAt, &u.CreatedAt, &u.LastSeen,
+	)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// No existing user → new-user flow on redeem.
+	case err != nil:
+		return storage.PeekedInvitation{}, fmt.Errorf("postgres: peek invitation user lookup: %w", err)
+	default:
+		p.ExistingUser = &u
+	}
+	return p, nil
+}
+
 // RedeemNativeInvitation atomically: validates the token row, ensures the
 // referenced user exists (creating with the supplied password hash if not),
 // inserts a memberships row, and DELETEs the pending_memberships row.
+//
+// Two flows selected by the caller via NativeInviteRedeem.ExistingUserID:
+//
+//  1. New user (ExistingUserID == ""): require UserID + UserName +
+//     PasswordHash. INSERT users → INSERT memberships → DELETE pending.
+//  2. Existing user (ExistingUserID != ""): caller has already verified
+//     the supplied password against the user's stored hash. INSERT
+//     memberships against the existing user_id → DELETE pending. The
+//     user row is NOT touched — name, password_hash, kinde_sub all
+//     stay as they were in the user's other organisation.
 func (s *Store) RedeemNativeInvitation(ctx context.Context, in storage.NativeInviteRedeem) (model.User, model.Membership, error) {
 	if in.TokenHash == "" {
 		return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
@@ -879,21 +950,42 @@ func (s *Store) RedeemNativeInvitation(ctx context.Context, in storage.NativeInv
 		return model.User{}, model.Membership{}, fmt.Errorf("postgres: redeem native invitation lookup: %w", err)
 	}
 
-	// Resolve the user — match on lower(email) within this organization. If
-	// no row matches, create one with the supplied password.
+	// Resolve the user — two flows selected by ExistingUserID.
 	var user model.User
-	err = tx.QueryRow(ctx, `
-		SELECT id, organization_id, kinde_sub, email, COALESCE(name, ''),
-		       password_hash, password_set_at, created_at, last_seen
-		FROM users
-		WHERE organization_id = $1 AND lower(email) = lower($2)`,
-		organizationID, email,
-	).Scan(
-		&user.ID, &user.OrganizationID, &user.KindeSub, &user.Email, &user.Name,
-		&user.PasswordHash, &user.PasswordSetAt, &user.CreatedAt, &user.LastSeen,
-	)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
+	if in.ExistingUserID != "" {
+		// Flow 2: existing user (B1.5 cross-org redemption). Caller already
+		// verified the password against the user's stored hash. Just load
+		// the row so the returned model.User reflects the current state.
+		err = tx.QueryRow(ctx, `
+			SELECT id, organization_id, kinde_sub, email, COALESCE(name, ''),
+			       password_hash, password_set_at, created_at, last_seen
+			FROM users
+			WHERE id = $1`,
+			in.ExistingUserID,
+		).Scan(
+			&user.ID, &user.OrganizationID, &user.KindeSub, &user.Email, &user.Name,
+			&user.PasswordHash, &user.PasswordSetAt, &user.CreatedAt, &user.LastSeen,
+		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Race: caller saw the user in LookupInvitationByToken but
+			// the row was deleted (right-to-erasure or admin action)
+			// between peek and redeem. Surface as invitation-not-found
+			// — the caller's existing-user assumption is no longer
+			// valid; they'd need to redeem as a new user.
+			return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
+		}
+		if err != nil {
+			return model.User{}, model.Membership{}, fmt.Errorf("postgres: redeem native invitation load existing user: %w", err)
+		}
+		// Defence in depth: confirm the email matches the invitation.
+		// Catches a caller that supplied a spoofed ExistingUserID
+		// belonging to a different email — without this guard, that
+		// would silently add a membership for the wrong user.
+		if !strings.EqualFold(user.Email, email) {
+			return model.User{}, model.Membership{}, fmt.Errorf("postgres: redeem native invitation: existing user email mismatch")
+		}
+	} else {
+		// Flow 1: new user. Require the inputs the INSERT needs.
 		if in.UserID == "" || in.PasswordHash == "" {
 			return model.User{}, model.Membership{}, fmt.Errorf("postgres: redeem native invitation: user_id and password_hash required for new user")
 		}
@@ -914,12 +1006,14 @@ func (s *Store) RedeemNativeInvitation(ctx context.Context, in storage.NativeInv
 		if err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				// Race: a global user with this email was created between
+				// the caller's peek (which saw no existing user) and
+				// this INSERT. The caller should retry — peek would now
+				// return ExistingUser != nil and route through Flow 2.
 				return model.User{}, model.Membership{}, storage.ErrUserEmailExists
 			}
 			return model.User{}, model.Membership{}, fmt.Errorf("postgres: redeem native invitation insert user: %w", err)
 		}
-	case err != nil:
-		return model.User{}, model.Membership{}, fmt.Errorf("postgres: redeem native invitation lookup user: %w", err)
 	}
 
 	// Set RLS context for the membership insert.
