@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { authLogin, setPendingOrgPick } from '../api/client';
+import { authLogin, clearPendingOrgPick, setPendingOrgPick } from '../api/client';
 import { getKindeClient } from '../auth/kinde';
 import { getToken } from '../auth/storage';
 import { AUTH_PROVIDER, DEV_MODE } from '../config';
@@ -26,11 +26,17 @@ export default function Login() {
   const [error, setError] = useState(location.state?.error || '');
 
   useEffect(() => {
-    if (DEV_MODE || getToken()) navigate('/', { replace: true });
-    // One-shot consume of the bounce-back error: replace the current
-    // history entry with the same URL but no state, so a back-navigation
-    // here later doesn't redisplay the stale error.
-    if (location.state?.error) {
+    // Order matters: dev-mode / already-authenticated bounce wins over
+    // the state.error one-shot consume. Without `else if`, both
+    // navigates would fire synchronously and the second would replace
+    // the first's history entry — landing the user back on /login
+    // despite DEV_MODE=true (or a valid stored Kinde token).
+    if (DEV_MODE || getToken()) {
+      navigate('/', { replace: true });
+    } else if (location.state?.error) {
+      // One-shot consume of the bounce-back error: replace the current
+      // history entry with the same URL but no state, so a back-navigation
+      // here later doesn't redisplay the stale error.
       navigate('.', { replace: true, state: {} });
     }
     // No /v1/me probe under native auth: it races with logout's
@@ -69,6 +75,12 @@ export default function Login() {
         return;
       }
       // Single-membership branch: cookie set by the server, dashboard ready.
+      // Defensive clear of any prior multi-org pending pick — a user who
+      // started a multi-org attempt, cancelled, then submitted single-org
+      // creds would otherwise leave stale {email, password, orgs} in the
+      // module variable. No active code reads it post-success, but keeping
+      // a password in memory longer than necessary is the wrong default.
+      clearPendingOrgPick();
       navigate('/', { replace: true });
     } catch (e) {
       // The auth client throws a structured error with .code on 4xx.
