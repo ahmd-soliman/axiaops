@@ -394,6 +394,16 @@ export async function fetchMe() {
   return _meInFlight;
 }
 
+// resetFetchMeCache clears the 250ms error cache. Called from every auth
+// ceremony entry point (login, bootstrap, redeem-invitation) — a fresh
+// cookie has just been minted, any cached 401 from before the credential
+// exchange is stale and would otherwise briefly block the post-login
+// /v1/me probe in MeContext.refresh().
+function resetFetchMeCache() {
+  _meLastError = null;
+  _meLastErrorAt = 0;
+}
+
 export async function listMemberships() {
   return request('/v1/memberships');
 }
@@ -514,6 +524,7 @@ export async function authLogin(email, password) {
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw await decodeAuthError(res);
+  resetFetchMeCache();
   return res.json();
 }
 
@@ -541,6 +552,7 @@ export async function authBootstrap({ token, email, name, password, organization
     }),
   });
   if (!res.ok) throw await decodeAuthError(res);
+  resetFetchMeCache();
   return res.json();
 }
 
@@ -554,6 +566,7 @@ export async function authRedeemInvitation({ token, name, password }) {
     body: JSON.stringify({ token, name, password }),
   });
   if (!res.ok) throw await decodeAuthError(res);
+  resetFetchMeCache();
   return res.json();
 }
 
