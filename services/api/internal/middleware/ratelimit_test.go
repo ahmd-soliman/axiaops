@@ -1,4 +1,4 @@
-package middleware
+package middleware_test
 
 import (
 	"context"
@@ -8,18 +8,19 @@ import (
 	"testing"
 	"time"
 
+	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/cache"
 )
 
-func newTestRateLimiter() *RateLimiter {
-	return NewRateLimiter(cache.New("")) // memory backend
+func newTestRateLimiter() *middleware.RateLimiter {
+	return middleware.NewRateLimiter(cache.New("")) // memory backend
 }
 
 func TestRateLimiter_AllowsUpToLimit(t *testing.T) {
 	rl := newTestRateLimiter()
 	ctx := context.Background()
 
-	for i := 0; i < rateLimitMax; i++ {
+	for i := 0; i < middleware.RateLimitMax; i++ {
 		if !rl.Allow(ctx, "organization-A") {
 			t.Fatalf("expected allowed on request %d", i+1)
 		}
@@ -33,7 +34,7 @@ func TestRateLimiter_Isolation(t *testing.T) {
 	rl := newTestRateLimiter()
 	ctx := context.Background()
 
-	for i := 0; i < rateLimitMax; i++ {
+	for i := 0; i < middleware.RateLimitMax; i++ {
 		rl.Allow(ctx, "organization-1") //nolint:errcheck
 	}
 	// organization-2 should still have full capacity
@@ -47,7 +48,7 @@ func TestRateLimiter_Wrap_Returns429(t *testing.T) {
 	ctx := context.Background()
 
 	// Drain the bucket
-	for i := 0; i < rateLimitMax; i++ {
+	for i := 0; i < middleware.RateLimitMax; i++ {
 		rl.Allow(ctx, "alpha") //nolint:errcheck
 	}
 
@@ -56,7 +57,7 @@ func TestRateLimiter_Wrap_Returns429(t *testing.T) {
 	}))
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
-	r = r.WithContext(context.WithValue(r.Context(), organizationIDKey, "alpha"))
+	r = r.WithContext(middleware.ContextWithOrganizationID(r.Context(), "alpha"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -71,7 +72,7 @@ func TestRateLimiter_Wrap_Returns429(t *testing.T) {
 func TestRateLimiter_Wrap_BypassesHealthAndOptions(t *testing.T) {
 	rl := newTestRateLimiter()
 	ctx := context.Background()
-	for i := 0; i < rateLimitMax; i++ {
+	for i := 0; i < middleware.RateLimitMax; i++ {
 		rl.Allow(ctx, "organization-x") //nolint:errcheck
 	}
 
@@ -84,7 +85,7 @@ func TestRateLimiter_Wrap_BypassesHealthAndOptions(t *testing.T) {
 		{http.MethodGet, "/health"},
 	} {
 		r := httptest.NewRequest(tc.method, tc.path, nil)
-		r = r.WithContext(context.WithValue(r.Context(), organizationIDKey, "organization-x"))
+		r = r.WithContext(middleware.ContextWithOrganizationID(r.Context(), "organization-x"))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
 		if w.Code != http.StatusOK {
@@ -109,7 +110,7 @@ func TestRateLimiter_Wrap_NoOrganizationAllowed(t *testing.T) {
 
 func TestRateLimiter_CacheError_FailsOpen(t *testing.T) {
 	errCache := &errorCache{}
-	rl := NewRateLimiter(errCache)
+	rl := middleware.NewRateLimiter(errCache)
 	// Should allow even when cache errors
 	if !rl.Allow(context.Background(), "organization-err") {
 		t.Fatal("expected fail-open on cache error")
@@ -119,15 +120,15 @@ func TestRateLimiter_CacheError_FailsOpen(t *testing.T) {
 func TestRateLimiter_SurvivesRestart(t *testing.T) {
 	// Simulate restart: two RateLimiter instances sharing the same cache.
 	c := cache.New("")
-	rl1 := NewRateLimiter(c)
+	rl1 := middleware.NewRateLimiter(c)
 	ctx := context.Background()
 
-	for i := 0; i < rateLimitMax; i++ {
+	for i := 0; i < middleware.RateLimitMax; i++ {
 		rl1.Allow(ctx, "organization-restart") //nolint:errcheck
 	}
 
 	// New instance, same cache — counter should be preserved.
-	rl2 := NewRateLimiter(c)
+	rl2 := middleware.NewRateLimiter(c)
 	if rl2.Allow(ctx, "organization-restart") {
 		t.Fatal("expected new instance to see existing counter and block")
 	}
