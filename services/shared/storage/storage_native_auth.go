@@ -248,6 +248,23 @@ type NativeAuthStore interface {
 	// Returns ErrInvitationNotFound when no row matches or the row is no
 	// longer pending. Used under AUTH_PROVIDER=native.
 	RedeemNativeInvitation(ctx context.Context, in NativeInviteRedeem) (model.User, model.Membership, error)
+
+	// LookupInvitationByToken is the read-only peek that drives both the
+	// preview endpoint and the redeem handler's flow-selection. It does
+	// NOT consume the invitation token — the row stays pending. Returns
+	// ErrInvitationNotFound if the row is missing, expired, or already
+	// redeemed.
+	//
+	// `ExistingUser` is populated when a user with the invited email
+	// already exists in any organisation (B1.5 cross-org redemption).
+	// Bypasses RLS — the lookup must see users across orgs.
+	//
+	// Race window: between this peek and the subsequent
+	// RedeemNativeInvitation, the token can be consumed by another
+	// caller. RedeemNativeInvitation handles that with
+	// ErrInvitationNotFound — the handler must propagate it as the
+	// usual 410 Gone.
+	LookupInvitationByToken(ctx context.Context, tokenHash string) (PeekedInvitation, error)
 }
 
 // BootstrapConsume is the input record for ConsumeBootstrapState. Kept as a
@@ -279,9 +296,43 @@ type BootstrapResult struct {
 }
 
 // NativeInviteRedeem is the input record for RedeemNativeInvitation.
+//
+// Two flows the caller chooses between BEFORE calling, by first invoking
+// LookupInvitationByToken to discover whether a global user with the
+// invited email already exists:
+//
+//  1. New user: leave ExistingUserID empty, supply UserID + UserName +
+//     PasswordHash. Storage INSERTs the user and the membership.
+//  2. Existing user (B1.5 multi-org): set ExistingUserID to the matched
+//     user's id, omit UserID/UserName/PasswordHash (caller has already
+//     verified the supplied password against the user's stored hash via
+//     auth.Verify — the storage layer never touches plaintext). Storage
+//     skips user INSERT and only adds the membership.
 type NativeInviteRedeem struct {
-	TokenHash    string
-	UserID       string // pre-generated UUID; ignored if email matches an existing user
-	UserName     string
-	PasswordHash string // pre-hashed; ignored if email matches an existing user (B1.5: existing-user redemption flow)
+	TokenHash      string
+	ExistingUserID string // non-empty → flow (2); leaves the user row untouched
+	UserID         string // flow (1) only
+	UserName       string // flow (1) only
+	PasswordHash   string // flow (1) only — pre-hashed (argon2id)
+}
+
+// PeekedInvitation is the read-only projection LookupInvitationByToken
+// returns. Contains everything the redeem handler needs to decide
+// between the new-user and existing-user flow, plus the public-facing
+// fields the preview endpoint exposes (sans ExistingUser, which the
+// handler keeps internal — the wire shape only carries existing_user
+// as a boolean).
+type PeekedInvitation struct {
+	Email            string
+	OrganizationID   string
+	OrganizationName string
+	Role             string
+	InvitedBy        string
+
+	// ExistingUser is non-nil when a user with this email already exists
+	// globally (any organisation). The handler verifies the supplied
+	// password against ExistingUser.PasswordHash before redeeming.
+	// The PasswordHash MUST NOT be returned to the wire — the preview
+	// endpoint redacts it.
+	ExistingUser *model.User
 }

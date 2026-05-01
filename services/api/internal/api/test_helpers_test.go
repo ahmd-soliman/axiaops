@@ -1281,3 +1281,7 @@ func (m *MockStore) CreateNativeInvitation(context.Context, model.PendingInvitat
 func (m *MockStore) RedeemNativeInvitation(context.Context, storage.NativeInviteRedeem) (model.User, model.Membership, error) {
 	return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
 }
+
+func (m *MockStore) LookupInvitationByToken(context.Context, string) (storage.PeekedInvitation, error) {
+	return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
+}
