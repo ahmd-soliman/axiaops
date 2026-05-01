@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"axiaops.io/shared/license"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
@@ -13,14 +14,17 @@ import (
 
 // mockStoreForScheduler is a minimal mock store for testing the scheduler.
 type mockStoreForScheduler struct {
-	accounts []model.Account
-	listErr  error
+	accounts        []model.Account
+	listErr         error
+	listCalls       int
+	getAccountCalls int
 }
 
 func (m *mockStoreForScheduler) ListAccounts(ctx context.Context) ([]model.Account, error) {
 	return m.ListAllAccounts(ctx)
 }
 func (m *mockStoreForScheduler) ListAllAccounts(ctx context.Context) ([]model.Account, error) {
+	m.listCalls++
 	if m.listErr != nil {
 		return nil, m.listErr
 	}
@@ -63,7 +67,13 @@ func (m *mockStoreForScheduler) AuditLogAnonymiseUser(context.Context, string) (
 	return 0, nil
 }
 func (m *mockStoreForScheduler) SaveAccount(context.Context, model.Account) error { return nil }
-func (m *mockStoreForScheduler) GetAccount(context.Context, string) (model.Account, error) {
+func (m *mockStoreForScheduler) GetAccount(_ context.Context, id string) (model.Account, error) {
+	m.getAccountCalls++
+	for _, a := range m.accounts {
+		if a.ID == id {
+			return a, nil
+		}
+	}
 	return model.Account{}, nil
 }
 func (m *mockStoreForScheduler) DeleteAccount(context.Context, string) error { return nil }
@@ -225,14 +235,24 @@ func (m *mockStoreForScheduler) LookupInvitationByToken(context.Context, string)
 	return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
 }
 
-// captureQueue records enqueued jobs.
-type captureQueue struct{ jobs []queue.ScanJob }
+// captureQueue records enqueued jobs and optionally returns pre-seeded jobs
+// from Dequeue (used by the worker tests). When `pending` is empty, Dequeue
+// blocks on ctx — same shape as the production Redis queue under quiet load.
+type captureQueue struct {
+	jobs    []queue.ScanJob
+	pending []queue.ScanJob
+}
 
 func (q *captureQueue) Enqueue(_ context.Context, job queue.ScanJob) error {
 	q.jobs = append(q.jobs, job)
 	return nil
 }
 func (q *captureQueue) Dequeue(ctx context.Context) (queue.ScanJob, error) {
+	if len(q.pending) > 0 {
+		j := q.pending[0]
+		q.pending = q.pending[1:]
+		return j, nil
+	}
 	<-ctx.Done()
 	return queue.ScanJob{}, ctx.Err()
 }
@@ -321,5 +341,153 @@ func TestScanScheduledAccounts_ZeroInterval_AlwaysOverdue(t *testing.T) {
 	scanScheduledAccounts(context.Background(), store, q)
 	if len(q.jobs) != 1 {
 		t.Fatalf("expected 1 job for zero-interval account, got %d", len(q.jobs))
+	}
+}
+
+// TestScanScheduledAccounts_SkippedWhenLicenseExpired — Phase B1.6 slice 5c.
+// Past-grace boots block scheduled scans wholesale. Single check at the top
+// of the pass, not per-account — license state is binary-wide.
+func TestScanScheduledAccounts_SkippedWhenLicenseExpired(t *testing.T) {
+	license.SetCurrent(&license.License{
+		LicenseID:       "lic_test",
+		CustomerID:      "test-001",
+		ExpiresAt:       time.Now().Add(-60 * 24 * time.Hour),
+		GracePeriodDays: 30,
+	})
+	t.Cleanup(func() { license.SetCurrent(nil) })
+
+	now := time.Now()
+	store := &mockStoreForScheduler{
+		accounts: []model.Account{{
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
+		}},
+	}
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 0 {
+		t.Fatalf("license_expired should suppress all scheduled scans, got %d jobs", len(q.jobs))
+	}
+	// Defensive: also confirm ListAllAccounts was NOT called — the gate
+	// short-circuits before any DB read so an expired license also stops
+	// burning DB load on every tick.
+	if store.listCalls > 0 {
+		t.Errorf("expected ListAllAccounts to be skipped under expired license, got %d calls", store.listCalls)
+	}
+}
+
+// TestScanScheduledAccounts_AllowedInGrace — in-grace deliberately keeps
+// scans running (plan §4.9 Option-3 scope). The dashboard banner + slog
+// warns are the renewal-pressure mechanism for grace; only past-grace
+// silences the scheduler.
+func TestScanScheduledAccounts_AllowedInGrace(t *testing.T) {
+	license.SetCurrent(&license.License{
+		LicenseID:       "lic_test",
+		CustomerID:      "test-001",
+		ExpiresAt:       time.Now().Add(-2 * 24 * time.Hour),
+		GracePeriodDays: 30,
+	})
+	t.Cleanup(func() { license.SetCurrent(nil) })
+
+	now := time.Now()
+	store := &mockStoreForScheduler{
+		accounts: []model.Account{{
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
+		}},
+	}
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 1 {
+		t.Fatalf("in-grace must allow scheduled scans, got %d jobs", len(q.jobs))
+	}
+}
+
+// TestWorker_SkipsJobWhenLicenseExpired closes the gap a holistic review of
+// MR !71 caught: the api-side scan-gate catches most jobs at trigger time,
+// but a job enqueued before expiry and dequeued AFTER would otherwise sneak
+// past. The worker must re-evaluate the gate at execution time. Asserts the
+// worker drops the job (logs + continue) without ever calling GetAccount —
+// runScan's first store touch is a useful "did we run any scan code at all"
+// signal.
+func TestWorker_SkipsJobWhenLicenseExpired(t *testing.T) {
+	license.SetCurrent(&license.License{
+		LicenseID:       "lic_test",
+		CustomerID:      "test-001",
+		ExpiresAt:       time.Now().Add(-60 * 24 * time.Hour),
+		GracePeriodDays: 30,
+	})
+	t.Cleanup(func() { license.SetCurrent(nil) })
+
+	store := &mockStoreForScheduler{
+		accounts: []model.Account{{
+			ID: "acc-1", OrganizationID: "organization-1", Status: "connected",
+		}},
+	}
+	q := &captureQueue{
+		pending: []queue.ScanJob{{
+			AccountID:      "acc-1",
+			OrganizationID: "organization-1",
+			EnqueuedAt:     time.Now().Add(-1 * time.Hour),
+		}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	startWorker(ctx, q, store)
+
+	// Worker dequeues the seeded job, hits the gate, continues. With no
+	// further pending jobs the next Dequeue blocks on ctx — short sleep is
+	// enough wall-clock for the loop to spin once. 50ms is generous given
+	// the gate path is purely in-memory; tighten only if this becomes flaky.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	// Brief drain window for the worker goroutine to observe ctx.Done.
+	time.Sleep(20 * time.Millisecond)
+
+	if store.getAccountCalls != 0 {
+		t.Errorf("worker called GetAccount %d times under expired license; gate should short-circuit before runScan", store.getAccountCalls)
+	}
+	if len(q.pending) != 0 {
+		t.Errorf("worker did not consume the seeded job: %d pending", len(q.pending))
+	}
+}
+
+// TestWorker_ProcessesJobWhenLicenseValid is the control case. Without it,
+// a regression that flipped the gate sense (e.g. `if IsScanAllowed()` →
+// `if !IsScanAllowed()` inverted) would only be caught by the expired test
+// trivially passing — the gate-fired path looks identical to the
+// gate-never-checked path from the outside.
+func TestWorker_ProcessesJobWhenLicenseValid(t *testing.T) {
+	license.SetCurrent(&license.License{
+		LicenseID:       "lic_test",
+		CustomerID:      "test-001",
+		ExpiresAt:       time.Now().Add(365 * 24 * time.Hour),
+		GracePeriodDays: 30,
+	})
+	t.Cleanup(func() { license.SetCurrent(nil) })
+
+	store := &mockStoreForScheduler{
+		accounts: []model.Account{{
+			ID: "acc-1", OrganizationID: "organization-1", Status: "connected",
+		}},
+	}
+	q := &captureQueue{
+		pending: []queue.ScanJob{{
+			AccountID:      "acc-1",
+			OrganizationID: "organization-1",
+			EnqueuedAt:     time.Now().Add(-1 * time.Hour),
+		}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	startWorker(ctx, q, store)
+
+	// runScan path is best-effort here — it'll fail somewhere downstream
+	// (mock store returns empty accounts for various lookups) but that's
+	// orthogonal to the gate. The gate-passed signal is GetAccount > 0.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	time.Sleep(20 * time.Millisecond)
+
+	if store.getAccountCalls == 0 {
+		t.Errorf("worker did not reach runScan under valid license; gate may be inverted")
 	}
 }

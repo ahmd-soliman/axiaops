@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging inspect-db clean-db clean-db-drop clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop test test-shared test-api test-ingestion test-storage test-all test-liveness tls-certs
+.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging inspect-db clean-db clean-db-drop clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -37,42 +37,22 @@ start-dev: stop migrate
 # Full stack in Docker with native auth on and Redis (rate limiting +
 # scan queue worker). Mirrors the deployed environment — use this when
 # debugging auth flows, Redis-backed features, or container parity issues.
-# Dashboard is served by nginx with TLS at https://localhost:8443
-# (HTTP :8082 → 308 redirect to :8443). The native session cookie is
-# Secure, so HTTPS-via-mkcert is mandatory; run `make tls-certs` once
-# on a fresh machine to generate the local cert.
+# Dashboard is served by nginx on plain HTTP at http://localhost:8082;
+# TLS termination is the edge proxy's job in real deployments (App Runner,
+# the on-prem reverse proxy in front of dev/staging) and is intentionally
+# absent locally. The session cookie is non-Secure when accessed over
+# plain HTTP, which is correct for direct-port access.
 # Always runs `stop` first so host-mode services and stale containers are cleared.
-start-staging: stop tls-certs migrate
+start-staging: stop migrate
 	DEV_MODE=false docker compose up --build -d
 	@echo ""
 	@echo "Full Docker stack starting (DEV_MODE=false, native auth on)."
-	@echo "  API:        http://localhost:8080  (direct, no TLS — for curl)"
+	@echo "  API:        http://localhost:8080  (direct, for curl)"
 	@echo "  Ingestion:  internal only (axiaops-ingestion:8081)"
-	@echo "  Dashboard:  https://localhost:8443  ← use this in the browser"
-	@echo "  Bootstrap:  https://localhost:8443/bootstrap"
+	@echo "  Dashboard:  http://localhost:8082  ← use this in the browser"
+	@echo "  Bootstrap:  http://localhost:8082/bootstrap"
 	@echo "  Logs:       docker compose logs -f"
 	@echo "  Stop:       make stop"
-
-# Generate local TLS certs for the dashboard nginx via mkcert. Idempotent —
-# re-running is a no-op once services/dashboard/certs/ has both files.
-# Operators run this once per machine; mkcert auto-installs a local root
-# CA the first time it's invoked, so no browser cert-warning gymnastics.
-tls-certs:
-	@mkdir -p services/dashboard/certs
-	@if [ -f services/dashboard/certs/localhost.pem ] && \
-	    [ -f services/dashboard/certs/localhost-key.pem ]; then \
-		echo "tls-certs: certs already present in services/dashboard/certs/ — skipping"; \
-	else \
-		command -v mkcert >/dev/null 2>&1 || { \
-			echo "tls-certs: mkcert not installed."; \
-			echo "  macOS:   brew install mkcert nss"; \
-			echo "  Linux:   see https://github.com/FiloSottile/mkcert#installation"; \
-			exit 1; \
-		}; \
-		mkcert -install 2>/dev/null || true; \
-		cd services/dashboard/certs && mkcert localhost; \
-		echo "tls-certs: generated services/dashboard/certs/localhost.pem"; \
-	fi
 
 # Start only the infrastructure (Postgres + migrations) needed to debug
 # Go services under VS Code F5 / Delve. Does NOT start API, Ingestion, or

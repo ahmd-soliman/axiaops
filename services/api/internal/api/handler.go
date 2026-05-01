@@ -21,6 +21,7 @@ import (
 	"axiaops.io/shared/authz"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/crypto"
+	"axiaops.io/shared/license"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
@@ -514,23 +515,53 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
-// getVersion returns the build identifier for the API service. Reads from the
-// APP_VERSION / APP_COMMIT_SHA / APP_ENV env vars, falling back to "dev" /
-// "local" / "development" so a vanilla `make start-dev` still produces a
-// usable response. Auth required (sits under /v1/) so the dashboard footer
-// only learns about the API after a user has logged in.
+// getVersion returns the build identifier for the API service plus the
+// boot-time license summary. Reads APP_VERSION / APP_COMMIT_SHA / APP_ENV,
+// falling back to "dev" / "local" / "development" so a vanilla `make
+// start-dev` still produces a usable response. Auth required (sits under
+// /v1/) so the dashboard footer + license banner only learn about the API
+// after a user has logged in.
 //
-// Response shape is intentionally narrow — service identifier, version,
-// commit SHA, env. No build timestamps, no dependency versions, no secrets.
-// If you find yourself adding fields here, ask whether the data belongs in
-// /metrics or a structured log line instead.
+// The license sub-object is the source the slice-8 LicenseBanner reads:
+// state == "valid" + days_remaining < 14 → soon-to-expire banner; state ==
+// "in_grace" → grace banner with renewal contact. State "not_loaded" (DEV_MODE
+// / SaaS binary / pre-VerifyAtBoot) renders nothing. Only `state` is emitted
+// in the not-loaded branch — emitting empty/zero values for the other fields
+// would force the dashboard into "is this `expires_at: ""` a real value or
+// just absence?" branching.
+//
+// Anything beyond build identifier + license belongs in /metrics or a
+// structured log line, not here.
 func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, map[string]string{
+	writeJSON(w, map[string]any{
 		"service": "api",
 		"version": getenvOr("APP_VERSION", "dev"),
 		"commit":  getenvOr("APP_COMMIT_SHA", "local"),
 		"env":     getenvOr("APP_ENV", "development"),
+		"license": licenseSummary(),
 	})
+}
+
+// licenseSummary builds the version-endpoint license sub-object from the
+// boot-time *License snapshot. The atomic.Pointer is read once via Snapshot
+// and every other field is computed against that same pointer — calling
+// SnapshotState here would re-read the atomic, opening a TOCTOU window where
+// state describes a different snapshot than expires_at / days_remaining.
+//
+// Returns just {state} when no license is loaded so the dashboard can branch
+// on a single field rather than infer absence from zero values.
+func licenseSummary() map[string]any {
+	snap := license.Snapshot()
+	if snap == nil {
+		return map[string]any{"state": license.StateNotLoaded.String()}
+	}
+	return map[string]any{
+		"state":             license.CheckExpiry(snap).String(),
+		"customer_id":       snap.CustomerID,
+		"expires_at":        snap.ExpiresAt.UTC().Format(time.RFC3339),
+		"days_remaining":    snap.DaysRemaining(),
+		"max_organizations": snap.MaxOrganizations,
+	}
 }
 
 func getenvOr(key, fallback string) string {
@@ -936,6 +967,23 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 
 // scanAccount triggers an ingestion run for the given account.
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
+	// License gate (plan §4.9.2b). The single mid-flight feature gate B1.6
+	// ships: once the boot-time license has crossed exp + grace_period_days
+	// the scan path goes silent, both for user-triggered scans here and the
+	// scheduled-scan ticker in services/ingestion. The policy ("only
+	// StateExpired blocks") lives in license.IsScanAllowed so this gate
+	// stays in sync with the ingestion-side gate via a single predicate.
+	//
+	// Content-Type set BEFORE WriteHeader because once headers are flushed
+	// the Header() map mutations are dropped — writeJSON's set-then-encode
+	// pattern only works correctly for implicit-200 responses.
+	if !license.IsScanAllowed() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"license_expired","detail":"License past grace period — contact sales@axiaops.io to renew"}`))
+		return
+	}
+
 	id := r.PathValue("id")
 	organizationID := middleware.OrganizationID(r.Context())
 	ctx := storage.WithOrganizationID(r.Context(), organizationID)

@@ -16,6 +16,7 @@ import (
 	"axiaops.io/api/internal/kinde"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/cache"
+	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
@@ -72,6 +73,20 @@ func main() {
 	logging.Init("api")
 
 	ctx := context.Background()
+
+	// ── License (B1.6) ───────────────────────────────────────────────────────
+	// Verify the self-hosted license JWT before any further startup work.
+	// DEV_MODE skips the check entirely (per plan §4.9.2 step 1). Past-grace
+	// licenses fail-fast here so the operator sees one clear refusal rather
+	// than the binary half-starting and exposing partially-initialised state.
+	//
+	// **Runs before storage init by design** — license refusal must work even
+	// when the database is unreachable. Do not reorder this block to follow
+	// storage init without preserving the "license-refusal works without DB"
+	// invariant.
+	if err := license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true"); err != nil {
+		die("license: refusing to start", "error", err.Error())
+	}
 
 	// ── Storage ──────────────────────────────────────────────────────────────
 	dbURL := os.Getenv("DATABASE_URL")
@@ -317,6 +332,20 @@ func main() {
 			}
 		}
 	}()
+
+	// Background ticker: re-classify the loaded license every hour so the
+	// Prometheus gauges advance with the wall clock and a slog.Warn fires
+	// on grace/expired transitions. Never calls os.Exit — mid-flight
+	// transitions are observability events; slice 5's scan-gate is what
+	// actually blocks behaviour. No-op under DEV_MODE (no license loaded).
+	//
+	// Uses context.Background() to match the existing stuck-scan + session-
+	// sweep tickers below. No in-flight work here risks corruption on
+	// process termination (read-only Prometheus + slog), so the pattern is
+	// safe — but inconsistent with the ingestion-side license ticker which
+	// uses sigCtx. Consolidating all three tickers in this file onto sigCtx
+	// is a clean follow-up; not blocking B1.6.
+	go license.RunTicker(context.Background(), license.DefaultTickerInterval)
 
 	// Background ticker: hard-delete sessions where expires_at OR
 	// revoked_at is older than 7 days. Bounds growth of the sessions

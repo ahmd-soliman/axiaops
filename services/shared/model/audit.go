@@ -32,20 +32,20 @@ type AuditEvent struct {
 // or opening a detail page does not belong here — CloudTrail handles real AWS
 // actions, and product telemetry is a better home for UX analytics.
 const (
-	AuditActionDismissZombie        = "dismiss_zombie"
-	AuditActionSnoozeZombie         = "snooze_zombie"
-	AuditActionRevokeDismissal      = "revoke_dismissal"
-	AuditActionScanTriggered        = "scan_triggered"
-	AuditActionAccountConnected           = "account_connected"
-	AuditActionAccountUpdated             = "account_updated"
-	AuditActionAccountDeleted             = "account_deleted"
-	AuditActionAccountRoleDraftCreated    = "account_role_draft_created"
-	AuditActionAccountRoleVerified        = "account_role_verified"
-	AuditActionAccountRoleVerifyFailed    = "account_role_verify_failed"
-	AuditActionMemberInvited        = "member_invited"
-	AuditActionMemberRoleChanged    = "member_role_changed"
-	AuditActionMemberRemoved        = "member_removed"
-	AuditActionOwnershipTransferred = "ownership_transferred"
+	AuditActionDismissZombie           = "dismiss_zombie"
+	AuditActionSnoozeZombie            = "snooze_zombie"
+	AuditActionRevokeDismissal         = "revoke_dismissal"
+	AuditActionScanTriggered           = "scan_triggered"
+	AuditActionAccountConnected        = "account_connected"
+	AuditActionAccountUpdated          = "account_updated"
+	AuditActionAccountDeleted          = "account_deleted"
+	AuditActionAccountRoleDraftCreated = "account_role_draft_created"
+	AuditActionAccountRoleVerified     = "account_role_verified"
+	AuditActionAccountRoleVerifyFailed = "account_role_verify_failed"
+	AuditActionMemberInvited           = "member_invited"
+	AuditActionMemberRoleChanged       = "member_role_changed"
+	AuditActionMemberRemoved           = "member_removed"
+	AuditActionOwnershipTransferred    = "ownership_transferred"
 	// AuditActionOrganizationDeleted is written immediately before an organization
 	// cascade delete (DELETE /v1/organizations/me). The row itself gets purged
 	// with the rest of audit_log, so its only durable trace is the structured
@@ -70,12 +70,38 @@ const (
 	// mutation-only, and authn-success / authn-failure belong in the
 	// auth-counter Prometheus metrics + slog (`axiaops_auth_login_total`).
 	// What lives here is the *state-changing* side of authn.
-	AuditActionUserPasswordChanged        = "user_password_changed"
-	AuditActionUserPasswordResetIssued    = "user_password_reset_issued"
-	AuditActionUserPasswordResetRedeemed  = "user_password_reset_redeemed"
-	AuditActionInvitationRedeemedNative   = "invitation_redeemed_native"
-	AuditActionBootstrapCompleted         = "bootstrap_completed"
-	AuditActionSessionRevokedByAdmin      = "session_revoked_by_admin"
+	AuditActionUserPasswordChanged       = "user_password_changed"
+	AuditActionUserPasswordResetIssued   = "user_password_reset_issued"
+	AuditActionUserPasswordResetRedeemed = "user_password_reset_redeemed"
+	AuditActionInvitationRedeemedNative  = "invitation_redeemed_native"
+	AuditActionBootstrapCompleted        = "bootstrap_completed"
+	AuditActionSessionRevokedByAdmin     = "session_revoked_by_admin"
+	// Phase B1.6 — license-file TTL enforcement (docs/sso-implementation-plan.md
+	// §4.9). The license JWT is verified at boot and re-classified hourly by
+	// the runtime ticker; both code paths write into audit_log so an operator
+	// reviewing the timeline sees the full lifecycle.
+	//
+	// AuditActionLicenseLoaded — written at every successful boot. Metadata
+	// carries license_id, contract_id, customer_id, expires_at.
+	// AuditActionLicenseInGracePeriod — written at boot OR when the runtime
+	// ticker observes the valid → in_grace transition. Metadata carries
+	// license_id, days_remaining, exp + grace_period_days.
+	// AuditActionLicenseExpiredHardFail — written at boot only, immediately
+	// before the process exits because state == expired (past grace).
+	// AuditActionLicenseExpiredRuntime — written by the runtime ticker on the
+	// in_grace → expired transition mid-flight. Distinct from hard_fail because
+	// the process keeps running; the scan-gate is what flips, not the binary.
+	// AuditActionLicenseRenewed — forward-compat for slice 4+ if we add
+	// detection of "this boot's license_id differs from the previous boot's";
+	// not wired yet.
+	// AuditActionLicenseInvalidSignature — written at boot when JWT verification
+	// fails (signature/alg/iss/aud/iat). The corresponding boot also exits.
+	AuditActionLicenseLoaded           = "license_loaded"
+	AuditActionLicenseInGracePeriod    = "license_in_grace_period"
+	AuditActionLicenseExpiredHardFail  = "license_expired_hard_fail"
+	AuditActionLicenseExpiredRuntime   = "license_expired_runtime"
+	AuditActionLicenseRenewed          = "license_renewed"
+	AuditActionLicenseInvalidSignature = "license_invalid_signature"
 	// AuditActionSessionOrgSwitched is written to the FROM org's audit log
 	// when a user POSTs /v1/auth/switch-org and rotates their session to a
 	// different org they're a member of (B1.5 §4.7.4). Metadata carries
@@ -89,31 +115,37 @@ const (
 // ValidAuditActions is the authoritative set of action codes accepted on write
 // and returned by GET /v1/audit filters.
 var ValidAuditActions = map[string]bool{
-	AuditActionDismissZombie:        true,
-	AuditActionSnoozeZombie:         true,
-	AuditActionRevokeDismissal:      true,
-	AuditActionScanTriggered:        true,
-	AuditActionAccountConnected:           true,
-	AuditActionAccountUpdated:             true,
-	AuditActionAccountDeleted:             true,
-	AuditActionAccountRoleDraftCreated:    true,
-	AuditActionAccountRoleVerified:        true,
-	AuditActionAccountRoleVerifyFailed:    true,
-	AuditActionMemberInvited:        true,
-	AuditActionMemberRoleChanged:    true,
-	AuditActionMemberRemoved:        true,
-	AuditActionOwnershipTransferred: true,
-	AuditActionOrganizationDeleted:  true,
-	AuditActionDataExported:         true,
-	AuditActionOrganizationRenamed:  true,
-	AuditActionOnboardingCompleted:  true,
-	AuditActionUserPasswordChanged:        true,
-	AuditActionUserPasswordResetIssued:    true,
-	AuditActionUserPasswordResetRedeemed:  true,
-	AuditActionInvitationRedeemedNative:   true,
-	AuditActionBootstrapCompleted:         true,
-	AuditActionSessionRevokedByAdmin:      true,
-	AuditActionSessionOrgSwitched:         true,
+	AuditActionDismissZombie:             true,
+	AuditActionSnoozeZombie:              true,
+	AuditActionRevokeDismissal:           true,
+	AuditActionScanTriggered:             true,
+	AuditActionAccountConnected:          true,
+	AuditActionAccountUpdated:            true,
+	AuditActionAccountDeleted:            true,
+	AuditActionAccountRoleDraftCreated:   true,
+	AuditActionAccountRoleVerified:       true,
+	AuditActionAccountRoleVerifyFailed:   true,
+	AuditActionMemberInvited:             true,
+	AuditActionMemberRoleChanged:         true,
+	AuditActionMemberRemoved:             true,
+	AuditActionOwnershipTransferred:      true,
+	AuditActionOrganizationDeleted:       true,
+	AuditActionDataExported:              true,
+	AuditActionOrganizationRenamed:       true,
+	AuditActionOnboardingCompleted:       true,
+	AuditActionUserPasswordChanged:       true,
+	AuditActionUserPasswordResetIssued:   true,
+	AuditActionUserPasswordResetRedeemed: true,
+	AuditActionInvitationRedeemedNative:  true,
+	AuditActionBootstrapCompleted:        true,
+	AuditActionSessionRevokedByAdmin:     true,
+	AuditActionLicenseLoaded:             true,
+	AuditActionLicenseInGracePeriod:      true,
+	AuditActionLicenseExpiredHardFail:    true,
+	AuditActionLicenseExpiredRuntime:     true,
+	AuditActionLicenseRenewed:            true,
+	AuditActionLicenseInvalidSignature:   true,
+	AuditActionSessionOrgSwitched:        true,
 }
 
 // AuditFilter parameterises AuditLogList queries. Zero-value fields are not
