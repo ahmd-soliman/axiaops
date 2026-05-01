@@ -14,6 +14,7 @@ import (
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/kinde"
+	"axiaops.io/api/internal/license"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/logging"
@@ -72,6 +73,16 @@ func main() {
 	logging.Init("api")
 
 	ctx := context.Background()
+
+	// ── License (B1.6) ───────────────────────────────────────────────────────
+	// Verify the self-hosted license JWT before any further startup work.
+	// DEV_MODE skips the check entirely (per plan §4.9.2 step 1). Past-grace
+	// licenses fail-fast here so the operator sees one clear refusal rather
+	// than the binary half-starting and exposing partially-initialised state.
+	// Slice 4 will start the runtime ticker after ComposeServer returns.
+	if err := license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true"); err != nil {
+		die("license: refusing to start", "error", err.Error())
+	}
 
 	// ── Storage ──────────────────────────────────────────────────────────────
 	dbURL := os.Getenv("DATABASE_URL")
