@@ -65,6 +65,7 @@ func (h *Handler) WithLoginRateLimit(rl *LoginRateLimiter) *Handler {
 //	POST /v1/auth/bootstrap              first-owner install token redemption
 //	POST /v1/auth/login                  email + password → session cookie (or org picker on multi-org)
 //	POST /v1/auth/select-org             email + password + organization_id → session cookie (B1.5 multi-org follow-up)
+//	POST /v1/auth/switch-org             organization_id (session-authenticated) → rotated session bound to target org
 //	POST /v1/auth/logout                 revoke + clear cookie
 //	POST /v1/auth/invitations/redeem     accept invite token → set password → session
 //	POST /v1/auth/password-reset/redeem  redeem reset token → set new password → all sessions revoked
@@ -72,6 +73,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/bootstrap", h.bootstrap)
 	mux.HandleFunc("POST /v1/auth/login", h.login)
 	mux.HandleFunc("POST /v1/auth/select-org", h.selectOrg)
+	mux.HandleFunc("POST /v1/auth/switch-org", h.switchOrg)
 	mux.HandleFunc("POST /v1/auth/logout", h.logout)
 	mux.HandleFunc("POST /v1/auth/invitations/redeem", h.redeemInvitation)
 	mux.HandleFunc("POST /v1/auth/password-reset/redeem", h.redeemPasswordReset)
@@ -558,6 +560,142 @@ func (h *Handler) selectOrg(w http.ResponseWriter, r *http.Request) {
 		Org: orgRecord{
 			ID: chosen.OrganizationID,
 		},
+	})
+}
+
+// ── POST /v1/auth/switch-org ────────────────────────────────────────────────
+
+type switchOrgRequest struct {
+	OrganizationID string `json:"organization_id"`
+}
+
+// switchOrgResponse is a deliberately slim confirmation payload —
+// `{user: {id, role}, organization: {id}}`. Email/name are intentionally
+// omitted: the frontend already has those from /v1/me and switching orgs
+// doesn't change them. The response's job is to confirm the new binding
+// and surface the role at target so the dashboard can re-render UI gates
+// without re-fetching /v1/me.
+type switchOrgResponse struct {
+	User user      `json:"user"`
+	Org  orgRecord `json:"organization"`
+}
+
+// switchOrg flips the caller's session from one org they belong to to
+// another (B1.5 §4.7.1). Authentication is via the existing session
+// cookie — the user is already logged in; this is just a re-binding,
+// no fresh password check. Slice-2 review confirmed: collapsing the
+// "wrong org" channel to a generic 401 was for the no-creds case, but
+// here the caller IS authenticated, so we use 403 `not_a_member` to
+// distinguish "you don't belong" from "your session is dead" (401).
+//
+// Failure modes:
+//   - missing/invalid session  → 401 (handler enforces — /v1/auth/* paths
+//     bypass WrapNative, so we read the cookie ourselves).
+//   - missing organization_id  → 400.
+//   - target == current org    → 200 no-op (don't rotate, don't audit;
+//     idempotent contract for clients that may double-fire on UI race).
+//   - target not in caller's memberships → 403 `not_a_member`.
+//   - rotation failure → 500. Note: if the PG revoke succeeded and the
+//     mint failed, the caller is logged out — they re-auth via /login.
+//     This is the documented worst case in RotateSessionForOrg.
+//
+// Audit: writes one row to the FROM org's audit_log with action
+// `session.org_switched` and metadata `{from, to}`. The user_id is
+// the actor on the audit row already, so duplicating it in metadata
+// (as plan §4.7.4 row 5 loosely suggests) would just inflate the row.
+func (h *Handler) switchOrg(w http.ResponseWriter, r *http.Request) {
+	// /v1/auth/* paths bypass WrapNative — read + validate the session
+	// cookie inline. Same shape logout uses, but strict (no tolerance for
+	// missing/invalid cookies — switching orgs without a session is a
+	// client bug, not a graceful degrade).
+	token := ReadSession(r)
+	if token == "" {
+		writeAuthError(w, http.StatusUnauthorized, "unauthorized", "no session")
+		return
+	}
+	sess, err := h.sessions.ValidateSession(r.Context(), token)
+	if err != nil {
+		writeAuthError(w, http.StatusUnauthorized, "unauthorized", "no session")
+		return
+	}
+
+	var req switchOrgRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	target := strings.TrimSpace(req.OrganizationID)
+	if target == "" {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "organization_id required")
+		return
+	}
+
+	// Verify the target is in the user's membership set. Use the wider
+	// ListUserMemberships (joined with organizations) so we have the
+	// org name + role in hand for the response without a second roundtrip.
+	rows, err := h.store.ListUserMemberships(r.Context(), sess.UserID)
+	if err != nil {
+		slog.Error("auth: switch-org list memberships failed", "user_id", sess.UserID, "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+	var chosen model.MembershipWithOrganization
+	var found bool
+	for _, m := range rows {
+		if m.OrganizationID == target {
+			chosen = m
+			found = true
+			break
+		}
+	}
+	if !found {
+		// 403, not 401 — the user IS authenticated; they just lack a
+		// membership in target. Distinct from the /select-org collapse
+		// because the no-creds-membership-probe channel doesn't exist
+		// here (caller already proved a valid session).
+		writeAuthError(w, http.StatusForbidden, "not_a_member", "you are not a member of that organization")
+		return
+	}
+
+	// Same-org no-op: don't rotate, don't audit. Reuses sess.OrganizationID
+	// rather than mutating the cookie so the caller's clock-bound expires_at
+	// doesn't shift. Idempotent for racy clients.
+	if target == sess.OrganizationID {
+		writeJSON(w, http.StatusOK, switchOrgResponse{
+			User: user{ID: sess.UserID, Role: chosen.Role},
+			Org:  orgRecord{ID: target},
+		})
+		return
+	}
+
+	// Rotate: revoke old session (PG + cache + metric) then mint new one
+	// bound to target. The Manager.RotateSessionForOrg ordering guarantee
+	// is "revoke first → if mint fails, user is logged out (recoverable)".
+	mint, err := h.sessions.RotateSessionForOrg(r.Context(), sess.ID, sess.SessionTokenHash, MintRequest{
+		UserID:         sess.UserID,
+		OrganizationID: target,
+		AuthMode:       model.AuthModePassword,
+		IP:             requestIP(r),
+		UserAgent:      r.Header.Get("User-Agent"),
+	})
+	if err != nil {
+		slog.Error("auth: switch-org rotate failed", "user_id", sess.UserID, "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	// Audit on the FROM org (where the action originated). Failure
+	// non-fatal — the rotation already committed; an audit miss is a
+	// telemetry gap, not a security regression.
+	if h.auditFn != nil {
+		h.auditFn(r.Context(), sess.OrganizationID, sess.UserID, model.AuditActionSessionOrgSwitched,
+			map[string]any{"from": sess.OrganizationID, "to": target})
+	}
+
+	SetSession(w, r, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
+	writeJSON(w, http.StatusOK, switchOrgResponse{
+		User: user{ID: sess.UserID, Role: chosen.Role},
+		Org:  orgRecord{ID: target},
 	})
 }
 
