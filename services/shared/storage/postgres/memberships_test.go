@@ -282,6 +282,79 @@ func TestListMemberships_JoinsUserEmail(t *testing.T) {
 	}
 }
 
+// TestListUserMemberships_ReturnsAllOrgsForUser is the B1.5 multi-org case:
+// one user holds memberships in two orgs with different roles, and
+// ListUserMemberships returns both rows joined with org metadata. RLS is
+// bypassed by design — the result spans organizations.
+func TestListUserMemberships_ReturnsAllOrgsForUser(t *testing.T) {
+	s := newTestStore(t)
+	ctx1, org1 := newOrgCtx(t, s)
+	_, org2 := newOrgCtx(t, s)
+
+	// One user, primary org = org1. The second membership row points the
+	// same user_id at org2 — mimicking the B1.5 invitation-redeem path
+	// where redeeming for an existing user just adds a membership row.
+	u := seedUser(t, s, org1.ID, "multi@x.com")
+
+	if err := s.SaveMembership(ctx1, model.Membership{
+		ID: uuid.NewString(), OrganizationID: org1.ID, UserID: u.ID, Role: "admin",
+	}); err != nil {
+		t.Fatalf("save org1: %v", err)
+	}
+	// Save the org2 membership via a context whose org is org2 so RLS lets
+	// the INSERT through.
+	ctx2 := storage.WithOrganizationID(context.Background(), org2.ID)
+	if err := s.SaveMembership(ctx2, model.Membership{
+		ID: uuid.NewString(), OrganizationID: org2.ID, UserID: u.ID, Role: "viewer",
+	}); err != nil {
+		t.Fatalf("save org2: %v", err)
+	}
+	u1 := u // alias used in the assertions below
+
+	// No org context set on the read — ListUserMemberships bypasses RLS by
+	// design. Use a bare context to prove that.
+	rows, err := s.ListUserMemberships(context.Background(), u1.ID)
+	if err != nil {
+		t.Fatalf("ListUserMemberships: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d: %+v", len(rows), rows)
+	}
+
+	byOrg := map[string]model.MembershipWithOrganization{}
+	for _, r := range rows {
+		byOrg[r.OrganizationID] = r
+	}
+	if r := byOrg[org1.ID]; r.Role != "admin" || r.OrganizationName == "" {
+		t.Errorf("org1 row = %+v; want role=admin and non-empty name", r)
+	}
+	if r := byOrg[org2.ID]; r.Role != "viewer" || r.OrganizationName == "" {
+		t.Errorf("org2 row = %+v; want role=viewer and non-empty name", r)
+	}
+}
+
+func TestListUserMemberships_EmptyForUnknownUser(t *testing.T) {
+	s := newTestStore(t)
+	rows, err := s.ListUserMemberships(context.Background(), uuid.NewString())
+	if err != nil {
+		t.Fatalf("ListUserMemberships: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected 0 rows for unknown user, got %d", len(rows))
+	}
+}
+
+func TestListUserMemberships_EmptyUserIDReturnsNil(t *testing.T) {
+	s := newTestStore(t)
+	rows, err := s.ListUserMemberships(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ListUserMemberships: %v", err)
+	}
+	if rows != nil {
+		t.Fatalf("expected nil for empty userID guard, got %+v", rows)
+	}
+}
+
 func TestGetUserByEmail_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	ctx, _ := newOrgCtx(t, s)
