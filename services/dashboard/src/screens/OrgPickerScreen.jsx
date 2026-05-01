@@ -1,6 +1,10 @@
 import { useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { authSelectOrg } from '../api/client';
+import { Navigate, useNavigate } from 'react-router-dom';
+import {
+  authSelectOrg,
+  clearPendingOrgPick,
+  getPendingOrgPick,
+} from '../api/client';
 import { Spinner } from '../components/primitives';
 import { authColors as C, authStyles as S } from './_authShell';
 
@@ -10,29 +14,36 @@ import { authColors as C, authStyles as S } from './_authShell';
 // we POST /v1/auth/select-org with the original creds + chosen org_id,
 // and the server mints a session bound to that org.
 //
-// Why creds-via-route-state and not localStorage:
-//   - The picker step needs to re-POST email+password (defence in depth —
-//     server re-validates from scratch).
-//   - Persisting the password anywhere durable is a security regression.
-//   - In-memory React Router state is exactly the right scope: lives until
-//     the user navigates away or refreshes, then is gone.
+// The credentials handoff from Login → here goes through a JS module-level
+// variable in api/client.js (setPendingOrgPick / getPendingOrgPick), NOT
+// React Router state. Why: react-router v6 persists `state` to
+// window.history.state, which IS rehydrated across hard refreshes within
+// the tab session. A module-level let is wiped when the bundle re-inits
+// on refresh, which is the property we actually want — passwords must
+// not survive a tab reload. Tab close clears it either way.
 //
-// Refresh on /select-org with no state → bounce to /login. The user just
-// has to sign in again. Documented expected behaviour.
+// Refresh on /select-org → module re-init → getPendingOrgPick() returns
+// null → guard fires → <Navigate to="/login" />. The user just signs in
+// again, which is the documented recovery path.
 export default function OrgPickerScreen() {
   const navigate = useNavigate();
-  const location = useLocation();
+  // Read the pending pick once on first render. getPendingOrgPick is
+  // idempotent (it doesn't clear), so React StrictMode's double-mount
+  // in dev returns the same value both times — no risk of "first render
+  // saw the data, second render saw null".
+  const [pending] = useState(() => getPendingOrgPick());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const { email, password, orgs } = location.state || {};
-
-  // Refresh / direct-link guard: no creds in state means we can't actually
-  // select. Send them back to /login. `replace` so the back button doesn't
-  // bounce them right back here.
-  if (!email || !password || !orgs || orgs.length === 0) {
+  // No pending pick → either a refresh wiped the module state, or the
+  // user typed /select-org directly. Either way, send them to /login.
+  // length < 2 (not === 0): a 1-element array reaching this screen is
+  // upstream corruption — the server only emits the picker payload for
+  // multi-membership users — so treat it the same as missing data.
+  if (!pending || !pending.orgs || pending.orgs.length < 2) {
     return <Navigate to="/login" replace />;
   }
+  const { email, password, orgs } = pending;
 
   async function handlePick(orgID) {
     if (busy) return;
@@ -40,18 +51,25 @@ export default function OrgPickerScreen() {
     setError('');
     try {
       await authSelectOrg(email, password, orgID);
+      // Clear the module state before navigating away — the picker is
+      // done with this credential bundle and the next mount of
+      // /select-org should bounce to /login.
+      clearPendingOrgPick();
       navigate('/', { replace: true });
     } catch (e) {
       if (e.status === 429) {
         setError('Too many sign-in attempts. Please wait a moment and try again.');
       } else if (e.status === 401) {
-        // 401 here is unexpected after a successful /login; most likely
-        // the limiter fired or something raced. Send the user back to
-        // /login rather than retrying — the password they typed has
-        // probably been invalidated by something they did elsewhere.
+        // The server collapses wrong-password / org-not-in-set / unknown-
+        // user all into 401 invalid_credentials. We just authenticated
+        // the same email+password 500ms ago, so this is most likely a
+        // race (limiter cascade, password changed elsewhere, session
+        // raced). "Sign in again" is the recovery, not "session expired"
+        // — we never had a session at this point.
+        clearPendingOrgPick();
         navigate('/login', {
           replace: true,
-          state: { error: 'Sign-in expired. Please try again.' },
+          state: { error: 'Sign-in failed — please sign in again.' },
         });
         return;
       } else {
@@ -59,6 +77,12 @@ export default function OrgPickerScreen() {
       }
       setBusy(false);
     }
+  }
+
+  function handleCancel() {
+    if (busy) return;
+    clearPendingOrgPick();
+    navigate('/login', { replace: true });
   }
 
   return (
@@ -93,7 +117,7 @@ export default function OrgPickerScreen() {
 
         <button
           type="button"
-          onClick={() => navigate('/login', { replace: true })}
+          onClick={handleCancel}
           disabled={busy}
           style={cancelStyle}
         >
