@@ -622,14 +622,17 @@ Signed with RS256. AxiaOps's private key is held offline (1Password). Public key
 2. Verify JWT signature with embedded public key (RS256 only — reject alg=none, HS*).
 3. Validate standard claims: iss, aud, iat ≤ NOW(), license_id non-empty.
 4. Check expires_at:
-   - NOW() < exp                        → start normally; log "license valid until <date>"
-   - exp ≤ NOW() < exp + grace_days     → start with WARNING + UI banner;
-                                          audit_log: license_in_grace_period
+   - NOW() < exp                        → start normally; slog.Info "license: loaded …"
+   - exp ≤ NOW() < exp + grace_days     → start with WARN log + UI banner;
+                                          slog.Warn "license: in grace period …"
    - NOW() ≥ exp + grace_days           → refuse to start; print:
                                           "License expired YYYY-MM-DD (grace ended YYYY-MM-DD).
                                            Contact sales@axiaops.io to renew. License: lic_acme_2026_v1"
-                                          audit_log: license_expired_hard_fail
-5. Audit log: license_loaded with metadata={license_id, contract_id, expires_at, customer_id}.
+                                          slog.Error + os.Exit(1)
+5. Durable trace: structured slog line carrying license_id, contract_id, customer_id,
+   expires_at, days_remaining + Prometheus metrics (§4.9.4). No audit_log row —
+   audit_log is org-scoped and license events are binary-wide; see §4.9.3 row for
+   `services/shared/model/audit.go` for full rationale.
 6. Surface state via /v1/version + Prometheus metrics (§4.9.4).
 ```
 
@@ -692,7 +695,7 @@ The dashboard surfaces the gate as a 403 toast on the scan button + the existing
 | `services/dashboard/src/components/LicenseBanner.jsx` | Top-of-page banner shown when license is in grace period or has <14 days remaining. Owners only. |
 | `services/dashboard/src/screens/AccountsScreen.jsx` (modify) | On 403 `license_expired` from the scan button, surface a toast with the renewal contact. Button stays clickable so the user gets a clear message rather than a mystery-disabled control. |
 | `services/shared/observability/metrics.go` (extended) | Prometheus metrics (§4.9.4) added to the existing `Metrics` struct. The original plan called for a separate `license.go` but the codebase convention is one consolidated `Metrics` struct in `metrics.go` — slice 2 followed convention. |
-| `services/shared/model/audit.go` | New audit actions, all snake_case to match the existing convention (`session_revoked_by_admin`, etc.): `license_loaded`, `license_in_grace_period`, `license_expired_hard_fail`, `license_expired_runtime` (transition that fired in the runtime ticker, distinct from boot-time refusal), `license_renewed`, `license_invalid_signature`. The dot-notation used in §4.9.2 / §4.9.7 prose elsewhere in this doc is editorial shorthand — the actual `audit_log.action` column values are snake_case. |
+| `services/shared/model/audit.go` | New audit actions, all snake_case to match the existing convention (`session_revoked_by_admin`, etc.): `license_loaded`, `license_in_grace_period`, `license_expired_hard_fail`, `license_expired_runtime` (transition that fired in the runtime ticker, distinct from boot-time refusal), `license_renewed`, `license_invalid_signature`. **The constants are defined as forward-compat but slice 3+ does NOT write rows into `audit_log`.** Reason: `audit_log.organization_id` is `NOT NULL` (FK + RLS-isolated per org), and license events are binary-wide — they have no natural org owner. Mirrors the existing precedent in `audit.go:49` where `AuditActionOrganizationDeleted`'s "only durable trace is the structured slog line and the Prometheus counter" because the row would be purged anyway. The license-event durable trace is **structured slog + the §4.9.4 Prometheus metrics**. If a `system_events` table or per-org licence-event mirroring lands later, these constants are ready. |
 
 **No new database tables.** License events go to the existing `audit_log`. License state is process-memory only — re-read on restart.
 
@@ -738,9 +741,9 @@ This is not a new seam — just a different composition root. The license packag
 - [ ] Valid license → API service starts; `/v1/version` reports `state: "valid"` and correct days-remaining.
 - [ ] Missing license + `DEV_MODE=false` → service refuses to start with the documented error message; CI test asserts the exit code and the message contains the renewal contact.
 - [ ] `DEV_MODE=true` → license check skipped entirely; service starts.
-- [ ] Expired license, within grace period → service starts with WARN log + audit row `license_in_grace_period`; UI shows banner.
-- [ ] Expired license, past grace period → service refuses to start; audit row `license_expired_hard_fail` written *before* the process exits.
-- [ ] Tampered signature → refuses to start; audit row `license_invalid_signature`.
+- [ ] Expired license, within grace period → service starts with WARN slog line carrying `license_id`, `customer_id`, `expires_at`, `days_remaining`; `license_state_info{state="in_grace"}=1`; UI shows banner.
+- [ ] Expired license, past grace period → service refuses to start; ERROR slog line + `license_load_errors_total` increment with the appropriate `reason` label *before* the process exits.
+- [ ] Tampered signature → refuses to start; ERROR slog line + `license_load_errors_total{reason="signature"}` increment.
 - [ ] `alg=none` and `alg=HS256` (with public key as HMAC secret) both rejected (architect §11.3 generalised to license JWT).
 - [ ] License with `iss != "https://axiaops.io/licenses"` → rejected.
 - [ ] License with `aud != "axiaops-api"` → rejected.
@@ -748,7 +751,7 @@ This is not a new seam — just a different composition root. The license packag
 - [ ] `/v1/version` response includes the license sub-object; frontend `LicenseBanner.jsx` renders correctly in grace and near-expiry states.
 - [ ] Prometheus metrics emitted; `license_days_remaining` updates after a license-renewal restart.
 - [ ] Alert rules added to the deployment's Prometheus rules file (or documented for operators to add — depends on deployment shape).
-- [ ] **Runtime ticker** (§4.9.2a): integration test installs a license whose `exp` falls within the test window, advances the ticker via injected clock, asserts (a) Prometheus gauge updates per tick, (b) audit row written on `valid → in_grace` transition, (c) audit row written on `in_grace → expired` transition, (d) the process does NOT exit on either transition.
+- [ ] **Runtime ticker** (§4.9.2a): integration test installs a license whose `exp` falls within the test window, advances the ticker via injected clock, asserts (a) Prometheus gauge updates per tick, (b) `slog.Warn` line emitted on `valid → in_grace` transition, (c) `slog.Warn` line emitted on `in_grace → expired` transition + `license_state_info` re-set with siblings zeroed, (d) the process does NOT exit on either transition.
 - [ ] **Scan gate** (§4.9.2b): integration test boots with an expired-past-grace license override, asserts `POST /v1/accounts/{id}/scan` returns 403 with `{"error":"license_expired"}`, and asserts the scheduled-scan ticker logs `scheduled scan skipped` for accounts whose normal interval has elapsed. Same test in `valid` and `in_grace` states asserts scans run.
 - [ ] **Scan gate is the ONLY mid-flight gate**: regression test asserts that `POST /v1/dismissals`, `POST /v1/accounts`, `PATCH /v1/accounts/{id}`, `POST /v1/invitations`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/users/me`, and `DELETE /v1/organizations/me` all succeed under expired-past-grace. The exemption shape is enforced by code, not just docs.
 - [ ] Dashboard scan button surfaces the 403 as a clear toast referencing the renewal contact; existing `LicenseBanner` is also visible.
