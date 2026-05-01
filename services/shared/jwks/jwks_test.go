@@ -75,6 +75,15 @@ func (m *mockCache) Incr(_ context.Context, _ string, _ time.Duration) (int64, e
 func (m *mockCache) Ping(_ context.Context) error { return nil }
 func (m *mockCache) Close() error                 { return nil }
 
+// has reports whether the cache holds an entry for key. Test-only helper
+// so callers don't reach into m.data directly and bypass the mutex.
+func (m *mockCache) has(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.data[key]
+	return ok
+}
+
 // TestFromCache_CacheHit_SkipsHTTPFetch covers the issuer-bound consumer
 // (Kinde-style: one stable issuer URL, one JWKS endpoint). First call
 // populates the cache; second call must hit the cache and skip the HTTP
@@ -232,7 +241,7 @@ func TestFromCache_NonOKStatus(t *testing.T) {
 	if _, err := jwks.FromCache(context.Background(), cacheID, srv.URL+"/.well-known/jwks.json", c); err == nil {
 		t.Fatal("FromCache(503) succeeded; want status error")
 	}
-	if _, ok := c.data[jwks.CacheKey(cacheID)]; ok {
+	if c.has(jwks.CacheKey(cacheID)) {
 		t.Fatal("FromCache(503) cached the error body; cache should be untouched on non-2xx")
 	}
 }
