@@ -624,12 +624,12 @@ Signed with RS256. AxiaOps's private key is held offline (1Password). Public key
 4. Check expires_at:
    - NOW() < exp                        → start normally; log "license valid until <date>"
    - exp ≤ NOW() < exp + grace_days     → start with WARNING + UI banner;
-                                          audit_log: license.in_grace_period
+                                          audit_log: license_in_grace_period
    - NOW() ≥ exp + grace_days           → refuse to start; print:
                                           "License expired YYYY-MM-DD (grace ended YYYY-MM-DD).
                                            Contact sales@axiaops.io to renew. License: lic_acme_2026_v1"
-                                          audit_log: license.expired_hard_fail
-5. Audit log: license.loaded with metadata={license_id, contract_id, expires_at, customer_id}.
+                                          audit_log: license_expired_hard_fail
+5. Audit log: license_loaded with metadata={license_id, contract_id, expires_at, customer_id}.
 6. Surface state via /v1/version + Prometheus metrics (§4.9.4).
 ```
 
@@ -645,7 +645,7 @@ on each tick (1h):
   observability.LicenseStateInfo.WithLabelValues(current, customer_id).Set(1)
   if current != last:
     slog.Warn("license: state transition", from=last, to=current, days_remaining=days, license_id=…)
-    AuditLogWrite(action=license.{in_grace_period|expired_runtime}, metadata={from, to, days_remaining})
+    AuditLogWrite(action=license_{in_grace_period|expired_runtime}, metadata={from, to, days_remaining})
     last = current
 ```
 
@@ -691,24 +691,30 @@ The dashboard surfaces the gate as a 403 toast on the scan button + the existing
 | `services/api/internal/api/scheduled_scans.go` | Scheduled-scan ticker checks `license.Snapshot()` and skips accounts when state == expired (§4.9.2b). |
 | `services/dashboard/src/components/LicenseBanner.jsx` | Top-of-page banner shown when license is in grace period or has <14 days remaining. Owners only. |
 | `services/dashboard/src/screens/AccountsScreen.jsx` (modify) | On 403 `license_expired` from the scan button, surface a toast with the renewal contact. Button stays clickable so the user gets a clear message rather than a mystery-disabled control. |
-| `services/shared/observability/license.go` | Prometheus metrics (§4.9.4). |
-| `services/shared/model/audit.go` | New audit actions: `license.loaded`, `license.in_grace_period`, `license.expired_hard_fail`, `license.expired_runtime` (transition that fired in the runtime ticker, distinct from boot-time refusal), `license.renewed`, `license.invalid_signature`. |
+| `services/shared/observability/metrics.go` (extended) | Prometheus metrics (§4.9.4) added to the existing `Metrics` struct. The original plan called for a separate `license.go` but the codebase convention is one consolidated `Metrics` struct in `metrics.go` — slice 2 followed convention. |
+| `services/shared/model/audit.go` | New audit actions, all snake_case to match the existing convention (`session_revoked_by_admin`, etc.): `license_loaded`, `license_in_grace_period`, `license_expired_hard_fail`, `license_expired_runtime` (transition that fired in the runtime ticker, distinct from boot-time refusal), `license_renewed`, `license_invalid_signature`. The dot-notation used in §4.9.2 / §4.9.7 prose elsewhere in this doc is editorial shorthand — the actual `audit_log.action` column values are snake_case. |
 
 **No new database tables.** License events go to the existing `audit_log`. License state is process-memory only — re-read on restart.
 
 #### 4.9.4 Observability
 
 ```go
-LicenseExpiresAt        prometheus.Gauge   // unix seconds; -1 if no license loaded
-LicenseDaysRemaining    prometheus.Gauge   // negative when in grace; -∞ when missing
-LicenseStateInfo        prometheus.GaugeVec  // labels: state="valid|in_grace|expired", customer_id
-LicenseLoadErrorsTotal  prometheus.Counter  // signature/format/missing
+LicenseExpiresAt       prometheus.Gauge       // unix seconds; 0 if no license loaded (DEV_MODE / SaaS)
+LicenseDaysRemaining   prometheus.Gauge       // negative once past hard cutoff
+LicenseStateInfo       *prometheus.GaugeVec   // labels: state="valid|in_grace|expired", customer_id
+LicenseLoadErrorsTotal *prometheus.CounterVec // labels: reason="signature|format|missing|wrong_issuer|wrong_audience|future_iat"
 ```
+
+Notes on the shape (slice 2 divergences from the original sketch above, see commit log):
+- `LicenseExpiresAt` zero (not -1) means "no license loaded" — Prometheus-idiomatic; alert rules check `> 0` ranges.
+- `LicenseLoadErrorsTotal` is a `CounterVec` (not flat Counter) so the renewal runbook can distinguish failure modes; a flat counter increment tells an operator nothing actionable.
+- `LicenseStateInfo` callers MUST `.Reset()` before setting the new label-set — `WithLabelValues(...).Set(1)` does not zero siblings, and stale `state="valid" == 1` would defeat the in-grace alert.
 
 Alert rules:
 - `license_days_remaining < 30` → email `sales@axiaops.io` (renewal heads-up).
 - `license_days_remaining < 7` → page on-call.
 - `license_state_info{state="in_grace"} == 1` → page immediately (customer is past expiry; sales must engage).
+- `rate(license_load_errors_total[5m]) > 0` → page on-call (boot-time refusal — binary just rejected a license; runbook by `reason` label).
 
 #### 4.9.5 Env vars (added to §7.4)
 
@@ -732,9 +738,9 @@ This is not a new seam — just a different composition root. The license packag
 - [ ] Valid license → API service starts; `/v1/version` reports `state: "valid"` and correct days-remaining.
 - [ ] Missing license + `DEV_MODE=false` → service refuses to start with the documented error message; CI test asserts the exit code and the message contains the renewal contact.
 - [ ] `DEV_MODE=true` → license check skipped entirely; service starts.
-- [ ] Expired license, within grace period → service starts with WARN log + audit row `license.in_grace_period`; UI shows banner.
-- [ ] Expired license, past grace period → service refuses to start; audit row `license.expired_hard_fail` written *before* the process exits.
-- [ ] Tampered signature → refuses to start; audit row `license.invalid_signature`.
+- [ ] Expired license, within grace period → service starts with WARN log + audit row `license_in_grace_period`; UI shows banner.
+- [ ] Expired license, past grace period → service refuses to start; audit row `license_expired_hard_fail` written *before* the process exits.
+- [ ] Tampered signature → refuses to start; audit row `license_invalid_signature`.
 - [ ] `alg=none` and `alg=HS256` (with public key as HMAC secret) both rejected (architect §11.3 generalised to license JWT).
 - [ ] License with `iss != "https://axiaops.io/licenses"` → rejected.
 - [ ] License with `aud != "axiaops-api"` → rejected.
