@@ -611,6 +611,35 @@ export async function authSelectOrg(email, password, organizationId) {
   return res.json();
 }
 
+// authSwitchOrg is the in-app org-switcher step (B1.5 §4.7.1). The caller
+// is already authenticated — we just rebind the session to a different
+// organisation they're a member of. No password re-check; the existing
+// cookie carries authn. Body: {organization_id}.
+//
+// Server semantics on success: revokes the current session in PG + cache,
+// mints a new one bound to the target org, sets a fresh cookie. Audit row
+// `session_org_switched` written to the FROM org.
+//
+// Error shapes the caller must handle:
+//   - 401 unauthorized — cookie missing or session already revoked
+//     elsewhere. Caller should bounce to /login.
+//   - 403 not_a_member — caller doesn't have a membership in the target.
+//     Stale dropdown state — caller should refresh.
+export async function authSwitchOrg(organizationId) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/switch-org`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ organization_id: organizationId }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  // Reset fetchMe's caches because the session token rotated and any
+  // stale 401 (or in-flight pre-rotate /v1/me) now points at the wrong
+  // identity. Caller should also re-fetch /v1/me and clear the query
+  // cache because all org-bound query results are now wrong-org.
+  resetFetchMeCache();
+  return res.json();
+}
+
 // authLogout clears the server-side session and the cookie. Returns 204
 // regardless of cookie state — see handler.go logout for the tolerance
 // rationale. Always treat as success on the client.
