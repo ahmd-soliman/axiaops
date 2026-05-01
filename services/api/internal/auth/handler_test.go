@@ -449,6 +449,154 @@ func TestLoginMultiOrg_DBErrorReturns500(t *testing.T) {
 	}
 }
 
+// ── /v1/auth/select-org (Phase B1.5 slice 3) ──────────────────────────────
+
+// TestSelectOrgHappyPath: multi-org user picks one of their orgs, password
+// is re-validated, session minted bound to the chosen org, response carries
+// the matching role.
+func TestSelectOrgHappyPath(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	chosen := store.memberships["u-alice@example.com"][1].OrganizationID
+
+	w := postJSON(t, mux(h), "/v1/auth/select-org", map[string]string{
+		"email":           "alice@example.com",
+		"password":        "correct horse battery staple",
+		"organization_id": chosen,
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	var sessionCookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			sessionCookie = c
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatal("expected non-empty session cookie after successful org pick")
+	}
+	body := mustDecode[map[string]any](t, w)
+	org, _ := body["organization"].(map[string]any)
+	if got := org["id"]; got != chosen {
+		t.Errorf("response organization.id = %v; want %s (the picked org)", got, chosen)
+	}
+}
+
+// TestSelectOrg_WrongPasswordReturns401: defence in depth — even if the
+// caller passed the picker step, a wrong password here must reject. Never
+// trust the frontend to remember step 1.
+func TestSelectOrg_WrongPasswordReturns401(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	chosen := store.memberships["u-alice@example.com"][0].OrganizationID
+
+	w := postJSON(t, mux(h), "/v1/auth/select-org", map[string]string{
+		"email":           "alice@example.com",
+		"password":        "wrong password 123456",
+		"organization_id": chosen,
+	}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", w.Code)
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			t.Errorf("wrong-password select-org set %s cookie to %q", c.Name, c.Value)
+		}
+	}
+}
+
+// TestSelectOrg_OrgNotInMembershipsReturns401: same 401 shape as
+// wrong-password — distinguishing them at the wire level would let an
+// attacker who has valid creds probe arbitrary org IDs for membership.
+func TestSelectOrg_OrgNotInMembershipsReturns401(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+
+	w := postJSON(t, mux(h), "/v1/auth/select-org", map[string]string{
+		"email":           "alice@example.com",
+		"password":        "correct horse battery staple",
+		"organization_id": "org-someone-else",
+	}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", w.Code)
+	}
+	body := mustDecode[map[string]any](t, w)
+	if body["error"] != "invalid_credentials" {
+		t.Errorf("error = %v; want invalid_credentials (collapsed shape, not org_not_in_set)", body["error"])
+	}
+}
+
+// TestSelectOrg_UnknownEmailReturns401: timing-flat 401 (we do a
+// placeholder Verify in the handler to keep the latency envelope flat).
+func TestSelectOrg_UnknownEmailReturns401(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+
+	w := postJSON(t, mux(h), "/v1/auth/select-org", map[string]string{
+		"email":           "ghost@example.com",
+		"password":        "correct horse battery staple",
+		"organization_id": "org-anything",
+	}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", w.Code)
+	}
+}
+
+// TestSelectOrg_MissingFieldsReturns400: organization_id is mandatory; not
+// supplying it (or email/password) is a client-side bug, not a credential
+// failure — distinguish with 400.
+func TestSelectOrg_MissingFieldsReturns400(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+	cases := []map[string]string{
+		{"email": "a@b.com", "password": "x"},                                  // no org_id
+		{"email": "a@b.com", "organization_id": "org-x"},                       // no password
+		{"password": "correct horse battery staple", "organization_id": "org"}, // no email
+	}
+	for i, body := range cases {
+		w := postJSON(t, mux(h), "/v1/auth/select-org", body, nil)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("case %d body %+v status = %d; want 400", i, body, w.Code)
+		}
+	}
+}
+
+// TestSelectOrgRateLimitedSharesBudgetWithLogin: an attacker can't double
+// their per-IP budget against one email by alternating /login and
+// /select-org. The shared rate limiter is the contract.
+func TestSelectOrgRateLimitedSharesBudgetWithLogin(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(1, 100))
+
+	body := map[string]string{
+		"email": "alice@example.com", "password": "wrong password 12345",
+		"organization_id": store.memberships["u-alice@example.com"][0].OrganizationID,
+	}
+
+	// First attempt: 401 (wrong password). Budget consumed by /login.
+	loginBody := map[string]string{"email": "alice@example.com", "password": "wrong password 12345"}
+	first := postJSON(t, mux(h), "/v1/auth/login", loginBody, nil)
+	if first.Code != http.StatusUnauthorized {
+		t.Fatalf("login first attempt status = %d; want 401", first.Code)
+	}
+
+	// Second attempt at /select-org: same IP, same email — must 429
+	// because /login already consumed the budget.
+	second := postJSON(t, mux(h), "/v1/auth/select-org", body, nil)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("select-org status = %d; want 429 (shared budget with /login)", second.Code)
+	}
+}
+
 // TestLoginSingleOrg_DoesNotCallListUserMemberships locks in that the
 // happy single-org path doesn't pay for the org-picker join — that lookup
 // only fires in the multi-membership branch. We assert this by injecting
