@@ -21,6 +21,7 @@ import (
 	"axiaops.io/shared/authz"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/crypto"
+	"axiaops.io/shared/license"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
@@ -936,6 +937,19 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 
 // scanAccount triggers an ingestion run for the given account.
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
+	// License gate (plan §4.9.2b). The single mid-flight feature gate B1.6
+	// ships: once the boot-time license has crossed exp + grace_period_days
+	// the scan path goes silent, both for user-triggered scans here and the
+	// scheduled-scan ticker in services/ingestion. StateNotLoaded
+	// (DEV_MODE / SaaS) and StateInGrace fall through — gating is reserved
+	// for the explicit past-grace state.
+	if license.SnapshotState() == license.StateExpired {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"license_expired","detail":"License past grace period — contact sales@axiaops.io to renew"}`))
+		return
+	}
+
 	id := r.PathValue("id")
 	organizationID := middleware.OrganizationID(r.Context())
 	ctx := storage.WithOrganizationID(r.Context(), organizationID)
