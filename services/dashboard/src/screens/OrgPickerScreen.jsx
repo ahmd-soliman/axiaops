@@ -31,6 +31,14 @@ export default function OrgPickerScreen() {
   // idempotent (it doesn't clear), so React StrictMode's double-mount
   // in dev returns the same value both times — no risk of "first render
   // saw the data, second render saw null".
+  //
+  // ASSUMPTION: /select-org is a top-level route in App.jsx — it
+  // unmounts on every navigation. The lazy-init snapshot is therefore
+  // refreshed every time the user re-enters the picker. If this route
+  // is ever nested under a persistent layout (so the component stays
+  // mounted across navigations), this snapshot becomes stale and the
+  // initializer must be replaced with a useEffect that re-syncs from
+  // the module variable on route change.
   const [pending] = useState(() => getPendingOrgPick());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
