@@ -114,7 +114,7 @@ func newWithKeyfunc(issuer string, kf jwt.Keyfunc) *Auth {
 }
 
 // publicPath reports whether the path bypasses authentication.
-// Three families bypass:
+// Four families bypass:
 //
 //  1. Infra: /metrics, /health, /livez, /readyz — must remain reachable
 //     from container orchestration and Prometheus without a session.
@@ -123,13 +123,18 @@ func newWithKeyfunc(issuer string, kf jwt.Keyfunc) *Auth {
 //     the endpoints used to *acquire* authentication. /v1/auth/logout
 //     is also bypassed (the handler tolerates a missing/invalid cookie
 //     and clears whatever's there).
+//  3. SSO discovery: /v1/sso/discover — the email-blur lookup that decides
+//     whether to redirect to an IdP or reveal the password field. Pre-auth
+//     by definition. The handler returns a constant response shape and
+//     pads response time to mask whether the domain is verified, so the
+//     bypass doesn't introduce an enumeration channel.
 //
 // Plan §4.2 lists rate-limiting requirements (10/min/IP for login, etc.)
 // — those land in a follow-up slice; the bypass here is the routing
 // layer, not the abuse-protection layer.
 func publicPath(p string) bool {
 	switch p {
-	case "/health", "/livez", "/readyz", "/metrics":
+	case "/health", "/livez", "/readyz", "/metrics", "/v1/sso/discover":
 		return true
 	}
 	return strings.HasPrefix(p, "/v1/auth/")

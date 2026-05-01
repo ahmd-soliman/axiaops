@@ -47,6 +47,14 @@ const (
 	PermOrganizationDelete   Permission = "organization:delete"
 	PermOrganizationUpdate   Permission = "organization:update"
 	PermDataExport           Permission = "data:export"
+
+	// Phase B2 — Native OIDC RP. SSO config is owner-only because
+	// misconfiguration locks the org out of its own data; the read tier
+	// (sso:read) is viewer+ so the dashboard can render the SSO settings
+	// pane in read-only mode for non-owners.
+	PermSSORead         Permission = "sso:read"
+	PermSSOManage       Permission = "sso:manage"
+	PermSSODomainVerify Permission = "sso:domain_verify"
 )
 
 // rolePermissions maps each role to its complete permission set, including
@@ -67,6 +75,7 @@ var directGrants = map[Role][]Permission{
 		PermResourcesRead,
 		PermAuditRead,
 		PermMembersRead,
+		PermSSORead,
 	},
 	RoleMember: {
 		PermAccountsWrite,
@@ -84,6 +93,8 @@ var directGrants = map[Role][]Permission{
 		PermOrganizationDelete,
 		PermOrganizationUpdate,
 		PermDataExport,
+		PermSSOManage,
+		PermSSODomainVerify,
 	},
 }
 

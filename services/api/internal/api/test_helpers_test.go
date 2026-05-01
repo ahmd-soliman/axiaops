@@ -1285,3 +1285,52 @@ func (m *MockStore) RedeemNativeInvitation(context.Context, storage.NativeInvite
 func (m *MockStore) LookupInvitationByToken(context.Context, string) (storage.PeekedInvitation, error) {
 	return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
 }
+
+func (m *MockStore) GetMembershipByOrgUser(context.Context, string, string) (model.Membership, error) {
+	return model.Membership{}, storage.ErrMembershipNotFound
+}
+
+// ── Phase B2 SSO — stubs (fail-loud so tests using them must override) ──────
+
+func (m *MockStore) CreateSSOConnection(context.Context, model.SSOConnection) (model.SSOConnection, error) {
+	return model.SSOConnection{}, errors.New("MockStore.CreateSSOConnection not implemented")
+}
+func (m *MockStore) GetSSOConnection(context.Context, string) (model.SSOConnection, error) {
+	return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
+}
+func (m *MockStore) ListSSOConnections(context.Context) ([]model.SSOConnection, error) {
+	return nil, errors.New("MockStore.ListSSOConnections not implemented")
+}
+func (m *MockStore) UpdateSSOConnection(context.Context, model.SSOConnection) error {
+	return errors.New("MockStore.UpdateSSOConnection not implemented")
+}
+func (m *MockStore) DeleteSSOConnection(context.Context, string) error {
+	return storage.ErrSSOConnectionNotFound
+}
+func (m *MockStore) CreateSSODomain(context.Context, model.SSODomain) (model.SSODomain, error) {
+	return model.SSODomain{}, errors.New("MockStore.CreateSSODomain not implemented")
+}
+func (m *MockStore) GetSSODomain(context.Context, string) (model.SSODomain, error) {
+	return model.SSODomain{}, storage.ErrSSODomainNotFound
+}
+func (m *MockStore) GetVerifiedSSODomainByName(context.Context, string) (model.SSODomain, error) {
+	return model.SSODomain{}, storage.ErrSSODomainNotFound
+}
+func (m *MockStore) ListSSODomains(context.Context) ([]model.SSODomain, error) {
+	return nil, errors.New("MockStore.ListSSODomains not implemented")
+}
+func (m *MockStore) UpdateSSODomainStatus(context.Context, string, string, time.Time, time.Time) error {
+	return errors.New("MockStore.UpdateSSODomainStatus not implemented")
+}
+func (m *MockStore) DeleteSSODomain(context.Context, string) error {
+	return storage.ErrSSODomainNotFound
+}
+func (m *MockStore) SweepStaleSSODomains(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *MockStore) ListSSOGroupMappings(context.Context, string) ([]model.SSOGroupMapping, error) {
+	return nil, errors.New("MockStore.ListSSOGroupMappings not implemented")
+}
+func (m *MockStore) ReplaceSSOGroupMappings(context.Context, string, []model.SSOGroupMapping) error {
+	return errors.New("MockStore.ReplaceSSOGroupMappings not implemented")
+}
