@@ -46,10 +46,17 @@ const (
 // Mirrors jwt.WithLeeway's role for the parser-level checks we opted out of.
 const clockSkewLeeway = 60 * time.Second
 
-// maxGracePeriodDays bounds the grace_period_days claim. Past 10 years, the
-// claim describes "essentially never expires," which defeats the entire
-// point of programmatic TTL enforcement. See Load() for the rejection path.
-const maxGracePeriodDays = 3650
+// maxGracePeriodDays bounds the grace_period_days claim. 90 days = quarterly
+// rotation cadence, aligned with SOC2-style high-value-credential lifetime
+// guidance and matching the grace ceilings comparable vendors (GitLab EE,
+// Atlassian DC, HashiCorp Enterprise) ship with. Compile-time constant: the
+// only way past it is a binary release with a new value, which the leaked-
+// key threat model deliberately excludes from the attacker's reach.
+//
+// Legitimate "extend this customer further" cases use a longer `exp`
+// (contract end date) instead of a longer grace — different fields with
+// different semantics; see docs/license-issuance.md.
+const maxGracePeriodDays = 90
 
 // State classifies a loaded license against the current wall clock.
 //
@@ -179,11 +186,10 @@ func Load() (*License, error) {
 		return nil, fmt.Errorf("license: negative grace_period_days %d", claims.GracePeriodDays)
 	}
 	// Upper bound is defensive: a JWT minted with an absurd value (signing
-	// mistake, copy-paste from a unit-test fixture, malicious issuer with a
-	// stolen key) would otherwise make the license effectively irrevocable.
-	// 3650 days = 10 years, comfortably past any plausible commercial
-	// contract; the operator-side CLI is the first line of defence, this is
-	// the verifier's belt-and-braces.
+	// mistake, copy-paste from a unit-test fixture, attacker with a stolen
+	// signing key) would otherwise make the license effectively irrevocable.
+	// 90 days is the operational ceiling — see the constant's docstring for
+	// the rationale. Legitimate long-runway cases use `exp`, not grace.
 	if claims.GracePeriodDays > maxGracePeriodDays {
 		return nil, fmt.Errorf("license: grace_period_days %d exceeds maximum %d", claims.GracePeriodDays, maxGracePeriodDays)
 	}

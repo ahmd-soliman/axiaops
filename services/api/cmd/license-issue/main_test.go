@@ -389,14 +389,14 @@ func TestValidateParams(t *testing.T) {
 		{
 			name: "excessive grace caught at issuance",
 			mutate: func(p *issueParams) {
-				p.gracePeriodDays = 3651 // 10 years + 1 day
+				p.gracePeriodDays = 91 // one day past the cap
 			},
 			wantErr: "grace-period-days",
 		},
 		{
 			name: "grace at maximum is accepted",
 			mutate: func(p *issueParams) {
-				p.gracePeriodDays = 3650
+				p.gracePeriodDays = 90
 			},
 			wantID: "lic_acme-001_2026_v1",
 		},

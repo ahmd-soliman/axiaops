@@ -46,11 +46,12 @@ const envSigningKey = "LICENSE_SIGNING_KEY_PATH"
 
 // maxGracePeriodDays mirrors the verifier-side bound (license.go) so the
 // CLI catches fat-finger mistakes at issuance time rather than at the
-// customer's first boot. Kept as a separate constant rather than imported
+// customer's first boot. 90 days = quarterly cadence; rationale lives on
+// the verifier's constant. Kept as a separate constant rather than imported
 // to avoid circular concern (CLI would otherwise import "the policy" from
 // the verifier and have to track its semantics; the values being identical
-// is the test contract — see TestRun_RejectsExcessiveGracePeriodDays).
-const maxGracePeriodDays = 3650
+// is the test contract — see TestRun_ExcessiveGracePeriodDays in main_test).
+const maxGracePeriodDays = 90
 
 // issueParams collects the validated CLI inputs. Validation lives in
 // validateParams so the test suite can hit each branch without re-parsing
@@ -162,12 +163,12 @@ func validateParams(p *issueParams, now time.Time) error {
 	if p.gracePeriodDays < 0 {
 		return errors.New("--grace-period-days must be >= 0")
 	}
-	// Mirror the verifier's upper bound (3650 = 10 years). Catches
-	// fat-finger / copy-paste-from-test-fixture mistakes at issuance time
-	// instead of at the customer's first boot, where the failure looks
-	// like a corrupt license.
+	// Mirror the verifier's upper bound (90 days). Catches fat-finger /
+	// copy-paste-from-test-fixture mistakes at issuance time instead of at
+	// the customer's first boot, where the failure looks like a corrupt
+	// license. Long-runway extensions use `-days` (longer exp), not grace.
 	if p.gracePeriodDays > maxGracePeriodDays {
-		return fmt.Errorf("--grace-period-days %d exceeds maximum %d (10 years)", p.gracePeriodDays, maxGracePeriodDays)
+		return fmt.Errorf("--grace-period-days %d exceeds maximum %d (use --days for longer contract extensions instead)", p.gracePeriodDays, maxGracePeriodDays)
 	}
 	if len(p.features) == 0 {
 		return errors.New("--features must be non-empty (default \"base\")")
