@@ -23,6 +23,11 @@ func SetCurrent(l *License) {
 
 // Snapshot returns the boot-time License or nil when no license is loaded
 // (DEV_MODE / SaaS binary). Lock-free read — safe under concurrency.
+//
+// The returned pointer is **read-only by contract** — callers must not
+// mutate any field. The same pointer is shared by the runtime ticker for
+// transition detection; mutation would corrupt the next-tick comparison.
+// Go does not enforce this; the contract lives here.
 func Snapshot() *License {
 	return current.Load()
 }

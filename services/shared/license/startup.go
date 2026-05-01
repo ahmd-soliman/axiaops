@@ -90,12 +90,18 @@ func VerifyAtBoot(devMode bool) error {
 // expiredMessage is the operator-facing error printed when the binary refuses
 // to start. Mirrors plan §4.9.2 step 4. Includes the renewal contact so the
 // operator does not have to grep docs to find out who to mail.
+//
+// Dates are normalised to UTC before formatting + the "UTC" suffix is
+// printed so the operator can't mis-read the day in a timezone other than
+// the issuer's. JWT exp is at second granularity, but the printed date
+// only carries days — without the UTC suffix a deployment in PT and a JWT
+// issued near midnight UTC could show off-by-one dates for the same instant.
 func expiredMessage(l *License) string {
 	graceEnded := l.ExpiresAt.Add(time.Duration(l.GracePeriodDays) * 24 * time.Hour)
 	return fmt.Sprintf(
-		"License expired %s (grace ended %s). Contact sales@axiaops.io to renew. License: %s",
-		l.ExpiresAt.Format("2006-01-02"),
-		graceEnded.Format("2006-01-02"),
+		"License expired %s UTC (grace ended %s UTC). Contact sales@axiaops.io to renew. License: %s",
+		l.ExpiresAt.UTC().Format("2006-01-02"),
+		graceEnded.UTC().Format("2006-01-02"),
 		l.LicenseID,
 	)
 }

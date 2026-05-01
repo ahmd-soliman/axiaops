@@ -79,7 +79,11 @@ func main() {
 	// DEV_MODE skips the check entirely (per plan §4.9.2 step 1). Past-grace
 	// licenses fail-fast here so the operator sees one clear refusal rather
 	// than the binary half-starting and exposing partially-initialised state.
-	// Slice 4 will start the runtime ticker after ComposeServer returns.
+	//
+	// **Runs before storage init by design** — license refusal must work even
+	// when the database is unreachable. Do not reorder this block to follow
+	// storage init without preserving the "license-refusal works without DB"
+	// invariant.
 	if err := license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true"); err != nil {
 		die("license: refusing to start", "error", err.Error())
 	}
