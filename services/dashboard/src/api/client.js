@@ -70,7 +70,12 @@ function notifyUnauthorized(detail) {
 async function ifetch(url, opts) {
   const merged = { ...(opts || {}), credentials: 'include' };
   const res = await fetch(url, merged);
-  if (res.status === 401) notifyUnauthorized({ path: url });
+  // /v1/me is the auth check itself — a 401 there is the *answer*, not a
+  // "session lost mid-action" signal. Firing UNAUTHORIZED_EVENT for it
+  // can re-enter components that re-call /v1/me (Login mount-probe,
+  // MeContext refresh on remount), and the resulting tight loop is what
+  // Chrome's navigation throttle catches.
+  if (res.status === 401 && !url.endsWith('/v1/me')) notifyUnauthorized({ path: url });
   if (res.status === 403) notifyForbidden({ path: url });
   return res;
 }
@@ -358,8 +363,35 @@ export async function fetchCosts(accountId, service, days = 30) {
 // fetchMe returns the authenticated user's role + permission set. Goes
 // through `request()` so a 403 here (e.g. membership removed mid-session)
 // cascades to MeContext just like any other 403.
+//
+// Hard in-flight de-dupe: multiple concurrent callers share a single
+// network request, and a 401/403 result is cached for 250ms. Belt and
+// suspenders against any render-loop regression — if components remount
+// in a tight cycle (which is what produced the navigation-throttle
+// flood), they all see the same in-flight Promise instead of stampeding
+// the API with /v1/me requests.
+let _meInFlight = null;
+let _meLastError = null;
+let _meLastErrorAt = 0;
 export async function fetchMe() {
-  return request('/v1/me');
+  if (_meInFlight) return _meInFlight;
+  if (_meLastError && Date.now() - _meLastErrorAt < 250) {
+    throw _meLastError;
+  }
+  _meInFlight = request('/v1/me')
+    .then((data) => {
+      _meLastError = null;
+      return data;
+    })
+    .catch((err) => {
+      _meLastError = err;
+      _meLastErrorAt = Date.now();
+      throw err;
+    })
+    .finally(() => {
+      _meInFlight = null;
+    });
+  return _meInFlight;
 }
 
 export async function listMemberships() {
