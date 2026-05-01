@@ -1,4 +1,4 @@
-package middleware
+package middleware_test
 
 import (
 	"errors"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"axiaops.io/api/internal/auth"
+	"axiaops.io/api/internal/middleware"
 )
 
 // KindeProvider's happy path duplicates the JWT-validate + DB-upsert chain
@@ -20,16 +21,16 @@ func TestKindeProviderRequiresNonNilAuth(t *testing.T) {
 	t.Parallel()
 	defer func() {
 		if recover() == nil {
-			t.Fatal("NewKindeProvider(nil) must panic")
+			t.Fatal("middleware.NewKindeProvider(nil) must panic")
 		}
 	}()
-	_ = NewKindeProvider(nil)
+	_ = middleware.NewKindeProvider(nil)
 }
 
 func TestKindeProviderRejectsMissingBearer(t *testing.T) {
 	t.Parallel()
 	a, _ := testSetup(t)
-	p := NewKindeProvider(a)
+	p := middleware.NewKindeProvider(a)
 	_, err := p.Authenticate(httptest.NewRequest("GET", "/v1/zombies", nil))
 	if !errors.Is(err, auth.ErrUnauthenticated) {
 		t.Fatalf("Authenticate without bearer = %v; want ErrUnauthenticated", err)
@@ -39,7 +40,7 @@ func TestKindeProviderRejectsMissingBearer(t *testing.T) {
 func TestKindeProviderRejectsMalformedJWT(t *testing.T) {
 	t.Parallel()
 	a, _ := testSetup(t)
-	p := NewKindeProvider(a)
+	p := middleware.NewKindeProvider(a)
 	r := httptest.NewRequest("GET", "/v1/zombies", nil)
 	r.Header.Set("Authorization", "Bearer this-is-not-a-jwt")
 	_, err := p.Authenticate(r)
@@ -51,7 +52,7 @@ func TestKindeProviderRejectsMalformedJWT(t *testing.T) {
 func TestKindeProviderRejectsWrongIssuer(t *testing.T) {
 	t.Parallel()
 	a, priv := testSetup(t)
-	p := NewKindeProvider(a)
+	p := middleware.NewKindeProvider(a)
 	claims := validClaims()
 	claims["iss"] = "https://attacker.example.com"
 	r := httptest.NewRequest("GET", "/v1/zombies", nil)
@@ -65,7 +66,7 @@ func TestKindeProviderRejectsWrongIssuer(t *testing.T) {
 func TestKindeProviderRejectsMissingOrgCode(t *testing.T) {
 	t.Parallel()
 	a, priv := testSetup(t)
-	p := NewKindeProvider(a)
+	p := middleware.NewKindeProvider(a)
 	claims := validClaims()
 	delete(claims, "org_code")
 	r := httptest.NewRequest("GET", "/v1/zombies", nil)
@@ -83,7 +84,7 @@ func TestKindeProviderRejectsNilStore(t *testing.T) {
 	// the request pass with a degraded identity.
 	t.Parallel()
 	a, priv := testSetup(t)
-	p := NewKindeProvider(a)
+	p := middleware.NewKindeProvider(a)
 	r := httptest.NewRequest("GET", "/v1/zombies", nil)
 	r.Header.Set("Authorization", "Bearer "+signToken(t, priv, validClaims()))
 	_, err := p.Authenticate(r)
