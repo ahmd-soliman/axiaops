@@ -33,6 +33,14 @@ var ErrPasswordResetExpired = errors.New("storage: password reset token expired"
 // collides with an existing row. Surface as HTTP 409.
 var ErrUserEmailExists = errors.New("storage: email already registered")
 
+// ErrInvitationUserMismatch is returned by RedeemNativeInvitation when the
+// caller-supplied ExistingUserID resolves to a user whose email doesn't
+// match the invitation's email. Should be unreachable in normal flow
+// (handler always reads ExistingUserID from a peek that matched on email)
+// — surfaces only as a defence-in-depth signal that someone called the
+// storage method with mismatched inputs. Map to 500 in the handler.
+var ErrInvitationUserMismatch = errors.New("storage: invitation existing-user email mismatch")
+
 // ErrBootstrapAlreadyDone is returned by ConsumeBootstrapState when the
 // singleton row has already been consumed (the bootstrap endpoint is sealed).
 // Also returned by CreateBootstrapState when an organization already exists or
