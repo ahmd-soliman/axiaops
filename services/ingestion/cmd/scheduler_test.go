@@ -41,6 +41,9 @@ func (m *mockStoreForScheduler) UpsertOrganization(context.Context, string, stri
 func (m *mockStoreForScheduler) GetOrganizationByID(context.Context, string) (model.Organization, error) {
 	return model.Organization{}, nil
 }
+func (m *mockStoreForScheduler) ListUserMemberships(context.Context, string) ([]model.MembershipWithOrganization, error) {
+	return nil, nil
+}
 func (m *mockStoreForScheduler) EnsureOrganization(context.Context, string, string, string) error {
 	return nil
 }
@@ -217,6 +220,9 @@ func (m *mockStoreForScheduler) CreateNativeInvitation(context.Context, model.Pe
 }
 func (m *mockStoreForScheduler) RedeemNativeInvitation(context.Context, storage.NativeInviteRedeem) (model.User, model.Membership, error) {
 	return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
+}
+func (m *mockStoreForScheduler) LookupInvitationByToken(context.Context, string) (storage.PeekedInvitation, error) {
+	return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
 }
 
 // captureQueue records enqueued jobs.

@@ -378,7 +378,13 @@ export async function fetchMe() {
   if (_meLastError && Date.now() - _meLastErrorAt < 250) {
     throw _meLastError;
   }
-  _meInFlight = request('/v1/me')
+  // Capture a local reference to the new promise so the .finally below
+  // can identity-compare before nulling. Without this guard, an old
+  // promise's .finally — running after resetFetchMeCache + a new
+  // fetchMe started a fresh in-flight — would clobber the new pointer
+  // and break in-flight coalescing. Identity check ensures only the
+  // promise that "owns" the pointer is allowed to clear it.
+  const promise = request('/v1/me')
     .then((data) => {
       _meLastError = null;
       return data;
@@ -389,19 +395,67 @@ export async function fetchMe() {
       throw err;
     })
     .finally(() => {
-      _meInFlight = null;
+      if (_meInFlight === promise) _meInFlight = null;
     });
-  return _meInFlight;
+  _meInFlight = promise;
+  return promise;
 }
 
-// resetFetchMeCache clears the 250ms error cache. Called from every auth
-// ceremony entry point (login, bootstrap, redeem-invitation) — a fresh
-// cookie has just been minted, any cached 401 from before the credential
-// exchange is stale and would otherwise briefly block the post-login
-// /v1/me probe in MeContext.refresh().
+// resetFetchMeCache clears the 250ms error cache AND drops any in-flight
+// /v1/me promise pointer. Called from every auth ceremony entry point
+// (login, bootstrap, redeem-invitation, select-org) — a fresh cookie has
+// just been minted, any cached 401 OR any in-flight pre-auth /v1/me
+// promise is stale and would otherwise briefly block (or actively poison)
+// the post-login MeContext.refresh().
+//
+// Nulling _meInFlight does NOT cancel the underlying fetch — that one
+// resolves to wherever the network goes, but its result is discarded
+// because no caller awaits it. The next fetchMe() call gets a fresh
+// promise tied to the current cookie.
 function resetFetchMeCache() {
   _meLastError = null;
   _meLastErrorAt = 0;
+  _meInFlight = null;
+}
+
+// ── Multi-org picker handoff ────────────────────────────────────────────────
+// Login → /select-org needs to ferry the user's email + password + orgs
+// list across the route boundary so the picker can re-POST to
+// /v1/auth/select-org. Three options were considered:
+//
+//   1. React Router state (navigate(path, { state })). REJECTED — react-router
+//      v6 stores this in window.history.state, which the browser session-
+//      history manager persists across hard refreshes within the tab. The
+//      password would survive a refresh on /select-org. Not catastrophic
+//      (session-history is tab-scoped), but unnecessary durability.
+//   2. sessionStorage. REJECTED — survives refresh too, and is enumerable
+//      from any same-origin code (DevTools, browser extensions).
+//   3. Module-level variable. ACCEPTED — wiped when the JS bundle re-inits
+//      (hard refresh, navigation that reloads the SPA). Lives in the same
+//      tab's runtime memory only. Genuinely transient.
+//
+// Lifecycle:
+//   - Login.jsx sets it on the multi-org branch of authLogin.
+//   - OrgPickerScreen.jsx reads it on mount (idempotent — a re-read returns
+//     the same value, important for React StrictMode double-render).
+//   - OrgPickerScreen calls clearPendingOrgPick on successful pick, on
+//     cancel, and on the 401 bounce. After clear: a refresh on /select-org
+//     finds null and the route bounces to /login.
+let _pendingOrgPick = null;
+
+// setPendingOrgPick: ONLY called by `pages/Login.jsx` after authLogin
+// returns the multi-org branch. Exported because module-private symbols
+// can't cross file boundaries in JS without a build-step trick we don't
+// want; treat this as package-private. Any future caller must justify
+// why they're stuffing a password into module state.
+export function setPendingOrgPick(payload) {
+  _pendingOrgPick = payload;
+}
+export function getPendingOrgPick() {
+  return _pendingOrgPick;
+}
+export function clearPendingOrgPick() {
+  _pendingOrgPick = null;
 }
 
 export async function listMemberships() {
@@ -510,13 +564,18 @@ async function decodeAuthError(res) {
   }
 }
 
-// authLogin posts email + password to /v1/auth/login. On success the
-// server sets the session cookie and returns {user, organization}.
+// authLogin posts email + password to /v1/auth/login. The server returns
+// 200 in two distinct shapes:
+//   - Single-membership: {user, organization} — session cookie minted.
+//   - Multi-membership:  {needs_org_selection: true, orgs: [{id, name}]} —
+//                        no cookie; caller must POST /v1/auth/select-org
+//                        with the same creds + the chosen org_id.
 //
-// Two error shapes the caller must handle:
-//   - 401 invalid_credentials  — wrong email or password
-//   - 409 multi_org_not_supported — user has > 1 active membership;
-//                                   B1.5 will introduce the org picker
+// We only reset the in-memory /v1/me cache on the single-org branch where
+// a fresh cookie was actually minted. The picker branch leaves the prior
+// auth state untouched (no cookie, no me-cache invalidation needed).
+//
+// Error: 401 invalid_credentials — wrong email or password.
 export async function authLogin(email, password) {
   const res = await ifetch(`${BASE_URL}/v1/auth/login`, {
     method: 'POST',
@@ -524,6 +583,59 @@ export async function authLogin(email, password) {
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw await decodeAuthError(res);
+  const body = await res.json();
+  if (!body.needs_org_selection) resetFetchMeCache();
+  return body;
+}
+
+// authSelectOrg is the picker step that pairs with authLogin's multi-org
+// branch. Re-posts {email, password, organization_id} so the server can
+// re-validate the password from scratch (defence in depth — never trust
+// the frontend to remember step 1) and mint a session bound to the
+// chosen org. Returns {user, organization} on success; the cookie is
+// set by the server.
+//
+// Error shapes the caller must handle:
+//   - 401 invalid_credentials — wrong password OR org_id not in the
+//     user's membership set (server collapses both to one shape so a
+//     no-creds attacker can't probe org existence).
+//   - 429 rate_limited — shared budget with /v1/auth/login.
+export async function authSelectOrg(email, password, organizationId) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/select-org`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, organization_id: organizationId }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  resetFetchMeCache();
+  return res.json();
+}
+
+// authSwitchOrg is the in-app org-switcher step (B1.5 §4.7.1). The caller
+// is already authenticated — we just rebind the session to a different
+// organisation they're a member of. No password re-check; the existing
+// cookie carries authn. Body: {organization_id}.
+//
+// Server semantics on success: revokes the current session in PG + cache,
+// mints a new one bound to the target org, sets a fresh cookie. Audit row
+// `session_org_switched` written to the FROM org.
+//
+// Error shapes the caller must handle:
+//   - 401 unauthorized — cookie missing or session already revoked
+//     elsewhere. Caller should bounce to /login.
+//   - 403 not_a_member — caller doesn't have a membership in the target.
+//     Stale dropdown state — caller should refresh.
+export async function authSwitchOrg(organizationId) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/switch-org`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ organization_id: organizationId }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  // Reset fetchMe's caches because the session token rotated and any
+  // stale 401 (or in-flight pre-rotate /v1/me) now points at the wrong
+  // identity. Caller should also re-fetch /v1/me and clear the query
+  // cache because all org-bound query results are now wrong-org.
   resetFetchMeCache();
   return res.json();
 }
@@ -556,9 +668,32 @@ export async function authBootstrap({ token, email, name, password, organization
   return res.json();
 }
 
-// authRedeemInvitation accepts an invite token and creates the user
-// + membership in one shot, then mints a session. Body: token, password,
-// name. Returns {user, organization}.
+// authPreviewInvitation peeks at an invitation token without consuming
+// it. Drives the AcceptInviteScreen UI variation: when `existing_user`
+// is true, the form prompts for the user's existing password (verified
+// server-side against the global users table); when false, it prompts
+// for a new password + name.
+//
+// Errors:
+//   - 410 invitation_invalid: token unknown / expired / already redeemed.
+export async function authPreviewInvitation(token) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/invitations/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  return res.json();
+}
+
+// authRedeemInvitation accepts an invite token. Two flows the server
+// disambiguates from the email on the token:
+//   - New user: pass {token, password, name}. Server hashes the
+//     password, creates the user, inserts the membership, mints a session.
+//   - Existing user (B1.5): pass {token, password}. Name is ignored
+//     server-side. Server verifies the password against the user's
+//     existing argon2id hash and only inserts the membership.
+// Returns {user, organization} on success.
 export async function authRedeemInvitation({ token, name, password }) {
   const res = await ifetch(`${BASE_URL}/v1/auth/invitations/redeem`, {
     method: 'POST',

@@ -31,6 +31,7 @@ import NotFound   from './pages/NotFound';
 import BootstrapScreen     from './screens/BootstrapScreen';
 import AcceptInviteScreen  from './screens/AcceptInviteScreen';
 import PasswordResetScreen from './screens/PasswordResetScreen';
+import OrgPickerScreen     from './screens/OrgPickerScreen';
 
 function parseJwt(token) {
   try {
@@ -133,6 +134,7 @@ export default function App() {
       <Route path="/login"          element={<Login />} />
       <Route path="/callback"       element={<Callback />} />
       <Route path="/bootstrap"      element={<BootstrapScreen />} />
+      <Route path="/select-org"     element={<OrgPickerScreen />} />
       <Route path="/accept-invite"  element={<AcceptInviteScreen />} />
       <Route path="/password-reset" element={<PasswordResetScreen />} />
       <Route path="/*"              element={<AuthenticatedApp />} />
