@@ -403,8 +403,8 @@ func TestLoginMultiOrgReturns200WithPicker(t *testing.T) {
 	// No session cookie on the picker branch — the picker step (slice 3)
 	// re-validates the password before minting.
 	for _, c := range w.Result().Cookies() {
-		if c.Name == auth.SessionCookieName && c.Value != "" {
-			t.Errorf("multi-org login set %s cookie to %q; expected no session", c.Name, c.Value)
+		if c.Name == auth.SessionCookieName {
+			t.Errorf("multi-org login set %s cookie to %q; expected no session cookie at all", c.Name, c.Value)
 		}
 	}
 	body := mustDecode[map[string]any](t, w)
@@ -443,7 +443,7 @@ func TestLoginMultiOrg_DBErrorReturns500(t *testing.T) {
 		t.Fatalf("status = %d; want 500 on ListUserMemberships failure; body = %s", w.Code, w.Body.String())
 	}
 	for _, c := range w.Result().Cookies() {
-		if c.Name == auth.SessionCookieName && c.Value != "" {
+		if c.Name == auth.SessionCookieName {
 			t.Errorf("DB-error path set %s cookie to %q; must not mint", c.Name, c.Value)
 		}
 	}
