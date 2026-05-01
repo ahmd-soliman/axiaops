@@ -7,7 +7,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"axiaops.io/api/internal/license"
+	"axiaops.io/shared/license"
 )
 
 // resetSnapshot ensures one test's SetCurrent doesn't leak into the next.

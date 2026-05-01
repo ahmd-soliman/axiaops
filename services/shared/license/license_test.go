@@ -14,7 +14,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"axiaops.io/api/internal/license"
+	"axiaops.io/shared/license"
 )
 
 // fixtureKeys holds the test signing keypair shared across tests in this

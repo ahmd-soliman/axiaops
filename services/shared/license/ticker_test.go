@@ -7,7 +7,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"axiaops.io/api/internal/license"
+	"axiaops.io/shared/license"
 	"axiaops.io/shared/observability"
 )
 
