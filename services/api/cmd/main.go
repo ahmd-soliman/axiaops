@@ -329,6 +329,19 @@ func main() {
 		}
 	}()
 
+	// Background ticker: re-classify the loaded license every hour so the
+	// Prometheus gauges advance with the wall clock and a slog.Warn fires
+	// on grace/expired transitions. Never calls os.Exit — mid-flight
+	// transitions are observability events; slice 5's scan-gate is what
+	// actually blocks behaviour. No-op under DEV_MODE (no license loaded).
+	//
+	// TODO: pass sigCtx to all background tickers in a follow-up so SIGTERM
+	// triggers coordinated shutdown. All three tickers in this file currently
+	// use context.Background() for symmetry — none have in-flight work that
+	// risks corruption on process termination, but the pattern is worth
+	// fixing once for everything (slice 4 of B1.6 documents the gap).
+	go license.RunTicker(context.Background(), license.DefaultTickerInterval)
+
 	// Background ticker: hard-delete sessions where expires_at OR
 	// revoked_at is older than 7 days. Bounds growth of the sessions
 	// table without affecting active users — by the time a row is
