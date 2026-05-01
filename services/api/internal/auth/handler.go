@@ -230,14 +230,25 @@ type loginResponse struct {
 	Org  orgRecord `json:"organization"`
 }
 
-// loginMultiOrgResponse is the 409 body returned to users with >1 active
-// membership in B1. B1.5 will replace this with an org-picker flow; the
-// `b15_pending` flag is the marker for the frontend to swap in the
-// picker once available.
-type loginMultiOrgResponse struct {
-	Error      string `json:"error"`
-	Detail     string `json:"detail"`
-	B15Pending bool   `json:"b15_pending"`
+// loginNeedsOrgSelectionResponse is the 200 body returned to users with >1
+// active membership (B1.5 §4.7.1). Mirror of the bootstrap-style picker:
+// the frontend lands on /select-org, displays orgs[], and POSTs the
+// chosen organization_id back to /v1/auth/select-org along with the
+// re-supplied credentials. No session is minted by /v1/auth/login on
+// this branch — defence in depth, the picker step re-validates the
+// password before cutting a session.
+type loginNeedsOrgSelectionResponse struct {
+	NeedsOrgSelection bool             `json:"needs_org_selection"`
+	Orgs              []orgPickerEntry `json:"orgs"`
+}
+
+// orgPickerEntry is the slim per-org shape inside
+// loginNeedsOrgSelectionResponse.Orgs. Just enough for the picker to
+// render — the user picks one and slice 3's /v1/auth/select-org
+// authenticates the choice via organization_id (UUID), not name.
+type orgPickerEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
@@ -319,14 +330,43 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
 		return
 	case 1:
-		// Single-membership: mint session bound to that org.
+		// Single-membership: mint session bound to that org. Falls
+		// through to the MintSession block below.
 	default:
-		// B1: multi-membership users can't log in until B1.5 ships.
-		observability.Global.AuthLoginTotal.WithLabelValues("failure", "org_selection_required").Inc()
-		writeJSON(w, http.StatusConflict, loginMultiOrgResponse{
-			Error:      "multi_org_not_supported",
-			Detail:     "multi-organization login lands in B1.5; contact your admin to consolidate or wait for the next release",
-			B15Pending: true,
+		// Multi-membership: redirect to the org picker. Per slice-1
+		// review: a DB error here MUST surface as 500, not silently
+		// degrade to single-org. The user has already passed the
+		// password check; an empty org list at this point would
+		// land them on a dead-end picker.
+		orgRows, err := h.store.ListUserMemberships(r.Context(), u.ID)
+		if err != nil {
+			slog.Error("auth: login list user memberships failed", "user_id", u.ID, "err", err)
+			observability.Global.AuthLoginTotal.WithLabelValues("failure", "internal").Inc()
+			writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
+		}
+		// Defensive: LookupUserByEmail just told us len(memberships) >= 2.
+		// If the JOIN returned fewer, an organizations row is missing for a
+		// membership we just read. That's a referential-integrity break —
+		// 500 rather than guessing.
+		if len(orgRows) < len(memberships) {
+			slog.Error("auth: login org-list join shorter than memberships",
+				"user_id", u.ID,
+				"memberships", len(memberships),
+				"joined", len(orgRows),
+			)
+			observability.Global.AuthLoginTotal.WithLabelValues("failure", "internal").Inc()
+			writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
+		}
+		orgs := make([]orgPickerEntry, 0, len(orgRows))
+		for _, m := range orgRows {
+			orgs = append(orgs, orgPickerEntry{ID: m.OrganizationID, Name: m.OrganizationName})
+		}
+		observability.Global.AuthLoginTotal.WithLabelValues("org_selection_required", "").Inc()
+		writeJSON(w, http.StatusOK, loginNeedsOrgSelectionResponse{
+			NeedsOrgSelection: true,
+			Orgs:              orgs,
 		})
 		return
 	}
