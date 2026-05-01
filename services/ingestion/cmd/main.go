@@ -101,6 +101,11 @@ func main() {
 	// with the wall clock, and have scanScheduledAccounts skip enqueueing
 	// jobs once state == expired (plan §4.9.2b). DEV_MODE bypasses the
 	// check entirely; the SaaS binary doesn't run this code path.
+	//
+	// **Runs before storage init by design** — license refusal must work even
+	// when the database is unreachable. Do not reorder this block to follow
+	// newStore() without preserving the "license-refusal works without DB"
+	// invariant.
 	if err := license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true"); err != nil {
 		die("license: refusing to start", "error", err.Error())
 	}
