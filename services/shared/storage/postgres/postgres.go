@@ -273,6 +273,26 @@ func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (m
 	return t, nil
 }
 
+// GetOrganizationByID returns the organization with the given UUID. Bypasses
+// RLS via adminPool — /v1/me is the primary caller and runs before the
+// per-request RLS context exists in handler scope.
+func (s *Store) GetOrganizationByID(ctx context.Context, id string) (model.Organization, error) {
+	if id == "" {
+		return model.Organization{}, storage.ErrOrganizationNotFound
+	}
+	var t model.Organization
+	err := s.adminPool.QueryRow(ctx,
+		`SELECT id, org_code, name, created_at, onboarding_completed_at FROM organizations WHERE id = $1`, id,
+	).Scan(&t.ID, &t.OrgCode, &t.Name, &t.CreatedAt, &t.OnboardingCompletedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Organization{}, storage.ErrOrganizationNotFound
+	}
+	if err != nil {
+		return model.Organization{}, fmt.Errorf("postgres: get organization by id: %w", err)
+	}
+	return t, nil
+}
+
 // RenameOrganization updates the organization name for the org in ctx. The
 // caller (PATCH /v1/organizations/me handler) wraps this in a sequence with
 // kinde.Client.RenameOrganization to push the change to Kinde — see
