@@ -137,6 +137,16 @@ func main() {
 	mux.Handle("GET /metrics", promhttp.Handler())
 
 	mux.HandleFunc("POST /scan", func(w http.ResponseWriter, r *http.Request) {
+		// License scan-gate (plan §4.9.2b). Routed through IsScanAllowed so
+		// the predicate stays in lockstep with the api-side handler and the
+		// scheduler — single source of truth for the policy. Internal-only
+		// surface today, but a future caller (a CLI, a one-off script, a
+		// future SaaS<>self-hosted bridge) shouldn't be able to skip the gate
+		// just because the api binary did.
+		if !license.IsScanAllowed() {
+			http.Error(w, `{"error":"license_expired"}`, http.StatusForbidden)
+			return
+		}
 		var req struct {
 			AccountID      string `json:"account_id"`
 			OrganizationID string `json:"organization_id"`
