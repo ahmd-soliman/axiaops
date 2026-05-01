@@ -41,6 +41,9 @@ func (m *mockStoreForScheduler) UpsertOrganization(context.Context, string, stri
 func (m *mockStoreForScheduler) GetOrganizationByID(context.Context, string) (model.Organization, error) {
 	return model.Organization{}, nil
 }
+func (m *mockStoreForScheduler) ListUserMemberships(context.Context, string) ([]model.MembershipWithOrganization, error) {
+	return nil, nil
+}
 func (m *mockStoreForScheduler) EnsureOrganization(context.Context, string, string, string) error {
 	return nil
 }

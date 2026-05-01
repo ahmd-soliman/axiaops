@@ -56,6 +56,10 @@ type MockStore struct {
 	auditEvents []model.AuditEvent
 	nextAuditID int64
 
+	// UserMemberships seeds ListUserMemberships responses for /v1/me
+	// multi-org tests. Default nil → empty list (single-org B1 baseline).
+	UserMemberships []model.MembershipWithOrganization
+
 	// ── Call Tracking (optional, for lifecycle tests) ──
 	callsToUpdateStatus []struct {
 		accountID string
@@ -326,6 +330,13 @@ func (m *MockStore) UpsertOrganization(_ context.Context, externalID, name strin
 
 func (m *MockStore) GetOrganizationByID(_ context.Context, id string) (model.Organization, error) {
 	return model.Organization{ID: id}, nil
+}
+
+// UserMemberships, when non-nil, is the canned ListUserMemberships
+// response. Tests that exercise /v1/me's multi-org payload set this.
+// Default nil → empty list (single-org case, matches the B1 baseline).
+func (m *MockStore) ListUserMemberships(_ context.Context, _ string) ([]model.MembershipWithOrganization, error) {
+	return m.UserMemberships, nil
 }
 
 func (m *MockStore) EnsureOrganization(_ context.Context, _, _, _ string) error {
