@@ -12,6 +12,17 @@ import (
 	"axiaops.io/shared/storage"
 )
 
+// JITMembershipStore is the minimal Store surface JITProvisionMembership
+// touches. Narrowing the parameter type from storage.Store keeps the JIT
+// path testable without standing up a full mock-of-everything.
+// storage.Store satisfies this interface — production callers pass it
+// unchanged.
+type JITMembershipStore interface {
+	SaveMembership(ctx context.Context, m model.Membership) error
+	GetMembershipByOrgUser(ctx context.Context, organizationID, userID string) (model.Membership, error)
+	UpdateMembershipRole(ctx context.Context, id, newRole string) error
+}
+
 // rolePriority assigns a strict total order to JIT-assignable roles. Higher
 // number wins when a user matches multiple group mappings.
 //
@@ -91,7 +102,7 @@ var ErrJITOwnerForbidden = errors.New("sso: JIT cannot provision owner role; own
 // The seam exists now so the OIDC RP slice doesn't need to define a new
 // helper — and the test in permission_matrix_test.go already asserts the
 // owner-rejection guard, which is the security-critical part.
-func JITProvisionMembership(ctx context.Context, store storage.Store, organizationID, userID, role string) error {
+func JITProvisionMembership(ctx context.Context, store JITMembershipStore, organizationID, userID, role string) error {
 	if role == string(authz.RoleOwner) {
 		return ErrJITOwnerForbidden
 	}
@@ -109,6 +120,7 @@ func JITProvisionMembership(ctx context.Context, store storage.Store, organizati
 		UserID:         userID,
 		OrganizationID: organizationID,
 		Role:           role,
+		ProvisionedVia: model.ProvisionedViaJIT,
 	}
 	err := store.SaveMembership(ctx, m)
 	switch {
