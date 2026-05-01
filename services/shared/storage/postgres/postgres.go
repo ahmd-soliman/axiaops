@@ -1624,6 +1624,45 @@ func (s *Store) ListMemberships(ctx context.Context) ([]model.MembershipWithUser
 	return out, tx.Commit(ctx)
 }
 
+// ListUserMemberships returns every active membership for the given user
+// across all organizations they belong to, joined with organization metadata.
+// Bypasses RLS via adminPool — by definition the result spans organizations,
+// so a per-org RLS filter cannot apply. Caller is responsible for ensuring
+// userID came from a validated auth context (see Store.ListUserMemberships
+// doc comment for the safety contract).
+func (s *Store) ListUserMemberships(ctx context.Context, userID string) ([]model.MembershipWithOrganization, error) {
+	if userID == "" {
+		return nil, nil
+	}
+	rows, err := s.adminPool.Query(ctx, `
+		SELECT m.id, m.organization_id, m.user_id, m.role, COALESCE(m.invited_by, ''),
+		       m.created_at, m.updated_at, COALESCE(o.name, ''), COALESCE(o.org_code, '')
+		FROM memberships m
+		JOIN organizations o ON o.id = m.organization_id
+		WHERE m.user_id = $1
+		ORDER BY m.created_at ASC, m.id ASC`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list user memberships: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.MembershipWithOrganization
+	for rows.Next() {
+		var mo model.MembershipWithOrganization
+		if err := rows.Scan(
+			&mo.ID, &mo.OrganizationID, &mo.UserID, &mo.Role, &mo.InvitedBy,
+			&mo.CreatedAt, &mo.UpdatedAt, &mo.OrganizationName, &mo.OrganizationOrgCode,
+		); err != nil {
+			return nil, fmt.Errorf("postgres: list user memberships scan: %w", err)
+		}
+		out = append(out, mo)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: list user memberships rows: %w", err)
+	}
+	return out, nil
+}
+
 // GetMembership returns a single membership by ID for the organization in ctx.
 func (s *Store) GetMembership(ctx context.Context, id string) (model.Membership, error) {
 	tx, err := s.pool.Begin(ctx)

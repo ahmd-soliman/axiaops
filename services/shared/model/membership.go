@@ -23,3 +23,14 @@ type MembershipWithUser struct {
 	Email string
 	Name  string
 }
+
+// MembershipWithOrganization is the read-side projection used by the multi-org
+// access UI (org picker after login, org switcher in nav): a Membership plus
+// the corresponding organization's display fields. Returned by
+// Store.ListUserMemberships. The dual of MembershipWithUser — same shape, the
+// "other side" of the join.
+type MembershipWithOrganization struct {
+	Membership
+	OrganizationName    string
+	OrganizationOrgCode string
+}
