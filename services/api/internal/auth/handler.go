@@ -421,6 +421,13 @@ type selectOrgRequest struct {
 // selectOrgResponse is identical in shape to loginResponse — once
 // the picker step succeeds we're back on the single-org login path,
 // session minted, dashboard ready.
+//
+// NOTE: this is a type alias, not a struct copy. Adding a field to
+// loginResponse silently widens select-org's wire shape too. That's
+// the intent (single-org login and post-picker login should agree on
+// the same envelope), but the silent inheritance means the zero value
+// of any new field must be sensible for the picker path. Audit the
+// JSON shape on every loginResponse field addition.
 type selectOrgResponse = loginResponse
 
 // selectOrg is the picker counterpart to login. Plan §4.7.1: a
@@ -434,11 +441,12 @@ type selectOrgResponse = loginResponse
 //
 // Failure modes are deliberately collapsed to one 401 shape: wrong
 // password, unknown email, AND chosen-org-not-in-memberships all return
-// the same `invalid_credentials` body. Distinguishing them at the wire
-// level would let an attacker probe membership across orgs (e.g.
-// "does user@victim.com belong to org X?") which the org-picker
-// 200 response on /login already partially leaks but only to the
-// authenticated user. We don't want to widen that.
+// the same `invalid_credentials` body. The narrow benefit: an attacker
+// *without* valid credentials can't distinguish "org exists but you
+// don't belong" from "org does not exist" — both look like a generic
+// 401. (Against an attacker WITH valid credentials, the collapse buys
+// nothing — they already see the org list via the 200 response on
+// /v1/auth/login. The defence is for the no-creds case only.)
 func (h *Handler) selectOrg(w http.ResponseWriter, r *http.Request) {
 	var req selectOrgRequest
 	if err := decodeJSON(w, r, &req); err != nil {
