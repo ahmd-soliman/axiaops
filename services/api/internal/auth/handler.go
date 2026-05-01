@@ -63,13 +63,15 @@ func (h *Handler) WithLoginRateLimit(rl *LoginRateLimiter) *Handler {
 // Register attaches the auth routes to the supplied mux. Endpoints:
 //
 //	POST /v1/auth/bootstrap              first-owner install token redemption
-//	POST /v1/auth/login                  email + password → session cookie
+//	POST /v1/auth/login                  email + password → session cookie (or org picker on multi-org)
+//	POST /v1/auth/select-org             email + password + organization_id → session cookie (B1.5 multi-org follow-up)
 //	POST /v1/auth/logout                 revoke + clear cookie
 //	POST /v1/auth/invitations/redeem     accept invite token → set password → session
 //	POST /v1/auth/password-reset/redeem  redeem reset token → set new password → all sessions revoked
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/bootstrap", h.bootstrap)
 	mux.HandleFunc("POST /v1/auth/login", h.login)
+	mux.HandleFunc("POST /v1/auth/select-org", h.selectOrg)
 	mux.HandleFunc("POST /v1/auth/logout", h.logout)
 	mux.HandleFunc("POST /v1/auth/invitations/redeem", h.redeemInvitation)
 	mux.HandleFunc("POST /v1/auth/password-reset/redeem", h.redeemPasswordReset)
@@ -400,6 +402,153 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		},
 		Org: orgRecord{
 			ID: mship.OrganizationID,
+		},
+	})
+}
+
+// ── POST /v1/auth/select-org ────────────────────────────────────────────────
+
+// selectOrgRequest is the body for the multi-org picker step. Email +
+// password are re-supplied so the picker step can re-run the password
+// check independently — defence in depth, the frontend never holds
+// state we trust to round-trip a credential through.
+type selectOrgRequest struct {
+	Email          string `json:"email"`
+	Password       string `json:"password"`
+	OrganizationID string `json:"organization_id"`
+}
+
+// selectOrgResponse is identical in shape to loginResponse — once
+// the picker step succeeds we're back on the single-org login path,
+// session minted, dashboard ready.
+type selectOrgResponse = loginResponse
+
+// selectOrg is the picker counterpart to login. Plan §4.7.1: a
+// multi-membership user is bounced from /v1/auth/login with the
+// `needs_org_selection` payload; the dashboard collects the chosen
+// organization_id (UUID) and POSTs it here along with the *same* email
+// + password the user just typed. We re-validate the password from
+// scratch — never trust the frontend to remember step 1 — and confirm
+// the user actually holds a membership in the chosen org before
+// minting a session bound to that org.
+//
+// Failure modes are deliberately collapsed to one 401 shape: wrong
+// password, unknown email, AND chosen-org-not-in-memberships all return
+// the same `invalid_credentials` body. Distinguishing them at the wire
+// level would let an attacker probe membership across orgs (e.g.
+// "does user@victim.com belong to org X?") which the org-picker
+// 200 response on /login already partially leaks but only to the
+// authenticated user. We don't want to widen that.
+func (h *Handler) selectOrg(w http.ResponseWriter, r *http.Request) {
+	var req selectOrgRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	req.Email = strings.TrimSpace(req.Email)
+	req.OrganizationID = strings.TrimSpace(req.OrganizationID)
+	if req.Email == "" || req.Password == "" || req.OrganizationID == "" {
+		writeAuthError(w, http.StatusBadRequest, "bad_request", "email, password, and organization_id required")
+		return
+	}
+
+	// Same rate-limit contract as /v1/auth/login (10/min/IP, 5/min/email).
+	// Sharing the same limiter instance means an attacker can't
+	// alternate /login and /select-org to double their budget against
+	// one email.
+	if h.loginLimit != nil {
+		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), req.Email)
+		if !outcome.Allowed {
+			retry := int(outcome.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			observability.Global.AuthLoginTotal.WithLabelValues("failure", "rate_limited").Inc()
+			writeAuthError(w, http.StatusTooManyRequests, "rate_limited",
+				"too many login attempts; please retry shortly")
+			return
+		}
+	}
+
+	u, memberships, err := h.store.LookupUserByEmail(r.Context(), req.Email)
+	switch {
+	case errors.Is(err, storage.ErrUserNotFound):
+		// Same timing-flat treatment as /v1/auth/login — verify against
+		// placeholder so an attacker can't time-detect unknown emails.
+		_ = Verify(req.Password, placeholderHash)
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "unknown_user").Inc()
+		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+		return
+	case err != nil:
+		slog.Error("auth: select-org lookup failed", "err", err)
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "internal").Inc()
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+
+	if u.PasswordHash == "" {
+		_ = Verify(req.Password, placeholderHash)
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "unknown_user").Inc()
+		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+		return
+	}
+	if err := Verify(req.Password, u.PasswordHash); err != nil {
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "bad_password").Inc()
+		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+		return
+	}
+
+	// Membership check: the chosen organization_id must be in the
+	// user's live membership set. Linear scan is fine — users with
+	// dozens of memberships are not a realistic profile, and skipping
+	// a SQL roundtrip on the hot path matters more than the loop cost.
+	var chosen model.Membership
+	var found bool
+	for _, m := range memberships {
+		if m.OrganizationID == req.OrganizationID {
+			chosen = m
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Org not in user's set. Same 401 shape as wrong-password to
+		// avoid widening the membership-probe channel — the org-picker
+		// list on /login already exposes this to an authenticated
+		// caller, but emitting a distinct error here would let an
+		// attacker who has the right email-and-password test arbitrary
+		// org_ids without ever holding a session in those orgs.
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "unknown_user").Inc()
+		writeAuthError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+		return
+	}
+
+	mint, err := h.sessions.MintSession(r.Context(), MintRequest{
+		UserID:         u.ID,
+		OrganizationID: chosen.OrganizationID,
+		AuthMode:       model.AuthModePassword,
+		IP:             requestIP(r),
+		UserAgent:      r.Header.Get("User-Agent"),
+	})
+	if err != nil {
+		slog.Error("auth: select-org mint session failed", "err", err)
+		observability.Global.AuthLoginTotal.WithLabelValues("failure", "internal").Inc()
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+	observability.Global.AuthLoginTotal.WithLabelValues("success", "").Inc()
+
+	SetSession(w, r, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
+	writeJSON(w, http.StatusOK, selectOrgResponse{
+		User: user{
+			ID:    u.ID,
+			Email: u.Email,
+			Name:  u.Name,
+			Role:  chosen.Role,
+		},
+		Org: orgRecord{
+			ID: chosen.OrganizationID,
 		},
 	})
 }
