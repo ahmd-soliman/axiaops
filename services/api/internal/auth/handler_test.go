@@ -449,6 +449,197 @@ func TestLoginMultiOrg_DBErrorReturns500(t *testing.T) {
 	}
 }
 
+// ── /v1/auth/switch-org (Phase B1.5 slice 4) ──────────────────────────────
+
+// loginAndCookie runs the multi-org-aware login flow against the picker
+// step and returns a session cookie bound to a specific membership index.
+// Used by switch-org tests to set up a "currently authenticated as org N"
+// state. Bypasses the normal /login → /select-org dance because the
+// fakeStore can mint sessions directly via the Manager.
+func mintSessionCookie(t *testing.T, h *auth.Handler, store *fakeStore, email string, mshipIdx int) *http.Cookie {
+	t.Helper()
+	store.mu.Lock()
+	mship := store.memberships["u-"+email][mshipIdx]
+	store.mu.Unlock()
+	w := postJSON(t, mux(h), "/v1/auth/select-org", map[string]string{
+		"email":           email,
+		"password":        "correct horse battery staple",
+		"organization_id": mship.OrganizationID,
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed cookie via select-org: status = %d body = %s", w.Code, w.Body.String())
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			return c
+		}
+	}
+	t.Fatal("seed cookie: select-org returned 200 but no session cookie")
+	return nil
+}
+
+// TestSwitchOrgHappyPath: caller is in org A, switches to org B, gets a
+// new session cookie bound to org B and the matching role for that org.
+func TestSwitchOrgHappyPath(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+	store.mu.Lock()
+	from := store.memberships["u-alice@example.com"][0].OrganizationID
+	to := store.memberships["u-alice@example.com"][1].OrganizationID
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{"organization_id": to}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	var newCookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			newCookie = c
+		}
+	}
+	if newCookie == nil {
+		t.Fatal("expected new session cookie after switch")
+	}
+	if newCookie.Value == cookie.Value {
+		t.Errorf("cookie value did not rotate: still %q", newCookie.Value)
+	}
+	body := mustDecode[map[string]any](t, w)
+	org, _ := body["organization"].(map[string]any)
+	if got := org["id"]; got != to {
+		t.Errorf("response organization.id = %v; want %s", got, to)
+	}
+	_ = from
+}
+
+// TestSwitchOrg_OldCookieReturns401AfterSwitch: plan §4.7.4 row 4. After a
+// successful switch, the OLD cookie must NOT authenticate any request. We
+// don't have a fully-wired authenticated route in this test layer; assert
+// at the manager level: ValidateSession on the old token returns
+// ErrSessionNotFound (the row was revoked + cache invalidated).
+func TestSwitchOrg_OldCookieReturns401AfterSwitch(t *testing.T) {
+	t.Parallel()
+	h, store, mgr := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+	store.mu.Lock()
+	to := store.memberships["u-alice@example.com"][1].OrganizationID
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{"organization_id": to}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("setup switch-org: status = %d body = %s", w.Code, w.Body.String())
+	}
+
+	// Old cookie's plaintext is in cookie.Value — ValidateSession against
+	// it must now fail closed (revoked + evicted from cache).
+	if _, err := mgr.ValidateSession(context.Background(), cookie.Value); err == nil {
+		t.Error("ValidateSession on old token returned nil error after switch; expected revocation")
+	}
+}
+
+// TestSwitchOrg_NotMemberReturns403: caller has a valid session but tries
+// to switch to an org they don't belong to. Distinct from /select-org's
+// 401 collapse — the caller IS authenticated; "not a member" is a
+// different posture from "wrong creds".
+func TestSwitchOrg_NotMemberReturns403(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{
+		"organization_id": "org-some-other-org",
+	}, cookie)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d; want 403", w.Code)
+	}
+	body := mustDecode[map[string]any](t, w)
+	if body["error"] != "not_a_member" {
+		t.Errorf("error = %v; want not_a_member", body["error"])
+	}
+}
+
+// TestSwitchOrg_NoCookieReturns401: switch-org with no session is a
+// client bug — we don't grace-degrade like logout does.
+func TestSwitchOrg_NoCookieReturns401(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{
+		"organization_id": "org-anything",
+	}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", w.Code)
+	}
+}
+
+// TestSwitchOrg_SameOrgIsNoOp: idempotent contract for racy clients.
+// POSTing the currently-bound org doesn't rotate the session, doesn't
+// audit, doesn't change the cookie.
+func TestSwitchOrg_SameOrgIsNoOp(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+	store.mu.Lock()
+	current := store.memberships["u-alice@example.com"][0].OrganizationID
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{
+		"organization_id": current,
+	}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", w.Code)
+	}
+	// No new cookie minted — Set-Cookie absent.
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName {
+			t.Errorf("same-org no-op set new %s cookie to %q; should not rotate", c.Name, c.Value)
+		}
+	}
+}
+
+// TestSwitchOrg_AuditRowWritten: plan §4.7.4 row 5. Every successful
+// switch produces one audit row in the FROM org with action
+// `session.org_switched` and metadata {from, to}.
+func TestSwitchOrg_AuditRowWritten(t *testing.T) {
+	t.Parallel()
+	h, store, _, cap := newHandlerTestWithAudit(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+	store.mu.Lock()
+	from := store.memberships["u-alice@example.com"][0].OrganizationID
+	to := store.memberships["u-alice@example.com"][1].OrganizationID
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{"organization_id": to}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+
+	events := cap.get()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Action != model.AuditActionSessionOrgSwitched {
+		t.Errorf("action = %q; want %q", e.Action, model.AuditActionSessionOrgSwitched)
+	}
+	if e.OrgID != from {
+		t.Errorf("audit org = %q; want from-org %q (audit lands in originating org)", e.OrgID, from)
+	}
+	if got := e.Metadata["from"]; got != from {
+		t.Errorf("metadata.from = %v; want %s", got, from)
+	}
+	if got := e.Metadata["to"]; got != to {
+		t.Errorf("metadata.to = %v; want %s", got, to)
+	}
+}
+
 // ── /v1/auth/select-org (Phase B1.5 slice 3) ──────────────────────────────
 
 // TestSelectOrgHappyPath: multi-org user picks one of their orgs, password
