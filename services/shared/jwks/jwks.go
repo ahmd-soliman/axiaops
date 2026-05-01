@@ -38,6 +38,13 @@ const DefaultTTL = time.Hour
 
 const cacheKeyPrefix = "jwks:"
 
+// CacheKey returns the cache key FromCache uses for the given cacheID.
+// Callers force a cache eviction (e.g. the OIDC RP's auto-refresh on
+// signature failure, plan §5 architect S5) by calling
+// c.Del(ctx, jwks.CacheKey(cacheID)) before re-calling FromCache.
+// Exported so callers don't have to duplicate the "jwks:" prefix.
+func CacheKey(cacheID string) string { return cacheKeyPrefix + cacheID }
+
 // FromCache returns a jwt.Keyfunc backed by a cached JWKS payload.
 //
 // cacheID is the caller-supplied identifier used to namespace the cache
@@ -57,7 +64,7 @@ const cacheKeyPrefix = "jwks:"
 // The function never returns a partial keyfunc on error — either a working
 // jwt.Keyfunc or an error.
 func FromCache(ctx context.Context, cacheID, jwksURL string, c cache.Cache) (jwt.Keyfunc, error) {
-	cacheKey := cacheKeyPrefix + cacheID
+	cacheKey := CacheKey(cacheID)
 
 	fetchAndCache := func() (jwt.Keyfunc, error) {
 		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -66,11 +73,20 @@ func FromCache(ctx context.Context, cacheID, jwksURL string, c cache.Cache) (jwt
 		if err != nil {
 			return nil, fmt.Errorf("jwks: build request: %w", err)
 		}
+		// TODO(B2): accept an *http.Client for per-connection transport
+		// (mTLS to private IdPs, proxies). DefaultClient + the 10s ctx
+		// timeout above is acceptable until OIDC adds a concrete need.
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("jwks: fetch %s: %w", jwksURL, err)
 		}
 		defer func() { _ = resp.Body.Close() }()
+		// Catch IdP error responses (404, 503, redirected HTML page)
+		// before they reach FromBytes — otherwise the caller sees a
+		// confusing "parse" error and the cache may even hold garbage.
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("jwks: fetch %s: unexpected status %d", jwksURL, resp.StatusCode)
+		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("jwks: read body: %w", err)
@@ -86,7 +102,10 @@ func FromCache(ctx context.Context, cacheID, jwksURL string, c cache.Cache) (jwt
 	if c != nil {
 		data, err := c.Get(ctx, cacheKey)
 		if err == nil {
-			slog.Info("jwks: cache hit", "cache_id", cacheID)
+			// Debug rather than info: the OIDC RP will call FromCache
+			// per request once wired, and an info-level cache-hit line
+			// per request would dominate the auth log.
+			slog.Debug("jwks: cache hit", "cache_id", cacheID)
 			kf, parseErr := FromBytes(data)
 			if parseErr == nil {
 				return kf, nil
@@ -102,7 +121,8 @@ func FromCache(ctx context.Context, cacheID, jwksURL string, c cache.Cache) (jwt
 
 // FromBytes parses a raw JWKS JSON payload into a jwt.Keyfunc.
 // Used by FromCache and exposed for callers that already have the bytes
-// (e.g. an OIDC discovery doc that inlines its JWKS).
+// (e.g. an in-memory test fixture, or a JWKS payload obtained by other
+// means than the standard URL fetch).
 func FromBytes(data []byte) (jwt.Keyfunc, error) {
 	k, err := keyfunc.NewJWKSetJSON(data)
 	if err != nil {
