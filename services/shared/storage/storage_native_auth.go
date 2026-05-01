@@ -98,8 +98,18 @@ type NativeAuthStore interface {
 	// organization (rare — a deleted org or pending invite that
 	// hasn't been redeemed yet). Login uses the slice length to
 	// distinguish single-org login (mint session) from multi-org
-	// (B1 returns 409; B1.5 will branch to org picker).
+	// (B1.5: branch to the org picker via ListUserMemberships).
 	LookupUserByEmail(ctx context.Context, email string) (model.User, []model.Membership, error)
+
+	// ListUserMemberships is the org-picker join: same row set as the
+	// memberships list returned by LookupUserByEmail, but joined with
+	// organizations to carry the display name. Used by /v1/auth/login
+	// when len(memberships) > 1 (B1.5) and by /v1/auth/select-org +
+	// /v1/auth/switch-org to validate the chosen org. Bypasses RLS.
+	// Detailed contract — including the safety note that callers MUST
+	// pass a userID from validated auth context — lives on the same
+	// method in the wider Store interface (storage.go).
+	ListUserMemberships(ctx context.Context, userID string) ([]model.MembershipWithOrganization, error)
 
 	// ── Sessions ────────────────────────────────────────────────────────────
 
