@@ -7,6 +7,15 @@ export const KINDE_ISSUER    = env.KINDE_ISSUER      ?? import.meta.env.VITE_KIN
 export const KINDE_CLIENT_ID = env.KINDE_CLIENT_ID   ?? import.meta.env.VITE_KINDE_CLIENT_ID ?? '';
 export const DEV_ORG_NAME    = env.DEV_ORG_NAME      ?? import.meta.env.VITE_DEV_ORG_NAME    ?? 'AxiaOps Dev';
 
+// AUTH_PROVIDER tier the LoginScreen should render — must mirror the
+// API service's AUTH_PROVIDER env var so the right login UI appears:
+//   - "native" / "both" → native email+password form (B1)
+//   - "kinde"           → Kinde redirect (legacy, deleted at D2 = 2026-10-30)
+//   - ""                → defaults to "native" (B1's terminal state)
+// Plan §4.5. The value is purely UI selection; the API enforces auth
+// regardless of what the dashboard chose.
+export const AUTH_PROVIDER   = env.AUTH_PROVIDER     ?? import.meta.env.VITE_AUTH_PROVIDER   ?? 'native';
+
 // Build-time identifiers for the footer. These are tied to the bundle, not the
 // deployment environment, so they live in build-time vars rather than the
 // runtime window.__ENV__ injection. Defaults match the Dockerfile defaults so

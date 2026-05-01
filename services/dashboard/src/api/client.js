@@ -1,9 +1,23 @@
 // API client.
 //
-// VITE_API_URL is set at build time:
-//   - Docker:   /api  (nginx proxies to the api container — no CORS issues)
-//   - Local dev: not set → falls back to http://localhost:8080 (direct)
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+// VITE_API_URL controls where the dashboard fetches the API:
+//   - Docker:    "/api"  (nginx proxies /api/* to the api container)
+//   - Local dev: "/api"  (Vite's server.proxy in vite.config.js maps it
+//                         to http://localhost:8080)
+//   - Override:  set VITE_API_URL to an absolute URL when the dashboard
+//                lives on a different origin from the API (a true
+//                cross-origin deployment). The native-auth session
+//                cookie still rides along thanks to credentials:'include'
+//                in ifetch, and the API's CORS middleware echoes the
+//                origin + emits Allow-Credentials when CORS_ORIGIN is
+//                set to that origin.
+//
+// The default "/api" makes dev same-origin (browser sees :5173, Vite
+// hides the proxy hop) which mirrors the production same-origin shape
+// (nginx fronts both). Same-origin in both environments means the
+// session cookie's domain story is uniform — no separate dev/prod
+// CORS or SameSite quirks.
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 let authToken = null;
 
@@ -46,9 +60,22 @@ function notifyUnauthorized(detail) {
 // UNAUTHORIZED_EVENT on 401 without changing the caller's error semantics.
 // The pre-RBAC API methods call ifetch instead of fetch so a 401/403 anywhere
 // triggers the right app-level reaction (logout vs MeContext refresh).
+//
+// `credentials: 'include'` is forced on every call so the native session
+// cookie (axiaops_session) is sent cross-origin during local dev (Vite at
+// :5173 → API at :8080). In Docker prod the dashboard is same-origin so
+// the flag is a no-op. Under AUTH_PROVIDER=kinde the cookie won't exist
+// and the Authorization header carries the JWT instead — both paths
+// coexist during the strangler window.
 async function ifetch(url, opts) {
-  const res = await fetch(url, opts);
-  if (res.status === 401) notifyUnauthorized({ path: url });
+  const merged = { ...(opts || {}), credentials: 'include' };
+  const res = await fetch(url, merged);
+  // /v1/me is the auth check itself — a 401 there is the *answer*, not a
+  // "session lost mid-action" signal. Firing UNAUTHORIZED_EVENT for it
+  // can re-enter components that re-call /v1/me (Login mount-probe,
+  // MeContext refresh on remount), and the resulting tight loop is what
+  // Chrome's navigation throttle catches.
+  if (res.status === 401 && !url.endsWith('/v1/me')) notifyUnauthorized({ path: url });
   if (res.status === 403) notifyForbidden({ path: url });
   return res;
 }
@@ -172,7 +199,7 @@ export async function verifyAccount(id, { roleArn }) {
   });
   if (res.status === 400) {
     let body;
-    try { body = await res.json(); } catch (_) { body = {}; }
+    try { body = await res.json(); } catch { body = {}; }
     // Use a generic top-line message — the structured `reason` drives the
     // dashboard's user-facing copy via reasonToHint(). The API deliberately
     // does not return raw AWS error strings (they carry ARNs and request IDs).
@@ -336,8 +363,45 @@ export async function fetchCosts(accountId, service, days = 30) {
 // fetchMe returns the authenticated user's role + permission set. Goes
 // through `request()` so a 403 here (e.g. membership removed mid-session)
 // cascades to MeContext just like any other 403.
+//
+// Hard in-flight de-dupe: multiple concurrent callers share a single
+// network request, and a 401/403 result is cached for 250ms. Belt and
+// suspenders against any render-loop regression — if components remount
+// in a tight cycle (which is what produced the navigation-throttle
+// flood), they all see the same in-flight Promise instead of stampeding
+// the API with /v1/me requests.
+let _meInFlight = null;
+let _meLastError = null;
+let _meLastErrorAt = 0;
 export async function fetchMe() {
-  return request('/v1/me');
+  if (_meInFlight) return _meInFlight;
+  if (_meLastError && Date.now() - _meLastErrorAt < 250) {
+    throw _meLastError;
+  }
+  _meInFlight = request('/v1/me')
+    .then((data) => {
+      _meLastError = null;
+      return data;
+    })
+    .catch((err) => {
+      _meLastError = err;
+      _meLastErrorAt = Date.now();
+      throw err;
+    })
+    .finally(() => {
+      _meInFlight = null;
+    });
+  return _meInFlight;
+}
+
+// resetFetchMeCache clears the 250ms error cache. Called from every auth
+// ceremony entry point (login, bootstrap, redeem-invitation) — a fresh
+// cookie has just been minted, any cached 401 from before the credential
+// exchange is stale and would otherwise briefly block the post-login
+// /v1/me probe in MeContext.refresh().
+function resetFetchMeCache() {
+  _meLastError = null;
+  _meLastErrorAt = 0;
 }
 
 export async function listMemberships() {
@@ -417,6 +481,114 @@ export async function deleteCurrentUser() {
 
 export async function deleteCurrentOrganization() {
   return request('/v1/organizations/me', { method: 'DELETE' });
+}
+
+// ── Native auth (Phase B1) ──────────────────────────────────────────────────
+//
+// All four endpoints below work via the `axiaops_session` HttpOnly cookie —
+// the browser sends and stores it automatically (`credentials: 'include'`
+// is forced in ifetch). No Bearer token, no localStorage, no token
+// handling on the JS side. Under AUTH_PROVIDER=kinde these endpoints
+// either 401 (kinde-only) or coexist via the composite provider; the
+// dashboard chooses which login path to render based on VITE_AUTH_PROVIDER.
+
+// Maps a 4xx error from a native-auth POST to a structured object the
+// caller can switch on. Falls back to a generic error when the body
+// isn't a JSON envelope.
+async function decodeAuthError(res) {
+  try {
+    const body = await res.json();
+    const err = new Error(body.message || `request failed: ${res.status}`);
+    err.status = res.status;
+    err.code = body.error || '';
+    err.body = body;
+    return err;
+  } catch {
+    const err = new Error(`request failed: ${res.status}`);
+    err.status = res.status;
+    return err;
+  }
+}
+
+// authLogin posts email + password to /v1/auth/login. On success the
+// server sets the session cookie and returns {user, organization}.
+//
+// Two error shapes the caller must handle:
+//   - 401 invalid_credentials  — wrong email or password
+//   - 409 multi_org_not_supported — user has > 1 active membership;
+//                                   B1.5 will introduce the org picker
+export async function authLogin(email, password) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  resetFetchMeCache();
+  return res.json();
+}
+
+// authLogout clears the server-side session and the cookie. Returns 204
+// regardless of cookie state — see handler.go logout for the tolerance
+// rationale. Always treat as success on the client.
+export async function authLogout() {
+  await ifetch(`${BASE_URL}/v1/auth/logout`, { method: 'POST' });
+}
+
+// authBootstrap consumes the install token and creates the first owner.
+// Body fields per plan §4.2: token, email, password, name,
+// organization_name (optional, defaults to "AxiaOps" server-side).
+// Returns {user, organization} and sets the session cookie.
+export async function authBootstrap({ token, email, name, password, organizationName }) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/bootstrap`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token,
+      email,
+      name,
+      password,
+      organization_name: organizationName || '',
+    }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  resetFetchMeCache();
+  return res.json();
+}
+
+// authRedeemInvitation accepts an invite token and creates the user
+// + membership in one shot, then mints a session. Body: token, password,
+// name. Returns {user, organization}.
+export async function authRedeemInvitation({ token, name, password }) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/invitations/redeem`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, name, password }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+  resetFetchMeCache();
+  return res.json();
+}
+
+// authRedeemPasswordReset sets a new password from an admin-issued
+// token. Returns 204 on success. The server revokes every live session
+// for the user, so any open tab the user had stays logged out — the
+// dashboard should redirect to /login after this completes.
+export async function authRedeemPasswordReset({ token, newPassword }) {
+  const res = await ifetch(`${BASE_URL}/v1/auth/password-reset/redeem`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+  if (!res.ok) throw await decodeAuthError(res);
+}
+
+// issuePasswordReset is the admin counterpart — POSTs to /v1/users/{id}/
+// password-reset to mint a one-time URL the admin shares OOB with the
+// user. Permission gate enforced server-side (admin+; owners-only when
+// target is owner). Returns {user_id, redemption_url, expires_at}.
+export async function issuePasswordReset(userId) {
+  return request(`/v1/users/${encodeURIComponent(userId)}/password-reset`, { method: 'POST' });
 }
 
 // exportOrganizationData fetches GET /v1/export and returns { blob, filename } so

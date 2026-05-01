@@ -67,6 +67,9 @@ func setup(t *testing.T) *pgx.Conn {
 		axiaops.zombie_records,
 		axiaops.cost_records,
 		axiaops.accounts,
+		axiaops.sessions,
+		axiaops.password_resets,
+		axiaops.bootstrap_state,
 		axiaops.users,
 		axiaops.organizations
 	CASCADE`

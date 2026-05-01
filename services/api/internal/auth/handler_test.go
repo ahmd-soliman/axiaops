@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -68,7 +69,7 @@ func newHandlerTestWithAudit(t *testing.T) (*auth.Handler, *fakeStore, *auth.Man
 		SessionsPerUser: 10,
 	})
 	cap := &auditCapture{}
-	h := auth.NewHandler(store, mgr, auth.NewCookieConfig(true /* DEV — Secure off */), cap.writer())
+	h := auth.NewHandler(store, mgr, auth.NewCookieConfig(), cap.writer())
 	return h, store, mgr, cap
 }
 
@@ -203,6 +204,51 @@ func TestBootstrapMissingFieldsReturns400(t *testing.T) {
 	}, nil)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d; want 400; body = %s", w.Code, w.Body.String())
+	}
+}
+
+// TestBootstrapTokenNeverInURL nails plan §4.6 acceptance AC7: the
+// install token must NEVER appear in any URL — no Location header,
+// no Set-Cookie value, no Referer (the request URL itself is just
+// "/v1/auth/bootstrap"). Defence against accidental leakage via
+// browser history, access logs, or copy-paste.
+func TestBootstrapTokenNeverInURL(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedInstallToken(t, store)
+	const literalToken = "install-token-test-fixture-deadbeef"
+	if token != literalToken {
+		t.Fatalf("seedInstallToken changed; update the test fixture")
+	}
+
+	w := postJSON(t, mux(h), "/v1/auth/bootstrap", map[string]string{
+		"token": token, "email": "owner@example.com", "name": "Owner",
+		"password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d / %s", w.Code, w.Body.String())
+	}
+
+	// 1. Response Location header must not carry the token (we don't
+	//    redirect, but assert anyway in case a future change adds one).
+	if loc := w.Header().Get("Location"); strings.Contains(loc, literalToken) {
+		t.Errorf("Location header carries install token: %q", loc)
+	}
+
+	// 2. Set-Cookie must not carry the install token. The session
+	//    cookie carries a session token (separate value); the install
+	//    token must not appear anywhere in the cookie value.
+	for _, c := range w.Result().Cookies() {
+		if strings.Contains(c.Value, literalToken) {
+			t.Errorf("cookie %q carries install token: %q", c.Name, c.Value)
+		}
+	}
+
+	// 3. Response body must not echo the install token. The handler
+	//    returns user/org JSON; if a future change adds a debug field
+	//    that leaks the token, this catches it.
+	if strings.Contains(w.Body.String(), literalToken) {
+		t.Errorf("response body carries install token: %s", w.Body.String())
 	}
 }
 
@@ -356,6 +402,70 @@ func TestLoginMultiOrgReturns409(t *testing.T) {
 }
 
 // ── /v1/auth/logout ─────────────────────────────────────────────────────────
+
+func TestLoginRateLimitedReturns429(t *testing.T) {
+	// Plan §4.2 acceptance: 11th login from same IP returns 429.
+	// Wires a 1/min limiter to keep the test fast.
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(1, 100))
+
+	body := map[string]string{"email": "alice@example.com", "password": "wrong password 12345"}
+
+	// First attempt: 401 (wrong password) — rate-limit budget consumed.
+	first := postJSON(t, mux(h), "/v1/auth/login", body, nil)
+	if first.Code != http.StatusUnauthorized {
+		t.Fatalf("first attempt status = %d; want 401", first.Code)
+	}
+
+	// Second attempt: blocked by rate limiter, 429 with Retry-After.
+	second := postJSON(t, mux(h), "/v1/auth/login", body, nil)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second attempt status = %d; want 429", second.Code)
+	}
+	if second.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on 429")
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(second.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode 429 body: %v", err)
+	}
+	if resp["error"] != "rate_limited" {
+		t.Errorf("error = %v; want rate_limited", resp["error"])
+	}
+}
+
+func TestLoginRateLimitedEmailCapReturns429(t *testing.T) {
+	// Same shape as the IP-cap test but parameterised so the per-email
+	// counter trips first. perIP=100 is effectively unlimited; perEmail=1
+	// means the second attempt against the same email — even from a
+	// different request — gets the 429.
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "victim@example.com", "correct horse battery staple", 1)
+
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	h.WithLoginRateLimit(auth.NewLoginRateLimiter(mem).WithLimits(100, 1))
+
+	body := map[string]string{"email": "victim@example.com", "password": "wrong password 12345"}
+
+	first := postJSON(t, mux(h), "/v1/auth/login", body, nil)
+	if first.Code != http.StatusUnauthorized {
+		t.Fatalf("first attempt status = %d; want 401", first.Code)
+	}
+	second := postJSON(t, mux(h), "/v1/auth/login", body, nil)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second attempt status = %d; want 429 (email cap)", second.Code)
+	}
+	if second.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on 429 from email cap")
+	}
+}
 
 func TestLogoutRevokesSessionAndClearsCookie(t *testing.T) {
 	t.Parallel()
