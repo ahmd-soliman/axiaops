@@ -80,8 +80,10 @@ const (
 	// when a user POSTs /v1/auth/switch-org and rotates their session to a
 	// different org they're a member of (B1.5 §4.7.4). Metadata carries
 	// {from, to} — user_id is already on the audit row's actor field, so
-	// duplicating it in metadata would just inflate the row.
-	AuditActionSessionOrgSwitched = "session.org_switched"
+	// duplicating it in metadata would just inflate the row. Underscore
+	// spelling matches all other audit constants; plan §4.7.4 used dot
+	// notation in prose, but consistency wins here.
+	AuditActionSessionOrgSwitched = "session_org_switched"
 )
 
 // ValidAuditActions is the authoritative set of action codes accepted on write

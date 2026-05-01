@@ -569,15 +569,23 @@ type switchOrgRequest struct {
 	OrganizationID string `json:"organization_id"`
 }
 
+// switchOrgUser is the slim user shape returned by /v1/auth/switch-org —
+// just id + role. Defined as a separate struct (not a reuse of `user`)
+// so empty-email and empty-name don't end up on the wire as `""`. The
+// frontend already has email/name from /v1/me; rebinding to a different
+// org doesn't change them.
+type switchOrgUser struct {
+	ID   string `json:"id"`
+	Role string `json:"role"`
+}
+
 // switchOrgResponse is a deliberately slim confirmation payload —
-// `{user: {id, role}, organization: {id}}`. Email/name are intentionally
-// omitted: the frontend already has those from /v1/me and switching orgs
-// doesn't change them. The response's job is to confirm the new binding
-// and surface the role at target so the dashboard can re-render UI gates
-// without re-fetching /v1/me.
+// `{user: {id, role}, organization: {id}}`. Job is to confirm the new
+// binding and surface the role at target so the dashboard can re-render
+// UI gates without re-fetching /v1/me.
 type switchOrgResponse struct {
-	User user      `json:"user"`
-	Org  orgRecord `json:"organization"`
+	User switchOrgUser `json:"user"`
+	Org  orgRecord     `json:"organization"`
 }
 
 // switchOrg flips the caller's session from one org they belong to to
@@ -662,7 +670,7 @@ func (h *Handler) switchOrg(w http.ResponseWriter, r *http.Request) {
 	// doesn't shift. Idempotent for racy clients.
 	if target == sess.OrganizationID {
 		writeJSON(w, http.StatusOK, switchOrgResponse{
-			User: user{ID: sess.UserID, Role: chosen.Role},
+			User: switchOrgUser{ID: sess.UserID, Role: chosen.Role},
 			Org:  orgRecord{ID: target},
 		})
 		return
@@ -694,7 +702,7 @@ func (h *Handler) switchOrg(w http.ResponseWriter, r *http.Request) {
 
 	SetSession(w, r, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
 	writeJSON(w, http.StatusOK, switchOrgResponse{
-		User: user{ID: sess.UserID, Role: chosen.Role},
+		User: switchOrgUser{ID: sess.UserID, Role: chosen.Role},
 		Org:  orgRecord{ID: target},
 	})
 }

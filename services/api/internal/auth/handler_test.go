@@ -486,7 +486,6 @@ func TestSwitchOrgHappyPath(t *testing.T) {
 	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
 	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
 	store.mu.Lock()
-	from := store.memberships["u-alice@example.com"][0].OrganizationID
 	to := store.memberships["u-alice@example.com"][1].OrganizationID
 	store.mu.Unlock()
 
@@ -512,7 +511,16 @@ func TestSwitchOrgHappyPath(t *testing.T) {
 	if got := org["id"]; got != to {
 		t.Errorf("response organization.id = %v; want %s", got, to)
 	}
-	_ = from
+	// Wire shape is the slim {id, role} — assert email/name fields are
+	// NOT present (they'd be empty strings if the wide `user` struct
+	// were used; the slim `switchOrgUser` skips them entirely).
+	u, _ := body["user"].(map[string]any)
+	if _, present := u["email"]; present {
+		t.Errorf("user.email should be absent from switch-org response; got %+v", u)
+	}
+	if _, present := u["name"]; present {
+		t.Errorf("user.name should be absent from switch-org response; got %+v", u)
+	}
 }
 
 // TestSwitchOrg_OldCookieReturns401AfterSwitch: plan §4.7.4 row 4. After a
