@@ -203,7 +203,7 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"organization_name": req.OrganizationName})
 	}
 
-	SetSession(w, h.cookieCfg, plaintextSessionToken, res.Session.ExpiresAt)
+	SetSession(w, r, h.cookieCfg, plaintextSessionToken, res.Session.ExpiresAt)
 	writeJSON(w, http.StatusOK, bootstrapResponse{
 		User: user{
 			ID:    res.User.ID,
@@ -346,7 +346,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	}
 	observability.Global.AuthLoginTotal.WithLabelValues("success", "").Inc()
 
-	SetSession(w, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
+	SetSession(w, r, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
 	writeJSON(w, http.StatusOK, loginResponse{
 		User: user{
 			ID:    u.ID,
@@ -449,7 +449,7 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"role": mship.Role})
 	}
 
-	SetSession(w, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
+	SetSession(w, r, h.cookieCfg, mint.PlaintextToken, mint.ExpiresAt)
 	writeJSON(w, http.StatusOK, redeemInvitationResponse{
 		User: user{
 			ID:    resolvedUser.ID,
@@ -555,7 +555,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	ClearSession(w, h.cookieCfg)
+	ClearSession(w, r, h.cookieCfg)
 	w.WriteHeader(http.StatusNoContent)
 }
 
