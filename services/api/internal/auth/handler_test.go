@@ -13,9 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"axiaops.io/api/internal/auth"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/observability"
 )
 
 // newHandlerTest wires a Handler against the in-package fakeStore and
@@ -1136,6 +1139,63 @@ func TestRedeemInvitationExistingUser_WrongPasswordReturns401(t *testing.T) {
 	store.mu.Unlock()
 	if !present {
 		t.Error("token consumed on failed verify; should remain pending for retry")
+	}
+}
+
+// ── B1.5 observability acceptance (plan §4.7.4 row 9) ─────────────────────
+
+// TestSwitchOrg_IncrementsOrgSwitchRevocationMetric pins the
+// `axiaops_session_revocations_total{reason="org_switch"}` counter
+// increments on every successful switch. The metric drives the
+// strangler-rollout dashboard and an alert that catches a switch storm
+// (e.g. an admin script switching wrong) — silent regressions here are
+// hard to spot, so we assert it explicitly.
+//
+// NOT t.Parallel(): reads the global Prometheus counter via
+// testutil.ToFloat64; another parallel test incrementing the same
+// labeled series would race the before/after delta.
+func TestSwitchOrg_IncrementsOrgSwitchRevocationMetric(t *testing.T) {
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	cookie := mintSessionCookie(t, h, store, "alice@example.com", 0)
+	store.mu.Lock()
+	to := store.memberships["u-alice@example.com"][1].OrganizationID
+	store.mu.Unlock()
+
+	counter := observability.Global.AuthSessionRevocationsTotal.WithLabelValues("org_switch")
+	before := testutil.ToFloat64(counter)
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{"organization_id": to}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("switch-org status = %d; want 200", w.Code)
+	}
+
+	after := testutil.ToFloat64(counter)
+	if after-before != 1 {
+		t.Errorf("axiaops_session_revocations_total{reason=org_switch} delta = %v; want 1", after-before)
+	}
+}
+
+// TestLogin_IncrementsOrgSelectionRequiredOutcome pins the
+// `axiaops_auth_login_total{outcome="org_selection_required"}` counter
+// increments on every multi-membership /v1/auth/login. Plan §4.7.4 row 9.
+func TestLogin_IncrementsOrgSelectionRequiredOutcome(t *testing.T) {
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+
+	counter := observability.Global.AuthLoginTotal.WithLabelValues("org_selection_required", "")
+	before := testutil.ToFloat64(counter)
+
+	w := postJSON(t, mux(h), "/v1/auth/login", map[string]string{
+		"email": "alice@example.com", "password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login status = %d; want 200 (multi-org picker)", w.Code)
+	}
+
+	after := testutil.ToFloat64(counter)
+	if after-before != 1 {
+		t.Errorf("axiaops_auth_login_total{outcome=org_selection_required} delta = %v; want 1", after-before)
 	}
 }
 
