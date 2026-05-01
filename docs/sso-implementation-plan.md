@@ -603,7 +603,7 @@ Signed with RS256. AxiaOps's private key is held offline (1Password). Public key
   "exp": 1745971200,
   "license_id": "lic_acme_2026_v1",
   "contract_id": "MSA-2026-007",              // for cross-reference with billing/CRM
-  "max_organizations": 5,                     // soft cap (advisory; emits warnings)
+  "max_organizations": 5,                     // advisory; surfaced but NOT enforced by the verifier
   "features": ["base"],                       // future-proofing — D12 ships only "base"
   "grace_period_days": 30                     // soft expiry window after exp
 }

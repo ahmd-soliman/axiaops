@@ -46,6 +46,11 @@ const (
 // Mirrors jwt.WithLeeway's role for the parser-level checks we opted out of.
 const clockSkewLeeway = 60 * time.Second
 
+// maxGracePeriodDays bounds the grace_period_days claim. Past 10 years, the
+// claim describes "essentially never expires," which defeats the entire
+// point of programmatic TTL enforcement. See Load() for the rejection path.
+const maxGracePeriodDays = 3650
+
 // State classifies a loaded license against the current wall clock.
 //
 // StateNotLoaded is a separate value (not a permissive default of StateValid)
@@ -172,6 +177,15 @@ func Load() (*License, error) {
 	}
 	if claims.GracePeriodDays < 0 {
 		return nil, fmt.Errorf("license: negative grace_period_days %d", claims.GracePeriodDays)
+	}
+	// Upper bound is defensive: a JWT minted with an absurd value (signing
+	// mistake, copy-paste from a unit-test fixture, malicious issuer with a
+	// stolen key) would otherwise make the license effectively irrevocable.
+	// 3650 days = 10 years, comfortably past any plausible commercial
+	// contract; the operator-side CLI is the first line of defence, this is
+	// the verifier's belt-and-braces.
+	if claims.GracePeriodDays > maxGracePeriodDays {
+		return nil, fmt.Errorf("license: grace_period_days %d exceeds maximum %d", claims.GracePeriodDays, maxGracePeriodDays)
 	}
 
 	return &License{

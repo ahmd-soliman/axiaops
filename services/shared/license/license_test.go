@@ -315,6 +315,57 @@ func TestLoad_MissingLicenseID(t *testing.T) {
 	}
 }
 
+// TestLoad_NegativeGracePeriod and TestLoad_ExcessiveGracePeriod guard the
+// grace_period_days bounds. Negative was already rejected; the upper bound
+// (3650 days = 10 years) was added per MR !71 holistic review — without it
+// a JWT with grace_period_days: 36500 would make the license effectively
+// irrevocable.
+func TestLoad_NegativeGracePeriod(t *testing.T) {
+	k := setupKeys(t)
+	raw := signLicense(t, k, func(c *jwt.MapClaims) {
+		(*c)["grace_period_days"] = -1
+	}, nil, nil)
+	installLicense(t, k, raw)
+
+	if _, err := license.Load(); err == nil {
+		t.Fatal("Load(grace=-1) succeeded; want negative-grace error")
+	}
+}
+
+func TestLoad_ExcessiveGracePeriod(t *testing.T) {
+	k := setupKeys(t)
+	raw := signLicense(t, k, func(c *jwt.MapClaims) {
+		(*c)["grace_period_days"] = 3651 // one day past the cap
+	}, nil, nil)
+	installLicense(t, k, raw)
+
+	_, err := license.Load()
+	if err == nil {
+		t.Fatal("Load(grace=3651) succeeded; want maximum-exceeded error")
+	}
+	if !strings.Contains(err.Error(), "grace_period_days") {
+		t.Errorf("error %q does not name the offending claim", err)
+	}
+}
+
+// TestLoad_GracePeriodAtMaximum is the boundary case — exactly at the cap is
+// accepted. Catches an off-by-one regression in the > vs >= comparison.
+func TestLoad_GracePeriodAtMaximum(t *testing.T) {
+	k := setupKeys(t)
+	raw := signLicense(t, k, func(c *jwt.MapClaims) {
+		(*c)["grace_period_days"] = 3650
+	}, nil, nil)
+	installLicense(t, k, raw)
+
+	lic, err := license.Load()
+	if err != nil {
+		t.Fatalf("Load(grace=3650) failed; should accept the maximum: %v", err)
+	}
+	if lic.GracePeriodDays != 3650 {
+		t.Errorf("GracePeriodDays = %d, want 3650", lic.GracePeriodDays)
+	}
+}
+
 func TestCheckExpiry_BoundaryAtExp(t *testing.T) {
 	now := time.Now()
 	lic := &license.License{

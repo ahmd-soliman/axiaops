@@ -44,6 +44,14 @@ import (
 // names different makes a misconfigured deploy fail loud.
 const envSigningKey = "LICENSE_SIGNING_KEY_PATH"
 
+// maxGracePeriodDays mirrors the verifier-side bound (license.go) so the
+// CLI catches fat-finger mistakes at issuance time rather than at the
+// customer's first boot. Kept as a separate constant rather than imported
+// to avoid circular concern (CLI would otherwise import "the policy" from
+// the verifier and have to track its semantics; the values being identical
+// is the test contract — see TestRun_RejectsExcessiveGracePeriodDays).
+const maxGracePeriodDays = 3650
+
 // issueParams collects the validated CLI inputs. Validation lives in
 // validateParams so the test suite can hit each branch without re-parsing
 // flags.
@@ -95,7 +103,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&p.contractID, "contract-id", "", "MSA / contract reference, surfaced in /v1/version + audit_log. Required.")
 	fs.StringVar(&p.licenseID, "license-id", "", "Stable license identifier. Defaults to lic_<customer-id>_<year>_v1.")
 	fs.IntVar(&p.days, "days", 0, "Days from now until exp. Required (> 0).")
-	fs.IntVar(&p.maxOrganizations, "max-organizations", 0, "Soft cap; emits a warning at boot if exceeded. Required (> 0).")
+	fs.IntVar(&p.maxOrganizations, "max-organizations", 0, "Advisory cap; surfaced via /v1/version + license_state_info but not enforced by the verifier. Required (> 0).")
 	fs.StringVar(&featuresCSV, "features", "base", "Comma-separated feature flags. B1.6 ships only \"base\".")
 	fs.IntVar(&p.gracePeriodDays, "grace-period-days", 30, "Soft expiry window past exp. >= 0.")
 
@@ -153,6 +161,13 @@ func validateParams(p *issueParams, now time.Time) error {
 	}
 	if p.gracePeriodDays < 0 {
 		return errors.New("--grace-period-days must be >= 0")
+	}
+	// Mirror the verifier's upper bound (3650 = 10 years). Catches
+	// fat-finger / copy-paste-from-test-fixture mistakes at issuance time
+	// instead of at the customer's first boot, where the failure looks
+	// like a corrupt license.
+	if p.gracePeriodDays > maxGracePeriodDays {
+		return fmt.Errorf("--grace-period-days %d exceeds maximum %d (10 years)", p.gracePeriodDays, maxGracePeriodDays)
 	}
 	if len(p.features) == 0 {
 		return errors.New("--features must be non-empty (default \"base\")")
