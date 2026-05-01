@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -322,14 +323,16 @@ func seedAccount(t *testing.T, store *fakeStore, email, password string, mships 
 	store.organizationsCount += int64(mships)
 	out := make([]model.Membership, 0, mships)
 	for i := 0; i < mships; i++ {
+		orgID := "org-" + email + "-" + string(rune('a'+i))
 		out = append(out, model.Membership{
 			ID:             "m-" + email + "-" + string(rune('a'+i)),
-			OrganizationID: "org-" + email + "-" + string(rune('a'+i)),
+			OrganizationID: orgID,
 			UserID:         id,
 			Role:           "owner",
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		})
+		store.orgsByID[orgID] = "Org " + string(rune('A'+i))
 	}
 	store.memberships[id] = out
 }
@@ -381,7 +384,12 @@ func TestLoginUnknownEmailReturns401(t *testing.T) {
 	}
 }
 
-func TestLoginMultiOrgReturns409(t *testing.T) {
+// TestLoginMultiOrgReturns200WithPicker is the B1.5 §4.7.1 contract: a user
+// with >1 active membership gets 200 OK with `{needs_org_selection: true,
+// orgs: [{id, name}, ...]}` and **no Set-Cookie**. The frontend lands on
+// /select-org and POSTs the chosen org_id back to /v1/auth/select-org with
+// re-supplied credentials (slice 3).
+func TestLoginMultiOrgReturns200WithPicker(t *testing.T) {
 	t.Parallel()
 	h, store, _ := newHandlerTest(t)
 	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
@@ -389,15 +397,75 @@ func TestLoginMultiOrgReturns409(t *testing.T) {
 	w := postJSON(t, mux(h), "/v1/auth/login", map[string]string{
 		"email": "alice@example.com", "password": "correct horse battery staple",
 	}, nil)
-	if w.Code != http.StatusConflict {
-		t.Fatalf("status = %d; want 409; body = %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	// No session cookie on the picker branch — the picker step (slice 3)
+	// re-validates the password before minting.
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName && c.Value != "" {
+			t.Errorf("multi-org login set %s cookie to %q; expected no session", c.Name, c.Value)
+		}
 	}
 	body := mustDecode[map[string]any](t, w)
-	if body["error"] != "multi_org_not_supported" {
-		t.Errorf("error code = %v; want multi_org_not_supported", body["error"])
+	if body["needs_org_selection"] != true {
+		t.Errorf("needs_org_selection = %v; want true", body["needs_org_selection"])
 	}
-	if body["b15_pending"] != true {
-		t.Errorf("b15_pending = %v; want true (frontend marker for B1.5 picker)", body["b15_pending"])
+	orgs, ok := body["orgs"].([]any)
+	if !ok {
+		t.Fatalf("orgs is not an array: %v", body["orgs"])
+	}
+	if len(orgs) != 2 {
+		t.Fatalf("orgs length = %d; want 2 (seedAccount mships=2)", len(orgs))
+	}
+	first, _ := orgs[0].(map[string]any)
+	if first["id"] == "" || first["name"] == "" {
+		t.Errorf("first org missing id/name: %+v", first)
+	}
+}
+
+// TestLoginMultiOrg_DBErrorReturns500 closes the slice-1 review concern: if
+// ListUserMemberships fails on the multi-org branch, the handler must 500
+// rather than silently degrade to the single-org flow (which would land
+// the user in whichever org happened to be first in the list — wrong org).
+func TestLoginMultiOrg_DBErrorReturns500(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+	store.mu.Lock()
+	store.listUserMembershipsErr = errors.New("simulated db outage")
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/login", map[string]string{
+		"email": "alice@example.com", "password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d; want 500 on ListUserMemberships failure; body = %s", w.Code, w.Body.String())
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName && c.Value != "" {
+			t.Errorf("DB-error path set %s cookie to %q; must not mint", c.Name, c.Value)
+		}
+	}
+}
+
+// TestLoginSingleOrg_DoesNotCallListUserMemberships locks in that the
+// happy single-org path doesn't pay for the org-picker join — that lookup
+// only fires in the multi-membership branch. We assert this by injecting
+// an error and confirming login still succeeds for a single-org user.
+func TestLoginSingleOrg_DoesNotCallListUserMemberships(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+	store.mu.Lock()
+	store.listUserMembershipsErr = errors.New("should not be called")
+	store.mu.Unlock()
+
+	w := postJSON(t, mux(h), "/v1/auth/login", map[string]string{
+		"email": "alice@example.com", "password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (single-org happy path); body = %s", w.Code, w.Body.String())
 	}
 }
 
