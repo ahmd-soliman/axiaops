@@ -1,20 +1,19 @@
-// Package middleware provides HTTP middleware for the ingestion API.
+// Package middleware provides HTTP middleware for the AxiaOps API service:
+// JWT auth (legacy Kinde Bearer + native cookie sessions), DEV_MODE bypass,
+// authorisation, rate limiting, and request-ID tagging.
 package middleware
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 
 	"axiaops.io/shared/cache"
+	"axiaops.io/shared/jwks"
 	"axiaops.io/shared/storage"
 )
 
@@ -27,8 +26,6 @@ const (
 	userEmailKey        contextKey = "user_email"
 	roleKey             contextKey = "role"
 	authModeKey         contextKey = "auth_mode"
-
-	jwksTTL = time.Hour
 )
 
 // Auth verifies Kinde JWTs on every request.
@@ -41,71 +38,16 @@ type Auth struct {
 }
 
 // NewAuth creates an Auth middleware from the Kinde issuer URL.
-// JWKS are cached in the provided cache.Cache under key "jwks:{issuer}" for 1 hour.
-// On cache miss or cache error the JWKS are fetched live — auth never fails due to cache.
+// JWKS are fetched (and cached for 1 hour) via the shared jwks package; on
+// cache miss or cache error the JWKS are fetched live — auth never fails
+// due to cache.
 func NewAuth(ctx context.Context, issuer string, store storage.Store, c cache.Cache) (*Auth, error) {
 	jwksURL := strings.TrimRight(issuer, "/") + "/.well-known/jwks.json"
-	kf, err := keyfuncFromCache(ctx, issuer, jwksURL, c)
+	kf, err := jwks.FromCache(ctx, issuer, jwksURL, c)
 	if err != nil {
 		return nil, fmt.Errorf("auth: fetch JWKS from %s: %w", jwksURL, err)
 	}
 	return &Auth{issuer: issuer, keyfunc: kf, store: store}, nil
-}
-
-// keyfuncFromCache returns a jwt.Keyfunc backed by a cached JWKS.
-// Cache miss → fetch live → populate cache.
-// Cache error → log warn → fetch live (never block auth).
-func keyfuncFromCache(ctx context.Context, issuer, jwksURL string, c cache.Cache) (jwt.Keyfunc, error) {
-	cacheKey := "jwks:" + issuer
-
-	fetchAndCache := func() (jwt.Keyfunc, error) {
-		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, jwksURL, nil)
-		if err != nil {
-			return nil, err
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer func() { _ = resp.Body.Close() }()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-		if c != nil {
-			if setErr := c.Set(ctx, cacheKey, body, jwksTTL); setErr != nil {
-				slog.Warn("auth: failed to cache JWKS", "err", setErr)
-			}
-		}
-		return keyfuncFromBytes(body)
-	}
-
-	if c != nil {
-		data, err := c.Get(ctx, cacheKey)
-		if err == nil {
-			slog.Info("auth: JWKS cache hit", "issuer", issuer)
-			kf, parseErr := keyfuncFromBytes(data)
-			if parseErr == nil {
-				return kf, nil
-			}
-			slog.Warn("auth: cached JWKS invalid, re-fetching", "err", parseErr)
-		} else if !errors.Is(err, cache.ErrNotFound) {
-			slog.Warn("auth: cache error, falling back to live fetch", "err", err)
-		}
-	}
-
-	return fetchAndCache()
-}
-
-// keyfuncFromBytes parses a raw JWKS JSON payload into a jwt.Keyfunc.
-func keyfuncFromBytes(data []byte) (jwt.Keyfunc, error) {
-	k, err := keyfunc.NewJWKSetJSON(data)
-	if err != nil {
-		return nil, err
-	}
-	return k.Keyfunc, nil
 }
 
 // newWithKeyfunc creates an Auth with a custom keyfunc — used in tests only.

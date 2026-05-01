@@ -1,15 +1,17 @@
-package middleware
+package middleware_test
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"axiaops.io/api/internal/middleware"
 )
 
 func TestRequestID_GeneratesUUIDWhenMissing(t *testing.T) {
 	var capturedID string
-	h := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedID = RequestIDFromCtx(r.Context())
+	h := middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedID = middleware.RequestIDFromCtx(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -35,8 +37,8 @@ func TestRequestID_PassesExistingHeader(t *testing.T) {
 	existingID := "custom-123-request-id"
 	var capturedID string
 
-	h := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedID = RequestIDFromCtx(r.Context())
+	h := middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedID = middleware.RequestIDFromCtx(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -56,9 +58,9 @@ func TestRequestID_PassesExistingHeader(t *testing.T) {
 }
 
 func TestRequestID_StoredInContext(t *testing.T) {
-	h := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id1 := RequestIDFromCtx(r.Context())
-		id2 := RequestIDFromCtx(r.Context())
+	h := middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id1 := middleware.RequestIDFromCtx(r.Context())
+		id2 := middleware.RequestIDFromCtx(r.Context())
 
 		if id1 != id2 {
 			t.Errorf("context ID not consistent: %q vs %q", id1, id2)
@@ -83,11 +85,11 @@ func TestRequestID_StoredInContext(t *testing.T) {
 func TestRequestID_MultipleRequests_DifferentIDs(t *testing.T) {
 	var id1, id2 string
 
-	h := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id1 == "" {
-			id1 = RequestIDFromCtx(r.Context())
+			id1 = middleware.RequestIDFromCtx(r.Context())
 		} else {
-			id2 = RequestIDFromCtx(r.Context())
+			id2 = middleware.RequestIDFromCtx(r.Context())
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -113,7 +115,7 @@ func TestRequestID_MultipleRequests_DifferentIDs(t *testing.T) {
 
 func TestRequestIDFromCtx_EmptyWhenMissing(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/test", nil)
-	id := RequestIDFromCtx(r.Context())
+	id := middleware.RequestIDFromCtx(r.Context())
 
 	if id != "" {
 		t.Errorf("expected empty string, got %q", id)
@@ -121,7 +123,7 @@ func TestRequestIDFromCtx_EmptyWhenMissing(t *testing.T) {
 }
 
 func TestRequestID_HeaderSetInResponse(t *testing.T) {
-	h := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -139,8 +141,8 @@ func TestRequestID_PreservesCasing(t *testing.T) {
 	customID := "AbCdEf-123"
 	var capturedID string
 
-	h := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedID = RequestIDFromCtx(r.Context())
+	h := middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedID = middleware.RequestIDFromCtx(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
