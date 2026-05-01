@@ -9,6 +9,7 @@ import (
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/middleware"
+	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
 )
 
@@ -131,6 +132,84 @@ func TestGetMe_AuthProviderTier(t *testing.T) {
 				t.Errorf("auth_mode = %q; want %q", resp.AuthMode, tc.authMode)
 			}
 		})
+	}
+}
+
+// TestGetMe_MembershipsArrayPresent locks in the B1.5 contract that /v1/me
+// always serialises `memberships` as a JSON array (never null) and includes
+// every active membership for the authenticated user with the org's display
+// name. The frontend's org-switcher iterates this list directly.
+func TestGetMe_MembershipsArrayPresent(t *testing.T) {
+	store := NewMockStore().WithRole("admin")
+	store.UserMemberships = []model.MembershipWithOrganization{
+		{
+			Membership:       model.Membership{OrganizationID: "organization-me", UserID: "user-me", Role: "admin"},
+			OrganizationName: "Acme Co",
+		},
+		{
+			Membership:       model.Membership{OrganizationID: "organization-other", UserID: "user-me", Role: "viewer"},
+			OrganizationName: "Side Project",
+		},
+	}
+	h := api.New(store, newQueueShim())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, meRequest(http.MethodGet, "/v1/me"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Memberships []struct {
+			OrganizationID   string `json:"organization_id"`
+			OrganizationName string `json:"organization_name"`
+			Role             string `json:"role"`
+		} `json:"memberships"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Memberships) != 2 {
+		t.Fatalf("got %d memberships, want 2: %+v", len(resp.Memberships), resp.Memberships)
+	}
+	if resp.Memberships[0].OrganizationID != "organization-me" || resp.Memberships[0].Role != "admin" {
+		t.Errorf("first membership = %+v", resp.Memberships[0])
+	}
+	if resp.Memberships[1].OrganizationID != "organization-other" || resp.Memberships[1].Role != "viewer" {
+		t.Errorf("second membership = %+v", resp.Memberships[1])
+	}
+	if resp.Memberships[0].OrganizationName != "Acme Co" {
+		t.Errorf("organization_name not joined: %q", resp.Memberships[0].OrganizationName)
+	}
+}
+
+// TestGetMe_MembershipsEmptyArrayNotNull guards the JSON shape: a user with
+// zero memberships must still get `[]`, not `null`. Frontend code does
+// `me.memberships.length` and would NPE on null.
+func TestGetMe_MembershipsEmptyArrayNotNull(t *testing.T) {
+	store := NewMockStore().WithRole("")
+	// UserMemberships left nil → ListUserMemberships returns nil → handler
+	// must still emit "memberships": [].
+	h := api.New(store, newQueueShim())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, meRequest(http.MethodGet, "/v1/me"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d", w.Code)
+	}
+
+	// Raw-decode to distinguish [] from null in the wire output.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	got := string(raw["memberships"])
+	if got != "[]" {
+		t.Errorf("memberships wire shape = %q; want \"[]\" (empty array, not null)", got)
 	}
 }
 
