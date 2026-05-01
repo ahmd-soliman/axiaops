@@ -1,11 +1,30 @@
 package sso_test
 
 import (
+	"context"
 	"testing"
 
 	"axiaops.io/api/internal/sso"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/storage"
 )
+
+// captureJITStore is a tiny JITMembershipStore that records the most recent
+// SaveMembership call so the test can assert provenance is set correctly.
+type captureJITStore struct {
+	lastSavedMembership model.Membership
+}
+
+func (c *captureJITStore) SaveMembership(_ context.Context, m model.Membership) error {
+	c.lastSavedMembership = m
+	return nil
+}
+func (c *captureJITStore) GetMembershipByOrgUser(_ context.Context, _, _ string) (model.Membership, error) {
+	return model.Membership{}, storage.ErrMembershipNotFound
+}
+func (c *captureJITStore) UpdateMembershipRole(_ context.Context, _, _ string) error {
+	return nil
+}
 
 func mapping(group, role string) model.SSOGroupMapping {
 	return model.SSOGroupMapping{GroupExternalID: group, Role: role}
@@ -130,5 +149,25 @@ func TestJITProvisionMembership_OwnerForbidden(t *testing.T) {
 	}
 	if err != sso.ErrJITOwnerForbidden {
 		t.Errorf("JITProvisionMembership(owner) error = %v; want ErrJITOwnerForbidden", err)
+	}
+}
+
+// TestJITProvisionMembership_SetsProvisionedViaJIT proves the JIT seam writes
+// `provisioned_via='jit'` into the SaveMembership call. Without this the
+// admin team-review UX surfaces JIT-provisioned users as `manual` —
+// defeating the whole point of the column added in migration 022.
+func TestJITProvisionMembership_SetsProvisionedViaJIT(t *testing.T) {
+	store := &captureJITStore{}
+	if err := sso.JITProvisionMembership(t.Context(), store, "org-1", "user-1", "member"); err != nil {
+		t.Fatalf("JITProvisionMembership: %v", err)
+	}
+	if got, want := store.lastSavedMembership.ProvisionedVia, model.ProvisionedViaJIT; got != want {
+		t.Errorf("SaveMembership.ProvisionedVia = %q; want %q", got, want)
+	}
+	if got, want := store.lastSavedMembership.Role, "member"; got != want {
+		t.Errorf("SaveMembership.Role = %q; want %q", got, want)
+	}
+	if got, want := store.lastSavedMembership.OrganizationID, "org-1"; got != want {
+		t.Errorf("SaveMembership.OrganizationID = %q; want %q", got, want)
 	}
 }

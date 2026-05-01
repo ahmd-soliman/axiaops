@@ -1729,10 +1729,17 @@ func (s *Store) SaveMembership(ctx context.Context, m model.Membership) error {
 	if m.InvitedBy != "" {
 		invitedBy = m.InvitedBy
 	}
+	provisionedVia := m.ProvisionedVia
+	if provisionedVia == "" {
+		// Default mirrors the migration 022 column default for the explicit
+		// POST /v1/memberships path (and any other caller that doesn't set
+		// it). JIT and SCIM callers MUST set ProvisionedVia explicitly.
+		provisionedVia = model.ProvisionedViaManual
+	}
 	_, err = tx.Exec(ctx, `
-		INSERT INTO memberships (id, organization_id, user_id, role, invited_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-		id, m.OrganizationID, m.UserID, m.Role, invitedBy, now,
+		INSERT INTO memberships (id, organization_id, user_id, role, invited_by, provisioned_via, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
+		id, m.OrganizationID, m.UserID, m.Role, invitedBy, provisionedVia, now,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError

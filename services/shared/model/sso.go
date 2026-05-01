@@ -41,13 +41,20 @@ const (
 )
 
 // Membership.provisioned_via — added by migration 022. JIT and SCIM are SSO
-// flows; manual covers the bootstrap owner; invitation covers the explicit
-// invite path that already existed pre-B1.
+// flows; manual covers the bootstrap owner and the explicit POST /v1/memberships
+// path; invitation covers the redemption flow that already existed pre-B1.
+//
+// ProvisionedViaLegacy is the backfill marker for pre-B2 rows whose provenance
+// is unrecoverable (`pending_memberships` rows are deleted on redemption, so
+// we can't reconstruct whether an existing membership came in via invite vs.
+// the manual paths). NEW code MUST set one of the four concrete values; never
+// write 'legacy' from new code.
 const (
 	ProvisionedViaManual     = "manual"
 	ProvisionedViaInvitation = "invitation"
 	ProvisionedViaJIT        = "jit"
 	ProvisionedViaSCIM       = "scim"
+	ProvisionedViaLegacy     = "legacy"
 )
 
 // SSOConnection is one (organization, IdP) pair. The protocol-specific fields

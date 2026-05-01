@@ -75,6 +75,13 @@ func (n *NativeConnector) Save(ctx context.Context, c model.SSOConnection) (mode
 	if err := n.store.UpdateSSOConnection(ctx, c); err != nil {
 		return model.SSOConnection{}, err
 	}
+	// TOCTOU note: a concurrent PATCH on the same connection can land
+	// between this Update and the follow-up Get, so the returned row may
+	// reflect the racing caller's state rather than ours. Cosmetic in
+	// practice (admins rarely mutate the same connection within ms), but
+	// real. The principled fix is to add a RETURNING clause to
+	// UpdateSSOConnection — deferred to keep the Store interface stable
+	// while the OIDC ceremony slice is in flight.
 	return n.store.GetSSOConnection(ctx, c.ID)
 }
 
