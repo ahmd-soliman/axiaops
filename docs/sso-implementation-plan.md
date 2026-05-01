@@ -12,7 +12,7 @@
 |---|---|---|
 | **B1** | Native email/password auth replacing Kinde (single-org-per-session constraint) | 4–6w |
 | **B1.5** | Multi-org access — login org-picker + live org switcher (§4.7) | 1w |
-| **B1.6** | License-file TTL enforcement — JWT-based subscription expiry (§4.9) | 1w |
+| **B1.6** | License-file TTL enforcement — JWT-based subscription expiry + scan-gate past grace (§4.9) | ~1.5w |
 | **B2** | Native OIDC RP — Entra + generic OIDC SSO | 4–6w |
 | **C**  | Native SAML SP — Okta, ADFS, Keycloak SSO | 4–6w |
 
@@ -45,7 +45,7 @@ These are settled before implementation starts. Flip explicitly via this doc if 
 | D9 | **DEV_MODE preserved.** `DEV_MODE=true` continues to bypass auth and auto-login as `DEV_USER_ID` with owner role. | Dev ergonomics; no behavior change. |
 | D10 | **Same RBAC model** — owner / admin / member / viewer roles unchanged. SSO/JIT never grants `owner` (per design doc §11.6). | Roles are a separate axis from auth provider. |
 | D11 | **Five SaaS-extension seams introduced in B1/B2** (architect findings S1, S4, S6, S8, S9) so the SaaS variant in `sso-integration-design-saas.md` can be added later by writing a second composition root + plugging in alternate implementations — without touching handler/business-logic code. The seams are: `auth.Provider` (B1), `auth.Inviter` (B1), `serverbuild.ComposeServer` composition root (B1), `sso.Discoverer` (B2), `sso.Connector` (B2). Premature seams explicitly skipped: `PasswordResetIssuer`, `SessionMinter`, webhook router, mode-tagged migrations. See §4.8 for full spec. | The minimum set of interfaces such that SaaS reactivation Phase A reduces to writing a `cmd/api-saashosted/main.go` that swaps three to five constructors. Architect bar applied: only seams where `saving > effort + 1` were taken. |
-| D12 | **License-file TTL enforcement** for self-hosted (Phase B1.6, §4.9). JWT signed by AxiaOps's offline RS256 key; public key embedded in the binary. License claims include `customer_id`, `expires_at`, `max_organizations`, `features`, `grace_period_days`. Binary refuses to start past `expires_at + grace_period_days`. **No license server, no phone-home** — verification is purely offline. SaaS binary (`cmd/api-saashosted`) does not check licenses (Stripe gates cloud access instead). | Without programmatic expiry, registry-access expiry only stops *new* pulls — the binary the customer has runs forever. License files (not servers) are the standard enterprise self-hosted pattern (GitLab EE, Atlassian Data Center, HashiCorp Enterprise, JetBrains, VMware). Advances ADR-0001's deferred "License/entitlement model" follow-up to v1, because ADR-0001's "annual contracts + good faith" trust model breaks down for any churned customer. Cost ~1w; bounded scope (TTL only, no feature gating). |
+| D12 | **License-file TTL enforcement** for self-hosted (Phase B1.6, §4.9). JWT signed by AxiaOps's offline RS256 key; public key embedded in the binary. License claims include `customer_id`, `expires_at`, `max_organizations`, `features`, `grace_period_days`. Binary refuses to start past `expires_at + grace_period_days`; mid-flight, an hourly ticker re-classifies state and a single feature gate disables `POST /v1/accounts/{id}/scan` + scheduled scans once expired (Option-3 / "scan-gate" enforcement, decided 2026-05-01 — see §4.9 scope intro). **No license server, no phone-home** — verification is purely offline. SaaS binary (`cmd/api-saashosted`) does not check licenses (Stripe gates cloud access instead). | Without programmatic expiry, registry-access expiry only stops *new* pulls — the binary the customer has runs forever. License files (not servers) are the standard enterprise self-hosted pattern (GitLab EE, Atlassian Data Center, HashiCorp Enterprise, JetBrains, VMware). Advances ADR-0001's deferred "License/entitlement model" follow-up to v1, because ADR-0001's "annual contracts + good faith" trust model breaks down for any churned customer. Cost ~1.5w; bounded scope (TTL + scan-gate only, no broader feature gating — full read-only mode deferred to a hypothetical B1.7 if customer signal demands it). |
 
 ---
 
@@ -580,11 +580,15 @@ Add to §4.6 (B1) and §5.5 (B2):
 | Webhook handler skeleton in B1/B2 | Pre-emptive abstraction. Effort=4 (HMAC, replay, dispatch). Saving=1 (the dispatch is ~20 lines when needed). Net -3. |
 | Mode-tagged migrations | Linear numbering works fine — schema can be a superset; SaaS-only constraints can be `CHECK` clauses. Effort=3, Saving=1. |
 
-### 4.9 Phase B1.6 — License-file TTL enforcement (1w follow-up)
+### 4.9 Phase B1.6 — License-file TTL enforcement (~1.5w follow-up)
 
 > **Why split from B1**: license verification is a startup concern, separate from the auth-provider swap. B1 ships first so dogfood can run; B1.6 lands before any *paying* customer onboards. ADR-0001's "License/entitlement model" follow-up was deferred to "6+ customers"; D12 advances it to v1 because the deferral relied on the high-trust 3–5-design-partner assumption — which breaks for any churned customer who keeps running yesterday's binary indefinitely.
 >
-> **Scope deliberately bounded**: TTL only, no feature gating, no license server, no phone-home. JWT verification is offline. The signing key lives in 1Password.
+> **Scope** (revised 2026-05-01 from "TTL only, no feature gating"): TTL enforcement at boot **plus** a single mid-flight feature gate — `POST /v1/accounts/{id}/scan` and the scheduled scan ticker stop firing once state == `expired`. No license server, no phone-home, no other gating. JWT verification is offline. The signing key lives in the operator's secret store (Bitwarden / 1Password / Vault / HSM — the package does not care).
+>
+> **Why one feature gate, not full read-only mode** (rejected Option 2 = GitLab-style "block all mutations"): the value chain of AxiaOps is `scans → detected zombies → customer saves money`. Block scans and the product's data ages out within ~2 weeks; everything else (dashboard, dismissals, member management, account credential rotation) keeps working. That maps the renewal-pressure curve to "the product quietly stops being useful" without crashing prod or trapping operators. Full read-only mode would force ~5 endpoints onto an exemption list (GDPR right-to-erasure, self-leave membership, account disconnect, ownership transfer, password reset for stranded users) — paying nearly Option-2 effort for ~Option-3 effective bite. If a paying customer signals "Option 3 isn't enough," lift to full read-only as a Phase B1.7 conversation with a real signal driving it.
+>
+> **What is NOT mid-flight enforced** (deliberate): the process is **never** killed by the license ticker. State transitions across `exp` and `exp + grace` mid-flight are observability events (audit row, metric, log) plus the scan-gate flip — not termination. Industry-aligned with GitLab EE / Atlassian DC / HashiCorp Enterprise.
 
 #### 4.9.1 License JWT shape
 
@@ -629,19 +633,66 @@ Signed with RS256. AxiaOps's private key is held offline (1Password). Public key
 6. Surface state via /v1/version + Prometheus metrics (§4.9.4).
 ```
 
+#### 4.9.2a Runtime ticker (mid-flight observability, no termination)
+
+A goroutine started during `serverbuild.ComposeServer` re-runs `CheckExpiry` against the boot-time `*License` once per hour. Hourly cadence chosen because the unit of license expiry is days — sub-minute granularity buys nothing and burns wakeups. The ticker:
+
+```
+on each tick (1h):
+  current = CheckExpiry(license)
+  days    = license.DaysRemaining()
+  observability.LicenseDaysRemaining.Set(days)
+  observability.LicenseStateInfo.WithLabelValues(current, customer_id).Set(1)
+  if current != last:
+    slog.Warn("license: state transition", from=last, to=current, days_remaining=days, license_id=…)
+    AuditLogWrite(action=license.{in_grace_period|expired_runtime}, metadata={from, to, days_remaining})
+    last = current
+```
+
+The ticker **never** calls `os.Exit` — the process keeps serving regardless of state. It also **never** re-reads the JWT from disk; the boot-time `*License` is the source of truth until the next restart. A renewal lands by the operator dropping the new JWT into `/etc/axiaops/license.jwt` and restarting the API service (`systemctl restart axiaops-api` / `kubectl rollout restart deployment/axiaops-api`) — documented in `docs/license-issuance.md` (slice 9). Hot-reload is rejected because a corrupt new JWT could otherwise crash a healthy process.
+
+The transition `valid → in_grace` and `in_grace → expired` audit-row distinction matters: monitoring needs to alert on *when* mid-flight expiry happens, not just discover it on the next restart. Without the ticker the `LicenseDaysRemaining` gauge would be frozen at the boot-time value, breaking the `< 7 days → page on-call` alert rule on long-running binaries.
+
+#### 4.9.2b Mid-flight scan gate (the one feature gate)
+
+Once `CheckExpiry` returns `expired` the scan path goes silent. Two enforcement points:
+
+```
+POST /v1/accounts/{id}/scan handler:
+  if licenseState() == expired:
+    return 403 with body {"error":"license_expired", "detail":"License past grace period — contact sales@axiaops.io to renew"}
+  // ... existing scan trigger logic
+
+scheduled-scan ticker (services/api/internal/api/scheduled_scans.go):
+  if licenseState() == expired:
+    slog.Info("scheduled scan skipped: license expired", "account_id", a.ID)
+    skip the account
+  // ... existing scan trigger logic
+```
+
+`licenseState()` is a closure over the `*License` from boot — same source the §4.9.2a ticker reads. No mutex needed: `License` is immutable post-Load and `CheckExpiry` is stateless against `time.Now()`.
+
+The gate is intentionally narrow: nothing else in the API is checked. Reads, dashboard, dismissals, member-management, account CRUD, GDPR right-to-erasure all stay open. Rationale captured in §4.9 scope intro.
+
+The dashboard surfaces the gate as a 403 toast on the scan button + the existing license banner (slice 8). The button itself stays clickable so the user gets a clear explanation rather than a mystery-disabled control.
+
 #### 4.9.3 Backend — files
 
 | File | Responsibility |
 |---|---|
-| `services/api/internal/license/license.go` | `Load(ctx) (*License, error)` reads env/file, verifies JWT, returns the parsed claims. `CheckExpiry(*License) State` returns `valid \| in_grace \| expired`. Pure functions; no globals. |
-| `services/api/internal/license/embed.go` | `//go:embed pubkey.pem` — embeds AxiaOps's RS256 public key at compile time. Tests use a separate `pubkey_test.pem` via build tag. |
-| `services/api/internal/license/license_test.go` | Black-box tests: valid, expired-within-grace, expired-past-grace, missing, tampered signature, alg=none, alg=HS256, wrong issuer, future iat. |
-| `services/api/cmd/main.go` | At startup, calls `license.Load + CheckExpiry` **before** `serverbuild.ComposeServer`. Refuses to start on hard-fail. |
+| `services/api/internal/license/license.go` | `Load() (*License, error)` reads env/file, verifies JWT, returns the parsed claims. `CheckExpiry(*License) State` returns `valid \| in_grace \| expired`. Pure functions; no globals. (Slice 1 dropped the `ctx` parameter — Load is pure file/env I/O with no cancellation surface.) |
+| `services/api/internal/license/embed.go` | `//go:embed pubkey.pem` — embeds AxiaOps's RS256 public key at compile time. Tests override the embedded key via the `LICENSE_PUBLIC_KEY_PATH` env var (cleaner than build tags). |
+| `services/api/internal/license/license_test.go` | Black-box tests: valid, expired-within-grace, expired-past-grace, missing, tampered signature, alg=none, alg=HS256, wrong issuer, wrong audience, future iat, future nbf, iat-within-skew-leeway, missing license_id, boundary-at-exp. |
+| `services/api/cmd/main.go` | At startup, calls `license.Load + CheckExpiry` **before** `serverbuild.ComposeServer`. Refuses to start on hard-fail. Starts the runtime ticker (§4.9.2a) inside `ComposeServer`. |
+| `services/api/internal/license/ticker.go` | Hourly ticker (§4.9.2a) — re-runs `CheckExpiry`, updates Prometheus gauges, writes audit on transition. |
+| `services/api/internal/license/state.go` | `Snapshot()` exposes the current `State` to handlers + ticker without re-running expensive parsing. Simple atomic-store wrapper around the boot-time `*License`. |
 | `services/api/cmd/license-issue/main.go` | Operator-side CLI for issuing licenses. Reads signing key from `$LICENSE_SIGNING_KEY_PATH`, prompts for customer_id + contract_id + duration, outputs the JWT. Documented in `docs/license-issuance.md`. |
-| `services/api/internal/api/handler.go` | `/v1/version` returns `license: {customer_id, expires_at, days_remaining, state, max_organizations}`. |
+| `services/api/internal/api/handler.go` | `/v1/version` returns `license: {customer_id, expires_at, days_remaining, state, max_organizations}`. `triggerScan` consults `license.Snapshot()` and 403s with `license_expired` past grace (§4.9.2b). |
+| `services/api/internal/api/scheduled_scans.go` | Scheduled-scan ticker checks `license.Snapshot()` and skips accounts when state == expired (§4.9.2b). |
 | `services/dashboard/src/components/LicenseBanner.jsx` | Top-of-page banner shown when license is in grace period or has <14 days remaining. Owners only. |
+| `services/dashboard/src/screens/AccountsScreen.jsx` (modify) | On 403 `license_expired` from the scan button, surface a toast with the renewal contact. Button stays clickable so the user gets a clear message rather than a mystery-disabled control. |
 | `services/shared/observability/license.go` | Prometheus metrics (§4.9.4). |
-| `services/shared/model/audit.go` | New audit actions: `license.loaded`, `license.in_grace_period`, `license.expired_hard_fail`, `license.renewed`, `license.invalid_signature`. |
+| `services/shared/model/audit.go` | New audit actions: `license.loaded`, `license.in_grace_period`, `license.expired_hard_fail`, `license.expired_runtime` (transition that fired in the runtime ticker, distinct from boot-time refusal), `license.renewed`, `license.invalid_signature`. |
 
 **No new database tables.** License events go to the existing `audit_log`. License state is process-memory only — re-read on restart.
 
@@ -691,8 +742,12 @@ This is not a new seam — just a different composition root. The license packag
 - [ ] `/v1/version` response includes the license sub-object; frontend `LicenseBanner.jsx` renders correctly in grace and near-expiry states.
 - [ ] Prometheus metrics emitted; `license_days_remaining` updates after a license-renewal restart.
 - [ ] Alert rules added to the deployment's Prometheus rules file (or documented for operators to add — depends on deployment shape).
-- [ ] `docs/license-issuance.md` runbook written: how to issue a license, where the signing key lives, how to handle a leaked signing key (rotate the embedded pubkey + force re-issuance to all customers).
-- [ ] Signing-key custody documented: stored in 1Password under "AxiaOps License Signing Key (DO NOT EMAIL)"; quarterly access audit; never committed to git.
+- [ ] **Runtime ticker** (§4.9.2a): integration test installs a license whose `exp` falls within the test window, advances the ticker via injected clock, asserts (a) Prometheus gauge updates per tick, (b) audit row written on `valid → in_grace` transition, (c) audit row written on `in_grace → expired` transition, (d) the process does NOT exit on either transition.
+- [ ] **Scan gate** (§4.9.2b): integration test boots with an expired-past-grace license override, asserts `POST /v1/accounts/{id}/scan` returns 403 with `{"error":"license_expired"}`, and asserts the scheduled-scan ticker logs `scheduled scan skipped` for accounts whose normal interval has elapsed. Same test in `valid` and `in_grace` states asserts scans run.
+- [ ] **Scan gate is the ONLY mid-flight gate**: regression test asserts that `POST /v1/dismissals`, `POST /v1/accounts`, `PATCH /v1/accounts/{id}`, `POST /v1/invitations`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/users/me`, and `DELETE /v1/organizations/me` all succeed under expired-past-grace. The exemption shape is enforced by code, not just docs.
+- [ ] Dashboard scan button surfaces the 403 as a clear toast referencing the renewal contact; existing `LicenseBanner` is also visible.
+- [ ] `docs/license-issuance.md` runbook written: how to issue a license, where the signing key lives, how to handle a leaked signing key (rotate the embedded pubkey + force re-issuance to all customers), and the rolling-restart procedure for landing a renewal (`systemctl restart axiaops-api` / `kubectl rollout restart deployment/axiaops-api`).
+- [ ] Signing-key custody documented: stored in the operator's secret store (Bitwarden, 1Password, Vault, HSM — `docs/license-issuance.md` documents the AxiaOps team's specific choice); quarterly access audit; never committed to git.
 
 ---
 
