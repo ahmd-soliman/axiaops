@@ -1688,6 +1688,27 @@ func (s *Store) GetMembership(ctx context.Context, id string) (model.Membership,
 	return m, tx.Commit(ctx)
 }
 
+// GetMembershipByOrgUser returns the membership for (organizationID, userID).
+// Uses the admin pool — JIT reconciliation calls this from the OIDC callback
+// flow where the org context is being established and the lookup needs to
+// not depend on a transaction setup.
+func (s *Store) GetMembershipByOrgUser(ctx context.Context, organizationID, userID string) (model.Membership, error) {
+	var m model.Membership
+	err := s.adminPool.QueryRow(ctx, `
+		SELECT id, organization_id, user_id, role, COALESCE(invited_by, ''), created_at, updated_at
+		FROM memberships
+		WHERE organization_id = $1 AND user_id = $2`,
+		organizationID, userID,
+	).Scan(&m.ID, &m.OrganizationID, &m.UserID, &m.Role, &m.InvitedBy, &m.CreatedAt, &m.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Membership{}, storage.ErrMembershipNotFound
+	}
+	if err != nil {
+		return model.Membership{}, fmt.Errorf("postgres: get membership by org/user: %w", err)
+	}
+	return m, nil
+}
+
 // SaveMembership inserts a new membership row.
 func (s *Store) SaveMembership(ctx context.Context, m model.Membership) error {
 	tx, err := s.pool.Begin(ctx)

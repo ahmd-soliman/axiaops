@@ -53,6 +53,14 @@ var ErrInvitationAlreadyMember = errors.New("storage: email already has a member
 // Surface as HTTP 409 with a hint to use POST /v1/memberships.
 var ErrUserExistsNoMembership = errors.New("storage: email matches an existing user without membership — use POST /v1/memberships")
 
+// ErrSSOConnectionNotFound is returned by SSO connection reads/mutations when
+// the row does not exist (or is RLS-invisible to the request org). Surface as 404.
+var ErrSSOConnectionNotFound = errors.New("storage: sso connection not found")
+
+// ErrSSODomainNotFound is returned by SSO domain reads/mutations when the row
+// does not exist (or no verified row matches a discoverer lookup). Surface as 404.
+var ErrSSODomainNotFound = errors.New("storage: sso domain not found")
+
 type ctxKey string
 
 const organizationKey ctxKey = "organization_id"
@@ -295,6 +303,15 @@ type Store interface {
 	// another organization — RLS hides it the same way).
 	GetMembership(ctx context.Context, id string) (model.Membership, error)
 
+	// GetMembershipByOrgUser returns the membership for (organizationID, userID)
+	// in one query. Used by JIT reconciliation to avoid an O(n) walk of
+	// ListMemberships when the user already has a membership but their group
+	// claim resolved to a different role. Returns ErrMembershipNotFound when
+	// no row matches. Bypasses RLS via the admin pool — JIT runs in a flow
+	// where the org context is established but cross-checking the unique
+	// (org, user) pair shouldn't require a transaction round-trip.
+	GetMembershipByOrgUser(ctx context.Context, organizationID, userID string) (model.Membership, error)
+
 	// SaveMembership inserts a new membership. Returns ErrMembershipExists
 	// when (organization_id, user_id) collides. The caller generates the ID.
 	SaveMembership(ctx context.Context, m model.Membership) error
@@ -419,6 +436,59 @@ type Store interface {
 	// along with everything else, but a Prometheus counter and structured
 	// log line should remain as the operations trail.
 	DeleteOrganizationCascade(ctx context.Context, organizationID string) error
+
+	// ── Phase B2 — SSO ──────────────────────────────────────────────────────
+	// All SSO methods require WithOrganizationID(ctx, ...) before the call,
+	// EXCEPT GetVerifiedSSODomainByName which is called pre-auth (no org
+	// context exists) and uses the admin pool to bypass RLS.
+
+	// CreateSSOConnection inserts a draft connection. ID auto-generated if empty.
+	CreateSSOConnection(ctx context.Context, c model.SSOConnection) (model.SSOConnection, error)
+	// GetSSOConnection returns a single connection scoped to the request org.
+	// Returns ErrSSOConnectionNotFound on miss.
+	GetSSOConnection(ctx context.Context, id string) (model.SSOConnection, error)
+	// ListSSOConnections returns all connections in the request org, newest first.
+	ListSSOConnections(ctx context.Context) ([]model.SSOConnection, error)
+	// UpdateSSOConnection persists mutable fields (label, status, enforcement,
+	// default_role, IdP/protocol fields). Caller is responsible for handler-level
+	// validation; the DB CHECK on (status='active' AND protocol='oidc') →
+	// non-empty client_secret_ciphertext is the last line of defence.
+	UpdateSSOConnection(ctx context.Context, c model.SSOConnection) error
+	// DeleteSSOConnection removes a connection and (via FK CASCADE) its domains
+	// and group mappings. Returns ErrSSOConnectionNotFound on miss.
+	DeleteSSOConnection(ctx context.Context, id string) error
+
+	// CreateSSODomain inserts a pending domain row. ID + verification_token
+	// auto-generated if empty. Caller must populate sso_connection_id; the FK
+	// guarantees the connection belongs to the same org as the domain row.
+	CreateSSODomain(ctx context.Context, d model.SSODomain) (model.SSODomain, error)
+	// GetSSODomain returns a single domain scoped to the request org.
+	// Returns ErrSSODomainNotFound on miss.
+	GetSSODomain(ctx context.Context, id string) (model.SSODomain, error)
+	// GetVerifiedSSODomainByName looks up a verified domain row by lower(domain).
+	// Pre-auth path — uses the admin pool to bypass RLS. Returns
+	// ErrSSODomainNotFound when no verified row exists for the domain.
+	GetVerifiedSSODomainByName(ctx context.Context, domain string) (model.SSODomain, error)
+	// ListSSODomains returns all domains in the request org, newest first.
+	ListSSODomains(ctx context.Context) ([]model.SSODomain, error)
+	// UpdateSSODomainStatus advances the lifecycle (pending→verified, verified→stale,
+	// any→revoked). When transitioning to verified, the caller supplies verifiedAt
+	// and expiresAt; for other transitions, those args are zero-valued and ignored.
+	UpdateSSODomainStatus(ctx context.Context, id, status string, verifiedAt, expiresAt time.Time) error
+	// DeleteSSODomain removes a single domain row.
+	DeleteSSODomain(ctx context.Context, id string) error
+	// SweepStaleSSODomains marks expired verified rows as stale. Returns count
+	// affected. Cross-org sweep — uses the admin pool.
+	SweepStaleSSODomains(ctx context.Context, now time.Time) (int64, error)
+
+	// ListSSOGroupMappings returns mappings for a connection in the request org.
+	ListSSOGroupMappings(ctx context.Context, connectionID string) ([]model.SSOGroupMapping, error)
+	// ReplaceSSOGroupMappings is the only mutation path: PUT semantics. Wipes
+	// the existing set for the connection and inserts the supplied list in one
+	// transaction. Atomically replaces — partial-failure leaves the prior set
+	// intact. Caller must populate OrganizationID + SSOConnectionID on each
+	// row; ID auto-generated if empty.
+	ReplaceSSOGroupMappings(ctx context.Context, connectionID string, mappings []model.SSOGroupMapping) error
 
 	// Close releases any resources held by the store.
 	Close() error
