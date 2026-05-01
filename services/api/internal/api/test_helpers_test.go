@@ -56,9 +56,15 @@ type MockStore struct {
 	auditEvents []model.AuditEvent
 	nextAuditID int64
 
-	// UserMemberships seeds ListUserMemberships responses for /v1/me
-	// multi-org tests. Default nil → empty list (single-org B1 baseline).
-	UserMemberships []model.MembershipWithOrganization
+	// UserMembershipsByUser keys ListUserMemberships responses by user_id
+	// so a single test can drive multiple distinct users (e.g. the
+	// /v1/auth/select-org and /v1/auth/switch-org handlers landing in
+	// later B1.5 slices, which call ListUserMemberships for the caller's
+	// uid AND must reject reads keyed on someone else's). Tests that don't
+	// care about per-user routing may set UserMemberships instead — that
+	// flat slice is returned as a fallback when the map lookup misses.
+	UserMembershipsByUser map[string][]model.MembershipWithOrganization
+	UserMemberships       []model.MembershipWithOrganization
 
 	// ── Call Tracking (optional, for lifecycle tests) ──
 	callsToUpdateStatus []struct {
@@ -332,10 +338,10 @@ func (m *MockStore) GetOrganizationByID(_ context.Context, id string) (model.Org
 	return model.Organization{ID: id}, nil
 }
 
-// UserMemberships, when non-nil, is the canned ListUserMemberships
-// response. Tests that exercise /v1/me's multi-org payload set this.
-// Default nil → empty list (single-org case, matches the B1 baseline).
-func (m *MockStore) ListUserMemberships(_ context.Context, _ string) ([]model.MembershipWithOrganization, error) {
+func (m *MockStore) ListUserMemberships(_ context.Context, userID string) ([]model.MembershipWithOrganization, error) {
+	if rows, ok := m.UserMembershipsByUser[userID]; ok {
+		return rows, nil
+	}
 	return m.UserMemberships, nil
 }
 

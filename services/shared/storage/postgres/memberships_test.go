@@ -286,7 +286,16 @@ func TestListMemberships_JoinsUserEmail(t *testing.T) {
 // one user holds memberships in two orgs with different roles, and
 // ListUserMemberships returns both rows joined with org metadata. RLS is
 // bypassed by design — the result spans organizations.
+//
+// The rlsEnforced() guard isn't because RLS makes this test fail; it's
+// because without RLS in place we'd be passing-by-coincidence — the test
+// would be green even if a regression switched the implementation back
+// to s.pool. Running in an RLS-enforced environment is what makes the
+// "bare context returns N rows" assertion load-bearing.
 func TestListUserMemberships_ReturnsAllOrgsForUser(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("requires DATABASE_URL (app user) for RLS — see test comment")
+	}
 	s := newTestStore(t)
 	ctx1, org1 := newOrgCtx(t, s)
 	_, org2 := newOrgCtx(t, s)
@@ -344,6 +353,11 @@ func TestListUserMemberships_EmptyForUnknownUser(t *testing.T) {
 	}
 }
 
+// TestListUserMemberships_EmptyUserIDReturnsNil locks in the *storage-layer*
+// contract: an empty userID short-circuits to nil with no DB roundtrip. The
+// /v1/me handler still emits `[]` on the wire — that's a handler-side
+// guarantee, not a storage-side one. See me.go:getMe where Memberships is
+// explicitly initialised to []membershipSummary{} before the read.
 func TestListUserMemberships_EmptyUserIDReturnsNil(t *testing.T) {
 	s := newTestStore(t)
 	rows, err := s.ListUserMemberships(context.Background(), "")
