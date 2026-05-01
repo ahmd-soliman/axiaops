@@ -66,6 +66,24 @@ type Metrics struct {
 	SessionCacheErrorsTotal     prometheus.Counter     // backend errors (Redis down, deserialise failure) — drives the degradation alert
 	AuthProviderActive          *prometheus.CounterVec // provider (native|kinde|both) — strangler telemetry counter
 	AuthProviderLastSeen        *prometheus.GaugeVec   // provider — Unix-seconds gauge enabling low-traffic SLO queries (architect N1)
+
+	// License (Phase B1.6) — see docs/sso-implementation-plan.md §4.9.4.
+	// Updated by the runtime ticker hourly so long-running binaries see the
+	// gauge advance with the wall clock; without ticker updates the alert
+	// rules (license_days_remaining < 7 → page) only fire across restarts.
+	LicenseExpiresAt     prometheus.Gauge // unix seconds when exp falls; 0 if no license loaded (DEV_MODE or SaaS binary)
+	LicenseDaysRemaining prometheus.Gauge // whole days until exp + grace_period_days; negative once past hard cutoff
+	// LicenseStateInfo: callers MUST zero the previous state label-set before
+	// setting the new one — GaugeVec.WithLabelValues(...).Set(1) does not
+	// reset siblings. The ticker (slice 4) does:
+	//   m.LicenseStateInfo.Reset()
+	//   m.LicenseStateInfo.WithLabelValues(state.String(), customer_id).Set(1)
+	// so dashboards and `state="valid" == 1` queries don't see stale label-sets.
+	// customer_id is "" when no license is loaded (DEV_MODE / SaaS binary);
+	// in that case the metric is at 0 across all label-sets and effectively
+	// disappears from dashboards.
+	LicenseStateInfo       *prometheus.GaugeVec   // labels: state (valid|in_grace|expired), customer_id — exactly one label-set should be 1 at any time
+	LicenseLoadErrorsTotal *prometheus.CounterVec // labels: reason (signature|format|missing|wrong_issuer|wrong_audience|future_iat) — boot-time refusal taxonomy for the alert runbook
 }
 
 // registry is the global Prometheus registry.
@@ -244,6 +262,24 @@ func newMetrics() *Metrics {
 			Name: "axiaops_auth_provider_last_seen_seconds",
 			Help: "Unix timestamp of the most recent authenticated request handled per provider. Deletion-readiness query: time() - axiaops_auth_provider_last_seen_seconds{provider='kinde'} > 30*86400 (architect N1).",
 		}, []string{"provider"}),
+
+		// License metrics — see docs/sso-implementation-plan.md §4.9.4.
+		LicenseExpiresAt: factory.NewGauge(prometheus.GaugeOpts{
+			Name: "axiaops_license_expires_at_seconds",
+			Help: "Unix timestamp when the loaded license's exp claim falls. 0 indicates no license is loaded (DEV_MODE or SaaS binary).",
+		}),
+		LicenseDaysRemaining: factory.NewGauge(prometheus.GaugeOpts{
+			Name: "axiaops_license_days_remaining",
+			Help: "Whole days until exp + grace_period_days. Negative once past hard cutoff. Drives the < 30 days renewal heads-up and < 7 days page-on-call alerts.",
+		}),
+		LicenseStateInfo: factory.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "axiaops_license_state_info",
+			Help: "License state. Exactly one label-set is set to 1 at any time. Page immediately when state='in_grace' or state='expired' — both indicate the customer is past contractual expiry.",
+		}, []string{"state", "customer_id"}),
+		LicenseLoadErrorsTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_license_load_errors_total",
+			Help: "Boot-time license verification failures by failure mode. Non-zero means the binary refused to start at least once — operator should consult the audit_log row license_invalid_signature for context.",
+		}, []string{"reason"}),
 	}
 
 	return m
