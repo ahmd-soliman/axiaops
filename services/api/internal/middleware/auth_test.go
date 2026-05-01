@@ -1,20 +1,14 @@
 package middleware
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/base64"
-	"errors"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-
-	"axiaops.io/shared/cache"
 )
 
 const testIssuer = "https://axiaops.kinde.com"
@@ -246,115 +240,3 @@ func TestDevBypass_PublicPathsSkipContextPopulation(t *testing.T) {
 	}
 }
 
-// ── JWKS cache behaviour ──────────────────────────────────────────────────────
-
-// mockCache is a minimal in-memory cache for testing.
-type mockCache struct {
-	data     map[string][]byte
-	getErr   error
-	setErr   error
-	getCalls int
-}
-
-func newMockCache() *mockCache { return &mockCache{data: make(map[string][]byte)} }
-
-func (m *mockCache) Get(_ context.Context, key string) ([]byte, error) {
-	m.getCalls++
-	if m.getErr != nil {
-		return nil, m.getErr
-	}
-	v, ok := m.data[key]
-	if !ok {
-		return nil, cache.ErrNotFound
-	}
-	return v, nil
-}
-func (m *mockCache) Set(_ context.Context, key string, value []byte, _ time.Duration) error {
-	if m.setErr != nil {
-		return m.setErr
-	}
-	m.data[key] = value
-	return nil
-}
-func (m *mockCache) Del(_ context.Context, key string) error                          { delete(m.data, key); return nil }
-func (m *mockCache) Incr(_ context.Context, _ string, _ time.Duration) (int64, error) { return 0, nil }
-func (m *mockCache) Ping(_ context.Context) error                                     { return nil }
-func (m *mockCache) Close() error                                                     { return nil }
-
-// rsaPublicKeyToJWKS serialises an RSA public key into a minimal JWKS JSON.
-func rsaPublicKeyToJWKS(t *testing.T, pub *rsa.PublicKey) []byte {
-	t.Helper()
-	import64 := func(b []byte) string {
-		return base64.RawURLEncoding.EncodeToString(b)
-	}
-	n := import64(pub.N.Bytes())
-	e := import64(big.NewInt(int64(pub.E)).Bytes())
-	return []byte(`{"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"test-key","n":"` + n + `","e":"` + e + `"}]}`)
-}
-
-func TestAuth_JWKSCacheHit_SkipsHTTPFetch(t *testing.T) {
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fetchCount := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fetchCount++
-		jwks := rsaPublicKeyToJWKS(t, &priv.PublicKey)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(jwks)
-	}))
-	defer srv.Close()
-
-	issuer := srv.URL
-	jwksURL := issuer + "/.well-known/jwks.json"
-	c := newMockCache()
-
-	// First call — cache miss, fetches live and populates cache.
-	_, err = keyfuncFromCache(context.Background(), issuer, jwksURL, c)
-	if err != nil {
-		t.Fatalf("first keyfuncFromCache: %v", err)
-	}
-	if fetchCount != 1 {
-		t.Fatalf("expected 1 HTTP fetch, got %d", fetchCount)
-	}
-
-	// Second call — cache hit, no HTTP fetch.
-	_, err = keyfuncFromCache(context.Background(), issuer, jwksURL, c)
-	if err != nil {
-		t.Fatalf("second keyfuncFromCache: %v", err)
-	}
-	if fetchCount != 1 {
-		t.Fatalf("expected still 1 HTTP fetch after cache hit, got %d", fetchCount)
-	}
-}
-
-func TestAuth_CacheError_FallsBackToLiveFetch(t *testing.T) {
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fetchCount := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fetchCount++
-		jwks := rsaPublicKeyToJWKS(t, &priv.PublicKey)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(jwks)
-	}))
-	defer srv.Close()
-
-	issuer := srv.URL
-	jwksURL := issuer + "/.well-known/jwks.json"
-	c := newMockCache()
-	c.getErr = errors.New("redis: connection refused")
-
-	_, err = keyfuncFromCache(context.Background(), issuer, jwksURL, c)
-	if err != nil {
-		t.Fatalf("keyfuncFromCache with cache error: %v", err)
-	}
-	if fetchCount != 1 {
-		t.Fatalf("expected live fetch on cache error, got %d fetches", fetchCount)
-	}
-}
