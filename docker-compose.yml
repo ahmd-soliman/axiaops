@@ -120,19 +120,11 @@ services:
       AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     container_name: axiaops-dashboard
     ports:
-      # 8082 is kept for the redirect-to-HTTPS path (nginx returns 308
-      # to https://localhost:8443 for any HTTP request). Browsers that
-      # land on a stale http://localhost:8082 bookmark get redirected
-      # automatically.
+      # Plain HTTP only. TLS termination is the edge proxy's job in every
+      # real deployment (App Runner, on-prem reverse proxy); this local
+      # stack mirrors the post-edge plain-HTTP shape. See nginx.conf for
+      # the cookie posture under direct-port access.
       - "8082:80"
-      - "8443:443"
-    volumes:
-      # mkcert-generated certs live in services/dashboard/certs/ on the
-      # host (gitignored). The nginx config (nginx.conf) reads them
-      # from /etc/nginx/certs/ inside the container. Run `make tls-certs`
-      # once to generate them; without them the dashboard container
-      # will fail to start because nginx can't load the SSL files.
-      - ./services/dashboard/certs:/etc/nginx/certs:ro
     depends_on:
       api:
         condition: service_healthy

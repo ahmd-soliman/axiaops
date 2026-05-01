@@ -17,7 +17,7 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | GET | /livez | No | Liveness — always 200 unless the process can't reply. Wire orchestrator instance health to this |
 | GET | /readyz | No | Readiness — pings DB (503 if down) and reports Redis status (informational; "ok" / "unreachable" / "skipped"). Wire monitoring/synthetic checks to this |
 | GET | /metrics | No | Prometheus metrics (internal only) |
-| GET | /version | Yes | Build identifier — `{service, version, commit, env}` |
+| GET | /version | Yes | Build identifier + license summary — `{service, version, commit, env, license}`. `license` is `{state}` only when no license is loaded (DEV_MODE / SaaS / pre-VerifyAtBoot), otherwise `{state, customer_id, expires_at, days_remaining, max_organizations}`. State values: `valid \| in_grace \| expired \| not_loaded`. Source for the slice-8 LicenseBanner. |
 | GET | /zombies | Yes | List zombie resources for organization |
 | GET | /summary | Yes | Aggregate savings + per-service breakdown |
 | GET | /trend | Yes | Zombie snapshots over time (?account_id, ?service, ?resource_type) |

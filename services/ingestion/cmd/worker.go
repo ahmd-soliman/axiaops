@@ -7,6 +7,7 @@ import (
 
 	"axiaops.io/shared/circuitbreaker"
 	"axiaops.io/shared/errors"
+	"axiaops.io/shared/license"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 )
@@ -41,6 +42,22 @@ func startWorker(ctx context.Context, q queue.Queue, store storage.Store) {
 				"request_id", job.RequestID,
 				"circuit_breaker_state", cb.State().String(),
 			)
+
+			// License scan-gate (plan §4.9.2b). The api-side gate catches
+			// most jobs at trigger time, but a job enqueued before expiry
+			// and dequeued after would otherwise sneak past — the scan-gate
+			// must be evaluated at execution time, not just trigger time.
+			// Dropping the job is safe: scheduled scans get re-evaluated on
+			// the next ticker pass; user-triggered scans are infrequent
+			// enough that a delayed retry is preferable to an unauthorized
+			// scan running.
+			if !license.IsScanAllowed() {
+				slog.Info("worker: scan.skipped_license_expired",
+					"account_id", job.AccountID,
+					"organization_id", job.OrganizationID,
+				)
+				continue
+			}
 
 			scanCtx := storage.WithOrganizationID(ctx, job.OrganizationID)
 			statusCtx := storage.WithOrganizationID(context.Background(), job.OrganizationID)
