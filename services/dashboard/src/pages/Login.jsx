@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { authLogin } from '../api/client';
+import { authLogin, setPendingOrgPick } from '../api/client';
 import { getKindeClient } from '../auth/kinde';
 import { getToken } from '../auth/storage';
 import { AUTH_PROVIDER, DEV_MODE } from '../config';
@@ -19,12 +19,20 @@ export default function Login() {
   // OrgPickerScreen bounces back here with a state.error message when
   // /select-org returned 401 (limiter fired or something raced) — show
   // it on first render so the user knows why they're back at /login
-  // rather than seeing a silently-empty form.
+  // rather than seeing a silently-empty form. Clear it from history
+  // state immediately so the message doesn't reappear if the user
+  // back-buttons to this entry later.
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(location.state?.error || '');
 
   useEffect(() => {
     if (DEV_MODE || getToken()) navigate('/', { replace: true });
+    // One-shot consume of the bounce-back error: replace the current
+    // history entry with the same URL but no state, so a back-navigation
+    // here later doesn't redisplay the stale error.
+    if (location.state?.error) {
+      navigate('.', { replace: true, state: {} });
+    }
     // No /v1/me probe under native auth: it races with logout's
     // authLogout — if the request is sent before the cookie is cleared,
     // we get a 200 and navigate to "/" while MeContext immediately sees
@@ -49,14 +57,15 @@ export default function Login() {
     try {
       const result = await authLogin(email, password);
       // Multi-membership branch (B1.5): server returned the picker payload
-      // with no cookie. Hand the creds + orgs list to /select-org via
-      // route state. The state is in-memory only — refresh on /select-org
-      // bounces back to /login (creds aren't persisted anywhere).
+      // with no cookie. Hand the creds + orgs list to /select-org via a
+      // module-level variable in api/client.js (NOT React Router state —
+      // that gets persisted to window.history.state and survives a tab
+      // refresh, which would mean the password persists too). The
+      // module-level let is wiped on hard refresh (the bundle re-inits),
+      // which is the actual transient lifetime we want.
       if (result.needs_org_selection) {
-        navigate('/select-org', {
-          replace: true,
-          state: { email, password, orgs: result.orgs },
-        });
+        setPendingOrgPick({ email, password, orgs: result.orgs });
+        navigate('/select-org', { replace: true });
         return;
       }
       // Single-membership branch: cookie set by the server, dashboard ready.
