@@ -2,27 +2,21 @@
 
 Operator-facing walkthrough for testing the Phase B1 native-auth flow
 end-to-end against `make start-staging`. Mirrors the production install
-shape (HTTPS at the edge, native session cookie, install-token-via-file).
+shape *minus* edge TLS — production terminates HTTPS at the edge proxy
+(App Runner / customer ingress), this local stack runs plain HTTP and
+relies on the cookie path's `X-Forwarded-Proto` propagation to behave
+identically when there *is* an edge proxy in front.
 
 For the design rationale and acceptance criteria see
 [`docs/sso-implementation-plan.md`](sso-implementation-plan.md) §4.5 / §4.6.
 
 ## One-time prerequisites
 
-Install [mkcert](https://github.com/FiloSottile/mkcert) so the local stack
-can serve real TLS at `https://localhost:8443`. Without it the dashboard
-container fails to start (nginx can't load the cert files).
-
-```bash
-brew install mkcert         # macOS — Chrome / Safari only
-brew install mkcert nss     # macOS — also covers Firefox
-```
-
-`make tls-certs` (run automatically by `make start-staging`) calls
-`mkcert -install` the first time, which prompts once for your sudo
-password to install mkcert's root CA into the macOS keychain. After
-that, generated certs are auto-trusted by the browser — no
-"Warning: Potential Security Risk" page to click through.
+None. The local stack runs plain HTTP; no mkcert / certs / TLS setup.
+Earlier revisions required mkcert for an in-container HTTPS listener;
+that listener was removed because it was a latent landmine for on-prem
+deploys (no cert volume → nginx refused to start). TLS termination is
+the edge proxy's job in every real deployment.
 
 ## Bootstrap flow — step by step
 
@@ -53,7 +47,7 @@ docker exec axiaops-postgres psql -U axiaops_owner -d axiaops -c "
 ```
 
 If you only want to *test* an existing user (login flow, password
-reset, etc) you don't need to wipe — just skip to step 5 and use the
+reset, etc) you don't need to wipe — just skip to step 4 and use the
 account you already have.
 
 ### 3. Start the stack
@@ -62,14 +56,13 @@ account you already have.
 make start-staging
 ```
 
-This runs in order: `tls-certs` (idempotent — skips if certs already
-exist) → `migrate` (apply schema) → `docker compose up --build -d`.
+This runs in order: `migrate` (apply schema) → `docker compose up --build -d`.
 
 Wait until you see:
 
 ```
-Dashboard:  https://localhost:8443  ← use this in the browser
-Bootstrap:  https://localhost:8443/bootstrap
+Dashboard:  http://localhost:8082  ← use this in the browser
+Bootstrap:  http://localhost:8082/bootstrap
 ```
 
 ### 4. Retrieve the install token
@@ -95,7 +88,7 @@ docker compose logs api 2>&1 | grep -A 8 "first-run setup"
 
 ### 5. Open the bootstrap form
 
-Open **`https://localhost:8443/bootstrap`** in a browser.
+Open **`http://localhost:8082/bootstrap`** in a browser.
 
 | Field | Notes |
 |---|---|
@@ -113,6 +106,11 @@ Submit. On success:
 - The token file `/var/run/axiaops/initial_setup_token` is removed.
 - Dashboard redirects to `/` — you should land on the home view as
   owner (settings menu visible, etc).
+
+The cookie is **non-Secure** under direct-HTTP localhost access; that's
+correct for plain-HTTP traffic and matches what the api's cookie helper
+emits when `X-Forwarded-Proto` is empty. Behind a real edge proxy that
+sets `X-Forwarded-Proto: https`, the same code path emits a Secure cookie.
 
 ### 6. Verify
 
@@ -142,38 +140,12 @@ Then exercise the rest:
 
 ## Troubleshooting
 
-### `make tls-certs`: "mkcert not installed"
-
-`brew install mkcert` (and optionally `nss` for Firefox).
-
-### Browser shows "Warning: Potential Security Risk"
-
-mkcert's root CA didn't make it into the trust store. Re-run:
-
-```bash
-mkcert -install
-```
-
-In Firefox, you also need `nss`:
-
-```bash
-brew install nss
-mkcert -install        # re-run after nss is present
-```
-
 ### Dashboard container won't start
 
-Most likely the cert files are missing or the filenames don't match.
-Expected: `services/dashboard/certs/localhost.pem` and
-`localhost-key.pem`. If you see `localhost+N.pem` (with a numeric
-suffix), `make tls-certs` was run with multiple host arguments — delete
-the extras and re-run:
-
-```bash
-rm services/dashboard/certs/localhost+*
-make tls-certs
-docker compose up -d dashboard
-```
+Check the logs — `docker compose logs dashboard`. The most common
+historical failure (nginx exiting with `cannot load certificate`) is
+no longer possible because the SSL listener has been removed; if you
+hit it on an older branch, rebase onto a branch that has this doc.
 
 ### Bootstrap returns 409 immediately
 
@@ -188,16 +160,20 @@ You pasted the wrong token, OR the token includes the shell's `%` /
 
 ### Cookie not sticking — `/v1/me` returns 401 right after a 200 bootstrap
 
-Two known causes:
+The session cookie should be non-Secure on the local stack (plain HTTP)
+and round-trip cleanly. If it isn't:
 
-1. **You're hitting `http://localhost:8082` directly** instead of
-   `https://localhost:8443`. Plain HTTP doesn't accept the `Secure`
-   cookie. Use HTTPS — the HTTP port redirects via 308.
-2. **`X-Forwarded-Proto: https` isn't being set on the proxy hop** —
-   shouldn't happen with the bundled `services/dashboard/nginx.conf`
-   but worth checking if you've customised it.
+1. **Check the cookie's `Secure` flag in DevTools.** If it's `Secure: true`
+   on a plain-HTTP request, something upstream of the api is sending
+   `X-Forwarded-Proto: https` even though the actual edge protocol is
+   HTTP. The bundled `services/dashboard/nginx.conf` propagates the
+   header instead of hardcoding it, so this only happens if you've
+   customised the conf or are running behind an edge proxy that lies.
+2. **Check the api's cookie helper** at `services/api/internal/auth/cookie.go`
+   — `IsSecureRequest` reads `r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"`.
+   Both should be false on this local stack.
 
-### "Address already in use" on :8443 / :8080 / :5432
+### "Address already in use" on :8082 / :8080 / :5432
 
 Old containers from a previous run. `make stop` is idempotent and
 should clear them; if not, `docker ps -a | grep axiaops` and
@@ -205,15 +181,19 @@ should clear them; if not, `docker ps -a | grep axiaops` and
 
 ## Production parity notes
 
-The local stack mirrors production in shape:
+The local stack mirrors production *post-edge* — i.e. what the api
+sees once an edge proxy has terminated TLS and forwarded HTTP to the
+service. The differences below are deliberate; the cookie code-path
+is identical in both.
 
-| | Local docker-compose | Production (App Runner) |
+| | Local docker-compose | Production / on-prem dev/staging |
 |---|---|---|
-| TLS termination | nginx in `axiaops-dashboard` container | App Runner LB |
-| API protocol from edge | `X-Forwarded-Proto: https` (set by nginx) | `X-Forwarded-Proto: https` (set by App Runner) |
-| Internal API plain-HTTP | yes (over docker network) | yes (over VPC) |
-| Cookie `Secure` flag | derived per-request from header | derived per-request from header |
+| Edge TLS | none — direct HTTP at `localhost:8082` | App Runner LB / on-prem reverse proxy |
+| API protocol from edge | empty `X-Forwarded-Proto` (no edge) | `X-Forwarded-Proto: https` (set by edge) |
+| Internal API plain-HTTP | yes (over docker network) | yes (over VPC / docker network) |
+| Cookie `Secure` flag | non-Secure (header empty) | Secure (header propagated by dashboard nginx) |
 | Install-token path | `/var/run/axiaops/initial_setup_token` (mode 0600) | same; persistent disk if running on App Runner with volume |
 
-The only meaningful difference is that production has a real cert
-issued by the LB, not mkcert. The cookie code-path is identical.
+The cookie behaviour is identical *given the same input request* —
+both code paths read `X-Forwarded-Proto` and decide. Local and prod
+just produce different inputs.
