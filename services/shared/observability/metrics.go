@@ -58,7 +58,7 @@ type Metrics struct {
 	// Used by services/api/internal/auth and the auth middleware. Cardinality
 	// is bounded by the labels — no user_id / org_id labels (those would
 	// blow up the series count under attack and don't help operators).
-	AuthLoginTotal              *prometheus.CounterVec // outcome (success|failure), reason (bad_password|unknown_user|rate_limited|locked|org_selection_required)
+	AuthLoginTotal              *prometheus.CounterVec // outcome (success|failure|org_selection_required), reason (bad_password|unknown_user|rate_limited|locked|internal|"" when outcome=org_selection_required)
 	AuthInvitationsTotal        *prometheus.CounterVec // outcome (created|redeemed|expired|revoked)
 	AuthSessionRevocationsTotal *prometheus.CounterVec // reason (logout|password_reset|admin_revoke|cap_exceeded|enforcement_change|org_switch)
 	BootstrapAttemptsTotal      *prometheus.CounterVec // outcome (success|sealed|invalid_token)
@@ -232,7 +232,7 @@ func newMetrics() *Metrics {
 		// Native-auth metrics — see docs/sso-implementation-plan.md §4.5/§7.2.
 		AuthLoginTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_auth_login_total",
-			Help: "Native-auth login attempts. Outcome is success or failure; reason narrows the failure mode for runbooks.",
+			Help: "Native-auth login attempts. Outcome is one of: success (session minted), failure (auth rejected), org_selection_required (B1.5 multi-org user redirected to /select-org — no session minted but the password check passed). Reason narrows the failure mode for runbooks: bad_password, unknown_user, rate_limited, locked, internal (DB error). Empty reason is the documented shape when outcome=success or outcome=org_selection_required.",
 		}, []string{"outcome", "reason"}),
 		AuthInvitationsTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_auth_invitations_total",

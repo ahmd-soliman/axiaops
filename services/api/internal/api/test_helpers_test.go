@@ -56,6 +56,16 @@ type MockStore struct {
 	auditEvents []model.AuditEvent
 	nextAuditID int64
 
+	// UserMembershipsByUser keys ListUserMemberships responses by user_id
+	// so a single test can drive multiple distinct users (e.g. the
+	// /v1/auth/select-org and /v1/auth/switch-org handlers landing in
+	// later B1.5 slices, which call ListUserMemberships for the caller's
+	// uid AND must reject reads keyed on someone else's). Tests that don't
+	// care about per-user routing may set UserMemberships instead — that
+	// flat slice is returned as a fallback when the map lookup misses.
+	UserMembershipsByUser map[string][]model.MembershipWithOrganization
+	UserMemberships       []model.MembershipWithOrganization
+
 	// ── Call Tracking (optional, for lifecycle tests) ──
 	callsToUpdateStatus []struct {
 		accountID string
@@ -326,6 +336,13 @@ func (m *MockStore) UpsertOrganization(_ context.Context, externalID, name strin
 
 func (m *MockStore) GetOrganizationByID(_ context.Context, id string) (model.Organization, error) {
 	return model.Organization{ID: id}, nil
+}
+
+func (m *MockStore) ListUserMemberships(_ context.Context, userID string) ([]model.MembershipWithOrganization, error) {
+	if rows, ok := m.UserMembershipsByUser[userID]; ok {
+		return rows, nil
+	}
+	return m.UserMemberships, nil
 }
 
 func (m *MockStore) EnsureOrganization(_ context.Context, _, _, _ string) error {
@@ -1263,4 +1280,8 @@ func (m *MockStore) CreateNativeInvitation(context.Context, model.PendingInvitat
 
 func (m *MockStore) RedeemNativeInvitation(context.Context, storage.NativeInviteRedeem) (model.User, model.Membership, error) {
 	return model.User{}, model.Membership{}, storage.ErrInvitationNotFound
+}
+
+func (m *MockStore) LookupInvitationByToken(context.Context, string) (storage.PeekedInvitation, error) {
+	return storage.PeekedInvitation{}, storage.ErrInvitationNotFound
 }
