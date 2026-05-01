@@ -36,13 +36,28 @@ import (
 // fetch on every request.
 const DefaultTTL = time.Hour
 
+// fetchTimeout caps how long a single live JWKS fetch can hold the auth
+// path open. 5s is generous for a well-operated IdP JWKS endpoint and
+// keeps request goroutines from piling up under IdP latency spikes.
+const fetchTimeout = 5 * time.Second
+
 const cacheKeyPrefix = "jwks:"
 
 // CacheKey returns the cache key FromCache uses for the given cacheID.
 // Callers force a cache eviction (e.g. the OIDC RP's auto-refresh on
 // signature failure, plan §5 architect S5) by calling
 // c.Del(ctx, jwks.CacheKey(cacheID)) before re-calling FromCache.
-// Exported so callers don't have to duplicate the "jwks:" prefix.
+// Use this rather than constructing the cache key manually; the prefix
+// is an internal namespacing detail.
+//
+// Concurrency note: when N concurrent requests all hit a bad-signature
+// path and all call Del + FromCache, they will all see a cache miss and
+// each issue a live HTTP fetch to the IdP. For Kinde this is invisible
+// (one keyfunc at startup); for per-connection OIDC under load, this is
+// a fan-out spike at the worst moment. Coalescing is the caller's
+// responsibility for now — wrap with golang.org/x/sync/singleflight
+// keyed on cacheID, or land it in this package when the OIDC RP slice
+// wires the auto-refresh.
 func CacheKey(cacheID string) string { return cacheKeyPrefix + cacheID }
 
 // FromCache returns a jwt.Keyfunc backed by a cached JWKS payload.
@@ -53,7 +68,16 @@ func CacheKey(cacheID string) string { return cacheKeyPrefix + cacheID }
 //
 // jwksURL is the absolute URL to fetch when the cache is cold.
 //
-// c may be nil — the function then always fetches live and never caches.
+// c is required in the API service (cache.New always returns a non-nil
+// Cache, falling back to in-memory when Redis is unreachable). Passing
+// nil disables caching entirely — every call performs a live HTTP fetch.
+// Reserved for tooling and tests; production callers should never pass nil.
+//
+// ctx scopes both the cache lookup and the live HTTP fetch (the fetch
+// adds its own fetchTimeout cap). An already-cancelled ctx surfaces as
+// an HTTP fetch error from net/http, not as a clean context-cancelled
+// signal — callers wanting the latter should check ctx.Err() before
+// inspecting the returned error.
 //
 // Behaviour:
 //   - Cache hit and parse OK → returned keyfunc; no HTTP fetch.
@@ -67,24 +91,26 @@ func FromCache(ctx context.Context, cacheID, jwksURL string, c cache.Cache) (jwt
 	cacheKey := CacheKey(cacheID)
 
 	fetchAndCache := func() (jwt.Keyfunc, error) {
-		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		fetchCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
 		defer cancel()
 		req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, jwksURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("jwks: build request: %w", err)
 		}
 		// TODO(B2): accept an *http.Client for per-connection transport
-		// (mTLS to private IdPs, proxies). DefaultClient + the 10s ctx
+		// (mTLS to private IdPs, proxies). DefaultClient + the fetchCtx
 		// timeout above is acceptable until OIDC adds a concrete need.
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("jwks: fetch %s: %w", jwksURL, err)
 		}
 		defer func() { _ = resp.Body.Close() }()
-		// Catch IdP error responses (404, 503, redirected HTML page)
-		// before they reach FromBytes — otherwise the caller sees a
-		// confusing "parse" error and the cache may even hold garbage.
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// JWKS endpoints only return 200 in practice. Reject everything
+		// else (404, 503, 204 No Content, 206 Partial Content,
+		// redirected HTML pages) before they reach FromBytes —
+		// otherwise the caller sees a confusing "parse" error and the
+		// cache may even hold garbage.
+		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("jwks: fetch %s: unexpected status %d", jwksURL, resp.StatusCode)
 		}
 		body, err := io.ReadAll(resp.Body)
@@ -92,6 +118,10 @@ func FromCache(ctx context.Context, cacheID, jwksURL string, c cache.Cache) (jwt
 			return nil, fmt.Errorf("jwks: read body: %w", err)
 		}
 		if c != nil {
+			// Use the original request ctx (not fetchCtx) so the
+			// best-effort cache write isn't bound by the fetch
+			// deadline — a slow IdP read shouldn't drop the cache
+			// write at the tail.
 			if setErr := c.Set(ctx, cacheKey, body, DefaultTTL); setErr != nil {
 				slog.Warn("jwks: failed to cache JWKS", "cache_id", cacheID, "err", setErr)
 			}
