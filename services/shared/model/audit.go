@@ -110,6 +110,27 @@ const (
 	// spelling matches all other audit constants; plan §4.7.4 used dot
 	// notation in prose, but consistency wins here.
 	AuditActionSessionOrgSwitched = "session_org_switched"
+	// Phase B2 — Native OIDC RP. Twelve actions span SSO config-time mutations
+	// (created/updated/deleted/disabled/enforcement) and runtime-flow events
+	// (login succeeded/failed, JIT-provisioned membership, domain verification
+	// lifecycle). The login_succeeded / login_failed pair are the SSO mirror of
+	// what the auth-counter Prometheus metrics already cover; they live in
+	// audit_log as well because an org admin reviewing "who has been signing in
+	// via SSO this week" needs the per-row trail, not just an aggregate.
+	// Metadata carries connection_id, protocol, and a reason code where
+	// applicable. See docs/sso-integration-design.md §4.5.
+	AuditActionSSOConnectionCreated         = "sso_connection_created"
+	AuditActionSSOConnectionUpdated         = "sso_connection_updated"
+	AuditActionSSOConnectionDeleted         = "sso_connection_deleted"
+	AuditActionSSOConnectionDisabled        = "sso_connection_disabled"
+	AuditActionSSOEnforcementChanged        = "sso_enforcement_changed"
+	AuditActionSSODomainVerificationStarted = "sso_domain_verification_started"
+	AuditActionSSODomainVerified            = "sso_domain_verified"
+	AuditActionSSODomainRevoked             = "sso_domain_revoked"
+	AuditActionSSOGroupMappingChanged       = "sso_group_mapping_changed"
+	AuditActionSSOLoginSucceeded            = "sso_login_succeeded"
+	AuditActionSSOLoginFailed               = "sso_login_failed"
+	AuditActionSSOJITProvisioned            = "sso_jit_provisioned"
 )
 
 // ValidAuditActions is the authoritative set of action codes accepted on write
@@ -146,6 +167,19 @@ var ValidAuditActions = map[string]bool{
 	AuditActionLicenseRenewed:            true,
 	AuditActionLicenseInvalidSignature:   true,
 	AuditActionSessionOrgSwitched:        true,
+	// Phase B2 SSO actions
+	AuditActionSSOConnectionCreated:         true,
+	AuditActionSSOConnectionUpdated:         true,
+	AuditActionSSOConnectionDeleted:         true,
+	AuditActionSSOConnectionDisabled:        true,
+	AuditActionSSOEnforcementChanged:        true,
+	AuditActionSSODomainVerificationStarted: true,
+	AuditActionSSODomainVerified:            true,
+	AuditActionSSODomainRevoked:             true,
+	AuditActionSSOGroupMappingChanged:       true,
+	AuditActionSSOLoginSucceeded:            true,
+	AuditActionSSOLoginFailed:               true,
+	AuditActionSSOJITProvisioned:            true,
 }
 
 // AuditFilter parameterises AuditLogList queries. Zero-value fields are not
