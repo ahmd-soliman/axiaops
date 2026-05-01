@@ -1,4 +1,4 @@
-package middleware
+package middleware_test
 
 import (
 	"crypto/rand"
@@ -9,19 +9,21 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"axiaops.io/api/internal/middleware"
 )
 
 const testIssuer = "https://axiaops.kinde.com"
 
 // testSetup generates an RSA key pair and returns a ready-to-use Auth middleware.
-func testSetup(t *testing.T) (*Auth, *rsa.PrivateKey) {
+func testSetup(t *testing.T) (*middleware.Auth, *rsa.PrivateKey) {
 	t.Helper()
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("generate RSA key: %v", err)
 	}
 	kf := func(_ *jwt.Token) (any, error) { return &priv.PublicKey, nil }
-	auth := newWithKeyfunc(testIssuer, kf)
+	auth := middleware.NewWithKeyfunc(testIssuer, kf)
 	return auth, priv
 }
 
@@ -172,7 +174,7 @@ func TestAuth_ValidToken_OrganizationIDInContext(t *testing.T) {
 
 	var gotOrganizationID string
 	capture := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotOrganizationID = OrganizationID(r.Context())
+		gotOrganizationID = middleware.OrganizationID(r.Context())
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -223,12 +225,12 @@ func TestAuth_PublicPathsBypassAuth(t *testing.T) {
 func TestDevBypass_PublicPathsSkipContextPopulation(t *testing.T) {
 	captured := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Public paths must not have identity injected — they're for infra.
-		if OrganizationID(r.Context()) != "" {
+		if middleware.OrganizationID(r.Context()) != "" {
 			t.Errorf("public path should not have organization_id populated")
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	h := DevBypass("dev-organization", "dev-user", "dev@x.com", captured)
+	h := middleware.DevBypass("dev-organization", "dev-user", "dev@x.com", captured)
 
 	for _, path := range []string{"/health", "/livez", "/readyz", "/metrics"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)

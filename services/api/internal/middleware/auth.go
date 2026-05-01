@@ -1,4 +1,6 @@
-// Package middleware provides HTTP middleware for the ingestion API.
+// Package middleware provides HTTP middleware for the AxiaOps API service:
+// JWT auth (legacy Kinde Bearer + native cookie sessions), DEV_MODE bypass,
+// authorisation, rate limiting, and request-ID tagging.
 package middleware
 
 import (
