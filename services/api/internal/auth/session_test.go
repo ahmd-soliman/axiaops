@@ -43,6 +43,16 @@ type fakeStore struct {
 	// multiple orgs).
 	memberships map[string][]model.Membership
 
+	// Organization display names keyed by org_id. Populated by
+	// seedAccount alongside memberships so ListUserMemberships' join
+	// returns realistic data.
+	orgsByID map[string]string
+
+	// listUserMembershipsErr, when non-nil, makes the next
+	// ListUserMemberships call fail. Used by the multi-org login DB-error
+	// test to assert the handler 500s instead of silently degrading.
+	listUserMembershipsErr error
+
 	// Native invitations keyed by (org_id, lower(email)) (matches the
 	// production partial unique index on pending_memberships) plus a
 	// secondary index by token_hash for the redeem-path lookup.
@@ -73,6 +83,7 @@ func newFakeStore() *fakeStore {
 		usersByEmail: make(map[string]model.User),
 		usersByID:    make(map[string]model.User),
 		memberships:  make(map[string][]model.Membership),
+		orgsByID:     make(map[string]string),
 	}
 }
 
@@ -276,6 +287,23 @@ func (f *fakeStore) LookupUserByEmail(_ context.Context, email string) (model.Us
 	}
 	mships := append([]model.Membership(nil), f.memberships[u.ID]...)
 	return u, mships, nil
+}
+
+func (f *fakeStore) ListUserMemberships(_ context.Context, userID string) ([]model.MembershipWithOrganization, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.listUserMembershipsErr != nil {
+		return nil, f.listUserMembershipsErr
+	}
+	src := f.memberships[userID]
+	out := make([]model.MembershipWithOrganization, 0, len(src))
+	for _, m := range src {
+		out = append(out, model.MembershipWithOrganization{
+			Membership:       m,
+			OrganizationName: f.orgsByID[m.OrganizationID],
+		})
+	}
+	return out, nil
 }
 
 // ── unused-by-tests methods — panic to surface accidental coupling ─────────
