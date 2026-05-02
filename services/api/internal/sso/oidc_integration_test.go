@@ -719,6 +719,138 @@ func TestOIDC_JWKSAutoRefreshOnSignatureFailure(t *testing.T) {
 	})
 }
 
+// TestOIDC_PendingInvitationPrecedence pins the §5.5 acceptance "pending_memberships
+// invitation takes precedence over JIT (per design doc §10.4) — covered by
+// integration test."
+//
+// Property: when a user logs in via SSO and a pending_memberships row exists
+// for their email in the target org, the role from the INVITE wins over
+// whatever JIT would have resolved from group claims. The invite path also
+// consumes (deletes) the pending row and skips JIT's audit events entirely.
+//
+// Why this matters: an admin who issued an invite at role=viewer made an
+// explicit role choice. If the user's IdP groups happen to map to admin via
+// the connection's group_mappings, JIT would otherwise silently override
+// that admin choice — defeating the whole point of admin-issued invites.
+//
+// We deliberately use the JIT-stronger direction (invite=viewer beats
+// JIT=admin from the g-engineering→admin fixture mapping). The reverse
+// direction (invite=admin beats JIT=viewer) follows from the same
+// callsite — there's only one if-else gate at oidc_callback.go's
+// RedeemPendingInvitation call, no per-direction logic.
+func TestOIDC_PendingInvitationPrecedence(t *testing.T) {
+	fx := newFixture(t)
+
+	// Seed an inviter user + admin membership so the audit-trail captured
+	// at invite time has a real attribution. Without this the test could
+	// pass while a future change drops the inviter-attribution requirement
+	// silently.
+	rootCtx := storage.WithOrganizationID(context.Background(), fx.orgID)
+	inviter, err := fx.store.UpsertUser(rootCtx, fx.orgID, "inviter-sub-001",
+		"inviter@"+fx.domain, "Admin Issuer")
+	if err != nil {
+		t.Fatalf("upsert inviter: %v", err)
+	}
+	if err := fx.store.SaveMembership(rootCtx, model.Membership{
+		ID:             uuid.New().String(),
+		UserID:         inviter.ID,
+		OrganizationID: fx.orgID,
+		Role:           "admin",
+		ProvisionedVia: model.ProvisionedViaManual,
+	}); err != nil {
+		t.Fatalf("save inviter membership: %v", err)
+	}
+
+	// Seed pending_memberships at role=viewer for alice. The fixture's
+	// group mapping is g-engineering→admin; alice's IdP groups will
+	// include g-engineering. JIT would resolve to admin; the invite must
+	// override that to viewer.
+	aliceEmail := "alice@" + fx.domain
+	if _, _, err := fx.store.CreatePendingInvitation(rootCtx, model.PendingInvitation{
+		OrganizationID:  fx.orgID,
+		Email:           aliceEmail,
+		Role:            "viewer", // intentionally LOWER than what JIT would yield
+		InvitedByUserID: inviter.ID,
+		InvitedByEmail:  inviter.Email,
+		Status:          "pending",
+		ExpiresAt:       time.Now().Add(7 * 24 * time.Hour),
+		// Token hash is required (NOT NULL on the column under native auth).
+		// Anything stable + unique works — the SSO callback redeems by
+		// (org, email) match, never by token.
+		InviteTokenHash: "test-tok-" + uuid.New().String(),
+	}); err != nil {
+		t.Fatalf("create pending invitation: %v", err)
+	}
+
+	// Confirm precondition: exactly one pending invitation exists.
+	pendingBefore, err := fx.store.ListPendingInvitations(rootCtx, "pending")
+	if err != nil {
+		t.Fatalf("list pending before: %v", err)
+	}
+	if len(pendingBefore) != 1 {
+		t.Fatalf("expected 1 pending invitation seeded; got %d", len(pendingBefore))
+	}
+
+	// Drive the ceremony with groups that JIT would map to admin.
+	user := mockOIDCUser{
+		Sub:    "alice-sub-invite-precedence",
+		Email:  aliceEmail,
+		Name:   "Alice Invitee",
+		Groups: []string{"g-engineering"}, // → admin per fixture mapping
+	}
+	cookie := loginAndAssertSession(t, fx, user)
+	if cookie == "" {
+		t.Fatal("session cookie missing — ceremony failed before precedence could be tested")
+	}
+
+	// Look up alice's user row + the resolved membership.
+	alice, err := fx.store.GetUserByEmail(rootCtx, aliceEmail)
+	if err != nil {
+		t.Fatalf("get alice user: %v", err)
+	}
+	mem, err := fx.store.GetMembershipByOrgUser(rootCtx, fx.orgID, alice.ID)
+	if err != nil {
+		t.Fatalf("get alice membership: %v", err)
+	}
+
+	// Core assertion: the invite role wins over the JIT-resolved role.
+	if mem.Role != "viewer" {
+		t.Errorf("membership role = %q; want viewer (invite must beat JIT-resolved admin)", mem.Role)
+	}
+	// And provisioning provenance reflects the invite path, not JIT.
+	// This is what the cross-flow race fix (jit.go provenance guard)
+	// keys off; if the SSO callback ever wrote 'jit' here, the next
+	// re-login would let JIT silently overwrite the admin's role choice.
+	if mem.ProvisionedVia != model.ProvisionedViaInvitation {
+		t.Errorf("provisioned_via = %q; want %q (invite path)",
+			mem.ProvisionedVia, model.ProvisionedViaInvitation)
+	}
+
+	// Pending row must be consumed — RedeemPendingInvitation DELETEs.
+	// A surviving row would re-fire the redeem on every subsequent login
+	// (idempotent, but wasteful and surprising to anyone reading the
+	// pending-invitations admin UI).
+	pendingAfter, err := fx.store.ListPendingInvitations(rootCtx, "pending")
+	if err != nil {
+		t.Fatalf("list pending after: %v", err)
+	}
+	if len(pendingAfter) != 0 {
+		t.Errorf("pending invitation not consumed; %d rows remain", len(pendingAfter))
+	}
+
+	// Audit posture: SSO_LOGIN_SUCCEEDED is recorded for alice (proves
+	// the ceremony completed end-to-end); SSO_JIT_PROVISIONED is NOT
+	// recorded (proves the invite branch fired, JIT branch was skipped).
+	if !auditHasAction(t, fx, model.AuditActionSSOLoginSucceeded, alice.ID) {
+		t.Errorf("expected %q audit row for invited user %q",
+			model.AuditActionSSOLoginSucceeded, alice.ID)
+	}
+	if auditHasAction(t, fx, model.AuditActionSSOJITProvisioned, alice.ID) {
+		t.Errorf("found %q audit row for invited user %q; invite path must bypass JIT audit entirely",
+			model.AuditActionSSOJITProvisioned, alice.ID)
+	}
+}
+
 // ── Test helpers ────────────────────────────────────────────────────────────
 
 // auditHasAction returns true when the org timeline contains an event of
