@@ -308,7 +308,13 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 			"protocol":             "oidc",
 		})
 
-		target := stateData.RedirectAfterLogin
+		// Defense-in-depth: re-validate the state-stored RedirectAfterLogin
+		// at the redirect site (not just at the initiate-time boundary)
+		// so that any corruption between persist and consume — storage
+		// bug, hostile cache write, post-validation tampering — cannot
+		// turn the callback into an open-redirect. Architect N4 §5.5
+		// "regardless of state content" acceptance.
+		target := ValidatedReturnTo(stateData.RedirectAfterLogin)
 		if target == "" {
 			target = "/dashboard"
 		}
