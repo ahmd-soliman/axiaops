@@ -842,7 +842,7 @@ PermSSODomainVerify Permission = "sso:domain_verify" // owner only
 
 ### 5.5 Acceptance criteria — B2
 
-- [ ] Migration 022 applies cleanly on a wiped DB and rolls back cleanly.
+- [x] Migration 022 applies cleanly on a wiped DB and rolls back cleanly.
 - [ ] Owner can create an OIDC connection, verify a domain, configure group mappings, and set enforcement = `optional`.
 - [ ] Mock-OIDC integration test passes end-to-end (login → JIT → membership row).
 - [ ] Internal Entra OIDC test (against AxiaOps Inc's own Entra tenant) passes from a `start-staging` deployment.
