@@ -1,0 +1,49 @@
+name: axiaops-test-sso
+
+# Lightweight Postgres stack for the SSO OIDC integration test
+# (services/api/internal/sso/oidc_integration_test.go).
+#
+# Why this is separate from docker-compose.yml:
+#   The full integration stack runs api + ingestion containers under
+#   DEV_MODE=true. The OIDC ceremony test stands the API up *in-process*
+#   from the test binary so it can:
+#     1. Inject its own minimal mock OIDC issuer (httptest.NewServer)
+#        without spinning up a separate IdP container.
+#     2. Rotate the mock IdP's signing key mid-test for the architect-S5
+#        JWKS auto-refresh acceptance criterion (plan §5.5).
+#     3. Use a fresh, isolated organization per test run.
+#
+# Only Postgres + the migrate one-shot are needed — no api, ingestion,
+# redis, or mock-IdP container.
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "${POSTGRES_HOST_PORT:-5532}:5432"
+    environment:
+      POSTGRES_DB: axiaops
+      POSTGRES_USER: axiaops_owner
+      POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:-axiaops_owner}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U axiaops_owner -d axiaops"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: services/migrate/Dockerfile
+    environment:
+      DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops?sslmode=disable
+      MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  default:
+    enable_ipv6: false
