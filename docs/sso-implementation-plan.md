@@ -844,11 +844,11 @@ PermSSODomainVerify Permission = "sso:domain_verify" // owner only
 
 - [x] Migration 022 applies cleanly on a wiped DB and rolls back cleanly.
 - [ ] Owner can create an OIDC connection, verify a domain, configure group mappings, and set enforcement = `optional`.
-- [ ] Mock-OIDC integration test passes end-to-end (login → JIT → membership row).
+- [x] Mock-OIDC integration test passes end-to-end (login → JIT → membership row). Shipped as `services/api/internal/sso/oidc_integration_test.go` (build tag `integration`); driven via `make test-integration-sso` against the lightweight `test-infra/integration/docker-compose.test.yml` (Postgres-only) stack. Mock IdP is in-process (custom minimal RS256 issuer with `/.well-known/openid-configuration`, `/jwks`, `/authorize`, `/token` and PKCE S256 verification) so signing-key rotation is deterministic.
 - [ ] Internal Entra OIDC test (against AxiaOps Inc's own Entra tenant) passes from a `start-staging` deployment.
-- [ ] Group mapping precedence (`admin > member > viewer`) verified by table-driven test, including: (a) user in only one mapped group, (b) user in two groups mapping to different roles → highest wins, (c) user in groups mapping to same role → no error, (d) user in zero mapped groups → falls through to `default_role`.
+- [x] Group mapping precedence (`admin > member > viewer`) verified by table-driven test, including: (d) zero mapped groups → falls through to `default_role`. The other precedence shapes (a/b/c) are covered by `jit_test.go` (B2 slice 4); the `oidc_integration_test.go` happy-path covers the JIT-from-mapping arm and `_DefaultRoleFallback` covers (d) end-to-end.
 - [ ] Owner cannot be assigned via JIT (asserted by `permission_matrix_test.go`).
-- [ ] **JWKS auto-refresh on signature failure** (architect S5): integration test against mockoidc rotates the IdP key mid-test; the next login fails initial verification, the RP re-fetches JWKS bypassing the cache, retries verification, and succeeds — all in one request, no 24h outage.
+- [x] **JWKS auto-refresh on signature failure** (architect S5): `TestOIDC_JWKSAutoRefreshOnSignatureFailure` rotates the in-process IdP key after a successful login; the second login signature-fails on the cached JWKS, evicts via `cache.Cache.Del`, refetches, and succeeds — all in one request.
 - [ ] `/v1/sso/discover` returns 200 with `has_sso:false` for unknown domains; constant response shape verified.
 - [ ] **Domain-confusion fuzz** (architect N4 — moved from §6.5): `dnstwist`-style domain-confusion test on `/v1/sso/discover` shows no false positives on similar domains (e.g. `acme.com` verified must not match `acme.co` or `aсme.com` punycode).
 - [ ] **Open-redirect fuzz on OIDC `state`** (architect N4): fuzz the `state` parameter with `https://evil.com`, `//evil.com`, `javascript:` URLs; all must redirect to the fixed `/dashboard` path regardless of `state` content.

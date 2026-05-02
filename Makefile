@@ -214,6 +214,25 @@ test-integration-api:
 	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
 
+# SSO OIDC ceremony integration tests (services/api/internal/sso/oidc_integration_test.go).
+# Drives a full authorization-code + PKCE round-trip against an in-process
+# minimal OIDC issuer, asserting JIT membership + JWKS auto-refresh-on-rotation.
+# Uses the lightweight docker-compose.test.yml stack — Postgres only, no api
+# or mock-IdP container needed (the test stands the API up in-process for
+# httptest control over signing keys).
+test-integration-sso:
+	cd test-infra/integration && docker-compose -f docker-compose.test.yml down -v --remove-orphans 2>/dev/null || true
+	cd test-infra/integration && docker-compose -f docker-compose.test.yml up -d postgres
+	cd test-infra/integration && for i in {1..30}; do \
+		docker-compose -f docker-compose.test.yml exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; \
+		sleep 1; \
+	done
+	cd services/api && \
+		INTEGRATION_DATABASE_URL='postgres://axiaops:axiaops@localhost:5532/axiaops?sslmode=disable' \
+		INTEGRATION_DATABASE_OWNER_URL='postgres://axiaops_owner:axiaops_owner@localhost:5532/axiaops?sslmode=disable' \
+		go test -tags=integration -count=1 -run TestOIDC -v ./internal/sso/...
+	cd test-infra/integration && docker-compose -f docker-compose.test.yml down -v --remove-orphans
+
 # Ingestion integration tests only
 test-integration-ingestion:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
