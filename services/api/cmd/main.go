@@ -333,6 +333,15 @@ func main() {
 		default:
 			die("auth: invalid AUTH_PROVIDER", "value", mode, "expected", "native|kinde|both")
 		}
+		// Wrap with SSO enforcement BEFORE WrapNative so the chain is
+		// "auth → enforcement → handlers". `/v1/auth/logout` bypasses
+		// enforcement so a password-session user under a `required`
+		// org can still cleanly end their session (otherwise they'd
+		// hold a cookie they cannot retire via the API).
+		root = middleware.EnforceSSO(
+			middleware.NewStoreEnforcementResolver(store),
+			"/v1/auth/logout",
+		)(root)
 		root = middleware.WrapNative(provider, root)
 	}
 
