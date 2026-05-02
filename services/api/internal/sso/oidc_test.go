@@ -106,6 +106,29 @@ func newIDPFixture(t *testing.T) *idpFixture {
 		_, _ = w.Write(rsaPublicKeyToJWKS(t, &key.PublicKey))
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Validate the request shape exchangeCode is supposed to send.
+		// Without these checks the unit tests can't catch a form-encoding
+		// regression (wrong grant_type, missing code_verifier, etc.) — a
+		// real IdP would reject but the fixture would silently pass.
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_request"})
+			return
+		}
+		if got := r.PostForm.Get("grant_type"); got != "authorization_code" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unsupported_grant_type"})
+			return
+		}
+		for _, key := range []string{"code", "code_verifier", "client_id", "client_secret", "redirect_uri"} {
+			if r.PostForm.Get(key) == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_request_missing_" + key})
+				return
+			}
+		}
+
 		f.mu.Lock()
 		claims := f.nextTokenClaims
 		errCode := f.nextTokenError
@@ -114,7 +137,6 @@ func newIDPFixture(t *testing.T) *idpFixture {
 		f.nextTokenClaims = nil
 		f.nextTokenError = ""
 		f.mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
 		if errCode != "" {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": errCode})
