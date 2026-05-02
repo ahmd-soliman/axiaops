@@ -316,8 +316,8 @@ func (s *Store) RedeemPendingInvitation(ctx context.Context, organizationID, use
 	// because the pending row is FOR UPDATE-locked) would surface 23505 — treat
 	// as redeemed-by-someone-else, no-op.
 	_, err = tx.Exec(ctx, `
-		INSERT INTO memberships (id, organization_id, user_id, role, invited_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+		INSERT INTO memberships (id, organization_id, user_id, role, invited_by, provisioned_via, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, 'invitation', NOW(), NOW())`,
 		uuid.New().String(), organizationID, userID, role, invitedBy,
 	)
 	if err != nil {
