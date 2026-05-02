@@ -55,7 +55,9 @@ func newWithKeyfunc(issuer string, kf jwt.Keyfunc) *Auth {
 	return &Auth{issuer: issuer, keyfunc: kf}
 }
 
-// publicPath reports whether the path bypasses authentication.
+// publicPath reports whether the path bypasses authentication. Caller is
+// net/http.ServeMux which path-cleans the URL before invoking the handler
+// chain, so traversal-style inputs (`..`, `//`) are not reachable here.
 // Four families bypass:
 //
 //  1. Infra: /metrics, /health, /livez, /readyz — must remain reachable
@@ -77,6 +79,20 @@ func newWithKeyfunc(issuer string, kf jwt.Keyfunc) *Auth {
 func publicPath(p string) bool {
 	switch p {
 	case "/health", "/livez", "/readyz", "/metrics", "/v1/sso/discover":
+		return true
+	}
+	// OIDC ceremony — both initiate (browser pre-redirect, no session) and
+	// callback (browser post-IdP, no session yet) bypass auth. The callback
+	// establishes the session by minting one after a successful token
+	// validation; the initiate handler doesn't need a session at all.
+	//
+	// We match the suffix explicitly rather than the bare /v1/sso/oidc/
+	// prefix so a future authenticated SSO-management route (e.g.
+	// /v1/sso/oidc/{cid}/settings) does NOT silently bypass auth. The cid
+	// is variable, so we can't lock to exact paths; suffix-match is the
+	// minimal guard against namespace creep.
+	if strings.HasPrefix(p, "/v1/sso/oidc/") &&
+		(strings.HasSuffix(p, "/initiate") || strings.HasSuffix(p, "/callback")) {
 		return true
 	}
 	return strings.HasPrefix(p, "/v1/auth/")
@@ -196,6 +212,28 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 func OrganizationID(ctx context.Context) string {
 	id, _ := ctx.Value(organizationIDKey).(string)
 	return id
+}
+
+// WithOrganizationID returns a child context with the organization ID set.
+// Used by handlers that establish an organization context outside the auth
+// middleware path — specifically the SSO callback, which derives the org
+// from the connection (looked up by cid in the URL) before any session
+// exists. The audit helper reads from the same key, so callbacks can write
+// audit events with the right organization scoping.
+func WithOrganizationID(ctx context.Context, organizationID string) context.Context {
+	return context.WithValue(ctx, organizationIDKey, organizationID)
+}
+
+// WithUserID returns a child context with the user ID set. Companion to
+// WithOrganizationID for the same use case.
+func WithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDKey, userID)
+}
+
+// WithUserEmail returns a child context with the user email set. Companion
+// to WithOrganizationID for the same use case.
+func WithUserEmail(ctx context.Context, email string) context.Context {
+	return context.WithValue(ctx, userEmailKey, email)
 }
 
 // OrganizationCode returns the Kinde org_code claim from the request context.
