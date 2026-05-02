@@ -84,12 +84,13 @@ func publicPath(p string) bool {
 	// establishes the session by minting one after a successful token
 	// validation; the initiate handler doesn't need a session at all.
 	//
-	// Risk: this is a prefix bypass, so any future authenticated route
-	// under /v1/sso/oidc/ would also bypass auth. Today the namespace is
-	// reserved for the two ceremony endpoints (plan §5.2). If a new
-	// authenticated route lands here, switch this to an exact-match list
-	// or restructure the path so the authed routes live elsewhere.
-	if strings.HasPrefix(p, "/v1/sso/oidc/") {
+	// We match the suffix explicitly rather than the bare /v1/sso/oidc/
+	// prefix so a future authenticated SSO-management route (e.g.
+	// /v1/sso/oidc/{cid}/settings) does NOT silently bypass auth. The cid
+	// is variable, so we can't lock to exact paths; suffix-match is the
+	// minimal guard against namespace creep.
+	if strings.HasPrefix(p, "/v1/sso/oidc/") &&
+		(strings.HasSuffix(p, "/initiate") || strings.HasSuffix(p, "/callback")) {
 		return true
 	}
 	return strings.HasPrefix(p, "/v1/auth/")
