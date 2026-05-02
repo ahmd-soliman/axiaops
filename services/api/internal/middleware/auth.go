@@ -55,7 +55,9 @@ func newWithKeyfunc(issuer string, kf jwt.Keyfunc) *Auth {
 	return &Auth{issuer: issuer, keyfunc: kf}
 }
 
-// publicPath reports whether the path bypasses authentication.
+// publicPath reports whether the path bypasses authentication. Caller is
+// net/http.ServeMux which path-cleans the URL before invoking the handler
+// chain, so traversal-style inputs (`..`, `//`) are not reachable here.
 // Four families bypass:
 //
 //  1. Infra: /metrics, /health, /livez, /readyz — must remain reachable
