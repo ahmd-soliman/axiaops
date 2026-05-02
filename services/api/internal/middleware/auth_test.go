@@ -207,17 +207,54 @@ func TestAuth_OPTIONSPassesThrough(t *testing.T) {
 }
 
 // /metrics, /livez, /readyz must remain reachable from Prometheus and
-// container orchestration without a JWT.
+// container orchestration without a JWT. The OIDC ceremony endpoints
+// (/v1/sso/oidc/{cid}/initiate and /callback) are also pre-auth — the
+// browser arrives without a session.
 func TestAuth_PublicPathsBypassAuth(t *testing.T) {
 	auth, _ := testSetup(t)
 	h := auth.Wrap(okHandler)
 
-	for _, path := range []string{"/health", "/livez", "/readyz", "/metrics"} {
+	bypassed := []string{
+		"/health", "/livez", "/readyz", "/metrics",
+		"/v1/sso/discover",
+		"/v1/sso/oidc/conn-1/initiate",
+		"/v1/sso/oidc/some-uuid-here/callback",
+		"/v1/auth/login", // /v1/auth/* prefix bypass
+	}
+	for _, path := range bypassed {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
 			t.Errorf("%s without auth: expected 200, got %d", path, w.Code)
+		}
+	}
+}
+
+// TestAuth_OIDCNamespaceSuffixGuard pins the suffix-match guard added in
+// slice 4 commit 4. The /v1/sso/oidc/ namespace bypass is intentionally
+// NOT a blanket prefix bypass — only paths ending in /initiate or
+// /callback should pre-auth. Any future authenticated route under that
+// namespace (e.g. /v1/sso/oidc/{cid}/settings) MUST require a session.
+// Without this test, switching the publicPath logic back to a prefix-only
+// bypass would silently introduce an auth-bypass vulnerability.
+func TestAuth_OIDCNamespaceSuffixGuard(t *testing.T) {
+	auth, _ := testSetup(t)
+	h := auth.Wrap(okHandler)
+
+	guarded := []string{
+		"/v1/sso/oidc/conn-1/settings",     // hypothetical future authed route
+		"/v1/sso/oidc/conn-1/test",         // hypothetical future authed route
+		"/v1/sso/oidc/",                    // bare prefix is not enough
+		"/v1/sso/oidc",                     // missing trailing slash
+		"/v1/sso/oidc/initiate-but-not",    // suffix is /not, not /initiate
+	}
+	for _, path := range guarded {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code == http.StatusOK {
+			t.Errorf("%s should require auth (was bypassed) — suffix-match guard regressed", path)
 		}
 	}
 }
