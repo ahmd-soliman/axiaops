@@ -327,6 +327,9 @@ func TestCallback_HappyPath_JITRoleUpdated(t *testing.T) {
 		UserID:         "user-idp-sub-123",
 		OrganizationID: "org-test",
 		Role:           "viewer",
+		// ProvisionedVia=jit — the role-reconcile path applies only to
+		// JIT-placed memberships (provenance guard added post-merge).
+		ProvisionedVia: model.ProvisionedViaJIT,
 	}
 	ct.store.mappings = []model.SSOGroupMapping{
 		{GroupExternalID: "platform-admins", Role: "admin"},
@@ -351,6 +354,54 @@ func TestCallback_HappyPath_JITRoleUpdated(t *testing.T) {
 	}
 }
 
+// TestCallback_InvitePlacedMembership_NotOverwrittenByJIT pins the
+// post-merge race fix at the callback level: a user who already has an
+// invitation-placed membership (admin chose admin role via /v1/invitations)
+// and then logs in via SSO with group claims that resolve to a lower role
+// must NOT have their role silently downgraded. Closes the cross-flow race
+// between POST /v1/auth/invitations/redeem and the SSO callback's
+// invite-redeem step. Also exercises the same guard for the simpler
+// re-login-after-manual-promotion case.
+func TestCallback_InvitePlacedMembership_NotOverwrittenByJIT(t *testing.T) {
+	ct := newCallbackTest(t)
+	// Existing admin membership placed by /v1/invitations (the loser of
+	// the FOR-UPDATE race scenario sees this row when it falls through
+	// from RedeemPendingInvitation → JIT).
+	ct.store.existingMembership = &model.Membership{
+		ID:             "m-existing",
+		UserID:         "user-idp-sub-123",
+		OrganizationID: "org-test",
+		Role:           "admin",
+		ProvisionedVia: model.ProvisionedViaInvitation,
+	}
+	ct.store.mappings = []model.SSOGroupMapping{
+		{GroupExternalID: "engineers", Role: "member"}, // SSO resolves lower
+	}
+	state, data := ct.generateState("conn-1")
+	claims := ct.claimsFor(data.Nonce)
+	claims["groups"] = []any{"engineers"}
+	ct.idp.SetNextToken(claims)
+
+	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := ct.store.existingMembership.Role; got != "admin" {
+		t.Errorf("admin role overwritten by JIT: got %q want admin (the bug the provenance guard prevents)", got)
+	}
+	// Neither JIT audit fires on the noop path — re-login on a sticky
+	// admin-placed row is not a JIT event.
+	if ct.store.hasAudit(model.AuditActionSSOJITRoleUpdated) {
+		t.Error("AuditActionSSOJITRoleUpdated written on invitation-placed row — guard bypassed")
+	}
+	if ct.store.hasAudit(model.AuditActionSSOJITProvisioned) {
+		t.Error("AuditActionSSOJITProvisioned written on existing membership path")
+	}
+	if !ct.store.hasAudit(model.AuditActionSSOLoginSucceeded) {
+		t.Error("AuditActionSSOLoginSucceeded missing on guard-skipped path")
+	}
+}
+
 func TestCallback_HappyPath_JITNoopOnUnchangedRole(t *testing.T) {
 	ct := newCallbackTest(t)
 	// Re-login: user already has membership at the role the resolver will
@@ -362,6 +413,11 @@ func TestCallback_HappyPath_JITNoopOnUnchangedRole(t *testing.T) {
 		UserID:         "user-idp-sub-123",
 		OrganizationID: "org-test",
 		Role:           "viewer", // matches conn.DefaultRole; no mappings present
+		// Explicit JIT provenance: the noop is reached via the
+		// existing.Role == role short-circuit at jit.go before the
+		// provenance guard, but pinning provisioned_via='jit' here
+		// keeps the test honest if the role values ever drift.
+		ProvisionedVia: model.ProvisionedViaJIT,
 	}
 	state, data := ct.generateState("conn-1")
 	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
