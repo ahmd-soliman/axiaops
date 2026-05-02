@@ -42,6 +42,7 @@ export default function Enforcement() {
   const [pendingRequired, setPendingRequired] = useState(null); // { connection, prevValue }
   const [topError, setTopError] = useState('');
   const [savedTickFor, setSavedTickFor] = useState(null);
+  const [pendingId, setPendingId] = useState(null);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['sso-connections'] });
 
@@ -51,9 +52,10 @@ export default function Enforcement() {
       setTopError('');
       setSavedTickFor(vars.id);
       setTimeout(() => setSavedTickFor((cur) => (cur === vars.id ? null : cur)), 1800);
+      setPendingId(null);
       invalidate();
     },
-    onError: (err) => setTopError(humanize(err, 'Failed to update enforcement')),
+    onError: (err) => { setTopError(humanize(err, 'Failed to update enforcement')); setPendingId(null); },
   });
 
   function handleChange(connection, nextValue) {
@@ -62,6 +64,7 @@ export default function Enforcement() {
       setPendingRequired({ connection, nextValue });
       return;
     }
+    setPendingId(connection.id);
     updateMutation.mutate({ id: connection.id, enforcement: nextValue });
   }
 
@@ -93,7 +96,7 @@ export default function Enforcement() {
               connection={c}
               t={t}
               isDark={isDark}
-              disabled={updateMutation.isPending}
+              disabled={pendingId === c.id}
               savedTick={savedTickFor === c.id}
               onChange={(next) => handleChange(c, next)}
             />
@@ -106,6 +109,7 @@ export default function Enforcement() {
           connection={pendingRequired.connection}
           onCancel={() => setPendingRequired(null)}
           onConfirm={() => {
+            setPendingId(pendingRequired.connection.id);
             updateMutation.mutate({
               id: pendingRequired.connection.id,
               enforcement: 'required',

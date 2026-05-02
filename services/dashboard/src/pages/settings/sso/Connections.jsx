@@ -31,15 +31,16 @@ export default function Connections() {
   const [adding, setAdding]     = useState(false);
   const [editing, setEditing]   = useState(null); // connection object or null
   const [topError, setTopError] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
 
   const conns = useQuery({ queryKey: ['sso-connections'], queryFn: listSSOConnections });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['sso-connections'] });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => deleteSSOConnection(id),
-    onSuccess: invalidate,
-    onError: (err) => setTopError(humanize(err, 'Failed to delete connection')),
+    mutationFn: ({ id }) => deleteSSOConnection(id),
+    onSuccess: () => { invalidate(); setDeletingId(null); },
+    onError: (err) => { setTopError(humanize(err, 'Failed to delete connection')); setDeletingId(null); },
   });
 
   return (
@@ -92,13 +93,14 @@ export default function Connections() {
                     onClick={() => {
                       const safeLabel = sanitizeForDialog(c.label);
                       if (confirm(`Delete connection "${safeLabel}"? Users redirecting through this connection will fail to log in.`)) {
-                        deleteMutation.mutate(c.id);
+                        setDeletingId(c.id);
+                        deleteMutation.mutate({ id: c.id });
                       }
                     }}
-                    disabled={deleteMutation.isPending}
+                    disabled={deletingId === c.id}
                     style={{ ...ghostButton(t), color: '#ef4444', marginLeft: 6 }}
                   >
-                    Delete
+                    {deletingId === c.id ? 'Deleting…' : 'Delete'}
                   </button>
                 </Td>
               </tr>
@@ -180,7 +182,13 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
     (!isEdit && (!form.oidc_discovery_url.trim() || !form.oidc_client_id.trim() || !form.oidc_client_secret));
 
   return (
-    <ModalShell onClose={onClose} t={t} isDark={isDark} title={isEdit ? `Edit ${existing.label}` : 'Add SSO connection'}>
+    <ModalShell
+      onClose={onClose}
+      lockClose={saveMutation.isPending}
+      t={t}
+      isDark={isDark}
+      title={isEdit ? `Edit ${existing.label}` : 'Add SSO connection'}
+    >
       <form
         onSubmit={(e) => { e.preventDefault(); if (!submitDisabled) saveMutation.mutate(); }}
         style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
@@ -264,10 +272,15 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
   );
 }
 
-function ModalShell({ children, onClose, t, isDark, title }) {
+function ModalShell({ children, onClose, lockClose, t, isDark, title }) {
+  // Backdrop click dismisses by default. While `lockClose` is true (e.g.
+  // a save mutation is in flight) the click is swallowed — otherwise the
+  // user can dismiss mid-save and the mutation's onError fires setError
+  // on an unmounted component, swallowing the failure silently.
+  const handleBackdropClick = lockClose ? undefined : onClose;
   return (
     <div
-      onClick={onClose}
+      onClick={handleBackdropClick}
       style={{
         position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,

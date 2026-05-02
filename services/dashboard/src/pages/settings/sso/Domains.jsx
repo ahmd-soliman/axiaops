@@ -65,6 +65,8 @@ export default function Domains() {
   });
 
   const noConnections = !conns.isPending && (conns.data || []).length === 0;
+  const addDisabled   = conns.isPending || noConnections;
+  const addTitle      = conns.isPending ? 'Loading connections…' : noConnections ? 'Create a connection first.' : undefined;
 
   return (
     <div>
@@ -75,9 +77,9 @@ export default function Domains() {
         <button
           type="button"
           onClick={() => setAdding(true)}
-          disabled={noConnections}
-          title={noConnections ? 'Create a connection first.' : undefined}
-          style={{ ...primaryButton(t), opacity: noConnections ? 0.5 : 1, cursor: noConnections ? 'not-allowed' : 'pointer' }}
+          disabled={addDisabled}
+          title={addTitle}
+          style={{ ...primaryButton(t), opacity: addDisabled ? 0.5 : 1, cursor: addDisabled ? 'not-allowed' : 'pointer' }}
         >
           Add domain
         </button>
@@ -204,7 +206,13 @@ function AddDomainModal({ connections, onClose, onCreated, t, isDark }) {
   const submitDisabled = createMutation.isPending || !connectionId || !domain.trim();
 
   return (
-    <ModalShell title="Add domain" onClose={onClose} t={t} isDark={isDark}>
+    <ModalShell
+      title="Add domain"
+      onClose={onClose}
+      lockClose={createMutation.isPending}
+      t={t}
+      isDark={isDark}
+    >
       <form
         onSubmit={(e) => { e.preventDefault(); if (!submitDisabled) createMutation.mutate(); }}
         style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
@@ -281,10 +289,14 @@ function RecordDisplay({ label, value, t, isDark }) {
   );
 }
 
-function ModalShell({ children, onClose, t, isDark, title }) {
+function ModalShell({ children, onClose, lockClose, t, isDark, title }) {
+  // Backdrop dismissal is blocked while lockClose is true — keeps the
+  // create-then-show-TXT-token flow stable through the in-flight mutation
+  // and prevents setError on an unmounted modal swallowing failures.
+  const handleBackdropClick = lockClose ? undefined : onClose;
   return (
     <div
-      onClick={onClose}
+      onClick={handleBackdropClick}
       style={{
         position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
