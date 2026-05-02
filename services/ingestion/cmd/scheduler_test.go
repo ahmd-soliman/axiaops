@@ -247,6 +247,9 @@ func (m *mockStoreForScheduler) CreateSSOConnection(context.Context, model.SSOCo
 func (m *mockStoreForScheduler) GetSSOConnection(context.Context, string) (model.SSOConnection, error) {
 	return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
 }
+func (m *mockStoreForScheduler) GetSSOConnectionByID(context.Context, string) (model.SSOConnection, error) {
+	return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
+}
 func (m *mockStoreForScheduler) ListSSOConnections(context.Context) ([]model.SSOConnection, error) {
 	return nil, errors.New("mockStoreForScheduler.ListSSOConnections not implemented")
 }
