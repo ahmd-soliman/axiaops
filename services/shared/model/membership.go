@@ -11,6 +11,13 @@ type Membership struct {
 	UserID         string
 	Role           string // one of: owner, admin, member, viewer
 	InvitedBy      string // FK → User.ID; empty for backfilled and bootstrap rows
+	// ProvisionedVia records how the membership got created — one of
+	// model.ProvisionedVia* (manual / invitation / jit / scim / legacy).
+	// SaveMembership writes this column; callers that don't set it get
+	// the column default ('manual'). JIT and SCIM callers MUST set it
+	// explicitly so admin team-review surfaces the correct provenance.
+	// Added by migration 022 (Phase B2). See services/shared/model/sso.go.
+	ProvisionedVia string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
