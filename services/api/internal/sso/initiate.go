@@ -117,7 +117,7 @@ func NewInitiateHandler(store InitiateStore, validator *Validator, stateStore *S
 			return
 		}
 
-		state, data, err := GenerateState(cid, validatedReturnTo(r.URL.Query().Get("return_to")))
+		state, data, err := GenerateState(cid, ValidatedReturnTo(r.URL.Query().Get("return_to")))
 		if err != nil {
 			slog.Error("sso: initiate: generate state", "cid", cid, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -161,19 +161,26 @@ type authorizeParams struct {
 	LoginHint     string // optional; empty omitted from URL
 }
 
-// validatedReturnTo accepts a `?return_to=` query value and returns it iff
+// ValidatedReturnTo accepts a `?return_to=` query value and returns it iff
 // it looks like a same-origin relative path. Open-redirect defense: any
 // absolute URL ("https://evil.com"), protocol-relative URL ("//evil.com"),
 // non-http scheme ("javascript:alert(1)"), or non-leading-slash value is
 // dropped to "" so it never reaches StateData.RedirectAfterLogin and the
 // callback's redirect target falls through to the default.
 //
-// Architect N4 acceptance criterion: open-redirect fuzz on the OIDC
-// `state` parameter must redirect to the fixed /dashboard path regardless
-// of `state` content. This is enforced at the entry boundary (here)
-// rather than at the callback site, so commit 3's callback can trust
-// state.RedirectAfterLogin without re-validating.
-func validatedReturnTo(raw string) string {
+// Defense-in-depth: this is called at TWO sites — the entry boundary in
+// initiate.go (where the user-supplied ?return_to= is sanitised before
+// landing in state) AND the redirect site in oidc_callback.go (where
+// stateData.RedirectAfterLogin is re-validated immediately before use).
+// The second call closes architect N4's "regardless of state content"
+// acceptance: even if the state record were corrupted between persist and
+// consume (storage bug, hostile cache write, post-validation tampering),
+// the callback still cannot be coerced into redirecting off-origin.
+//
+// Idempotent on a previously-validated value: a known-good "/dashboard/x"
+// passes back through unchanged, so calling it twice has no effect on the
+// happy path.
+func ValidatedReturnTo(raw string) string {
 	if raw == "" || len(raw) > 1024 {
 		return ""
 	}
