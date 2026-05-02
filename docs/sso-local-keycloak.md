@@ -220,3 +220,126 @@ SQL
 
 Connection, domain, and group mappings persist — keep them around for the
 next iteration.
+
+## 9. Test report template
+
+Copy the block below into a fresh document or a scratch comment on the
+relevant MR / issue, fill it in as you go, and save it as evidence the
+real-IdP round-trip held. Probes are ordered cheapest-first — if probe 1
+(Discovery) fails, the rest can't run, so triage there before continuing.
+
+```markdown
+# SSO local end-to-end test — <YYYY-MM-DD>
+
+- **Tester**: <your name>
+- **AxiaOps SHA**: $(git rev-parse --short HEAD)  on  <branch>
+- **Keycloak**: <version>  reachable at <URL>
+- **AxiaOps stack**: make start-staging  (PUBLIC_HOST=<value from .env>)
+- **Test domain**: example.com    Test user: alice@example.com
+- **Test groups**: g-engineering→admin, g-support→member  (or "none")
+
+## Probes
+
+### Probe 1 — Discovery endpoint reachable
+- [ ] `curl <discovery URL>` returns 200 with valid JSON from the host
+- [ ] Same URL is reachable from inside the API container
+      (`docker exec axiaops-api-1 curl -fsSL <url>`)
+- Notes:
+
+### Probe 2 — Connection + domain config persists
+- [ ] Connection saved as draft, then activated; reflected in
+      `Settings → SSO → Connections` list
+- [ ] Domain row inserted; `UPDATE sso_domains` to `verified`
+      succeeds
+- [ ] (Optional) Group mappings saved; PUT replaced full set as expected
+- Notes:
+
+### Probe 3 — /v1/sso/discover identifies SSO domain
+- [ ] `curl 'http://localhost:8082/v1/sso/discover?email=alice@example.com'`
+      returns `{has_sso: true, redirect_url: "..."}`
+- [ ] `curl 'http://localhost:8082/v1/sso/discover?email=bob@unknown.example'`
+      returns `{has_sso: false}` (no `redirect_url` key)
+- [ ] Wall-clock latency is ≥ ~5ms in both cases (timing-channel pin)
+- Notes:
+
+### Probe 4 — First-time SSO login (JIT create, default-role path)
+- [ ] Email-blur on `/login` redirects to Keycloak authorize URL
+- [ ] Keycloak shows AxiaOps client; auth as alice succeeds
+- [ ] Browser lands on `/dashboard` with the AxiaOps session cookie set
+- [ ] Audit log shows `SSO_LOGIN_SUCCEEDED` + `SSO_JIT_PROVISIONED`
+- [ ] `memberships.provisioned_via='jit'`, role matches expectation
+      (default_role if no groups; group-mapped role otherwise)
+- Notes:
+
+### Probe 5 — Re-login (idempotent JIT, role unchanged → no audit noise)
+- [ ] Log out, log in again as alice
+- [ ] `SSO_LOGIN_SUCCEEDED` audited again
+- [ ] `SSO_JIT_PROVISIONED` and `SSO_JIT_ROLE_UPDATED` are NOT
+      audited (no role change → no JIT event)
+- Notes:
+
+### Probe 6 — Group change updates role on next login
+- [ ] In Keycloak, move alice from `g-support` to `g-engineering`
+      (or vice versa)
+- [ ] Log out, log in as alice
+- [ ] Audit log shows `SSO_JIT_ROLE_UPDATED`
+- [ ] `memberships.role` reflects the new group's mapping
+- [ ] `provisioned_via` is still `'jit'` (not flipped to manual)
+- Notes:
+
+### Probe 7 — Invitation precedence over JIT
+- [ ] As an admin, invite `bob@example.com` at role `viewer` via
+      Settings → Members → Invite
+- [ ] In Keycloak, create user `bob@example.com` and put bob in
+      `g-engineering` (would JIT-resolve to admin)
+- [ ] Log in as bob via SSO
+- [ ] `memberships.role='viewer'` (invite wins over JIT admin)
+- [ ] `provisioned_via='invitation'`
+- [ ] `pending_memberships` row consumed (DELETED)
+- Notes:
+
+### Probe 8 — Anti-spoofing: unverified-domain email rejected
+- [ ] In Keycloak, change alice's email to `alice@unverified.example`
+- [ ] Log in via SSO
+- [ ] Browser lands on `/login?error=auth_failed` (not /dashboard)
+- [ ] Audit log shows `SSO_LOGIN_FAILED` reason `domain_unverified`
+- [ ] No session cookie set
+- Notes:
+
+### Probe 9 — enforcement=required blocks password sessions
+- [ ] Settings → SSO → Enforcement → set to `required`
+- [ ] Log out, log in as a NATIVE-PASSWORD user (e.g. the
+      bootstrapped owner if their email is on the verified domain)
+- [ ] Any authenticated request returns `403 {"error":"sso_required"}`
+- [ ] `/v1/auth/logout` still works (skip-path)
+- [ ] Reset enforcement to `optional` before continuing
+- Notes:
+
+### Probe 10 — Open-redirect defence
+- [ ] `curl '...initiate?return_to=https://evil.com'` — login completes,
+      lands on `/dashboard` (not evil.com)
+- [ ] `curl '...initiate?return_to=//evil.com'` — same
+- [ ] `curl '...initiate?return_to=/dashboard/zombies'` — login completes
+      and lands on `/dashboard/zombies` (legitimate path preserved)
+- Notes:
+
+## Bugs found
+
+| # | Severity | Probe | Description | Fix commit |
+|---|---|---|---|---|
+|   |   |   |   |   |
+
+## Decision
+
+- [ ] All probes green → safe to merge `feat/sso → develop`
+- [ ] Bugs found, fixed in <commits>, re-tested → safe to merge
+- [ ] Bugs found, deferred → describe risk and gate the merge
+
+Sign-off: <name> on <date>
+```
+
+The 10 probes map to the §5.5 acceptance items already pinned by automated
+tests — running them against a real IdP is the parity check between mock and
+real. If a probe fails, the corresponding automated test is the place to
+look first: the bug is almost always a mock gap rather than a real-IdP
+incompatibility.
