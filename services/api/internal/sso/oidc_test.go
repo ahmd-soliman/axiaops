@@ -63,9 +63,10 @@ func (m *mockCache) Ping(_ context.Context) error { return nil }
 func (m *mockCache) Close() error                 { return nil }
 
 // idpFixture stands up an httptest server that serves a synthetic OIDC
-// discovery doc + JWKS endpoint backed by a freshly-generated RSA key.
-// SwapKey() rotates the key so the auto-refresh test can prove the validator
-// re-fetches JWKS on signature failure.
+// discovery doc + JWKS endpoint + token endpoint backed by a freshly-generated
+// RSA key. SwapKey() rotates the key so the auto-refresh test can prove the
+// validator re-fetches JWKS on signature failure. SetNextToken() programmes
+// the token endpoint's next response (callback tests).
 type idpFixture struct {
 	t            *testing.T
 	server       *httptest.Server
@@ -73,6 +74,14 @@ type idpFixture struct {
 	signingKey   *rsa.PrivateKey
 	discoveryURL string
 	issuer       string
+	// nextTokenClaims controls what the /token endpoint signs and returns.
+	// nil → /token returns a 400 invalid_grant. Reset on each callback test
+	// so a forgotten setup fails loudly.
+	nextTokenClaims jwt.MapClaims
+	// nextTokenError lets a test simulate the IdP rejecting the code
+	// (e.g. invalid_grant). When non-empty, /token returns RFC 6749 §5.2
+	// error shape with this code.
+	nextTokenError string
 }
 
 func newIDPFixture(t *testing.T) *idpFixture {
@@ -96,6 +105,33 @@ func newIDPFixture(t *testing.T) *idpFixture {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(rsaPublicKeyToJWKS(t, &key.PublicKey))
 	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		claims := f.nextTokenClaims
+		errCode := f.nextTokenError
+		// Single-use: clear armed state so a stale arm can't pollute a
+		// later test that forgets to call SetNextToken / SetTokenError.
+		f.nextTokenClaims = nil
+		f.nextTokenError = ""
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if errCode != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": errCode})
+			return
+		}
+		if claims == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "no_token_set"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id_token":     f.SignToken(claims),
+			"access_token": "stub-access-token",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		})
+	})
 	f.server = httptest.NewServer(mux)
 	f.discoveryURL = f.server.URL + "/.well-known/openid-configuration"
 	f.issuer = f.server.URL
@@ -109,6 +145,24 @@ func (f *idpFixture) SwapKey() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.signingKey = newRSAKey(f.t)
+}
+
+// SetNextToken arms the /token endpoint to return an id_token signed with
+// the given claims on the next request. Call before triggering a callback.
+func (f *idpFixture) SetNextToken(claims jwt.MapClaims) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextTokenClaims = claims
+	f.nextTokenError = ""
+}
+
+// SetTokenError arms the /token endpoint to return an RFC 6749 §5.2 error
+// shape on the next request. Used to simulate IdP-side code rejection.
+func (f *idpFixture) SetTokenError(code string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextTokenClaims = nil
+	f.nextTokenError = code
 }
 
 // SignToken signs a token with whatever key is currently active.

@@ -79,6 +79,19 @@ func publicPath(p string) bool {
 	case "/health", "/livez", "/readyz", "/metrics", "/v1/sso/discover":
 		return true
 	}
+	// OIDC ceremony — both initiate (browser pre-redirect, no session) and
+	// callback (browser post-IdP, no session yet) bypass auth. The callback
+	// establishes the session by minting one after a successful token
+	// validation; the initiate handler doesn't need a session at all.
+	//
+	// Risk: this is a prefix bypass, so any future authenticated route
+	// under /v1/sso/oidc/ would also bypass auth. Today the namespace is
+	// reserved for the two ceremony endpoints (plan §5.2). If a new
+	// authenticated route lands here, switch this to an exact-match list
+	// or restructure the path so the authed routes live elsewhere.
+	if strings.HasPrefix(p, "/v1/sso/oidc/") {
+		return true
+	}
 	return strings.HasPrefix(p, "/v1/auth/")
 }
 
@@ -196,6 +209,28 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 func OrganizationID(ctx context.Context) string {
 	id, _ := ctx.Value(organizationIDKey).(string)
 	return id
+}
+
+// WithOrganizationID returns a child context with the organization ID set.
+// Used by handlers that establish an organization context outside the auth
+// middleware path — specifically the SSO callback, which derives the org
+// from the connection (looked up by cid in the URL) before any session
+// exists. The audit helper reads from the same key, so callbacks can write
+// audit events with the right organization scoping.
+func WithOrganizationID(ctx context.Context, organizationID string) context.Context {
+	return context.WithValue(ctx, organizationIDKey, organizationID)
+}
+
+// WithUserID returns a child context with the user ID set. Companion to
+// WithOrganizationID for the same use case.
+func WithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDKey, userID)
+}
+
+// WithUserEmail returns a child context with the user email set. Companion
+// to WithOrganizationID for the same use case.
+func WithUserEmail(ctx context.Context, email string) context.Context {
+	return context.WithValue(ctx, userEmailKey, email)
 }
 
 // OrganizationCode returns the Kinde org_code claim from the request context.
