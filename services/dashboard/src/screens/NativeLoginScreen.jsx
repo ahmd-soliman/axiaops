@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Spinner } from '../components/primitives';
 import { discoverSSO } from '../api/client';
 import { authColors as C, authStyles as S } from './_authShell';
@@ -91,6 +91,14 @@ export default function NativeLoginScreen({ onSubmit, loading, error }) {
     if (phase !== 'password') return; // safety: button shouldn't be reachable in other phases
     onSubmit({ email: email.trim(), password });
   }
+
+  // Cancel any pending discover timer on unmount. Late discover responses
+  // are already gated by reqGenRef (the bumped generation invalidates them
+  // on next render), but the timer itself would still fire and queue a
+  // network request — clearing it here keeps the unmount path quiet.
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
 
   return (
     <div style={S.container}>
