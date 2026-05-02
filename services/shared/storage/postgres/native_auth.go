@@ -693,8 +693,8 @@ func (s *Store) ConsumeBootstrapState(ctx context.Context, in storage.BootstrapC
 	}
 	membershipID := uuid.New().String()
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO memberships (id, organization_id, user_id, role, invited_by, created_at, updated_at)
-		VALUES ($1, $2, $3, 'owner', NULL, NOW(), NOW())`,
+		INSERT INTO memberships (id, organization_id, user_id, role, invited_by, provisioned_via, created_at, updated_at)
+		VALUES ($1, $2, $3, 'owner', NULL, 'manual', NOW(), NOW())`,
 		membershipID, in.OrganizationID, in.UserID,
 	); err != nil {
 		return storage.BootstrapResult{}, fmt.Errorf("postgres: consume bootstrap insert membership: %w", err)
@@ -1030,8 +1030,8 @@ func (s *Store) RedeemNativeInvitation(ctx context.Context, in storage.NativeInv
 	membershipCreatedAt := insertNow
 	membershipUpdatedAt := insertNow
 	_, err = tx.Exec(ctx, `
-		INSERT INTO memberships (id, organization_id, user_id, role, invited_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+		INSERT INTO memberships (id, organization_id, user_id, role, invited_by, provisioned_via, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, 'invitation', $6, $6)`,
 		membershipID, organizationID, user.ID, role, invitedBy, insertNow,
 	)
 	if err != nil {

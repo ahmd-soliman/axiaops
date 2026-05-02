@@ -11,6 +11,12 @@ import (
 
 // captureJITStore is a tiny JITMembershipStore that records the most recent
 // SaveMembership call so the test can assert provenance is set correctly.
+//
+// Only the new-insert path is covered here. The reconcile path (where
+// SaveMembership returns ErrMembershipExists, JIT then walks
+// GetMembershipByOrgUser → UpdateMembershipRole) is not exercised by this
+// mock — UpdateMembershipRole returns nil without recording. Add coverage
+// when the OIDC ceremony slice wires the runtime caller.
 type captureJITStore struct {
 	lastSavedMembership model.Membership
 }
