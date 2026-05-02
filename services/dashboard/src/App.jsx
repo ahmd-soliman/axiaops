@@ -21,6 +21,7 @@ import Profile           from './pages/Profile';
 import Settings          from './pages/Settings';
 import SettingsTeam      from './pages/settings/Team';
 import SettingsAudit     from './pages/settings/Audit';
+import SettingsSSO       from './pages/settings/SSO';
 import SettingsOrganization from './pages/settings/Organization';
 import OnboardingLayout  from './pages/onboarding/OnboardingLayout';
 import OnboardingInvite  from './pages/onboarding/Invite';
@@ -98,6 +99,7 @@ function AuthenticatedApp() {
                 <Route path="/settings"            element={<Settings />}>
                   <Route path="team"      element={<SettingsTeam />} />
                   <Route path="audit"     element={<SettingsAudit />} />
+                  <Route path="sso"       element={<SettingsSSO />} />
                   <Route path="organization" element={<SettingsOrganization />} />
                 </Route>
               </Route>

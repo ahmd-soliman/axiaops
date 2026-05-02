@@ -10,9 +10,17 @@ import { PERM } from '../api/permissions';
 // configuration grouped and out of the top nav, and lets new admin pages
 // land here without crowding daily-use routes.
 
+// SSO tab is gated on SSO_MANAGE (owner-only) for now even though the
+// backend grants SSO_READ to viewer+. The plan calls for a viewer-facing
+// read-only mode of the same panes (per services/shared/authz/roles.go
+// comment "the read tier (sso:read) is viewer+ so the dashboard can render
+// the SSO settings pane in read-only mode for non-owners"); that mode is
+// deferred to a follow-up. Until it lands, exposing the panes to viewers
+// would render mutation controls that 403 — worse UX than hiding the tab.
 const TABS = [
   { label: 'Team',      path: '/settings/team',      requires: PERM.MEMBERS_INVITE },
   { label: 'Audit Log', path: '/settings/audit',     requires: PERM.AUDIT_READ },
+  { label: 'SSO',       path: '/settings/sso',       requires: PERM.SSO_MANAGE },
   { label: 'Organization', path: '/settings/organization', requires: PERM.ORGANIZATION_DELETE },
 ];
 
