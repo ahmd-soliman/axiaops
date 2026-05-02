@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 
@@ -175,7 +176,23 @@ func JITProvisionMembership(ctx context.Context, store JITMembershipStore, organ
 		// to JIT. 'legacy' rows are pre-B2 backfills with unrecoverable
 		// provenance — defensive skip; better to leave a possibly-wrong
 		// role than to overwrite something we can't reason about.
+		//
+		// Caveat — admin demotion of a JIT-placed row is NOT made sticky
+		// by this guard: PATCH /v1/memberships/{id}/role updates only
+		// `role`, leaving `provisioned_via='jit'` intact, so the next SSO
+		// login can re-promote if upstream group claims still resolve
+		// higher. Making demotions sticky would require flipping
+		// provisioned_via to 'manual' on admin-driven role changes —
+		// deferred as a separate behavioural change, tracked outside
+		// this race fix.
 		if existing.ProvisionedVia != model.ProvisionedViaJIT {
+			slog.Debug("sso: jit reconcile skipped: non-jit provenance",
+				"organization_id", organizationID,
+				"user_id", userID,
+				"provisioned_via", existing.ProvisionedVia,
+				"existing_role", existing.Role,
+				"resolved_role", role,
+			)
 			return JITOutcomeNoop, nil
 		}
 		if err := store.UpdateMembershipRole(ctx, existing.ID, role); err != nil {

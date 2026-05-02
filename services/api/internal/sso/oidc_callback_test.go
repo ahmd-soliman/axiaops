@@ -413,6 +413,11 @@ func TestCallback_HappyPath_JITNoopOnUnchangedRole(t *testing.T) {
 		UserID:         "user-idp-sub-123",
 		OrganizationID: "org-test",
 		Role:           "viewer", // matches conn.DefaultRole; no mappings present
+		// Explicit JIT provenance: the noop is reached via the
+		// existing.Role == role short-circuit at jit.go before the
+		// provenance guard, but pinning provisioned_via='jit' here
+		// keeps the test honest if the role values ever drift.
+		ProvisionedVia: model.ProvisionedViaJIT,
 	}
 	state, data := ct.generateState("conn-1")
 	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
