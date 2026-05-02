@@ -77,6 +77,21 @@ func (s *Store) CreateSSOConnection(ctx context.Context, c model.SSOConnection) 
 		createdBy = c.CreatedByUserID
 	}
 
+	// pgx maps Go nil []byte to SQL NULL, but the schema declares both
+	// ciphertext columns NOT NULL with an empty-bytea default. The default
+	// only applies when the column is omitted from the INSERT — which it
+	// isn't here. Coerce nil → []byte{} so a draft SAML connection (no
+	// OIDC client_secret) and any pre-SCIM connection both round-trip
+	// without violating the constraint.
+	oidcSecret := c.OIDCClientSecretCiphertext
+	if oidcSecret == nil {
+		oidcSecret = []byte{}
+	}
+	scimToken := c.SCIMTokenCiphertext
+	if scimToken == nil {
+		scimToken = []byte{}
+	}
+
 	row := tx.QueryRow(ctx, `
 		INSERT INTO sso_connections (
 			id, organization_id, protocol, label, status, enforcement, default_role,
@@ -96,9 +111,9 @@ func (s *Store) CreateSSOConnection(ctx context.Context, c model.SSOConnection) 
 		RETURNING `+connectionColumns,
 		c.ID, c.OrganizationID, c.Protocol, c.Label, c.Status, c.Enforcement, c.DefaultRole,
 		c.IdPIssuer, c.IdPMetadataURL, c.IdPMetadataXML,
-		c.OIDCClientID, c.OIDCClientSecretCiphertext, c.OIDCDiscoveryURL, c.OIDCTenantID,
+		c.OIDCClientID, oidcSecret, c.OIDCDiscoveryURL, c.OIDCTenantID,
 		c.SAMLSSOURL, c.SAMLSigningCert, c.SAMLPreviousCert, c.SAMLPreviousCertExpiresAt,
-		c.KindeConnectionID, c.SCIMTokenCiphertext, c.SCIMEndpoint,
+		c.KindeConnectionID, scimToken, c.SCIMEndpoint,
 		createdBy,
 	)
 	out, err := scanSSOConnection(row)
@@ -185,6 +200,19 @@ func (s *Store) UpdateSSOConnection(ctx context.Context, c model.SSOConnection) 
 		return err
 	}
 
+	// Same nil-bytea coercion as CreateSSOConnection — pgx writes nil as
+	// SQL NULL, which the NOT NULL constraint rejects on a label-only PATCH
+	// of a SAML connection (no oidc_client_secret to send).
+	//
+	// scim_token_ciphertext is intentionally absent from this UPDATE clause
+	// (SCIM rotation lives in Phase E). When that lands, mirror this nil
+	// coercion for c.SCIMTokenCiphertext or you will reproduce the original
+	// SQLSTATE 23502 violation.
+	oidcSecret := c.OIDCClientSecretCiphertext
+	if oidcSecret == nil {
+		oidcSecret = []byte{}
+	}
+
 	tag, err := tx.Exec(ctx, `
 		UPDATE sso_connections SET
 			label = $2,
@@ -206,7 +234,7 @@ func (s *Store) UpdateSSOConnection(ctx context.Context, c model.SSOConnection) 
 		WHERE id = $1`,
 		c.ID, c.Label, c.Status, c.Enforcement, c.DefaultRole,
 		c.IdPIssuer, c.IdPMetadataURL, c.IdPMetadataXML,
-		c.OIDCClientID, c.OIDCClientSecretCiphertext, c.OIDCDiscoveryURL, c.OIDCTenantID,
+		c.OIDCClientID, oidcSecret, c.OIDCDiscoveryURL, c.OIDCTenantID,
 		c.SAMLSSOURL, c.SAMLSigningCert, c.SAMLPreviousCert, c.SAMLPreviousCertExpiresAt,
 	)
 	if err != nil {
