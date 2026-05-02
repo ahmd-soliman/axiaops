@@ -131,6 +131,7 @@ const (
 	AuditActionSSOLoginSucceeded            = "sso_login_succeeded"
 	AuditActionSSOLoginFailed               = "sso_login_failed"
 	AuditActionSSOJITProvisioned            = "sso_jit_provisioned"
+	AuditActionSSOJITRoleUpdated            = "sso_jit_role_updated"
 )
 
 // ValidAuditActions is the authoritative set of action codes accepted on write
@@ -180,6 +181,7 @@ var ValidAuditActions = map[string]bool{
 	AuditActionSSOLoginSucceeded:            true,
 	AuditActionSSOLoginFailed:               true,
 	AuditActionSSOJITProvisioned:            true,
+	AuditActionSSOJITRoleUpdated:            true,
 }
 
 // AuditFilter parameterises AuditLogList queries. Zero-value fields are not
