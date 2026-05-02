@@ -285,7 +285,11 @@ func (v *Validator) discoveryDoc(ctx context.Context, cid, url string) (Discover
 	if resp.StatusCode != http.StatusOK {
 		return DiscoveryDoc{}, fmt.Errorf("fetch %s: unexpected status %d", url, resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
+	// Cap the response body. A real discovery doc is a few KB; a malicious
+	// IdP URL or DNS hijack could otherwise stream MB+ and exhaust memory
+	// per request. 64 KiB is generous for any sane payload — symmetric
+	// with the 1 MiB cap on exchangeCode's token-endpoint response.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	if err != nil {
 		return DiscoveryDoc{}, fmt.Errorf("read body: %w", err)
 	}
