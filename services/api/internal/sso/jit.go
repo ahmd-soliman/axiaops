@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 
@@ -157,6 +158,41 @@ func JITProvisionMembership(ctx context.Context, store JITMembershipStore, organ
 		// resolve to owner (rolePriority excludes it), but an existing owner
 		// membership stays untouched here too.
 		if existing.Role == string(authz.RoleOwner) || existing.Role == role {
+			return JITOutcomeNoop, nil
+		}
+		// Provenance guard: only reconcile roles on memberships JIT itself
+		// placed. An admin-placed row (provisioned_via='manual' or
+		// 'invitation') reflects an explicit role choice the customer
+		// admin made — JIT-on-relogin must not silently overwrite it
+		// even if the user's group claims now resolve to something
+		// different. Closes the race between POST /v1/auth/invitations/redeem
+		// (B1.5 cross-org flow) and the SSO callback's invite-redeem step:
+		// the loser of the FOR-UPDATE on pending_memberships sees
+		// (false, nil) from RedeemPendingInvitation, falls through here,
+		// and previously would update the just-inserted invitation-role
+		// membership to the SSO-resolved role.
+		//
+		// 'scim' rows are SCIM-managed (Phase E) and similarly off-limits
+		// to JIT. 'legacy' rows are pre-B2 backfills with unrecoverable
+		// provenance — defensive skip; better to leave a possibly-wrong
+		// role than to overwrite something we can't reason about.
+		//
+		// Caveat — admin demotion of a JIT-placed row is NOT made sticky
+		// by this guard: PATCH /v1/memberships/{id}/role updates only
+		// `role`, leaving `provisioned_via='jit'` intact, so the next SSO
+		// login can re-promote if upstream group claims still resolve
+		// higher. Making demotions sticky would require flipping
+		// provisioned_via to 'manual' on admin-driven role changes —
+		// deferred as a separate behavioural change, tracked outside
+		// this race fix.
+		if existing.ProvisionedVia != model.ProvisionedViaJIT {
+			slog.Debug("sso: jit reconcile skipped: non-jit provenance",
+				"organization_id", organizationID,
+				"user_id", userID,
+				"provisioned_via", existing.ProvisionedVia,
+				"existing_role", existing.Role,
+				"resolved_role", role,
+			)
 			return JITOutcomeNoop, nil
 		}
 		if err := store.UpdateMembershipRole(ctx, existing.ID, role); err != nil {

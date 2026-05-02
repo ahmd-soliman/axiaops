@@ -184,3 +184,100 @@ func TestJITProvisionMembership_SetsProvisionedViaJIT(t *testing.T) {
 		t.Errorf("SaveMembership.OrganizationID = %q; want %q", got, want)
 	}
 }
+
+// reconcileJITStore exercises the reconcile path: SaveMembership returns
+// ErrMembershipExists, JIT calls GetMembershipByOrgUser to look up the
+// existing row, then conditionally calls UpdateMembershipRole. Tests of the
+// provenance guard need this richer mock.
+type reconcileJITStore struct {
+	existing       model.Membership
+	updateCalled   bool
+	updatedID      string
+	updatedRole    string
+}
+
+func (r *reconcileJITStore) SaveMembership(_ context.Context, _ model.Membership) error {
+	return storage.ErrMembershipExists
+}
+func (r *reconcileJITStore) GetMembershipByOrgUser(_ context.Context, _, _ string) (model.Membership, error) {
+	return r.existing, nil
+}
+func (r *reconcileJITStore) UpdateMembershipRole(_ context.Context, id, role string) error {
+	r.updateCalled = true
+	r.updatedID = id
+	r.updatedRole = role
+	return nil
+}
+
+// TestJITProvisionMembership_ProvenanceGuard_SkipsAdminPlacedRows pins the
+// post-merge race fix (review on !76, structural fix on top of !77): JIT
+// must never overwrite the role on an admin-placed membership
+// (provisioned_via in {manual, invitation, scim, legacy}) even when the
+// SSO group claims now resolve to a different role. Closes the cross-flow
+// race where a user simultaneously hits POST /v1/auth/invitations/redeem
+// and the SSO callback for the same org+email — the loser of the
+// FOR-UPDATE on pending_memberships used to silently downgrade the admin
+// role here. With the guard, the loser sees the existing
+// provisioned_via='invitation' row and noops.
+func TestJITProvisionMembership_ProvenanceGuard_SkipsAdminPlacedRows(t *testing.T) {
+	cases := []struct {
+		name           string
+		provisionedVia string
+	}{
+		{"manual", model.ProvisionedViaManual},
+		{"invitation", model.ProvisionedViaInvitation},
+		{"scim", model.ProvisionedViaSCIM},
+		{"legacy", model.ProvisionedViaLegacy},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &reconcileJITStore{
+				existing: model.Membership{
+					ID:             "m-1",
+					UserID:         "user-1",
+					OrganizationID: "org-1",
+					Role:           "admin", // admin-chosen role
+					ProvisionedVia: tc.provisionedVia,
+				},
+			}
+			// SSO group resolves to "member" — would normally downgrade.
+			outcome, err := sso.JITProvisionMembership(t.Context(), store, "org-1", "user-1", "member")
+			if err != nil {
+				t.Fatalf("JITProvisionMembership: %v", err)
+			}
+			if outcome != sso.JITOutcomeNoop {
+				t.Errorf("outcome on %s-provisioned existing row: got %v want JITOutcomeNoop", tc.provisionedVia, outcome)
+			}
+			if store.updateCalled {
+				t.Errorf("UpdateMembershipRole called on a provisioned_via=%q row — admin role silently overwritten (the bug this guard prevents)", tc.provisionedVia)
+			}
+		})
+	}
+}
+
+// TestJITProvisionMembership_ProvenanceGuard_AllowsJITRowUpdate confirms the
+// guard does NOT regress the intended JIT-on-relogin reconciliation: when
+// the existing membership was itself JIT-placed, group claim changes still
+// propagate via UpdateMembershipRole.
+func TestJITProvisionMembership_ProvenanceGuard_AllowsJITRowUpdate(t *testing.T) {
+	store := &reconcileJITStore{
+		existing: model.Membership{
+			ID:             "m-1",
+			UserID:         "user-1",
+			OrganizationID: "org-1",
+			Role:           "viewer",
+			ProvisionedVia: model.ProvisionedViaJIT,
+		},
+	}
+	outcome, err := sso.JITProvisionMembership(t.Context(), store, "org-1", "user-1", "admin")
+	if err != nil {
+		t.Fatalf("JITProvisionMembership: %v", err)
+	}
+	if outcome != sso.JITOutcomeUpdated {
+		t.Errorf("outcome on JIT-row role change: got %v want JITOutcomeUpdated", outcome)
+	}
+	if !store.updateCalled || store.updatedID != "m-1" || store.updatedRole != "admin" {
+		t.Errorf("UpdateMembershipRole not called correctly: called=%v id=%q role=%q",
+			store.updateCalled, store.updatedID, store.updatedRole)
+	}
+}
