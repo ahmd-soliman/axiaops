@@ -578,6 +578,15 @@ export async function deleteCurrentOrganization() {
 // encrypts oidc_client_secret at the API boundary — clients send plaintext
 // in `oidc_client_secret`, the response strips ciphertext entirely.
 
+// discoverSSO is the pre-auth email-blur lookup powering LoginScreen.
+// Returns { has_sso, redirect_url, ... } with constant response shape — the
+// server never 4xx's on bad input, so callers don't need to fall back on
+// errors caused by the email value (only on transport errors).
+export async function discoverSSO(email) {
+  const qs = `?email=${encodeURIComponent(email)}`;
+  return request(`/v1/sso/discover${qs}`);
+}
+
 export async function listSSOConnections() {
   return request('/v1/sso/connections');
 }
