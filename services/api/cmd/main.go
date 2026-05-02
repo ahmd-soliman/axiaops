@@ -180,14 +180,12 @@ func main() {
 	mux.Handle("GET /v1/sso/discover", sso.NewDiscoverHandler(ssoDiscoverer))
 
 	// OIDC ceremony state lives in cache.Cache (in-memory or Redis); the
-	// validator's discovery + JWKS caches share the same backing store. Both
-	// initiate and callback need them, but only callback requires the auth
-	// session manager — so initiate is wired here and callback is wired
-	// inside the native-auth block below where authMgr exists.
+	// validator's discovery + JWKS caches share the same backing store.
+	// Both initiate and callback are gated under the same AUTH_PROVIDER
+	// condition below — registering initiate without callback would 302 a
+	// browser to the IdP only to land on a 404 callback URL.
 	ssoValidator := sso.NewValidator(c)
 	ssoStateStore := sso.NewStateStore(c)
-	mux.Handle("GET /v1/sso/oidc/{cid}/initiate",
-		sso.NewInitiateHandler(store, ssoValidator, ssoStateStore, os.Getenv("PUBLIC_HOST")))
 
 	// Native-auth ceremony endpoints (POST /v1/auth/{bootstrap,login,logout}).
 	// These are reachable only under AUTH_PROVIDER=native|both — under
@@ -210,14 +208,19 @@ func main() {
 			authH := auth.NewHandler(store, authMgr, cookieCfg, auth.NewAuditWriter(store)).
 				WithLoginRateLimit(auth.NewLoginRateLimiter(c))
 			authH.Register(mux)
-			// SSO callback shares ssoValidator + ssoStateStore with the
-			// initiate handler wired above. AuthMgr + CookieConfig come from
-			// the native-auth wiring just above so SSO sessions are
-			// indistinguishable from password sessions at the cookie layer.
-			callbackPublicHost := os.Getenv("PUBLIC_HOST")
-			if callbackPublicHost == "" {
-				slog.Error("sso: callback: PUBLIC_HOST is empty — IdP-registered redirect_uri will not match the URL the callback receives")
+			// OIDC ceremony — initiate + callback are paired. Both are
+			// registered here so that under AUTH_PROVIDER=kinde or
+			// DEV_MODE=true the IdP redirect doesn't land on a 404
+			// callback (initiate has no value without callback wired).
+			// AuthMgr + CookieConfig come from the native-auth wiring just
+			// above so SSO sessions are indistinguishable from password
+			// sessions at the cookie layer.
+			ceremonyPublicHost := os.Getenv("PUBLIC_HOST")
+			if ceremonyPublicHost == "" {
+				slog.Error("sso: ceremony: PUBLIC_HOST is empty — IdP-registered redirect_uri will not match the URL the callback receives")
 			}
+			mux.Handle("GET /v1/sso/oidc/{cid}/initiate",
+				sso.NewInitiateHandler(store, ssoValidator, ssoStateStore, ceremonyPublicHost))
 			mux.Handle("GET /v1/sso/oidc/{cid}/callback",
 				sso.NewCallbackHandler(sso.CallbackOptions{
 					Store:        store,
@@ -225,7 +228,7 @@ func main() {
 					StateStore:   ssoStateStore,
 					Sessions:     authMgr,
 					CookieConfig: cookieCfg,
-					PublicHost:   callbackPublicHost,
+					PublicHost:   ceremonyPublicHost,
 				}))
 			// First-owner install-token generator. No-op when an
 			// organization already exists.

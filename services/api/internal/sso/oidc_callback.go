@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strings"
 	"time"
@@ -235,7 +236,9 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 		// The invite carries an explicit role choice from the admin and
 		// MUST win — silently degrading to JIT on a redeem failure would
 		// assign the user a different role than the admin chose, with no
-		// visible signal. Fail the login instead so the admin can retry.
+		// visible signal. Fail the login so the user re-attempts SSO and
+		// the redeem retries; the admin's role choice is never silently
+		// bypassed even on a transient DB error here.
 		invited, redeemErr := opts.Store.RedeemPendingInvitation(ctx, conn.OrganizationID, user.ID, email)
 		if redeemErr != nil {
 			slog.Error("sso: callback: redeem pending invitation", "cid", cid, "err", redeemErr)
@@ -424,7 +427,14 @@ func extractClaims(claims jwt.MapClaims, conn model.SSOConnection) (sub, email, 
 
 	for _, key := range []string{"email", "preferred_username", "upn"} {
 		v, _ := claims[key].(string)
-		if v != "" && strings.Contains(v, "@") {
+		if v == "" {
+			continue
+		}
+		// net/mail.ParseAddress rejects malformed shapes (`@`, `user@`,
+		// `@domain`) that a bare strings.Contains "@" would accept. Catches
+		// pathological IdP claims at this boundary instead of letting them
+		// surface downstream as "domain_unverified".
+		if _, err := mail.ParseAddress(v); err == nil {
 			email = v
 			break
 		}

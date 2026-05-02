@@ -10,6 +10,7 @@ import (
 
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/authz"
+	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 )
@@ -138,14 +139,19 @@ func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	// Reject the plaintext OIDC client_secret until the OIDC ceremony slice
-	// wires crypto.Encrypt at this boundary. Accepting it now would write
-	// plaintext into the oidc_client_secret_ciphertext column (a draft row
-	// would carry a clear-text secret), which defeats the encryption regime
-	// for any operator running pg_dump or querying the table directly.
+	// Encrypt the OIDC client_secret at the API boundary. The ciphertext
+	// is what the postgres column stores; the runtime callback decrypts via
+	// crypto.Decrypt(string(OIDCClientSecretCiphertext)) for the token
+	// exchange. Same idiom as accounts.aws_secret_key_ciphertext.
+	var oidcSecretCiphertext []byte
 	if req.OIDCClientSecret != "" {
-		writeError(w, http.StatusNotImplemented, "oidc_client_secret not yet supported in B2 slice 3 — lands with the OIDC ceremony slice")
-		return
+		ct, err := crypto.Encrypt(req.OIDCClientSecret)
+		if err != nil {
+			slog.Error("sso: create connection: encrypt client_secret", "error", err)
+			writeError(w, http.StatusInternalServerError, "encryption failed")
+			return
+		}
+		oidcSecretCiphertext = []byte(ct)
 	}
 	orgID := middleware.OrganizationID(r.Context())
 	userID := middleware.UserID(r.Context())
@@ -160,13 +166,14 @@ func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
 		IdPIssuer:        req.IdPIssuer,
 		IdPMetadataURL:   req.IdPMetadataURL,
 		IdPMetadataXML:   req.IdPMetadataXML,
-		OIDCClientID:     req.OIDCClientID,
-		OIDCDiscoveryURL: req.OIDCDiscoveryURL,
-		OIDCTenantID:     req.OIDCTenantID,
-		SAMLSSOURL:       req.SAMLSSOURL,
-		SAMLSigningCert:  req.SAMLSigningCert,
-		SAMLPreviousCert: req.SAMLPreviousCert,
-		CreatedByUserID:  userID,
+		OIDCClientID:               req.OIDCClientID,
+		OIDCClientSecretCiphertext: oidcSecretCiphertext,
+		OIDCDiscoveryURL:           req.OIDCDiscoveryURL,
+		OIDCTenantID:               req.OIDCTenantID,
+		SAMLSSOURL:                 req.SAMLSSOURL,
+		SAMLSigningCert:            req.SAMLSigningCert,
+		SAMLPreviousCert:           req.SAMLPreviousCert,
+		CreatedByUserID:            userID,
 	}
 
 	out, err := h.connector.Save(ctx, c)
@@ -199,14 +206,21 @@ func (h *Handler) updateConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	// Encrypt before applying — keeps the plaintext out of the in-memory
+	// model copy except for this scope.
 	if req.OIDCClientSecret != "" {
-		writeError(w, http.StatusNotImplemented, "oidc_client_secret not yet supported in B2 slice 3 — lands with the OIDC ceremony slice")
-		return
+		ct, err := crypto.Encrypt(req.OIDCClientSecret)
+		if err != nil {
+			slog.Error("sso: update connection: encrypt client_secret", "error", err)
+			writeError(w, http.StatusInternalServerError, "encryption failed")
+			return
+		}
+		existing.OIDCClientSecretCiphertext = []byte(ct)
 	}
 
 	// Apply only fields explicitly set in the request. Empty string is
 	// treated as "no change" — clearing a field requires a tombstone value
-	// the OIDC ceremony slice will define (e.g. "-" or a separate endpoint).
+	// a future slice will define (e.g. "-" or a separate endpoint).
 	if req.Label != "" {
 		existing.Label = req.Label
 	}
