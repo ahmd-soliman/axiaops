@@ -22,6 +22,11 @@ DROP TABLE IF EXISTS sso_group_mappings;
 DROP INDEX IF EXISTS sso_domains_expiry_idx;
 DROP INDEX IF EXISTS sso_domains_lookup_idx;
 DROP INDEX IF EXISTS sso_domains_one_active_claim_per_domain;
+-- Defensive: also drop the pre-rename index name in case a prior partial
+-- application of 022 (under the original index name) ever landed in the
+-- environment we're rolling back. IF EXISTS makes the call a no-op when the
+-- old name was never present, which is the common case.
+DROP INDEX IF EXISTS sso_domains_one_verified_per_domain;
 DROP TABLE IF EXISTS sso_domains;
 
 -- sso_connections — last; FK target for the others above.
