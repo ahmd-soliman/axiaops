@@ -18,9 +18,11 @@ import (
 	"axiaops.io/shared/model"
 )
 
-// discoveryDoc captures the fields of an OIDC discovery document the RP
-// reads at runtime. Extra JSON keys are ignored by encoding/json.
-type discoveryDoc struct {
+// DiscoveryDoc captures the fields of an OIDC discovery document the RP
+// reads at runtime. Extra JSON keys are ignored by encoding/json. Exported
+// so the initiate handler can read AuthorizationEndpoint without going
+// through the validator's full ID-token surface.
+type DiscoveryDoc struct {
 	Issuer                string   `json:"issuer"`
 	JWKSURI               string   `json:"jwks_uri"`
 	AuthorizationEndpoint string   `json:"authorization_endpoint"`
@@ -157,7 +159,7 @@ func (v *Validator) ValidateIDToken(ctx context.Context, conn model.SSOConnectio
 // parseToken fetches the JWKS keyfunc and parses the token under strict alg
 // restrictions. When bypassCache is true, the cache is skipped entirely so
 // the auto-refresh path sees fresh JWKS.
-func (v *Validator) parseToken(ctx context.Context, conn model.SSOConnection, doc discoveryDoc, rawToken string, bypassCache bool) (jwt.MapClaims, error) {
+func (v *Validator) parseToken(ctx context.Context, conn model.SSOConnection, doc DiscoveryDoc, rawToken string, bypassCache bool) (jwt.MapClaims, error) {
 	c := v.cache
 	if bypassCache {
 		c = nil // forces FromCache to do a live fetch with no cache write
@@ -193,7 +195,7 @@ func (v *Validator) parseToken(ctx context.Context, conn model.SSOConnection, do
 // validateClaims runs OIDC-specific claim checks: issuer match, audience
 // match, nonce match, iat sanity. exp is already enforced by jwt.Parser
 // when WithExpirationRequired is set.
-func (v *Validator) validateClaims(claims jwt.MapClaims, conn model.SSOConnection, doc discoveryDoc, expectedNonce string) (jwt.MapClaims, error) {
+func (v *Validator) validateClaims(claims jwt.MapClaims, conn model.SSOConnection, doc DiscoveryDoc, expectedNonce string) (jwt.MapClaims, error) {
 	// Issuer must match the discovery doc's claimed issuer (defense against
 	// a malicious discovery doc pointing at a JWKS the attacker controls but
 	// declaring a different issuer in the token).
@@ -239,15 +241,27 @@ func (v *Validator) validateClaims(claims jwt.MapClaims, conn model.SSOConnectio
 	return claims, nil
 }
 
+// Discovery returns the cached-or-live OIDC discovery doc for the
+// connection. The initiate handler calls this to resolve
+// AuthorizationEndpoint before redirecting to the IdP. The first call
+// populates the cache that ValidateIDToken consults later in the same
+// ceremony, so the callback's token validation hits a warm cache.
+func (v *Validator) Discovery(ctx context.Context, conn model.SSOConnection) (DiscoveryDoc, error) {
+	if conn.OIDCDiscoveryURL == "" {
+		return DiscoveryDoc{}, errors.New("sso: connection has no oidc_discovery_url")
+	}
+	return v.discoveryDoc(ctx, conn.ID, conn.OIDCDiscoveryURL)
+}
+
 // discoveryDoc fetches the discovery doc through the cache layer at
 // sso:oidc-discovery:{cid} with 24h TTL.
-func (v *Validator) discoveryDoc(ctx context.Context, cid, url string) (discoveryDoc, error) {
+func (v *Validator) discoveryDoc(ctx context.Context, cid, url string) (DiscoveryDoc, error) {
 	cacheKey := "sso:oidc-discovery:" + cid
 
 	if v.cache != nil {
 		body, err := v.cache.Get(ctx, cacheKey)
 		if err == nil {
-			var doc discoveryDoc
+			var doc DiscoveryDoc
 			if jsonErr := json.Unmarshal(body, &doc); jsonErr == nil {
 				return doc, nil
 			}
@@ -261,23 +275,23 @@ func (v *Validator) discoveryDoc(ctx context.Context, cid, url string) (discover
 	defer cancel()
 	req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, url, nil)
 	if err != nil {
-		return discoveryDoc{}, fmt.Errorf("build request: %w", err)
+		return DiscoveryDoc{}, fmt.Errorf("build request: %w", err)
 	}
 	resp, err := v.client.Do(req)
 	if err != nil {
-		return discoveryDoc{}, fmt.Errorf("fetch %s: %w", url, err)
+		return DiscoveryDoc{}, fmt.Errorf("fetch %s: %w", url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return discoveryDoc{}, fmt.Errorf("fetch %s: unexpected status %d", url, resp.StatusCode)
+		return DiscoveryDoc{}, fmt.Errorf("fetch %s: unexpected status %d", url, resp.StatusCode)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return discoveryDoc{}, fmt.Errorf("read body: %w", err)
+		return DiscoveryDoc{}, fmt.Errorf("read body: %w", err)
 	}
-	var doc discoveryDoc
+	var doc DiscoveryDoc
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return discoveryDoc{}, fmt.Errorf("parse: %w", err)
+		return DiscoveryDoc{}, fmt.Errorf("parse: %w", err)
 	}
 	if v.cache != nil {
 		if setErr := v.cache.Set(ctx, cacheKey, body, discoveryDocTTL); setErr != nil {

@@ -447,6 +447,13 @@ type Store interface {
 	// GetSSOConnection returns a single connection scoped to the request org.
 	// Returns ErrSSOConnectionNotFound on miss.
 	GetSSOConnection(ctx context.Context, id string) (model.SSOConnection, error)
+	// GetSSOConnectionByID is the pre-auth lookup used by the OIDC ceremony
+	// (initiate + callback). The caller has only the connection ID from the
+	// URL path — no organization context exists yet — so RLS must be bypassed.
+	// Returns ErrSSOConnectionNotFound on miss. The connection's
+	// OrganizationID is the caller's path back into RLS-scoped operations
+	// once the ceremony has authenticated the user.
+	GetSSOConnectionByID(ctx context.Context, id string) (model.SSOConnection, error)
 	// ListSSOConnections returns all connections in the request org, newest first.
 	ListSSOConnections(ctx context.Context) ([]model.SSOConnection, error)
 	// UpdateSSOConnection persists mutable fields (label, status, enforcement,
