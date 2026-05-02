@@ -159,6 +159,25 @@ func JITProvisionMembership(ctx context.Context, store JITMembershipStore, organ
 		if existing.Role == string(authz.RoleOwner) || existing.Role == role {
 			return JITOutcomeNoop, nil
 		}
+		// Provenance guard: only reconcile roles on memberships JIT itself
+		// placed. An admin-placed row (provisioned_via='manual' or
+		// 'invitation') reflects an explicit role choice the customer
+		// admin made — JIT-on-relogin must not silently overwrite it
+		// even if the user's group claims now resolve to something
+		// different. Closes the race between POST /v1/auth/invitations/redeem
+		// (B1.5 cross-org flow) and the SSO callback's invite-redeem step:
+		// the loser of the FOR-UPDATE on pending_memberships sees
+		// (false, nil) from RedeemPendingInvitation, falls through here,
+		// and previously would update the just-inserted invitation-role
+		// membership to the SSO-resolved role.
+		//
+		// 'scim' rows are SCIM-managed (Phase E) and similarly off-limits
+		// to JIT. 'legacy' rows are pre-B2 backfills with unrecoverable
+		// provenance — defensive skip; better to leave a possibly-wrong
+		// role than to overwrite something we can't reason about.
+		if existing.ProvisionedVia != model.ProvisionedViaJIT {
+			return JITOutcomeNoop, nil
+		}
 		if err := store.UpdateMembershipRole(ctx, existing.ID, role); err != nil {
 			return JITOutcomeNoop, fmt.Errorf("sso: JIT provision: update role: %w", err)
 		}
