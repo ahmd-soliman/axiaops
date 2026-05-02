@@ -149,12 +149,15 @@ func TestJITResolveRole_Precedence(t *testing.T) {
 // TestJITProvisionMembership_OwnerForbidden asserts the seam refuses to
 // promote anyone to owner via JIT — sticky owner property (plan §5.2).
 func TestJITProvisionMembership_OwnerForbidden(t *testing.T) {
-	err := sso.JITProvisionMembership(t.Context(), nil, "org-1", "user-1", "owner")
+	outcome, err := sso.JITProvisionMembership(t.Context(), nil, "org-1", "user-1", "owner")
 	if err == nil {
 		t.Fatal("JITProvisionMembership(owner) succeeded; want ErrJITOwnerForbidden")
 	}
 	if err != sso.ErrJITOwnerForbidden {
 		t.Errorf("JITProvisionMembership(owner) error = %v; want ErrJITOwnerForbidden", err)
+	}
+	if outcome != sso.JITOutcomeNoop {
+		t.Errorf("outcome on owner reject: got %v want JITOutcomeNoop", outcome)
 	}
 }
 
@@ -164,8 +167,12 @@ func TestJITProvisionMembership_OwnerForbidden(t *testing.T) {
 // defeating the whole point of the column added in migration 022.
 func TestJITProvisionMembership_SetsProvisionedViaJIT(t *testing.T) {
 	store := &captureJITStore{}
-	if err := sso.JITProvisionMembership(t.Context(), store, "org-1", "user-1", "member"); err != nil {
+	outcome, err := sso.JITProvisionMembership(t.Context(), store, "org-1", "user-1", "member")
+	if err != nil {
 		t.Fatalf("JITProvisionMembership: %v", err)
+	}
+	if outcome != sso.JITOutcomeCreated {
+		t.Errorf("outcome on first-time provision: got %v want JITOutcomeCreated", outcome)
 	}
 	if got, want := store.lastSavedMembership.ProvisionedVia, model.ProvisionedViaJIT; got != want {
 		t.Errorf("SaveMembership.ProvisionedVia = %q; want %q", got, want)
