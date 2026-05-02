@@ -179,6 +179,14 @@ func main() {
 	ssoHandler.Register(mux)
 	mux.Handle("GET /v1/sso/discover", sso.NewDiscoverHandler(ssoDiscoverer))
 
+	// OIDC ceremony state lives in cache.Cache (in-memory or Redis); the
+	// validator's discovery + JWKS caches share the same backing store.
+	// Both initiate and callback are gated under the same AUTH_PROVIDER
+	// condition below — registering initiate without callback would 302 a
+	// browser to the IdP only to land on a 404 callback URL.
+	ssoValidator := sso.NewValidator(c)
+	ssoStateStore := sso.NewStateStore(c)
+
 	// Native-auth ceremony endpoints (POST /v1/auth/{bootstrap,login,logout}).
 	// These are reachable only under AUTH_PROVIDER=native|both — under
 	// AUTH_PROVIDER=kinde we register them anyway because publicPath
@@ -196,9 +204,32 @@ func main() {
 		if mode == "native" || mode == "both" {
 			nativeAuthActive = true
 			authMgr := buildSessionManager(store, c)
-			authH := auth.NewHandler(store, authMgr, auth.NewCookieConfig(), auth.NewAuditWriter(store)).
+			cookieCfg := auth.NewCookieConfig()
+			authH := auth.NewHandler(store, authMgr, cookieCfg, auth.NewAuditWriter(store)).
 				WithLoginRateLimit(auth.NewLoginRateLimiter(c))
 			authH.Register(mux)
+			// OIDC ceremony — initiate + callback are paired. Both are
+			// registered here so that under AUTH_PROVIDER=kinde or
+			// DEV_MODE=true the IdP redirect doesn't land on a 404
+			// callback (initiate has no value without callback wired).
+			// AuthMgr + CookieConfig come from the native-auth wiring just
+			// above so SSO sessions are indistinguishable from password
+			// sessions at the cookie layer.
+			ceremonyPublicHost := os.Getenv("PUBLIC_HOST")
+			if ceremonyPublicHost == "" {
+				slog.Error("sso: ceremony: PUBLIC_HOST is empty — IdP-registered redirect_uri will not match the URL the callback receives")
+			}
+			mux.Handle("GET /v1/sso/oidc/{cid}/initiate",
+				sso.NewInitiateHandler(store, ssoValidator, ssoStateStore, ceremonyPublicHost))
+			mux.Handle("GET /v1/sso/oidc/{cid}/callback",
+				sso.NewCallbackHandler(sso.CallbackOptions{
+					Store:        store,
+					Validator:    ssoValidator,
+					StateStore:   ssoStateStore,
+					Sessions:     authMgr,
+					CookieConfig: cookieCfg,
+					PublicHost:   ceremonyPublicHost,
+				}))
 			// First-owner install-token generator. No-op when an
 			// organization already exists.
 			if res, err := auth.MaybeGenerateInstallToken(ctx, store); err != nil {

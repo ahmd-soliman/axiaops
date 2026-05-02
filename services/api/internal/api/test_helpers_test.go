@@ -1298,6 +1298,9 @@ func (m *MockStore) CreateSSOConnection(context.Context, model.SSOConnection) (m
 func (m *MockStore) GetSSOConnection(context.Context, string) (model.SSOConnection, error) {
 	return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
 }
+func (m *MockStore) GetSSOConnectionByID(context.Context, string) (model.SSOConnection, error) {
+	return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
+}
 func (m *MockStore) ListSSOConnections(context.Context) ([]model.SSOConnection, error) {
 	return nil, errors.New("MockStore.ListSSOConnections not implemented")
 }

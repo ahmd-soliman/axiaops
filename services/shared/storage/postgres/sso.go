@@ -343,6 +343,25 @@ func (s *Store) GetSSODomain(ctx context.Context, id string) (model.SSODomain, e
 	return d, nil
 }
 
+// GetSSOConnectionByID looks up a connection by ID with no org context. Pre-auth
+// — used by the OIDC ceremony (initiate + callback) where the caller has only
+// the cid from the URL path. Uses the admin pool to bypass RLS; the caller
+// then re-enters RLS-scoped operations using the returned OrganizationID.
+func (s *Store) GetSSOConnectionByID(ctx context.Context, id string) (model.SSOConnection, error) {
+	row := s.adminPool.QueryRow(ctx,
+		`SELECT `+connectionColumns+` FROM sso_connections WHERE id = $1`,
+		id,
+	)
+	c, err := scanSSOConnection(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
+	}
+	if err != nil {
+		return model.SSOConnection{}, fmt.Errorf("postgres: get sso connection by id: %w", err)
+	}
+	return c, nil
+}
+
 // GetVerifiedSSODomainByName looks up a verified row by lower(domain). Pre-auth
 // — no organization context exists. Uses the admin pool to bypass RLS.
 func (s *Store) GetVerifiedSSODomainByName(ctx context.Context, domain string) (model.SSODomain, error) {
