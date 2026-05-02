@@ -534,6 +534,62 @@ func TestSwitchOrgHappyPath(t *testing.T) {
 	}
 }
 
+// TestSwitchOrg_PreservesAuthMode_FromSSOSession pins the post-merge fix:
+// switchOrg used to hardcode AuthMode=password when minting the new
+// session, dropping the auth_mode='sso' attribute on an SSO user who
+// switched orgs. Audit tooling and any future SSO-enforcement gate would
+// silently see a forged 'password' session. The fix propagates
+// sess.AuthMode into the MintRequest.
+//
+// NOT t.Parallel(): increments AuthSessionRevocationsTotal{reason="org_switch"}.
+func TestSwitchOrg_PreservesAuthMode_FromSSOSession(t *testing.T) {
+	h, store, mgr := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 2)
+
+	store.mu.Lock()
+	userID := "u-alice@example.com"
+	fromOrg := store.memberships[userID][0].OrganizationID
+	toOrg := store.memberships[userID][1].OrganizationID
+	store.mu.Unlock()
+
+	// Mint directly via the Manager to bypass /select-org (which forces
+	// AuthMode=password). The SSO callback in the live system mints with
+	// AuthMode=sso identically.
+	mint, err := mgr.MintSession(context.Background(), auth.MintRequest{
+		UserID:         userID,
+		OrganizationID: fromOrg,
+		AuthMode:       model.AuthModeSSO,
+	})
+	if err != nil {
+		t.Fatalf("seed SSO session: %v", err)
+	}
+	cookie := &http.Cookie{Name: auth.SessionCookieName, Value: mint.PlaintextToken}
+
+	w := postJSON(t, mux(h), "/v1/auth/switch-org", map[string]string{"organization_id": toOrg}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", w.Code, w.Body.String())
+	}
+
+	// Find the freshly-minted session row for the target org and assert
+	// its AuthMode survived the rotation.
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	var rotated *model.Session
+	for _, s := range store.sessions {
+		if s.UserID == userID && s.OrganizationID == toOrg && s.RevokedAt == nil {
+			sCopy := s
+			rotated = &sCopy
+			break
+		}
+	}
+	if rotated == nil {
+		t.Fatal("rotated session row not found in store after switch-org")
+	}
+	if rotated.AuthMode != model.AuthModeSSO {
+		t.Errorf("auth_mode after org switch: got %q want %q (forged 'password' session would defeat SSO-enforcement gates)", rotated.AuthMode, model.AuthModeSSO)
+	}
+}
+
 // TestSwitchOrg_OldCookieReturns401AfterSwitch: plan §4.7.4 row 4. After a
 // successful switch, the OLD cookie must NOT authenticate any request. We
 // don't have a fully-wired authenticated route in this test layer; assert
