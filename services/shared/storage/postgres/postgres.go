@@ -1598,7 +1598,8 @@ func (s *Store) ListMemberships(ctx context.Context) ([]model.MembershipWithUser
 
 	rows, err := tx.Query(ctx, `
 		SELECT m.id, m.organization_id, m.user_id, m.role, COALESCE(m.invited_by, ''),
-		       m.created_at, m.updated_at, COALESCE(u.email, ''), COALESCE(u.name, '')
+		       m.provisioned_via, m.created_at, m.updated_at,
+		       COALESCE(u.email, ''), COALESCE(u.name, '')
 		FROM memberships m
 		LEFT JOIN users u ON u.id = m.user_id
 		ORDER BY m.created_at ASC, m.id ASC`)
@@ -1612,7 +1613,7 @@ func (s *Store) ListMemberships(ctx context.Context) ([]model.MembershipWithUser
 		var mu model.MembershipWithUser
 		if err := rows.Scan(
 			&mu.ID, &mu.OrganizationID, &mu.UserID, &mu.Role, &mu.InvitedBy,
-			&mu.CreatedAt, &mu.UpdatedAt, &mu.Email, &mu.Name,
+			&mu.ProvisionedVia, &mu.CreatedAt, &mu.UpdatedAt, &mu.Email, &mu.Name,
 		); err != nil {
 			return nil, fmt.Errorf("postgres: list memberships scan: %w", err)
 		}
@@ -1636,7 +1637,8 @@ func (s *Store) ListUserMemberships(ctx context.Context, userID string) ([]model
 	}
 	rows, err := s.adminPool.Query(ctx, `
 		SELECT m.id, m.organization_id, m.user_id, m.role, COALESCE(m.invited_by, ''),
-		       m.created_at, m.updated_at, COALESCE(o.name, ''), COALESCE(o.org_code, '')
+		       m.provisioned_via, m.created_at, m.updated_at,
+		       COALESCE(o.name, ''), COALESCE(o.org_code, '')
 		FROM memberships m
 		JOIN organizations o ON o.id = m.organization_id
 		WHERE m.user_id = $1
@@ -1651,7 +1653,8 @@ func (s *Store) ListUserMemberships(ctx context.Context, userID string) ([]model
 		var mo model.MembershipWithOrganization
 		if err := rows.Scan(
 			&mo.ID, &mo.OrganizationID, &mo.UserID, &mo.Role, &mo.InvitedBy,
-			&mo.CreatedAt, &mo.UpdatedAt, &mo.OrganizationName, &mo.OrganizationOrgCode,
+			&mo.ProvisionedVia, &mo.CreatedAt, &mo.UpdatedAt,
+			&mo.OrganizationName, &mo.OrganizationOrgCode,
 		); err != nil {
 			return nil, fmt.Errorf("postgres: list user memberships scan: %w", err)
 		}
@@ -1676,9 +1679,11 @@ func (s *Store) GetMembership(ctx context.Context, id string) (model.Membership,
 
 	var m model.Membership
 	err = tx.QueryRow(ctx, `
-		SELECT id, organization_id, user_id, role, COALESCE(invited_by, ''), created_at, updated_at
+		SELECT id, organization_id, user_id, role, COALESCE(invited_by, ''),
+		       provisioned_via, created_at, updated_at
 		FROM memberships WHERE id = $1`, id,
-	).Scan(&m.ID, &m.OrganizationID, &m.UserID, &m.Role, &m.InvitedBy, &m.CreatedAt, &m.UpdatedAt)
+	).Scan(&m.ID, &m.OrganizationID, &m.UserID, &m.Role, &m.InvitedBy,
+		&m.ProvisionedVia, &m.CreatedAt, &m.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Membership{}, storage.ErrMembershipNotFound
 	}
@@ -1695,11 +1700,13 @@ func (s *Store) GetMembership(ctx context.Context, id string) (model.Membership,
 func (s *Store) GetMembershipByOrgUser(ctx context.Context, organizationID, userID string) (model.Membership, error) {
 	var m model.Membership
 	err := s.adminPool.QueryRow(ctx, `
-		SELECT id, organization_id, user_id, role, COALESCE(invited_by, ''), created_at, updated_at
+		SELECT id, organization_id, user_id, role, COALESCE(invited_by, ''),
+		       provisioned_via, created_at, updated_at
 		FROM memberships
 		WHERE organization_id = $1 AND user_id = $2`,
 		organizationID, userID,
-	).Scan(&m.ID, &m.OrganizationID, &m.UserID, &m.Role, &m.InvitedBy, &m.CreatedAt, &m.UpdatedAt)
+	).Scan(&m.ID, &m.OrganizationID, &m.UserID, &m.Role, &m.InvitedBy,
+		&m.ProvisionedVia, &m.CreatedAt, &m.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Membership{}, storage.ErrMembershipNotFound
 	}
@@ -1909,8 +1916,8 @@ func (s *Store) EnsureFirstMembership(ctx context.Context, organizationID, userI
 		return false, fmt.Errorf("postgres: ensure first membership set organization: %w", err)
 	}
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at)
-		SELECT $1, $2, $3, 'owner', NOW(), NOW()
+		INSERT INTO memberships (id, organization_id, user_id, role, provisioned_via, created_at, updated_at)
+		SELECT $1, $2, $3, 'owner', 'manual', NOW(), NOW()
 		WHERE NOT EXISTS (SELECT 1 FROM memberships WHERE organization_id = $2)`,
 		uuid.New().String(), organizationID, userID,
 	)
@@ -1947,8 +1954,8 @@ func (s *Store) EnsureDevMembership(ctx context.Context, organizationID, userID,
 		return fmt.Errorf("postgres: ensure dev membership set organization: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, NOW(), NOW())
+		INSERT INTO memberships (id, organization_id, user_id, role, provisioned_via, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, 'manual', NOW(), NOW())
 		ON CONFLICT (organization_id, user_id) DO UPDATE SET
 			role       = EXCLUDED.role,
 			updated_at = NOW()`,
