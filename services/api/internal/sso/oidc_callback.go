@@ -239,6 +239,18 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 		// visible signal. Fail the login so the user re-attempts SSO and
 		// the redeem retries; the admin's role choice is never silently
 		// bypassed even on a transient DB error here.
+		//
+		// TODO(race): a user who simultaneously hits POST
+		// /v1/auth/invitations/redeem (B1.5 cross-org flow) and this SSO
+		// callback for the same org+email could lose the FOR-UPDATE race
+		// here, see (false, nil), and fall through to JIT — which then
+		// reconciles the membership the invite-redeem just inserted at
+		// the admin-chosen role to whatever the SSO group claim resolves
+		// to. Blast radius is narrow (millisecond window, requires user
+		// to trigger both flows simultaneously). A clean fix is to skip
+		// JIT updates when the existing membership has provisioned_via
+		// other than 'jit' (so an invite-placed admin/member row is
+		// untouchable by re-login JIT reconciliation).
 		invited, redeemErr := opts.Store.RedeemPendingInvitation(ctx, conn.OrganizationID, user.ID, email)
 		if redeemErr != nil {
 			slog.Error("sso: callback: redeem pending invitation", "cid", cid, "err", redeemErr)
