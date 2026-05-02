@@ -15,6 +15,7 @@ import (
 	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/kinde"
 	"axiaops.io/api/internal/middleware"
+	"axiaops.io/api/internal/sso"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
@@ -165,6 +166,18 @@ func main() {
 	}
 
 	h.Register(mux)
+
+	// ── Phase B2 SSO ────────────────────────────────────────────────────────
+	// Wire the SSO seam (Discoverer + Connector) and register both the
+	// pre-auth /v1/sso/discover handler (added to publicPath in middleware/auth.go)
+	// and the authenticated CRUD surface. The 24h sweep ticker for stale
+	// domains (and Phase C SAML cert sunset) is started below alongside the
+	// other tickers. PUBLIC_HOST is reused from the OOB-redemption-URL config.
+	ssoDiscoverer := sso.NewNativeDiscoverer(store, os.Getenv("PUBLIC_HOST"))
+	ssoConnector := sso.NewNativeConnector(store)
+	ssoHandler := sso.New(store, ssoConnector, ssoDiscoverer)
+	ssoHandler.Register(mux)
+	mux.Handle("GET /v1/sso/discover", sso.NewDiscoverHandler(ssoDiscoverer))
 
 	// Native-auth ceremony endpoints (POST /v1/auth/{bootstrap,login,logout}).
 	// These are reachable only under AUTH_PROVIDER=native|both — under
@@ -370,6 +383,12 @@ func main() {
 			}
 		}()
 	}
+
+	// SSO sweeper: marks expired verified domains as stale (B2). Phase C
+	// will extend the same ticker with SAML cert sunset and assertion-replay
+	// GC. Started unconditionally — sweep is a no-op until at least one
+	// verified sso_domain row exists.
+	go sso.NewSweeper(store, 0).Run(context.Background())
 
 	// ── Graceful Shutdown ────────────────────────────────────────────────────────
 	// Wait for SIGTERM/SIGINT indefinitely (App Runner sends SIGTERM on shutdown).
