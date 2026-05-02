@@ -351,6 +351,39 @@ func TestCallback_HappyPath_JITRoleUpdated(t *testing.T) {
 	}
 }
 
+func TestCallback_HappyPath_JITNoopOnUnchangedRole(t *testing.T) {
+	ct := newCallbackTest(t)
+	// Re-login: user already has membership at the role the resolver will
+	// return. JITOutcomeNoop must skip both jit_provisioned AND
+	// jit_role_updated audit — auditing every SSO login as a JIT event
+	// would drown the trail in noise.
+	ct.store.existingMembership = &model.Membership{
+		ID:             "m-existing",
+		UserID:         "user-idp-sub-123",
+		OrganizationID: "org-test",
+		Role:           "viewer", // matches conn.DefaultRole; no mappings present
+	}
+	state, data := ct.generateState("conn-1")
+	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
+
+	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := ct.store.existingMembership.Role; got != "viewer" {
+		t.Errorf("role should be unchanged: got %q want viewer", got)
+	}
+	if ct.store.hasAudit(model.AuditActionSSOJITProvisioned) {
+		t.Error("AuditActionSSOJITProvisioned written on noop path (should be silent)")
+	}
+	if ct.store.hasAudit(model.AuditActionSSOJITRoleUpdated) {
+		t.Error("AuditActionSSOJITRoleUpdated written on noop path (should be silent)")
+	}
+	if !ct.store.hasAudit(model.AuditActionSSOLoginSucceeded) {
+		t.Error("AuditActionSSOLoginSucceeded missing on noop happy path")
+	}
+}
+
 func TestCallback_InvitationRedeemError_FailsLogin(t *testing.T) {
 	ct := newCallbackTest(t)
 	ct.store.pendingErr = errors.New("DB hiccup")
