@@ -684,9 +684,14 @@ func (h *Handler) switchOrg(w http.ResponseWriter, r *http.Request) {
 	mint, err := h.sessions.RotateSessionForOrg(r.Context(), sess.ID, sess.SessionTokenHash, MintRequest{
 		UserID:         sess.UserID,
 		OrganizationID: target,
-		AuthMode:       model.AuthModePassword,
-		IP:             requestIP(r),
-		UserAgent:      r.Header.Get("User-Agent"),
+		// Preserve the originating auth mode across an org switch — an
+		// SSO-authenticated session that switches orgs must stay
+		// auth_mode='sso' on the new session row, otherwise audit
+		// tooling and any future SSO-enforcement gate would silently
+		// see a forged 'password' session.
+		AuthMode:  sess.AuthMode,
+		IP:        requestIP(r),
+		UserAgent: r.Header.Get("User-Agent"),
 	})
 	if err != nil {
 		slog.Error("auth: switch-org rotate failed", "user_id", sess.UserID, "err", err)
