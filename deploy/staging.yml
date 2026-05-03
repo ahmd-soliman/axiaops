@@ -4,7 +4,7 @@ services:
     container_name: axiaops-redis-staging
     restart: unless-stopped
     networks:
-      - gitlab-runner-network
+      - axiaops-staging-network
 
   ingestion:
     image: axiaops-ingestion:staging
@@ -19,14 +19,14 @@ services:
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
       AWS_REGION: ${AWS_REGION:-us-east-1}
     networks:
-      - gitlab-runner-network
+      - axiaops-staging-network
 
   api:
     image: axiaops-api:staging
     container_name: axiaops-api-staging
     restart: unless-stopped
     ports:
-      - "30051:8080"
+      - "8080:8080"
     environment:
       DATABASE_URL: ${DATABASE_URL}
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
@@ -41,14 +41,14 @@ services:
       KINDE_USE_STUB: ${KINDE_USE_STUB:-false}
       INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-14}
     networks:
-      - gitlab-runner-network
+      - axiaops-staging-network
 
   dashboard:
     image: axiaops-dashboard:staging
     container_name: axiaops-dashboard-staging
     restart: unless-stopped
     ports:
-      - "30052:80"
+      - "80:80"
     environment:
       API_HOST: axiaops-api-staging
       DEV_MODE: "false"
@@ -58,8 +58,9 @@ services:
       FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
       AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     networks:
-      - gitlab-runner-network
+      - axiaops-staging-network
 
 networks:
-  gitlab-runner-network:
+  # Per-env network created by self-hosted-infra on the axiaops-staging host.
+  axiaops-staging-network:
     external: true
