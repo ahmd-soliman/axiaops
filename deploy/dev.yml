@@ -9,7 +9,7 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - gitlab-runner-network
+      - axiaops-${DEPLOY_ENV}-network
 
   ingestion:
     image: axiaops-ingestion:${DEPLOY_ENV}
@@ -24,14 +24,14 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
-      - gitlab-runner-network
+      - axiaops-${DEPLOY_ENV}-network
 
   api:
     image: axiaops-api:${DEPLOY_ENV}
     container_name: axiaops-api-${DEPLOY_ENV}
     restart: unless-stopped
     ports:
-      - "${API_HOST_PORT}:8080"
+      - "8080:8080"
     environment:
       DATABASE_URL: ${DATABASE_URL}
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
@@ -42,14 +42,14 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
-      - gitlab-runner-network
+      - axiaops-${DEPLOY_ENV}-network
 
   dashboard:
     image: axiaops-dashboard:${DEPLOY_ENV}
     container_name: axiaops-dashboard-${DEPLOY_ENV}
     restart: unless-stopped
     ports:
-      - "${DASHBOARD_HOST_PORT}:80"
+      - "80:80"
     environment:
       API_HOST: axiaops-api-${DEPLOY_ENV}
       DEV_MODE: "true"
@@ -57,8 +57,10 @@ services:
       FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
       AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     networks:
-      - gitlab-runner-network
+      - axiaops-${DEPLOY_ENV}-network
 
 networks:
-  gitlab-runner-network:
+  # Per-env network created by self-hosted-infra on each axiaops-${DEPLOY_ENV} host
+  # (one host = one dev environment, so ports don't collide across envs).
+  axiaops-${DEPLOY_ENV}-network:
     external: true
