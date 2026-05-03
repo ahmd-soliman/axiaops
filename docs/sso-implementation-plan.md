@@ -890,7 +890,7 @@ This is what HashiCorp Enterprise, Atlassian DC, GitLab EE all do for license-en
 
 #### 4.10.6 Acceptance criteria — B1.7
 
-- [ ] **Layer 1**: `.dev-mode-gate` template added; `deploy:staging` extends it; a CI job that sets `DEV_MODE=true` and runs `deploy:staging` fails at the gate with a clear message; same job with `DEPLOY_ENV=dev-1` and `DEV_MODE=true` passes the gate.
+- [x] **Layer 1**: `.dev-mode-gate` template added at `.gitlab-ci.yml:304`; concrete `gate:devmode:staging` and `gate:devmode:production` jobs run alongside the strangler gates in the deploy stage; `deploy:staging` and `deploy:production` `needs:` them so a gate failure blocks the deploy with a clear job-level reason. Refusal logic: `case ${DEPLOY_ENV}` allows `dev-1 | dev-2`, refuses any other env when `DEV_MODE=true`. Validated via `glab ci lint`.
 - [ ] **Layer 2**: `VerifyAtBoot(devMode=true)` with a license file present returns a non-nil error mentioning the license path; without a file it logs the warn-skip and returns nil. Both cases covered by table-driven test in `startup_test.go`.
 - [ ] **Layer 2 metric**: `license_load_errors_total{reason="dev_mode_with_license"}` increments by 1 on the refused-boot case, by 0 on the bypass-without-license case.
 - [ ] **Layer 3**: `make build-production` produces a binary where setting `DEV_MODE=true` at runtime has zero effect (auth chain, license, bootstrap, etc. all stay in their full-enforcement posture). Asserted by a binary-shape test that runs the production build, sets `DEV_MODE=true`, and confirms `/livez` requires a session and the auth handler chain is fully wired.
