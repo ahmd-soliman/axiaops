@@ -8,12 +8,17 @@
 #
 # Usage:
 #   ./scripts/seed_test_data.sh                                    # Local docker
-#   ./scripts/seed_test_data.sh --remote dev-1                     # Remote dev-1   (axiaops.local:5432)
-#   ./scripts/seed_test_data.sh --remote dev-2                     # Remote dev-2   (axiaops.local:5433)
-#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (axiaops.local:5442)
+#   ./scripts/seed_test_data.sh --remote dev-1                     # Remote dev-1   (axiaops-<env>.local:5432)
+#   ./scripts/seed_test_data.sh --remote dev-2                     # Remote dev-2   (axiaops-<env>.local:5432)
+#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (axiaops-<env>.local:5432)
+#   ./scripts/seed_test_data.sh --remote preview                   # Remote preview (axiaops-<env>.local:5432)
+#   ./scripts/seed_test_data.sh --remote demo                      # Remote demo    (axiaops-<env>.local:5432)
 #   MIGRATION_DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom connection (owner user, bypasses RLS)
 #
-# Remote ports are sourced from the deploy stack/apps/axiaops-dbs/docker-compose.yml.
+# Each env runs on its own self-hosted container with hostname axiaops-<env>; the
+# .local addresses resolve via mDNS (same mechanism that resolved the old
+# axiaops.local). All postgres instances now listen on the standard 5432 —
+# no per-env port mapping since each lives on its own host.
 #
 # Supports both local (docker) and remote database connections.
 # Safe to re-run — all inserts are idempotent (ON CONFLICT DO NOTHING / DO UPDATE).
@@ -31,9 +36,9 @@ while [[ $# -gt 0 ]]; do
       shift
       REMOTE_ENV="${1:-}"
       case "$REMOTE_ENV" in
-        dev-1|dev-2|staging) ;;
+        dev-1|dev-2|staging|preview|demo) ;;
         *)
-          echo "Error: --remote requires 'dev-1', 'dev-2', or 'staging', got '$REMOTE_ENV'"
+          echo "Error: --remote requires 'dev-1', 'dev-2', 'staging', 'preview', or 'demo', got '$REMOTE_ENV'"
           exit 1
           ;;
       esac
@@ -50,14 +55,12 @@ done
 # Prompts for confirmation unless --yes/-y is passed.
 
 if [[ -n "$REMOTE_ENV" ]]; then
-  HOSTNAME="axiaops.local"
-
-  # Ports mirror the deploy stack/apps/axiaops-dbs/docker-compose.yml — keep in sync.
-  case "$REMOTE_ENV" in
-    dev-1)   DB_PORT=5432 ;;
-    dev-2)   DB_PORT=5433 ;;
-    staging) DB_PORT=5442 ;;
-  esac
+  # Each env runs on its own self-hosted container — hostname is axiaops-<env>.
+  # The .local addresses resolve via mDNS (Avahi on the LAN). All postgres
+  # instances listen on the standard 5432 since per-env hosts mean no port
+  # collision.
+  HOSTNAME="axiaops-${REMOTE_ENV}.local"
+  DB_PORT=5432
 
   export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
   
