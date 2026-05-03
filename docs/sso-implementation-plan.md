@@ -763,6 +763,146 @@ This is not a new seam — just a different composition root. The license packag
 - [x] `docs/license-issuance.md` runbook written (slice 9): issuance via the slice-7 CLI, install paths (env + file), renewal rolling-restart, leaked-signing-key incident response (rotate embedded pubkey + force re-issuance), pre-launch placeholder-pubkey swap, env var + claim-shape reference.
 - [x] Signing-key custody documented (slice 9): stored in the AxiaOps `axiaops-ops` 1Password vault, mode `0600` on the issuing operator's laptop only, quarterly access audit by the on-call rotation lead, never committed to git, never deployed to runtime systems.
 
+### 4.10 Phase B1.7 — `DEV_MODE` hardening (~0.5w follow-up)
+
+> **Why split from B1.6**: B1.6 shipped license enforcement at boot and at the scan gate. `DEV_MODE=true` silently bypasses both — a customer past their license expiry can keep scanning forever by flipping one env var. The license-bypass story is incomplete until `DEV_MODE` is also defended.
+>
+> **Scope**: three layers of defence-in-depth, each independent, each progressively stronger. Land them in order — Layer 1 is yaml-only and closes the most likely misconfig vector immediately; Layer 2 is small Go and closes the customer-side license-bypass gap; Layer 3 is the gold-standard fix and lands as part of self-hosted-binary hardening before first paying customer.
+>
+> **What B1.7 is NOT**: not a rename of `DEV_MODE`. The flag stays — local `make start-dev` and on-prem dev-1/dev-2 deploys both depend on it. The hardening targets *misuse on environments where `DEV_MODE` should be inert*, not the flag's existence.
+
+#### 4.10.1 Threat model
+
+`DEV_MODE=true` short-circuits, in `cmd/main.go`'s startup:
+
+- **License verification** (`license.VerifyAtBoot` returns nil) — TTL + grace + scan-gate all moot
+- **Auth chain** (DevBypass replaces `WrapNative + EnforceSSO`) — fixed `organization_id` + `user_id` + `role=owner` injected on every request, no session, no JWT, no SSO enforcement
+- **Native auth handlers** (`/v1/auth/*`) and OIDC ceremony (`/v1/sso/oidc/*`) not registered
+- **Bootstrap install token** not generated; **session sweep ticker** not started
+- **Kinde Mgmt client** forced to in-memory stub
+- **Frontend Login page** short-circuits via `VITE_DEV_MODE` (build-time bake)
+
+Threat surface by deployment shape:
+
+| Shape | Who can flip `DEV_MODE` | Risk |
+|---|---|---|
+| Internal dev-1 / dev-2 (VPN) | SSH on dev host | Low — throwaway data |
+| Staging (same host, ingress-reachable) | SSH or CI runner compromise | Medium — real-shape data, real cookies |
+| Production self-hosted (customer on-prem) | The customer themselves, plus anyone with shell on their box | **High — defeats B1.6 license enforcement entirely** |
+| Production SaaS (App Runner) | IAM principals with task-definition update | Medium-low — IAM-governed, CloudTrail-audited |
+
+The third row is the load-bearing one: a churned customer who keeps the binary running indefinitely (the exact scenario B1.6 was scoped against — see §4.9 rationale on D12 / ADR-0001) can simply flip `DEV_MODE=true` and the license refusal is bypassed silently. This is the gap.
+
+#### 4.10.2 Three-layer mitigation
+
+**Layer 1 — CI deploy-gate** (yaml-only, the strangler-gate analogue):
+
+`.gitlab-ci.yml` gains a `.dev-mode-gate` template paralleling the existing `.strangler-gate` (§4.5). Refuses to deploy when `DEV_MODE=true` is set in any env *except* the explicit dev slots:
+
+```yaml
+.dev-mode-gate:
+  before_script:
+    - |
+      case "${DEPLOY_ENV:-}" in
+        dev-1|dev-2) ;; # dev slots may carry DEV_MODE=true
+        *)
+          if [ "${DEV_MODE:-false}" = "true" ]; then
+            echo "dev-mode-gate: DEV_MODE=true is BLOCKED in ${DEPLOY_ENV:-unknown} (B1.7 §4.10.2 layer 1)." >&2
+            exit 1
+          fi ;;
+      esac
+```
+
+Applied via `extends: .dev-mode-gate` on `deploy:staging` and any future `deploy:production` job. Catches the misconfig vector where a project-wide CI/CD variable leaks `DEV_MODE=true` into staging. Doesn't catch on-host env manipulation, but that's a separate attack class addressed by Layer 3.
+
+**Layer 2 — License-file presence refusal** (small Go change, ~10 lines):
+
+`services/shared/license/startup.go` `VerifyAtBoot` is taught to refuse the bypass when a license file is *present*:
+
+```go
+func VerifyAtBoot(devMode bool) error {
+    licensePath := licenseFilePathFromEnv() // existing helper
+    licenseExists := licensePath != "" && fileExists(licensePath)
+
+    if devMode {
+        if licenseExists {
+            // The presence of a license file is a strong signal that
+            // bypass is unintended — a customer who installed a license
+            // and a customer who set DEV_MODE=true are mutually exclusive
+            // intents. Refuse loudly so the misconfig is visible at boot
+            // rather than silently disabling the license enforcement
+            // their B1.6 contract depends on.
+            return fmt.Errorf("license: DEV_MODE=true refused — a license file is present at %s; remove the license OR unset DEV_MODE", licensePath)
+        }
+        slog.Warn("license: DEV_MODE — skipping verification")
+        return nil
+    }
+    // ... existing Load + CheckExpiry path unchanged
+}
+```
+
+The check is purely additive and operationally clean: an on-prem customer whose binary has a license file gets license enforcement; a developer whose binary has none gets DEV_MODE bypass. The `licenseExists ∧ devMode` combination is the only refused state.
+
+`license_load_errors_total{reason="dev_mode_with_license"}` Prometheus counter surfaces the refusal so it's visible in alerts.
+
+**Layer 3 — Build-tag stripping** (medium Go change, ~3-4 h, gold standard):
+
+The production binary literally does not contain the `DEV_MODE` codepath. Two build tags:
+
+- `//go:build production` — stub `DevBypass` middleware that always panics (unreachable; kept so the package compiles) and a no-op `DEV_MODE` env read in `cmd/main.go`
+- (Default — no tag, equivalent to `!production`) — current full implementation
+
+CI matrix:
+
+| Image tag | Build tags | DEV_MODE works? | Distribution |
+|---|---|---|---|
+| `axiaops-api:dev-{commit}` | none | yes | GitLab Container Registry, internal namespace, dev-1/dev-2 deploys |
+| `axiaops-api:{semver}` | `production` | **no — env var read but ignored** | Customer-shipping image (self-hosted release) and SaaS App Runner |
+
+A customer-shipping binary with `DEV_MODE=true` set is a no-op: the code that interprets the flag isn't compiled in. Closes the threat model row 3 entirely.
+
+This is what HashiCorp Enterprise, Atlassian DC, GitLab EE all do for license-enforcement bypass. The pattern is well-trodden.
+
+#### 4.10.3 Files touched
+
+| File | Layer | Change |
+|---|---|---|
+| `.gitlab-ci.yml` | 1 | New `.dev-mode-gate` template; `extends:` on `deploy:staging` (+ future `deploy:production`) |
+| `services/shared/license/startup.go` | 2 | `VerifyAtBoot` refuses `devMode=true` when license file present |
+| `services/shared/license/startup_test.go` | 2 | Add `TestVerifyAtBoot_DevModeRefusedWhenLicenseFilePresent` |
+| `services/shared/observability/metrics.go` | 2 | New `license_load_errors_total{reason="dev_mode_with_license"}` reason label |
+| `services/api/internal/middleware/dev_bypass_prod.go` (new) | 3 | `//go:build production` stub that panics |
+| `services/api/internal/middleware/dev_bypass.go` (rename from current location) | 3 | `//go:build !production` tag added |
+| `services/api/cmd/main.go` | 3 | Add `//go:build !production` guard around the `if devMode` branch in `main()`; production-tag variant has a parallel main with no DEV_MODE branch |
+| `Makefile` | 3 | New `build-production` target; existing `build` stays (no tag = dev-friendly) |
+| `services/dashboard/Dockerfile` | 3 | `VITE_DEV_MODE` baked from build arg; production image build invocation passes `false` explicitly |
+| `docs/license-issuance.md` | 3 | Document the production-tag build path; operator must use `axiaops-api:{semver}` not `axiaops-api:dev-*` for customer ship |
+
+#### 4.10.4 Observability
+
+- `license_load_errors_total{reason="dev_mode_with_license"}` Prometheus counter (Layer 2) — increments once per refused boot. Alert on >0 firings: this is "someone is trying to flip DEV_MODE on a licensed install"; the boot will fail loudly anyway, but the counter lets a watchdog notice patterns (e.g. customer attempting flip after license expiry).
+- Existing `license_state_info{state, customer_id}` already covers the legitimate state space; no change.
+- No new audit-log actions — the refusal is at boot, before any session context exists to attribute the action to.
+
+#### 4.10.5 Env vars (none added)
+
+`DEV_MODE` semantics unchanged; only the conditions under which it is honored shift. `APP_ENV` is consulted by Layer 1 (CI gate) but no new env var is introduced.
+
+#### 4.10.6 Acceptance criteria — B1.7
+
+- [ ] **Layer 1**: `.dev-mode-gate` template added; `deploy:staging` extends it; a CI job that sets `DEV_MODE=true` and runs `deploy:staging` fails at the gate with a clear message; same job with `DEPLOY_ENV=dev-1` and `DEV_MODE=true` passes the gate.
+- [ ] **Layer 2**: `VerifyAtBoot(devMode=true)` with a license file present returns a non-nil error mentioning the license path; without a file it logs the warn-skip and returns nil. Both cases covered by table-driven test in `startup_test.go`.
+- [ ] **Layer 2 metric**: `license_load_errors_total{reason="dev_mode_with_license"}` increments by 1 on the refused-boot case, by 0 on the bypass-without-license case.
+- [ ] **Layer 3**: `make build-production` produces a binary where setting `DEV_MODE=true` at runtime has zero effect (auth chain, license, bootstrap, etc. all stay in their full-enforcement posture). Asserted by a binary-shape test that runs the production build, sets `DEV_MODE=true`, and confirms `/livez` requires a session and the auth handler chain is fully wired.
+- [ ] **Layer 3**: customer-shipping CI image is built with `production` tag; image-tag schema documented in `docs/license-issuance.md`.
+- [ ] **Architect review**: Layer 3 (build-tag split) reviewed before merge — the `production` build tag introduces a second compilation surface area and any future feature must consciously decide which side it lands on. Pin the convention in `services/api/CLAUDE.md`.
+
+#### 4.10.7 Sequencing relative to other work
+
+- Layer 1 lands **immediately** after this plan entry merges. Pure yaml; no test risk.
+- Layer 2 lands **before B2 → develop → main**. Closes a real customer-side gap; the change is 10 lines.
+- Layer 3 lands **before first paying self-hosted customer ship**. Tracked as a separate slice (potentially split as `B1.7 layer 3` or rolled into `B1.7-binary-distribution`); requires architect sign-off on the build-tag convention.
+
 ---
 
 ## 5. Phase B2 — Native OIDC RP
