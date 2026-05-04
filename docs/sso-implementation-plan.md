@@ -611,13 +611,18 @@ Signed with RS256. AxiaOps's private key is held offline (1Password). Public key
 
 #### 4.9.2 Verification flow (binary startup)
 
+> **Amended 2026-05-04 — see [`docs/b1.6-amendment-feature-gating.md`](b1.6-amendment-feature-gating.md).** Steps 1–3 are unchanged. Step 4's `os.Exit` and step 1's "refuse to start" are retired in favour of feature-gating at the scan path. The binary always boots; `license.IsScanAllowed` is the sole enforcement layer. The amendment doc carries the full rationale (industry alignment, customer trust, operational fragility) and the state-by-state behaviour table.
+
 ```
 1. Locate license:
    - $AXIAOPS_LICENSE     — raw JWT in env (preferred for k8s secret-mount)
    - $AXIAOPS_LICENSE_PATH — file path; default /etc/axiaops/license.jwt
-   - DEV_MODE=true        — skip license check entirely
-   - none of the above + DEV_MODE=false → refuse to start with clear "set
-     AXIAOPS_LICENSE=... — see https://axiaops.io/install for instructions"
+   - DEV_MODE=true        — skip license check entirely; flips the
+                             enforcement-bypass flag so scans fall through
+   - none of the above + DEV_MODE=false → slog.Error with install URL +
+     LicenseLoadErrorsTotal{reason="missing"} increment; binary continues
+     running; scan-gate 403s with license_not_loaded until a license is
+     installed and the binary is restarted
 
 2. Verify JWT signature with embedded public key (RS256 only — reject alg=none, HS*).
 3. Validate standard claims: iss, aud, iat ≤ NOW(), license_id non-empty.
@@ -625,10 +630,15 @@ Signed with RS256. AxiaOps's private key is held offline (1Password). Public key
    - NOW() < exp                        → start normally; slog.Info "license: loaded …"
    - exp ≤ NOW() < exp + grace_days     → start with WARN log + UI banner;
                                           slog.Warn "license: in grace period …"
-   - NOW() ≥ exp + grace_days           → refuse to start; print:
-                                          "License expired YYYY-MM-DD (grace ended YYYY-MM-DD).
-                                           Contact sales@axiaops.io to renew. License: lic_acme_2026_v1"
-                                          slog.Error + os.Exit(1)
+   - NOW() ≥ exp + grace_days           → start with ERROR log carrying the
+                                          renewal contact + license_id;
+                                          SetCurrent retains the snapshot so
+                                          /v1/version reports state="expired"
+                                          with the full claim sub-object;
+                                          scan-gate 403s with license_expired.
+                                          NO os.Exit — the process keeps
+                                          serving reads, dashboard, member-
+                                          mgmt, GDPR erasure, etc.
 5. Durable trace: structured slog line carrying license_id, contract_id, customer_id,
    expires_at, days_remaining + Prometheus metrics (§4.9.4). No audit_log row —
    audit_log is org-scoped and license events are binary-wide; see §4.9.3 row for
@@ -743,12 +753,14 @@ This is not a new seam — just a different composition root. The license packag
 
 #### 4.9.7 Acceptance criteria — B1.6
 
+> **Amended 2026-05-04 — see [`docs/b1.6-amendment-feature-gating.md`](b1.6-amendment-feature-gating.md).** The four "refuses to start" criteria below were flipped from `os.Exit` assertions to "starts + log + metric + scan-gate-blocks" assertions. The amendment doc's "Acceptance criteria delta" table carries the new shape.
+
 - [x] Valid license → API service starts; `/v1/version` reports `state: "valid"` and correct days-remaining.
-- [x] Missing license + `DEV_MODE=false` → service refuses to start with the documented error message; CI test asserts the exit code and the message contains the renewal contact.
-- [x] `DEV_MODE=true` → license check skipped entirely; service starts.
+- [x] ~~Missing license + `DEV_MODE=false` → service refuses to start~~ **(amended)** Missing license + `DEV_MODE=false` → service starts; slog.Error contains the install URL; `LicenseLoadErrorsTotal{reason="missing"}` is incremented; `POST /v1/accounts/{id}/scan` returns 403 `license_not_loaded`; reads/dashboard/member-mgmt all 200; `/v1/version` reports `state: "not_loaded"`. CI test asserts the 403 + error code + presence of the install URL in the log.
+- [x] `DEV_MODE=true` → license check skipped entirely; service starts; `IsEnforcementBypassed()` returns true so scan-gate falls through.
 - [x] Expired license, within grace period → service starts with WARN slog line carrying `license_id`, `customer_id`, `expires_at`, `days_remaining`; `license_state_info{state="in_grace"}=1`; UI shows banner.
-- [x] Expired license, past grace period → service refuses to start; ERROR slog line + `license_load_errors_total` increment with the appropriate `reason` label *before* the process exits.
-- [x] Tampered signature → refuses to start; ERROR slog line + `license_load_errors_total{reason="signature"}` increment.
+- [x] ~~Expired license, past grace period → service refuses to start~~ **(amended)** Expired license, past grace period → service starts; slog.Error contains renewal contact + `license_id`; `LicenseStateInfo{state="expired"}=1`; scan returns 403 `license_expired`; reads/dashboard/member-mgmt all 200; `/v1/version` reports `state: "expired"` with full claim sub-object.
+- [x] ~~Tampered signature → refuses to start~~ **(amended)** Tampered signature → service starts; `LicenseLoadErrorsTotal{reason="signature"}` increment + slog.Error; no snapshot set; scan-gate 403s `license_not_loaded`.
 - [x] `alg=none` and `alg=HS256` (with public key as HMAC secret) both rejected (architect §11.3 generalised to license JWT).
 - [x] License with `iss != "https://axiaops.io/licenses"` → rejected.
 - [x] License with `aud != "axiaops-api"` → rejected.
