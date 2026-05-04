@@ -53,14 +53,16 @@ func main() {
 
 	ctx := context.Background()
 
-	// ── License (B1.6, amended) ──────────────────────────────────────────
-	// Per docs/b1.6-amendment-feature-gating.md, VerifyAtBoot now logs +
-	// continues on every classification — refuse-at-boot was retired in
-	// favour of feature-gating at the scan path (license.IsScanAllowed).
-	// Runs before storage init by design so the operator-facing log line
-	// (with the install URL or renewal contact, depending on state) lands
-	// even when the database is unreachable.
-	_ = license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true")
+	// ── License (B1.6 amended + B1.7 layer 2) ───────────────────────────
+	// Per docs/b1.6-amendment-feature-gating.md, VerifyAtBoot logs +
+	// continues for the missing/expired cases — refuse-at-boot was retired
+	// in favour of feature-gating at the scan path (license.IsScanAllowed).
+	// The one case it still refuses is layer 2 anti-tamper (plan §4.10.2):
+	// DEV_MODE=true on a host that has a license configured. That returns a
+	// non-nil error and we die() loudly here.
+	if err := license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true"); err != nil {
+		die("license: refusing to start", "error", err.Error())
+	}
 
 	// ── Storage ──────────────────────────────────────────────────────────
 	dbURL := os.Getenv("DATABASE_URL")
