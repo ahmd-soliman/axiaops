@@ -88,17 +88,29 @@ migrate:
 seed:
 	./scripts/seed_test_data.sh
 
-# Seed remote dev-1 database (axiaops.local:5432 — axiaops-dev-1-db).
+# Seed remote env databases. Each env runs on its own self-hosted container —
+# postgres listens on the standard 5432 since per-host means no port
+# collision. Hostnames resolve via mDNS (Avahi on the LAN).
+#
+#   dev-1    → axiaops-<env>.local:5432   (auth-bypass; uses DEV_ORGANIZATION_ID)
+#   dev-2    → axiaops-<env>.local:5432   (auth-bypass; uses DEV_ORGANIZATION_ID)
+#   staging  → axiaops-<env>.local:5432 (auth-on; bootstrap an owner first)
+#   preview  → axiaops-<env>.local:5432 (auth-on; bootstrap an owner first)
+#   demo     → axiaops-<env>.local:5432    (auth-on; bootstrap an owner first)
 seed-remote-dev-1:
 	./scripts/seed_test_data.sh --remote dev-1
 
-# Seed remote dev-2 database (axiaops.local:5433 — axiaops-dev-2-db).
 seed-remote-dev-2:
 	./scripts/seed_test_data.sh --remote dev-2
 
-# Seed remote staging database (axiaops.local:5442 — axiaops-staging-db).
 seed-remote-staging:
 	./scripts/seed_test_data.sh --remote staging
+
+seed-remote-preview:
+	./scripts/seed_test_data.sh --remote preview
+
+seed-remote-demo:
+	./scripts/seed_test_data.sh --remote demo
 
 inspect-db:
 	./scripts/inspect_db.sh
@@ -114,10 +126,13 @@ clean-db-drop:
 	./scripts/clean_db.sh --drop-schema
 
 # ── Remote Database Cleanup ───────────────────────────────────────────────────
-# Remote ports match the deploy stack/apps/axiaops-dbs/docker-compose.yml:
-#   dev-1   → axiaops.local:5432
-#   dev-2   → axiaops.local:5433
-#   staging → axiaops.local:5442
+# Per-host self-hosted design: each env runs on its own container, postgres on the
+# standard 5432, hostnames via mDNS:
+#   dev-1   → axiaops-<env>.local:5432
+#   dev-2   → axiaops-<env>.local:5432
+#   staging → axiaops-<env>.local:5432
+#   preview → axiaops-<env>.local:5432
+#   demo    → axiaops-<env>.local:5432
 
 # Truncate tables (preserve schema).
 clean-remote-dev-1:
@@ -129,6 +144,12 @@ clean-remote-dev-2:
 clean-remote-staging:
 	./scripts/clean_db.sh --remote staging
 
+clean-remote-preview:
+	./scripts/clean_db.sh --remote preview
+
+clean-remote-demo:
+	./scripts/clean_db.sh --remote demo
+
 # Drop schema and user (destructive — requires re-running migrations).
 clean-remote-dev-1-drop:
 	./scripts/clean_db.sh --remote dev-1 --drop-schema
@@ -138,6 +159,12 @@ clean-remote-dev-2-drop:
 
 clean-remote-staging-drop:
 	./scripts/clean_db.sh --remote staging --drop-schema
+
+clean-remote-preview-drop:
+	./scripts/clean_db.sh --remote preview --drop-schema
+
+clean-remote-demo-drop:
+	./scripts/clean_db.sh --remote demo --drop-schema
 
 # Per-service test targets — each mirrors the matching CI job (test:shared, test:api, test:ingestion).
 # Running one target locally reproduces exactly what CI runs for that job.
