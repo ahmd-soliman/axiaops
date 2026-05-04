@@ -86,16 +86,21 @@ const (
 	// AuditActionLicenseInGracePeriod — written at boot OR when the runtime
 	// ticker observes the valid → in_grace transition. Metadata carries
 	// license_id, days_remaining, exp + grace_period_days.
-	// AuditActionLicenseExpiredHardFail — written at boot only, immediately
-	// before the process exits because state == expired (past grace).
+	// AuditActionLicenseExpiredHardFail — historically written immediately
+	// before os.Exit at boot. Retained as a constant for forward-compat and
+	// rolled-back-deploy parity, but **never fires under the B1.6 amendment**
+	// (docs/b1.6-amendment-feature-gating.md): the binary no longer refuses
+	// to start. New past-grace boots audit through Runtime instead.
 	// AuditActionLicenseExpiredRuntime — written by the runtime ticker on the
-	// in_grace → expired transition mid-flight. Distinct from hard_fail because
-	// the process keeps running; the scan-gate is what flips, not the binary.
+	// in_grace → expired transition mid-flight, AND (post-amendment) at boot
+	// when VerifyAtBoot classifies a license as past-grace. The process keeps
+	// running in both cases; the scan-gate flips, not the binary.
 	// AuditActionLicenseRenewed — forward-compat for slice 4+ if we add
 	// detection of "this boot's license_id differs from the previous boot's";
 	// not wired yet.
 	// AuditActionLicenseInvalidSignature — written at boot when JWT verification
-	// fails (signature/alg/iss/aud/iat). The corresponding boot also exits.
+	// fails (signature/alg/iss/aud/iat). Post-amendment the boot continues;
+	// the audit row is the durable trace, the scan-gate enforces.
 	AuditActionLicenseLoaded           = "license_loaded"
 	AuditActionLicenseInGracePeriod    = "license_in_grace_period"
 	AuditActionLicenseExpiredHardFail  = "license_expired_hard_fail"

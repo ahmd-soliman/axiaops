@@ -564,6 +564,26 @@ func licenseSummary() map[string]any {
 	}
 }
 
+// scanGateBody returns the 403 JSON body for the license-gated scan endpoint.
+// Two distinct error codes so the dashboard can pick the right banner copy
+// and operators can route alerts on the alert label without parsing the
+// human-readable detail. The amendment doc lays out the rationale.
+//
+// Returned as a pre-built []byte (no marshalling per request) — this fires
+// only on the gate-blocked path which is already a customer-visible error,
+// but the path stays allocation-free regardless.
+func scanGateBody(state license.State) []byte {
+	switch state {
+	case license.StateExpired:
+		return []byte(`{"error":"license_expired","detail":"License past grace period — contact sales@axiaops.io to renew"}`)
+	default:
+		// StateNotLoaded falls here. Future states (e.g. a hypothetical
+		// "trial-expired") would default to the install copy unless the
+		// switch is widened.
+		return []byte(`{"error":"license_not_loaded","detail":"No license installed — see https://axiaops.io/install for instructions"}`)
+	}
+}
+
 func getenvOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -967,12 +987,16 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 
 // scanAccount triggers an ingestion run for the given account.
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
-	// License gate (plan §4.9.2b). The single mid-flight feature gate B1.6
-	// ships: once the boot-time license has crossed exp + grace_period_days
-	// the scan path goes silent, both for user-triggered scans here and the
-	// scheduled-scan ticker in services/ingestion. The policy ("only
-	// StateExpired blocks") lives in license.IsScanAllowed so this gate
-	// stays in sync with the ingestion-side gate via a single predicate.
+	// License gate (plan §4.9.2b, post-amendment). Two failure shapes
+	// surfaced as distinct error codes so the dashboard can pick the right
+	// banner copy and operators can route alerts cleanly:
+	//
+	//   StateExpired       → license_expired       (renewal contact in detail)
+	//   StateNotLoaded     → license_not_loaded    (install URL in detail)
+	//
+	// DEV_MODE / future SaaS bypass via license.IsEnforcementBypassed; the
+	// policy ("which states block") lives in license.IsScanAllowed so this
+	// gate stays in sync with the ingestion-side gate via a single predicate.
 	//
 	// Content-Type set BEFORE WriteHeader because once headers are flushed
 	// the Header() map mutations are dropped — writeJSON's set-then-encode
@@ -980,7 +1004,7 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 	if !license.IsScanAllowed() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":"license_expired","detail":"License past grace period — contact sales@axiaops.io to renew"}`))
+		_, _ = w.Write(scanGateBody(license.SnapshotState()))
 		return
 	}
 
