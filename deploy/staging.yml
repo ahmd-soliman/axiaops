@@ -15,6 +15,10 @@ services:
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
       SCAN_INTERVAL: ${SCAN_INTERVAL:-60s}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      # 30-day non-prod license minted by mint:license:staging (CI). Required
+      # for pre-release scan smoke; without it the post-amendment scan-gate
+      # 403s license_not_loaded.
+      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
       REDIS_URL: ${REDIS_URL}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
       AWS_REGION: ${AWS_REGION:-us-east-1}
@@ -33,6 +37,7 @@ services:
       INGESTION_URL: http://axiaops-ingestion-staging:8081
       API_ADDR: ":8080"
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
       REDIS_URL: ${REDIS_URL}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
       KINDE_M2M_CLIENT_ID: ${KINDE_M2M_CLIENT_ID}
