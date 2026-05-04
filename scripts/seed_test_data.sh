@@ -8,11 +8,11 @@
 #
 # Usage:
 #   ./scripts/seed_test_data.sh                                    # Local docker
-#   ./scripts/seed_test_data.sh --remote dev-1                     # Remote dev-1   (axiaops-<env>.local:5432)
-#   ./scripts/seed_test_data.sh --remote dev-2                     # Remote dev-2   (axiaops-<env>.local:5432)
-#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (axiaops-<env>.local:5432)
-#   ./scripts/seed_test_data.sh --remote preview                   # Remote preview (axiaops-<env>.local:5432)
-#   ./scripts/seed_test_data.sh --remote demo                      # Remote demo    (axiaops-<env>.local:5432)
+#   ./scripts/seed_test_data.sh --remote dev-1                     # Remote dev-1   (192.168.1.121:5432)
+#   ./scripts/seed_test_data.sh --remote dev-2                     # Remote dev-2   (192.168.1.123:5432)
+#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (192.168.1.122:5432)
+#   ./scripts/seed_test_data.sh --remote preview                   # Remote preview (192.168.1.124:5432)
+#   ./scripts/seed_test_data.sh --remote demo                      # Remote demo    (192.168.1.126:5432)
 #   MIGRATION_DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom connection (owner user, bypasses RLS)
 #
 # Each env runs on its own self-hosted container with hostname axiaops-<env>; the
@@ -55,34 +55,48 @@ done
 # Prompts for confirmation unless --yes/-y is passed.
 
 if [[ -n "$REMOTE_ENV" ]]; then
-  # Each env runs on its own self-hosted container — hostname is axiaops-<env>.
-  # The .local addresses resolve via mDNS (Avahi on the LAN). All postgres
-  # instances listen on the standard 5432 since per-env hosts mean no port
-  # collision.
-  HOSTNAME="axiaops-${REMOTE_ENV}.local"
+  # Per-env static IPs. Sourced from self-hosted-infra/stacks/*/variables.tf —
+  # treat that file as the source of truth and update both sides if any
+  # IP migrates. Using IPs (not the axiaops-<env>.local mDNS hostnames)
+  # because:
+  #   • mDNS (.local) doesn't traverse Tailscale's overlay, so the
+  #     hostname path breaks the moment you seed from outside the LAN
+  #   • .gitlab-ci.yml's DEPLOY_HOST_IP variables already use IPs for
+  #     the same reason (Alpine docker image has no mDNS resolver)
+  #   • IPs are static (terraform-managed, not DHCP) — equally durable
+  # Hostnames still work for humans typing at a prompt (browser, ssh
+  # from a LAN-attached laptop). The script itself sticks to IPs to
+  # avoid the resolver-dependency surface.
+  case "$REMOTE_ENV" in
+    dev-1)   HOST_IP="192.168.1.121" ;;
+    dev-2)   HOST_IP="192.168.1.123" ;;
+    staging) HOST_IP="192.168.1.122" ;;
+    preview) HOST_IP="192.168.1.124" ;;
+    demo)    HOST_IP="192.168.1.126" ;;
+  esac
   DB_PORT=5432
 
-  export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
-  
+  export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOST_IP:$DB_PORT/axiaops?sslmode=disable"
+
   echo "=== Seeding AxiaOps $REMOTE_ENV database ==="
-  echo "Target:    $HOSTNAME:$DB_PORT"
+  echo "Target:    $HOST_IP:$DB_PORT  (axiaops-$REMOTE_ENV)"
   echo "URL:       $MIGRATION_DATABASE_URL"
   echo ""
-  
+
   if [[ "$AUTO_YES" != "true" ]]; then
-    read -r -p "Seed the $REMOTE_ENV database at $HOSTNAME:$DB_PORT? This will insert data. [y/N] " confirm
+    read -r -p "Seed the $REMOTE_ENV database at $HOST_IP:$DB_PORT? This will insert data. [y/N] " confirm
     if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
       echo "Aborted."
       exit 0
     fi
     echo ""
   fi
-  
+
   # Verify connection
-  echo -n "Checking connection to $HOSTNAME..."
+  echo -n "Checking connection to $HOST_IP..."
   if ! psql "$MIGRATION_DATABASE_URL" -c 'SELECT 1' > /dev/null 2>&1; then
     echo " Failed."
-    echo "Error: Cannot reach PostgreSQL at $HOSTNAME:$DB_PORT"
+    echo "Error: Cannot reach PostgreSQL at $HOST_IP:$DB_PORT"
     exit 1
   fi
   echo " Connected."
