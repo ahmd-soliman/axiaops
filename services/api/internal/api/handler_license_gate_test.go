@@ -11,12 +11,31 @@ import (
 	"axiaops.io/shared/model"
 )
 
-// withLicense installs a fixture *License via SetCurrent for the duration of
-// the test, then resets to nil so subsequent tests don't inherit state.
+// withLicense installs a fixture *License via SetCurrent for the duration
+// of the test and clears enforcement-bypass so the gate evaluates the
+// snapshot. Cleanup restores the package-test default established in
+// TestMain (bypass=true, snapshot=nil) so non-gate tests that follow
+// inherit the implicit pass-through posture.
 func withLicense(t *testing.T, lic *license.License) {
 	t.Helper()
 	license.SetCurrent(lic)
-	t.Cleanup(func() { license.SetCurrent(nil) })
+	license.ClearEnforcementBypass()
+	t.Cleanup(func() {
+		license.SetCurrent(nil)
+		license.SetEnforcementBypass()
+	})
+}
+
+// withRealEnforcement simulates a production no-license boot: snapshot nil,
+// enforcement-bypass off. Cleanup restores TestMain's default.
+func withRealEnforcement(t *testing.T) {
+	t.Helper()
+	license.SetCurrent(nil)
+	license.ClearEnforcementBypass()
+	t.Cleanup(func() {
+		license.SetCurrent(nil)
+		license.SetEnforcementBypass()
+	})
 }
 
 // TestScanAccount_LicenseGate_ExpiredReturns403 — the single mid-flight
@@ -80,11 +99,49 @@ func TestScanAccount_LicenseGate_InGraceFallsThrough(t *testing.T) {
 	}
 }
 
-// TestScanAccount_LicenseGate_NotLoadedFallsThrough — DEV_MODE / SaaS leave
-// SetCurrent at nil; the gate must NOT block scans in that case (DEV_MODE
-// bypass; SaaS gating is by Stripe, not license file).
-func TestScanAccount_LicenseGate_NotLoadedFallsThrough(t *testing.T) {
-	license.SetCurrent(nil) // explicit
+// TestScanAccount_LicenseGate_NotLoadedReturns403 — post-amendment shape
+// (docs/b1.6-amendment-feature-gating.md). With no license loaded AND no
+// enforcement-bypass (i.e. production with no license installed), the gate
+// 403s with license_not_loaded. The dashboard banner steers the operator
+// to the install URL.
+func TestScanAccount_LicenseGate_NotLoadedReturns403(t *testing.T) {
+	withRealEnforcement(t)
+
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-99", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "eu-west-1"},
+		})
+	_, mux := newTrackingHandler(mockStore)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/acc-99/scan"))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 license_not_loaded, got %d — body: %s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body not JSON: %v — %s", err, w.Body.String())
+	}
+	if body["error"] != "license_not_loaded" {
+		t.Errorf("error = %q, want license_not_loaded — distinct code lets the dashboard pick install vs renewal copy", body["error"])
+	}
+	if body["detail"] == "" {
+		t.Error("detail should not be empty — operator needs the install URL in the response body")
+	}
+}
+
+// TestScanAccount_LicenseGate_DevModeFallsThrough — DEV_MODE flips
+// IsEnforcementBypassed even though no license is loaded; scans must work
+// in dev slots. Same predicate the future SaaS composition root will use.
+// TestMain already sets bypass=true so this test is asserting the package
+// default produces the expected gate behaviour for the non-license-test
+// majority of the suite.
+func TestScanAccount_LicenseGate_DevModeFallsThrough(t *testing.T) {
+	// No setup — TestMain's enforcement-bypass=true is the dev-mode posture.
+	license.SetCurrent(nil)
+	t.Cleanup(func() { license.SetCurrent(nil) })
+
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
 			{ID: "acc-99", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "eu-west-1"},
@@ -95,7 +152,7 @@ func TestScanAccount_LicenseGate_NotLoadedFallsThrough(t *testing.T) {
 	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/acc-99/scan"))
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("StateNotLoaded must fall through (DEV_MODE / SaaS), got %d — body: %s", w.Code, w.Body.String())
+		t.Fatalf("DEV_MODE bypass must allow scans, got %d — body: %s", w.Code, w.Body.String())
 	}
 }
 

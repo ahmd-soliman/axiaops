@@ -43,18 +43,20 @@ func startWorker(ctx context.Context, q queue.Queue, store storage.Store) {
 				"circuit_breaker_state", cb.State().String(),
 			)
 
-			// License scan-gate (plan §4.9.2b). The api-side gate catches
-			// most jobs at trigger time, but a job enqueued before expiry
-			// and dequeued after would otherwise sneak past — the scan-gate
-			// must be evaluated at execution time, not just trigger time.
-			// Dropping the job is safe: scheduled scans get re-evaluated on
-			// the next ticker pass; user-triggered scans are infrequent
-			// enough that a delayed retry is preferable to an unauthorized
-			// scan running.
+			// License scan-gate (plan §4.9.2b, post-amendment). The api-side
+			// gate catches most jobs at trigger time, but a job enqueued
+			// before a state transition (valid → expired or, post-amendment,
+			// not_loaded after a license-removal restart) and dequeued after
+			// would otherwise sneak past — the scan-gate must be evaluated
+			// at execution time, not just trigger time. Dropping the job is
+			// safe: scheduled scans get re-evaluated on the next ticker
+			// pass; user-triggered scans are infrequent enough that a
+			// delayed retry is preferable to an unauthorized scan running.
 			if !license.IsScanAllowed() {
-				slog.Info("worker: scan.skipped_license_expired",
+				slog.Info("worker: scan.skipped_license_inactive",
 					"account_id", job.AccountID,
 					"organization_id", job.OrganizationID,
+					"state", license.SnapshotState().String(),
 				)
 				continue
 			}

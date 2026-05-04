@@ -11,6 +11,18 @@ import "sync/atomic"
 // pure functions (license.go) so unit tests can run without disturbing it.
 var current atomic.Pointer[License]
 
+// enforcementBypass is the explicit "this binary is exempt from license
+// enforcement" flag. Set by VerifyAtBoot when DEV_MODE=true; the future SaaS
+// composition root will set it through the same predicate. Distinct from
+// `current == nil` (which under the B1.6 amendment now means "no license
+// installed in production" and gates scans) so the gate can tell DEV_MODE
+// apart from missing-license without re-reading os.Getenv.
+//
+// atomic.Bool not atomic.Pointer because the value is two-valued and never
+// needs to compare against a struct pointer; the lock-free read shape matches
+// IsScanAllowed's hot path.
+var enforcementBypass atomic.Bool
+
 // SetCurrent stores the boot-time License. Called once from VerifyAtBoot
 // after Load + classification succeed; subsequent calls overwrite (the runtime
 // ticker never calls SetCurrent — license re-issuance lands via restart, not
@@ -48,15 +60,48 @@ func SnapshotState() State {
 	return CheckExpiry(l)
 }
 
-// IsScanAllowed encodes the Option-3 scan-gate policy decided in plan §4.9
-// scope intro: only the explicit StateExpired blocks scans; valid, in-grace,
-// and not-loaded all fall through.
+// SetEnforcementBypass marks this process as exempt from license enforcement.
+// Called by VerifyAtBoot under DEV_MODE; the future SaaS composition root
+// (cmd/api-saashosted, planned per §4.9.6) will call it directly so its scan
+// path falls through. Once set, never cleared during the process lifetime.
+//
+// Tests use a t.Cleanup pattern (see resetEnforcementBypass) to keep the
+// flag from leaking across test cases.
+func SetEnforcementBypass() {
+	enforcementBypass.Store(true)
+}
+
+// ClearEnforcementBypass is the test-only counterpart to SetEnforcementBypass.
+// Production code never calls this; if you find yourself reaching for it
+// outside a t.Cleanup, the design has drifted.
+func ClearEnforcementBypass() {
+	enforcementBypass.Store(false)
+}
+
+// IsScanAllowed encodes the post-amendment scan-gate policy
+// (docs/b1.6-amendment-feature-gating.md): scans run only when the binary is
+// either explicitly exempted (DEV_MODE / future SaaS) OR holds a license in
+// StateValid / StateInGrace. StateExpired AND StateNotLoaded both block —
+// "no license installed" is no longer a fall-through under the amendment, it
+// is a gated state with its own banner copy and 403 error code.
 //
 // Both api and ingestion scan-gate sites route through this single predicate.
-// If the policy ever widens (e.g. block in-grace per a future B1.7 customer
-// signal), the change is one edit here, compiler-verified across every
-// consumer — without it the policy was spelled out in 4 places with no
-// compiler help (slice 5c review).
+// Widening or narrowing the policy (e.g. blocking in-grace per a future
+// customer signal) is one edit here, compiler-verified across every consumer.
 func IsScanAllowed() bool {
-	return SnapshotState() != StateExpired
+	if enforcementBypass.Load() {
+		return true
+	}
+	s := SnapshotState()
+	return s == StateValid || s == StateInGrace
+}
+
+// IsEnforcementBypassed reports whether the enforcement-bypass flag is set.
+// Handlers consult this to distinguish DEV_MODE (no banner, no 403, scans
+// fall through) from production-with-no-license (banner, 403, scans gated).
+//
+// The /v1/version endpoint and the scan-gate handler both branch on this so
+// the dashboard and the API agree on which "no snapshot" semantics apply.
+func IsEnforcementBypassed() bool {
+	return enforcementBypass.Load()
 }
