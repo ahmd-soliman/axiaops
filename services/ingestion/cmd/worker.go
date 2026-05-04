@@ -62,6 +62,24 @@ func startWorker(ctx context.Context, q queue.Queue, store storage.Store) {
 			scanCtx := storage.WithOrganizationID(ctx, job.OrganizationID)
 			statusCtx := storage.WithOrganizationID(context.Background(), job.OrganizationID)
 
+			// Mark the account as scanning the moment the worker picks up
+			// the job — same pattern the api-side POST /v1/accounts/{id}/scan
+			// handler uses. Sets status='scanning' AND last_scanned_at=NOW()
+			// in one update via TryMarkAccountScanning. Without this, a slow
+			// scan (AWS SDK retries on bad creds, network throttling, the
+			// 10-minute scanTimeout below) starves any caller polling
+			// last_scanned_at — including the integration test
+			// `TestScheduledAutoScan_ZeroInterval` which expected the column
+			// to advance within 30s. statusCtx (context.Background based) is
+			// used here so a parent-ctx cancel during shutdown doesn't roll
+			// back the scanning marker.
+			if _, err := store.TryMarkAccountScanning(statusCtx, job.AccountID); err != nil {
+				slog.Warn("worker: try mark scanning failed",
+					"account_id", job.AccountID,
+					"err", err,
+				)
+			}
+
 			// Execute scan with circuit breaker protection and timeout
 			scanTimeout := 10 * time.Minute // Configurable timeout for scan operations
 			scanCtxWithTimeout, cancel := context.WithTimeout(scanCtx, scanTimeout)
