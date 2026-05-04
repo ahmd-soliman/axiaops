@@ -23,6 +23,7 @@ import SettingsTeam      from './pages/settings/Team';
 import SettingsAudit     from './pages/settings/Audit';
 import SettingsSSO       from './pages/settings/SSO';
 import SettingsOrganization from './pages/settings/Organization';
+import SettingsLicense   from './pages/settings/License';
 import OnboardingLayout  from './pages/onboarding/OnboardingLayout';
 import OnboardingInvite  from './pages/onboarding/Invite';
 import OnboardingAws     from './pages/onboarding/AwsAccount';
@@ -101,6 +102,7 @@ function AuthenticatedApp() {
                   <Route path="audit"     element={<SettingsAudit />} />
                   <Route path="sso"       element={<SettingsSSO />} />
                   <Route path="organization" element={<SettingsOrganization />} />
+                  <Route path="license"   element={<SettingsLicense />} />
                 </Route>
               </Route>
             </Route>
