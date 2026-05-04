@@ -2,13 +2,17 @@
 # clean_db.sh — clean AxiaOps database (local docker or remote)
 #
 # Usage:
-#   ./scripts/clean_db.sh                              # Local docker (truncate)
-#   ./scripts/clean_db.sh --drop-schema                # Local docker (drop schema)
-#   ./scripts/clean_db.sh --remote dev-1               # Remote dev-1   (truncate, axiaops.local:5432)
-#   ./scripts/clean_db.sh --remote dev-2               # Remote dev-2   (truncate, axiaops.local:5433)
-#   ./scripts/clean_db.sh --remote staging --drop-schema  # Remote staging (drop schema, axiaops.local:5442)
+#   ./scripts/clean_db.sh                                  # Local docker (truncate)
+#   ./scripts/clean_db.sh --drop-schema                    # Local docker (drop schema)
+#   ./scripts/clean_db.sh --remote dev-1                   # Remote dev-1   (axiaops-<env>.local:5432)
+#   ./scripts/clean_db.sh --remote dev-2                   # Remote dev-2   (axiaops-<env>.local:5432)
+#   ./scripts/clean_db.sh --remote staging --drop-schema   # Remote staging (axiaops-<env>.local:5432)
+#   ./scripts/clean_db.sh --remote preview                 # Remote preview (axiaops-<env>.local:5432)
+#   ./scripts/clean_db.sh --remote demo                    # Remote demo    (axiaops-<env>.local:5432)
 #
-# Remote ports are sourced from the deploy stack/apps/axiaops-dbs/docker-compose.yml.
+# Each env runs on its own self-hosted container — postgres listens on the
+# standard 5432 since per-host means no port collision. Hostnames
+# resolve via mDNS (Avahi on the LAN).
 
 set -euo pipefail
 
@@ -24,9 +28,9 @@ while [[ $# -gt 0 ]]; do
       shift
       REMOTE_ENV="${1:-}"
       case "$REMOTE_ENV" in
-        dev-1|dev-2|staging) ;;
+        dev-1|dev-2|staging|preview|demo) ;;
         *)
-          echo "Error: --remote requires 'dev-1', 'dev-2', or 'staging', got '$REMOTE_ENV'"
+          echo "Error: --remote requires 'dev-1', 'dev-2', 'staging', 'preview', or 'demo', got '$REMOTE_ENV'"
           exit 1
           ;;
       esac
@@ -43,14 +47,11 @@ done
 if [[ -n "$REMOTE_ENV" ]]; then
   # Remote mode
   MODE="remote"
-  HOSTNAME="axiaops.local"
-
-  # Ports mirror the deploy stack/apps/axiaops-dbs/docker-compose.yml — keep in sync.
-  case "$REMOTE_ENV" in
-    dev-1)   DB_PORT=5432 ;;
-    dev-2)   DB_PORT=5433 ;;
-    staging) DB_PORT=5442 ;;
-  esac
+  # Each env runs on its own self-hosted container — hostname is axiaops-<env>.
+  # The .local addresses resolve via mDNS (Avahi on the LAN). Port is
+  # the standard 5432 since per-env hosts mean no port collision.
+  HOSTNAME="axiaops-${REMOTE_ENV}.local"
+  DB_PORT=5432
 
   SUPERUSER_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
   
