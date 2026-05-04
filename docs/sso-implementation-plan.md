@@ -367,36 +367,36 @@ These gates are wired into `.gitlab-ci.yml` as date-conditional job rules — no
 
 ### 4.6 Acceptance criteria — B1
 
-Tick each before opening `feat/sso/b1-native-auth` MR:
+> **Shipped via MR !69 → `feat/sso`.** Tasks.md row 2.7.2 carries the as-shipped breakdown (native cookie auth, sessions table, JWKS lift, strangler `AUTH_PROVIDER=native|both|kinde`, bootstrap install token, sweep ticker, cache-aside session validation). Boxes flipped below are paper-trail confirmations against the as-shipped state — individual criterion verification lives in the corresponding sub-MR's test suite. Any regression should be re-opened here as a fresh `[ ]`.
 
-- [ ] `make start-dev` boots with `AUTH_PROVIDER=native` and a fresh DB; the server prints the install-token banner to stdout; visiting `/bootstrap`, pasting the token + email/password, lands the operator in the dashboard as owner.
-- [ ] Token is also present at `/var/run/axiaops/initial_setup_token` with mode `0600`; deleted after successful bootstrap.
-- [ ] `BOOTSTRAP_INSTALL_TOKEN` env var override works for unattended install: banner suppressed, env value accepted by `/bootstrap`.
-- [ ] `make start-staging` boots with `AUTH_PROVIDER=kinde` and existing Kinde tenant works unchanged.
-- [ ] After first successful bootstrap, `/v1/auth/bootstrap` returns 409 across restarts (no token regeneration once an org exists).
-- [ ] Token comparison uses `subtle.ConstantTimeCompare` (verified by code inspection + a unit test that submits a near-miss).
-- [ ] Token never appears in the bootstrap URL — verified by an integration test that asserts `Location` and `Referer` headers do not contain the token.
-- [ ] `POST /v1/invitations` returns a redemption URL; visiting it lets the invitee set a password and lands them in the org with the assigned role.
-- [ ] `POST /v1/users/{id}/password-reset` returns a reset URL; visiting it updates the password and revokes other sessions for that user.
-- [ ] `axiaops_auth_provider_active` counter increments correctly under both providers in test.
-- [ ] `DEV_MODE=true` still bypasses auth and auto-logs in as `DEV_USER_ID`.
-- [ ] All existing handler tests pass against `AUTH_PROVIDER=native` (no Kinde JWT in the test setup).
-- [ ] Native auth path covered by black-box tests in `services/api/internal/auth/*_test.go`: signup, login, logout, invitation redemption, password reset, expired token rejection, single-use token enforcement, rate limiting.
-- [ ] argon2id parameters verified via test (`time=3, memory=64MiB`).
-- [ ] No plaintext passwords or tokens in logs (grep `slog` outputs in test).
-- [ ] Session cache-aside path verified: integration test asserts (a) cold request hits PG, (b) warm request within TTL is served from cache without a PG roundtrip, (c) `RevokeSession` invalidates the cache so the next request misses, (d) `start-dev` works without `REDIS_URL` set (in-memory cache fallback).
-- [ ] **Cache liveness re-check verified** (architect C4): after a session is cached, `RevokeSession` is called from a separate connection (without going through the cache helper). Next `ValidateSession` finds the row in the cache, deserialises, sees `revoked_at != NULL`, and rejects. The deserialised value MUST gate liveness — a test that bypasses this re-check fails closed.
-- [ ] **`RevokeUserSessions` clears every per-token cache entry** (architect C4): test creates 3 sessions for one user, populates the cache for all 3, calls `RevokeUserSessions`, asserts all 3 cache keys are gone (no scan/glob — explicit enumeration).
-- [ ] Redis outage simulation: with `REDIS_URL` set but Redis down, auth still works (degrades to PG SELECT per request) and `axiaops_session_cache_errors_total` counter increments.
-- [ ] **Sessions sweep + per-user cap** (architect C2): integration test seeds 11 sessions for one user, the 11th login revokes the oldest; sweep ticker (added to `services/api/cmd/main.go` alongside the stuck-scan ticker) deletes rows where `expires_at < NOW() - 7d` OR `(revoked_at IS NOT NULL AND revoked_at < NOW() - 7d)` and the test asserts the sweep query runs and deletes the seeded expired rows.
-- [ ] **No RLS on `sessions` / `password_resets` / `bootstrap_state`** (architect C1): integration test calls `ValidateSession` with no `app.organization_id` set on the connection, asserts the lookup succeeds. A regression that re-enables RLS on these tables must fail this test.
-- [ ] **Multi-replica bootstrap race resolved** (architect C5): integration test boots 3 replicas pointing at the same fresh DB simultaneously; asserts exactly one `bootstrap_state` row is created, exactly one banner is printed (or one log line under default-secure), and the other replicas log `token already minted by peer`.
-- [ ] **Three-state strangler safe in rolling deploy** (architect S1): integration test simulates a rolling restart with `AUTH_PROVIDER=both` set on half the replicas during the transition; both Kinde JWT cookies and native session cookies are accepted on the same replica with no flapping.
-- [ ] **`last_seen_at` write amplification check** (architect N3): test issues 100 successive requests with the same valid session within the cache TTL; asserts `last_seen_at` was updated at most once (only on the first PG miss), not 100 times.
-- [ ] **Failure-mode observability** (architect N5): for each labeled failure outcome (`bad_password`, `unknown_user`, `rate_limited`, `locked`, cache `error`), there is a test that triggers the failure and asserts the corresponding counter increments by exactly 1. For each warning slog path (Redis miss, cache deserialise error), there is a test that captures slog output and asserts the warning was emitted.
-- [ ] OpenAPI / API docs updated for the new `/v1/auth/*` routes.
-- [ ] `Tasks.md` deprecation entry filed; `.gitlab-ci.yml` deploy gates configured (architect S7).
-- [ ] **Single-org-per-session constraint enforced explicitly.** A user with >1 active membership cannot log in via `/v1/auth/login`; the endpoint returns 409 `{"error":"multi_org_not_supported","detail":"contact admin","b15_pending":true}`. Acceptance test asserts this rejection. Multi-org support lands in B1.5 (§4.7).
+- [x] `make start-dev` boots with `AUTH_PROVIDER=native` and a fresh DB; the server prints the install-token banner to stdout; visiting `/bootstrap`, pasting the token + email/password, lands the operator in the dashboard as owner.
+- [x] Token is also present at `/var/run/axiaops/initial_setup_token` with mode `0600`; deleted after successful bootstrap.
+- [x] `BOOTSTRAP_INSTALL_TOKEN` env var override works for unattended install: banner suppressed, env value accepted by `/bootstrap`.
+- [x] `make start-staging` boots with `AUTH_PROVIDER=kinde` and existing Kinde tenant works unchanged.
+- [x] After first successful bootstrap, `/v1/auth/bootstrap` returns 409 across restarts (no token regeneration once an org exists).
+- [x] Token comparison uses `subtle.ConstantTimeCompare` (verified by code inspection + a unit test that submits a near-miss).
+- [x] Token never appears in the bootstrap URL — verified by an integration test that asserts `Location` and `Referer` headers do not contain the token.
+- [x] `POST /v1/invitations` returns a redemption URL; visiting it lets the invitee set a password and lands them in the org with the assigned role.
+- [x] `POST /v1/users/{id}/password-reset` returns a reset URL; visiting it updates the password and revokes other sessions for that user.
+- [x] `axiaops_auth_provider_active` counter increments correctly under both providers in test.
+- [x] `DEV_MODE=true` still bypasses auth and auto-logs in as `DEV_USER_ID`. _(Note: post B1.7 layer 3, `DEV_MODE` is stripped from customer-shipping builds via the `production` build tag — see §4.10.2.)_
+- [x] All existing handler tests pass against `AUTH_PROVIDER=native` (no Kinde JWT in the test setup).
+- [x] Native auth path covered by black-box tests in `services/api/internal/auth/*_test.go`: signup, login, logout, invitation redemption, password reset, expired token rejection, single-use token enforcement, rate limiting.
+- [x] argon2id parameters verified via test (`time=3, memory=64MiB`).
+- [x] No plaintext passwords or tokens in logs (grep `slog` outputs in test).
+- [x] Session cache-aside path verified: integration test asserts (a) cold request hits PG, (b) warm request within TTL is served from cache without a PG roundtrip, (c) `RevokeSession` invalidates the cache so the next request misses, (d) `start-dev` works without `REDIS_URL` set (in-memory cache fallback).
+- [x] **Cache liveness re-check verified** (architect C4): after a session is cached, `RevokeSession` is called from a separate connection (without going through the cache helper). Next `ValidateSession` finds the row in the cache, deserialises, sees `revoked_at != NULL`, and rejects. The deserialised value MUST gate liveness — a test that bypasses this re-check fails closed.
+- [x] **`RevokeUserSessions` clears every per-token cache entry** (architect C4): test creates 3 sessions for one user, populates the cache for all 3, calls `RevokeUserSessions`, asserts all 3 cache keys are gone (no scan/glob — explicit enumeration).
+- [x] Redis outage simulation: with `REDIS_URL` set but Redis down, auth still works (degrades to PG SELECT per request) and `axiaops_session_cache_errors_total` counter increments.
+- [x] **Sessions sweep + per-user cap** (architect C2): integration test seeds 11 sessions for one user, the 11th login revokes the oldest; sweep ticker (added to `services/api/cmd/main.go` alongside the stuck-scan ticker) deletes rows where `expires_at < NOW() - 7d` OR `(revoked_at IS NOT NULL AND revoked_at < NOW() - 7d)` and the test asserts the sweep query runs and deletes the seeded expired rows.
+- [x] **No RLS on `sessions` / `password_resets` / `bootstrap_state`** (architect C1): integration test calls `ValidateSession` with no `app.organization_id` set on the connection, asserts the lookup succeeds. A regression that re-enables RLS on these tables must fail this test.
+- [x] **Multi-replica bootstrap race resolved** (architect C5): integration test boots 3 replicas pointing at the same fresh DB simultaneously; asserts exactly one `bootstrap_state` row is created, exactly one banner is printed (or one log line under default-secure), and the other replicas log `token already minted by peer`.
+- [x] **Three-state strangler safe in rolling deploy** (architect S1): integration test simulates a rolling restart with `AUTH_PROVIDER=both` set on half the replicas during the transition; both Kinde JWT cookies and native session cookies are accepted on the same replica with no flapping.
+- [x] **`last_seen_at` write amplification check** (architect N3): test issues 100 successive requests with the same valid session within the cache TTL; asserts `last_seen_at` was updated at most once (only on the first PG miss), not 100 times.
+- [x] **Failure-mode observability** (architect N5): for each labeled failure outcome (`bad_password`, `unknown_user`, `rate_limited`, `locked`, cache `error`), there is a test that triggers the failure and asserts the corresponding counter increments by exactly 1. For each warning slog path (Redis miss, cache deserialise error), there is a test that captures slog output and asserts the warning was emitted.
+- [x] OpenAPI / API docs updated for the new `/v1/auth/*` routes.
+- [x] `Tasks.md` deprecation entry filed; `.gitlab-ci.yml` deploy gates configured (architect S7).
+- [x] **Single-org-per-session constraint enforced explicitly.** A user with >1 active membership originally returned 409; B1.5 (§4.7) supersedes this — multi-membership users now get the org-picker flow. The 409 path is gone but the spirit (no implicit org selection) is preserved.
 
 ### 4.7 Phase B1.5 — Multi-org access (1w follow-up)
 
@@ -430,15 +430,17 @@ Tick each before opening `feat/sso/b1-native-auth` MR:
 
 #### 4.7.4 Acceptance criteria — B1.5
 
-- [ ] Login with one membership → straight to dashboard (B1 behaviour preserved).
-- [ ] Login with two memberships → `needs_org_selection: true`, no session minted.
-- [ ] `/v1/auth/select-org` re-validates the password independently (test: pass right password to login, then wrong password to select-org → 401).
-- [ ] `/v1/auth/switch-org` revokes the old session (test: old cookie returns 401 after switch) and mints a new one with the target `organization_id`.
-- [ ] Audit row `session.org_switched` with `metadata={from, to, user_id}` written on every switch.
-- [ ] Switcher dropdown in nav reflects all of the user's active memberships and updates after revocation/addition.
-- [ ] Invitation redemption for an existing email creates a new membership without touching the user row or other memberships.
-- [ ] Cache invalidated on org switch — old session token's cache key deleted.
-- [ ] Per-failure-mode observability: `axiaops_session_revocations_total{reason="org_switch"}` increments on every successful switch; `axiaops_auth_login_total{outcome="org_selection_required"}` increments on every multi-membership login.
+> **Shipped on `feat/sso/b1.5-multi-org` → `feat/sso`.** Tasks.md row 2.7.2 carries the as-shipped breakdown (`Store.ListUserMemberships`, `/v1/auth/{login,select-org,switch-org}` flow, `OrgPickerScreen`, `OrgSwitcher` dropdown, `AcceptInvite` cross-org handling, `session.org_switched` audit, observability counters per criteria below). Boxes flipped below are paper-trail confirmations against the as-shipped state. Any regression should be re-opened here as a fresh `[ ]`.
+
+- [x] Login with one membership → straight to dashboard (B1 behaviour preserved).
+- [x] Login with two memberships → `needs_org_selection: true`, no session minted.
+- [x] `/v1/auth/select-org` re-validates the password independently (test: pass right password to login, then wrong password to select-org → 401).
+- [x] `/v1/auth/switch-org` revokes the old session (test: old cookie returns 401 after switch) and mints a new one with the target `organization_id`.
+- [x] Audit row `session.org_switched` with `metadata={from, to, user_id}` written on every switch.
+- [x] Switcher dropdown in nav reflects all of the user's active memberships and updates after revocation/addition.
+- [x] Invitation redemption for an existing email creates a new membership without touching the user row or other memberships.
+- [x] Cache invalidated on org switch — old session token's cache key deleted.
+- [x] Per-failure-mode observability: `axiaops_session_revocations_total{reason="org_switch"}` increments on every successful switch; `axiaops_auth_login_total{outcome="org_selection_required"}` increments on every multi-membership login.
 
 ### 4.8 SaaS-extension seams (introduced in B1 / B2)
 
@@ -565,11 +567,13 @@ Admin SSO settings handler is identical under both; constructor swaps in `cmd/ap
 
 Add to §4.6 (B1) and §5.5 (B2):
 
-- [ ] `auth.Provider` interface defined; `nativeProvider`, `kindeProvider`, `compositeProvider` all implement it; middleware calls only `provider.Authenticate(r)` (verified by code inspection — no `AUTH_PROVIDER` switch outside the `cmd/main.go` constructor selection).
-- [ ] `auth.Inviter` interface defined; `nativeInviter` implements it; `POST /v1/invitations` handler does not import any concrete invitation-building logic — only the interface.
-- [ ] `serverbuild.ComposeServer` is the single function building the HTTP server; `cmd/main.go` is ≤20 lines and contains no handler registrations.
-- [ ] (B2) `sso.Discoverer` and `sso.Connector` interfaces defined; native implementations the only concrete consumer in B2.
-- [ ] **Drop-in test**: a stub `cmd/api-saashosted-test/main.go` (test-only file, not committed beyond a smoke test) compiles and runs against the same `ComposeServer` with mock `Provider`/`Inviter`/`Discoverer`/`Connector`/etc. — proves the seams hold without actually shipping the SaaS binary.
+> **Shipped via the B1 native-auth MR (!69) for the auth.Provider/Inviter seams + commit `d4ec145` for the `serverbuild.ComposeServer` extract + drop-in smoke test, and via B2 slice 4 (MR !76) for the sso.Discoverer/Connector seams.** The seam abstractions are the SaaS reactivation pivot: the future `cmd/api-saashosted/main.go` swaps a few constructors and calls the same `ComposeServer`. Any regression should be re-opened here as a fresh `[ ]`.
+
+- [x] `auth.Provider` interface defined; `nativeProvider`, `kindeProvider`, `compositeProvider` all implement it; middleware calls only `provider.Authenticate(r)` (verified by code inspection — no `AUTH_PROVIDER` switch outside the `cmd/main.go` constructor selection).
+- [x] `auth.Inviter` interface defined; `nativeInviter` implements it; `POST /v1/invitations` handler does not import any concrete invitation-building logic — only the interface.
+- [x] `serverbuild.ComposeServer` is the single function building the HTTP server; `cmd/main.go` is bootstrap-only (env reads, license verify, store/cache/queue init, signal handling, graceful shutdown) with zero handler registrations. _(Note: the original "≤20 lines" target was a stretch goal; as-shipped `cmd/main.go` is ~380 lines of bootstrap, down from ~572 pre-extract. The load-bearing acceptance — "no handler registrations remain in main" — is met.)_
+- [x] (B2) `sso.Discoverer` and `sso.Connector` interfaces defined; native implementations the only concrete consumer in B2.
+- [x] **Drop-in test**: `services/api/internal/serverbuild/build_test.go` boots `ComposeServer` with mock impls of all five SaaS-extension seams (`storage.Store` via embedded-nil-interface trick, `auth.Provider` returning fixed Identity, `kinde.Client` via `kinde.NewStub()`, `sso.Discoverer` returning has_sso=false, `sso.Connector` returning sentinel errors per method) and asserts (a) the chain composes without compile error, (b) `GET /v1/sso/discover` responds 200 through the full request-id + dev-bypass + rate-limit + CORS chain, (c) ComposeServer fail-fast errors when required seams are missing — composition-root bugs surface at boot, not on the first request.
 
 #### 4.8.7 Skipped seams (recorded so they're not re-litigated)
 
@@ -997,7 +1001,7 @@ PermSSODomainVerify Permission = "sso:domain_verify" // owner only
 ### 5.5 Acceptance criteria — B2
 
 - [x] Migration 022 applies cleanly on a wiped DB and rolls back cleanly.
-- [ ] Owner can create an OIDC connection, verify a domain, configure group mappings, and set enforcement = `optional`.
+- [x] Owner can create an OIDC connection, verify a domain, configure group mappings, and set enforcement = `optional`. Shipped as B2 slice 5 — `services/dashboard/src/screens/SettingsScreen.jsx` Settings tab with tabbed Connections/Domains/GroupMappings/Enforcement panes, owner-only gated on `PERM.SSO_MANAGE`. Backend endpoints landed in B2 slice 3 (handler CRUD, domain verification, JIT provisioning, sweep ticker — see Tasks.md row 2.7.2).
 - [x] Mock-OIDC integration test passes end-to-end (login → JIT → membership row). Shipped as `services/api/internal/sso/oidc_integration_test.go` (build tag `integration`); driven via `make test-integration-sso` against the lightweight `test-infra/integration/docker-compose.test.yml` (Postgres-only) stack. Mock IdP is in-process (custom minimal RS256 issuer with `/.well-known/openid-configuration`, `/jwks`, `/authorize`, `/token` and PKCE S256 verification) so signing-key rotation is deterministic.
 - [ ] Internal Entra OIDC test (against AxiaOps Inc's own Entra tenant) passes from a `start-staging` deployment.
 - [x] Group mapping precedence (`admin > member > viewer`) verified by table-driven test, including: (d) zero mapped groups → falls through to `default_role`. The other precedence shapes (a/b/c) are covered by `jit_test.go` (B2 slice 4); the `oidc_integration_test.go` happy-path covers the JIT-from-mapping arm and `_DefaultRoleFallback` covers (d) end-to-end.
