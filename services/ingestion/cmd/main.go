@@ -139,22 +139,31 @@ func main() {
 
 	mux.HandleFunc("POST /scan", func(w http.ResponseWriter, r *http.Request) {
 		// License scan-gate (plan §4.9.2b, post-amendment). Routed through
-		// IsScanAllowed so the predicate stays in lockstep with the api-side
-		// handler and the scheduler — single source of truth for the policy.
-		// Internal-only surface today, but a future caller (a CLI, a one-off
-		// script, a future SaaS<>self-hosted bridge) shouldn't be able to
-		// skip the gate just because the api binary did.
+		// IsScanAllowedForState so the predicate stays in lockstep with the
+		// api-side handler and the scheduler — single source of truth for
+		// the policy. Internal-only surface today, but a future caller (a
+		// CLI, a one-off script, a future SaaS<>self-hosted bridge)
+		// shouldn't be able to skip the gate just because the api binary did.
 		//
-		// Same two-error-code shape as the api: license_expired vs
-		// license_not_loaded so callers (today: the api's async scan
-		// trigger) can preserve the distinction in any error mapping.
-		if !license.IsScanAllowed() {
+		// State is read ONCE and used for both the gate predicate and the
+		// error-code branch — avoids the wall-clock-driven TOCTOU where a
+		// `valid → in_grace → expired` cross-tick between two consecutive
+		// reads could cross-classify the response body.
+		licState := license.SnapshotState()
+		if !license.IsScanAllowedForState(licState) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
-			if license.SnapshotState() == license.StateExpired {
+			switch licState {
+			case license.StateExpired:
 				_, _ = w.Write([]byte(`{"error":"license_expired"}`))
-			} else {
+			case license.StateNotLoaded:
 				_, _ = w.Write([]byte(`{"error":"license_not_loaded"}`))
+			default:
+				// Same regression guard as the api-side scanGateBody:
+				// future blocking states surface as license_inactive +
+				// slog.Warn rather than silent mis-classification.
+				slog.Warn("ingestion scan-gate: unhandled license state", "state", licState.String())
+				_, _ = w.Write([]byte(`{"error":"license_inactive"}`))
 			}
 			return
 		}

@@ -22,6 +22,10 @@ services:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
+      # Text logs match dev-1/dev-2's "fast inspection over SSH" use case.
+      # After 8cbf35a logging.go no longer infers text from DEV_MODE — set
+      # LOG_OUTPUT explicitly here. Override to `json` if needed.
+      LOG_OUTPUT: ${LOG_OUTPUT:-text}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
       - default-network
@@ -40,6 +44,8 @@ services:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
+      # See ingestion service above for rationale.
+      LOG_OUTPUT: ${LOG_OUTPUT:-text}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
       - default-network
