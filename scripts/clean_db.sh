@@ -18,6 +18,30 @@
 
 set -euo pipefail
 
+# ── psql discovery ────────────────────────────────────────────────────────────
+# Homebrew's libpq formula is keg-only — /opt/homebrew/opt/libpq/bin/psql exists
+# but isn't on PATH unless the user added the export to ~/.zshrc. Probe known
+# locations so the remote mode works regardless of shell setup. Mirrors the
+# helper in seed_test_data.sh — keep them in sync.
+
+resolve_psql() {
+  if command -v psql >/dev/null 2>&1; then
+    command -v psql
+    return
+  fi
+  local p
+  for p in /opt/homebrew/opt/libpq/bin/psql \
+           /opt/homebrew/opt/postgresql@16/bin/psql \
+           /usr/local/opt/libpq/bin/psql \
+           /opt/homebrew/bin/psql \
+           /usr/local/bin/psql; do
+    if [ -x "$p" ]; then
+      echo "$p"
+      return
+    fi
+  done
+}
+
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
 REMOTE_ENV=""
@@ -47,6 +71,15 @@ done
 # ── Connection setup ──────────────────────────────────────────────────────────
 
 if [[ -n "$REMOTE_ENV" ]]; then
+  PSQL=$(resolve_psql)
+  if [ -z "${PSQL:-}" ]; then
+    echo "Error: psql not found on PATH or known libpq locations." >&2
+    echo "  Install:  brew install libpq" >&2
+    echo "  Then add to PATH (or rely on this script's auto-discovery):" >&2
+    echo "    echo 'export PATH=\"/opt/homebrew/opt/libpq/bin:\$PATH\"' >> ~/.zshrc" >&2
+    exit 1
+  fi
+
   # Remote mode
   MODE="remote"
   # Per-env static IPs (from self-hosted-infra/stacks/*/variables.tf). Using
@@ -63,10 +96,10 @@ if [[ -n "$REMOTE_ENV" ]]; then
   DB_PORT=5432
 
   SUPERUSER_URL="postgres://axiaops_owner:axiaops_owner@$HOST_IP:$DB_PORT/axiaops?sslmode=disable"
-  
-  psql_exec()  { PGOPTIONS="-c search_path=axiaops" psql "$SUPERUSER_URL" --quiet -c "$1"; }
-  psql_query() { PGOPTIONS="-c search_path=axiaops" psql "$SUPERUSER_URL" -t --no-align -c "$1"; }
-  psql_super() { psql "$SUPERUSER_URL" --quiet -c "$1"; }
+
+  psql_exec()  { PGOPTIONS="-c search_path=axiaops" "$PSQL" "$SUPERUSER_URL" --quiet -c "$1"; }
+  psql_query() { PGOPTIONS="-c search_path=axiaops" "$PSQL" "$SUPERUSER_URL" -t --no-align -c "$1"; }
+  psql_super() { "$PSQL" "$SUPERUSER_URL" --quiet -c "$1"; }
   
   if [[ "$DROP_SCHEMA" == "true" ]]; then
     echo "=== DROPPING AxiaOps $REMOTE_ENV schema ==="
@@ -125,12 +158,17 @@ echo ""
 
 if [[ "$MODE" == "remote" ]]; then
   echo -n "Checking connection to $HOST_IP..."
-  if ! psql "$SUPERUSER_URL" -c 'SELECT 1' > /dev/null 2>&1; then
+  if err=$("$PSQL" "$SUPERUSER_URL" -c 'SELECT 1' 2>&1 >/dev/null); then
+    echo " Connected."
+  else
     echo " Failed."
-    echo "Error: Cannot reach PostgreSQL at $HOST_IP:$DB_PORT"
+    echo "Error: connection check at $HOST_IP:$DB_PORT failed."
+    if [ -n "${err:-}" ]; then
+      echo "psql output:"
+      printf '  %s\n' "$err"
+    fi
     exit 1
   fi
-  echo " Connected."
   echo ""
 fi
 
