@@ -60,7 +60,7 @@ func main() {
 	// The one case it still refuses is layer 2 anti-tamper (plan §4.10.2):
 	// DEV_MODE=true on a host that has a license configured. That returns a
 	// non-nil error and we die() loudly here.
-	if err := license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true"); err != nil {
+	if err := license.VerifyAtBoot(devModeEnabled()); err != nil {
 		die("license: refusing to start", "error", err.Error())
 	}
 
@@ -105,7 +105,7 @@ func main() {
 	defer func() { _ = q.Close() }()
 
 	// ── Resolve modes from env ───────────────────────────────────────────
-	devMode := os.Getenv("DEV_MODE") == "true"
+	devMode := devModeEnabled()
 	authMode := os.Getenv("AUTH_PROVIDER")
 	if authMode == "" {
 		authMode = "native"
@@ -310,7 +310,7 @@ func buildAuthProvider(ctx context.Context, mode string, store storage.Store, c 
 //	M2M creds set                 → real HTTPClient
 //	M2M creds unset, no opt-in    → nil (handlers return 503 until configured)
 func buildKindeClient() kinde.Client {
-	if os.Getenv("DEV_MODE") == "true" {
+	if devModeEnabled() {
 		slog.Info("kinde: DEV_MODE — using in-memory stub")
 		return kinde.NewStub()
 	}
