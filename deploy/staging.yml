@@ -4,7 +4,7 @@ services:
     container_name: axiaops-redis-staging
     restart: unless-stopped
     networks:
-      - axiaops-staging-network
+      - default-network
 
   ingestion:
     image: axiaops-ingestion:staging
@@ -19,7 +19,7 @@ services:
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
       AWS_REGION: ${AWS_REGION:-us-east-1}
     networks:
-      - axiaops-staging-network
+      - default-network
 
   api:
     image: axiaops-api:staging
@@ -41,7 +41,7 @@ services:
       KINDE_USE_STUB: ${KINDE_USE_STUB:-false}
       INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-14}
     networks:
-      - axiaops-staging-network
+      - default-network
 
   dashboard:
     image: axiaops-dashboard:staging
@@ -58,9 +58,14 @@ services:
       FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
       AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     networks:
-      - axiaops-staging-network
+      - default-network
 
 networks:
   # Per-env network created by self-hosted-infra on the axiaops-staging host.
-  axiaops-staging-network:
+  # Literal key + explicit `name:` matches the pattern in deploy/dev.yml so
+  # future preview/demo compose files have one shape to copy. Even though
+  # staging's name doesn't depend on a variable today, the consistency
+  # makes refactors safer.
+  default-network:
     external: true
+    name: axiaops-staging-network
