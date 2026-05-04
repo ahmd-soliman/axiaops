@@ -73,6 +73,15 @@ const (
 	StateNotLoaded
 )
 
+// AllStates lists every State the iota currently defines, in order. Used by
+// downstream tests (services/api/internal/api/scan_gate_body_test.go) to
+// assert exhaustive coverage — adding a new state to the iota requires
+// adding it here too, which forces the dependent tests to fail until they
+// account for the new value. Without this seam, tests that synthesise
+// "unknown" via a high-integer cast (e.g. `State(99)`) silently keep
+// passing when a real new state is added at the next iota slot.
+var AllStates = []State{StateValid, StateInGrace, StateExpired, StateNotLoaded}
+
 func (s State) String() string {
 	switch s {
 	case StateValid:

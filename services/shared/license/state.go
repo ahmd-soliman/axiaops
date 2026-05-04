@@ -85,16 +85,23 @@ func ClearEnforcementBypass() {
 // "no license installed" is no longer a fall-through under the amendment, it
 // is a gated state with its own banner copy and 403 error code.
 //
-// Re-reads the snapshot internally each call. Callers that need the state
-// for downstream branching (e.g. picking a 403 error code) should use
-// IsScanAllowedForState instead — taking SnapshotState() once and passing
-// it through avoids the TOCTOU window where a wall-clock cross-tick of
-// `exp` between two consecutive reads can re-classify the license.
+// **Use this form for log-only / drop-the-job gate sites** where the caller
+// only needs the boolean and doesn't branch on state for downstream output
+// (e.g. error-code selection). Examples:
+//   - services/ingestion/cmd/main.go scanScheduledAccounts (skip + slog.Info)
+//   - services/ingestion/cmd/worker.go scan dequeue (skip + slog.Info)
 //
-// Both api and ingestion scan-gate sites route through this single predicate.
-// Widening or narrowing the policy (e.g. blocking in-grace per a future
-// customer signal) is one edit in IsScanAllowedForState, compiler-verified
-// across every consumer.
+// **Use IsScanAllowedForState** when the caller reads SnapshotState anyway
+// to pick a 403 body or a banner string — taking the snapshot once and
+// passing it through avoids the wall-clock-driven TOCTOU window where a
+// cross-tick of `exp` between two consecutive reads could reclassify the
+// license. Examples:
+//   - services/api/internal/api/handler.go scanAccount (gates → scanGateBody)
+//   - services/ingestion/cmd/main.go POST /scan handler (gates → switch on state)
+//
+// Both forms share IsScanAllowedForState's policy implementation; widening
+// or narrowing (e.g. blocking in-grace per a future customer signal) is one
+// edit in that function, compiler-verified across every consumer.
 func IsScanAllowed() bool {
 	return IsScanAllowedForState(SnapshotState())
 }
