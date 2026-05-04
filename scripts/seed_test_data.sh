@@ -160,17 +160,26 @@ PERIOD_END="$NOW"
 
 # ── Resolve organization ID ─────────────────────────────────────────────────────────
 # Must match whichever organization the API is serving data for:
-#   - Staging (Kinde auth): one real organization created by Kinde login — pick the oldest.
-#   - Dev (DEV_MODE=true):  organization id == DEV_ORGANIZATION_ID (ensured by the API at
-#     startup via Store.EnsureOrganization). Seed mirrors that — pin the same id.
+#   - Auth-on envs (staging / preview / demo, AUTH_PROVIDER=native or kinde):
+#     one real organization created by the bootstrap flow (or by Kinde login on
+#     legacy staging). Pick the oldest organizations row — first one wins on
+#     a multi-org install, which is the only one we'd want to seed.
+#   - Auth-bypass envs (dev-1 / dev-2 / local docker, DEV_MODE=true):
+#     organization id == DEV_ORGANIZATION_ID (ensured by the API at startup
+#     via Store.EnsureOrganization). Seed mirrors that — pin the same id.
 
-if [[ "$REMOTE_ENV" == "staging" ]]; then
+# AUTH_ON_ENVS = the set where the API requires real auth and creates real
+# org rows via bootstrap or Kinde. Keep in sync with DEV_MODE settings in
+# deploy/{env}.yml — if you flip an env's DEV_MODE here, mirror it there.
+AUTH_ON_ENVS_REGEX="^(staging|preview|demo)$"
+
+if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX ]]; then
   ORGANIZATION_ID=$(psql_query "SELECT id FROM organizations ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
   if [ -z "$ORGANIZATION_ID" ]; then
-    echo "Error: no organization found in staging DB — log into the dashboard first so Kinde creates one."
+    echo "Error: no organization found in $REMOTE_ENV DB — bootstrap the first owner via the dashboard at https://axiaops-$REMOTE_ENV.local first so an organization row exists, then re-run."
     exit 1
   fi
-  echo "Using staging organization: ${ORGANIZATION_ID}"
+  echo "Using $REMOTE_ENV organization: ${ORGANIZATION_ID}"
 else
   ORGANIZATION_ID="$DEV_ORGANIZATION_ID_VAL"
   psql_exec "INSERT INTO organizations (id, org_code, name, created_at)
