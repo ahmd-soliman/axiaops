@@ -22,6 +22,12 @@ const TABS = [
   { label: 'Audit Log', path: '/settings/audit',     requires: PERM.AUDIT_READ },
   { label: 'SSO',       path: '/settings/sso',       requires: PERM.SSO_MANAGE },
   { label: 'Organization', path: '/settings/organization', requires: PERM.ORGANIZATION_DELETE },
+  // License is gated to the same owner-tier as Organization. Licensing is a
+  // billing/contract concern; non-owners can't act on it and the LicenseBanner
+  // already covers the "scans paused" warning surface for everyone. This pane
+  // is the affirmative read-only inspector for the healthy + DEV_MODE-bypass
+  // states the banner is silent on. See services/dashboard/src/pages/settings/License.jsx.
+  { label: 'License',   path: '/settings/license',   requires: PERM.ORGANIZATION_DELETE },
 ];
 
 export default function Settings() {

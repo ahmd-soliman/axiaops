@@ -1,0 +1,294 @@
+import { useQuery } from '@tanstack/react-query';
+import { useTheme } from '../../theme/ThemeContext';
+import { fetchVersion } from '../../api/client';
+
+// Settings → License — owner-only read-only inspector for the self-hosted
+// license state (Phase B1.6 amendment + B1.7 follow-up). Complements
+// LicenseBanner.jsx, which is deliberately silent on the happy path
+// (state="valid" + days_remaining ≥ 14): the banner is a nag, this is the
+// affirmative "what's loaded right now" surface. Operators reaching for
+// "is the license OK?" via the dashboard land here.
+//
+// Owner-gating happens at the parent Settings.jsx tab filter via
+// PERM.ORGANIZATION_DELETE (same gate as the Organization tab — license
+// is a billing/contract concern parallel to org-level controls). The page
+// itself does no in-page perm check; non-owners never reach this route.
+//
+// Reads the same React Query cache key `['api-version']` AppShell uses,
+// so this component does NOT trigger a second /v1/version request — it
+// piggy-backs on AppShell's already-staleTime:Infinity query. A "Refresh"
+// button explicitly refetches when the operator wants the latest state
+// (e.g. after a license renewal restart).
+//
+// State semantics map 1:1 to the api's licenseSummary() in handler.go:
+//   valid       → green badge, claim sub-object rendered
+//   in_grace    → amber, claim sub-object + grace-period explainer
+//   expired     → red, claim sub-object + renewal contact
+//   not_loaded  → red OR amber depending on whether DEV_MODE is baked:
+//                 - dashboard built with VITE_DEV_MODE=true → "DEV_MODE
+//                   bypass active" amber chip (this is the dev posture,
+//                   not an error)
+//                 - dashboard built with VITE_DEV_MODE=false → "No license
+//                   installed" red banner (production, action required)
+
+const INSTALL_URL = 'https://axiaops.io/install';
+const RENEWAL_EMAIL = 'sales@axiaops.io';
+const IS_DEV_MODE = (import.meta.env?.VITE_DEV_MODE ?? 'false') === 'true';
+
+export default function License() {
+  const { theme: t, isDark } = useTheme();
+
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ['api-version'],
+    queryFn: fetchVersion,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+
+  return (
+    <div style={{ padding: 24, color: t.textMid, maxWidth: 760 }}>
+      <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div>
+          <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>License</h1>
+          <p style={{ marginTop: 4, marginBottom: 0, color: t.textMuted, fontSize: 13 }}>
+            Self-hosted license state. Read-only — license issuance is operator-side via the offline issuance CLI.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          style={{
+            padding: '6px 12px',
+            border: `1px solid ${t.border}`,
+            borderRadius: 6,
+            backgroundColor: 'transparent',
+            color: t.text,
+            fontSize: 12,
+            cursor: isFetching ? 'wait' : 'pointer',
+            opacity: isFetching ? 0.6 : 1,
+          }}
+        >
+          {isFetching ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </header>
+
+      {isLoading && <p style={{ color: t.textMuted, fontSize: 13 }}>Loading…</p>}
+      {isError && (
+        <p style={{ color: t.error, fontSize: 13 }}>
+          Could not load license state. Check the API health and retry.
+        </p>
+      )}
+      {data?.license && <LicensePane lic={data.license} version={data} t={t} isDark={isDark} />}
+    </div>
+  );
+}
+
+function LicensePane({ lic, version, t, isDark }) {
+  const tone = toneFor(lic);
+  const palette = paletteFor(tone, t);
+  const sectionBg = isDark ? 'rgba(255,255,255,0.03)' : '#fff';
+  const border = isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb';
+
+  return (
+    <>
+      <section
+        style={{
+          border: `1px solid ${palette.border}`,
+          borderRadius: 8,
+          padding: 16,
+          marginBottom: 16,
+          backgroundColor: palette.bg,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <Chip tone={tone} label={chipLabel(lic)} t={t} />
+          <span style={{ fontSize: 13, color: palette.fg, fontWeight: 600 }}>
+            {headlineFor(lic)}
+          </span>
+        </div>
+        <p style={{ margin: 0, fontSize: 12, color: palette.fg, lineHeight: '18px' }}>
+          {detailFor(lic)}
+        </p>
+      </section>
+
+      {hasClaims(lic) && (
+        <section
+          style={{
+            border: `1px solid ${border}`,
+            borderRadius: 8,
+            padding: 16,
+            marginBottom: 16,
+            backgroundColor: sectionBg,
+          }}
+        >
+          <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>
+            Claims
+          </h2>
+          <ClaimsGrid lic={lic} t={t} />
+        </section>
+      )}
+
+      <section
+        style={{
+          border: `1px solid ${border}`,
+          borderRadius: 8,
+          padding: 16,
+          backgroundColor: sectionBg,
+        }}
+      >
+        <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: t.text }}>
+          Build
+        </h2>
+        <ClaimRow t={t} k="Service" v={version.service || '—'} />
+        <ClaimRow t={t} k="Version" v={version.version || '—'} />
+        <ClaimRow t={t} k="Commit"  v={version.commit || '—'} />
+        <ClaimRow t={t} k="Env"     v={version.env || '—'} />
+      </section>
+    </>
+  );
+}
+
+// hasClaims — true when the license sub-object carries the full claim set.
+// Per handler.go's licenseSummary(): only state="not_loaded" omits the
+// sub-claims; valid / in_grace / expired all carry customer_id, expires_at,
+// days_remaining, max_organizations.
+function hasClaims(lic) {
+  return lic.state !== 'not_loaded';
+}
+
+function ClaimsGrid({ lic, t }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <ClaimRow t={t} k="Customer ID"     v={lic.customer_id || '—'} mono />
+      <ClaimRow t={t} k="Max organizations" v={lic.max_organizations ?? '—'} />
+      <ClaimRow t={t} k="Expires at"      v={formatDate(lic.expires_at)} mono />
+      <ClaimRow t={t} k="Days remaining"  v={formatDays(lic.days_remaining)} />
+    </div>
+  );
+}
+
+function ClaimRow({ t, k, v, mono }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 8 }}>
+      <span style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        {k}
+      </span>
+      <span
+        style={{
+          fontSize: 13,
+          color: t.text,
+          fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' : undefined,
+        }}
+      >
+        {v}
+      </span>
+    </div>
+  );
+}
+
+function Chip({ tone, label, t }) {
+  const palette = paletteFor(tone, t);
+  return (
+    <span
+      style={{
+        padding: '2px 8px',
+        borderRadius: 999,
+        fontSize: 11,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+        backgroundColor: palette.fg,
+        color: '#fff',
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+// toneFor returns 'success' | 'warning' | 'error' | 'info'. Pure — no
+// theme knowledge, just the policy decision. Mirrors LicenseBanner.jsx's
+// severity() but with one extra 'success' bucket since this surface is
+// affirmative ("license OK") not just nagging.
+function toneFor(lic) {
+  if (lic.state === 'valid') {
+    if (typeof lic.days_remaining === 'number' && lic.days_remaining < 14) return 'warning';
+    return 'success';
+  }
+  if (lic.state === 'in_grace') return 'warning';
+  if (lic.state === 'expired') return 'error';
+  if (lic.state === 'not_loaded') return IS_DEV_MODE ? 'info' : 'error';
+  return 'info';
+}
+
+function paletteFor(tone, t) {
+  if (tone === 'success') return { bg: `${t.success || '#10b981'}18`, border: `${t.success || '#10b981'}40`, fg: t.success || '#10b981' };
+  if (tone === 'warning') return { bg: `${t.warning}18`, border: `${t.warning}40`, fg: t.warning };
+  if (tone === 'error')   return { bg: `${t.error}18`,   border: `${t.error}40`,   fg: t.error };
+  return { bg: `${t.accent}14`, border: `${t.accent}40`, fg: t.accent };
+}
+
+function chipLabel(lic) {
+  if (lic.state === 'valid') return 'Valid';
+  if (lic.state === 'in_grace') return 'In Grace';
+  if (lic.state === 'expired') return 'Expired';
+  if (lic.state === 'not_loaded') return IS_DEV_MODE ? 'Dev bypass' : 'Not loaded';
+  return lic.state || 'Unknown';
+}
+
+function headlineFor(lic) {
+  if (lic.state === 'valid') {
+    if (typeof lic.days_remaining === 'number' && lic.days_remaining < 14) {
+      return `License is active — expires in ${lic.days_remaining} day${lic.days_remaining === 1 ? '' : 's'}.`;
+    }
+    return 'License is active.';
+  }
+  if (lic.state === 'in_grace') return 'License has expired and is in grace period.';
+  if (lic.state === 'expired') return 'License past grace period — scans are blocked.';
+  if (lic.state === 'not_loaded') {
+    return IS_DEV_MODE ? 'Enforcement bypassed (DEV_MODE).' : 'No license installed — scans are blocked.';
+  }
+  return 'Unknown license state.';
+}
+
+function detailFor(lic) {
+  if (lic.state === 'valid') {
+    if (typeof lic.days_remaining === 'number' && lic.days_remaining < 14) {
+      return `Renewal will land via the issuance CLI; restart the API and ingestion services after dropping the new JWT in to pick it up. Contact ${RENEWAL_EMAIL} if a renewal hasn't been arranged.`;
+    }
+    return `Scans run normally. The runtime ticker re-classifies state hourly; this pane reflects the most recent classification.`;
+  }
+  if (lic.state === 'in_grace') {
+    return `Reads, dashboard, and member-management remain available. New scans continue to run during the grace window. Contact ${RENEWAL_EMAIL} to renew before the grace period ends.`;
+  }
+  if (lic.state === 'expired') {
+    return `Reads, dashboard, and member-management remain available — only POST /accounts/{id}/scan and the scheduled-scan ticker are gated. Contact ${RENEWAL_EMAIL} to renew; drop the new license in and restart the API + ingestion services.`;
+  }
+  if (lic.state === 'not_loaded') {
+    if (IS_DEV_MODE) {
+      return `This dashboard build was compiled with VITE_DEV_MODE=true; the API binary is running with DEV_MODE=true; license enforcement is suspended in this slot for developer iteration. Customer-shipping binaries (built with -tags production) cannot honour DEV_MODE — see services/api/CLAUDE.md "Build tags" for the convention.`;
+    }
+    return `Install a license JWT to enable scans. The runbook lives in docs/license-issuance.md; the install URL is ${INSTALL_URL}.`;
+  }
+  return '';
+}
+
+function formatDate(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toISOString().slice(0, 10) + ' UTC';
+  } catch {
+    return iso;
+  }
+}
+
+function formatDays(n) {
+  if (typeof n !== 'number') return '—';
+  if (n < 0) return `${n} (past hard cutoff)`;
+  if (n === 1) return '1 day';
+  return `${n} days`;
+}
