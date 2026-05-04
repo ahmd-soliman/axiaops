@@ -4,15 +4,17 @@
 # Usage:
 #   ./scripts/clean_db.sh                                  # Local docker (truncate)
 #   ./scripts/clean_db.sh --drop-schema                    # Local docker (drop schema)
-#   ./scripts/clean_db.sh --remote dev-1                   # Remote dev-1   (axiaops-<env>.local:5432)
-#   ./scripts/clean_db.sh --remote dev-2                   # Remote dev-2   (axiaops-<env>.local:5432)
-#   ./scripts/clean_db.sh --remote staging --drop-schema   # Remote staging (axiaops-<env>.local:5432)
-#   ./scripts/clean_db.sh --remote preview                 # Remote preview (axiaops-<env>.local:5432)
-#   ./scripts/clean_db.sh --remote demo                    # Remote demo    (axiaops-<env>.local:5432)
+#   ./scripts/clean_db.sh --remote dev-1                   # Remote dev-1   (192.168.1.121:5432)
+#   ./scripts/clean_db.sh --remote dev-2                   # Remote dev-2   (192.168.1.123:5432)
+#   ./scripts/clean_db.sh --remote staging --drop-schema   # Remote staging (192.168.1.122:5432)
+#   ./scripts/clean_db.sh --remote preview                 # Remote preview (192.168.1.124:5432)
+#   ./scripts/clean_db.sh --remote demo                    # Remote demo    (192.168.1.126:5432)
 #
 # Each env runs on its own self-hosted container — postgres listens on the
-# standard 5432 since per-host means no port collision. Hostnames
-# resolve via mDNS (Avahi on the LAN).
+# standard 5432 since per-host means no port collision. Static IPs
+# come from self-hosted-infra/stacks/*/variables.tf; using IPs (not the
+# axiaops-<env>.local mDNS hostnames) keeps the script working over
+# Tailscale subnet routing where mDNS doesn't traverse.
 
 set -euo pipefail
 
@@ -47,13 +49,20 @@ done
 if [[ -n "$REMOTE_ENV" ]]; then
   # Remote mode
   MODE="remote"
-  # Each env runs on its own self-hosted container — hostname is axiaops-<env>.
-  # The .local addresses resolve via mDNS (Avahi on the LAN). Port is
-  # the standard 5432 since per-env hosts mean no port collision.
-  HOSTNAME="axiaops-${REMOTE_ENV}.local"
+  # Per-env static IPs (from self-hosted-infra/stacks/*/variables.tf). Using
+  # IPs not hostnames so the script keeps working over Tailscale subnet
+  # routing where mDNS doesn't traverse. See seed_test_data.sh for the
+  # full rationale.
+  case "$REMOTE_ENV" in
+    dev-1)   HOST_IP="192.168.1.121" ;;
+    dev-2)   HOST_IP="192.168.1.123" ;;
+    staging) HOST_IP="192.168.1.122" ;;
+    preview) HOST_IP="192.168.1.124" ;;
+    demo)    HOST_IP="192.168.1.126" ;;
+  esac
   DB_PORT=5432
 
-  SUPERUSER_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
+  SUPERUSER_URL="postgres://axiaops_owner:axiaops_owner@$HOST_IP:$DB_PORT/axiaops?sslmode=disable"
   
   psql_exec()  { PGOPTIONS="-c search_path=axiaops" psql "$SUPERUSER_URL" --quiet -c "$1"; }
   psql_query() { PGOPTIONS="-c search_path=axiaops" psql "$SUPERUSER_URL" -t --no-align -c "$1"; }
@@ -61,7 +70,7 @@ if [[ -n "$REMOTE_ENV" ]]; then
   
   if [[ "$DROP_SCHEMA" == "true" ]]; then
     echo "=== DROPPING AxiaOps $REMOTE_ENV schema ==="
-    echo "Target:    $HOSTNAME:$DB_PORT"
+    echo "Target:    $HOST_IP:$DB_PORT"
     echo ""
     echo "⚠️  ⚠️  ⚠️  DESTRUCTIVE OPERATION ⚠️  ⚠️  ⚠️"
     echo "This will DROP the entire 'axiaops' schema and user."
@@ -69,7 +78,7 @@ if [[ -n "$REMOTE_ENV" ]]; then
     echo "You will need to re-run migrations to recreate the schema."
   else
     echo "=== Cleaning AxiaOps $REMOTE_ENV database ==="
-    echo "Target:    $HOSTNAME:$DB_PORT"
+    echo "Target:    $HOST_IP:$DB_PORT"
     echo ""
     echo "WARNING: This will DELETE ALL rows from all tables."
   fi
@@ -115,10 +124,10 @@ echo ""
 # ── Verify connection (remote only) ───────────────────────────────────────────
 
 if [[ "$MODE" == "remote" ]]; then
-  echo -n "Checking connection to $HOSTNAME..."
+  echo -n "Checking connection to $HOST_IP..."
   if ! psql "$SUPERUSER_URL" -c 'SELECT 1' > /dev/null 2>&1; then
     echo " Failed."
-    echo "Error: Cannot reach PostgreSQL at $HOSTNAME:$DB_PORT"
+    echo "Error: Cannot reach PostgreSQL at $HOST_IP:$DB_PORT"
     exit 1
   fi
   echo " Connected."
