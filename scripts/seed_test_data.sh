@@ -200,7 +200,7 @@ if [ "$MODE" = "docker" ]; then
 else
   echo -n "Waiting for remote PostgreSQL to be ready..."
   for i in {1..30}; do
-    if psql "$MIGRATION_DATABASE_URL" -c "SELECT 1" &>/dev/null; then
+    if "$PSQL" "$MIGRATION_DATABASE_URL" -c "SELECT 1" &>/dev/null; then
       echo " Ready."
       break
     fi
