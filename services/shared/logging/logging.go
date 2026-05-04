@@ -7,8 +7,15 @@ import (
 )
 
 // Init configures the global slog logger.
-// JSON output when LOG_OUTPUT=json or DEV_MODE is unset; text otherwise.
-// Log level controlled by LOG_LEVEL (debug|info|warn|error), default info.
+// JSON output by default; text when LOG_OUTPUT=text. Log level controlled
+// by LOG_LEVEL (debug|info|warn|error), default info.
+//
+// We deliberately do NOT consult DEV_MODE here. Cross-package DEV_MODE
+// reads bypass the build-tag-gated `devModeEnabled()` seam in
+// services/{api,ingestion}/cmd/devmode_*.go (B1.7 layer 3 — plan §4.10.2),
+// re-introducing the runtime-bypass attack the convention is meant to
+// close. Local dev that wants text output sets LOG_OUTPUT=text directly
+// (scripts/start.sh does this when starting host-mode services).
 func Init(service string) {
 	level := slog.LevelInfo
 	if s := os.Getenv("LOG_LEVEL"); s != "" {
@@ -23,7 +30,7 @@ func Init(service string) {
 	}
 
 	var handler slog.Handler
-	if os.Getenv("LOG_OUTPUT") == "text" || os.Getenv("DEV_MODE") == "true" {
+	if os.Getenv("LOG_OUTPUT") == "text" {
 		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})
 	} else {
 		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
