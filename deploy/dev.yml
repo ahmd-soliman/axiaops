@@ -9,7 +9,7 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - axiaops-${DEPLOY_ENV}-network
+      - default-network
 
   ingestion:
     image: axiaops-ingestion:${DEPLOY_ENV}
@@ -24,7 +24,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
-      - axiaops-${DEPLOY_ENV}-network
+      - default-network
 
   api:
     image: axiaops-api:${DEPLOY_ENV}
@@ -42,7 +42,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
-      - axiaops-${DEPLOY_ENV}-network
+      - default-network
 
   dashboard:
     image: axiaops-dashboard:${DEPLOY_ENV}
@@ -57,10 +57,21 @@ services:
       FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
       AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     networks:
-      - axiaops-${DEPLOY_ENV}-network
+      - default-network
 
 networks:
   # Per-env network created by self-hosted-infra on each axiaops-${DEPLOY_ENV} host
   # (one host = one dev environment, so ports don't collide across envs).
-  axiaops-${DEPLOY_ENV}-network:
+  #
+  # Literal compose-internal key (`default-network`) + dynamic external `name`:
+  # docker-compose v2 does not reliably substitute ${VAR} in `networks:` map
+  # keys (only in scalar values), so a key like `axiaops-${DEPLOY_ENV}-network`
+  # stays literal at the top level while service references substitute as
+  # expected — producing the symptom `service "X" refers to undefined network
+  # axiaops-dev-1-network: invalid compose project` even though the network
+  # exists on the daemon. The fix: a literal key (no substitution required)
+  # plus an explicit `name:` field, which IS substituted reliably and is
+  # what compose passes to the docker daemon for lookup.
+  default-network:
     external: true
+    name: axiaops-${DEPLOY_ENV}-network
