@@ -1,6 +1,7 @@
 package license_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,12 @@ func resetSnapshot(t *testing.T) {
 
 func TestVerifyAtBoot_DevModeBypass(t *testing.T) {
 	resetSnapshot(t)
+	// Explicitly clear license sources — under B1.7 layer 2 the bypass
+	// only fires when no license is configured. Without these Setenv calls
+	// a CI runner with /etc/axiaops/license.jwt installed would flip this
+	// test into the layer-2 refusal path.
+	t.Setenv(license.EnvLicense, "")
+	t.Setenv(license.EnvLicensePath, t.TempDir()+"/no-such-license.jwt")
 	if err := license.VerifyAtBoot(true); err != nil {
 		t.Fatalf("DEV_MODE bypass returned error: %v", err)
 	}
@@ -80,6 +87,59 @@ func TestVerifyAtBoot_InGraceDoesNotRefuse(t *testing.T) {
 	}
 	if state := license.SnapshotState(); state != license.StateInGrace {
 		t.Errorf("SnapshotState() = %v, want StateInGrace", state)
+	}
+}
+
+// TestVerifyAtBoot_DevModeWithLicenseEnvRefuses — B1.7 layer 2 anti-tamper.
+// DEV_MODE=true with a license configured via env is a deliberate-bypass
+// signal; refuse to start. The error message must reference both the plan
+// section (operator runbook entry point) and the amendment doc (rationale).
+func TestVerifyAtBoot_DevModeWithLicenseEnvRefuses(t *testing.T) {
+	resetSnapshot(t)
+	k := setupKeys(t)
+	raw := signLicense(t, k, nil, nil, nil)
+	installLicense(t, k, raw) // sets EnvLicense
+
+	err := license.VerifyAtBoot(true)
+	if err == nil {
+		t.Fatal("VerifyAtBoot(devMode=true, license configured) returned nil; want layer-2 refusal")
+	}
+	msg := err.Error()
+	for _, want := range []string{"DEV_MODE", "AXIAOPS_LICENSE", "§4.10.2", "b1.6-amendment-feature-gating.md"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing expected substring %q", msg, want)
+		}
+	}
+	// Layer 2 must NOT flip the enforcement-bypass — refusal is the whole
+	// point. A regression that called SetEnforcementBypass before checking
+	// licensePresent would silently neuter the gate. Pin the order.
+	if license.IsEnforcementBypassed() {
+		t.Error("layer-2 refusal should NOT flip enforcement-bypass; bypass would defeat the gate on the next caller")
+	}
+}
+
+// TestVerifyAtBoot_DevModeWithLicenseFileRefuses — same posture as the env
+// case, but via the file-path branch. Pinning both paths because the layer-2
+// helper resolves them differently and a regression in one is invisible
+// from the other.
+func TestVerifyAtBoot_DevModeWithLicenseFileRefuses(t *testing.T) {
+	resetSnapshot(t)
+	// Drop a sentinel file at a temp path; layer 2 doesn't parse it, only
+	// stats it, so the contents can be empty.
+	dir := t.TempDir()
+	path := dir + "/license.jwt"
+	if err := os.WriteFile(path, []byte("not-a-real-jwt"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	t.Setenv(license.EnvLicense, "")
+	t.Setenv(license.EnvLicensePath, path)
+
+	err := license.VerifyAtBoot(true)
+	if err == nil {
+		t.Fatal("VerifyAtBoot(devMode=true, license file present) returned nil; want layer-2 refusal")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("error %q should name the license path so the operator knows where to look", err.Error())
 	}
 }
 
