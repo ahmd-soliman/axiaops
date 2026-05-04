@@ -85,15 +85,33 @@ func ClearEnforcementBypass() {
 // "no license installed" is no longer a fall-through under the amendment, it
 // is a gated state with its own banner copy and 403 error code.
 //
+// Re-reads the snapshot internally each call. Callers that need the state
+// for downstream branching (e.g. picking a 403 error code) should use
+// IsScanAllowedForState instead — taking SnapshotState() once and passing
+// it through avoids the TOCTOU window where a wall-clock cross-tick of
+// `exp` between two consecutive reads can re-classify the license.
+//
 // Both api and ingestion scan-gate sites route through this single predicate.
 // Widening or narrowing the policy (e.g. blocking in-grace per a future
-// customer signal) is one edit here, compiler-verified across every consumer.
+// customer signal) is one edit in IsScanAllowedForState, compiler-verified
+// across every consumer.
 func IsScanAllowed() bool {
+	return IsScanAllowedForState(SnapshotState())
+}
+
+// IsScanAllowedForState is the state-explicit form of IsScanAllowed. Used by
+// callers that already read SnapshotState() and want to gate + branch on the
+// same state without a second read — avoids the microsecond TOCTOU window
+// where time.Now() advancing across `exp` between two consecutive reads can
+// reclassify the license. The enforcement-bypass read is consulted here too
+// (single source of policy truth — adding a new bypassed-state would require
+// a single edit here), but the bypass flag is set once at boot and never
+// changes thereafter, so re-reading it is free of the wall-clock concern.
+func IsScanAllowedForState(state State) bool {
 	if enforcementBypass.Load() {
 		return true
 	}
-	s := SnapshotState()
-	return s == StateValid || s == StateInGrace
+	return state == StateValid || state == StateInGrace
 }
 
 // IsEnforcementBypassed reports whether the enforcement-bypass flag is set.

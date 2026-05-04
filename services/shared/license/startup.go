@@ -155,20 +155,23 @@ func VerifyAtBoot(devMode bool) error {
 // a readable file at the resolved path (EnvLicensePath, defaulting to
 // DefaultLicensePath). Used by layer 2 anti-tamper to distinguish
 // "DEV_MODE in a dev slot with no license — fine" from "DEV_MODE on a host
-// with a real license installed — refuse." Returns (path, present); the
-// path is the operator-facing identifier for the error message.
+// with a real license installed — refuse." Returns (source, present); the
+// source string is the operator-facing identifier for the error message.
 //
 // We intentionally do NOT call Load() here: layer 2 fires before the JWT is
 // parsed, so a corrupt-license + DEV_MODE attempt also refuses (correct —
 // you can't bypass the layer by tampering with the JWT contents). The check
 // is purely "is something there", not "is what's there valid."
 //
-// Path returned for the env-var case is the env name (`AXIAOPS_LICENSE`)
-// rather than the literal JWT — emitting the JWT in an error message would
-// leak it to logs.
+// For the env-var case the source string is the descriptive
+// "the AXIAOPS_LICENSE environment variable" rather than the literal JWT
+// (which would leak to logs) and rather than `$AXIAOPS_LICENSE` (which
+// looks like an unresolved shell variable in JSON log aggregators like
+// Loki / CloudWatch Logs Insights). For the file case it is the absolute
+// resolved path so the operator can grep/inspect the source.
 func licensePresent() (string, bool) {
 	if os.Getenv(EnvLicense) != "" {
-		return "$" + EnvLicense, true
+		return "the " + EnvLicense + " environment variable", true
 	}
 	path := os.Getenv(EnvLicensePath)
 	if path == "" {
