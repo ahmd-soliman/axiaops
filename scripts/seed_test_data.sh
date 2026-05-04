@@ -4,6 +4,9 @@
 # Prerequisites:
 #   Requires psql. If not installed:
 #     brew install libpq
+#   The libpq formula is keg-only on Homebrew so /opt/homebrew/opt/libpq/bin
+#   isn't on PATH by default — this script auto-discovers it (see resolve_psql
+#   below). To use the binary outside this script too, add the export:
 #     echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 #
 # Usage:
@@ -24,6 +27,30 @@
 # Safe to re-run — all inserts are idempotent (ON CONFLICT DO NOTHING / DO UPDATE).
 
 set -euo pipefail
+
+# ── psql discovery ────────────────────────────────────────────────────────────
+# Homebrew's libpq formula is keg-only — /opt/homebrew/opt/libpq/bin/psql exists
+# but isn't on PATH unless the user added the export shown in the docstring above.
+# Probe known locations so the remote mode works regardless of shell setup.
+# Note: only used when --remote is passed; local mode uses `docker exec` instead.
+
+resolve_psql() {
+  if command -v psql >/dev/null 2>&1; then
+    command -v psql
+    return
+  fi
+  local p
+  for p in /opt/homebrew/opt/libpq/bin/psql \
+           /opt/homebrew/opt/postgresql@16/bin/psql \
+           /usr/local/opt/libpq/bin/psql \
+           /opt/homebrew/bin/psql \
+           /usr/local/bin/psql; do
+    if [ -x "$p" ]; then
+      echo "$p"
+      return
+    fi
+  done
+}
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
@@ -55,6 +82,15 @@ done
 # Prompts for confirmation unless --yes/-y is passed.
 
 if [[ -n "$REMOTE_ENV" ]]; then
+  PSQL=$(resolve_psql)
+  if [ -z "${PSQL:-}" ]; then
+    echo "Error: psql not found on PATH or known libpq locations." >&2
+    echo "  Install:  brew install libpq" >&2
+    echo "  Then add to PATH (or rely on this script's auto-discovery):" >&2
+    echo "    echo 'export PATH=\"/opt/homebrew/opt/libpq/bin:\$PATH\"' >> ~/.zshrc" >&2
+    exit 1
+  fi
+
   # Per-env static IPs. Sourced from self-hosted-infra/stacks/*/variables.tf —
   # treat that file as the source of truth and update both sides if any
   # IP migrates. Using IPs (not the axiaops-<env>.local mDNS hostnames)
@@ -92,14 +128,22 @@ if [[ -n "$REMOTE_ENV" ]]; then
     echo ""
   fi
 
-  # Verify connection
+  # Verify connection — capture stderr+stdout so a real error reaches the user
+  # instead of the misleading "Cannot reach" line. Common failure modes the
+  # captured output disambiguates: bad password (`FATAL: password authentication`),
+  # network unreachable (`could not connect to server`), wrong DB/role missing.
   echo -n "Checking connection to $HOST_IP..."
-  if ! psql "$MIGRATION_DATABASE_URL" -c 'SELECT 1' > /dev/null 2>&1; then
+  if err=$("$PSQL" "$MIGRATION_DATABASE_URL" -c 'SELECT 1' 2>&1 >/dev/null); then
+    echo " Connected."
+  else
     echo " Failed."
-    echo "Error: Cannot reach PostgreSQL at $HOST_IP:$DB_PORT"
+    echo "Error: connection check at $HOST_IP:$DB_PORT failed."
+    if [ -n "${err:-}" ]; then
+      echo "psql output:"
+      printf '  %s\n' "$err"
+    fi
     exit 1
   fi
-  echo " Connected."
   echo ""
 fi
 
@@ -130,7 +174,7 @@ fi
 if [ "$MODE" = "docker" ]; then
   psql_base() { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops "$@"; }
 else
-  psql_base() { PGOPTIONS="-c search_path=axiaops" psql "$MIGRATION_DATABASE_URL" "$@"; }
+  psql_base() { PGOPTIONS="-c search_path=axiaops" "$PSQL" "$MIGRATION_DATABASE_URL" "$@"; }
 fi
 
 psql_exec()  { psql_base --quiet -c "$1"; }           # Run single statement, no output (writes)
