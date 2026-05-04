@@ -158,9 +158,18 @@ func main() {
 				_, _ = w.Write([]byte(`{"error":"license_expired"}`))
 			case license.StateNotLoaded:
 				_, _ = w.Write([]byte(`{"error":"license_not_loaded"}`))
+			case license.StateValid, license.StateInGrace:
+				// Defensive: caller (the gate predicate above) should
+				// never let these states through. If they do, slog.Warn
+				// + generic body — same posture as the api side. Without
+				// this case the asymmetry would partially document the
+				// "should never reach here" reasoning.
+				slog.Warn("ingestion scan-gate: allow-listed state reached body builder",
+					"state", licState.String(),
+				)
+				_, _ = w.Write([]byte(`{"error":"license_inactive"}`))
 			default:
-				// Same regression guard as the api-side scanGateBody:
-				// future blocking states surface as license_inactive +
+				// Future blocking states surface as license_inactive +
 				// slog.Warn rather than silent mis-classification.
 				slog.Warn("ingestion scan-gate: unhandled license state", "state", licState.String())
 				_, _ = w.Write([]byte(`{"error":"license_inactive"}`))
