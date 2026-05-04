@@ -83,7 +83,7 @@ type Metrics struct {
 	// in that case the metric is at 0 across all label-sets and effectively
 	// disappears from dashboards.
 	LicenseStateInfo       *prometheus.GaugeVec   // labels: state (valid|in_grace|expired), customer_id — exactly one label-set should be 1 at any time
-	LicenseLoadErrorsTotal *prometheus.CounterVec // labels: reason (signature|format|missing|wrong_issuer|wrong_audience|future_iat) — boot-time refusal taxonomy for the alert runbook
+	LicenseLoadErrorsTotal *prometheus.CounterVec // labels: reason (signature|format|missing|wrong_issuer|wrong_audience|future_iat|dev_mode_with_license) — boot-time refusal taxonomy for the alert runbook. `dev_mode_with_license` (B1.7 layer 2) is the only reason that still corresponds to an actual os.Exit post-B1.6-amendment; the rest soft-fail to scan-gate enforcement.
 }
 
 // registry is the global Prometheus registry.

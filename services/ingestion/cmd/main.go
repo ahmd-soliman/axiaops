@@ -95,19 +95,21 @@ func die(msg string, args ...any) {
 func main() {
 	logging.Init("ingestion")
 
-	// ── License (B1.6, amended) ──────────────────────────────────────────────
+	// ── License (B1.6 amended + B1.7 layer 2) ──────────────────────────────
 	// Per docs/b1.6-amendment-feature-gating.md, ingestion mirrors the api's
-	// new posture: VerifyAtBoot logs + continues on every classification, the
-	// hourly classifier (RunTicker, started below) advances the Prometheus
-	// gauges with the wall clock, and the scan-path predicates
-	// (license.IsScanAllowed, called by the POST /scan handler, the worker,
-	// and scanScheduledAccounts) gate scans when the binary is running
-	// without a valid/in-grace license. DEV_MODE flips the enforcement-bypass
-	// flag so dev slots fall through unchanged.
+	// new posture: VerifyAtBoot logs + continues for missing/expired, and
+	// the scan-path predicates (license.IsScanAllowed) gate scans when the
+	// binary is running without a valid/in-grace license. DEV_MODE flips
+	// the enforcement-bypass flag so dev slots fall through unchanged.
+	// Layer 2 anti-tamper (plan §4.10.2) is the one case where this call
+	// returns an error — DEV_MODE=true on a host that has a license
+	// configured — and we die() loudly to surface it.
 	//
 	// **Runs before storage init by design** — operator-facing log lines must
 	// land even when the database is unreachable.
-	_ = license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true")
+	if err := license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true"); err != nil {
+		die("license: refusing to start", "error", err.Error())
+	}
 
 	store := newStore()
 
