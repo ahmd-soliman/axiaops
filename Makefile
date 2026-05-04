@@ -315,3 +315,24 @@ lint:
 	cd services/api && golangci-lint run ./... --timeout=5m
 	cd services/ingestion && golangci-lint run ./... --timeout=5m
 	cd services/shared && golangci-lint run ./... --timeout=5m
+
+# B1.7 layer 3 (plan §4.10.2): customer-shipping binary build. The
+# `production` build tag activates services/{api,ingestion}/cmd/devmode_production.go
+# whose devModeEnabled() returns false unconditionally — DEV_MODE is read
+# but ignored. The default `make build`-style targets stay tag-less so
+# local dev keeps the env-var bypass for fast iteration.
+#
+# Confirms locally what the CI image build does via Dockerfile's BUILD_TAGS
+# arg. Exit code is the only signal — either both binaries compile and the
+# layer-3 stripping took effect, or one of the build-tag-gated files is
+# malformed and you find out before pushing.
+.PHONY: build-production
+build-production:
+	# Build the package (`./cmd/`), not the single file (`./cmd/main.go`),
+	# so sibling files like devmode_production.go are included — without
+	# this `go build` would compile main.go in isolation and fail with
+	# "undefined: devModeEnabled". The api Dockerfile uses the same shape
+	# for the same reason.
+	cd services/api && go build -tags production -o /tmp/axiaops-api-production ./cmd/
+	cd services/ingestion && go build -tags production -o /tmp/axiaops-ingestion-production ./cmd/
+	@echo "production-tagged binaries built — DEV_MODE is no-op in /tmp/axiaops-{api,ingestion}-production"

@@ -107,7 +107,7 @@ func main() {
 	//
 	// **Runs before storage init by design** — operator-facing log lines must
 	// land even when the database is unreachable.
-	if err := license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true"); err != nil {
+	if err := license.VerifyAtBoot(devModeEnabled()); err != nil {
 		die("license: refusing to start", "error", err.Error())
 	}
 
@@ -336,7 +336,7 @@ func main() {
 func runScan(ctx context.Context, store storage.Store, accountID string) error {
 	// Production: require database credentials only
 	if accountID == "" {
-		if os.Getenv("DEV_MODE") == "true" {
+		if devModeEnabled() {
 			slog.Warn("dev mode: using environment credentials - not recommended for production")
 		} else {
 			return fmt.Errorf("account ID required - database credentials only in production")
@@ -379,7 +379,7 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 // runIngestionCore is the shared implementation used by runScan and the HTTP handler.
 func runIngestionCore(ctx context.Context, store storage.Store, accountID string, account *model.Account) error {
 	// In DEV_MODE, skip scan only if no account is configured
-	if os.Getenv("DEV_MODE") == "true" && account == nil {
+	if devModeEnabled() && account == nil {
 		slog.Info("ingestion: DEV_MODE — skipping AWS scan (no account)", "account_id", accountID)
 		return nil
 	}
