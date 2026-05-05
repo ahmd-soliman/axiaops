@@ -27,4 +27,8 @@ export const PERM = {
   ORGANIZATION_TRANSFER: 'organization:transfer',
   ORGANIZATION_DELETE:   'organization:delete',
   DATA_EXPORT:           'data:export',
+
+  SSO_READ:              'sso:read',
+  SSO_MANAGE:            'sso:manage',
+  SSO_DOMAIN_VERIFY:     'sso:domain_verify',
 };

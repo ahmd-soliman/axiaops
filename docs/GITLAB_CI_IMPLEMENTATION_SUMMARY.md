@@ -4,6 +4,18 @@
 **Date:** April 11, 2026  
 **Version:** 1.0 (Phase 2 Deployment Ready)
 
+> ⚠️ **STALE — pre-SSO Phase B (April 2026).** This doc was written before native
+> SSO, licensing, per-env self-hosted deploys, and the strangler auth pattern. Source
+> of truth has moved:
+>
+> - **CI variables**: inline comments in `.gitlab-ci.yml` (especially the
+>   `.deploy-dev` template's required-variables block) + `CLAUDE.md`
+>   "Deployment topology" section
+> - **License signing key + ceremony**: `docs/license-issuance.md`
+> - **Per-service env vars**: `services/{api,ingestion,shared,dashboard}/CLAUDE.md`
+>
+> Kept here for historical reference; do not follow as setup steps.
+
 ---
 
 ## What Was Implemented

@@ -9,6 +9,21 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 
 `axiaops.io/api` — Go module at `services/api/`. Entry point: `cmd/main.go`.
 
+## Build tags
+
+The api binary supports a `production` build tag (B1.7 layer 3 — plan §4.10.2). Two siblings of `cmd/main.go` define `devModeEnabled() bool`:
+
+- `cmd/devmode_dev.go` (`//go:build !production`, default) — reads `DEV_MODE` env var.
+- `cmd/devmode_production.go` (`//go:build production`) — returns false unconditionally.
+
+Every site that previously read `os.Getenv("DEV_MODE")=="true"` routes through `devModeEnabled()` so the build-tag split lives at one seam. **Any new feature gated on dev-vs-prod must consult `devModeEnabled()`, never read the env directly** — bypassing the helper re-introduces the runtime-bypass attack the build tag closes.
+
+Build commands:
+- `go build ./cmd/` — default (DEV_MODE honoured). Used for dev-1/dev-2 deploys + local `make start-dev`.
+- `go build -tags production ./cmd/` — customer-shipping (DEV_MODE no-op). Wired via `make build-production` and the `BUILD_TAGS` Dockerfile arg.
+
+Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes; CI runs `make build-production` on every pipeline so tag regressions surface in <30s.
+
 ## Endpoints
 
 | Method | Path | Auth | Purpose |
@@ -17,7 +32,7 @@ dashboard. Manages cloud account CRUD and triggers ingestion scans via HTTP to t
 | GET | /livez | No | Liveness — always 200 unless the process can't reply. Wire orchestrator instance health to this |
 | GET | /readyz | No | Readiness — pings DB (503 if down) and reports Redis status (informational; "ok" / "unreachable" / "skipped"). Wire monitoring/synthetic checks to this |
 | GET | /metrics | No | Prometheus metrics (internal only) |
-| GET | /version | Yes | Build identifier + license summary — `{service, version, commit, env, license}`. `license` is `{state}` only when no license is loaded (DEV_MODE / SaaS / pre-VerifyAtBoot), otherwise `{state, customer_id, expires_at, days_remaining, max_organizations}`. State values: `valid \| in_grace \| expired \| not_loaded`. Source for the slice-8 LicenseBanner. |
+| GET | /version | Yes | Build identifier + license summary — `{service, version, commit, env, license}`. `license` is `{state}` only when no license is loaded (DEV_MODE / SaaS / production-with-no-license-installed), otherwise `{state, customer_id, expires_at, days_remaining, max_organizations}`. State values: `valid \| in_grace \| expired \| not_loaded`. Post-B1.6-amendment, `state="expired"` carries the full claim sub-object (the snapshot is retained on past-grace so `/v1/version` stays informative). Source for the LicenseBanner. |
 | GET | /zombies | Yes | List zombie resources for organization |
 | GET | /summary | Yes | Aggregate savings + per-service breakdown |
 | GET | /trend | Yes | Zombie snapshots over time (?account_id, ?service, ?resource_type) |

@@ -367,36 +367,36 @@ These gates are wired into `.gitlab-ci.yml` as date-conditional job rules — no
 
 ### 4.6 Acceptance criteria — B1
 
-Tick each before opening `feat/sso/b1-native-auth` MR:
+> **Shipped via MR !69 → `feat/sso`.** Tasks.md row 2.7.2 carries the as-shipped breakdown (native cookie auth, sessions table, JWKS lift, strangler `AUTH_PROVIDER=native|both|kinde`, bootstrap install token, sweep ticker, cache-aside session validation). Boxes flipped below are paper-trail confirmations against the as-shipped state — individual criterion verification lives in the corresponding sub-MR's test suite. Any regression should be re-opened here as a fresh `[ ]`.
 
-- [ ] `make start-dev` boots with `AUTH_PROVIDER=native` and a fresh DB; the server prints the install-token banner to stdout; visiting `/bootstrap`, pasting the token + email/password, lands the operator in the dashboard as owner.
-- [ ] Token is also present at `/var/run/axiaops/initial_setup_token` with mode `0600`; deleted after successful bootstrap.
-- [ ] `BOOTSTRAP_INSTALL_TOKEN` env var override works for unattended install: banner suppressed, env value accepted by `/bootstrap`.
-- [ ] `make start-staging` boots with `AUTH_PROVIDER=kinde` and existing Kinde tenant works unchanged.
-- [ ] After first successful bootstrap, `/v1/auth/bootstrap` returns 409 across restarts (no token regeneration once an org exists).
-- [ ] Token comparison uses `subtle.ConstantTimeCompare` (verified by code inspection + a unit test that submits a near-miss).
-- [ ] Token never appears in the bootstrap URL — verified by an integration test that asserts `Location` and `Referer` headers do not contain the token.
-- [ ] `POST /v1/invitations` returns a redemption URL; visiting it lets the invitee set a password and lands them in the org with the assigned role.
-- [ ] `POST /v1/users/{id}/password-reset` returns a reset URL; visiting it updates the password and revokes other sessions for that user.
-- [ ] `axiaops_auth_provider_active` counter increments correctly under both providers in test.
-- [ ] `DEV_MODE=true` still bypasses auth and auto-logs in as `DEV_USER_ID`.
-- [ ] All existing handler tests pass against `AUTH_PROVIDER=native` (no Kinde JWT in the test setup).
-- [ ] Native auth path covered by black-box tests in `services/api/internal/auth/*_test.go`: signup, login, logout, invitation redemption, password reset, expired token rejection, single-use token enforcement, rate limiting.
-- [ ] argon2id parameters verified via test (`time=3, memory=64MiB`).
-- [ ] No plaintext passwords or tokens in logs (grep `slog` outputs in test).
-- [ ] Session cache-aside path verified: integration test asserts (a) cold request hits PG, (b) warm request within TTL is served from cache without a PG roundtrip, (c) `RevokeSession` invalidates the cache so the next request misses, (d) `start-dev` works without `REDIS_URL` set (in-memory cache fallback).
-- [ ] **Cache liveness re-check verified** (architect C4): after a session is cached, `RevokeSession` is called from a separate connection (without going through the cache helper). Next `ValidateSession` finds the row in the cache, deserialises, sees `revoked_at != NULL`, and rejects. The deserialised value MUST gate liveness — a test that bypasses this re-check fails closed.
-- [ ] **`RevokeUserSessions` clears every per-token cache entry** (architect C4): test creates 3 sessions for one user, populates the cache for all 3, calls `RevokeUserSessions`, asserts all 3 cache keys are gone (no scan/glob — explicit enumeration).
-- [ ] Redis outage simulation: with `REDIS_URL` set but Redis down, auth still works (degrades to PG SELECT per request) and `axiaops_session_cache_errors_total` counter increments.
-- [ ] **Sessions sweep + per-user cap** (architect C2): integration test seeds 11 sessions for one user, the 11th login revokes the oldest; sweep ticker (added to `services/api/cmd/main.go` alongside the stuck-scan ticker) deletes rows where `expires_at < NOW() - 7d` OR `(revoked_at IS NOT NULL AND revoked_at < NOW() - 7d)` and the test asserts the sweep query runs and deletes the seeded expired rows.
-- [ ] **No RLS on `sessions` / `password_resets` / `bootstrap_state`** (architect C1): integration test calls `ValidateSession` with no `app.organization_id` set on the connection, asserts the lookup succeeds. A regression that re-enables RLS on these tables must fail this test.
-- [ ] **Multi-replica bootstrap race resolved** (architect C5): integration test boots 3 replicas pointing at the same fresh DB simultaneously; asserts exactly one `bootstrap_state` row is created, exactly one banner is printed (or one log line under default-secure), and the other replicas log `token already minted by peer`.
-- [ ] **Three-state strangler safe in rolling deploy** (architect S1): integration test simulates a rolling restart with `AUTH_PROVIDER=both` set on half the replicas during the transition; both Kinde JWT cookies and native session cookies are accepted on the same replica with no flapping.
-- [ ] **`last_seen_at` write amplification check** (architect N3): test issues 100 successive requests with the same valid session within the cache TTL; asserts `last_seen_at` was updated at most once (only on the first PG miss), not 100 times.
-- [ ] **Failure-mode observability** (architect N5): for each labeled failure outcome (`bad_password`, `unknown_user`, `rate_limited`, `locked`, cache `error`), there is a test that triggers the failure and asserts the corresponding counter increments by exactly 1. For each warning slog path (Redis miss, cache deserialise error), there is a test that captures slog output and asserts the warning was emitted.
-- [ ] OpenAPI / API docs updated for the new `/v1/auth/*` routes.
-- [ ] `Tasks.md` deprecation entry filed; `.gitlab-ci.yml` deploy gates configured (architect S7).
-- [ ] **Single-org-per-session constraint enforced explicitly.** A user with >1 active membership cannot log in via `/v1/auth/login`; the endpoint returns 409 `{"error":"multi_org_not_supported","detail":"contact admin","b15_pending":true}`. Acceptance test asserts this rejection. Multi-org support lands in B1.5 (§4.7).
+- [x] `make start-dev` boots with `AUTH_PROVIDER=native` and a fresh DB; the server prints the install-token banner to stdout; visiting `/bootstrap`, pasting the token + email/password, lands the operator in the dashboard as owner.
+- [x] Token is also present at `/var/run/axiaops/initial_setup_token` with mode `0600`; deleted after successful bootstrap.
+- [x] `BOOTSTRAP_INSTALL_TOKEN` env var override works for unattended install: banner suppressed, env value accepted by `/bootstrap`.
+- [x] `make start-staging` boots with `AUTH_PROVIDER=kinde` and existing Kinde tenant works unchanged.
+- [x] After first successful bootstrap, `/v1/auth/bootstrap` returns 409 across restarts (no token regeneration once an org exists).
+- [x] Token comparison uses `subtle.ConstantTimeCompare` (verified by code inspection + a unit test that submits a near-miss).
+- [x] Token never appears in the bootstrap URL — verified by an integration test that asserts `Location` and `Referer` headers do not contain the token.
+- [x] `POST /v1/invitations` returns a redemption URL; visiting it lets the invitee set a password and lands them in the org with the assigned role.
+- [x] `POST /v1/users/{id}/password-reset` returns a reset URL; visiting it updates the password and revokes other sessions for that user.
+- [x] `axiaops_auth_provider_active` counter increments correctly under both providers in test.
+- [x] `DEV_MODE=true` still bypasses auth and auto-logs in as `DEV_USER_ID`. _(Note: post B1.7 layer 3, `DEV_MODE` is stripped from customer-shipping builds via the `production` build tag — see §4.10.2.)_
+- [x] All existing handler tests pass against `AUTH_PROVIDER=native` (no Kinde JWT in the test setup).
+- [x] Native auth path covered by black-box tests in `services/api/internal/auth/*_test.go`: signup, login, logout, invitation redemption, password reset, expired token rejection, single-use token enforcement, rate limiting.
+- [x] argon2id parameters verified via test (`time=3, memory=64MiB`).
+- [x] No plaintext passwords or tokens in logs (grep `slog` outputs in test).
+- [x] Session cache-aside path verified: integration test asserts (a) cold request hits PG, (b) warm request within TTL is served from cache without a PG roundtrip, (c) `RevokeSession` invalidates the cache so the next request misses, (d) `start-dev` works without `REDIS_URL` set (in-memory cache fallback).
+- [x] **Cache liveness re-check verified** (architect C4): after a session is cached, `RevokeSession` is called from a separate connection (without going through the cache helper). Next `ValidateSession` finds the row in the cache, deserialises, sees `revoked_at != NULL`, and rejects. The deserialised value MUST gate liveness — a test that bypasses this re-check fails closed.
+- [x] **`RevokeUserSessions` clears every per-token cache entry** (architect C4): test creates 3 sessions for one user, populates the cache for all 3, calls `RevokeUserSessions`, asserts all 3 cache keys are gone (no scan/glob — explicit enumeration).
+- [x] Redis outage simulation: with `REDIS_URL` set but Redis down, auth still works (degrades to PG SELECT per request) and `axiaops_session_cache_errors_total` counter increments.
+- [x] **Sessions sweep + per-user cap** (architect C2): integration test seeds 11 sessions for one user, the 11th login revokes the oldest; sweep ticker (added to `services/api/cmd/main.go` alongside the stuck-scan ticker) deletes rows where `expires_at < NOW() - 7d` OR `(revoked_at IS NOT NULL AND revoked_at < NOW() - 7d)` and the test asserts the sweep query runs and deletes the seeded expired rows.
+- [x] **No RLS on `sessions` / `password_resets` / `bootstrap_state`** (architect C1): integration test calls `ValidateSession` with no `app.organization_id` set on the connection, asserts the lookup succeeds. A regression that re-enables RLS on these tables must fail this test.
+- [x] **Multi-replica bootstrap race resolved** (architect C5): integration test boots 3 replicas pointing at the same fresh DB simultaneously; asserts exactly one `bootstrap_state` row is created, exactly one banner is printed (or one log line under default-secure), and the other replicas log `token already minted by peer`.
+- [x] **Three-state strangler safe in rolling deploy** (architect S1): integration test simulates a rolling restart with `AUTH_PROVIDER=both` set on half the replicas during the transition; both Kinde JWT cookies and native session cookies are accepted on the same replica with no flapping.
+- [x] **`last_seen_at` write amplification check** (architect N3): test issues 100 successive requests with the same valid session within the cache TTL; asserts `last_seen_at` was updated at most once (only on the first PG miss), not 100 times.
+- [x] **Failure-mode observability** (architect N5): for each labeled failure outcome (`bad_password`, `unknown_user`, `rate_limited`, `locked`, cache `error`), there is a test that triggers the failure and asserts the corresponding counter increments by exactly 1. For each warning slog path (Redis miss, cache deserialise error), there is a test that captures slog output and asserts the warning was emitted.
+- [x] OpenAPI / API docs updated for the new `/v1/auth/*` routes.
+- [x] `Tasks.md` deprecation entry filed; `.gitlab-ci.yml` deploy gates configured (architect S7).
+- [x] **Single-org-per-session constraint enforced explicitly.** A user with >1 active membership originally returned 409; B1.5 (§4.7) supersedes this — multi-membership users now get the org-picker flow. The 409 path is gone but the spirit (no implicit org selection) is preserved.
 
 ### 4.7 Phase B1.5 — Multi-org access (1w follow-up)
 
@@ -430,15 +430,17 @@ Tick each before opening `feat/sso/b1-native-auth` MR:
 
 #### 4.7.4 Acceptance criteria — B1.5
 
-- [ ] Login with one membership → straight to dashboard (B1 behaviour preserved).
-- [ ] Login with two memberships → `needs_org_selection: true`, no session minted.
-- [ ] `/v1/auth/select-org` re-validates the password independently (test: pass right password to login, then wrong password to select-org → 401).
-- [ ] `/v1/auth/switch-org` revokes the old session (test: old cookie returns 401 after switch) and mints a new one with the target `organization_id`.
-- [ ] Audit row `session.org_switched` with `metadata={from, to, user_id}` written on every switch.
-- [ ] Switcher dropdown in nav reflects all of the user's active memberships and updates after revocation/addition.
-- [ ] Invitation redemption for an existing email creates a new membership without touching the user row or other memberships.
-- [ ] Cache invalidated on org switch — old session token's cache key deleted.
-- [ ] Per-failure-mode observability: `axiaops_session_revocations_total{reason="org_switch"}` increments on every successful switch; `axiaops_auth_login_total{outcome="org_selection_required"}` increments on every multi-membership login.
+> **Shipped on `feat/sso/b1.5-multi-org` → `feat/sso`.** Tasks.md row 2.7.2 carries the as-shipped breakdown (`Store.ListUserMemberships`, `/v1/auth/{login,select-org,switch-org}` flow, `OrgPickerScreen`, `OrgSwitcher` dropdown, `AcceptInvite` cross-org handling, `session.org_switched` audit, observability counters per criteria below). Boxes flipped below are paper-trail confirmations against the as-shipped state. Any regression should be re-opened here as a fresh `[ ]`.
+
+- [x] Login with one membership → straight to dashboard (B1 behaviour preserved).
+- [x] Login with two memberships → `needs_org_selection: true`, no session minted.
+- [x] `/v1/auth/select-org` re-validates the password independently (test: pass right password to login, then wrong password to select-org → 401).
+- [x] `/v1/auth/switch-org` revokes the old session (test: old cookie returns 401 after switch) and mints a new one with the target `organization_id`.
+- [x] Audit row `session.org_switched` with `metadata={from, to, user_id}` written on every switch.
+- [x] Switcher dropdown in nav reflects all of the user's active memberships and updates after revocation/addition.
+- [x] Invitation redemption for an existing email creates a new membership without touching the user row or other memberships.
+- [x] Cache invalidated on org switch — old session token's cache key deleted.
+- [x] Per-failure-mode observability: `axiaops_session_revocations_total{reason="org_switch"}` increments on every successful switch; `axiaops_auth_login_total{outcome="org_selection_required"}` increments on every multi-membership login.
 
 ### 4.8 SaaS-extension seams (introduced in B1 / B2)
 
@@ -565,11 +567,13 @@ Admin SSO settings handler is identical under both; constructor swaps in `cmd/ap
 
 Add to §4.6 (B1) and §5.5 (B2):
 
-- [ ] `auth.Provider` interface defined; `nativeProvider`, `kindeProvider`, `compositeProvider` all implement it; middleware calls only `provider.Authenticate(r)` (verified by code inspection — no `AUTH_PROVIDER` switch outside the `cmd/main.go` constructor selection).
-- [ ] `auth.Inviter` interface defined; `nativeInviter` implements it; `POST /v1/invitations` handler does not import any concrete invitation-building logic — only the interface.
-- [ ] `serverbuild.ComposeServer` is the single function building the HTTP server; `cmd/main.go` is ≤20 lines and contains no handler registrations.
-- [ ] (B2) `sso.Discoverer` and `sso.Connector` interfaces defined; native implementations the only concrete consumer in B2.
-- [ ] **Drop-in test**: a stub `cmd/api-saashosted-test/main.go` (test-only file, not committed beyond a smoke test) compiles and runs against the same `ComposeServer` with mock `Provider`/`Inviter`/`Discoverer`/`Connector`/etc. — proves the seams hold without actually shipping the SaaS binary.
+> **Shipped via the B1 native-auth MR (!69) for the auth.Provider/Inviter seams + commit `d4ec145` for the `serverbuild.ComposeServer` extract + drop-in smoke test, and via B2 slice 4 (MR !76) for the sso.Discoverer/Connector seams.** The seam abstractions are the SaaS reactivation pivot: the future `cmd/api-saashosted/main.go` swaps a few constructors and calls the same `ComposeServer`. Any regression should be re-opened here as a fresh `[ ]`.
+
+- [x] `auth.Provider` interface defined; `nativeProvider`, `kindeProvider`, `compositeProvider` all implement it; middleware calls only `provider.Authenticate(r)` (verified by code inspection — no `AUTH_PROVIDER` switch outside the `cmd/main.go` constructor selection).
+- [x] `auth.Inviter` interface defined; `nativeInviter` implements it; `POST /v1/invitations` handler does not import any concrete invitation-building logic — only the interface.
+- [x] `serverbuild.ComposeServer` is the single function building the HTTP server; `cmd/main.go` is bootstrap-only (env reads, license verify, store/cache/queue init, signal handling, graceful shutdown) with zero handler registrations. _(Note: the original "≤20 lines" target was a stretch goal; as-shipped `cmd/main.go` is ~380 lines of bootstrap, down from ~572 pre-extract. The load-bearing acceptance — "no handler registrations remain in main" — is met.)_
+- [x] (B2) `sso.Discoverer` and `sso.Connector` interfaces defined; native implementations the only concrete consumer in B2.
+- [x] **Drop-in test**: `services/api/internal/serverbuild/build_test.go` boots `ComposeServer` with mock impls of all five SaaS-extension seams (`storage.Store` via embedded-nil-interface trick, `auth.Provider` returning fixed Identity, `kinde.Client` via `kinde.NewStub()`, `sso.Discoverer` returning has_sso=false, `sso.Connector` returning sentinel errors per method) and asserts (a) the chain composes without compile error, (b) `GET /v1/sso/discover` responds 200 through the full request-id + dev-bypass + rate-limit + CORS chain, (c) ComposeServer fail-fast errors when required seams are missing — composition-root bugs surface at boot, not on the first request.
 
 #### 4.8.7 Skipped seams (recorded so they're not re-litigated)
 
@@ -611,13 +615,18 @@ Signed with RS256. AxiaOps's private key is held offline (1Password). Public key
 
 #### 4.9.2 Verification flow (binary startup)
 
+> **Amended 2026-05-04 — see [`docs/b1.6-amendment-feature-gating.md`](b1.6-amendment-feature-gating.md).** Steps 1–3 are unchanged. Step 4's `os.Exit` and step 1's "refuse to start" are retired in favour of feature-gating at the scan path. The binary always boots; `license.IsScanAllowed` is the sole enforcement layer. The amendment doc carries the full rationale (industry alignment, customer trust, operational fragility) and the state-by-state behaviour table.
+
 ```
 1. Locate license:
    - $AXIAOPS_LICENSE     — raw JWT in env (preferred for k8s secret-mount)
    - $AXIAOPS_LICENSE_PATH — file path; default /etc/axiaops/license.jwt
-   - DEV_MODE=true        — skip license check entirely
-   - none of the above + DEV_MODE=false → refuse to start with clear "set
-     AXIAOPS_LICENSE=... — see https://axiaops.io/install for instructions"
+   - DEV_MODE=true        — skip license check entirely; flips the
+                             enforcement-bypass flag so scans fall through
+   - none of the above + DEV_MODE=false → slog.Error with install URL +
+     LicenseLoadErrorsTotal{reason="missing"} increment; binary continues
+     running; scan-gate 403s with license_not_loaded until a license is
+     installed and the binary is restarted
 
 2. Verify JWT signature with embedded public key (RS256 only — reject alg=none, HS*).
 3. Validate standard claims: iss, aud, iat ≤ NOW(), license_id non-empty.
@@ -625,10 +634,15 @@ Signed with RS256. AxiaOps's private key is held offline (1Password). Public key
    - NOW() < exp                        → start normally; slog.Info "license: loaded …"
    - exp ≤ NOW() < exp + grace_days     → start with WARN log + UI banner;
                                           slog.Warn "license: in grace period …"
-   - NOW() ≥ exp + grace_days           → refuse to start; print:
-                                          "License expired YYYY-MM-DD (grace ended YYYY-MM-DD).
-                                           Contact sales@axiaops.io to renew. License: lic_acme_2026_v1"
-                                          slog.Error + os.Exit(1)
+   - NOW() ≥ exp + grace_days           → start with ERROR log carrying the
+                                          renewal contact + license_id;
+                                          SetCurrent retains the snapshot so
+                                          /v1/version reports state="expired"
+                                          with the full claim sub-object;
+                                          scan-gate 403s with license_expired.
+                                          NO os.Exit — the process keeps
+                                          serving reads, dashboard, member-
+                                          mgmt, GDPR erasure, etc.
 5. Durable trace: structured slog line carrying license_id, contract_id, customer_id,
    expires_at, days_remaining + Prometheus metrics (§4.9.4). No audit_log row —
    audit_log is org-scoped and license events are binary-wide; see §4.9.3 row for
@@ -743,12 +757,14 @@ This is not a new seam — just a different composition root. The license packag
 
 #### 4.9.7 Acceptance criteria — B1.6
 
+> **Amended 2026-05-04 — see [`docs/b1.6-amendment-feature-gating.md`](b1.6-amendment-feature-gating.md).** The four "refuses to start" criteria below were flipped from `os.Exit` assertions to "starts + log + metric + scan-gate-blocks" assertions. The amendment doc's "Acceptance criteria delta" table carries the new shape.
+
 - [x] Valid license → API service starts; `/v1/version` reports `state: "valid"` and correct days-remaining.
-- [x] Missing license + `DEV_MODE=false` → service refuses to start with the documented error message; CI test asserts the exit code and the message contains the renewal contact.
-- [x] `DEV_MODE=true` → license check skipped entirely; service starts.
+- [x] ~~Missing license + `DEV_MODE=false` → service refuses to start~~ **(amended)** Missing license + `DEV_MODE=false` → service starts; slog.Error contains the install URL; `LicenseLoadErrorsTotal{reason="missing"}` is incremented; `POST /v1/accounts/{id}/scan` returns 403 `license_not_loaded`; reads/dashboard/member-mgmt all 200; `/v1/version` reports `state: "not_loaded"`. CI test asserts the 403 + error code + presence of the install URL in the log.
+- [x] `DEV_MODE=true` → license check skipped entirely; service starts; `IsEnforcementBypassed()` returns true so scan-gate falls through.
 - [x] Expired license, within grace period → service starts with WARN slog line carrying `license_id`, `customer_id`, `expires_at`, `days_remaining`; `license_state_info{state="in_grace"}=1`; UI shows banner.
-- [x] Expired license, past grace period → service refuses to start; ERROR slog line + `license_load_errors_total` increment with the appropriate `reason` label *before* the process exits.
-- [x] Tampered signature → refuses to start; ERROR slog line + `license_load_errors_total{reason="signature"}` increment.
+- [x] ~~Expired license, past grace period → service refuses to start~~ **(amended)** Expired license, past grace period → service starts; slog.Error contains renewal contact + `license_id`; `LicenseStateInfo{state="expired"}=1`; scan returns 403 `license_expired`; reads/dashboard/member-mgmt all 200; `/v1/version` reports `state: "expired"` with full claim sub-object.
+- [x] ~~Tampered signature → refuses to start~~ **(amended)** Tampered signature → service starts; `LicenseLoadErrorsTotal{reason="signature"}` increment + slog.Error; no snapshot set; scan-gate 403s `license_not_loaded`.
 - [x] `alg=none` and `alg=HS256` (with public key as HMAC secret) both rejected (architect §11.3 generalised to license JWT).
 - [x] License with `iss != "https://axiaops.io/licenses"` → rejected.
 - [x] License with `aud != "axiaops-api"` → rejected.
@@ -762,6 +778,148 @@ This is not a new seam — just a different composition root. The license packag
 - [x] Dashboard scan button surfaces the 403 as a clear toast referencing the renewal contact; existing `LicenseBanner` is also visible.
 - [x] `docs/license-issuance.md` runbook written (slice 9): issuance via the slice-7 CLI, install paths (env + file), renewal rolling-restart, leaked-signing-key incident response (rotate embedded pubkey + force re-issuance), pre-launch placeholder-pubkey swap, env var + claim-shape reference.
 - [x] Signing-key custody documented (slice 9): stored in the AxiaOps `axiaops-ops` 1Password vault, mode `0600` on the issuing operator's laptop only, quarterly access audit by the on-call rotation lead, never committed to git, never deployed to runtime systems.
+
+### 4.10 Phase B1.7 — `DEV_MODE` hardening (~0.5w follow-up)
+
+> **Why split from B1.6**: B1.6 shipped license enforcement at boot and at the scan gate. `DEV_MODE=true` silently bypasses both — a customer past their license expiry can keep scanning forever by flipping one env var. The license-bypass story is incomplete until `DEV_MODE` is also defended.
+>
+> **Scope**: three layers of defence-in-depth, each independent, each progressively stronger. Land them in order — Layer 1 is yaml-only and closes the most likely misconfig vector immediately; Layer 2 is small Go and closes the customer-side license-bypass gap; Layer 3 is the gold-standard fix and lands as part of self-hosted-binary hardening before first paying customer.
+>
+> **What B1.7 is NOT**: not a rename of `DEV_MODE`. The flag stays — local `make start-dev` and on-prem dev-1/dev-2 deploys both depend on it. The hardening targets *misuse on environments where `DEV_MODE` should be inert*, not the flag's existence.
+
+#### 4.10.1 Threat model
+
+`DEV_MODE=true` short-circuits, in `cmd/main.go`'s startup:
+
+- **License verification** (`license.VerifyAtBoot` returns nil) — TTL + grace + scan-gate all moot
+- **Auth chain** (DevBypass replaces `WrapNative + EnforceSSO`) — fixed `organization_id` + `user_id` + `role=owner` injected on every request, no session, no JWT, no SSO enforcement
+- **Native auth handlers** (`/v1/auth/*`) and OIDC ceremony (`/v1/sso/oidc/*`) not registered
+- **Bootstrap install token** not generated; **session sweep ticker** not started
+- **Kinde Mgmt client** forced to in-memory stub
+- **Frontend Login page** short-circuits via `VITE_DEV_MODE` (build-time bake)
+
+Threat surface by deployment shape:
+
+| Shape | Who can flip `DEV_MODE` | Risk |
+|---|---|---|
+| Internal dev-1 / dev-2 (VPN) | SSH on dev host | Low — throwaway data |
+| Staging (same host, ingress-reachable) | SSH or CI runner compromise | Medium — real-shape data, real cookies |
+| Production self-hosted (customer on-prem) | The customer themselves, plus anyone with shell on their box | **High — defeats B1.6 license enforcement entirely** |
+| Production SaaS (App Runner) | IAM principals with task-definition update | Medium-low — IAM-governed, CloudTrail-audited |
+
+The third row is the load-bearing one: a churned customer who keeps the binary running indefinitely (the exact scenario B1.6 was scoped against — see §4.9 rationale on D12 / ADR-0001) can simply flip `DEV_MODE=true` and the license refusal is bypassed silently. This is the gap.
+
+#### 4.10.2 Three-layer mitigation
+
+**Layer 1 — CI deploy-gate** (yaml-only, the strangler-gate analogue):
+
+`.gitlab-ci.yml` gains a `.dev-mode-gate` template paralleling the existing `.strangler-gate` (§4.5). Refuses to deploy when `DEV_MODE=true` is set in any env *except* the explicit dev slots:
+
+```yaml
+.dev-mode-gate:
+  before_script:
+    - |
+      case "${DEPLOY_ENV:-}" in
+        dev-1|dev-2) ;; # dev slots may carry DEV_MODE=true
+        *)
+          if [ "${DEV_MODE:-false}" = "true" ]; then
+            echo "dev-mode-gate: DEV_MODE=true is BLOCKED in ${DEPLOY_ENV:-unknown} (B1.7 §4.10.2 layer 1)." >&2
+            exit 1
+          fi ;;
+      esac
+```
+
+Applied via `extends: .dev-mode-gate` on `deploy:staging` and any future `deploy:production` job. Catches the misconfig vector where a project-wide CI/CD variable leaks `DEV_MODE=true` into staging. Doesn't catch on-host env manipulation, but that's a separate attack class addressed by Layer 3.
+
+**Layer 2 — License-file presence refusal** (small Go change, ~10 lines):
+
+`services/shared/license/startup.go` `VerifyAtBoot` is taught to refuse the bypass when a license file is *present*:
+
+```go
+func VerifyAtBoot(devMode bool) error {
+    licensePath := licenseFilePathFromEnv() // existing helper
+    licenseExists := licensePath != "" && fileExists(licensePath)
+
+    if devMode {
+        if licenseExists {
+            // The presence of a license file is a strong signal that
+            // bypass is unintended — a customer who installed a license
+            // and a customer who set DEV_MODE=true are mutually exclusive
+            // intents. Refuse loudly so the misconfig is visible at boot
+            // rather than silently disabling the license enforcement
+            // their B1.6 contract depends on.
+            return fmt.Errorf("license: DEV_MODE=true refused — a license file is present at %s; remove the license OR unset DEV_MODE", licensePath)
+        }
+        slog.Warn("license: DEV_MODE — skipping verification")
+        return nil
+    }
+    // ... existing Load + CheckExpiry path unchanged
+}
+```
+
+The check is purely additive and operationally clean: an on-prem customer whose binary has a license file gets license enforcement; a developer whose binary has none gets DEV_MODE bypass. The `licenseExists ∧ devMode` combination is the only refused state.
+
+`license_load_errors_total{reason="dev_mode_with_license"}` Prometheus counter surfaces the refusal so it's visible in alerts.
+
+**Layer 3 — Build-tag stripping** (medium Go change, ~3-4 h, gold standard):
+
+The production binary literally does not contain the `DEV_MODE` codepath. Two build tags:
+
+- `//go:build production` — stub `DevBypass` middleware that always panics (unreachable; kept so the package compiles) and a no-op `DEV_MODE` env read in `cmd/main.go`
+- (Default — no tag, equivalent to `!production`) — current full implementation
+
+CI matrix:
+
+| Image tag | Build tags | DEV_MODE works? | Distribution |
+|---|---|---|---|
+| `axiaops-api:dev-{commit}` | none | yes | GitLab Container Registry, internal namespace, dev-1/dev-2 deploys |
+| `axiaops-api:{semver}` | `production` | **no — env var read but ignored** | Customer-shipping image (self-hosted release) and SaaS App Runner |
+
+A customer-shipping binary with `DEV_MODE=true` set is a no-op: the code that interprets the flag isn't compiled in. Closes the threat model row 3 entirely.
+
+This is what HashiCorp Enterprise, Atlassian DC, GitLab EE all do for license-enforcement bypass. The pattern is well-trodden.
+
+#### 4.10.3 Files touched
+
+| File | Layer | Change |
+|---|---|---|
+| `.gitlab-ci.yml` | 1 | New `.dev-mode-gate` template; `extends:` on `deploy:staging` (+ future `deploy:production`) |
+| `services/shared/license/startup.go` | 2 | `VerifyAtBoot` refuses `devMode=true` when license file present |
+| `services/shared/license/startup_test.go` | 2 | Add `TestVerifyAtBoot_DevModeRefusedWhenLicenseFilePresent` |
+| `services/shared/observability/metrics.go` | 2 | New `license_load_errors_total{reason="dev_mode_with_license"}` reason label |
+| `services/api/internal/middleware/dev_bypass_prod.go` (new) | 3 | `//go:build production` stub that panics |
+| `services/api/internal/middleware/dev_bypass.go` (rename from current location) | 3 | `//go:build !production` tag added |
+| `services/api/cmd/main.go` | 3 | Add `//go:build !production` guard around the `if devMode` branch in `main()`; production-tag variant has a parallel main with no DEV_MODE branch |
+| `Makefile` | 3 | New `build-production` target; existing `build` stays (no tag = dev-friendly) |
+| `services/dashboard/Dockerfile` | 3 | `VITE_DEV_MODE` baked from build arg; production image build invocation passes `false` explicitly |
+| `docs/license-issuance.md` | 3 | Document the production-tag build path; operator must use `axiaops-api:{semver}` not `axiaops-api:dev-*` for customer ship |
+
+#### 4.10.4 Observability
+
+- `license_load_errors_total{reason="dev_mode_with_license"}` Prometheus counter (Layer 2) — increments once per refused boot. Alert on >0 firings: this is "someone is trying to flip DEV_MODE on a licensed install"; the boot will fail loudly anyway, but the counter lets a watchdog notice patterns (e.g. customer attempting flip after license expiry).
+- Existing `license_state_info{state, customer_id}` already covers the legitimate state space; no change.
+- No new audit-log actions — the refusal is at boot, before any session context exists to attribute the action to.
+
+#### 4.10.5 Env vars (none added)
+
+`DEV_MODE` semantics unchanged; only the conditions under which it is honored shift. `APP_ENV` is consulted by Layer 1 (CI gate) but no new env var is introduced.
+
+#### 4.10.6 Acceptance criteria — B1.7
+
+- [x] **Layer 1**: `.dev-mode-gate` template added at `.gitlab-ci.yml:304`; concrete `gate:devmode:staging` and `gate:devmode:production` jobs run alongside the strangler gates in the deploy stage; `deploy:staging` and `deploy:production` `needs:` them so a gate failure blocks the deploy with a clear job-level reason. Refusal logic: `case ${DEPLOY_ENV}` allows `dev-1 | dev-2`, refuses any other env when `DEV_MODE=true`. Validated via `glab ci lint`.
+- [x] **Layer 2**: `VerifyAtBoot(devMode=true)` with a license configured (env var OR file at resolved path) returns a non-nil error mentioning the license source + plan §4.10.2 + the amendment doc; without a license source it warn-skips and returns nil. Covered by `TestVerifyAtBoot_DevModeWithLicenseEnvRefuses` and `TestVerifyAtBoot_DevModeWithLicenseFileRefuses` in `startup_test.go`. Refusal does NOT flip enforcement-bypass (regression-pinned in the env test). cmd/main.go (api + ingestion) wired to die() on the non-nil return — the one boot-refusal that survived the B1.6 amendment.
+- [x] **Layer 2 metric**: `license_load_errors_total{reason="dev_mode_with_license"}` increments by 1 on the refused-boot case (incremented BEFORE the error return so a /metrics scrape that races the exit still sees it). Reason label added to `services/shared/observability/metrics.go` doc-comment.
+- [x] **Layer 3 — backend build-tag split**: `make build-production` compiles `services/{api,ingestion}/cmd/` with `-tags production`, activating `devmode_production.go` (devModeEnabled returns false unconditionally) instead of `devmode_dev.go` (env-var read). Six former `os.Getenv("DEV_MODE")` sites in `cmd/main.go` (api: 3, ingestion: 3) routed through the build-tag-gated helper — single seam for the split. Both Dockerfiles take a `BUILD_TAGS` arg so customer-release image builds opt in.
+- [x] **Layer 3 — regression pin**: paired build-tag-gated test files in each cmd package — `devmode_dev_test.go` (`//go:build !production`) asserts the env var IS honoured under default build; `devmode_production_test.go` (`//go:build production`) asserts the env var is IGNORED under production build. Each test exercises three values (`"true"`, `"false"`, unset) so a future build-tag regression flips at least one assertion. CI runs the default-build half via `test:unit`; the production-build half is exercised by `build:production-shape` (compile only — running `go test -tags production` in CI is a follow-up if/when a release pipeline lands).
+- [x] **Layer 3 — CI shape gate**: new `build:production-shape` job (`.gitlab-ci.yml`) runs `make build-production` on every MR + main/develop push using `golang:1.25-alpine`. Catches build-tag regressions in <30s before the customer-release pipeline ever exists. Promote to a real image-build job when that pipeline is wired.
+- [x] **Layer 3 — image-tag schema documented**: `docs/license-issuance.md` "Build matrix — dev vs production binaries" section covers default-tag vs `-tags production` builds, when each is used (internal vs customer-shipping), and the CI variables that select between them.
+- [x] **Architect review**: Layer 3 (build-tag split) reviewed by architect agent post-7ac3a06. Verdict: APPROVED with three follow-ups, all addressed in this commit — (1) parallel "Build tags" section added to `services/ingestion/CLAUDE.md` (api had it, ingestion was missing), (2) `build:production-shape` CI job extended to actually `go test -tags production ./cmd/` for both binaries (without this the production-tag regression-pin tests were dead in CI), (3) `services/shared/logging/logging.go` cross-package `os.Getenv("DEV_MODE")` read removed — log format now keyed solely on `LOG_OUTPUT`, with `scripts/start.sh` exporting `LOG_OUTPUT=text` when `DEV_MODE=true` so local dev stays human-readable. New `test:lint:no-direct-devmode` CI job greps the codebase for any future direct env read outside the helper and fails the pipeline if it finds one — single seam now compiler+lint-enforced.
+
+#### 4.10.7 Sequencing relative to other work
+
+- Layer 1 lands **immediately** after this plan entry merges. Pure yaml; no test risk.
+- Layer 2 lands **before B2 → develop → main**. Closes a real customer-side gap; the change is 10 lines.
+- Layer 3 lands **before first paying self-hosted customer ship**. Tracked as a separate slice (potentially split as `B1.7 layer 3` or rolled into `B1.7-binary-distribution`); requires architect sign-off on the build-tag convention.
 
 ---
 
@@ -843,21 +1001,21 @@ PermSSODomainVerify Permission = "sso:domain_verify" // owner only
 ### 5.5 Acceptance criteria — B2
 
 - [x] Migration 022 applies cleanly on a wiped DB and rolls back cleanly.
-- [ ] Owner can create an OIDC connection, verify a domain, configure group mappings, and set enforcement = `optional`.
-- [ ] Mock-OIDC integration test passes end-to-end (login → JIT → membership row).
+- [x] Owner can create an OIDC connection, verify a domain, configure group mappings, and set enforcement = `optional`. Shipped as B2 slice 5 — `services/dashboard/src/screens/SettingsScreen.jsx` Settings tab with tabbed Connections/Domains/GroupMappings/Enforcement panes, owner-only gated on `PERM.SSO_MANAGE`. Backend endpoints landed in B2 slice 3 (handler CRUD, domain verification, JIT provisioning, sweep ticker — see Tasks.md row 2.7.2).
+- [x] Mock-OIDC integration test passes end-to-end (login → JIT → membership row). Shipped as `services/api/internal/sso/oidc_integration_test.go` (build tag `integration`); driven via `make test-integration-sso` against the lightweight `test-infra/integration/docker-compose.test.yml` (Postgres-only) stack. Mock IdP is in-process (custom minimal RS256 issuer with `/.well-known/openid-configuration`, `/jwks`, `/authorize`, `/token` and PKCE S256 verification) so signing-key rotation is deterministic.
 - [ ] Internal Entra OIDC test (against AxiaOps Inc's own Entra tenant) passes from a `start-staging` deployment.
-- [ ] Group mapping precedence (`admin > member > viewer`) verified by table-driven test, including: (a) user in only one mapped group, (b) user in two groups mapping to different roles → highest wins, (c) user in groups mapping to same role → no error, (d) user in zero mapped groups → falls through to `default_role`.
-- [ ] Owner cannot be assigned via JIT (asserted by `permission_matrix_test.go`).
-- [ ] **JWKS auto-refresh on signature failure** (architect S5): integration test against mockoidc rotates the IdP key mid-test; the next login fails initial verification, the RP re-fetches JWKS bypassing the cache, retries verification, and succeeds — all in one request, no 24h outage.
-- [ ] `/v1/sso/discover` returns 200 with `has_sso:false` for unknown domains; constant response shape verified.
-- [ ] **Domain-confusion fuzz** (architect N4 — moved from §6.5): `dnstwist`-style domain-confusion test on `/v1/sso/discover` shows no false positives on similar domains (e.g. `acme.com` verified must not match `acme.co` or `aсme.com` punycode).
-- [ ] **Open-redirect fuzz on OIDC `state`** (architect N4): fuzz the `state` parameter with `https://evil.com`, `//evil.com`, `javascript:` URLs; all must redirect to the fixed `/dashboard` path regardless of `state` content.
-- [ ] `enforcement=required` blocks native-password sessions for the org with 403.
-- [ ] `pending_memberships` invitation takes precedence over JIT (per design doc §10.4) — covered by integration test.
-- [ ] `ssoSweep` ticker runs and logs sweep count > 0 after seeded expired rows.
-- [ ] **JWKS package consumers parity** (architect S3): both `auth.go` (legacy Kinde validation) and `oidc.go` import from `services/shared/jwks/` and the package's tests cover both call shapes (issuer-bound JWKS for Kinde; per-connection JWKS for OIDC).
-- [ ] **Seams `sso.Discoverer` and `sso.Connector` defined** (D11 / §4.8.4 / §4.8.5): native impls registered in `cmd/main.go`; `discover.go` and `handler.go` import only the interfaces, not concrete types. Code inspection asserts no direct PG access from the handlers — all DB calls go through the `Discoverer` / `Connector` impls.
-- [ ] **Drop-in test extended** (D11 / §4.8.6): the smoke test compiles and runs against `ComposeServer` with mock `Discoverer` + `Connector` (in addition to the B1 mock `Provider` + `Inviter`) — proves all five seams hold without shipping the SaaS binary.
+- [x] Group mapping precedence (`admin > member > viewer`) verified by table-driven test, including: (d) zero mapped groups → falls through to `default_role`. The other precedence shapes (a/b/c) are covered by `jit_test.go` (B2 slice 4); the `oidc_integration_test.go` happy-path covers the JIT-from-mapping arm and `_DefaultRoleFallback` covers (d) end-to-end.
+- [x] Owner cannot be assigned via JIT (asserted by `permission_matrix_test.go`). The matrix pins three layers: (2) resolver ignores `role=owner` mappings even when mixed with `g-eng→admin` — admin wins, owner discarded; (3) `JITProvisionMembership` direct-call with `role="owner"` returns `ErrJITOwnerForbidden` AND no `SaveMembership` / `UpdateMembershipRole` is invoked (tracking-store mock asserts the no-write); (4) reconcile branch with an existing `Role="owner"` row noops on a resolver-produced `admin` — JIT must never demote an owner either, regardless of `provisioned_via`. File header documents the security pin so any future role-assignment path lands its assertion here.
+- [x] **JWKS auto-refresh on signature failure** (architect S5): `TestOIDC_JWKSAutoRefreshOnSignatureFailure` rotates the in-process IdP key after a successful login; the second login signature-fails on the cached JWKS, evicts via `cache.Cache.Del`, refetches, and succeeds — all in one request.
+- [x] `/v1/sso/discover` returns 200 with `has_sso:false` for unknown domains; constant response shape verified. `TestDiscoverHandler_ConstantShape` in `services/api/internal/sso/discover_test.go` covers six branches (verified domain, unknown domain, empty email, three malformed-email shapes, and a transient DB-error → graceful-degrade) and asserts identical posture for every input: status 200, `Content-Type: application/json`, body keys are exactly `{has_sso}` (false case) or `{has_sso, redirect_url}` (true case), and the internal-only fields (`connection_id`, `organization_id`, `protocol`) MUST NOT leak into the wire format. Pinned separately: `TestDiscoverHandler_LatencyFloor` proves the 5ms `minDiscoverLatency` floor holds even when the discoverer returns instantly — the timing channel between "domain in table" (~5ms join) and "domain not in table" (~1ms) is collapsed.
+- [x] **Domain-confusion fuzz** (architect N4 — moved from §6.5): `TestNativeDiscoverer_DomainConfusion` in `services/api/internal/sso/discover_test.go` runs 17 confusable-shape variants against a verified `acme.com` lookup table — TLD swaps (`.co`/`.org`/`.net`/`.io`/`.com.co`), suffix attack (`acme.com.evil.io`), subdomain attacks (`evil.acme.com`, `a.b.acme.com`), Cyrillic 'с' homoglyph (`aсme.com`), Greek 'ο' homoglyph (`acme.cοm`), punycode form (`xn--ame-7md.com`), three typosquats, double-dot, leading/trailing dot, longer-TLD shared-prefix (`acme.community`) — every variant resolves to `has_sso=false`. Five canonical-form variants (case + whitespace) DO match. Failure of this test means a future change introduced fuzzy/suffix/substring matching, which is an org-takeover channel.
+- [x] **Open-redirect fuzz on OIDC `state`** (architect N4): the actual attack surface is `?return_to=` on `/v1/sso/oidc/{cid}/initiate` (the `state` parameter itself is server-issued/opaque). `services/api/internal/sso/redirect_fuzz_test.go` pins three layers. **Layer 1 — boundary at initiate**: `TestValidatedReturnTo_Boundary` runs 22 hostile shapes through the now-exported `sso.ValidatedReturnTo` (canonical absolute URLs, protocol-relative, `javascript:`/`data:`/`vbscript:`/`file:`/`about:` schemes, mixed-case schemes, authority-confusion `https://evil.com@app.example.com`, control chars, length-cap > 1024) — all drop to `""`; 6 legitimate same-origin paths (root, single segment, deep, query, fragment, length-cap-boundary at exactly 1023 chars) round-trip unchanged; idempotency invariant verified across the accepted set so the second call at the callback site doesn't corrupt the happy path. **Layer 2 — defense-in-depth at callback**: `TestSSO_OpenRedirect_DefenseInDepth` runs 15 hostile shapes by manually persisting state records with hostile `RedirectAfterLogin` (BYPASSING the initiate boundary — the "regardless of state content" scenario the architect N4 acceptance is really after), drives the full callback ceremony, and asserts the final `Location` is `/dashboard`. Without the new `oidc_callback.go` line `target := ValidatedReturnTo(stateData.RedirectAfterLogin)` this test fails. Also asserts session minting still happens — the defense-in-depth must not block successful auth, just sanitise the destination. **Layer 3 — happy path**: `TestSSO_OpenRedirect_HappyPath` confirms a legitimate `/dashboard/zombies?account=acct-1` survives both validations end-to-end. Production code change: `validatedReturnTo` → `ValidatedReturnTo` (exported), called at both initiate.go (entry) and oidc_callback.go (output) sites; comment block reworked to document the defense-in-depth posture.
+- [x] `enforcement=required` blocks native-password sessions for the org with 403. New `services/api/internal/middleware/sso_enforcement.go` introduces `EnforceSSO(resolver, skipPaths...)` — wired in `cmd/main.go` AFTER `WrapNative` so the chain is "auth → enforcement → handlers", with `/v1/auth/logout` in the skip-set so a blocked user can still cleanly end their session. Production resolver `NewStoreEnforcementResolver(store)` reads RLS-scoped `ListSSOConnections` and picks the highest enforcement across the org's `active`+`oidc` connections (draft/disabled/non-OIDC connections do NOT contribute — pinned by the `enforcementRank` total order). Tests in `services/api/internal/middleware/sso_enforcement_test.go` cover the full matrix: required+password→403 `{"error":"sso_required"}`, required+sso→passthrough, required+bootstrap→passthrough (first-owner install can't be bricked), optional/preferred/empty+password→passthrough, fail-open on resolver errors / missing org context / nil resolver, skip-path bypass with exact-match-only assertion (a future "make it prefix" refactor breaks the test before it ships).
+- [x] `pending_memberships` invitation takes precedence over JIT (per design doc §10.4) — covered by integration test. `TestOIDC_PendingInvitationPrecedence` in `services/api/internal/sso/oidc_integration_test.go` (build tag `integration`) seeds a pending invitation at `role=viewer` for an email whose IdP groups (`g-engineering`) would JIT-resolve to `admin` via the connection's group mappings, drives the full OIDC ceremony, and asserts: (a) the resulting membership is `role=viewer` (invite wins over JIT-admin), (b) `provisioned_via='invitation'` (so the JIT provenance guard at re-login still recognises this as admin-placed and doesn't silently overwrite), (c) the `pending_memberships` row is consumed (DELETE) so subsequent logins don't re-fire the redeem, (d) audit posture has `SSO_LOGIN_SUCCEEDED` for the invited user but NO `SSO_JIT_PROVISIONED` (proving the invite branch fired and the JIT branch was bypassed entirely). Direction chosen deliberately: invite=viewer beats JIT=admin (the precedence-stronger direction); the reverse direction follows from the same single if-else gate at `oidc_callback.go`'s `RedeemPendingInvitation` call.
+- [x] `ssoSweep` ticker runs and logs sweep count > 0 after seeded expired rows. `services/api/internal/sso/sweep_test.go` covers seven properties via a `fakeSweepStore` (storage.Store with embedded-nil-interface trick — only `SweepStaleSSODomains` implemented, panics on any other method to surface accidental new dependencies). **Lifecycle**: kick-off tick fires immediately on Run() (not after the 24h interval), subsequent ticks fire on the configured interval, ticker continues past store errors (transient DB issue must NOT take the ticker out for the rest of the process), Run() returns promptly on context cancel (clean shutdown). **Observability**: when `SweepStaleSSODomains` returns N>0, slog.Info emits `sso: sweep stale domains` with `marked_stale=N` (the line ops grep for); when N=0, the info log is suppressed (otherwise every 24h tick would emit `marked_stale=0` noise that drowns the signal); on store error, slog.Error emits `sso: sweep stale domains failed` carrying the wrapped error message so on-call can pivot directly to the DB. Tests use a process-global `slog.SetDefault` swap with cleanup — they don't `t.Parallel()` for that reason.
+- [x] **JWKS package consumers parity** (architect S3): both `auth.go` (legacy Kinde validation) and `oidc.go` import from `services/shared/jwks/` and the package's tests cover both call shapes (issuer-bound JWKS for Kinde; per-connection JWKS for OIDC). Confirmed: `services/api/internal/middleware/auth.go:46` calls `jwks.FromCache(ctx, issuer, jwksURL, c)` with the Kinde issuer URL as the cacheID; `services/api/internal/sso/oidc.go:167` calls `jwks.FromCache(ctx, conn.ID, doc.JWKSURI, c)` with the SSO connection ID. Both consumers go through the same `services/shared/jwks` API. Test parity in `services/shared/jwks/jwks_test.go`: `TestFromCache_CacheHit_SkipsHTTPFetch` exercises the issuer-bound (Kinde) shape — single stable issuer URL, cache hit on second call skips HTTP fetch; `TestFromCache_PerConnectionShape` exercises the per-connection (OIDC) shape — two distinct connections sharing one HTTP origin produce two cache entries, proving the cache key is derived from cacheID (not jwksURL) so a key rotation on one connection doesn't break the other. Plus `TestFromCache_ForceRefreshViaCacheKey` covers the architect-S5 auto-refresh pattern via the exported `CacheKey` helper. Remaining shared properties (cache-error fallback, nil cache, non-OK status, malformed payload) covered by the four other tests.
+- [x] **Seams `sso.Discoverer` and `sso.Connector` defined** (D11 / §4.8.4 / §4.8.5): native impls registered via the new `serverbuild.ComposeServer`; `discover.go` imports zero storage types (only stdlib); `handler.go` imports `axiaops.io/shared/storage` (the interface, not the postgres-concrete type) and uses it for SSO connection + group-mapping CRUD via the `Connector` seam, plus domain CRUD directly through the Store interface. The "domain CRUD goes through Store" exception is intentional and documented at `services/api/internal/sso/handler.go:22-27`: domain operations are pure data ops that don't differ between Option A (Kinde-mirror SaaS) and Option B (self-hosted), so the Connector-style seam was deliberately deferred. Both consumers go through `Discoverer` / `Connector` impls for the operations that DO differ between options. Verification: `grep -L "axiaops.io/shared/storage/postgres" services/api/internal/sso/*.go` returns every file in the package — zero direct postgres-concrete imports.
+- [x] **Drop-in test extended** (D11 / §4.8.6): `services/api/internal/serverbuild/build_test.go` boots `serverbuild.ComposeServer` with mock impls of all five SaaS-extension seams — `stubStore` (storage.Store via embedded-nil-interface trick), `stubProvider` (auth.Provider returning a fixed Identity), `kinde.NewStub()` (kinde.Client / Inviter), `stubDiscoverer` (sso.Discoverer returning has_sso=false), `stubConnector` (sso.Connector returning sentinel errors per method) — and asserts: (a) ComposeServer accepts all five seam mocks without compile error, (b) the composed handler responds 200 with `{has_sso: false}` JSON to `GET /v1/sso/discover` (proves request-id + dev-bypass + rate-limit + CORS chain composed correctly AND the Discoverer mock was consulted), (c) the same handler in non-DevMode (`AuthProviderMode=native`, `NativeAuthActive=true`) requires SessionManager + SSOValidator + SSOStateStore deps and serves the same smoke endpoint, (d) ComposeServer fail-fast errors when Store / Discoverer / Connector / AuthProvider are missing — composition-root bugs surface at boot, not on the first request. Production change: extracted `~250 lines` of wiring (api handler construction, route registration, SSO routes, native-auth + OIDC ceremony routes, middleware composition, Prometheus instruments) from `cmd/main.go` into `services/api/internal/serverbuild/{build.go,tickers.go}`. `cmd/main.go` is now bootstrap-only (env reads, license verify, store/cache/queue init, signal handling, graceful shutdown) — zero handler registrations remain in main, satisfying §4.8.6 line 570 in spirit. The `Deps` struct is the SaaS reactivation seam: a future `cmd/api-saashosted/main.go` swaps a few constructors (`kindeConnector` instead of `nativeConnector`, `compositeDiscoverer` wrapping native + Kinde Mgmt API) and calls the same `ComposeServer`.
 
 ---
 

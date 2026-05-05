@@ -87,6 +87,15 @@ type SSOConnection struct {
 	SAMLPreviousCert          string     `json:"saml_previous_cert,omitempty"`
 	SAMLPreviousCertExpiresAt *time.Time `json:"saml_previous_cert_expires_at,omitempty"`
 
+	// ForceReauth controls the OIDC authorize URL's `prompt=login` parameter.
+	// True (default per migration 023) forces the IdP to re-authenticate on
+	// every ceremony — closes silent-identity-substitution bugs where the
+	// IdP cookie outlives the AxiaOps logout. False suppresses prompt=login
+	// for IdPs that enforce their own session policy (Azure AD conditional
+	// access returns `interaction_required` if you ask for re-auth on a
+	// locked session). See services/api/internal/sso/initiate.go.
+	ForceReauth bool `json:"force_reauth"`
+
 	// KindeConnectionID is empty under self-hosted (Option B) — handlers MUST
 	// reject non-empty values on POST/PATCH per design §4.2. Populated only
 	// under a future SaaS reactivation.

@@ -23,7 +23,7 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 | `observability/` | **Phase 2.6** — Prometheus metrics, HTTP middleware |
 | `cache/` | **Phase 2.14** — `Cache` interface + Redis + memory implementations. `cache.New(redisURL)` selects backend. |
 | `queue/` | **Phase 2.14** — `Queue` interface + Redis (LPUSH/BRPOP) + sync HTTP fallback. `queue.New(redisURL, ingestionURL)` selects backend. |
-| `license/` | **Phase B1.6** — self-hosted license JWT verification. Embedded RS256 public key (`pubkey.pem`); `Load`, `CheckExpiry`, `VerifyAtBoot`, `RunTicker`, `IsScanAllowed`. Both api and ingestion call `VerifyAtBoot` at startup and run `RunTicker`; both consult `IsScanAllowed` at their scan-gate sites. |
+| `license/` | **Phase B1.6 (amended — see `docs/b1.6-amendment-feature-gating.md`)** — self-hosted license JWT verification. Embedded RS256 public key (`pubkey.pem`); `Load`, `CheckExpiry`, `VerifyAtBoot`, `RunTicker`, `IsScanAllowed`, `IsEnforcementBypassed`, `SetEnforcementBypass`. Both api and ingestion call `VerifyAtBoot` at startup (always returns nil now — never refuses to start) and run `RunTicker`; both consult `IsScanAllowed` at their scan-gate sites. `IsScanAllowed` returns true only when `IsEnforcementBypassed()` (DEV_MODE / future SaaS) OR state ∈ {Valid, InGrace}; `StateExpired` and `StateNotLoaded` both gate. |
 | `model/audit.go` | **Phase 3.3** — `AuditEvent`, `AuditFilter`, `AuditCursor`, and the `AuditAction*` constants. Consumed by `Store.AuditLogWrite/List/AnonymiseUser` and by the `axiaops.io/api/internal/audit` helper that handlers call after mutations. |
 
 ## Store Interface
@@ -100,12 +100,14 @@ Pre-registered Prometheus metrics grouped by concern:
 - **Scan**: operation duration by stage, errors, queue depth
 - **Application**: uptime, error count
 
-Expose metrics via:
+Expose metrics via the package helper, **not** `promhttp.Handler()` directly:
 
 ```go
-import "github.com/prometheus/client_golang/prometheus/promhttp"
-mux.Handle("/metrics", promhttp.Handler())
+import "axiaops.io/shared/observability"
+mux.Handle("/metrics", observability.MetricsHandler())
 ```
+
+`MetricsHandler()` merges `prometheus.DefaultGatherer` (per-binary `MustRegister`'d counters) with the package-private registry that holds `Global.*`. Wiring `promhttp.Handler()` directly scrapes only the default registry — every metric in this package silently vanishes. That regression broke `/metrics` on the deployed preview env (caught on MR !85); the helper is the single seam every binary now uses.
 
 Use observers to record metrics:
 

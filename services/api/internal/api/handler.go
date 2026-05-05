@@ -564,6 +564,46 @@ func licenseSummary() map[string]any {
 	}
 }
 
+// scanGateBody returns the 403 JSON body for the license-gated scan endpoint.
+// Three distinct error codes so the dashboard can pick the right banner copy
+// and operators can route alerts on the label without parsing the human-
+// readable detail. The amendment doc lays out the rationale.
+//
+// Switch is exhaustive over the known blocking states (StateExpired,
+// StateNotLoaded). The default case is the regression guard: any future
+// blocking state (a hypothetical StateTrialExpired, StateRevoked) hits the
+// default with a generic "license_inactive" body AND a slog.Warn so the
+// next time a state is added, the operator sees an unhandled-state warning
+// in logs that points back here. Without the warn, a copy-paste regression
+// could ship the wrong body silently for years.
+//
+// Returned as a pre-built []byte (no marshalling per request) — this fires
+// only on the gate-blocked path which is already a customer-visible error,
+// but the path stays allocation-free regardless.
+//
+// Test pinning: handler_license_gate_test.go has one assertion per known
+// state. Adding a state requires the new state's branch + a new test case;
+// the default-case slog.Warn at runtime is the safety net for shipping
+// without test coverage of the new state.
+func scanGateBody(state license.State) []byte {
+	switch state {
+	case license.StateExpired:
+		return []byte(`{"error":"license_expired","detail":"License past grace period — contact sales@axiaops.io to renew"}`)
+	case license.StateNotLoaded:
+		return []byte(`{"error":"license_not_loaded","detail":"No license installed — see https://axiaops.io/install for instructions"}`)
+	case license.StateValid, license.StateInGrace:
+		// Defensive: caller (scanAccount handler) should never reach here
+		// because IsScanAllowedForState returns true for these states. If
+		// it does, something has flipped the gate without updating this
+		// switch — slog.Warn so the misalignment surfaces.
+		slog.Warn("scanGateBody: called with allow-listed state", "state", state.String())
+		return []byte(`{"error":"license_inactive","detail":"License is not active. See /v1/version for state."}`)
+	default:
+		slog.Warn("scanGateBody: unhandled license state", "state", state.String())
+		return []byte(`{"error":"license_inactive","detail":"License is not active. See /v1/version for state."}`)
+	}
+}
+
 func getenvOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -752,8 +792,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, account)
+	writeJSONStatus(w, http.StatusCreated, account)
 }
 
 // updateAccount edits the label, access_key_id, region, secret_key, and/or scan_interval_hours of an account.
@@ -967,20 +1006,31 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 
 // scanAccount triggers an ingestion run for the given account.
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
-	// License gate (plan §4.9.2b). The single mid-flight feature gate B1.6
-	// ships: once the boot-time license has crossed exp + grace_period_days
-	// the scan path goes silent, both for user-triggered scans here and the
-	// scheduled-scan ticker in services/ingestion. The policy ("only
-	// StateExpired blocks") lives in license.IsScanAllowed so this gate
-	// stays in sync with the ingestion-side gate via a single predicate.
+	// License gate (plan §4.9.2b, post-amendment). Two failure shapes
+	// surfaced as distinct error codes so the dashboard can pick the right
+	// banner copy and operators can route alerts cleanly:
+	//
+	//   StateExpired       → license_expired       (renewal contact in detail)
+	//   StateNotLoaded     → license_not_loaded    (install URL in detail)
+	//
+	// DEV_MODE / future SaaS bypass via license.IsEnforcementBypassed; the
+	// policy ("which states block") lives in license.IsScanAllowedForState
+	// so this gate stays in sync with the ingestion-side gate via a single
+	// predicate.
+	//
+	// State is read ONCE and passed to both the predicate and the body
+	// builder — without this the wall-clock-driven CheckExpiry in two
+	// consecutive reads could cross-classify the request (gate sees
+	// in_grace, body builder sees expired) on the microsecond boundary.
 	//
 	// Content-Type set BEFORE WriteHeader because once headers are flushed
 	// the Header() map mutations are dropped — writeJSON's set-then-encode
 	// pattern only works correctly for implicit-200 responses.
-	if !license.IsScanAllowed() {
+	licState := license.SnapshotState()
+	if !license.IsScanAllowedForState(licState) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":"license_expired","detail":"License past grace period — contact sales@axiaops.io to renew"}`))
+		_, _ = w.Write(scanGateBody(licState))
 		return
 	}
 
@@ -1143,8 +1193,7 @@ func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, d)
+	writeJSONStatus(w, http.StatusCreated, d)
 }
 
 // revokeDismissal handles DELETE /v1/dismissals/{id}.
@@ -1317,5 +1366,23 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
+	}
+}
+
+// writeJSONStatus is the explicit-status counterpart to writeJSON. Use it
+// instead of `w.WriteHeader(status); writeJSON(w, v)` — that pattern flushes
+// the response headers before writeJSON's `Header().Set("Content-Type", …)`
+// runs, leaving 201/4xx/5xx responses with no Content-Type. The dashboard's
+// `request()` then falls through to `res.text()` and downstream consumers
+// see a stringified body. See commit `bee01a2` for the original surfacing
+// of this footgun.
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		// Headers already flushed by WriteHeader, so http.Error can't change
+		// the status code. Best we can do is log; the client will see a
+		// truncated body and surface a parse error.
+		slog.Error("writeJSONStatus encode failed", "status", status, "err", err)
 	}
 }

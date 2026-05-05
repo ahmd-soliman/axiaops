@@ -247,6 +247,9 @@ func (m *mockStoreForScheduler) CreateSSOConnection(context.Context, model.SSOCo
 func (m *mockStoreForScheduler) GetSSOConnection(context.Context, string) (model.SSOConnection, error) {
 	return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
 }
+func (m *mockStoreForScheduler) GetSSOConnectionByID(context.Context, string) (model.SSOConnection, error) {
+	return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
+}
 func (m *mockStoreForScheduler) ListSSOConnections(context.Context) ([]model.SSOConnection, error) {
 	return nil, errors.New("mockStoreForScheduler.ListSSOConnections not implemented")
 }
@@ -397,13 +400,20 @@ func TestScanScheduledAccounts_ZeroInterval_AlwaysOverdue(t *testing.T) {
 // Past-grace boots block scheduled scans wholesale. Single check at the top
 // of the pass, not per-account — license state is binary-wide.
 func TestScanScheduledAccounts_SkippedWhenLicenseExpired(t *testing.T) {
+	// Clear TestMain's package-default bypass so the gate evaluates the
+	// snapshot we set up below. Cleanup restores the default for any
+	// subsequent test.
+	license.ClearEnforcementBypass()
 	license.SetCurrent(&license.License{
 		LicenseID:       "lic_test",
 		CustomerID:      "test-001",
 		ExpiresAt:       time.Now().Add(-60 * 24 * time.Hour),
 		GracePeriodDays: 30,
 	})
-	t.Cleanup(func() { license.SetCurrent(nil) })
+	t.Cleanup(func() {
+		license.SetCurrent(nil)
+		license.SetEnforcementBypass()
+	})
 
 	now := time.Now()
 	store := &mockStoreForScheduler{
@@ -429,13 +439,17 @@ func TestScanScheduledAccounts_SkippedWhenLicenseExpired(t *testing.T) {
 // warns are the renewal-pressure mechanism for grace; only past-grace
 // silences the scheduler.
 func TestScanScheduledAccounts_AllowedInGrace(t *testing.T) {
+	license.ClearEnforcementBypass()
 	license.SetCurrent(&license.License{
 		LicenseID:       "lic_test",
 		CustomerID:      "test-001",
 		ExpiresAt:       time.Now().Add(-2 * 24 * time.Hour),
 		GracePeriodDays: 30,
 	})
-	t.Cleanup(func() { license.SetCurrent(nil) })
+	t.Cleanup(func() {
+		license.SetCurrent(nil)
+		license.SetEnforcementBypass()
+	})
 
 	now := time.Now()
 	store := &mockStoreForScheduler{
@@ -458,13 +472,17 @@ func TestScanScheduledAccounts_AllowedInGrace(t *testing.T) {
 // runScan's first store touch is a useful "did we run any scan code at all"
 // signal.
 func TestWorker_SkipsJobWhenLicenseExpired(t *testing.T) {
+	license.ClearEnforcementBypass()
 	license.SetCurrent(&license.License{
 		LicenseID:       "lic_test",
 		CustomerID:      "test-001",
 		ExpiresAt:       time.Now().Add(-60 * 24 * time.Hour),
 		GracePeriodDays: 30,
 	})
-	t.Cleanup(func() { license.SetCurrent(nil) })
+	t.Cleanup(func() {
+		license.SetCurrent(nil)
+		license.SetEnforcementBypass()
+	})
 
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
@@ -505,13 +523,17 @@ func TestWorker_SkipsJobWhenLicenseExpired(t *testing.T) {
 // trivially passing — the gate-fired path looks identical to the
 // gate-never-checked path from the outside.
 func TestWorker_ProcessesJobWhenLicenseValid(t *testing.T) {
+	license.ClearEnforcementBypass()
 	license.SetCurrent(&license.License{
 		LicenseID:       "lic_test",
 		CustomerID:      "test-001",
 		ExpiresAt:       time.Now().Add(365 * 24 * time.Hour),
 		GracePeriodDays: 30,
 	})
-	t.Cleanup(func() { license.SetCurrent(nil) })
+	t.Cleanup(func() {
+		license.SetCurrent(nil)
+		license.SetEnforcementBypass()
+	})
 
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{

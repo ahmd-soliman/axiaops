@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging inspect-db clean-db clean-db-drop clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging inspect-db clean-db clean-db-drop clean-db-files clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -88,17 +88,29 @@ migrate:
 seed:
 	./scripts/seed_test_data.sh
 
-# Seed remote dev-1 database (axiaops.local:5432 — axiaops-dev-1-db).
+# Seed remote env databases. Each env runs on its own self-hosted container —
+# postgres listens on the standard 5432 since per-host means no port
+# collision. Hostnames resolve via mDNS (Avahi on the LAN).
+#
+#   dev-1    → axiaops-<env>.local:5432   (auth-bypass; uses DEV_ORGANIZATION_ID)
+#   dev-2    → axiaops-<env>.local:5432   (auth-bypass; uses DEV_ORGANIZATION_ID)
+#   staging  → axiaops-<env>.local:5432 (auth-on; bootstrap an owner first)
+#   preview  → axiaops-<env>.local:5432 (auth-on; bootstrap an owner first)
+#   demo     → axiaops-<env>.local:5432    (auth-on; bootstrap an owner first)
 seed-remote-dev-1:
 	./scripts/seed_test_data.sh --remote dev-1
 
-# Seed remote dev-2 database (axiaops.local:5433 — axiaops-dev-2-db).
 seed-remote-dev-2:
 	./scripts/seed_test_data.sh --remote dev-2
 
-# Seed remote staging database (axiaops.local:5442 — axiaops-staging-db).
 seed-remote-staging:
 	./scripts/seed_test_data.sh --remote staging
+
+seed-remote-preview:
+	./scripts/seed_test_data.sh --remote preview
+
+seed-remote-demo:
+	./scripts/seed_test_data.sh --remote demo
 
 inspect-db:
 	./scripts/inspect_db.sh
@@ -113,11 +125,28 @@ clean-db:
 clean-db-drop:
 	./scripts/clean_db.sh --drop-schema
 
+# Wipe pg_data on disk so Postgres creates a fresh database on next start.
+# Use this when clean-db / clean-db-drop aren't enough — e.g. to re-arm the
+# bootstrap install token, or after a botched migration that left the cluster
+# in an unrecoverable state. The `stop` dependency guarantees no container is
+# still holding the volume open at delete time.
+#
+# No sudo on macOS: Docker Desktop virtualises file permissions, so files the
+# container's postgres uid wrote round-trip as the host user. On native Linux
+# Docker the files come back root-owned and you'd need sudo — re-add if/when
+# the contributor base broadens beyond macOS.
+clean-db-files: stop
+	@echo "Deleting pg_data… Postgres will create a fresh database on next start."
+	rm -rf pg_data
+
 # ── Remote Database Cleanup ───────────────────────────────────────────────────
-# Remote ports match the deploy stack/apps/axiaops-dbs/docker-compose.yml:
-#   dev-1   → axiaops.local:5432
-#   dev-2   → axiaops.local:5433
-#   staging → axiaops.local:5442
+# Per-host self-hosted design: each env runs on its own container, postgres on the
+# standard 5432, hostnames via mDNS:
+#   dev-1   → axiaops-<env>.local:5432
+#   dev-2   → axiaops-<env>.local:5432
+#   staging → axiaops-<env>.local:5432
+#   preview → axiaops-<env>.local:5432
+#   demo    → axiaops-<env>.local:5432
 
 # Truncate tables (preserve schema).
 clean-remote-dev-1:
@@ -129,6 +158,12 @@ clean-remote-dev-2:
 clean-remote-staging:
 	./scripts/clean_db.sh --remote staging
 
+clean-remote-preview:
+	./scripts/clean_db.sh --remote preview
+
+clean-remote-demo:
+	./scripts/clean_db.sh --remote demo
+
 # Drop schema and user (destructive — requires re-running migrations).
 clean-remote-dev-1-drop:
 	./scripts/clean_db.sh --remote dev-1 --drop-schema
@@ -138,6 +173,12 @@ clean-remote-dev-2-drop:
 
 clean-remote-staging-drop:
 	./scripts/clean_db.sh --remote staging --drop-schema
+
+clean-remote-preview-drop:
+	./scripts/clean_db.sh --remote preview --drop-schema
+
+clean-remote-demo-drop:
+	./scripts/clean_db.sh --remote demo --drop-schema
 
 # Per-service test targets — each mirrors the matching CI job (test:shared, test:api, test:ingestion).
 # Running one target locally reproduces exactly what CI runs for that job.
@@ -214,6 +255,25 @@ test-integration-api:
 	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
 
+# SSO OIDC ceremony integration tests (services/api/internal/sso/oidc_integration_test.go).
+# Drives a full authorization-code + PKCE round-trip against an in-process
+# minimal OIDC issuer, asserting JIT membership + JWKS auto-refresh-on-rotation.
+# Uses the lightweight docker-compose.test.yml stack — Postgres only, no api
+# or mock-IdP container needed (the test stands the API up in-process for
+# httptest control over signing keys).
+test-integration-sso:
+	cd test-infra/integration && docker-compose -f docker-compose.test.yml down -v --remove-orphans 2>/dev/null || true
+	cd test-infra/integration && docker-compose -f docker-compose.test.yml up -d postgres
+	cd test-infra/integration && for i in {1..30}; do \
+		docker-compose -f docker-compose.test.yml exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; \
+		sleep 1; \
+	done
+	cd services/api && \
+		INTEGRATION_DATABASE_URL='postgres://axiaops:axiaops@localhost:5532/axiaops?sslmode=disable' \
+		INTEGRATION_DATABASE_OWNER_URL='postgres://axiaops_owner:axiaops_owner@localhost:5532/axiaops?sslmode=disable' \
+		go test -tags=integration -count=1 -run TestOIDC -v ./internal/sso/...
+	cd test-infra/integration && docker-compose -f docker-compose.test.yml down -v --remove-orphans
+
 # Ingestion integration tests only
 test-integration-ingestion:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
@@ -269,3 +329,24 @@ lint:
 	cd services/api && golangci-lint run ./... --timeout=5m
 	cd services/ingestion && golangci-lint run ./... --timeout=5m
 	cd services/shared && golangci-lint run ./... --timeout=5m
+
+# B1.7 layer 3 (plan §4.10.2): customer-shipping binary build. The
+# `production` build tag activates services/{api,ingestion}/cmd/devmode_production.go
+# whose devModeEnabled() returns false unconditionally — DEV_MODE is read
+# but ignored. The default `make build`-style targets stay tag-less so
+# local dev keeps the env-var bypass for fast iteration.
+#
+# Confirms locally what the CI image build does via Dockerfile's BUILD_TAGS
+# arg. Exit code is the only signal — either both binaries compile and the
+# layer-3 stripping took effect, or one of the build-tag-gated files is
+# malformed and you find out before pushing.
+.PHONY: build-production
+build-production:
+	# Build the package (`./cmd/`), not the single file (`./cmd/main.go`),
+	# so sibling files like devmode_production.go are included — without
+	# this `go build` would compile main.go in isolation and fail with
+	# "undefined: devModeEnabled". The api Dockerfile uses the same shape
+	# for the same reason.
+	cd services/api && go build -tags production -o /tmp/axiaops-api-production ./cmd/
+	cd services/ingestion && go build -tags production -o /tmp/axiaops-ingestion-production ./cmd/
+	@echo "production-tagged binaries built — DEV_MODE is no-op in /tmp/axiaops-{api,ingestion}-production"

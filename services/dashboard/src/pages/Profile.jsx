@@ -32,7 +32,7 @@ export default function Profile() {
       <Section t={t} title="Profile">
         <Field t={t} label="Email" value={me?.email || '—'} />
         <Field t={t} label="Role" value={me?.role || '—'} />
-        <Field t={t} label="Organization" value={orgName || me?.organization_id || '—'} />
+        <Field t={t} label="Organization" value={me?.organization?.name || orgName || me?.organization_id || '—'} />
       </Section>
 
       {can(PERM.DATA_EXPORT) && <ExportSection t={t} toast={toast} />}
