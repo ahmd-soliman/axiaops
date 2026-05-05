@@ -73,6 +73,14 @@ services:
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops
       INGESTION_URL: http://ingestion:8081
       API_ADDR: ":8080"
+      # PUBLIC_HOST — externally-reachable origin used to build the OIDC
+      # redirect_uri the IdP sees. Without it the api logs a startup ERROR
+      # and Keycloak/Entra/etc. reject the ceremony with
+      # "Invalid parameter: redirect_uri". Default matches the dashboard's
+      # host port (see dashboard.ports below); override per-host (LAN IP,
+      # mDNS hostname, etc.) when running SSO tests against a Keycloak that
+      # only knows the absolute browser-reachable URL.
+      PUBLIC_HOST: ${PUBLIC_HOST:-http://localhost:8082}
       # Dev mode defaults — overridable by .env or explicit env vars
       DEV_MODE: ${DEV_MODE:-true}
       DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
