@@ -30,6 +30,12 @@ export default function Team() {
   const [addError, setAddError] = useState('');
   const [error, setError] = useState('');
   const [transferTo, setTransferTo] = useState('');
+  // Most-recently-issued invitation, surfaced inline so the admin can copy
+  // the OOB redemption URL. The API returns redemption_url under
+  // AUTH_PROVIDER=native|both; absent under AUTH_PROVIDER=kinde where Kinde
+  // sends the email and the admin doesn't need to share a link manually.
+  const [lastInvite, setLastInvite] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const memberships = useQuery({ queryKey: ['memberships'], queryFn: listMemberships });
   const invitations = useQuery({ queryKey: ['invitations'], queryFn: () => listInvitations('pending') });
@@ -46,7 +52,8 @@ export default function Team() {
   const addMutation = useMutation({
     mutationFn: async ({ email, role }) => {
       try {
-        return await createInvitation(email, role);
+        const result = await createInvitation(email, role);
+        return { ...result, _email: email, _role: role };
       } catch (err) {
         if (err?.body?.error === 'user_exists_use_memberships') {
           return await addMember(email, role);
@@ -54,10 +61,23 @@ export default function Team() {
         throw err;
       }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setAddEmail('');
       setAddRole('member');
       setAddError('');
+      setCopied(false);
+      // Surface the redemption URL inline so the admin can share it OOB.
+      // Absent under AUTH_PROVIDER=kinde (Kinde sends an email itself) and
+      // also absent on the addMember fallback (existing-user-no-membership).
+      if (data?.redemption_url) {
+        setLastInvite({
+          email: data._email || data.email,
+          role: data._role || data.role,
+          url: data.redemption_url,
+        });
+      } else {
+        setLastInvite(null);
+      }
       invalidate();
     },
     onError: (err) => setAddError(humanize(err, 'Failed to invite user')),
@@ -122,7 +142,9 @@ export default function Team() {
             Invite a teammate
           </h2>
           <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMuted }}>
-            Sends an email invitation. They join with the role you pick on first sign-in.
+            Generates an invitation link. Copy it and share with the user out of
+            band (Slack, email, etc). They join with the role you pick on first
+            sign-in.
           </p>
           <form
             onSubmit={(e) => {
@@ -146,11 +168,80 @@ export default function Team() {
               ))}
             </select>
             <button type="submit" disabled={addMutation.isPending} style={primaryButton(t)}>
-              {addMutation.isPending ? 'Sending…' : 'Send invite'}
+              {addMutation.isPending ? 'Sending…' : 'Create invite link'}
             </button>
           </form>
           {addError && (
             <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#ef4444' }}>{addError}</p>
+          )}
+
+          {lastInvite && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                borderRadius: 6,
+                backgroundColor: isDark ? 'rgba(34,197,94,0.10)' : '#ecfdf5',
+                border: `1px solid ${isDark ? 'rgba(34,197,94,0.35)' : '#86efac'}`,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+                  Invitation created for <strong>{lastInvite.email}</strong> ({lastInvite.role})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setLastInvite(null); setCopied(false); }}
+                  aria-label="Dismiss"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: t.textMuted,
+                    fontSize: 16,
+                    cursor: 'pointer',
+                    padding: 0,
+                    lineHeight: 1,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={lastInvite.url}
+                  onFocus={(e) => e.target.select()}
+                  style={{
+                    ...inputStyle(t),
+                    flex: 1,
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontSize: 12,
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(lastInvite.url);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1500);
+                    } catch {
+                      // Clipboard API unavailable (insecure context, etc).
+                      // Selection above lets the user Cmd/Ctrl-C manually.
+                    }
+                  }}
+                  style={primaryButton(t)}
+                >
+                  {copied ? 'Copied!' : 'Copy link'}
+                </button>
+              </div>
+              <p style={{ marginTop: 8, marginBottom: 0, fontSize: 11, color: t.textMuted }}>
+                Anyone with this link can redeem the invitation, so share over
+                a private channel. Revoke it from the Pending invitations table
+                below if needed.
+              </p>
+            </div>
           )}
         </section>
       )}
