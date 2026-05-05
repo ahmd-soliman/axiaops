@@ -27,12 +27,12 @@ import (
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/observability"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Prometheus metrics for ingestion service
@@ -134,8 +134,12 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	// Metrics handler
-	mux.Handle("GET /metrics", promhttp.Handler())
+	// Metrics handler — observability.MetricsHandler merges the default
+	// registry (this file's MustRegister'd ingestion counters) with the
+	// observability package's private registry (Global.* — scan, license,
+	// AWS, DB). See the helper's doc for why promhttp.Handler() alone is
+	// wrong.
+	mux.Handle("GET /metrics", observability.MetricsHandler())
 
 	mux.HandleFunc("POST /scan", func(w http.ResponseWriter, r *http.Request) {
 		// License scan-gate (plan §4.9.2b, post-amendment). Routed through

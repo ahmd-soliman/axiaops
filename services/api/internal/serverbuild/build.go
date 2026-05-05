@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/auth"
@@ -40,6 +39,7 @@ import (
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/api/internal/sso"
 	"axiaops.io/shared/cache"
+	"axiaops.io/shared/observability"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 )
@@ -289,8 +289,12 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	}
 
 	// Prometheus scrape endpoint — outside auth so the scrape worker
-	// doesn't need a session.
-	mux.Handle("/metrics", promhttp.Handler())
+	// doesn't need a session. observability.MetricsHandler merges the
+	// default registry (request-logging counters MustRegister'd in
+	// cmd/main.go) with the observability package's private registry
+	// (Global.* — HTTP, DB, AWS, scan, license, auth_provider). See the
+	// helper's doc for why promhttp.Handler() alone is wrong.
+	mux.Handle("/metrics", observability.MetricsHandler())
 
 	// ── Middleware chain (innermost → outermost) ──────────────────────────
 	root := http.Handler(mux)
