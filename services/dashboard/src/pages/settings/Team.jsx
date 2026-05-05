@@ -30,6 +30,12 @@ export default function Team() {
   const [addError, setAddError] = useState('');
   const [error, setError] = useState('');
   const [transferTo, setTransferTo] = useState('');
+  // Most-recently-issued invitation, surfaced inline so the admin can copy
+  // the OOB redemption URL. The API returns redemption_url under
+  // AUTH_PROVIDER=native|both; absent under AUTH_PROVIDER=kinde where Kinde
+  // sends the email and the admin doesn't need to share a link manually.
+  const [lastInvite, setLastInvite] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const memberships = useQuery({ queryKey: ['memberships'], queryFn: listMemberships });
   const invitations = useQuery({ queryKey: ['invitations'], queryFn: () => listInvitations('pending') });
@@ -46,7 +52,8 @@ export default function Team() {
   const addMutation = useMutation({
     mutationFn: async ({ email, role }) => {
       try {
-        return await createInvitation(email, role);
+        const result = await createInvitation(email, role);
+        return { ...result, _email: email, _role: role };
       } catch (err) {
         if (err?.body?.error === 'user_exists_use_memberships') {
           return await addMember(email, role);
@@ -54,10 +61,55 @@ export default function Team() {
         throw err;
       }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setAddEmail('');
       setAddRole('member');
       setAddError('');
+      setCopied(false);
+      // Surface the redemption URL inline so the admin can share it OOB.
+      // Absent under AUTH_PROVIDER=kinde (Kinde sends an email itself) and
+      // also absent on the addMember fallback (existing-user-no-membership).
+      if (data?.redemption_url) {
+        // The API emits a relative path (`/accept-invite?token=...`) when
+        // PUBLIC_HOST is unset (typical for local dev) and an absolute URL
+        // when it is. Resolve to absolute against window.location.origin so
+        // the OOB-shared link is always usable in any chat/email client. See
+        // services/api/internal/api/invitations.go:buildRedemptionURL.
+        //
+        // Defense-in-depth: only accept either a clean same-origin path
+        // (single leading "/") OR an absolute URL on our own origin. A
+        // protocol-relative shape ("//evil.com/...") is dropped — currently
+        // unreachable from the server's buildRedemptionURL but a
+        // future-proofing guard against bypassing the open-redirect-style
+        // checks via the invitation flow.
+        const raw = data.redemption_url;
+        let url = null;
+        if (raw.startsWith('//')) {
+          // Protocol-relative — reject.
+        } else if (raw.startsWith('/')) {
+          url = window.location.origin + raw;
+        } else {
+          try {
+            const parsed = new URL(raw);
+            if (parsed.origin === window.location.origin) {
+              url = parsed.toString();
+            }
+          } catch {
+            // Malformed URL — drop.
+          }
+        }
+        if (url) {
+          setLastInvite({
+            email: data._email || data.email,
+            role: data._role || data.role,
+            url,
+          });
+        } else {
+          setLastInvite(null);
+        }
+      } else {
+        setLastInvite(null);
+      }
       invalidate();
     },
     onError: (err) => setAddError(humanize(err, 'Failed to invite user')),
@@ -122,7 +174,9 @@ export default function Team() {
             Invite a teammate
           </h2>
           <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMuted }}>
-            Sends an email invitation. They join with the role you pick on first sign-in.
+            Generates an invitation link. Copy it and share with the user out of
+            band (Slack, email, etc). They join with the role you pick on first
+            sign-in.
           </p>
           <form
             onSubmit={(e) => {
@@ -146,11 +200,94 @@ export default function Team() {
               ))}
             </select>
             <button type="submit" disabled={addMutation.isPending} style={primaryButton(t)}>
-              {addMutation.isPending ? 'Sending…' : 'Send invite'}
+              {addMutation.isPending ? 'Sending…' : 'Create invite link'}
             </button>
           </form>
           {addError && (
             <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#ef4444' }}>{addError}</p>
+          )}
+
+          {lastInvite && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                borderRadius: 6,
+                backgroundColor: isDark ? 'rgba(34,197,94,0.10)' : '#ecfdf5',
+                border: `1px solid ${isDark ? 'rgba(34,197,94,0.35)' : '#86efac'}`,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+                  Invitation created for <strong>{lastInvite.email}</strong> ({lastInvite.role})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setLastInvite(null); setCopied(false); }}
+                  aria-label="Dismiss"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: t.textMuted,
+                    fontSize: 16,
+                    cursor: 'pointer',
+                    padding: 0,
+                    lineHeight: 1,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={lastInvite.url}
+                  onFocus={(e) => e.target.select()}
+                  style={{
+                    ...inputStyle(t),
+                    width: '100%',
+                    paddingRight: 36,
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontSize: 12,
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator?.clipboard?.writeText(lastInvite.url);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    } catch {
+                      // Clipboard API unavailable (insecure context, etc).
+                      // Focus auto-selects the input so Cmd/Ctrl-C still works.
+                    }
+                  }}
+                  aria-label={copied ? 'Copied!' : 'Copy link'}
+                  title={copied ? 'Copied!' : 'Copy link'}
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    right: 8,
+                    transform: 'translateY(-50%)',
+                    padding: 4,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    color: copied ? '#34d399' : t.textMuted,
+                  }}
+                >
+                  {copied ? '✓' : '⧉'}
+                </button>
+              </div>
+              <p style={{ marginTop: 8, marginBottom: 0, fontSize: 11, color: t.textMuted }}>
+                Anyone with this link can redeem the invitation, so share over
+                a private channel. Revoke it from the Pending invitations table
+                below if needed.
+              </p>
+            </div>
           )}
         </section>
       )}
@@ -230,6 +367,7 @@ export default function Team() {
                 <Th t={t}>Email</Th>
                 <Th t={t}>Name</Th>
                 <Th t={t}>Role</Th>
+                <Th t={t}>Joined via</Th>
                 <Th t={t}>Joined</Th>
                 <Th t={t}></Th>
               </tr>
@@ -264,6 +402,11 @@ export default function Team() {
                       ) : (
                         <span style={roleBadge(m.role, t, isDark)}>{m.role}</span>
                       )}
+                    </Td>
+                    <Td t={t}>
+                      <span style={provenanceBadge(m.provisioned_via, t, isDark)}>
+                        {provenanceLabel(m.provisioned_via)}
+                      </span>
                     </Td>
                     <Td t={t}>{formatDate(m.created_at)}</Td>
                     <Td t={t}>
@@ -411,6 +554,42 @@ function roleBadge(role, t, isDark) {
     member: { fg: '#10b981', bg: isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5' },
     viewer: { fg: t.textMuted, bg: t.surfaceRaised },
   }[role] || { fg: t.textMuted, bg: t.surfaceRaised };
+  return {
+    display: 'inline-block',
+    padding: '2px 8px',
+    borderRadius: 4,
+    fontSize: 11,
+    fontWeight: 600,
+    color: palette.fg,
+    backgroundColor: palette.bg,
+    letterSpacing: 0.2,
+  };
+}
+
+// provisioned_via mirrors model.ProvisionedVia* in services/shared/model/sso.go.
+// Friendly labels disambiguate "this person was invited and accepted" from
+// "this person was added directly" / "JIT-created via SSO" / etc.
+function provenanceLabel(via) {
+  switch (via) {
+    case 'invitation': return 'Invite accepted';
+    case 'manual':     return 'Added directly';
+    case 'jit':        return 'SSO';
+    case 'scim':       return 'SCIM';
+    case 'bootstrap':  return 'Bootstrap';
+    case 'legacy':     return 'Legacy';
+    default:           return via || '—';
+  }
+}
+
+function provenanceBadge(via, t, isDark) {
+  const palette = {
+    invitation: { fg: '#10b981', bg: isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5' },
+    manual:     { fg: t.textMuted, bg: t.surfaceRaised },
+    jit:        { fg: '#3b82f6', bg: isDark ? 'rgba(59,130,246,0.15)' : '#dbeafe' },
+    scim:       { fg: '#3b82f6', bg: isDark ? 'rgba(59,130,246,0.15)' : '#dbeafe' },
+    bootstrap:  { fg: '#7c3aed', bg: isDark ? 'rgba(124,58,237,0.15)' : '#ede9fe' },
+    legacy:     { fg: t.textMuted, bg: t.surfaceRaised },
+  }[via] || { fg: t.textMuted, bg: t.surfaceRaised };
   return {
     display: 'inline-block',
     padding: '2px 8px',

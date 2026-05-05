@@ -4,21 +4,53 @@
 # Prerequisites:
 #   Requires psql. If not installed:
 #     brew install libpq
+#   The libpq formula is keg-only on Homebrew so /opt/homebrew/opt/libpq/bin
+#   isn't on PATH by default — this script auto-discovers it (see resolve_psql
+#   below). To use the binary outside this script too, add the export:
 #     echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 #
 # Usage:
 #   ./scripts/seed_test_data.sh                                    # Local docker
-#   ./scripts/seed_test_data.sh --remote dev-1                     # Remote dev-1   (axiaops.local:5432)
-#   ./scripts/seed_test_data.sh --remote dev-2                     # Remote dev-2   (axiaops.local:5433)
-#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (axiaops.local:5442)
+#   ./scripts/seed_test_data.sh --remote dev-1                     # Remote dev-1   (192.168.1.121:5432)
+#   ./scripts/seed_test_data.sh --remote dev-2                     # Remote dev-2   (192.168.1.123:5432)
+#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (192.168.1.122:5432)
+#   ./scripts/seed_test_data.sh --remote preview                   # Remote preview (192.168.1.124:5432)
+#   ./scripts/seed_test_data.sh --remote demo                      # Remote demo    (192.168.1.126:5432)
 #   MIGRATION_DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom connection (owner user, bypasses RLS)
 #
-# Remote ports are sourced from the deploy stack/apps/axiaops-dbs/docker-compose.yml.
+# Each env runs on its own self-hosted container with hostname axiaops-<env>; the
+# .local addresses resolve via mDNS (same mechanism that resolved the old
+# axiaops.local). All postgres instances now listen on the standard 5432 —
+# no per-env port mapping since each lives on its own host.
 #
 # Supports both local (docker) and remote database connections.
 # Safe to re-run — all inserts are idempotent (ON CONFLICT DO NOTHING / DO UPDATE).
 
 set -euo pipefail
+
+# ── psql discovery ────────────────────────────────────────────────────────────
+# Homebrew's libpq formula is keg-only — /opt/homebrew/opt/libpq/bin/psql exists
+# but isn't on PATH unless the user added the export shown in the docstring above.
+# Probe known locations so the remote mode works regardless of shell setup.
+# Note: only used when --remote is passed; local mode uses `docker exec` instead.
+
+resolve_psql() {
+  if command -v psql >/dev/null 2>&1; then
+    command -v psql
+    return
+  fi
+  local p
+  for p in /opt/homebrew/opt/libpq/bin/psql \
+           /opt/homebrew/opt/postgresql@16/bin/psql \
+           /usr/local/opt/libpq/bin/psql \
+           /opt/homebrew/bin/psql \
+           /usr/local/bin/psql; do
+    if [ -x "$p" ]; then
+      echo "$p"
+      return
+    fi
+  done
+}
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
@@ -31,9 +63,9 @@ while [[ $# -gt 0 ]]; do
       shift
       REMOTE_ENV="${1:-}"
       case "$REMOTE_ENV" in
-        dev-1|dev-2|staging) ;;
+        dev-1|dev-2|staging|preview|demo) ;;
         *)
-          echo "Error: --remote requires 'dev-1', 'dev-2', or 'staging', got '$REMOTE_ENV'"
+          echo "Error: --remote requires 'dev-1', 'dev-2', 'staging', 'preview', or 'demo', got '$REMOTE_ENV'"
           exit 1
           ;;
       esac
@@ -50,39 +82,68 @@ done
 # Prompts for confirmation unless --yes/-y is passed.
 
 if [[ -n "$REMOTE_ENV" ]]; then
-  HOSTNAME="axiaops.local"
+  PSQL=$(resolve_psql)
+  if [ -z "${PSQL:-}" ]; then
+    echo "Error: psql not found on PATH or known libpq locations." >&2
+    echo "  Install:  brew install libpq" >&2
+    echo "  Then add to PATH (or rely on this script's auto-discovery):" >&2
+    echo "    echo 'export PATH=\"/opt/homebrew/opt/libpq/bin:\$PATH\"' >> ~/.zshrc" >&2
+    exit 1
+  fi
 
-  # Ports mirror the deploy stack/apps/axiaops-dbs/docker-compose.yml — keep in sync.
+  # Per-env static IPs. Sourced from self-hosted-infra/stacks/*/variables.tf —
+  # treat that file as the source of truth and update both sides if any
+  # IP migrates. Using IPs (not the axiaops-<env>.local mDNS hostnames)
+  # because:
+  #   • mDNS (.local) doesn't traverse Tailscale's overlay, so the
+  #     hostname path breaks the moment you seed from outside the LAN
+  #   • .gitlab-ci.yml's DEPLOY_HOST_IP variables already use IPs for
+  #     the same reason (Alpine docker image has no mDNS resolver)
+  #   • IPs are static (terraform-managed, not DHCP) — equally durable
+  # Hostnames still work for humans typing at a prompt (browser, ssh
+  # from a LAN-attached laptop). The script itself sticks to IPs to
+  # avoid the resolver-dependency surface.
   case "$REMOTE_ENV" in
-    dev-1)   DB_PORT=5432 ;;
-    dev-2)   DB_PORT=5433 ;;
-    staging) DB_PORT=5442 ;;
+    dev-1)   HOST_IP="192.168.1.121" ;;
+    dev-2)   HOST_IP="192.168.1.123" ;;
+    staging) HOST_IP="192.168.1.122" ;;
+    preview) HOST_IP="192.168.1.124" ;;
+    demo)    HOST_IP="192.168.1.126" ;;
   esac
+  DB_PORT=5432
 
-  export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOSTNAME:$DB_PORT/axiaops?sslmode=disable"
-  
+  export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@$HOST_IP:$DB_PORT/axiaops?sslmode=disable"
+
   echo "=== Seeding AxiaOps $REMOTE_ENV database ==="
-  echo "Target:    $HOSTNAME:$DB_PORT"
+  echo "Target:    $HOST_IP:$DB_PORT  (axiaops-$REMOTE_ENV)"
   echo "URL:       $MIGRATION_DATABASE_URL"
   echo ""
-  
+
   if [[ "$AUTO_YES" != "true" ]]; then
-    read -r -p "Seed the $REMOTE_ENV database at $HOSTNAME:$DB_PORT? This will insert data. [y/N] " confirm
+    read -r -p "Seed the $REMOTE_ENV database at $HOST_IP:$DB_PORT? This will insert data. [y/N] " confirm
     if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
       echo "Aborted."
       exit 0
     fi
     echo ""
   fi
-  
-  # Verify connection
-  echo -n "Checking connection to $HOSTNAME..."
-  if ! psql "$MIGRATION_DATABASE_URL" -c 'SELECT 1' > /dev/null 2>&1; then
+
+  # Verify connection — capture stderr+stdout so a real error reaches the user
+  # instead of the misleading "Cannot reach" line. Common failure modes the
+  # captured output disambiguates: bad password (`FATAL: password authentication`),
+  # network unreachable (`could not connect to server`), wrong DB/role missing.
+  echo -n "Checking connection to $HOST_IP..."
+  if err=$("$PSQL" "$MIGRATION_DATABASE_URL" -c 'SELECT 1' 2>&1 >/dev/null); then
+    echo " Connected."
+  else
     echo " Failed."
-    echo "Error: Cannot reach PostgreSQL at $HOSTNAME:$DB_PORT"
+    echo "Error: connection check at $HOST_IP:$DB_PORT failed."
+    if [ -n "${err:-}" ]; then
+      echo "psql output:"
+      printf '  %s\n' "$err"
+    fi
     exit 1
   fi
-  echo " Connected."
   echo ""
 fi
 
@@ -113,7 +174,7 @@ fi
 if [ "$MODE" = "docker" ]; then
   psql_base() { docker exec -i -e "PGOPTIONS=-c search_path=axiaops" axiaops-postgres psql -U axiaops_owner -d axiaops "$@"; }
 else
-  psql_base() { PGOPTIONS="-c search_path=axiaops" psql "$MIGRATION_DATABASE_URL" "$@"; }
+  psql_base() { PGOPTIONS="-c search_path=axiaops" "$PSQL" "$MIGRATION_DATABASE_URL" "$@"; }
 fi
 
 psql_exec()  { psql_base --quiet -c "$1"; }           # Run single statement, no output (writes)
@@ -139,7 +200,7 @@ if [ "$MODE" = "docker" ]; then
 else
   echo -n "Waiting for remote PostgreSQL to be ready..."
   for i in {1..30}; do
-    if psql "$MIGRATION_DATABASE_URL" -c "SELECT 1" &>/dev/null; then
+    if "$PSQL" "$MIGRATION_DATABASE_URL" -c "SELECT 1" &>/dev/null; then
       echo " Ready."
       break
     fi
@@ -157,17 +218,26 @@ PERIOD_END="$NOW"
 
 # ── Resolve organization ID ─────────────────────────────────────────────────────────
 # Must match whichever organization the API is serving data for:
-#   - Staging (Kinde auth): one real organization created by Kinde login — pick the oldest.
-#   - Dev (DEV_MODE=true):  organization id == DEV_ORGANIZATION_ID (ensured by the API at
-#     startup via Store.EnsureOrganization). Seed mirrors that — pin the same id.
+#   - Auth-on envs (staging / preview / demo, AUTH_PROVIDER=native or kinde):
+#     one real organization created by the bootstrap flow (or by Kinde login on
+#     legacy staging). Pick the oldest organizations row — first one wins on
+#     a multi-org install, which is the only one we'd want to seed.
+#   - Auth-bypass envs (dev-1 / dev-2 / local docker, DEV_MODE=true):
+#     organization id == DEV_ORGANIZATION_ID (ensured by the API at startup
+#     via Store.EnsureOrganization). Seed mirrors that — pin the same id.
 
-if [[ "$REMOTE_ENV" == "staging" ]]; then
+# AUTH_ON_ENVS = the set where the API requires real auth and creates real
+# org rows via bootstrap or Kinde. Keep in sync with DEV_MODE settings in
+# deploy/{env}.yml — if you flip an env's DEV_MODE here, mirror it there.
+AUTH_ON_ENVS_REGEX="^(staging|preview|demo)$"
+
+if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX ]]; then
   ORGANIZATION_ID=$(psql_query "SELECT id FROM organizations ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
   if [ -z "$ORGANIZATION_ID" ]; then
-    echo "Error: no organization found in staging DB — log into the dashboard first so Kinde creates one."
+    echo "Error: no organization found in $REMOTE_ENV DB — bootstrap the first owner via the dashboard at https://axiaops-$REMOTE_ENV.local first so an organization row exists, then re-run."
     exit 1
   fi
-  echo "Using staging organization: ${ORGANIZATION_ID}"
+  echo "Using $REMOTE_ENV organization: ${ORGANIZATION_ID}"
 else
   ORGANIZATION_ID="$DEV_ORGANIZATION_ID_VAL"
   psql_exec "INSERT INTO organizations (id, org_code, name, created_at)

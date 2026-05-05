@@ -572,6 +572,76 @@ export async function deleteCurrentOrganization() {
   return request('/v1/organizations/me', { method: 'DELETE' });
 }
 
+// ── SSO connections (Phase B2 slice 5) ─────────────────────────────────────
+//
+// Owner-only writes (sso:manage); viewer+ reads (sso:read). The server
+// encrypts oidc_client_secret at the API boundary — clients send plaintext
+// in `oidc_client_secret`, the response strips ciphertext entirely.
+
+// discoverSSO is the pre-auth email-blur lookup powering LoginScreen.
+// Returns { has_sso, redirect_url, ... } with constant response shape — the
+// server never 4xx's on bad input, so callers don't need to fall back on
+// errors caused by the email value (only on transport errors).
+export async function discoverSSO(email) {
+  const qs = `?email=${encodeURIComponent(email)}`;
+  return request(`/v1/sso/discover${qs}`);
+}
+
+export async function listSSOConnections() {
+  return request('/v1/sso/connections');
+}
+
+export async function createSSOConnection(payload) {
+  return request('/v1/sso/connections', { method: 'POST', body: payload });
+}
+
+export async function updateSSOConnection(id, payload) {
+  return request(`/v1/sso/connections/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
+
+export async function deleteSSOConnection(id) {
+  return request(`/v1/sso/connections/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function listSSODomains() {
+  return request('/v1/sso/domains');
+}
+
+// Returns the freshly-created row including `verification_token` — the
+// caller MUST surface this immediately because the token is stripped from
+// every subsequent list response.
+export async function createSSODomain({ ssoConnectionId, domain }) {
+  return request('/v1/sso/domains', {
+    method: 'POST',
+    body: { sso_connection_id: ssoConnectionId, domain },
+  });
+}
+
+// Returns either {verified:true, expires_at} or {verified:false, reason}.
+export async function verifySSODomain(id) {
+  return request(`/v1/sso/domains/${encodeURIComponent(id)}/verify`, { method: 'POST' });
+}
+
+export async function deleteSSODomain(id) {
+  return request(`/v1/sso/domains/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function listSSOGroupMappings(connectionId) {
+  return request(`/v1/sso/connections/${encodeURIComponent(connectionId)}/group-mappings`);
+}
+
+// Replace the FULL set of mappings for the connection. Server-side this is
+// a transactional delete-then-insert per replaceSSOGroupMappings handler.
+export async function replaceSSOGroupMappings(connectionId, mappings) {
+  return request(`/v1/sso/connections/${encodeURIComponent(connectionId)}/group-mappings`, {
+    method: 'PUT',
+    body: { mappings },
+  });
+}
+
 // ── Native auth (Phase B1) ──────────────────────────────────────────────────
 //
 // All four endpoints below work via the `axiaops_session` HttpOnly cookie —

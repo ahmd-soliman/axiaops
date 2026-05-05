@@ -14,7 +14,13 @@ export const DEV_ORG_NAME    = env.DEV_ORG_NAME      ?? import.meta.env.VITE_DEV
 //   - ""                → defaults to "native" (B1's terminal state)
 // Plan §4.5. The value is purely UI selection; the API enforces auth
 // regardless of what the dashboard chose.
-export const AUTH_PROVIDER   = env.AUTH_PROVIDER     ?? import.meta.env.VITE_AUTH_PROVIDER   ?? 'native';
+//
+// `||` rather than `??` so empty string falls through to the default — a
+// missing AUTH_PROVIDER in the deploy compose used to surface as `''` from
+// inject-env.sh, which `??` would have preserved (only null/undefined fall
+// through). The deploy files now plumb the value through, but `||` belts-
+// and-braces against future drift.
+export const AUTH_PROVIDER   = env.AUTH_PROVIDER     || import.meta.env.VITE_AUTH_PROVIDER   || 'native';
 
 // Build-time identifiers for the footer. These are tied to the bundle, not the
 // deployment environment, so they live in build-time vars rather than the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 
@@ -89,6 +90,25 @@ func JITResolveRole(mappings []model.SSOGroupMapping, userGroups []string, defau
 // (the resolver caps at admin), but worth surfacing if someone bypasses it.
 var ErrJITOwnerForbidden = errors.New("sso: JIT cannot provision owner role; ownership originates from bootstrap or transfer only")
 
+// JITOutcome describes which path JITProvisionMembership took. Returned so
+// the caller can write the right audit row — first-time provision and
+// re-login role change are different events (`sso_jit_provisioned` vs
+// `sso_jit_role_updated` per design §10.3).
+type JITOutcome int
+
+const (
+	// JITOutcomeNoop — membership already exists at the requested role.
+	// Re-login with unchanged role; not audited (would otherwise log every
+	// SSO login as a JIT event).
+	JITOutcomeNoop JITOutcome = iota
+	// JITOutcomeCreated — first-time JIT provision. Audit
+	// `sso_jit_provisioned`.
+	JITOutcomeCreated
+	// JITOutcomeUpdated — existing membership role reconciled to match
+	// current group claims. Audit `sso_jit_role_updated`.
+	JITOutcomeUpdated
+)
+
 // JITProvisionMembership inserts a (user, organization, role) membership in
 // one transaction and marks it as provisioned_via='jit'. Idempotent on the
 // (organization_id, user_id) unique constraint — re-call after a successful
@@ -102,15 +122,15 @@ var ErrJITOwnerForbidden = errors.New("sso: JIT cannot provision owner role; own
 // The seam exists now so the OIDC RP slice doesn't need to define a new
 // helper — and the test in permission_matrix_test.go already asserts the
 // owner-rejection guard, which is the security-critical part.
-func JITProvisionMembership(ctx context.Context, store JITMembershipStore, organizationID, userID, role string) error {
+func JITProvisionMembership(ctx context.Context, store JITMembershipStore, organizationID, userID, role string) (JITOutcome, error) {
 	if role == string(authz.RoleOwner) {
-		return ErrJITOwnerForbidden
+		return JITOutcomeNoop, ErrJITOwnerForbidden
 	}
 	if _, ok := rolePriority[role]; !ok {
-		return fmt.Errorf("sso: JIT provision: unknown role %q", role)
+		return JITOutcomeNoop, fmt.Errorf("sso: JIT provision: unknown role %q", role)
 	}
 	if organizationID == "" || userID == "" {
-		return fmt.Errorf("sso: JIT provision: organization_id and user_id required")
+		return JITOutcomeNoop, fmt.Errorf("sso: JIT provision: organization_id and user_id required")
 	}
 
 	// Try to insert; if a membership already exists with this role, the call
@@ -125,23 +145,61 @@ func JITProvisionMembership(ctx context.Context, store JITMembershipStore, organ
 	err := store.SaveMembership(ctx, m)
 	switch {
 	case err == nil:
-		return nil
+		return JITOutcomeCreated, nil
 	case errors.Is(err, storage.ErrMembershipExists):
 		// Existing membership; reconcile role. Single O(1) lookup via the
 		// admin-pool helper (no list walk, no race window between the
 		// uniqueness conflict and a follow-up ListMemberships).
 		existing, lookupErr := store.GetMembershipByOrgUser(ctx, organizationID, userID)
 		if lookupErr != nil {
-			return fmt.Errorf("sso: JIT provision: lookup existing membership: %w", lookupErr)
+			return JITOutcomeNoop, fmt.Errorf("sso: JIT provision: lookup existing membership: %w", lookupErr)
 		}
 		// Sticky owner: JIT must NEVER demote an owner. Mappings can't even
 		// resolve to owner (rolePriority excludes it), but an existing owner
 		// membership stays untouched here too.
 		if existing.Role == string(authz.RoleOwner) || existing.Role == role {
-			return nil
+			return JITOutcomeNoop, nil
 		}
-		return store.UpdateMembershipRole(ctx, existing.ID, role)
+		// Provenance guard: only reconcile roles on memberships JIT itself
+		// placed. An admin-placed row (provisioned_via='manual' or
+		// 'invitation') reflects an explicit role choice the customer
+		// admin made — JIT-on-relogin must not silently overwrite it
+		// even if the user's group claims now resolve to something
+		// different. Closes the race between POST /v1/auth/invitations/redeem
+		// (B1.5 cross-org flow) and the SSO callback's invite-redeem step:
+		// the loser of the FOR-UPDATE on pending_memberships sees
+		// (false, nil) from RedeemPendingInvitation, falls through here,
+		// and previously would update the just-inserted invitation-role
+		// membership to the SSO-resolved role.
+		//
+		// 'scim' rows are SCIM-managed (Phase E) and similarly off-limits
+		// to JIT. 'legacy' rows are pre-B2 backfills with unrecoverable
+		// provenance — defensive skip; better to leave a possibly-wrong
+		// role than to overwrite something we can't reason about.
+		//
+		// Caveat — admin demotion of a JIT-placed row is NOT made sticky
+		// by this guard: PATCH /v1/memberships/{id}/role updates only
+		// `role`, leaving `provisioned_via='jit'` intact, so the next SSO
+		// login can re-promote if upstream group claims still resolve
+		// higher. Making demotions sticky would require flipping
+		// provisioned_via to 'manual' on admin-driven role changes —
+		// deferred as a separate behavioural change, tracked outside
+		// this race fix.
+		if existing.ProvisionedVia != model.ProvisionedViaJIT {
+			slog.Debug("sso: jit reconcile skipped: non-jit provenance",
+				"organization_id", organizationID,
+				"user_id", userID,
+				"provisioned_via", existing.ProvisionedVia,
+				"existing_role", existing.Role,
+				"resolved_role", role,
+			)
+			return JITOutcomeNoop, nil
+		}
+		if err := store.UpdateMembershipRole(ctx, existing.ID, role); err != nil {
+			return JITOutcomeNoop, fmt.Errorf("sso: JIT provision: update role: %w", err)
+		}
+		return JITOutcomeUpdated, nil
 	default:
-		return fmt.Errorf("sso: JIT provision: %w", err)
+		return JITOutcomeNoop, fmt.Errorf("sso: JIT provision: %w", err)
 	}
 }

@@ -4,7 +4,12 @@ COPY services/shared/ /shared/
 COPY services/ingestion/go.mod services/ingestion/go.sum ./
 RUN go mod download
 COPY services/ingestion/ .
-RUN go build -o ingestion ./cmd/
+# BUILD_TAGS — see services/api/Dockerfile for the layer-3 rationale.
+# Mirroring api's stripping for parity: an api binary that ignores
+# DEV_MODE paired with an ingestion binary that honours it would still
+# leak the bypass at the ingestion-side scan-gate.
+ARG BUILD_TAGS=
+RUN go build -tags "$BUILD_TAGS" -o ingestion ./cmd/
 
 FROM alpine:3.20
 WORKDIR /app

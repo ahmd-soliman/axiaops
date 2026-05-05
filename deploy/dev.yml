@@ -9,7 +9,7 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - gitlab-runner-network
+      - default-network
 
   ingestion:
     image: axiaops-ingestion:${DEPLOY_ENV}
@@ -22,16 +22,20 @@ services:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
+      # Text logs match dev-1/dev-2's "fast inspection over SSH" use case.
+      # After 8cbf35a logging.go no longer infers text from DEV_MODE — set
+      # LOG_OUTPUT explicitly here. Override to `json` if needed.
+      LOG_OUTPUT: ${LOG_OUTPUT:-text}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
     networks:
-      - gitlab-runner-network
+      - default-network
 
   api:
     image: axiaops-api:${DEPLOY_ENV}
     container_name: axiaops-api-${DEPLOY_ENV}
     restart: unless-stopped
     ports:
-      - "${API_HOST_PORT}:8080"
+      - "8080:8080"
     environment:
       DATABASE_URL: ${DATABASE_URL}
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
@@ -40,16 +44,19 @@ services:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
+      # See ingestion service above for rationale.
+      LOG_OUTPUT: ${LOG_OUTPUT:-text}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
+      PUBLIC_HOST: ${PUBLIC_HOST}
     networks:
-      - gitlab-runner-network
+      - default-network
 
   dashboard:
     image: axiaops-dashboard:${DEPLOY_ENV}
     container_name: axiaops-dashboard-${DEPLOY_ENV}
     restart: unless-stopped
     ports:
-      - "${DASHBOARD_HOST_PORT}:80"
+      - "80:80"
     environment:
       API_HOST: axiaops-api-${DEPLOY_ENV}
       DEV_MODE: "true"
@@ -57,8 +64,21 @@ services:
       FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
       AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     networks:
-      - gitlab-runner-network
+      - default-network
 
 networks:
-  gitlab-runner-network:
+  # Per-env network created by self-hosted-infra on each axiaops-${DEPLOY_ENV} host
+  # (one host = one dev environment, so ports don't collide across envs).
+  #
+  # Literal compose-internal key (`default-network`) + dynamic external `name`:
+  # docker-compose v2 does not reliably substitute ${VAR} in `networks:` map
+  # keys (only in scalar values), so a key like `axiaops-${DEPLOY_ENV}-network`
+  # stays literal at the top level while service references substitute as
+  # expected — producing the symptom `service "X" refers to undefined network
+  # axiaops-dev-1-network: invalid compose project` even though the network
+  # exists on the daemon. The fix: a literal key (no substitution required)
+  # plus an explicit `name:` field, which IS substituted reliably and is
+  # what compose passes to the docker daemon for lookup.
+  default-network:
     external: true
+    name: axiaops-${DEPLOY_ENV}-network
