@@ -278,6 +278,16 @@ func (h *Handler) createInvitationNative(w http.ResponseWriter, r *http.Request)
 
 	resp := toInvitationResponse(inv)
 	resp.RedemptionURL = h.buildRedemptionURL(plaintext)
+	// Set Content-Type BEFORE WriteHeader. Go's net/http flushes headers on
+	// WriteHeader and any header mutation after that is silently dropped.
+	// writeJSON sets Content-Type too, but on the 201 path that runs after
+	// WriteHeader and is a no-op — clients then receive a JSON body with no
+	// Content-Type, the dashboard's request() falls through to res.text(),
+	// and the redemption_url field gets stringified along with the rest.
+	// Pin the order here. The 200 path works coincidentally because
+	// writeJSON's Header().Set runs before Encode triggers the implicit
+	// WriteHeader(200), but relying on that is brittle.
+	w.Header().Set("Content-Type", "application/json")
 	if inserted {
 		w.WriteHeader(http.StatusCreated)
 	}

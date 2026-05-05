@@ -206,7 +206,7 @@ export default function Team() {
                   ×
                 </button>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ position: 'relative' }}>
                 <input
                   type="text"
                   readOnly
@@ -214,7 +214,8 @@ export default function Team() {
                   onFocus={(e) => e.target.select()}
                   style={{
                     ...inputStyle(t),
-                    flex: 1,
+                    width: '100%',
+                    paddingRight: 36,
                     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                     fontSize: 12,
                   }}
@@ -223,17 +224,30 @@ export default function Team() {
                   type="button"
                   onClick={async () => {
                     try {
-                      await navigator.clipboard.writeText(lastInvite.url);
+                      await navigator?.clipboard?.writeText(lastInvite.url);
                       setCopied(true);
-                      setTimeout(() => setCopied(false), 1500);
+                      setTimeout(() => setCopied(false), 2000);
                     } catch {
                       // Clipboard API unavailable (insecure context, etc).
-                      // Selection above lets the user Cmd/Ctrl-C manually.
+                      // Focus auto-selects the input so Cmd/Ctrl-C still works.
                     }
                   }}
-                  style={primaryButton(t)}
+                  aria-label={copied ? 'Copied!' : 'Copy link'}
+                  title={copied ? 'Copied!' : 'Copy link'}
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    right: 8,
+                    transform: 'translateY(-50%)',
+                    padding: 4,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    color: copied ? '#34d399' : t.textMuted,
+                  }}
                 >
-                  {copied ? 'Copied!' : 'Copy link'}
+                  {copied ? '✓' : '⧉'}
                 </button>
               </div>
               <p style={{ marginTop: 8, marginBottom: 0, fontSize: 11, color: t.textMuted }}>
