@@ -133,7 +133,7 @@ Log out of the dashboard. Go to `/login`, enter `alice@example.com`:
    confirms the email's domain is verified for THIS connection AND THIS
    org (anti-spoofing), runs JIT (group→role precedence; owner-never-via-JIT
    pin), mints a session with `auth_mode='sso'`.
-7. Browser lands on `/dashboard` with the AxiaOps session cookie.
+7. Browser lands on `/` (the SPA's post-login landing) with the AxiaOps session cookie.
 
 ## 5. What to watch in API logs
 
@@ -265,7 +265,7 @@ real-IdP round-trip held. Probes are ordered cheapest-first — if probe 1
 ### Probe 4 — First-time SSO login (JIT create, default-role path)
 - [ ] Email-blur on `/login` redirects to Keycloak authorize URL
 - [ ] Keycloak shows AxiaOps client; auth as alice succeeds
-- [ ] Browser lands on `/dashboard` with the AxiaOps session cookie set
+- [ ] Browser lands on `/` with the AxiaOps session cookie set
 - [ ] Audit log shows `SSO_LOGIN_SUCCEEDED` + `SSO_JIT_PROVISIONED`
 - [ ] `memberships.provisioned_via='jit'`, role matches expectation
       (default_role if no groups; group-mapped role otherwise)
@@ -301,7 +301,7 @@ real-IdP round-trip held. Probes are ordered cheapest-first — if probe 1
 ### Probe 8 — Anti-spoofing: unverified-domain email rejected
 - [ ] In Keycloak, change alice's email to `alice@unverified.example`
 - [ ] Log in via SSO
-- [ ] Browser lands on `/login?error=auth_failed` (not /dashboard)
+- [ ] Browser lands on `/login?error=auth_failed` (not `/`)
 - [ ] Audit log shows `SSO_LOGIN_FAILED` reason `domain_unverified`
 - [ ] No session cookie set
 - Notes:
@@ -317,10 +317,13 @@ real-IdP round-trip held. Probes are ordered cheapest-first — if probe 1
 
 ### Probe 10 — Open-redirect defence
 - [ ] `curl '...initiate?return_to=https://evil.com'` — login completes,
-      lands on `/dashboard` (not evil.com)
+      lands on `/` (not evil.com)
 - [ ] `curl '...initiate?return_to=//evil.com'` — same
 - [ ] `curl '...initiate?return_to=/dashboard/zombies'` — login completes
-      and lands on `/dashboard/zombies` (legitimate path preserved)
+      and lands on `/dashboard/zombies` (legitimate path preserved). Note:
+      this URL still resolves through the SPA's `/*` catch-all → blank
+      page until/unless we wire a /dashboard route. The assertion is that
+      the open-redirect guard PRESERVES the path, not that the page renders.
 - Notes:
 
 ## Bugs found

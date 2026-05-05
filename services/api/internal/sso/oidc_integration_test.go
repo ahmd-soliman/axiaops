@@ -515,7 +515,7 @@ func ensureEncryptionKey(t *testing.T) {
 // browser returns an http.Client that follows redirects within both the API
 // and the IdP loopback servers, persisting cookies set on the API origin.
 // The default 10-redirect cap is plenty for one ceremony (initiate → IdP →
-// callback → /dashboard = 3 hops).
+// callback → "/" = 3 hops).
 func newBrowser(t *testing.T) *http.Client {
 	t.Helper()
 	jar, err := cookiejar.New(nil)
@@ -542,9 +542,9 @@ func extractSessionCookie(t *testing.T, client *http.Client, origin string) stri
 }
 
 // loginAndAssertSession is the canonical happy-path driver: runs the
-// ceremony, verifies the response landed at the in-process /dashboard
-// (which 404s because we don't register that route — the assertion is on
-// the *redirect path*, not the page), and returns the session cookie value.
+// ceremony, verifies the response landed at the in-process "/" (which 404s
+// because we don't register that route — the assertion is on the *redirect
+// path*, not the page), and returns the session cookie value.
 func loginAndAssertSession(t *testing.T, fx *fixture, user mockOIDCUser) string {
 	t.Helper()
 	fx.mockIDP.SetUser(user)
@@ -556,11 +556,11 @@ func loginAndAssertSession(t *testing.T, fx *fixture, user mockOIDCUser) string 
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	// Final response is the dashboard 404 (we didn't register /dashboard).
+	// Final response is the "/" 404 (we didn't register that route).
 	// What matters is the request URL we ended up on after redirects:
-	// it must be on the API origin and path /dashboard, NOT on the
+	// it must be on the API origin and path "/", NOT on the
 	// IdP and NOT on /login?error=auth_failed.
-	if got, want := resp.Request.URL.Path, "/dashboard"; got != want {
+	if got, want := resp.Request.URL.Path, "/"; got != want {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("ceremony landed at %q (expected %q); body=%q", got, want, string(body))
 	}
@@ -579,7 +579,7 @@ func loginAndAssertSession(t *testing.T, fx *fixture, user mockOIDCUser) string 
 
 // TestOIDC_HappyPath_GroupRoleProvisioned drives the full ceremony for a
 // brand-new user whose `groups` claim maps to admin. Verifies:
-//   - Ceremony lands on /dashboard with a session cookie set.
+//   - Ceremony lands on "/" with a session cookie set.
 //   - users row exists and carries the IdP sub.
 //   - memberships row exists with role=admin and provisioned_via='jit'.
 //   - audit_log carries an SSO_LOGIN_SUCCEEDED event for the new user.
