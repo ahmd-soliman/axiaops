@@ -46,6 +46,16 @@ services:
       KINDE_USE_STUB: ${KINDE_USE_STUB:-false}
       INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-14}
       PUBLIC_HOST: ${PUBLIC_HOST}
+    # Pin DNS to the LAN resolver so split-horizon rewrites for self-hosted
+    # IdPs (e.g. *.example.com) take effect inside the container.
+    # Otherwise Docker's embedded DNS forwards to a public resolver, returning
+    # the Cloudflare-Tunnel public IP, and the OIDC discovery fetch hits the
+    # WAF instead of Keycloak. Set INTERNAL_DNS per env in CI variables;
+    # falls back to 1.1.1.1 if unset (which reproduces the bug, but keeps
+    # non-LAN names like AWS APIs resolving).
+    dns:
+      - ${INTERNAL_DNS:-1.1.1.1}
+      - 1.1.1.1
     networks:
       - default-network
 
