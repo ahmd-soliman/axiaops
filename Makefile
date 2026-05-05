@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging inspect-db clean-db clean-db-drop clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging inspect-db clean-db clean-db-drop clean-db-files clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -124,6 +124,16 @@ clean-db:
 # Clean local dev database (drop schema and user — destructive).
 clean-db-drop:
 	./scripts/clean_db.sh --drop-schema
+
+# Wipe pg_data on disk so Postgres re-initdb's on next start. Use this when
+# clean-db / clean-db-drop aren't enough — e.g. to re-arm the bootstrap install
+# token, or after a botched migration that left the cluster in an unrecoverable
+# state. Requires sudo because Postgres-in-container writes files as the
+# container's postgres uid, not as the host user. The `stop` dependency
+# guarantees no container is still holding the volume open at delete time.
+clean-db-files: stop
+	@echo "Wiping pg_data — requires sudo. Postgres will re-initdb on next start."
+	sudo rm -rf pg_data
 
 # ── Remote Database Cleanup ───────────────────────────────────────────────────
 # Per-host self-hosted design: each env runs on its own container, postgres on the
