@@ -70,10 +70,18 @@ export default function Team() {
       // Absent under AUTH_PROVIDER=kinde (Kinde sends an email itself) and
       // also absent on the addMember fallback (existing-user-no-membership).
       if (data?.redemption_url) {
+        // The API emits a relative path (`/accept-invite?token=...`) when
+        // PUBLIC_HOST is unset (typical for local dev) and an absolute URL
+        // when it is. Resolve to absolute against window.location.origin so
+        // the OOB-shared link is always usable in any chat/email client. See
+        // services/api/internal/api/invitations.go:buildRedemptionURL.
+        const url = data.redemption_url.startsWith('/')
+          ? window.location.origin + data.redemption_url
+          : data.redemption_url;
         setLastInvite({
           email: data._email || data.email,
           role: data._role || data.role,
-          url: data.redemption_url,
+          url,
         });
       } else {
         setLastInvite(null);
