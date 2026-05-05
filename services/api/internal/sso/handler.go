@@ -10,6 +10,7 @@ import (
 
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/authz"
+	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 )
@@ -129,6 +130,11 @@ type connectionRequest struct {
 	SAMLSSOURL       string `json:"saml_sso_url,omitempty"`
 	SAMLSigningCert  string `json:"saml_signing_cert,omitempty"`
 	SAMLPreviousCert string `json:"saml_previous_cert,omitempty"`
+	// ForceReauth is `*bool` rather than `bool` so the handler can
+	// distinguish "field omitted from JSON" (apply default / no change)
+	// from "explicitly set to false" (admin opting out). Default on create
+	// is true; on PATCH a nil value is "no change".
+	ForceReauth *bool `json:"force_reauth,omitempty"`
 }
 
 func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
@@ -138,17 +144,29 @@ func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	// Reject the plaintext OIDC client_secret until the OIDC ceremony slice
-	// wires crypto.Encrypt at this boundary. Accepting it now would write
-	// plaintext into the oidc_client_secret_ciphertext column (a draft row
-	// would carry a clear-text secret), which defeats the encryption regime
-	// for any operator running pg_dump or querying the table directly.
+	// Encrypt the OIDC client_secret at the API boundary. The ciphertext
+	// is what the postgres column stores; the runtime callback decrypts via
+	// crypto.Decrypt(string(OIDCClientSecretCiphertext)) for the token
+	// exchange. Same idiom as accounts.aws_secret_key_ciphertext.
+	var oidcSecretCiphertext []byte
 	if req.OIDCClientSecret != "" {
-		writeError(w, http.StatusNotImplemented, "oidc_client_secret not yet supported in B2 slice 3 — lands with the OIDC ceremony slice")
-		return
+		ct, err := crypto.Encrypt(req.OIDCClientSecret)
+		if err != nil {
+			slog.Error("sso: create connection: encrypt client_secret", "error", err)
+			writeError(w, http.StatusInternalServerError, "encryption failed")
+			return
+		}
+		oidcSecretCiphertext = []byte(ct)
 	}
 	orgID := middleware.OrganizationID(r.Context())
 	userID := middleware.UserID(r.Context())
+
+	// force_reauth defaults to true on POST. Nil in the request means
+	// "use the default"; explicit false means "admin opted out".
+	forceReauth := true
+	if req.ForceReauth != nil {
+		forceReauth = *req.ForceReauth
+	}
 
 	c := model.SSOConnection{
 		OrganizationID:   orgID,
@@ -160,13 +178,15 @@ func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
 		IdPIssuer:        req.IdPIssuer,
 		IdPMetadataURL:   req.IdPMetadataURL,
 		IdPMetadataXML:   req.IdPMetadataXML,
-		OIDCClientID:     req.OIDCClientID,
-		OIDCDiscoveryURL: req.OIDCDiscoveryURL,
-		OIDCTenantID:     req.OIDCTenantID,
-		SAMLSSOURL:       req.SAMLSSOURL,
-		SAMLSigningCert:  req.SAMLSigningCert,
-		SAMLPreviousCert: req.SAMLPreviousCert,
-		CreatedByUserID:  userID,
+		OIDCClientID:               req.OIDCClientID,
+		OIDCClientSecretCiphertext: oidcSecretCiphertext,
+		OIDCDiscoveryURL:           req.OIDCDiscoveryURL,
+		OIDCTenantID:               req.OIDCTenantID,
+		SAMLSSOURL:                 req.SAMLSSOURL,
+		SAMLSigningCert:            req.SAMLSigningCert,
+		SAMLPreviousCert:           req.SAMLPreviousCert,
+		ForceReauth:                forceReauth,
+		CreatedByUserID:            userID,
 	}
 
 	out, err := h.connector.Save(ctx, c)
@@ -175,8 +195,7 @@ func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "create connection failed")
 		return
 	}
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, out)
+	writeJSONStatus(w, http.StatusCreated, out)
 }
 
 func (h *Handler) updateConnection(w http.ResponseWriter, r *http.Request) {
@@ -199,14 +218,21 @@ func (h *Handler) updateConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	// Encrypt before applying — keeps the plaintext out of the in-memory
+	// model copy except for this scope.
 	if req.OIDCClientSecret != "" {
-		writeError(w, http.StatusNotImplemented, "oidc_client_secret not yet supported in B2 slice 3 — lands with the OIDC ceremony slice")
-		return
+		ct, err := crypto.Encrypt(req.OIDCClientSecret)
+		if err != nil {
+			slog.Error("sso: update connection: encrypt client_secret", "error", err)
+			writeError(w, http.StatusInternalServerError, "encryption failed")
+			return
+		}
+		existing.OIDCClientSecretCiphertext = []byte(ct)
 	}
 
 	// Apply only fields explicitly set in the request. Empty string is
 	// treated as "no change" — clearing a field requires a tombstone value
-	// the OIDC ceremony slice will define (e.g. "-" or a separate endpoint).
+	// a future slice will define (e.g. "-" or a separate endpoint).
 	if req.Label != "" {
 		existing.Label = req.Label
 	}
@@ -245,6 +271,12 @@ func (h *Handler) updateConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SAMLPreviousCert != "" {
 		existing.SAMLPreviousCert = req.SAMLPreviousCert
+	}
+	// force_reauth: nil = no change (preserve existing); explicit true/false
+	// = apply. *bool lets the request distinguish "not in JSON" from
+	// "explicit false".
+	if req.ForceReauth != nil {
+		existing.ForceReauth = *req.ForceReauth
 	}
 
 	out, err := h.connector.Save(ctx, existing)
@@ -319,8 +351,7 @@ func (h *Handler) createDomain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "create domain failed")
 		return
 	}
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, out)
+	writeJSONStatus(w, http.StatusCreated, out)
 }
 
 // verifyDomain looks up TXT records on the domain and, if the verification
@@ -465,6 +496,19 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
+	}
+}
+
+// writeJSONStatus is the explicit-status counterpart to writeJSON. Use it
+// instead of `w.WriteHeader(status); writeJSON(w, v)` — that pattern flushes
+// headers before writeJSON sets Content-Type, leaving the body without it.
+// See `services/api/internal/api/handler.go:writeJSONStatus` for the full
+// rationale (commit `bee01a2`).
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Error("sso: writeJSONStatus encode failed", "status", status, "err", err)
 	}
 }
 

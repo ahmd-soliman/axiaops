@@ -1,6 +1,7 @@
 package license_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -10,14 +11,24 @@ import (
 	"axiaops.io/shared/license"
 )
 
-// resetSnapshot ensures one test's SetCurrent doesn't leak into the next.
+// resetSnapshot ensures one test's SetCurrent / enforcement-bypass doesn't
+// leak into the next. Both pieces of package-level state get cleared.
 func resetSnapshot(t *testing.T) {
 	t.Helper()
-	t.Cleanup(func() { license.SetCurrent(nil) })
+	t.Cleanup(func() {
+		license.SetCurrent(nil)
+		license.ClearEnforcementBypass()
+	})
 }
 
 func TestVerifyAtBoot_DevModeBypass(t *testing.T) {
 	resetSnapshot(t)
+	// Explicitly clear license sources — under B1.7 layer 2 the bypass
+	// only fires when no license is configured. Without these Setenv calls
+	// a CI runner with /etc/axiaops/license.jwt installed would flip this
+	// test into the layer-2 refusal path.
+	t.Setenv(license.EnvLicense, "")
+	t.Setenv(license.EnvLicensePath, t.TempDir()+"/no-such-license.jwt")
 	if err := license.VerifyAtBoot(true); err != nil {
 		t.Fatalf("DEV_MODE bypass returned error: %v", err)
 	}
@@ -25,7 +36,16 @@ func TestVerifyAtBoot_DevModeBypass(t *testing.T) {
 		t.Errorf("DEV_MODE should leave Snapshot() nil")
 	}
 	if state := license.SnapshotState(); state != license.StateNotLoaded {
-		t.Errorf("SnapshotState() under DEV_MODE = %v, want StateNotLoaded — slice 5 scan-gate decides policy from this", state)
+		t.Errorf("SnapshotState() under DEV_MODE = %v, want StateNotLoaded — /v1/version reads this", state)
+	}
+	// Post-amendment: DEV_MODE flips the enforcement-bypass flag so scans
+	// fall through despite SnapshotState being StateNotLoaded. Without the
+	// bypass the gate would 403 every dev request.
+	if !license.IsEnforcementBypassed() {
+		t.Errorf("DEV_MODE should set IsEnforcementBypassed=true so scans fall through")
+	}
+	if !license.IsScanAllowed() {
+		t.Errorf("IsScanAllowed under DEV_MODE = false, want true (scans must work in dev slots)")
 	}
 }
 
@@ -70,7 +90,66 @@ func TestVerifyAtBoot_InGraceDoesNotRefuse(t *testing.T) {
 	}
 }
 
-func TestVerifyAtBoot_ExpiredHardFails(t *testing.T) {
+// TestVerifyAtBoot_DevModeWithLicenseEnvRefuses — B1.7 layer 2 anti-tamper.
+// DEV_MODE=true with a license configured via env is a deliberate-bypass
+// signal; refuse to start. The error message must reference both the plan
+// section (operator runbook entry point) and the amendment doc (rationale).
+func TestVerifyAtBoot_DevModeWithLicenseEnvRefuses(t *testing.T) {
+	resetSnapshot(t)
+	k := setupKeys(t)
+	raw := signLicense(t, k, nil, nil, nil)
+	installLicense(t, k, raw) // sets EnvLicense
+
+	err := license.VerifyAtBoot(true)
+	if err == nil {
+		t.Fatal("VerifyAtBoot(devMode=true, license configured) returned nil; want layer-2 refusal")
+	}
+	msg := err.Error()
+	for _, want := range []string{"DEV_MODE", "AXIAOPS_LICENSE", "§4.10.2", "b1.6-amendment-feature-gating.md"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing expected substring %q", msg, want)
+		}
+	}
+	// Layer 2 must NOT flip the enforcement-bypass — refusal is the whole
+	// point. A regression that called SetEnforcementBypass before checking
+	// licensePresent would silently neuter the gate. Pin the order.
+	if license.IsEnforcementBypassed() {
+		t.Error("layer-2 refusal should NOT flip enforcement-bypass; bypass would defeat the gate on the next caller")
+	}
+}
+
+// TestVerifyAtBoot_DevModeWithLicenseFileRefuses — same posture as the env
+// case, but via the file-path branch. Pinning both paths because the layer-2
+// helper resolves them differently and a regression in one is invisible
+// from the other.
+func TestVerifyAtBoot_DevModeWithLicenseFileRefuses(t *testing.T) {
+	resetSnapshot(t)
+	// Drop a sentinel file at a temp path; layer 2 doesn't parse it, only
+	// stats it, so the contents can be empty.
+	dir := t.TempDir()
+	path := dir + "/license.jwt"
+	if err := os.WriteFile(path, []byte("not-a-real-jwt"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	t.Setenv(license.EnvLicense, "")
+	t.Setenv(license.EnvLicensePath, path)
+
+	err := license.VerifyAtBoot(true)
+	if err == nil {
+		t.Fatal("VerifyAtBoot(devMode=true, license file present) returned nil; want layer-2 refusal")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("error %q should name the license path so the operator knows where to look", err.Error())
+	}
+}
+
+// TestVerifyAtBoot_ExpiredSoftFails is the post-amendment shape of what
+// used to be TestVerifyAtBoot_ExpiredHardFails: the binary keeps running on
+// a past-grace license, the operator-facing detail still lands in the slog
+// stream, and IsScanAllowed flips to false so the scan-gate 403s. The
+// snapshot stays in place so /v1/version can still report the loaded
+// license claims with state="expired".
+func TestVerifyAtBoot_ExpiredSoftFails(t *testing.T) {
 	resetSnapshot(t)
 	k := setupKeys(t)
 	now := time.Now()
@@ -80,29 +159,32 @@ func TestVerifyAtBoot_ExpiredHardFails(t *testing.T) {
 	}, nil, nil)
 	installLicense(t, k, raw)
 
-	err := license.VerifyAtBoot(false)
-	if err == nil {
-		t.Fatal("VerifyAtBoot(past_grace) returned nil, want hard-fail error")
+	if err := license.VerifyAtBoot(false); err != nil {
+		t.Fatalf("VerifyAtBoot(past_grace) returned %v, want nil under amendment", err)
 	}
-	// The operator-facing message must include the renewal contact and the
-	// license ID — without these the error is unactionable in a runbook.
-	msg := err.Error()
-	for _, want := range []string{"sales@axiaops.io", "lic_acme_2026_v1", "grace ended"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("expected substring %q in error %q", want, msg)
-		}
+	if state := license.SnapshotState(); state != license.StateExpired {
+		t.Errorf("SnapshotState() = %v, want StateExpired", state)
 	}
-	// Snapshot must NOT have been set — slice 5's scan-gate would otherwise
-	// accept the binary's continued operation as licensed-and-valid.
-	if license.Snapshot() != nil {
-		t.Errorf("past-grace boot should leave Snapshot() nil, got %#v", license.Snapshot())
+	if license.Snapshot() == nil {
+		t.Error("past-grace boot should retain the snapshot so /v1/version can report claims with state=\"expired\"")
+	}
+	if license.IsScanAllowed() {
+		t.Error("IsScanAllowed past-grace = true, want false — scan-gate must block expired licenses")
+	}
+	if license.IsEnforcementBypassed() {
+		t.Error("expired license should NOT flip enforcement-bypass — bypass is for DEV_MODE / SaaS only")
 	}
 }
 
+// TestVerifyAtBoot_LoadError — tampered/invalid JWTs land the binary in
+// StateNotLoaded post-amendment (Load fails → no snapshot → scan-gate
+// blocks). Pre-amendment this returned an error; the new contract is that
+// VerifyAtBoot never returns an error and the metric is the durable signal.
 func TestVerifyAtBoot_LoadError(t *testing.T) {
 	resetSnapshot(t)
 	k := setupKeys(t)
-	// Tampered signature → Load returns error, VerifyAtBoot must propagate.
+	// Tampered signature → Load returns error, VerifyAtBoot now logs +
+	// continues. The classifyLoadErr metric is the durable trace.
 	raw := signLicense(t, k, nil, nil, nil)
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
@@ -113,23 +195,41 @@ func TestVerifyAtBoot_LoadError(t *testing.T) {
 	tampered := parts[0] + "." + parts[1] + "." + flipped
 	installLicense(t, k, tampered)
 
-	err := license.VerifyAtBoot(false)
-	if err == nil {
-		t.Fatal("VerifyAtBoot(tampered) returned nil, want signature error")
+	if err := license.VerifyAtBoot(false); err != nil {
+		t.Fatalf("VerifyAtBoot(tampered) returned %v, want nil under amendment", err)
+	}
+	if license.Snapshot() != nil {
+		t.Error("tampered license should leave Snapshot nil")
+	}
+	if license.IsScanAllowed() {
+		t.Error("IsScanAllowed with tampered license = true, want false")
 	}
 }
 
+// TestVerifyAtBoot_MissingLicense — no env, no file, no DEV_MODE: the
+// binary boots into StateNotLoaded and the scan-gate 403s. Pre-amendment
+// this refused to start; post-amendment the operator gets the slog.Error
+// install instructions and the LicenseLoadErrorsTotal{reason="missing"}
+// metric increments.
 func TestVerifyAtBoot_MissingLicense(t *testing.T) {
 	resetSnapshot(t)
 	t.Setenv(license.EnvLicense, "")
 	t.Setenv(license.EnvLicensePath, t.TempDir()+"/no-such-license.jwt")
 
-	err := license.VerifyAtBoot(false)
-	if err == nil {
-		t.Fatal("VerifyAtBoot(missing) returned nil, want ErrNoLicense propagation")
+	if err := license.VerifyAtBoot(false); err != nil {
+		t.Fatalf("VerifyAtBoot(missing) returned %v, want nil under amendment", err)
 	}
-	if !strings.Contains(err.Error(), "AXIAOPS_LICENSE") {
-		t.Errorf("error %q should mention the env var to set", err.Error())
+	if license.Snapshot() != nil {
+		t.Error("missing license should leave Snapshot nil")
+	}
+	if state := license.SnapshotState(); state != license.StateNotLoaded {
+		t.Errorf("SnapshotState() = %v, want StateNotLoaded", state)
+	}
+	if license.IsScanAllowed() {
+		t.Error("IsScanAllowed with no license = true, want false (scan-gate must block production not_loaded)")
+	}
+	if license.IsEnforcementBypassed() {
+		t.Error("missing license must not flip enforcement-bypass — bypass is for DEV_MODE / SaaS only")
 	}
 }
 
@@ -141,42 +241,35 @@ func TestSnapshotState_NoLicense(t *testing.T) {
 	}
 }
 
-// TestVerifyAtBoot_LoadErrorReasonLabels pins each license-load failure mode
-// to the Prometheus reason label classifyLoadErr emits. Substring matching
-// against fmt.Errorf-wrapped messages is fragile, so this regression test
-// fails loudly if license.go's error strings change without a matching
-// classifyLoadErr update. The labels match metrics.go's documented set.
-func TestVerifyAtBoot_LoadErrorReasonLabels(t *testing.T) {
+// TestVerifyAtBoot_LoadErrorClassification pins each license-load failure
+// mode to the post-amendment behaviour: VerifyAtBoot returns nil, no
+// snapshot is set, and the scan-gate blocks. The Prometheus reason label
+// is the durable classification signal — covered by the metrics test below
+// (TestVerifyAtBoot_LoadErrorReasonMetric). Together they replace the old
+// error-substring regression that no longer applies.
+func TestVerifyAtBoot_LoadErrorClassification(t *testing.T) {
 	cases := []struct {
-		name       string
-		mutate     func(c *jwt.MapClaims)
-		method     jwt.SigningMethod
-		signKey    any
-		wantSubstr string // must appear in the error message
+		name    string
+		mutate  func(c *jwt.MapClaims)
+		method  jwt.SigningMethod
+		signKey any
 	}{
 		{
-			name:       "wrong_issuer",
-			mutate:     func(c *jwt.MapClaims) { (*c)["iss"] = "https://evil.example.com/licenses" },
-			wantSubstr: "wrong issuer",
+			name:   "wrong_issuer",
+			mutate: func(c *jwt.MapClaims) { (*c)["iss"] = "https://evil.example.com/licenses" },
 		},
 		{
-			name:       "wrong_audience",
-			mutate:     func(c *jwt.MapClaims) { (*c)["aud"] = "axiaops-saashosted" },
-			wantSubstr: "wrong audience",
+			name:   "wrong_audience",
+			mutate: func(c *jwt.MapClaims) { (*c)["aud"] = "axiaops-saashosted" },
 		},
 		{
-			name:       "future_iat",
-			mutate:     func(c *jwt.MapClaims) { (*c)["iat"] = time.Now().Add(48 * time.Hour).Unix() },
-			wantSubstr: "iat",
+			name:   "future_iat",
+			mutate: func(c *jwt.MapClaims) { (*c)["iat"] = time.Now().Add(48 * time.Hour).Unix() },
 		},
 		{
 			name:    "alg_none_classified_as_signature",
 			method:  jwt.SigningMethodNone,
 			signKey: jwt.UnsafeAllowNoneSignatureType,
-			// jwt/v5 emits "signing method none is invalid" or similar — the
-			// "verify" wrapper substring is what we match. Either way it
-			// classifies to "signature" via the verify-substring branch.
-			wantSubstr: "verify",
 		},
 	}
 	for _, tc := range cases {
@@ -186,12 +279,14 @@ func TestVerifyAtBoot_LoadErrorReasonLabels(t *testing.T) {
 			raw := signLicense(t, k, tc.mutate, tc.method, tc.signKey)
 			installLicense(t, k, raw)
 
-			err := license.VerifyAtBoot(false)
-			if err == nil {
-				t.Fatalf("VerifyAtBoot returned nil; want error containing %q", tc.wantSubstr)
+			if err := license.VerifyAtBoot(false); err != nil {
+				t.Fatalf("VerifyAtBoot returned %v, want nil under amendment", err)
 			}
-			if !strings.Contains(err.Error(), tc.wantSubstr) {
-				t.Errorf("error %q does not contain expected substring %q — classifyLoadErr label mapping in startup.go may be out of sync", err.Error(), tc.wantSubstr)
+			if license.Snapshot() != nil {
+				t.Error("load failure should leave Snapshot nil")
+			}
+			if license.IsScanAllowed() {
+				t.Error("IsScanAllowed = true after load failure; want false")
 			}
 		})
 	}

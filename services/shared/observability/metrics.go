@@ -3,12 +3,18 @@
 package observability
 
 import (
+	"net/http"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Metrics holds all Prometheus metrics for AxiaOps services.
-// These are pre-registered with the default Prometheus registry in init().
+// These are registered with the package-private registry returned by Registry().
+// Composition roots MUST scrape this registry alongside prometheus.DefaultGatherer
+// — promhttp.Handler() alone reads only the default registry and would silently
+// drop every metric defined here. See `Registry()` for the canonical merge shape.
 type Metrics struct {
 	// HTTP API metrics
 	HTTPRequestsTotal    prometheus.Counter     // Total HTTP requests received
@@ -83,10 +89,14 @@ type Metrics struct {
 	// in that case the metric is at 0 across all label-sets and effectively
 	// disappears from dashboards.
 	LicenseStateInfo       *prometheus.GaugeVec   // labels: state (valid|in_grace|expired), customer_id — exactly one label-set should be 1 at any time
-	LicenseLoadErrorsTotal *prometheus.CounterVec // labels: reason (signature|format|missing|wrong_issuer|wrong_audience|future_iat) — boot-time refusal taxonomy for the alert runbook
+	LicenseLoadErrorsTotal *prometheus.CounterVec // labels: reason (signature|format|missing|wrong_issuer|wrong_audience|future_iat|dev_mode_with_license) — boot-time refusal taxonomy for the alert runbook. `dev_mode_with_license` (B1.7 layer 2) is the only reason that still corresponds to an actual os.Exit post-B1.6-amendment; the rest soft-fail to scan-gate enforcement.
 }
 
-// registry is the global Prometheus registry.
+// registry is the package-private Prometheus registry. Held private to avoid
+// "duplicate metrics collector registration" if a downstream binary also
+// MustRegisters its own collectors of the same name into prometheus.DefaultRegisterer.
+// Exposed for scraping via Registry() (defined below) — composition roots
+// merge this with prometheus.DefaultGatherer when wiring `/metrics`.
 var registry = prometheus.NewRegistry()
 
 // Global holds the singleton Metrics instance.
@@ -285,7 +295,33 @@ func newMetrics() *Metrics {
 	return m
 }
 
-// Registry returns the Prometheus registry.
+// Registry returns the package-private Prometheus registry that holds every
+// metric in `Global`. Composition roots typically don't call this directly —
+// use MetricsHandler() instead, which merges this registry with the default
+// registry into a single scrape endpoint.
 func Registry() prometheus.Gatherer {
 	return registry
+}
+
+// MetricsHandler returns the http.Handler composition roots wire as `/metrics`.
+// It merges prometheus.DefaultGatherer (where binaries MustRegister their own
+// per-binary instruments) with the package-private registry that holds Global.*
+// (license, auth_provider, http_*, db_*, aws_*, scan_*, cache_*).
+//
+// Use this instead of promhttp.Handler() — promhttp.Handler() reads only the
+// default registry and every metric in this package would silently vanish from
+// the scrape. That's the regression that surfaced on MR !85: plan §4.5
+// deletion-readiness queries and §4.9.4 license observability went dark
+// because the deployed `/metrics` handler was the default-registry-only one.
+//
+// The two registries hold disjoint metric-family names today (binary-local
+// `axiaops_api_*`, `axiaops_ingestion_*` vs shared `axiaops_http_*`,
+// `axiaops_license_*`, etc.). A future name collision would surface as a
+// panic at scrape time (Gatherers rejects duplicate families) rather than
+// silent shadowing — that's the desired posture.
+func MetricsHandler() http.Handler {
+	return promhttp.HandlerFor(
+		prometheus.Gatherers{prometheus.DefaultGatherer, registry},
+		promhttp.HandlerOpts{},
+	)
 }

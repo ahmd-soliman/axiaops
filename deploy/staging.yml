@@ -4,7 +4,7 @@ services:
     container_name: axiaops-redis-staging
     restart: unless-stopped
     networks:
-      - gitlab-runner-network
+      - default-network
 
   ingestion:
     image: axiaops-ingestion:staging
@@ -15,51 +15,81 @@ services:
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
       SCAN_INTERVAL: ${SCAN_INTERVAL:-60s}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      # 30-day non-prod license minted by mint:license:staging (CI). Required
+      # for pre-release scan smoke; without it the post-amendment scan-gate
+      # 403s license_not_loaded.
+      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
       REDIS_URL: ${REDIS_URL}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
       AWS_REGION: ${AWS_REGION:-us-east-1}
     networks:
-      - gitlab-runner-network
+      - default-network
 
   api:
     image: axiaops-api:staging
     container_name: axiaops-api-staging
     restart: unless-stopped
     ports:
-      - "30051:8080"
+      - "8080:8080"
     environment:
       DATABASE_URL: ${DATABASE_URL}
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL}
       INGESTION_URL: http://axiaops-ingestion-staging:8081
       API_ADDR: ":8080"
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
       REDIS_URL: ${REDIS_URL}
+      # Strangler tier — defaults to native (the terminal state). Override
+      # via the AUTH_PROVIDER CI variable scoped to this environment if a
+      # rolling kinde→both→native step is in progress. Plan §4.5.
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-native}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
       KINDE_M2M_CLIENT_ID: ${KINDE_M2M_CLIENT_ID}
       KINDE_M2M_CLIENT_SECRET: ${KINDE_M2M_CLIENT_SECRET}
       KINDE_MGMT_API_URL: ${KINDE_MGMT_API_URL:-}
       KINDE_USE_STUB: ${KINDE_USE_STUB:-false}
       INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-14}
+      PUBLIC_HOST: ${PUBLIC_HOST}
+    # Pin DNS to the LAN resolver so split-horizon rewrites for self-hosted
+    # IdPs (e.g. *.example.com) take effect inside the container.
+    # Otherwise Docker's embedded DNS forwards to a public resolver, returning
+    # the Cloudflare-Tunnel public IP, and the OIDC discovery fetch hits the
+    # WAF instead of Keycloak. Set INTERNAL_DNS per env in CI variables;
+    # falls back to 1.1.1.1 if unset (which reproduces the bug, but keeps
+    # non-LAN names like AWS APIs resolving).
+    dns:
+      - ${INTERNAL_DNS:-1.1.1.1}
+      - 1.1.1.1
     networks:
-      - gitlab-runner-network
+      - default-network
 
   dashboard:
     image: axiaops-dashboard:staging
     container_name: axiaops-dashboard-staging
     restart: unless-stopped
     ports:
-      - "30052:80"
+      - "80:80"
     environment:
       API_HOST: axiaops-api-staging
       DEV_MODE: "false"
+      # AUTH_PROVIDER must mirror the api's value so the dashboard renders
+      # the right login UI (native form vs Kinde redirect). Same default
+      # as the api block above. See services/dashboard/src/config.js.
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-native}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
       KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-848ddce9ff16479798b3c42ced7290e6}
       DEV_ORG_NAME: ""
       FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
       AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     networks:
-      - gitlab-runner-network
+      - default-network
 
 networks:
-  gitlab-runner-network:
+  # Per-env network created by self-hosted-infra on the axiaops-staging host.
+  # Literal key + explicit `name:` matches the pattern in deploy/dev.yml so
+  # future preview/demo compose files have one shape to copy. Even though
+  # staging's name doesn't depend on a variable today, the consistency
+  # makes refactors safer.
+  default-network:
     external: true
+    name: axiaops-staging-network

@@ -138,6 +138,46 @@ Then exercise the rest:
 - 11 wrong-password login attempts from the same IP — the 11th gets a
   429 with `Retry-After` header (rate limit, plan §4.2)
 
+## Changing a user's email
+
+There is no `PATCH /v1/users/me/email` endpoint, by design.
+
+- **SSO users** — change the email in your IdP (Keycloak, Entra, …).
+  The next SSO login calls `UpsertUser` with the fresh claims and the
+  local row updates in place. `users.sso_external_id` is the stable
+  lookup key, not email — see `docs/sso-integration-design.md` §734.
+  Don't try to mutate the email locally; the next login would silently
+  overwrite it and produce a split-brain.
+
+- **Native users** — no self-serve flow. Use the workaround below.
+  Building a verified-change endpoint requires SMTP (to send a token to
+  the new address) which v1 self-hosted doesn't have, and admin-mediated
+  OOB tokens reduce to the workaround anyway.
+
+### Workaround — fixing the bootstrap owner's typo (or any native user's email)
+
+Solo owner with a typo'd email, no other members:
+
+1. **Logged in as the typo'd owner**, open Settings → Members → Invite
+   and invite `correct@example.com` at role `admin`. Copy the redemption
+   URL from the response (no SMTP — admin shares OOB).
+2. **Open the redemption URL in a private/incognito window** (so the
+   existing session doesn't interfere). Set name + password. A second
+   user now exists in the org with `role=admin`.
+3. **Switch back to the typo'd owner's session** and call
+   `POST /v1/organizations/transfer-ownership` with the new user's
+   `user_id` (visible in Settings → Members). The typo'd user is now
+   `admin`, the correct-email user is now `owner`.
+4. **Still as the typo'd user**, call `DELETE /v1/users/me`. Passes the
+   `ErrLastOwner` guard because the org has another owner. The user row
+   is deleted; audit-log entries are anonymised across all orgs.
+
+After step 4 the org has exactly one member, the new owner, with the
+correct email. Six API calls, ten minutes, one-time per install.
+
+If the org has *other* owners already, skip step 1 (just transfer to an
+existing owner) and pick up at step 3 with their `user_id`.
+
 ## Troubleshooting
 
 ### Dashboard container won't start

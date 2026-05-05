@@ -27,12 +27,12 @@ import (
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/observability"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Prometheus metrics for ingestion service
@@ -95,18 +95,19 @@ func die(msg string, args ...any) {
 func main() {
 	logging.Init("ingestion")
 
-	// ── License (B1.6) ───────────────────────────────────────────────────────
-	// Ingestion enforces the same license posture as api: refuse to start
-	// past grace, run an hourly classifier so the Prometheus gauges advance
-	// with the wall clock, and have scanScheduledAccounts skip enqueueing
-	// jobs once state == expired (plan §4.9.2b). DEV_MODE bypasses the
-	// check entirely; the SaaS binary doesn't run this code path.
+	// ── License (B1.6 amended + B1.7 layer 2) ──────────────────────────────
+	// Per docs/b1.6-amendment-feature-gating.md, ingestion mirrors the api's
+	// new posture: VerifyAtBoot logs + continues for missing/expired, and
+	// the scan-path predicates (license.IsScanAllowed) gate scans when the
+	// binary is running without a valid/in-grace license. DEV_MODE flips
+	// the enforcement-bypass flag so dev slots fall through unchanged.
+	// Layer 2 anti-tamper (plan §4.10.2) is the one case where this call
+	// returns an error — DEV_MODE=true on a host that has a license
+	// configured — and we die() loudly to surface it.
 	//
-	// **Runs before storage init by design** — license refusal must work even
-	// when the database is unreachable. Do not reorder this block to follow
-	// newStore() without preserving the "license-refusal works without DB"
-	// invariant.
-	if err := license.VerifyAtBoot(os.Getenv("DEV_MODE") == "true"); err != nil {
+	// **Runs before storage init by design** — operator-facing log lines must
+	// land even when the database is unreachable.
+	if err := license.VerifyAtBoot(devModeEnabled()); err != nil {
 		die("license: refusing to start", "error", err.Error())
 	}
 
@@ -133,18 +134,50 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	// Metrics handler
-	mux.Handle("GET /metrics", promhttp.Handler())
+	// Metrics handler — observability.MetricsHandler merges the default
+	// registry (this file's MustRegister'd ingestion counters) with the
+	// observability package's private registry (Global.* — scan, license,
+	// AWS, DB). See the helper's doc for why promhttp.Handler() alone is
+	// wrong.
+	mux.Handle("GET /metrics", observability.MetricsHandler())
 
 	mux.HandleFunc("POST /scan", func(w http.ResponseWriter, r *http.Request) {
-		// License scan-gate (plan §4.9.2b). Routed through IsScanAllowed so
-		// the predicate stays in lockstep with the api-side handler and the
-		// scheduler — single source of truth for the policy. Internal-only
-		// surface today, but a future caller (a CLI, a one-off script, a
-		// future SaaS<>self-hosted bridge) shouldn't be able to skip the gate
-		// just because the api binary did.
-		if !license.IsScanAllowed() {
-			http.Error(w, `{"error":"license_expired"}`, http.StatusForbidden)
+		// License scan-gate (plan §4.9.2b, post-amendment). Routed through
+		// IsScanAllowedForState so the predicate stays in lockstep with the
+		// api-side handler and the scheduler — single source of truth for
+		// the policy. Internal-only surface today, but a future caller (a
+		// CLI, a one-off script, a future SaaS<>self-hosted bridge)
+		// shouldn't be able to skip the gate just because the api binary did.
+		//
+		// State is read ONCE and used for both the gate predicate and the
+		// error-code branch — avoids the wall-clock-driven TOCTOU where a
+		// `valid → in_grace → expired` cross-tick between two consecutive
+		// reads could cross-classify the response body.
+		licState := license.SnapshotState()
+		if !license.IsScanAllowedForState(licState) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			switch licState {
+			case license.StateExpired:
+				_, _ = w.Write([]byte(`{"error":"license_expired"}`))
+			case license.StateNotLoaded:
+				_, _ = w.Write([]byte(`{"error":"license_not_loaded"}`))
+			case license.StateValid, license.StateInGrace:
+				// Defensive: caller (the gate predicate above) should
+				// never let these states through. If they do, slog.Warn
+				// + generic body — same posture as the api side. Without
+				// this case the asymmetry would partially document the
+				// "should never reach here" reasoning.
+				slog.Warn("ingestion scan-gate: allow-listed state reached body builder",
+					"state", licState.String(),
+				)
+				_, _ = w.Write([]byte(`{"error":"license_inactive"}`))
+			default:
+				// Future blocking states surface as license_inactive +
+				// slog.Warn rather than silent mis-classification.
+				slog.Warn("ingestion scan-gate: unhandled license state", "state", licState.String())
+				_, _ = w.Write([]byte(`{"error":"license_inactive"}`))
+			}
 			return
 		}
 		var req struct {
@@ -325,7 +358,7 @@ func main() {
 func runScan(ctx context.Context, store storage.Store, accountID string) error {
 	// Production: require database credentials only
 	if accountID == "" {
-		if os.Getenv("DEV_MODE") == "true" {
+		if devModeEnabled() {
 			slog.Warn("dev mode: using environment credentials - not recommended for production")
 		} else {
 			return fmt.Errorf("account ID required - database credentials only in production")
@@ -368,7 +401,7 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 // runIngestionCore is the shared implementation used by runScan and the HTTP handler.
 func runIngestionCore(ctx context.Context, store storage.Store, accountID string, account *model.Account) error {
 	// In DEV_MODE, skip scan only if no account is configured
-	if os.Getenv("DEV_MODE") == "true" && account == nil {
+	if devModeEnabled() && account == nil {
 		slog.Info("ingestion: DEV_MODE — skipping AWS scan (no account)", "account_id", accountID)
 		return nil
 	}
@@ -746,13 +779,16 @@ func expireSnoozes(ctx context.Context, store storage.Store) {
 
 // scanScheduledAccounts checks all accounts across all organizations and triggers scans for those overdue.
 func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue) {
-	// License gate (plan §4.9.2b). Past-grace blocks every account in this
-	// pass with a single check, not a per-account one — license state is
-	// binary-wide, and all accounts share its enforcement posture.
-	// Routed through license.IsScanAllowed so this gate stays in sync with
-	// the api-side scanAccount handler — single predicate owns the policy.
+	// License gate (plan §4.9.2b, post-amendment). Past-grace OR not-loaded
+	// blocks every account in this pass with a single check, not a per-account
+	// one — license state is binary-wide and all accounts share its
+	// enforcement posture. Routed through license.IsScanAllowed so this gate
+	// stays in sync with the api-side scanAccount handler — single predicate
+	// owns the policy.
 	if !license.IsScanAllowed() {
-		slog.Info("scan-scheduler: skipped — license expired past grace")
+		slog.Info("scan-scheduler: skipped — license not active",
+			"state", license.SnapshotState().String(),
+		)
 		return
 	}
 	accounts, err := store.ListAllAccounts(ctx)

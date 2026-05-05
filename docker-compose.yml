@@ -40,6 +40,12 @@ services:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
+      # Text logs by default for human-readable container output. After 8cbf35a
+      # logging.go no longer infers text from DEV_MODE — set LOG_OUTPUT here
+      # so `make start-staging` and debugger-attached profiles get text logs
+      # like the host-mode `make start-dev` flow does (via scripts/start.sh).
+      # Override to `json` for parity with deployed envs.
+      LOG_OUTPUT: ${LOG_OUTPUT:-text}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     volumes:
       - ${HOME}/.aws:/root/.aws:ro
@@ -67,10 +73,20 @@ services:
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops
       INGESTION_URL: http://ingestion:8081
       API_ADDR: ":8080"
+      # PUBLIC_HOST — externally-reachable origin used to build the OIDC
+      # redirect_uri the IdP sees. Without it the api logs a startup ERROR
+      # and Keycloak/Entra/etc. reject the ceremony with
+      # "Invalid parameter: redirect_uri". Default matches the dashboard's
+      # host port (see dashboard.ports below); override per-host (LAN IP,
+      # mDNS hostname, etc.) when running SSO tests against a Keycloak that
+      # only knows the absolute browser-reachable URL.
+      PUBLIC_HOST: ${PUBLIC_HOST:-http://localhost:8082}
       # Dev mode defaults — overridable by .env or explicit env vars
       DEV_MODE: ${DEV_MODE:-true}
       DEV_ORGANIZATION_ID: ${DEV_ORGANIZATION_ID:-dev-organization-axiaops}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-5f67e3efd16e96eee4afd01d27d98e1f1a11aa226312d0147ff566108ee8819a}
+      # See ingestion service above for rationale.
+      LOG_OUTPUT: ${LOG_OUTPUT:-text}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # Kinde Management API — set M2M creds for real invitation emails and
       # outbound org rename. For local staging without a real M2M app set

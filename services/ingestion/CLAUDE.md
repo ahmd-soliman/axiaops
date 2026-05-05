@@ -9,6 +9,23 @@ and writes results to PostgreSQL. Triggered by the API service via `POST /scan`.
 
 `axiaops.io/ingestion` — Go module at `services/ingestion/`. Entry point: `cmd/main.go`.
 
+## Build tags
+
+The ingestion binary supports a `production` build tag (B1.7 layer 3 — plan §4.10.2), mirroring the api binary so the bypass story is symmetric. Two siblings of `cmd/main.go` define `devModeEnabled() bool`:
+
+- `cmd/devmode_dev.go` (`//go:build !production`, default) — reads `DEV_MODE` env var.
+- `cmd/devmode_production.go` (`//go:build production`) — returns false unconditionally.
+
+Every site that previously read `os.Getenv("DEV_MODE")=="true"` routes through `devModeEnabled()` so the build-tag split lives at one seam. **Any new feature gated on dev-vs-prod must consult `devModeEnabled()`, never read the env directly** — bypassing the helper re-introduces the runtime-bypass attack the build tag closes.
+
+Asymmetric stripping (api stripped, ingestion not) would still leak the bypass at the ingestion-side scan-gate (`POST /scan`, `scanScheduledAccounts`, the worker), so both binaries get the same treatment.
+
+Build commands:
+- `go build ./cmd/` — default (DEV_MODE honoured). Used for dev-1/dev-2 deploys + local `make start-dev`.
+- `go build -tags production ./cmd/` — customer-shipping (DEV_MODE no-op). Wired via `make build-production` and the `BUILD_TAGS` Dockerfile arg.
+
+Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes; CI runs `make build-production` + `go test -tags production ./cmd/` on every pipeline so tag regressions surface in <30s.
+
 ## Endpoints
 
 | Method | Path | Auth | Purpose |

@@ -25,6 +25,7 @@ const connectionColumns = `
 	oidc_client_id, oidc_client_secret_ciphertext, oidc_discovery_url, oidc_tenant_id,
 	saml_sso_url, saml_signing_cert, saml_previous_cert, saml_previous_cert_expires_at,
 	kinde_connection_id, scim_token_ciphertext, scim_endpoint,
+	force_reauth,
 	COALESCE(created_by_user_id, ''), created_at, updated_at`
 
 // scanSSOConnection consumes a row in connectionColumns order.
@@ -37,6 +38,7 @@ func scanSSOConnection(r rowScanner) (model.SSOConnection, error) {
 		&c.OIDCClientID, &c.OIDCClientSecretCiphertext, &c.OIDCDiscoveryURL, &c.OIDCTenantID,
 		&c.SAMLSSOURL, &c.SAMLSigningCert, &c.SAMLPreviousCert, &c.SAMLPreviousCertExpiresAt,
 		&c.KindeConnectionID, &c.SCIMTokenCiphertext, &c.SCIMEndpoint,
+		&c.ForceReauth,
 		&c.CreatedByUserID, &c.CreatedAt, &c.UpdatedAt,
 	)
 	return c, err
@@ -62,6 +64,11 @@ func (s *Store) CreateSSOConnection(ctx context.Context, c model.SSOConnection) 
 	if c.DefaultRole == "" {
 		c.DefaultRole = "viewer"
 	}
+	// ForceReauth is intentionally trusted as-passed from the caller — the
+	// API layer (services/api/internal/sso/handler.go) defaults nil-in-JSON
+	// to true so storage doesn't need a parallel "if-zero-flip-true" check
+	// here. A storage-side flip would override an admin's explicit
+	// force_reauth=false at create time.
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -77,6 +84,21 @@ func (s *Store) CreateSSOConnection(ctx context.Context, c model.SSOConnection) 
 		createdBy = c.CreatedByUserID
 	}
 
+	// pgx maps Go nil []byte to SQL NULL, but the schema declares both
+	// ciphertext columns NOT NULL with an empty-bytea default. The default
+	// only applies when the column is omitted from the INSERT — which it
+	// isn't here. Coerce nil → []byte{} so a draft SAML connection (no
+	// OIDC client_secret) and any pre-SCIM connection both round-trip
+	// without violating the constraint.
+	oidcSecret := c.OIDCClientSecretCiphertext
+	if oidcSecret == nil {
+		oidcSecret = []byte{}
+	}
+	scimToken := c.SCIMTokenCiphertext
+	if scimToken == nil {
+		scimToken = []byte{}
+	}
+
 	row := tx.QueryRow(ctx, `
 		INSERT INTO sso_connections (
 			id, organization_id, protocol, label, status, enforcement, default_role,
@@ -84,6 +106,7 @@ func (s *Store) CreateSSOConnection(ctx context.Context, c model.SSOConnection) 
 			oidc_client_id, oidc_client_secret_ciphertext, oidc_discovery_url, oidc_tenant_id,
 			saml_sso_url, saml_signing_cert, saml_previous_cert, saml_previous_cert_expires_at,
 			kinde_connection_id, scim_token_ciphertext, scim_endpoint,
+			force_reauth,
 			created_by_user_id
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
@@ -91,14 +114,16 @@ func (s *Store) CreateSSOConnection(ctx context.Context, c model.SSOConnection) 
 			$11, $12, $13, $14,
 			$15, $16, $17, $18,
 			$19, $20, $21,
-			$22
+			$22,
+			$23
 		)
 		RETURNING `+connectionColumns,
 		c.ID, c.OrganizationID, c.Protocol, c.Label, c.Status, c.Enforcement, c.DefaultRole,
 		c.IdPIssuer, c.IdPMetadataURL, c.IdPMetadataXML,
-		c.OIDCClientID, c.OIDCClientSecretCiphertext, c.OIDCDiscoveryURL, c.OIDCTenantID,
+		c.OIDCClientID, oidcSecret, c.OIDCDiscoveryURL, c.OIDCTenantID,
 		c.SAMLSSOURL, c.SAMLSigningCert, c.SAMLPreviousCert, c.SAMLPreviousCertExpiresAt,
-		c.KindeConnectionID, c.SCIMTokenCiphertext, c.SCIMEndpoint,
+		c.KindeConnectionID, scimToken, c.SCIMEndpoint,
+		c.ForceReauth,
 		createdBy,
 	)
 	out, err := scanSSOConnection(row)
@@ -185,6 +210,19 @@ func (s *Store) UpdateSSOConnection(ctx context.Context, c model.SSOConnection) 
 		return err
 	}
 
+	// Same nil-bytea coercion as CreateSSOConnection — pgx writes nil as
+	// SQL NULL, which the NOT NULL constraint rejects on a label-only PATCH
+	// of a SAML connection (no oidc_client_secret to send).
+	//
+	// scim_token_ciphertext is intentionally absent from this UPDATE clause
+	// (SCIM rotation lives in Phase E). When that lands, mirror this nil
+	// coercion for c.SCIMTokenCiphertext or you will reproduce the original
+	// SQLSTATE 23502 violation.
+	oidcSecret := c.OIDCClientSecretCiphertext
+	if oidcSecret == nil {
+		oidcSecret = []byte{}
+	}
+
 	tag, err := tx.Exec(ctx, `
 		UPDATE sso_connections SET
 			label = $2,
@@ -202,12 +240,14 @@ func (s *Store) UpdateSSOConnection(ctx context.Context, c model.SSOConnection) 
 			saml_signing_cert = $14,
 			saml_previous_cert = $15,
 			saml_previous_cert_expires_at = $16,
+			force_reauth = $17,
 			updated_at = NOW()
 		WHERE id = $1`,
 		c.ID, c.Label, c.Status, c.Enforcement, c.DefaultRole,
 		c.IdPIssuer, c.IdPMetadataURL, c.IdPMetadataXML,
-		c.OIDCClientID, c.OIDCClientSecretCiphertext, c.OIDCDiscoveryURL, c.OIDCTenantID,
+		c.OIDCClientID, oidcSecret, c.OIDCDiscoveryURL, c.OIDCTenantID,
 		c.SAMLSSOURL, c.SAMLSigningCert, c.SAMLPreviousCert, c.SAMLPreviousCertExpiresAt,
+		c.ForceReauth,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: update sso connection: %w", err)
@@ -341,6 +381,25 @@ func (s *Store) GetSSODomain(ctx context.Context, id string) (model.SSODomain, e
 		return model.SSODomain{}, fmt.Errorf("postgres: get sso domain commit: %w", err)
 	}
 	return d, nil
+}
+
+// GetSSOConnectionByID looks up a connection by ID with no org context. Pre-auth
+// — used by the OIDC ceremony (initiate + callback) where the caller has only
+// the cid from the URL path. Uses the admin pool to bypass RLS; the caller
+// then re-enters RLS-scoped operations using the returned OrganizationID.
+func (s *Store) GetSSOConnectionByID(ctx context.Context, id string) (model.SSOConnection, error) {
+	row := s.adminPool.QueryRow(ctx,
+		`SELECT `+connectionColumns+` FROM sso_connections WHERE id = $1`,
+		id,
+	)
+	c, err := scanSSOConnection(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
+	}
+	if err != nil {
+		return model.SSOConnection{}, fmt.Errorf("postgres: get sso connection by id: %w", err)
+	}
+	return c, nil
 }
 
 // GetVerifiedSSODomainByName looks up a verified row by lower(domain). Pre-auth
