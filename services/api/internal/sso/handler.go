@@ -182,8 +182,7 @@ func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "create connection failed")
 		return
 	}
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, out)
+	writeJSONStatus(w, http.StatusCreated, out)
 }
 
 func (h *Handler) updateConnection(w http.ResponseWriter, r *http.Request) {
@@ -333,8 +332,7 @@ func (h *Handler) createDomain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "create domain failed")
 		return
 	}
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, out)
+	writeJSONStatus(w, http.StatusCreated, out)
 }
 
 // verifyDomain looks up TXT records on the domain and, if the verification
@@ -479,6 +477,19 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
+	}
+}
+
+// writeJSONStatus is the explicit-status counterpart to writeJSON. Use it
+// instead of `w.WriteHeader(status); writeJSON(w, v)` — that pattern flushes
+// headers before writeJSON sets Content-Type, leaving the body without it.
+// See `services/api/internal/api/handler.go:writeJSONStatus` for the full
+// rationale (commit `bee01a2`).
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Error("sso: writeJSONStatus encode failed", "status", status, "err", err)
 	}
 }
 

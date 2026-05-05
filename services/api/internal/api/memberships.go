@@ -140,8 +140,7 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, toMembershipResponse(model.MembershipWithUser{
+	writeJSONStatus(w, http.StatusCreated, toMembershipResponse(model.MembershipWithUser{
 		Membership: m,
 		Email:      target.Email,
 		Name:       target.Name,

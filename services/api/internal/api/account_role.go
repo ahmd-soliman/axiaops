@@ -108,8 +108,7 @@ func (h *Handler) createDraftAccount(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, account)
+	writeJSONStatus(w, http.StatusCreated, account)
 }
 
 // verifyRoleViaIngestion is the API-side wrapper around ingestion's
