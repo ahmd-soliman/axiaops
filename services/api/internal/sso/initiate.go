@@ -220,6 +220,13 @@ func buildAuthorizeURL(authorizeEndpoint string, p authorizeParams) (string, err
 	q.Set("nonce", p.Nonce)
 	q.Set("code_challenge", p.CodeChallenge)
 	q.Set("code_challenge_method", "S256")
+	// prompt=login forces the IdP to render its login form regardless of an
+	// existing IdP-side session (OIDC §3.1.2.1). Without it, the IdP silently
+	// re-auths whoever owns the realm cookie — a user who logs out of AxiaOps,
+	// types a different email at /login, and re-runs the SSO ceremony would
+	// inherit the previous user's identity. login_hint is purely advisory and
+	// does NOT prevent that bleed.
+	q.Set("prompt", "login")
 	if p.LoginHint != "" {
 		q.Set("login_hint", p.LoginHint)
 	}
