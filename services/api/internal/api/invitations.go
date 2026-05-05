@@ -183,10 +183,11 @@ func (h *Handler) createInvitation(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// 201 on first create, 200 on re-invite (refreshed pending row).
+	status := http.StatusOK
 	if inserted {
-		w.WriteHeader(http.StatusCreated)
+		status = http.StatusCreated
 	}
-	writeJSON(w, toInvitationResponse(inv))
+	writeJSONStatus(w, status, toInvitationResponse(inv))
 }
 
 // createInvitationNative is the AUTH_PROVIDER=native|both branch of
@@ -278,20 +279,11 @@ func (h *Handler) createInvitationNative(w http.ResponseWriter, r *http.Request)
 
 	resp := toInvitationResponse(inv)
 	resp.RedemptionURL = h.buildRedemptionURL(plaintext)
-	// Set Content-Type BEFORE WriteHeader. Go's net/http flushes headers on
-	// WriteHeader and any header mutation after that is silently dropped.
-	// writeJSON sets Content-Type too, but on the 201 path that runs after
-	// WriteHeader and is a no-op — clients then receive a JSON body with no
-	// Content-Type, the dashboard's request() falls through to res.text(),
-	// and the redemption_url field gets stringified along with the rest.
-	// Pin the order here. The 200 path works coincidentally because
-	// writeJSON's Header().Set runs before Encode triggers the implicit
-	// WriteHeader(200), but relying on that is brittle.
-	w.Header().Set("Content-Type", "application/json")
+	status := http.StatusOK
 	if inserted {
-		w.WriteHeader(http.StatusCreated)
+		status = http.StatusCreated
 	}
-	writeJSON(w, resp)
+	writeJSONStatus(w, status, resp)
 }
 
 // buildRedemptionURL composes the OOB URL the admin shares with the
@@ -353,12 +345,18 @@ func (h *Handler) listInvitations(w http.ResponseWriter, r *http.Request) {
 
 // revokeInvitation handles DELETE /v1/invitations/{id}.
 //
-// Calls Kinde's RemoveUser first to invalidate the email link, then flips the
-// local row to revoked. 410 on already-revoked, 502 on Kinde 5xx (local row
-// stays pending so retry works). Idempotent on Kinde 404 (treated as success
-// inside the kinde client).
+// Calls Kinde's RemoveUser first to invalidate the email link (legacy
+// AUTH_PROVIDER=kinde path) or skips Kinde entirely under
+// AUTH_PROVIDER=native|both, then flips the local row to revoked. 410 on
+// already-revoked, 502 on Kinde 5xx (local row stays pending so retry
+// works). Idempotent on Kinde 404 (treated as success inside the kinde
+// client).
 func (h *Handler) revokeInvitation(w http.ResponseWriter, r *http.Request) {
-	if h.kinde == nil {
+	// Branch on h.nativeAuth — same shape as createInvitation. Without this
+	// branch, every revoke under native auth returned 503 because the
+	// "kinde not configured" guard fires unconditionally even when there's
+	// no Kinde to call. Surfaced by code-reviewer post-99e8289.
+	if !h.nativeAuth && h.kinde == nil {
 		http.Error(w, "invitations not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -395,13 +393,18 @@ func (h *Handler) revokeInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgCode := middleware.OrganizationCode(r.Context())
-	if err := h.kinde.RemoveUser(ctx, orgCode, inv.KindeUserID); err != nil {
-		// 5xx — leave local row pending so a retry hits Kinde again.
-		slog.Error("invitations: Kinde RemoveUser failed",
-			"error", err, "invitation_id", inv.ID)
-		writeError(w, http.StatusBadGateway, "kinde_revoke_failed", "failed to revoke invitation via Kinde; please retry")
-		return
+	// Kinde-branch only: invalidate the email link via the Mgmt API. Under
+	// native auth there's no IdP-side user to remove — the OOB redemption
+	// URL becomes invalid the moment we flip the local row to revoked.
+	if !h.nativeAuth {
+		orgCode := middleware.OrganizationCode(r.Context())
+		if err := h.kinde.RemoveUser(ctx, orgCode, inv.KindeUserID); err != nil {
+			// 5xx — leave local row pending so a retry hits Kinde again.
+			slog.Error("invitations: Kinde RemoveUser failed",
+				"error", err, "invitation_id", inv.ID)
+			writeError(w, http.StatusBadGateway, "kinde_revoke_failed", "failed to revoke invitation via Kinde; please retry")
+			return
+		}
 	}
 
 	if err := h.store.RevokePendingInvitation(ctx, id); err != nil {

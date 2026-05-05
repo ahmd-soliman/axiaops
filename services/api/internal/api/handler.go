@@ -792,8 +792,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, account)
+	writeJSONStatus(w, http.StatusCreated, account)
 }
 
 // updateAccount edits the label, access_key_id, region, secret_key, and/or scan_interval_hours of an account.
@@ -1194,8 +1193,7 @@ func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, d)
+	writeJSONStatus(w, http.StatusCreated, d)
 }
 
 // revokeDismissal handles DELETE /v1/dismissals/{id}.
@@ -1368,5 +1366,23 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
+	}
+}
+
+// writeJSONStatus is the explicit-status counterpart to writeJSON. Use it
+// instead of `w.WriteHeader(status); writeJSON(w, v)` — that pattern flushes
+// the response headers before writeJSON's `Header().Set("Content-Type", …)`
+// runs, leaving 201/4xx/5xx responses with no Content-Type. The dashboard's
+// `request()` then falls through to `res.text()` and downstream consumers
+// see a stringified body. See commit `bee01a2` for the original surfacing
+// of this footgun.
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		// Headers already flushed by WriteHeader, so http.Error can't change
+		// the status code. Best we can do is log; the client will see a
+		// truncated body and surface a parse error.
+		slog.Error("writeJSONStatus encode failed", "status", status, "err", err)
 	}
 }
