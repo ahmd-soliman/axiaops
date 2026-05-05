@@ -45,6 +45,7 @@ services:
       KINDE_MGMT_API_URL: ${KINDE_MGMT_API_URL:-}
       KINDE_USE_STUB: ${KINDE_USE_STUB:-false}
       INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-14}
+      PUBLIC_HOST: ${PUBLIC_HOST}
     networks:
       - default-network
 
