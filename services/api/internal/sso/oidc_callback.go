@@ -96,7 +96,9 @@ type CallbackOptions struct {
 //  10. Else JIT: ListSSOGroupMappings → JITResolveRole → JITProvisionMembership.
 //  11. MintSession with auth_mode='sso'; SetSession cookie.
 //  12. Audit AuditActionSSOLoginSucceeded; redirect to state.RedirectAfterLogin
-//      (validated at initiate time) or /dashboard.
+//      (validated at initiate time) or "/" — the SPA's post-login landing
+//      route; "/dashboard" was a stale alias that no SPA route handles, so
+//      a default redirect there rendered a blank page.
 //
 // All failure paths after we've identified the connection emit
 // AuditActionSSOLoginFailed and redirect to /login?error=auth_failed.
@@ -316,7 +318,7 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 		// "regardless of state content" acceptance.
 		target := ValidatedReturnTo(stateData.RedirectAfterLogin)
 		if target == "" {
-			target = "/dashboard"
+			target = "/"
 		}
 		http.Redirect(w, r, target, http.StatusFound)
 	})
