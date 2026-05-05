@@ -435,11 +435,11 @@ func (h *Handler) revokeInvitation(w http.ResponseWriter, r *http.Request) {
 
 // writeError writes a JSON error envelope. Used by invitation handlers to give
 // the dashboard a structured code for the user_exists_use_memberships /
-// already_a_member / kinde_invite_failed cases.
+// already_a_member / kinde_invite_failed cases. Routes through
+// writeJSONStatus so the Content-Type header ordering, encode-error logging,
+// and any future writeJSON(Status) instrumentation apply uniformly.
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSONStatus(w, status, map[string]any{
 		"error":   code,
 		"message": message,
 	})
