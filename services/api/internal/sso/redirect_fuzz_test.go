@@ -4,7 +4,7 @@ package sso_test
 //
 //   "Open-redirect fuzz on OIDC `state` (architect N4): fuzz the `state`
 //    parameter with `https://evil.com`, `//evil.com`, `javascript:` URLs;
-//    all must redirect to the fixed `/dashboard` path regardless of `state`
+//    all must redirect to the fixed `/` path regardless of `state`
 //    content."
 //
 // The actual attack surface is `?return_to=` on /v1/sso/oidc/{cid}/initiate,
@@ -29,7 +29,7 @@ package sso_test
 //   Layer 2 — defense-in-depth at callback: TestSSO_OpenRedirect_DefenseInDepth
 //             manually persists a state record with a hostile
 //             RedirectAfterLogin (bypassing the initiate boundary), runs the
-//             callback against it, asserts the final Location is /dashboard.
+//             callback against it, asserts the final Location is "/".
 //             Without the callback-side ValidatedReturnTo call this test
 //             FAILS — the callback would 302 to the hostile target.
 //
@@ -163,14 +163,14 @@ func TestValidatedReturnTo_Boundary(t *testing.T) {
 // TestSSO_OpenRedirect_DefenseInDepth manually persists a state record with
 // a hostile RedirectAfterLogin (BYPASSING the initiate-time ValidatedReturnTo
 // boundary), runs the callback against it, and asserts the final Location is
-// /dashboard.
+// "/" (the SPA's post-login landing).
 //
 // This is the test the architect N4 "regardless of state content" acceptance
 // is really after: even if a hostile value somehow lands in
 // StateData.RedirectAfterLogin (storage bug, cache tampering, future bug
 // that bypasses the initiate validation), the callback must still default
-// to /dashboard. Without the defense-in-depth re-validation in
-// oidc_callback.go, this test fails (callback 302s to the hostile target).
+// to "/". Without the defense-in-depth re-validation in oidc_callback.go,
+// this test fails (callback 302s to the hostile target).
 //
 // We re-use the callbackTest fixture from oidc_callback_test.go so this test
 // exercises the real callback path end-to-end (token exchange, ID-token
@@ -217,21 +217,21 @@ func TestSSO_OpenRedirect_DefenseInDepth(t *testing.T) {
 			rec := ct.hit("conn-1", "auth-code-xyz", state)
 
 			// Callback success path returns 302 with Location set. The
-			// absolute requirement: Location MUST be the safe default
-			// /dashboard, regardless of the hostile state-record content.
+			// absolute requirement: Location MUST be the safe default "/",
+			// regardless of the hostile state-record content.
 			if rec.Code != 302 {
 				t.Fatalf("status: got %d want 302; body=%q", rec.Code, rec.Body.String())
 			}
 			loc := rec.Header().Get("Location")
-			if loc != "/dashboard" {
-				t.Errorf("hostile RedirectAfterLogin %q leaked into Location: got %q; want /dashboard",
+			if loc != "/" {
+				t.Errorf("hostile RedirectAfterLogin %q leaked into Location: got %q; want /",
 					hostile, loc)
 			}
 
-			// Belt-and-braces parse: even if the string looks like /dashboard
+			// Belt-and-braces parse: even if the string looks like "/"
 			// the URL parser must agree it's same-origin. Catches a
-			// theoretical future bug where the literal string starts with
-			// /dashboard but contains a confusing payload.
+			// theoretical future bug where the literal value starts with
+			// "/" but contains a confusing payload.
 			parsed, err := url.Parse(loc)
 			if err != nil {
 				t.Errorf("Location %q failed to parse: %v", loc, err)
@@ -245,7 +245,7 @@ func TestSSO_OpenRedirect_DefenseInDepth(t *testing.T) {
 			// minted, audit recorded). Defense-in-depth must NOT be a hard
 			// fail that blocks a legitimate login — the user who tampered
 			// with their OWN state record still completes the login, just
-			// to /dashboard instead of their target.
+			// to "/" instead of their target.
 			if !ct.minter.called {
 				t.Error("session was not minted — defense-in-depth must not block successful auth")
 			}

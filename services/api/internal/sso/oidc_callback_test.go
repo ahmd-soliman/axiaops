@@ -266,8 +266,8 @@ func TestCallback_HappyPath_JITDefaultRole(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status: got %d want %d. body=%q", rec.Code, http.StatusFound, rec.Body.String())
 	}
-	if loc := rec.Header().Get("Location"); loc != "/dashboard" {
-		t.Errorf("redirect: got %q want /dashboard", loc)
+	if loc := rec.Header().Get("Location"); loc != "/" {
+		t.Errorf("redirect: got %q want /", loc)
 	}
 	if cookie := rec.Header().Get("Set-Cookie"); !strings.Contains(cookie, "axiaops_session=stub-session-token") {
 		t.Errorf("session cookie missing or wrong: %q", cookie)
@@ -575,7 +575,7 @@ func TestCallback_StateIsSingleUse(t *testing.T) {
 
 	// First call — happy path.
 	rec1 := ct.hit("conn-1", "auth-code-xyz", state)
-	if rec1.Code != http.StatusFound || rec1.Header().Get("Location") != "/dashboard" {
+	if rec1.Code != http.StatusFound || rec1.Header().Get("Location") != "/" {
 		t.Fatalf("first call must succeed; got %d %s", rec1.Code, rec1.Header().Get("Location"))
 	}
 
