@@ -128,12 +128,16 @@ clean-db-drop:
 # Wipe pg_data on disk so Postgres re-initdb's on next start. Use this when
 # clean-db / clean-db-drop aren't enough — e.g. to re-arm the bootstrap install
 # token, or after a botched migration that left the cluster in an unrecoverable
-# state. Requires sudo because Postgres-in-container writes files as the
-# container's postgres uid, not as the host user. The `stop` dependency
-# guarantees no container is still holding the volume open at delete time.
+# state. The `stop` dependency guarantees no container is still holding the
+# volume open at delete time.
+#
+# No sudo on macOS: Docker Desktop virtualises file permissions, so files the
+# container's postgres uid wrote round-trip as the host user. On native Linux
+# Docker the files come back root-owned and you'd need sudo — re-add if/when
+# the contributor base broadens beyond macOS.
 clean-db-files: stop
-	@echo "Wiping pg_data — requires sudo. Postgres will re-initdb on next start."
-	sudo rm -rf pg_data
+	@echo "Wiping pg_data. Postgres will re-initdb on next start."
+	rm -rf pg_data
 
 # ── Remote Database Cleanup ───────────────────────────────────────────────────
 # Per-host self-hosted design: each env runs on its own container, postgres on the
