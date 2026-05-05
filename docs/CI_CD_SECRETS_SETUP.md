@@ -2,6 +2,18 @@
 
 Complete checklist for configuring GitLab CI/CD variables and AWS secrets for AxiaOps.
 
+> ⚠️ **STALE — pre-SSO Phase B (April 2026).** This doc was written before native
+> SSO, licensing, per-env self-hosted deploys, and the strangler auth pattern. Source
+> of truth has moved:
+>
+> - **CI variables**: inline comments in `.gitlab-ci.yml` (especially the
+>   `.deploy-dev` template's required-variables block) + `CLAUDE.md`
+>   "Deployment topology" section
+> - **License signing key + ceremony**: `docs/license-issuance.md`
+> - **Per-service env vars**: `services/{api,ingestion,shared,dashboard}/CLAUDE.md`
+>
+> Kept here for historical reference; do not follow as setup steps.
+
 ---
 
 ## Overview
