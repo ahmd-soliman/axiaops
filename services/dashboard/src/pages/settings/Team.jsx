@@ -62,11 +62,6 @@ export default function Team() {
       }
     },
     onSuccess: (data) => {
-      // [DIAG] Temporary diagnostic for invite-panel render bug. Remove once
-      // root-caused. Logs the data shape the dashboard sees so we can
-      // confirm whether redemption_url survives the request layer.
-      // eslint-disable-next-line no-console
-      console.log('[invite-diag] onSuccess data=', data, 'redemption_url=', data?.redemption_url);
       setAddEmail('');
       setAddRole('member');
       setAddError('');
@@ -75,16 +70,12 @@ export default function Team() {
       // Absent under AUTH_PROVIDER=kinde (Kinde sends an email itself) and
       // also absent on the addMember fallback (existing-user-no-membership).
       if (data?.redemption_url) {
-        // eslint-disable-next-line no-console
-        console.log('[invite-diag] setting lastInvite');
         setLastInvite({
           email: data._email || data.email,
           role: data._role || data.role,
           url: data.redemption_url,
         });
       } else {
-        // eslint-disable-next-line no-console
-        console.log('[invite-diag] clearing lastInvite (no redemption_url in data)');
         setLastInvite(null);
       }
       invalidate();
