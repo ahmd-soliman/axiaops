@@ -136,7 +136,7 @@ clean-db-drop:
 # Docker the files come back root-owned and you'd need sudo — re-add if/when
 # the contributor base broadens beyond macOS.
 clean-db-files: stop
-	@echo "Wiping pg_data. Postgres will re-initdb on next start."
+	@echo "Deleting pg_data… Postgres will re-initdb on next start."
 	rm -rf pg_data
 
 # ── Remote Database Cleanup ───────────────────────────────────────────────────
