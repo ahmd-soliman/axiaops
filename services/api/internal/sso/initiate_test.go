@@ -74,13 +74,20 @@ func TestInitiate_Redirects_WithAllRequiredParams(t *testing.T) {
 	q := u.Query()
 
 	for _, key := range []string{"response_type", "client_id", "redirect_uri", "scope",
-		"state", "nonce", "code_challenge", "code_challenge_method", "login_hint"} {
+		"state", "nonce", "code_challenge", "code_challenge_method", "login_hint", "prompt"} {
 		if q.Get(key) == "" {
 			t.Errorf("authorize URL missing %q param: %s", key, loc)
 		}
 	}
 	if q.Get("response_type") != "code" {
 		t.Errorf("response_type: got %q want code", q.Get("response_type"))
+	}
+	// prompt=login pin: forces IdP to render its login form regardless of
+	// existing IdP-side session. Without this, a user who logs out of AxiaOps
+	// and types a different email at /login silently re-auths as whoever
+	// owned the IdP-side cookie. Drift here is a security regression.
+	if q.Get("prompt") != "login" {
+		t.Errorf("prompt: got %q want login (silent IdP-session inheritance is a security bug)", q.Get("prompt"))
 	}
 	if q.Get("client_id") != "client-test" {
 		t.Errorf("client_id: got %q want client-test", q.Get("client_id"))
