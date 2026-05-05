@@ -326,6 +326,25 @@ real-IdP round-trip held. Probes are ordered cheapest-first — if probe 1
       the open-redirect guard PRESERVES the path, not that the page renders.
 - Notes:
 
+### Probe 11 — IdP-session bleed defence (`prompt=login` pin)
+Pins the fix for the silent-identity-substitution bug: without `prompt=login`
+on the authorize URL, a logged-out user typing a different email at /login
+silently re-auths as whoever still owns the Keycloak realm cookie.
+- [ ] Log in as alice via SSO. Confirm /v1/me shows alice.
+- [ ] Click logout in AxiaOps. Confirm cookie is cleared in DevTools.
+- [ ] At /login, type `bob@example.com` (a different Keycloak user on the
+      same verified domain).
+- [ ] Keycloak **MUST** render its login form — not silently 302 back to
+      AxiaOps. The username field is pre-filled with bob's email.
+- [ ] Enter bob's password → land in dashboard as bob (not alice).
+      `/v1/me` returns bob's user_id and email.
+- [ ] Repeat with the form back-buttoned / cancelled → no AxiaOps session
+      minted, stay at /login.
+- Negative regression check: `curl -s '<initiate_url>'` and decode the
+      Location header — the authorize URL **must** carry `prompt=login`.
+      Pinned by `services/api/internal/sso/initiate_test.go`.
+- Notes:
+
 ## Bugs found
 
 | # | Severity | Probe | Description | Fix commit |
