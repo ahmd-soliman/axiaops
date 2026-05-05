@@ -45,6 +45,9 @@ func activeOIDCConn(idp *idpFixture, cid string) model.SSOConnection {
 		Status:           model.SSOStatusActive,
 		OIDCClientID:     "client-test",
 		OIDCDiscoveryURL: idp.discoveryURL,
+		// Default to true so existing tests pin the prompt=login emission;
+		// the no-reauth path has its own dedicated test.
+		ForceReauth: true,
 	}
 }
 
@@ -104,6 +107,39 @@ func TestInitiate_Redirects_WithAllRequiredParams(t *testing.T) {
 	}
 	if !strings.HasPrefix(loc, idp.server.URL+"/authorize") {
 		t.Errorf("redirect target should be IdP authorize endpoint, got %s", loc)
+	}
+}
+
+// TestInitiate_ForceReauthFalse_SkipsPromptLogin pins the per-connection
+// override behaviour (sso_connections.force_reauth = false). Used by
+// deployments where the IdP enforces its own session policy — Azure AD
+// conditional access returns interaction_required if prompt=login conflicts
+// with a locked session. Default is true (tested elsewhere).
+func TestInitiate_ForceReauthFalse_SkipsPromptLogin(t *testing.T) {
+	idp := newIDPFixture(t)
+	cid := "conn-1"
+	conn := activeOIDCConn(idp, cid)
+	conn.ForceReauth = false
+	store := fakeInitiateStore{conn: conn}
+	h := initiateHandlerWithMux(t, store, idp)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/sso/oidc/"+cid+"/initiate", nil)
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status: got %d want %d", rec.Code, http.StatusFound)
+	}
+	u, _ := url.Parse(rec.Header().Get("Location"))
+	if u.Query().Has("prompt") {
+		t.Errorf("prompt must be absent when force_reauth=false; got %s", u.RawQuery)
+	}
+	// Other ceremony params still required so disabling prompt=login doesn't
+	// silently break the rest of the URL.
+	for _, key := range []string{"response_type", "client_id", "redirect_uri", "scope", "state", "nonce", "code_challenge"} {
+		if u.Query().Get(key) == "" {
+			t.Errorf("authorize URL still missing %q with force_reauth=false: %s", key, u.RawQuery)
+		}
 	}
 }
 

@@ -130,6 +130,11 @@ type connectionRequest struct {
 	SAMLSSOURL       string `json:"saml_sso_url,omitempty"`
 	SAMLSigningCert  string `json:"saml_signing_cert,omitempty"`
 	SAMLPreviousCert string `json:"saml_previous_cert,omitempty"`
+	// ForceReauth is `*bool` rather than `bool` so the handler can
+	// distinguish "field omitted from JSON" (apply default / no change)
+	// from "explicitly set to false" (admin opting out). Default on create
+	// is true; on PATCH a nil value is "no change".
+	ForceReauth *bool `json:"force_reauth,omitempty"`
 }
 
 func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +161,13 @@ func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
 	orgID := middleware.OrganizationID(r.Context())
 	userID := middleware.UserID(r.Context())
 
+	// force_reauth defaults to true on POST. Nil in the request means
+	// "use the default"; explicit false means "admin opted out".
+	forceReauth := true
+	if req.ForceReauth != nil {
+		forceReauth = *req.ForceReauth
+	}
+
 	c := model.SSOConnection{
 		OrganizationID:   orgID,
 		Protocol:         req.Protocol,
@@ -173,6 +185,7 @@ func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
 		SAMLSSOURL:                 req.SAMLSSOURL,
 		SAMLSigningCert:            req.SAMLSigningCert,
 		SAMLPreviousCert:           req.SAMLPreviousCert,
+		ForceReauth:                forceReauth,
 		CreatedByUserID:            userID,
 	}
 
@@ -258,6 +271,12 @@ func (h *Handler) updateConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SAMLPreviousCert != "" {
 		existing.SAMLPreviousCert = req.SAMLPreviousCert
+	}
+	// force_reauth: nil = no change (preserve existing); explicit true/false
+	// = apply. *bool lets the request distinguish "not in JSON" from
+	// "explicit false".
+	if req.ForceReauth != nil {
+		existing.ForceReauth = *req.ForceReauth
 	}
 
 	out, err := h.connector.Save(ctx, existing)
