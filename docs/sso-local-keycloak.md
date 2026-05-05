@@ -345,6 +345,45 @@ silently re-auths as whoever still owns the Keycloak realm cookie.
       Pinned by `services/api/internal/sso/initiate_test.go`.
 - Notes:
 
+### Probe 12 — SSO redirect button-flash regression
+Pins commit `b267c20`. After email-blur SSO discovery returns
+`has_sso=true`, the dashboard calls `window.location.assign(redirect_url)`.
+React paints first, then the browser navigates — without the timeout-gated
+reveal, a manual "Continue to SSO" button flashed for that paint window.
+The fix gates the button behind a 1500ms reveal so a fast redirect never
+shows it.
+- [ ] At /login, type a Keycloak-domain email (e.g. `alice@example.com`).
+      The email-blur discover should fire on Tab / click-out.
+- [ ] During the redirect, the form should show a **spinner + "Redirecting
+      to your single sign-on provider…"** hint and the **"Sign in with
+      password instead"** escape hatch.
+- [ ] **The "Continue to SSO" button MUST NOT be visible** during a
+      normal-speed redirect (< ~1.5s). If it appears within the first
+      second, the reveal timer regressed.
+- [ ] To force the slow-network path: in DevTools → Network → enable
+      "Slow 3G" throttling, then repeat. After ~1.5s the "Continue to
+      SSO" button reveals as a manual fallback. This is the desired
+      fallback behaviour.
+- [ ] With throttling off, the "Sign in with password instead" link is
+      always present (escape hatch must never be timer-gated).
+- Notes:
+
+### Probe 13 — Profile page shows org name (regression)
+Pins commit `5fe461a`. Under native auth there's no JWT, so the legacy
+`parseJwt(getToken()).org_name` source is empty. Without the fix, Profile
+fell through to `me.organization_id` and rendered the raw UUID.
+- [ ] After SSO login, navigate to **Profile** (avatar menu → My Profile).
+- [ ] The **Organization** field shows the friendly name (e.g.
+      "AxiaOps") — NOT the UUID.
+- [ ] Source: `/v1/me` response body. In DevTools → Network → /v1/me, the
+      response carries `organization.name` populated. The Profile page
+      reads `me?.organization?.name` first, then falls back to the JWT-
+      derived `orgName`, then `me?.organization_id`, then `'—'`.
+- [ ] If `/v1/me` legitimately fails to populate `organization` (e.g.
+      best-effort `GetOrganizationByID` errored), fallback chain still
+      renders something — never blanks the field.
+- Notes:
+
 ## Bugs found
 
 | # | Severity | Probe | Description | Fix commit |
