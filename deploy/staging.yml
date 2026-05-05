@@ -39,6 +39,10 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
       REDIS_URL: ${REDIS_URL}
+      # Strangler tier — defaults to native (the terminal state). Override
+      # via the AUTH_PROVIDER CI variable scoped to this environment if a
+      # rolling kinde→both→native step is in progress. Plan §4.5.
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-native}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
       KINDE_M2M_CLIENT_ID: ${KINDE_M2M_CLIENT_ID}
       KINDE_M2M_CLIENT_SECRET: ${KINDE_M2M_CLIENT_SECRET}
@@ -68,6 +72,10 @@ services:
     environment:
       API_HOST: axiaops-api-staging
       DEV_MODE: "false"
+      # AUTH_PROVIDER must mirror the api's value so the dashboard renders
+      # the right login UI (native form vs Kinde redirect). Same default
+      # as the api block above. See services/dashboard/src/config.js.
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-native}
       KINDE_ISSUER: ${KINDE_ISSUER:-https://axiaops.kinde.com}
       KINDE_CLIENT_ID: ${KINDE_CLIENT_ID:-848ddce9ff16479798b3c42ced7290e6}
       DEV_ORG_NAME: ""
