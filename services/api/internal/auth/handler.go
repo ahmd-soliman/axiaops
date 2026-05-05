@@ -7,8 +7,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/mail"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -16,6 +19,49 @@ import (
 	"axiaops.io/shared/observability"
 	"axiaops.io/shared/storage"
 )
+
+// userNameMaxLen caps the display-name length at 100 runes — same as
+// validOrgName (services/api/internal/api/organizations.go) so the two name
+// fields don't drift in policy. 100 is generous enough for international names
+// (multi-rune scripts, mononyms with titles) without becoming a payload-size
+// concern at audit-log-actor display time.
+const userNameMaxLen = 100
+
+// validUserName accepts display names submitted to the bootstrap and
+// invitation-redeem flows. Rules:
+//
+//   - Non-empty after trimming (caller responsible for TrimSpace).
+//   - At most userNameMaxLen runes.
+//   - No control characters (Unicode category Cc) — catches embedded \x00,
+//     newlines pasted from a CSV, etc.
+//   - Does NOT parse as an email address (net/mail.ParseAddress) — catches
+//     the common typo where the user pastes their email into the name field
+//     by mistake. Real names with `@` are rare enough this is the right
+//     trade; the failure mode without the rule is shipping `test@test` as
+//     the display name in audit-log actor strings.
+//
+// Deliberately permissive on alphabet: international names (José, Müller,
+// 田中, 김민준), mononyms ("Madonna"), apostrophes / hyphens (O'Brien,
+// Marie-Curie), and digits (Owen2, J3) all pass. This is a B2B FinOps app,
+// not a government-form name policy — over-restricting Unicode alphabets
+// gates legitimate users without compensating security benefit.
+func validUserName(s string) bool {
+	if s == "" {
+		return false
+	}
+	if utf8.RuneCountInString(s) > userNameMaxLen {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	if _, err := mail.ParseAddress(s); err == nil {
+		return false
+	}
+	return true
+}
 
 // Handler exposes the unauthenticated POST endpoints used to acquire a
 // session: /v1/auth/bootstrap (first-owner install), /v1/auth/login
@@ -121,6 +167,11 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 
 	if req.Token == "" || req.Email == "" || req.Password == "" || req.Name == "" {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "token, email, password, name required")
+		return
+	}
+	if !validUserName(req.Name) {
+		writeAuthError(w, http.StatusBadRequest, "invalid_name",
+			"name must be 1–100 characters with no control characters and not look like an email address")
 		return
 	}
 	if req.OrganizationName == "" {
@@ -684,9 +735,14 @@ func (h *Handler) switchOrg(w http.ResponseWriter, r *http.Request) {
 	mint, err := h.sessions.RotateSessionForOrg(r.Context(), sess.ID, sess.SessionTokenHash, MintRequest{
 		UserID:         sess.UserID,
 		OrganizationID: target,
-		AuthMode:       model.AuthModePassword,
-		IP:             requestIP(r),
-		UserAgent:      r.Header.Get("User-Agent"),
+		// Preserve the originating auth mode across an org switch — an
+		// SSO-authenticated session that switches orgs must stay
+		// auth_mode='sso' on the new session row, otherwise audit
+		// tooling and any future SSO-enforcement gate would silently
+		// see a forged 'password' session.
+		AuthMode:  sess.AuthMode,
+		IP:        requestIP(r),
+		UserAgent: r.Header.Get("User-Agent"),
 	})
 	if err != nil {
 		slog.Error("auth: switch-org rotate failed", "user_id", sess.UserID, "err", err)
@@ -888,6 +944,11 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 		// New-user flow: require name and enforce the password policy.
 		if req.Name == "" {
 			writeAuthError(w, http.StatusBadRequest, "bad_request", "name required for new user")
+			return
+		}
+		if !validUserName(req.Name) {
+			writeAuthError(w, http.StatusBadRequest, "invalid_name",
+				"name must be 1–100 characters with no control characters and not look like an email address")
 			return
 		}
 		if err := CheckPolicy(req.Password); err != nil {

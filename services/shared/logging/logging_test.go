@@ -11,21 +11,17 @@ import (
 
 func TestInit_WithJSONOutput(t *testing.T) {
 	_ = os.Unsetenv("LOG_OUTPUT")
-	_ = os.Unsetenv("DEV_MODE")
 	Init("test-service")
 	slog.Info("test message", "key", "value")
 }
 
-func TestInit_TextOutput_WhenDEVMode(t *testing.T) {
-	oldDevMode := os.Getenv("DEV_MODE")
-	defer func() {
-		if oldDevMode != "" {
-			_ = os.Setenv("DEV_MODE", oldDevMode)
-		} else {
-			_ = os.Unsetenv("DEV_MODE")
-		}
-	}()
-	_ = os.Setenv("DEV_MODE", "true")
+// TestInit_TextOutput_WhenLogOutputText replaces the previous
+// TestInit_TextOutput_WhenDEVMode after the B1.7 layer 3 cleanup that
+// removed the DEV_MODE read from logging.go (cross-package DEV_MODE reads
+// bypass the build-tag-gated devModeEnabled() seam). Local dev now sets
+// LOG_OUTPUT=text directly via scripts/start.sh.
+func TestInit_TextOutput_WhenLogOutputText(t *testing.T) {
+	t.Setenv("LOG_OUTPUT", "text")
 	Init("test-service")
 }
 
@@ -57,7 +53,6 @@ func TestInit_LogLevel_Warn(t *testing.T) {
 
 func TestInit_IncludesServiceName(t *testing.T) {
 	_ = os.Setenv("LOG_OUTPUT", "json")
-	_ = os.Unsetenv("DEV_MODE")
 	Init("my-service")
 
 	var buf bytes.Buffer
@@ -72,7 +67,6 @@ func TestInit_IncludesServiceName(t *testing.T) {
 
 func TestInit_JSONFormatValid(t *testing.T) {
 	_ = os.Setenv("LOG_OUTPUT", "json")
-	_ = os.Unsetenv("DEV_MODE")
 	_ = os.Setenv("APP_ENV", "test")
 	_ = os.Setenv("APP_VERSION", "0.0.1")
 

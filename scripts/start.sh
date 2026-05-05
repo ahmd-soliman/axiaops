@@ -75,6 +75,16 @@ echo "Running migrations..."
 # Capture DEV_MODE before subshells source .env (which may override it)
 CALLER_DEV_MODE="${DEV_MODE:-true}"
 
+# Default LOG_OUTPUT=text in local dev for human-readable logs. Logging
+# previously consulted DEV_MODE directly, but B1.7 layer 3 (plan §4.10.2)
+# moved that read out of services/shared/logging/logging.go to keep the
+# build-tag-gated devModeEnabled() seam in services/{api,ingestion}/cmd/
+# the single source of truth. Local dev sets LOG_OUTPUT=text here; CI /
+# staging / prod leave LOG_OUTPUT unset so logs stay JSON for ingestion.
+if [[ "$CALLER_DEV_MODE" == "true" && -z "${LOG_OUTPUT:-}" ]]; then
+  export LOG_OUTPUT=text
+fi
+
 # Start Ingestion service (long-running HTTP server on :8081)
 echo "Starting ingestion service (8081)..."
 cd "$INGESTION_DIR"

@@ -346,6 +346,34 @@ func TestRevokeInvitation_AdminTargetNeedsOwner(t *testing.T) {
 	}
 }
 
+// TestRevokeInvitation_NativeAuth_NoKindeCall_204 pins the fix for the
+// broken-feature bug where DELETE /v1/invitations/{id} returned 503 under
+// AUTH_PROVIDER=native because the legacy `h.kinde == nil` guard fired
+// unconditionally even when there's no Kinde to call. Now: native-auth
+// callers skip the Kinde RemoveUser entirely and revoke the local row via
+// RevokePendingInvitation only.
+func TestRevokeInvitation_NativeAuth_NoKindeCall_204(t *testing.T) {
+	store := NewMockStore().WithPendingInvitations([]model.PendingInvitation{
+		{
+			ID: "inv-1", OrganizationID: "organization-me", Email: "x@x.com", Role: "member",
+			Status: model.InvitationStatusPending,
+		},
+	})
+	// Build the handler with NativeInvitations=true and NO Kinde stub —
+	// the previous bug surface was the handler refusing to run because
+	// `h.kinde == nil`. The test setup deliberately mirrors that posture.
+	h := api.New(store, noopQueue()).WithNativeInvitations(true, "")
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, invReq(http.MethodDelete, "/v1/invitations/inv-1", ""))
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d (body: %s)", w.Code, w.Body.String())
+	}
+}
+
 func TestRevokeInvitation_NotFound_404(t *testing.T) {
 	store := NewMockStore()
 	mux, _ := invHandler(store)
