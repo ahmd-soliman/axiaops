@@ -20,12 +20,19 @@ import { authColors as C, authStyles as S } from './_authShell';
 // is the right destination. Discover failures (transport, 5xx, etc.) fall
 // back to revealing the password — broken discovery must never block login.
 const DISCOVER_DEBOUNCE_MS = 600;
+// Delay before the manual "Continue to SSO" fallback button appears during
+// phase='sso'. window.location.assign() fires immediately; on a normal
+// network this navigates well under 500ms. Showing the button right away
+// produces a visible flash. The button only matters as a popup-blocker /
+// stalled-navigation rescue, so we hide it for the typical-success window.
+const SSO_FALLBACK_REVEAL_MS = 1500;
 
 export default function NativeLoginScreen({ onSubmit, loading, error }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phase, setPhase] = useState('email'); // email | discovering | sso | password
   const [ssoRedirectURL, setSSORedirectURL] = useState('');
+  const [showSSOFallback, setShowSSOFallback] = useState(false);
   const debounceRef = useRef(null);
   // Monotonic counter to discard responses from superseded discover calls.
   // The debounced timer firing immediately followed by onBlur (Tab-key
@@ -100,6 +107,18 @@ export default function NativeLoginScreen({ onSubmit, loading, error }) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
   }, []);
 
+  // Reveal the manual "Continue to SSO" fallback only after the redirect
+  // has had a reasonable chance to complete. Reset when phase moves away
+  // from 'sso' (user clicked "password instead", or bfcache restore).
+  useEffect(() => {
+    if (phase !== 'sso') {
+      setShowSSOFallback(false);
+      return;
+    }
+    const t = setTimeout(() => setShowSSOFallback(true), SSO_FALLBACK_REVEAL_MS);
+    return () => clearTimeout(t);
+  }, [phase]);
+
   return (
     <div style={S.container}>
       <form style={S.card} onSubmit={handleSubmit} noValidate>
@@ -132,15 +151,18 @@ export default function NativeLoginScreen({ onSubmit, loading, error }) {
 
         {phase === 'sso' && (
           <>
-            <div style={{ ...S.hint, color: C.white }}>
-              Redirecting to your single sign-on provider…
+            <div style={{ ...S.hint, color: C.white, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Spinner size={14} color={C.white} />
+              <span>Redirecting to your single sign-on provider…</span>
             </div>
-            <a
-              href={ssoRedirectURL}
-              style={{ ...S.button, ...(loading ? S.buttonDisabled : {}), textDecoration: 'none', textAlign: 'center' }}
-            >
-              Continue to SSO
-            </a>
+            {showSSOFallback && (
+              <a
+                href={ssoRedirectURL}
+                style={{ ...S.button, textDecoration: 'none', textAlign: 'center' }}
+              >
+                Continue to SSO
+              </a>
+            )}
             <button
               type="button"
               onClick={() => setPhase('password')}
