@@ -37,6 +37,16 @@ func TestValidUserName(t *testing.T) {
 		{"plain email", "test@test", false},
 		{"full email", "alice@example.com", false},
 		{"email with name part", "Alice <alice@example.com>", false},
+		// Edge case: a code-reviewer note on commit 38e87ce claimed Go's
+		// net/mail.ParseAddress accepts bare `user@` (no domain). It does
+		// not — Go's parser requires a domain, so `user@` passes through
+		// validUserName. Pin the actual behaviour so any future stdlib
+		// change (or refactor to a stricter parser) has to deliberately
+		// flip this assertion. Real names with mid-string `@` are still
+		// rejected via the parses-as-email check; only the trailing-`@`
+		// edge slips past, and "user@" isn't a plausible legitimate
+		// display name worth specifically excluding either.
+		{"trailing @ — accepted (ParseAddress rejects bare local-part)", "user@", true},
 
 		// Accept — common Western names.
 		{"plain ascii", "Alice", true},
