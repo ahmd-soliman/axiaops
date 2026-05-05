@@ -100,12 +100,14 @@ Pre-registered Prometheus metrics grouped by concern:
 - **Scan**: operation duration by stage, errors, queue depth
 - **Application**: uptime, error count
 
-Expose metrics via:
+Expose metrics via the package helper, **not** `promhttp.Handler()` directly:
 
 ```go
-import "github.com/prometheus/client_golang/prometheus/promhttp"
-mux.Handle("/metrics", promhttp.Handler())
+import "axiaops.io/shared/observability"
+mux.Handle("/metrics", observability.MetricsHandler())
 ```
+
+`MetricsHandler()` merges `prometheus.DefaultGatherer` (per-binary `MustRegister`'d counters) with the package-private registry that holds `Global.*`. Wiring `promhttp.Handler()` directly scrapes only the default registry — every metric in this package silently vanishes. That regression broke `/metrics` on the deployed preview env (caught on MR !85); the helper is the single seam every binary now uses.
 
 Use observers to record metrics:
 

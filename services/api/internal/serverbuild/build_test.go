@@ -27,6 +27,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,6 +161,71 @@ func TestComposeServer_AcceptsAllSeamMocks(t *testing.T) {
 	}
 	if !containsHasSSO(rec.Body.String()) {
 		t.Errorf("smoke response body missing has_sso key: %q", rec.Body.String())
+	}
+}
+
+// TestComposeServer_MetricsExposesSharedRegistry pins the registry-merge
+// fix flagged on MR !85. The shared observability package binds Global.* to
+// a package-private prometheus.Registry; if /metrics is wired to
+// promhttp.Handler() (default registry only) every metric in
+// services/shared/observability/metrics.go vanishes from the scrape — the
+// preview-env regression that surfaced license_state_info, auth_provider_*,
+// http_*, db_* all silently missing. ComposeServer must use
+// promhttp.HandlerFor with prometheus.Gatherers{DefaultGatherer, Registry()}.
+//
+// Failure mode this catches: a future refactor that swaps the merged handler
+// back to promhttp.Handler() — the deletion-readiness query at plan §4.5
+// line 361 (`time() - axiaops_auth_provider_last_seen_seconds{provider=...}`)
+// would silently break and the alert runbook would go dark.
+func TestComposeServer_MetricsExposesSharedRegistry(t *testing.T) {
+	cfg := serverbuild.Config{
+		Addr:              ":0",
+		PublicHost:        "https://app.test",
+		DevMode:           true,
+		DevOrganizationID: "org-test",
+		DevUserID:         "user-test",
+		DevUserEmail:      "user@test",
+		NativeAuthActive:  false,
+	}
+	deps := serverbuild.Deps{
+		Store:           &stubStore{},
+		Cache:           cache.New(""),
+		Inviter:         kinde.NewStub(),
+		Discoverer:      &stubDiscoverer{},
+		Connector:       &stubConnector{},
+		MetricsRegistry: serverbuild.NewDefaultMetrics(),
+	}
+
+	handler, err := serverbuild.ComposeServer(cfg, deps)
+	if err != nil {
+		t.Fatalf("ComposeServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/metrics status: got %d want 200; body=%q", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+
+	// Shared-registry sentinels: bare (non-Vec) metrics, which Prometheus
+	// emits at zero before any sample is observed. Vec metrics (e.g.
+	// license_state_info, auth_provider_active) only emit after a label-set
+	// is observed — useless as a registry-wiring canary because they're
+	// silent on a freshly-booted process. Pinning one bare metric per
+	// surface keeps the failure message specific when the merge regresses.
+	wantShared := []string{
+		"axiaops_http_requests_total",         // §2.6 HTTP observability (Counter)
+		"axiaops_db_connections_active",       // §2.6 DB observability (Gauge)
+		"axiaops_license_expires_at_seconds",  // §4.9.4 license observability (Gauge)
+		"axiaops_license_days_remaining",      // §4.9.4 license observability (Gauge)
+	}
+	for _, name := range wantShared {
+		if !strings.Contains(body, name) {
+			t.Errorf("/metrics missing shared-registry metric %q — promhttp.HandlerFor merge regressed", name)
+		}
 	}
 }
 
