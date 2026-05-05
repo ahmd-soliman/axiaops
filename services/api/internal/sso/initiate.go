@@ -137,6 +137,7 @@ func NewInitiateHandler(store InitiateStore, validator *Validator, stateStore *S
 			Nonce:         data.Nonce,
 			CodeChallenge: CodeChallenge(data.CodeVerifier),
 			LoginHint:     r.URL.Query().Get("email"),
+			ForceReauth:   conn.ForceReauth,
 		})
 		if err != nil {
 			slog.Error("sso: initiate: build authorize url", "cid", cid, "err", err)
@@ -159,6 +160,12 @@ type authorizeParams struct {
 	Nonce         string
 	CodeChallenge string
 	LoginHint     string // optional; empty omitted from URL
+	// ForceReauth controls the `prompt=login` parameter. True (the default
+	// for new connections) emits prompt=login to force IdP-side re-auth on
+	// every ceremony; false skips it for IdPs that enforce their own session
+	// policy (e.g. Azure AD conditional access). Per-connection per
+	// migration 023 / Tasks.md 2.7.17.
+	ForceReauth bool
 }
 
 // ValidatedReturnTo accepts a `?return_to=` query value and returns it iff
@@ -226,7 +233,15 @@ func buildAuthorizeURL(authorizeEndpoint string, p authorizeParams) (string, err
 	// types a different email at /login, and re-runs the SSO ceremony would
 	// inherit the previous user's identity. login_hint is purely advisory and
 	// does NOT prevent that bleed.
-	q.Set("prompt", "login")
+	//
+	// Per-connection override (sso_connections.force_reauth, default true):
+	// admins can disable this for IdPs that enforce their own session policy
+	// — Azure AD with a conditional-access lock returns `interaction_required`
+	// when prompt=login conflicts with the policy. The default-true posture
+	// preserves the security fix for everyone who doesn't explicitly opt out.
+	if p.ForceReauth {
+		q.Set("prompt", "login")
+	}
 	if p.LoginHint != "" {
 		q.Set("login_hint", p.LoginHint)
 	}
