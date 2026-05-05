@@ -197,7 +197,15 @@ func main() {
 		DevUserEmail:         devUserEmail,
 		AuthProviderMode:     authMode,
 		NativeAuthActive:     nativeAuthActive,
-		NativeInvitations:    !devMode && (authMode == "" || authMode == "native" || authMode == "both"),
+		// NativeInvitations is gated on AUTH_PROVIDER alone — DEV_MODE only
+		// bypasses session/cookie machinery (handled by nativeAuthActive). The
+		// invitation creation path needs to surface a redemption_url under
+		// AUTH_PROVIDER=native|both regardless of DEV_MODE so admins testing
+		// locally can complete the OOB invite/redeem ceremony end-to-end.
+		// Previously gated on !devMode, which silently routed invitations to
+		// the Kinde stub in DEV_MODE and dropped redemption_url from the
+		// response — observed via [invite-diag] logging in commit 8e9b86b.
+		NativeInvitations:    authMode == "" || authMode == "native" || authMode == "both",
 		RedisConfigured:      redisConfigured,
 		StuckScanTimeout:     stuckScanTimeout,
 		MigrationDatabaseURL: migrationURL,
