@@ -16,26 +16,28 @@ import (
 
 // membershipResponse is the wire shape for a single membership row.
 type membershipResponse struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Email     string    `json:"email"`
-	Name      string    `json:"name"`
-	Role      string    `json:"role"`
-	InvitedBy string    `json:"invited_by,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID             string    `json:"id"`
+	UserID         string    `json:"user_id"`
+	Email          string    `json:"email"`
+	Name           string    `json:"name"`
+	Role           string    `json:"role"`
+	InvitedBy      string    `json:"invited_by,omitempty"`
+	ProvisionedVia string    `json:"provisioned_via,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 func toMembershipResponse(m model.MembershipWithUser) membershipResponse {
 	return membershipResponse{
-		ID:        m.ID,
-		UserID:    m.UserID,
-		Email:     m.Email,
-		Name:      m.Name,
-		Role:      m.Role,
-		InvitedBy: m.InvitedBy,
-		CreatedAt: m.CreatedAt,
-		UpdatedAt: m.UpdatedAt,
+		ID:             m.ID,
+		UserID:         m.UserID,
+		Email:          m.Email,
+		Name:           m.Name,
+		Role:           m.Role,
+		InvitedBy:      m.InvitedBy,
+		ProvisionedVia: m.ProvisionedVia,
+		CreatedAt:      m.CreatedAt,
+		UpdatedAt:      m.UpdatedAt,
 	}
 }
 
