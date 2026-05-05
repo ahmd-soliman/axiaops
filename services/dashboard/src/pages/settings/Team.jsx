@@ -343,6 +343,7 @@ export default function Team() {
                 <Th t={t}>Email</Th>
                 <Th t={t}>Name</Th>
                 <Th t={t}>Role</Th>
+                <Th t={t}>Joined via</Th>
                 <Th t={t}>Joined</Th>
                 <Th t={t}></Th>
               </tr>
@@ -377,6 +378,11 @@ export default function Team() {
                       ) : (
                         <span style={roleBadge(m.role, t, isDark)}>{m.role}</span>
                       )}
+                    </Td>
+                    <Td t={t}>
+                      <span style={provenanceBadge(m.provisioned_via, t, isDark)}>
+                        {provenanceLabel(m.provisioned_via)}
+                      </span>
                     </Td>
                     <Td t={t}>{formatDate(m.created_at)}</Td>
                     <Td t={t}>
@@ -524,6 +530,42 @@ function roleBadge(role, t, isDark) {
     member: { fg: '#10b981', bg: isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5' },
     viewer: { fg: t.textMuted, bg: t.surfaceRaised },
   }[role] || { fg: t.textMuted, bg: t.surfaceRaised };
+  return {
+    display: 'inline-block',
+    padding: '2px 8px',
+    borderRadius: 4,
+    fontSize: 11,
+    fontWeight: 600,
+    color: palette.fg,
+    backgroundColor: palette.bg,
+    letterSpacing: 0.2,
+  };
+}
+
+// provisioned_via mirrors model.ProvisionedVia* in services/shared/model/sso.go.
+// Friendly labels disambiguate "this person was invited and accepted" from
+// "this person was added directly" / "JIT-created via SSO" / etc.
+function provenanceLabel(via) {
+  switch (via) {
+    case 'invitation': return 'Invite accepted';
+    case 'manual':     return 'Added directly';
+    case 'jit':        return 'SSO';
+    case 'scim':       return 'SCIM';
+    case 'bootstrap':  return 'Bootstrap';
+    case 'legacy':     return 'Legacy';
+    default:           return via || '—';
+  }
+}
+
+function provenanceBadge(via, t, isDark) {
+  const palette = {
+    invitation: { fg: '#10b981', bg: isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5' },
+    manual:     { fg: t.textMuted, bg: t.surfaceRaised },
+    jit:        { fg: '#3b82f6', bg: isDark ? 'rgba(59,130,246,0.15)' : '#dbeafe' },
+    scim:       { fg: '#3b82f6', bg: isDark ? 'rgba(59,130,246,0.15)' : '#dbeafe' },
+    bootstrap:  { fg: '#7c3aed', bg: isDark ? 'rgba(124,58,237,0.15)' : '#ede9fe' },
+    legacy:     { fg: t.textMuted, bg: t.surfaceRaised },
+  }[via] || { fg: t.textMuted, bg: t.surfaceRaised };
   return {
     display: 'inline-block',
     padding: '2px 8px',
