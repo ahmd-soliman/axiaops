@@ -75,14 +75,38 @@ export default function Team() {
         // when it is. Resolve to absolute against window.location.origin so
         // the OOB-shared link is always usable in any chat/email client. See
         // services/api/internal/api/invitations.go:buildRedemptionURL.
-        const url = data.redemption_url.startsWith('/')
-          ? window.location.origin + data.redemption_url
-          : data.redemption_url;
-        setLastInvite({
-          email: data._email || data.email,
-          role: data._role || data.role,
-          url,
-        });
+        //
+        // Defense-in-depth: only accept either a clean same-origin path
+        // (single leading "/") OR an absolute URL on our own origin. A
+        // protocol-relative shape ("//evil.com/...") is dropped — currently
+        // unreachable from the server's buildRedemptionURL but a
+        // future-proofing guard against bypassing the open-redirect-style
+        // checks via the invitation flow.
+        const raw = data.redemption_url;
+        let url = null;
+        if (raw.startsWith('//')) {
+          // Protocol-relative — reject.
+        } else if (raw.startsWith('/')) {
+          url = window.location.origin + raw;
+        } else {
+          try {
+            const parsed = new URL(raw);
+            if (parsed.origin === window.location.origin) {
+              url = parsed.toString();
+            }
+          } catch {
+            // Malformed URL — drop.
+          }
+        }
+        if (url) {
+          setLastInvite({
+            email: data._email || data.email,
+            role: data._role || data.role,
+            url,
+          });
+        } else {
+          setLastInvite(null);
+        }
       } else {
         setLastInvite(null);
       }
