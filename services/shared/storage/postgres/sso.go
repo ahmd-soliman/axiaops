@@ -25,6 +25,7 @@ const connectionColumns = `
 	oidc_client_id, oidc_client_secret_ciphertext, oidc_discovery_url, oidc_tenant_id,
 	saml_sso_url, saml_signing_cert, saml_previous_cert, saml_previous_cert_expires_at,
 	kinde_connection_id, scim_token_ciphertext, scim_endpoint,
+	force_reauth,
 	COALESCE(created_by_user_id, ''), created_at, updated_at`
 
 // scanSSOConnection consumes a row in connectionColumns order.
@@ -37,6 +38,7 @@ func scanSSOConnection(r rowScanner) (model.SSOConnection, error) {
 		&c.OIDCClientID, &c.OIDCClientSecretCiphertext, &c.OIDCDiscoveryURL, &c.OIDCTenantID,
 		&c.SAMLSSOURL, &c.SAMLSigningCert, &c.SAMLPreviousCert, &c.SAMLPreviousCertExpiresAt,
 		&c.KindeConnectionID, &c.SCIMTokenCiphertext, &c.SCIMEndpoint,
+		&c.ForceReauth,
 		&c.CreatedByUserID, &c.CreatedAt, &c.UpdatedAt,
 	)
 	return c, err
@@ -62,6 +64,11 @@ func (s *Store) CreateSSOConnection(ctx context.Context, c model.SSOConnection) 
 	if c.DefaultRole == "" {
 		c.DefaultRole = "viewer"
 	}
+	// ForceReauth is intentionally trusted as-passed from the caller — the
+	// API layer (services/api/internal/sso/handler.go) defaults nil-in-JSON
+	// to true so storage doesn't need a parallel "if-zero-flip-true" check
+	// here. A storage-side flip would override an admin's explicit
+	// force_reauth=false at create time.
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -99,6 +106,7 @@ func (s *Store) CreateSSOConnection(ctx context.Context, c model.SSOConnection) 
 			oidc_client_id, oidc_client_secret_ciphertext, oidc_discovery_url, oidc_tenant_id,
 			saml_sso_url, saml_signing_cert, saml_previous_cert, saml_previous_cert_expires_at,
 			kinde_connection_id, scim_token_ciphertext, scim_endpoint,
+			force_reauth,
 			created_by_user_id
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
@@ -106,7 +114,8 @@ func (s *Store) CreateSSOConnection(ctx context.Context, c model.SSOConnection) 
 			$11, $12, $13, $14,
 			$15, $16, $17, $18,
 			$19, $20, $21,
-			$22
+			$22,
+			$23
 		)
 		RETURNING `+connectionColumns,
 		c.ID, c.OrganizationID, c.Protocol, c.Label, c.Status, c.Enforcement, c.DefaultRole,
@@ -114,6 +123,7 @@ func (s *Store) CreateSSOConnection(ctx context.Context, c model.SSOConnection) 
 		c.OIDCClientID, oidcSecret, c.OIDCDiscoveryURL, c.OIDCTenantID,
 		c.SAMLSSOURL, c.SAMLSigningCert, c.SAMLPreviousCert, c.SAMLPreviousCertExpiresAt,
 		c.KindeConnectionID, scimToken, c.SCIMEndpoint,
+		c.ForceReauth,
 		createdBy,
 	)
 	out, err := scanSSOConnection(row)
@@ -230,12 +240,14 @@ func (s *Store) UpdateSSOConnection(ctx context.Context, c model.SSOConnection) 
 			saml_signing_cert = $14,
 			saml_previous_cert = $15,
 			saml_previous_cert_expires_at = $16,
+			force_reauth = $17,
 			updated_at = NOW()
 		WHERE id = $1`,
 		c.ID, c.Label, c.Status, c.Enforcement, c.DefaultRole,
 		c.IdPIssuer, c.IdPMetadataURL, c.IdPMetadataXML,
 		c.OIDCClientID, oidcSecret, c.OIDCDiscoveryURL, c.OIDCTenantID,
 		c.SAMLSSOURL, c.SAMLSigningCert, c.SAMLPreviousCert, c.SAMLPreviousCertExpiresAt,
+		c.ForceReauth,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: update sso connection: %w", err)

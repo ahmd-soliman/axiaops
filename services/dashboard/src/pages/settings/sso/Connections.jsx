@@ -140,6 +140,10 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
     status:             existing?.status             || 'draft',
     enforcement:        existing?.enforcement        || 'optional',
     default_role:       existing?.default_role       || 'viewer',
+    // ForceReauth is on by default for new connections — secure posture.
+    // Existing rows reflect whatever the API returned (which respects the
+    // DB default if the column was unset pre-migration-023).
+    force_reauth:       existing?.force_reauth ?? true,
     oidc_discovery_url: existing?.oidc_discovery_url || '',
     oidc_client_id:     existing?.oidc_client_id     || '',
     oidc_tenant_id:     existing?.oidc_tenant_id     || '',
@@ -159,6 +163,11 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
         label: form.label.trim(),
         enforcement: form.enforcement,
         default_role: form.default_role,
+        // Always send force_reauth so the *bool API contract sees a real
+        // value (true/false) rather than nil = "no change". On PATCH this
+        // overwrites the column even when the toggle hasn't been touched,
+        // which is fine — the form initialised from the existing value.
+        force_reauth: !!form.force_reauth,
         oidc_discovery_url: form.oidc_discovery_url.trim(),
         oidc_client_id: form.oidc_client_id.trim(),
         oidc_tenant_id: form.oidc_tenant_id.trim(),
@@ -222,6 +231,22 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
           <select value={form.default_role} onChange={set('default_role')} style={inputStyle(t)}>
             {DEFAULT_ROLES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+        </Field>
+
+        <Field
+          label="Force re-authentication"
+          hint="When on, every login forces the IdP to re-prompt for credentials regardless of an existing IdP session. Closes silent-identity-substitution on shared browsers. Turn OFF only if your IdP enforces its own session policy (e.g. Azure AD conditional access) and rejects prompt=login."
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={!!form.force_reauth}
+              onChange={(e) => setForm((f) => ({ ...f, force_reauth: e.target.checked }))}
+            />
+            <span style={{ fontSize: 13, color: t.text }}>
+              Send <code style={{ fontFamily: 'ui-monospace, monospace' }}>prompt=login</code> on the OIDC authorize URL
+            </span>
+          </label>
         </Field>
 
         <Divider t={t} label="OIDC settings" />
