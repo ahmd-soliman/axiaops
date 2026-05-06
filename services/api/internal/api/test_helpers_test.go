@@ -46,15 +46,16 @@ type MockStore struct {
 	mu sync.Mutex
 
 	// ── Data Storage (used by all tests) ──
-	zombies     []model.ZombieResource
-	accounts    []model.Account
-	snapshots   []model.ZombieSnapshot
-	resources   []model.ResourceRecord
-	costs       []model.CostRecord
-	dismissals  []model.DismissAction
-	nextDismID  int64
-	auditEvents []model.AuditEvent
-	nextAuditID int64
+	zombies          []model.ZombieResource
+	accounts         []model.Account
+	snapshots        []model.ZombieSnapshot
+	resources        []model.ResourceRecord
+	costs            []model.CostRecord
+	dismissals       []model.DismissAction
+	nextDismID       int64
+	auditEvents      []model.AuditEvent
+	nextAuditID      int64
+	organizationName string
 
 	// UserMembershipsByUser keys ListUserMemberships responses by user_id
 	// so a single test can drive multiple distinct users (e.g. the
@@ -331,11 +332,18 @@ func (m *MockStore) LoadZombies(ctx context.Context) ([]model.ZombieResource, er
 }
 
 func (m *MockStore) UpsertOrganization(_ context.Context, externalID, name string) (model.Organization, error) {
-	return model.Organization{ID: externalID, Name: name}, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.organizationName == "" {
+		m.organizationName = name
+	}
+	return model.Organization{ID: externalID, Name: m.organizationName}, nil
 }
 
 func (m *MockStore) GetOrganizationByID(_ context.Context, id string) (model.Organization, error) {
-	return model.Organization{ID: id}, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return model.Organization{ID: id, Name: m.organizationName}, nil
 }
 
 func (m *MockStore) ListUserMemberships(_ context.Context, userID string) ([]model.MembershipWithOrganization, error) {
@@ -1000,8 +1008,10 @@ func (m *MockStore) countOwnersLocked(organizationID string) int {
 
 // ── Organization rename + onboarding (Phase 2) ───────────────────────────────
 
-func (m *MockStore) RenameOrganization(_ context.Context, _ string) error {
-	// Tests don't yet exercise rename — minimal stub.
+func (m *MockStore) RenameOrganization(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.organizationName = name
 	return nil
 }
 
@@ -1068,20 +1078,6 @@ func (m *MockStore) CreatePendingInvitation(_ context.Context, inv model.Pending
 	inv.UpdatedAt = now
 	m.pendingInvitations = append(m.pendingInvitations, inv)
 	return inv, true, nil
-}
-
-func (m *MockStore) UpdateInvitationKindeIDs(_ context.Context, id, kindeInvitationID, kindeUserID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.pendingInvitations {
-		if m.pendingInvitations[i].ID == id {
-			m.pendingInvitations[i].KindeInvitationID = kindeInvitationID
-			m.pendingInvitations[i].KindeUserID = kindeUserID
-			m.pendingInvitations[i].UpdatedAt = time.Now().UTC()
-			return nil
-		}
-	}
-	return storage.ErrInvitationNotFound
 }
 
 func (m *MockStore) ListPendingInvitations(ctx context.Context, status string) ([]model.PendingInvitation, error) {
@@ -1274,8 +1270,10 @@ func (m *MockStore) ConsumeBootstrapState(context.Context, storage.BootstrapCons
 	return storage.BootstrapResult{}, storage.ErrBootstrapAlreadyDone
 }
 
-func (m *MockStore) CreateNativeInvitation(context.Context, model.PendingInvitation) (model.PendingInvitation, bool, error) {
-	return model.PendingInvitation{}, false, errors.New("MockStore.CreateNativeInvitation not implemented")
+func (m *MockStore) CreateNativeInvitation(ctx context.Context, inv model.PendingInvitation) (model.PendingInvitation, bool, error) {
+	// Delegates to CreatePendingInvitation (same upsert + sentinel-check
+	// shape); inv.InviteTokenHash flows through to the persisted row.
+	return m.CreatePendingInvitation(ctx, inv)
 }
 
 func (m *MockStore) RedeemNativeInvitation(context.Context, storage.NativeInviteRedeem) (model.User, model.Membership, error) {

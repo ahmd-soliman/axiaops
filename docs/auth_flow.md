@@ -1,6 +1,15 @@
 # Auth Flow — Dashboard & API
 
-## Overview
+> ⚠️ **HISTORICAL.** This document describes the legacy Kinde OAuth 2.0 + PKCE
+> flow. Kinde was removed in MR `chore/remove-kinde-auth` (2026-05-06). Production
+> auth is now native cookie sessions: dashboard `POST /v1/auth/login` →
+> `axiaops_session` HttpOnly cookie → API resolves via `auth.NativeProvider`.
+> SSO logins use the OIDC ceremony in `services/api/internal/sso/` and mint the
+> same session cookie with `auth_mode='sso'`. See `docs/native-auth-bootstrap.md`
+> for the first-run install flow. Sections below referring to JWTs, Kinde
+> issuer, or the `Authorization: Bearer` header are pre-removal artefacts.
+
+## Overview (historical)
 
 AxiaOps uses Kinde OAuth 2.0 with PKCE. The dashboard handles the browser-side
 flow; the API validates JWTs on every request and auto-provisions organizations.

@@ -12,21 +12,19 @@ import "time"
 // Expiry is enforced at the read-side (RedeemPendingInvitation filters
 // expires_at > NOW()); a future background sweeper flips ripe rows to 'expired'.
 type PendingInvitation struct {
-	ID                string    // UUID
-	OrganizationID    string    // FK → Organization.ID
-	Email             string    // raw email; matched case-insensitively via lower()
-	Role              string    // one of: admin, member, viewer (never owner)
-	InvitedByUserID   string    // FK → User.ID; the inviter
-	InvitedByEmail    string    // captured at invite time; survives inviter deletion
-	Status            string    // one of: pending, expired, revoked
-	KindeInvitationID string    // returned by Kinde Mgmt API; empty if Kinde call hasn't happened
-	KindeUserID       string    // returned by Kinde Mgmt API; empty if Kinde call hasn't happened
-	ExpiresAt         time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID              string    // UUID
+	OrganizationID  string    // FK → Organization.ID
+	Email           string    // raw email; matched case-insensitively via lower()
+	Role            string    // one of: admin, member, viewer (never owner)
+	InvitedByUserID string    // FK → User.ID; the inviter
+	InvitedByEmail  string    // captured at invite time; survives inviter deletion
+	Status          string    // one of: pending, expired, revoked
+	ExpiresAt       time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 
-	// InviteTokenHash is set on native-mode invitations (Phase B1) and is
-	// hex(SHA-256(plaintext token)). Empty for Kinde-mode rows. Used by
+	// InviteTokenHash is hex(SHA-256(plaintext token)). NOT NULL since
+	// migration 024 — every pending_memberships row carries one. Used by
 	// RedeemNativeInvitation as the lookup key. The plaintext token never
 	// leaves the handler that minted it — never logged, never persisted.
 	InviteTokenHash string

@@ -1,6 +1,13 @@
 # Auth Provider Evaluation — AxiaOps
 
-## Decision: Kinde
+> ⚠️ **HISTORICAL.** This document records the original Phase-2 decision to use
+> Kinde. That decision was reversed by [ADR-0001](decisions/0001-deployment-model.md)
+> and Kinde was removed in MR `chore/remove-kinde-auth` (2026-05-06). Production
+> auth is now native cookie sessions (argon2id) + per-org OIDC SSO via the seam
+> in `services/api/internal/sso/`. Read this doc as historical context; do not
+> act on its recommendations.
+
+## Decision: Kinde (since reversed — see banner above)
 
 Chosen for Phase 2. Reasons summarised at the bottom of this document.
 

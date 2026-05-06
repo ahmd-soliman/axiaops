@@ -1,9 +1,8 @@
 // auth_native.go — middleware that authenticates requests via the
-// auth.Provider seam (D11/S1). Under AUTH_PROVIDER=native the provider
-// is auth.NativeProvider; under `both` (strangler transition) it is a
-// composite that tries cookie first, falls back to Bearer JWT; under
-// `kinde` the legacy Auth.Wrap path is still used directly. The
-// composition root in cmd/main.go picks one.
+// auth.Provider seam (D11/S1). Today's sole production impl is
+// auth.NativeProvider (cookie + sessions table). The seam stays so a
+// SaaS reactivation can swap in a remote-IdP impl without touching the
+// middleware chain.
 
 package middleware
 
@@ -27,9 +26,9 @@ import (
 // Telemetry: every authenticated request increments
 // axiaops_auth_provider_active{provider} and updates
 // axiaops_auth_provider_last_seen_seconds{provider}. The provider label
-// is the AuthMode of the resolved Identity ("password" | "sso" |
-// "bootstrap" | "kinde"). Strangler deletion-readiness queries against
-// the gauge under low-traffic conditions (architect N1).
+// collapses the per-session AuthMode ("password" | "sso" | "bootstrap")
+// to "native"; "unknown" surfaces a Provider that returned an Identity
+// without setting AuthMode (architect N1).
 func WrapNative(provider auth.Provider, next http.Handler) http.Handler {
 	if provider == nil {
 		// Surface the misconfiguration loudly. A nil provider means
@@ -54,11 +53,8 @@ func WrapNative(provider auth.Provider, next http.Handler) http.Handler {
 			return
 		}
 
-		// Strangler telemetry — provider label is the env-var tier
-		// ("native"|"kinde"|"both") per plan §4.5, NOT the per-session
-		// AuthMode. Mapping: password/sso/bootstrap → "native"; kinde
-		// → "kinde". The "both" label is emitted by the composite
-		// provider when it lands in the next slice.
+		// Auth-provider telemetry. Mapping: password/sso/bootstrap →
+		// "native"; "" → "unknown".
 		tier := providerTier(identity.AuthMode)
 		observability.Global.AuthProviderActive.WithLabelValues(tier).Inc()
 		observability.Global.AuthProviderLastSeen.WithLabelValues(tier).
@@ -66,11 +62,6 @@ func WrapNative(provider auth.Provider, next http.Handler) http.Handler {
 
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, organizationIDKey, identity.OrganizationID)
-		// organizationCodeKey is the Kinde org_code under the legacy
-		// path; under native we use organization_id as the value (same
-		// convention DevBypass uses) so handlers that already read
-		// OrganizationCode keep working.
-		ctx = context.WithValue(ctx, organizationCodeKey, identity.OrganizationID)
 		ctx = context.WithValue(ctx, userIDKey, identity.UserID)
 		ctx = context.WithValue(ctx, userEmailKey, identity.Email)
 		ctx = context.WithValue(ctx, roleKey, identity.Role)
