@@ -28,7 +28,7 @@ Go workspace (`go.work`) links all three Go modules. Import paths: `axiaops.io/a
 make start-dev      # Host-mode Go services + Postgres container. DEV_MODE=true
                     # (auth bypass). Fast dev loop — the default for day-to-day work.
 make start-staging  # Full Docker stack (API, ingestion, dashboard, Redis, Postgres)
-                    # with DEV_MODE=false → Kinde JWT auth on. Mirrors deployed env.
+                    # with DEV_MODE=false → native cookie auth on. Mirrors deployed env.
 make stop           # Kill host-mode services AND `docker compose down` the stack.
 make seed           # Populate dummy organization/user/zombie records
 make test               # All Go unit tests
@@ -43,10 +43,10 @@ make test-integration   # Spins up an isolated docker-compose stack (postgres, r
 ## Dev Workflow
 
 - `start-dev` = host-mode Go (API :8080, ingestion :8081, Vite dashboard :5173) against a local Postgres container. No Redis, no auth. Use this for most coding.
-- `start-staging` = full docker-compose stack: Postgres + Redis + ingestion + API + dashboard. Native auth enforced (`AUTH_PROVIDER=native`). Dashboard served by nginx on plain HTTP at **`http://localhost:8082`** — TLS termination is the edge proxy's job in every real deployment (App Runner / customer ingress / on-prem reverse proxy in front of dev/staging) and is intentionally absent locally. Use when debugging auth flows, Redis features, or verifying container parity.
+- `start-staging` = full docker-compose stack: Postgres + Redis + ingestion + API + dashboard. Native auth enforced (cookie + sessions table). Dashboard served by nginx on plain HTTP at **`http://localhost:8082`** — TLS termination is the edge proxy's job in every real deployment (App Runner / customer ingress / on-prem reverse proxy in front of dev/staging) and is intentionally absent locally. Use when debugging auth flows, Redis features, or verifying container parity.
 - Both modes use real AWS Cost Explorer + CloudWatch data.
 - `start-dev` requires AWS credentials in `services/*/.env` or environment.
-- `start-staging` additionally requires (under `AUTH_PROVIDER=kinde`/`both` only): `KINDE_*` env vars populated. No local TLS setup is needed.
+- `start-staging` needs no extra env beyond what `make start-dev` requires; no local TLS setup is needed.
 - In `start-dev` the dashboard proxies `/api/*` through Vite → API on 8080. In `start-staging` nginx serves the built bundle on HTTP and proxies `/api/*` to the containerised API, propagating `X-Forwarded-Proto` from the request — non-Secure cookie under direct-HTTP access (correct), Secure cookie when an edge proxy terminates TLS in front of this stack.
 - **Native-auth first-run** (bootstrap → login → dashboard) is documented in [`docs/native-auth-bootstrap.md`](docs/native-auth-bootstrap.md).
 
@@ -88,7 +88,7 @@ Non-obvious shape that's easy to misread from `.gitlab-ci.yml`:
 - Mock interfaces for external services (AWS SDK, HTTP clients)
 - Helper functions for fixture building: `costRecord()`, `usageRecord()`
 - `httptest.NewRecorder` for handler tests
-- RSA key generation for JWT middleware tests (no real Kinde calls)
+- No real network calls in unit tests
 - Always run `make test` before committing
 
 ## Code Conventions
@@ -135,7 +135,7 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 ## Security
 
 - AES-256-GCM encrypts AWS secrets before DB storage (`ENCRYPTION_KEY` env var, 32-byte hex)
-- Kinde OAuth 2.0 PKCE flow — RS256 JWT verified via JWKS endpoint
+- Native cookie sessions (argon2id password hashes) + OIDC SSO (per-connection JWKS, RS256 ID-token validation)
 - RLS enforces organization isolation at the DB level — never query without `app.organization_id` set
 - Never commit `.env` files, credentials, or encryption keys
 - Production: IAM roles instead of access keys
