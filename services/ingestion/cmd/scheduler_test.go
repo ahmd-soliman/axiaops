@@ -152,9 +152,6 @@ func (m *mockStoreForScheduler) DeleteOrganizationCascade(context.Context, strin
 func (m *mockStoreForScheduler) CreatePendingInvitation(context.Context, model.PendingInvitation) (model.PendingInvitation, bool, error) {
 	return model.PendingInvitation{}, false, nil
 }
-func (m *mockStoreForScheduler) UpdateInvitationKindeIDs(context.Context, string, string, string) error {
-	return nil
-}
 func (m *mockStoreForScheduler) ListPendingInvitations(context.Context, string) ([]model.PendingInvitation, error) {
 	return nil, nil
 }
