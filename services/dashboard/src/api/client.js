@@ -35,10 +35,10 @@ function authHeaders() {
 // needing the user to reload. See docs/rbac-design.md §8 "Role-change propagation".
 export const FORBIDDEN_EVENT = 'axiaops:forbidden';
 
-// UNAUTHORIZED_EVENT fires when a request returns 401 — i.e. the Kinde JWT is
-// missing, expired, or otherwise rejected by the API auth middleware. The app
-// shell listens and forces a logout + redirect to /login so the user can
-// re-authenticate instead of staring at a stuck UI with a stale token.
+// UNAUTHORIZED_EVENT fires when a request returns 401 — i.e. the native
+// session cookie is missing, expired, or revoked server-side. The app
+// shell listens and forces a logout + redirect to /login so the user
+// can re-authenticate instead of staring at a stuck UI.
 export const UNAUTHORIZED_EVENT = 'axiaops:unauthorized';
 
 // notifyForbidden / notifyUnauthorized are decoupled from React deliberately —
@@ -64,9 +64,7 @@ function notifyUnauthorized(detail) {
 // `credentials: 'include'` is forced on every call so the native session
 // cookie (axiaops_session) is sent cross-origin during local dev (Vite at
 // :5173 → API at :8080). In Docker prod the dashboard is same-origin so
-// the flag is a no-op. Under AUTH_PROVIDER=kinde the cookie won't exist
-// and the Authorization header carries the JWT instead — both paths
-// coexist during the strangler window.
+// the flag is a no-op.
 async function ifetch(url, opts) {
   const merged = { ...(opts || {}), credentials: 'include' };
   const res = await fetch(url, merged);
@@ -642,14 +640,12 @@ export async function replaceSSOGroupMappings(connectionId, mappings) {
   });
 }
 
-// ── Native auth (Phase B1) ──────────────────────────────────────────────────
+// ── Native auth ─────────────────────────────────────────────────────────────
 //
 // All four endpoints below work via the `axiaops_session` HttpOnly cookie —
 // the browser sends and stores it automatically (`credentials: 'include'`
 // is forced in ifetch). No Bearer token, no localStorage, no token
-// handling on the JS side. Under AUTH_PROVIDER=kinde these endpoints
-// either 401 (kinde-only) or coexist via the composite provider; the
-// dashboard chooses which login path to render based on VITE_AUTH_PROVIDER.
+// handling on the JS side.
 
 // Maps a 4xx error from a native-auth POST to a structured object the
 // caller can switch on. Falls back to a generic error when the body

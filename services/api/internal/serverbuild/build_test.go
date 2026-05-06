@@ -3,10 +3,10 @@ package serverbuild_test
 // build_test.go — drop-in smoke test for the SaaS-extension seams (D11
 // / plan §4.8.6 acceptance).
 //
-// The test boots ComposeServer with mock impls of all five seams and
+// The test boots ComposeServer with mock impls of all four seams and
 // asserts an HTTP request gets a sane response. It proves the seams hold
 // without shipping the SaaS binary: a future cmd/api-saashosted/main.go
-// will substitute different concrete types for the same five interfaces
+// will substitute different concrete types for the same four interfaces
 // and call the same ComposeServer.
 //
 // What the test does NOT do (deliberately):
@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"axiaops.io/api/internal/auth"
-	"axiaops.io/api/internal/kinde"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/api/internal/serverbuild"
 	"axiaops.io/api/internal/sso"
@@ -101,9 +100,9 @@ func (c *stubConnector) Test(_ context.Context, _ string) (sso.TestResult, error
 
 // TestComposeServer_AcceptsAllSeamMocks pins the §4.8.6 D11 acceptance:
 // ComposeServer compiles AND runs against mock implementations of all
-// five SaaS-extension seams (Store, AuthProvider, Inviter, Discoverer,
-// Connector). A single smoke request against /v1/sso/discover proves
-// the chain serves traffic.
+// four SaaS-extension seams (Store, AuthProvider, Discoverer, Connector).
+// A single smoke request against /v1/sso/discover proves the chain
+// serves traffic.
 //
 // If a future refactor tightens any seam from interface to concrete
 // type, this test stops compiling — surfacing the regression before the
@@ -112,25 +111,19 @@ func TestComposeServer_AcceptsAllSeamMocks(t *testing.T) {
 	cfg := serverbuild.Config{
 		Addr:       ":0", // unused; we don't ListenAndServe
 		PublicHost: "https://app.test",
-		// DevMode=true skips the AuthProvider requirement. The smoke
-		// test asserts the seam is acceptable; the AUTH_PROVIDER=native
-		// branch is exercised in a separate test below.
+		// DevMode=true skips the AuthProvider/SessionManager/SSO* deps.
+		// The native-auth branch is exercised in a separate test below.
 		DevMode:           true,
 		DevOrganizationID: "org-test",
 		DevUserID:         "user-test",
 		DevUserEmail:      "user@test",
-		// NativeAuthActive=false avoids the SessionManager/Validator
-		// requirement — DevMode would imply that anyway.
-		NativeAuthActive: false,
 	}
 	deps := serverbuild.Deps{
 		Store: &stubStore{},
 		Cache: cache.New(""), // in-memory backend
 		// Queue is nil — handlers that need it (POST /v1/accounts/{id}/scan)
 		// aren't exercised by the smoke request.
-		Queue: nil,
-		// Inviter nil → /v1/invitations returns 503; smoke doesn't touch it.
-		Inviter:    kinde.NewStub(), // exercised seam: nil and stub both valid
+		Queue:      nil,
 		Discoverer: &stubDiscoverer{},
 		Connector:  &stubConnector{},
 		// MetricsRegistry isolated so this test doesn't fight the
@@ -185,12 +178,10 @@ func TestComposeServer_MetricsExposesSharedRegistry(t *testing.T) {
 		DevOrganizationID: "org-test",
 		DevUserID:         "user-test",
 		DevUserEmail:      "user@test",
-		NativeAuthActive:  false,
 	}
 	deps := serverbuild.Deps{
 		Store:           &stubStore{},
 		Cache:           cache.New(""),
-		Inviter:         kinde.NewStub(),
 		Discoverer:      &stubDiscoverer{},
 		Connector:       &stubConnector{},
 		MetricsRegistry: serverbuild.NewDefaultMetrics(),
@@ -229,9 +220,9 @@ func TestComposeServer_MetricsExposesSharedRegistry(t *testing.T) {
 	}
 }
 
-// TestComposeServer_NativeAuthMode exercises the Config.NativeAuthActive
-// branch, requiring SessionManager + SSOValidator + SSOStateStore deps.
-// Proves the (5-seam + 3-supporting-deps) construction holds — a strict
+// TestComposeServer_NativeAuthMode exercises the !DevMode branch,
+// requiring AuthProvider + SessionManager + SSOValidator + SSOStateStore.
+// Proves the (4-seam + 3-supporting-deps) construction holds — a strict
 // upgrade over the DevMode test above which short-circuits a lot of paths.
 func TestComposeServer_NativeAuthMode(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
@@ -239,19 +230,15 @@ func TestComposeServer_NativeAuthMode(t *testing.T) {
 	cache := cache.New("")
 	store := &stubStore{}
 	cfg := serverbuild.Config{
-		Addr:              ":0",
-		PublicHost:        "https://app.test",
-		DevMode:           false,
-		AuthProviderMode:  "native",
-		NativeAuthActive:  true,
-		NativeInvitations: true,
-		RedisConfigured:   false,
+		Addr:            ":0",
+		PublicHost:      "https://app.test",
+		DevMode:         false,
+		RedisConfigured: false,
 	}
 	deps := serverbuild.Deps{
 		Store:        store,
 		Cache:        cache,
 		AuthProvider: &stubProvider{id: auth.Identity{UserID: "u1", OrganizationID: "o1", AuthMode: string(model.AuthModePassword), Role: "owner"}},
-		Inviter:      kinde.NewStub(),
 		Discoverer:   &stubDiscoverer{},
 		Connector:    &stubConnector{},
 		// Native-auth-required deps:
@@ -319,7 +306,6 @@ func TestComposeServer_RejectsMissingRequiredDeps(t *testing.T) {
 			deps := serverbuild.Deps{
 				Store:           &stubStore{},
 				Cache:           cache.New(""),
-				Inviter:         kinde.NewStub(),
 				Discoverer:      &stubDiscoverer{},
 				Connector:       &stubConnector{},
 				MetricsRegistry: serverbuild.NewDefaultMetrics(),
@@ -338,16 +324,14 @@ func TestComposeServer_RejectsMissingRequiredDeps(t *testing.T) {
 
 // TestComposeServer_RejectsMissingAuthProviderInProdMode pins that
 // non-DevMode requires AuthProvider. A composition-root bug that forgot
-// to wire AUTH_PROVIDER would surface here at boot.
+// to wire it would surface here at boot.
 func TestComposeServer_RejectsMissingAuthProviderInProdMode(t *testing.T) {
 	cfg := serverbuild.Config{
-		DevMode:          false,
-		AuthProviderMode: "native",
+		DevMode: false,
 	}
 	deps := serverbuild.Deps{
 		Store:           &stubStore{},
 		Cache:           cache.New(""),
-		Inviter:         kinde.NewStub(),
 		Discoverer:      &stubDiscoverer{},
 		Connector:       &stubConnector{},
 		MetricsRegistry: serverbuild.NewDefaultMetrics(),
