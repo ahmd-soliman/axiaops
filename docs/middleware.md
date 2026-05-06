@@ -1,5 +1,14 @@
 # API Middleware
 
+> ⚠️ **STALE — references Kinde JWT auth.** Kinde was removed in MR
+> `chore/remove-kinde-auth` (2026-05-06). The auth middleware is now
+> `auth_native.go`'s `WrapNative` (cookie + sessions table); the legacy
+> `Auth.Wrap` JWT path was deleted. The middleware chain is now composed
+> in `services/api/internal/serverbuild/build.go` rather than `cmd/main.go`.
+> Sections below describing JWT validation, Kinde issuer, or the legacy
+> `cmd/main.go` composition are pre-removal artefacts; read `auth_native.go`
+> + `serverbuild/build.go` for the live shape.
+
 The API middleware chain lives in `services/api/internal/middleware/` and `services/shared/observability/`. Middleware is applied in `services/api/cmd/main.go` from outermost to innermost:
 
 ```

@@ -456,13 +456,13 @@ func TestUpsertUser_CreatesOnFirstLogin(t *testing.T) {
 func TestUpsertUser_ReturnsSameIDOnSecondLogin(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
-	kindeSub := "kp_" + uuid.New().String()
+	externalID := "kp_" + uuid.New().String()
 
-	first, err := s.UpsertUser(ctx, org.ID, kindeSub, "alice@acme.com", "Alice")
+	first, err := s.UpsertUser(ctx, org.ID, externalID, "alice@acme.com", "Alice")
 	if err != nil {
 		t.Fatalf("first UpsertUser: %v", err)
 	}
-	second, err := s.UpsertUser(ctx, org.ID, kindeSub, "alice@acme.com", "Alice")
+	second, err := s.UpsertUser(ctx, org.ID, externalID, "alice@acme.com", "Alice")
 	if err != nil {
 		t.Fatalf("second UpsertUser: %v", err)
 	}
@@ -484,15 +484,15 @@ func TestEnsureUser_CreatesRow(t *testing.T) {
 
 	conn := connectTestDB(t)
 	defer func() { _ = conn.Close(context.Background()) }()
-	var kindeSub, email string
+	var externalID, email string
 	err := conn.QueryRow(context.Background(),
-		`SELECT kinde_sub, email FROM axiaops.users WHERE id = $1`, u.ID,
-	).Scan(&kindeSub, &email)
+		`SELECT external_id, email FROM axiaops.users WHERE id = $1`, u.ID,
+	).Scan(&externalID, &email)
 	if err != nil {
 		t.Fatalf("fetch inserted row: %v", err)
 	}
-	if want := "dev:" + u.ID; kindeSub != want {
-		t.Errorf("kinde_sub: got %q, want %q", kindeSub, want)
+	if want := "dev:" + u.ID; externalID != want {
+		t.Errorf("external_id: got %q, want %q", externalID, want)
 	}
 	if email != u.Email {
 		t.Errorf("email: got %q, want %q", email, u.Email)
@@ -526,28 +526,6 @@ func TestEnsureUser_UpdatesOnConflict(t *testing.T) {
 	}
 	if email != "new@axiaops.local" {
 		t.Errorf("email: got %q, want %q", email, "new@axiaops.local")
-	}
-}
-
-// TestUsersDevKindeSubCheckConstraint verifies that migration 013's CHECK
-// constraint rejects rows where kinde_sub starts with "dev:" but does not
-// match "dev:" + id — preventing future code paths from producing colliding
-// synthetic subs.
-func TestUsersDevKindeSubCheckConstraint(t *testing.T) {
-	_ = newTestStore(t) // ensures migrations (including 013) have applied
-	_, org := newOrgCtx(t, newTestStore(t))
-
-	conn := connectTestDB(t)
-	defer func() { _ = conn.Close(context.Background()) }()
-
-	now := time.Now().UTC()
-	_, err := conn.Exec(context.Background(),
-		`INSERT INTO axiaops.users (id, organization_id, kinde_sub, email, name, created_at, last_seen)
-		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-		"user-A", org.ID, "dev:user-B", "mismatch@axiaops.local", "Mismatch", now,
-	)
-	if err == nil {
-		t.Fatal("expected CHECK constraint violation for dev:user-B with id user-A, got nil")
 	}
 }
 

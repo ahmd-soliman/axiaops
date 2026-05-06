@@ -25,22 +25,20 @@ type meResponse struct {
 	// Memberships is every org this user belongs to with the role they
 	// hold there. Drives the org-switcher dropdown in the nav (B1.5
 	// §4.7.2) and tells the frontend whether to even render it (no point
-	// for single-org users). Always present under native auth; empty
-	// under Kinde where multi-org isn't modelled. Plan §4.7.3.
+	// for single-org users). Empty under DEV_MODE.
 	Memberships []membershipSummary `json:"memberships"`
 
-	// AuthProvider is the strangler tier that authenticated this
-	// request: "native" (cookie + sessions table — password / sso /
-	// bootstrap), "kinde" (legacy Bearer JWT), or "" under DEV_MODE
-	// where no provider ran. Frontend uses this to render the right
-	// login screen on 401 redirects and to show an SSO badge in the
-	// account menu. See plan §4.5.
+	// AuthProvider is the coarse-grained provider label that
+	// authenticated this request: "native" (cookie + sessions table —
+	// password / sso / bootstrap) or "" under DEV_MODE where no
+	// provider ran. Frontend uses this to render the right login
+	// screen on 401 redirects.
 	AuthProvider string `json:"auth_provider"`
 
 	// AuthMode is the per-session detail behind AuthProvider —
-	// "password", "sso", "bootstrap" (under native), or "kinde". Lets
-	// the dashboard distinguish, e.g., a freshly-bootstrapped owner
-	// from a normal password login. Empty under DEV_MODE.
+	// "password", "sso", or "bootstrap". Lets the dashboard distinguish,
+	// e.g., a freshly-bootstrapped owner from a normal password login.
+	// Empty under DEV_MODE.
 	AuthMode string `json:"auth_mode,omitempty"`
 }
 
@@ -91,10 +89,7 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Organization block — best-effort. A pure read keyed on the
-	// organization_id from the request context. Using UpsertOrganization
-	// here would silently create a phantom row under native auth, where
-	// the context carries the org's UUID but the existing row's org_code
-	// has a "native:" prefix — no match → INSERT.
+	// organization_id from the request context.
 	if tid != "" {
 		if org, err := h.store.GetOrganizationByID(ctx, tid); err == nil {
 			orgResp := toOrganizationResponse(org)

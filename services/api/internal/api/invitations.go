@@ -34,11 +34,10 @@ type invitationResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	// RedemptionURL is set only on POST /v1/invitations under
-	// AUTH_PROVIDER=native|both. The admin shares this URL OOB with
-	// the invitee. Empty (omitted) on the Kinde path and on
-	// list/get responses (a previously-minted token's plaintext
-	// can't be reconstructed from the stored hash).
+	// RedemptionURL is set only on POST /v1/invitations. The admin shares
+	// this URL OOB with the invitee. Empty (omitted) on list/get responses
+	// — a previously-minted token's plaintext can't be reconstructed from
+	// the stored hash.
 	RedemptionURL string `json:"redemption_url,omitempty"`
 }
 
@@ -60,142 +59,13 @@ func toInvitationResponse(inv model.PendingInvitation) invitationResponse {
 
 // createInvitation handles POST /v1/invitations. See docs/invitation-flow.md §4.
 //
-// Branches on h.nativeAuth (set by main.go from AUTH_PROVIDER):
-//   - true  → token-bearing pending_memberships row + OOB redemption URL.
-//   - false → legacy two-phase commit (store insert → Kinde InviteUser →
-//     store kinde IDs). On Kinde failure the pending row is revoked
-//     (compensating action) and 502 is returned.
-//
-// Permission gating is applied here on top of PermMembersInvite — invites
-// at admin role need PermMembersManageAdmin (owner-only).
+// Generates a token, persists its hash via Store.CreateNativeInvitation,
+// and returns the redemption URL in the response body. The plaintext
+// token never leaves this handler — never logged, never persisted
+// server-side. Permission gating is applied here on top of
+// PermMembersInvite — invites at admin role need PermMembersManageAdmin
+// (owner-only).
 func (h *Handler) createInvitation(w http.ResponseWriter, r *http.Request) {
-	if h.nativeAuth {
-		h.createInvitationNative(w, r)
-		return
-	}
-	if h.kinde == nil {
-		http.Error(w, "invitations not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	tid := middleware.OrganizationID(r.Context())
-	uid := middleware.UserID(r.Context())
-	actorEmail := middleware.UserEmail(r.Context())
-	ctx := storage.WithOrganizationID(r.Context(), tid)
-
-	var req struct {
-		Email string `json:"email"`
-		Role  string `json:"role"`
-		Name  string `json:"name"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
-		return
-	}
-	req.Email = strings.TrimSpace(req.Email)
-	req.Role = strings.TrimSpace(req.Role)
-	req.Name = strings.TrimSpace(req.Name)
-	if req.Email == "" || req.Role == "" {
-		http.Error(w, "email and role are required", http.StatusBadRequest)
-		return
-	}
-	if _, err := mail.ParseAddress(req.Email); err != nil {
-		http.Error(w, "invalid email", http.StatusBadRequest)
-		return
-	}
-	if !model.ValidInvitationRoles[req.Role] {
-		// Owner is excluded by ValidInvitationRoles. Match the existing
-		// /v1/memberships error message so dashboards can match on it.
-		if req.Role == string(authz.RoleOwner) {
-			http.Error(w, "owner role can only be assigned via transfer-ownership", http.StatusBadRequest)
-			return
-		}
-		http.Error(w, "invalid role", http.StatusBadRequest)
-		return
-	}
-
-	// Inviting at admin level requires owner (members:manage_admin).
-	if req.Role == string(authz.RoleAdmin) {
-		callerRole, _ := h.store.RoleOf(ctx, tid, uid)
-		if !authz.Allows(authz.Role(callerRole), authz.PermMembersManageAdmin) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-	}
-
-	// Phase 1: insert pending row (handles upsert + sentinel pre-checks).
-	inv, inserted, err := h.store.CreatePendingInvitation(ctx, model.PendingInvitation{
-		OrganizationID:  tid,
-		Email:           req.Email,
-		Role:            req.Role,
-		InvitedByUserID: uid,
-		InvitedByEmail:  actorEmail,
-	})
-	if err != nil {
-		switch {
-		case errors.Is(err, storage.ErrInvitationAlreadyMember):
-			writeError(w, http.StatusConflict, "already_a_member", "user is already a member of this organization")
-		case errors.Is(err, storage.ErrUserExistsNoMembership):
-			writeError(w, http.StatusConflict, "user_exists_use_memberships", "user has logged in already; use POST /v1/memberships")
-		default:
-			slog.Error("invitations: CreatePendingInvitation failed", "error", err, "organization_id", tid)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Phase 2: ask Kinde to send the invitation email.
-	orgCode := middleware.OrganizationCode(r.Context())
-	kindeInvitationID, kindeUserID, kerr := h.kinde.InviteUser(ctx, orgCode, req.Email, req.Name)
-	if kerr != nil {
-		// Compensate: revoke the local pending row so a retry isn't blocked
-		// by the partial unique index.
-		if rerr := h.store.RevokePendingInvitation(ctx, inv.ID); rerr != nil {
-			slog.Error("invitations: compensating revoke failed",
-				"error", rerr, "invitation_id", inv.ID)
-		}
-		slog.Error("invitations: Kinde InviteUser failed", "error", kerr, "organization_id", tid)
-		writeError(w, http.StatusBadGateway, "kinde_invite_failed", "failed to send invitation via Kinde; please retry")
-		return
-	}
-
-	// Phase 3: best-effort persist Kinde IDs. If this fails the invite was
-	// still sent — log it; the row keeps status=pending and revoke will skip
-	// the Kinde step gracefully (RemoveUser is a no-op when kinde_user_id="").
-	if uerr := h.store.UpdateInvitationKindeIDs(ctx, inv.ID, kindeInvitationID, kindeUserID); uerr != nil {
-		slog.Error("invitations: UpdateInvitationKindeIDs failed",
-			"error", uerr, "invitation_id", inv.ID)
-	} else {
-		inv.KindeInvitationID = kindeInvitationID
-		inv.KindeUserID = kindeUserID
-	}
-
-	audit.Record(r, h.store, model.AuditEvent{
-		Action:       model.AuditActionMemberInvited,
-		ResourceType: "invitation",
-		ResourceID:   inv.ID,
-		Metadata: map[string]any{
-			"email":               req.Email,
-			"role":                req.Role,
-			"resent":              !inserted,
-			"kinde_invitation_id": kindeInvitationID,
-		},
-	})
-
-	// 201 on first create, 200 on re-invite (refreshed pending row).
-	status := http.StatusOK
-	if inserted {
-		status = http.StatusCreated
-	}
-	writeJSONStatus(w, status, toInvitationResponse(inv))
-}
-
-// createInvitationNative is the AUTH_PROVIDER=native|both branch of
-// createInvitation. Generates a token, persists its hash via
-// Store.CreateNativeInvitation, and returns the redemption URL in the
-// response body. The plaintext token never leaves this handler — never
-// logged, never persisted server-side.
-func (h *Handler) createInvitationNative(w http.ResponseWriter, r *http.Request) {
 	tid := middleware.OrganizationID(r.Context())
 	uid := middleware.UserID(r.Context())
 	actorEmail := middleware.UserEmail(r.Context())
@@ -345,21 +215,10 @@ func (h *Handler) listInvitations(w http.ResponseWriter, r *http.Request) {
 
 // revokeInvitation handles DELETE /v1/invitations/{id}.
 //
-// Calls Kinde's RemoveUser first to invalidate the email link (legacy
-// AUTH_PROVIDER=kinde path) or skips Kinde entirely under
-// AUTH_PROVIDER=native|both, then flips the local row to revoked. 410 on
-// already-revoked, 502 on Kinde 5xx (local row stays pending so retry
-// works). Idempotent on Kinde 404 (treated as success inside the kinde
-// client).
+// Flips the local row to revoked. 404 if not found, 410 if already revoked.
+// The OOB redemption URL becomes invalid the moment the row is revoked —
+// the redemption handler rejects revoked rows.
 func (h *Handler) revokeInvitation(w http.ResponseWriter, r *http.Request) {
-	// Branch on h.nativeAuth — same shape as createInvitation. Without this
-	// branch, every revoke under native auth returned 503 because the
-	// "kinde not configured" guard fires unconditionally even when there's
-	// no Kinde to call. Surfaced by code-reviewer post-99e8289.
-	if !h.nativeAuth && h.kinde == nil {
-		http.Error(w, "invitations not configured", http.StatusServiceUnavailable)
-		return
-	}
 	id := r.PathValue("id")
 	tid := middleware.OrganizationID(r.Context())
 	ctx := storage.WithOrganizationID(r.Context(), tid)
@@ -393,20 +252,6 @@ func (h *Handler) revokeInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Kinde-branch only: invalidate the email link via the Mgmt API. Under
-	// native auth there's no IdP-side user to remove — the OOB redemption
-	// URL becomes invalid the moment we flip the local row to revoked.
-	if !h.nativeAuth {
-		orgCode := middleware.OrganizationCode(r.Context())
-		if err := h.kinde.RemoveUser(ctx, orgCode, inv.KindeUserID); err != nil {
-			// 5xx — leave local row pending so a retry hits Kinde again.
-			slog.Error("invitations: Kinde RemoveUser failed",
-				"error", err, "invitation_id", inv.ID)
-			writeError(w, http.StatusBadGateway, "kinde_revoke_failed", "failed to revoke invitation via Kinde; please retry")
-			return
-		}
-	}
-
 	if err := h.store.RevokePendingInvitation(ctx, id); err != nil {
 		switch {
 		case errors.Is(err, storage.ErrInvitationNotFound):
@@ -435,9 +280,9 @@ func (h *Handler) revokeInvitation(w http.ResponseWriter, r *http.Request) {
 
 // writeError writes a JSON error envelope. Used by invitation handlers to give
 // the dashboard a structured code for the user_exists_use_memberships /
-// already_a_member / kinde_invite_failed cases. Routes through
-// writeJSONStatus so the Content-Type header ordering, encode-error logging,
-// and any future writeJSON(Status) instrumentation apply uniformly.
+// already_a_member cases. Routes through writeJSONStatus so the Content-Type
+// header ordering, encode-error logging, and any future writeJSON(Status)
+// instrumentation apply uniformly.
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSONStatus(w, status, map[string]any{
 		"error":   code,

@@ -70,8 +70,8 @@ type Metrics struct {
 	BootstrapAttemptsTotal      *prometheus.CounterVec // outcome (success|sealed|invalid_token)
 	SessionCacheTotal           *prometheus.CounterVec // outcome (hit|miss|error) — cache-aside health
 	SessionCacheErrorsTotal     prometheus.Counter     // backend errors (Redis down, deserialise failure) — drives the degradation alert
-	AuthProviderActive          *prometheus.CounterVec // provider (native|kinde|both) — strangler telemetry counter
-	AuthProviderLastSeen        *prometheus.GaugeVec   // provider — Unix-seconds gauge enabling low-traffic SLO queries (architect N1)
+	AuthProviderActive          *prometheus.CounterVec // provider label ("native" | "unknown")
+	AuthProviderLastSeen        *prometheus.GaugeVec   // provider — Unix-seconds gauge for low-traffic SLO queries (architect N1)
 
 	// License (Phase B1.6) — see docs/sso-implementation-plan.md §4.9.4.
 	// Updated by the runtime ticker hourly so long-running binaries see the
@@ -266,11 +266,11 @@ func newMetrics() *Metrics {
 		}),
 		AuthProviderActive: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_auth_provider_active",
-			Help: "Authenticated requests by auth provider, monotonic counter. Use rate(...[7d]) for traffic alerts; for deletion-readiness checks under low traffic prefer axiaops_auth_provider_last_seen_seconds — counters never reset, so 'zero kinde traffic' must be expressed via the staleness gauge, not via this counter reaching zero.",
+			Help: "Authenticated requests by auth provider, monotonic counter. Use rate(...[7d]) for traffic alerts. Today's only legitimate label is `native`; an `unknown` label indicates a Provider returned an Identity without setting AuthMode (a bug).",
 		}, []string{"provider"}),
 		AuthProviderLastSeen: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "axiaops_auth_provider_last_seen_seconds",
-			Help: "Unix timestamp of the most recent authenticated request handled per provider. Deletion-readiness query: time() - axiaops_auth_provider_last_seen_seconds{provider='kinde'} > 30*86400 (architect N1).",
+			Help: "Unix timestamp of the most recent authenticated request handled per provider. The seam is preserved post-Kinde-removal so a future SaaS reactivation can register its own provider label without changing the metric name (architect N1).",
 		}, []string{"provider"}),
 
 		// License metrics — see docs/sso-implementation-plan.md §4.9.4.

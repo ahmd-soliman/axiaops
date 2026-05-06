@@ -76,7 +76,7 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
     >
       <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: t.text }}>Organization Name</h2>
       <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
-        Shown across the app and in invitation emails. Updates Kinde so external surfaces stay in sync.
+        Shown across the app and in invitation emails.
       </p>
       <form onSubmit={onSubmit} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <input

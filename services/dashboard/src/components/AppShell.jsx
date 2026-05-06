@@ -207,8 +207,8 @@ export default function AppShell() {
               users that rotates the session via /v1/auth/switch-org.
               The `fallbackName` fills the navbar slot during the
               initial /v1/me round-trip so it isn't blank on first
-              paint — under Kinde mode this is the JWT-decoded
-              org_name; under native it's empty until /v1/me lands. */}
+              paint. Under DEV_MODE it's the parseJwt-extracted
+              DEV_ORG_NAME; otherwise empty until /v1/me lands. */}
           <OrgSwitcher fallbackName={orgName} />
 
           <AvatarMenu />
