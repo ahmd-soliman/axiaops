@@ -105,8 +105,9 @@ type Store interface {
 	// ctx must carry an organization ID via WithOrganizationID when using PostgreSQL.
 	LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 
-	// UpsertOrganization creates an organization on first login or returns the existing one.
-	// Keyed on org_code — the Kinde organisation identifier.
+	// UpsertOrganization creates an organization on first login or returns
+	// the existing one. Keyed on org_code, a stable string identifier set
+	// at organization creation time.
 	UpsertOrganization(ctx context.Context, orgCode, name string) (model.Organization, error)
 
 	// GetOrganizationByID returns the organization with the given UUID, or
@@ -143,11 +144,11 @@ type Store interface {
 	// organization_id/email/name/last_seen if a row with that id already exists.
 	// Unlike UpsertUser the id is pinned by the caller (not generated). Used
 	// by dev mode at startup so DevBypass can inject a stable user_id alongside
-	// the dev organization_id without going through the Kinde-upsert path.
+	// the dev organization_id.
 	//
-	// Only u.ID, u.OrganizationID, u.Email, and u.Name are read. KindeSub is derived
-	// by the implementation (synthetic "dev:<id>" for the Postgres impl).
-	// Timestamps are set to NOW().
+	// Only u.ID, u.OrganizationID, u.Email, and u.Name are read. ExternalID is
+	// derived by the implementation (synthetic "dev:<id>" for the Postgres
+	// impl). Timestamps are set to NOW().
 	EnsureUser(ctx context.Context, u model.User) error
 
 	// SaveAccount inserts or replaces a connected cloud account for an organization.
@@ -332,8 +333,7 @@ type Store interface {
 	TransferOwnership(ctx context.Context, toUserID string) error
 
 	// EnsureFirstMembership inserts an owner row for (organizationID, userID) only
-	// if no membership row exists yet for this organization. Used by the auth
-	// middleware to bootstrap brand-new Kinde organisations on first login.
+	// if no membership row exists yet for this organization.
 	// Idempotent and race-safe: the partial unique index in migration 015
 	// rejects a second concurrent insert. Returns true when this call
 	// inserted the row, false if a membership already existed.

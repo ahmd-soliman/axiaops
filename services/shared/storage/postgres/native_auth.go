@@ -30,9 +30,9 @@ const bootstrapAdvisoryLockKey = int64(0x4178696F4F70730A) // "AxiaOps\n" as int
 // ── Native-auth user mutations ──────────────────────────────────────────────
 
 // CreateUserWithPassword inserts a user row with a password hash and a
-// synthetic kinde_sub of the form "native:<id>". The synthetic prefix keeps
-// the kinde_sub UNIQUE constraint usable while the column waits to be
-// renamed (a future migration when the Kinde path is deleted — D2).
+// synthetic external_id of the form "native:<id>". The synthetic prefix
+// keeps the external_id UNIQUE constraint usable for non-SSO users (real
+// SSO users get the IdP-issued `sub` claim instead).
 //
 // Bypasses RLS via the admin pool because the bootstrap and invitation-redeem
 // callers may be running before any organization context exists, and the
@@ -54,19 +54,19 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, u model.User) (model
 		u.ID = uuid.New().String()
 	}
 	now := time.Now().UTC()
-	kindeSub := "native:" + u.ID
+	externalID := "native:" + u.ID
 
 	var out model.User
 	err := s.adminPool.QueryRow(ctx, `
 		INSERT INTO users (
-			id, organization_id, kinde_sub, email, name,
+			id, organization_id, external_id, email, name,
 			password_hash, password_set_at, created_at, last_seen
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $7)
-		RETURNING id, organization_id, kinde_sub, email, name,
+		RETURNING id, organization_id, external_id, email, name,
 		          password_hash, password_set_at, created_at, last_seen`,
-		u.ID, u.OrganizationID, kindeSub, u.Email, u.Name, u.PasswordHash, now,
+		u.ID, u.OrganizationID, externalID, u.Email, u.Name, u.PasswordHash, now,
 	).Scan(
-		&out.ID, &out.OrganizationID, &out.KindeSub, &out.Email, &out.Name,
+		&out.ID, &out.OrganizationID, &out.ExternalID, &out.Email, &out.Name,
 		&out.PasswordHash, &out.PasswordSetAt, &out.CreatedAt, &out.LastSeen,
 	)
 	if err != nil {
@@ -74,7 +74,7 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, u model.User) (model
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			// 23505 = unique_violation. Two unique constraints can fire here:
 			// users_email_lower_unique (the new one from migration 021) or the
-			// existing UNIQUE on kinde_sub. The kinde_sub case is impossibly
+			// existing UNIQUE on external_id. The external_id case is impossibly
 			// rare (UUID collision), so treat any 23505 from this insert as
 			// "email taken" — the much more likely cause.
 			return model.User{}, storage.ErrUserEmailExists
@@ -128,13 +128,13 @@ func (s *Store) LookupUserByEmail(ctx context.Context, email string) (model.User
 
 	var u model.User
 	err := s.adminPool.QueryRow(ctx, `
-		SELECT id, organization_id, kinde_sub, email, name,
+		SELECT id, organization_id, external_id, email, name,
 		       password_hash, password_set_at, created_at, last_seen
 		FROM users
 		WHERE lower(email) = lower($1)`,
 		email,
 	).Scan(
-		&u.ID, &u.OrganizationID, &u.KindeSub, &u.Email, &u.Name,
+		&u.ID, &u.OrganizationID, &u.ExternalID, &u.Email, &u.Name,
 		&u.PasswordHash, &u.PasswordSetAt, &u.CreatedAt, &u.LastSeen,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -662,19 +662,19 @@ func (s *Store) ConsumeBootstrapState(ctx context.Context, in storage.BootstrapC
 	}
 
 	// 2. User (no RLS).
-	kindeSub := "native:" + in.UserID
+	externalID := "native:" + in.UserID
 	var user model.User
 	err = tx.QueryRow(ctx, `
 		INSERT INTO users (
-			id, organization_id, kinde_sub, email, name,
+			id, organization_id, external_id, email, name,
 			password_hash, password_set_at, created_at, last_seen
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $7)
-		RETURNING id, organization_id, kinde_sub, email, name,
+		RETURNING id, organization_id, external_id, email, name,
 		          password_hash, password_set_at, created_at, last_seen`,
-		in.UserID, in.OrganizationID, kindeSub, in.UserEmail, in.UserName,
+		in.UserID, in.OrganizationID, externalID, in.UserEmail, in.UserName,
 		in.UserPasswordHash, now,
 	).Scan(
-		&user.ID, &user.OrganizationID, &user.KindeSub, &user.Email, &user.Name,
+		&user.ID, &user.OrganizationID, &user.ExternalID, &user.Email, &user.Name,
 		&user.PasswordHash, &user.PasswordSetAt, &user.CreatedAt, &user.LastSeen,
 	)
 	if err != nil {
@@ -824,7 +824,7 @@ func (s *Store) CreateNativeInvitation(ctx context.Context, inv model.PendingInv
 			updated_at         = NOW()
 		RETURNING id, organization_id, email, role,
 		          invited_by_user_id, invited_by_email,
-		          status, kinde_invitation_id, kinde_user_id,
+		          status,
 		          expires_at, created_at, updated_at,
 		          COALESCE(invite_token_hash, ''),
 		          (xmax = 0) AS inserted`,
@@ -836,7 +836,7 @@ func (s *Store) CreateNativeInvitation(ctx context.Context, inv model.PendingInv
 	if err := row.Scan(
 		&out.ID, &out.OrganizationID, &out.Email, &out.Role,
 		&out.InvitedByUserID, &out.InvitedByEmail,
-		&out.Status, &out.KindeInvitationID, &out.KindeUserID,
+		&out.Status,
 		&out.ExpiresAt, &out.CreatedAt, &out.UpdatedAt,
 		&out.InviteTokenHash,
 		&inserted,
@@ -889,13 +889,13 @@ func (s *Store) LookupInvitationByToken(ctx context.Context, tokenHash string) (
 	// most one row matches.
 	var u model.User
 	err = s.adminPool.QueryRow(ctx, `
-		SELECT id, organization_id, kinde_sub, email, COALESCE(name, ''),
+		SELECT id, organization_id, external_id, email, COALESCE(name, ''),
 		       password_hash, password_set_at, created_at, last_seen
 		FROM users
 		WHERE lower(email) = lower($1)`,
 		p.Email,
 	).Scan(
-		&u.ID, &u.OrganizationID, &u.KindeSub, &u.Email, &u.Name,
+		&u.ID, &u.OrganizationID, &u.ExternalID, &u.Email, &u.Name,
 		&u.PasswordHash, &u.PasswordSetAt, &u.CreatedAt, &u.LastSeen,
 	)
 	switch {
@@ -920,7 +920,7 @@ func (s *Store) LookupInvitationByToken(ctx context.Context, tokenHash string) (
 //  2. Existing user (ExistingUserID != ""): caller has already verified
 //     the supplied password against the user's stored hash. INSERT
 //     memberships against the existing user_id → DELETE pending. The
-//     user row is NOT touched — name, password_hash, kinde_sub all
+//     user row is NOT touched — name, password_hash, external_id all
 //     stay as they were in the user's other organisation.
 func (s *Store) RedeemNativeInvitation(ctx context.Context, in storage.NativeInviteRedeem) (model.User, model.Membership, error) {
 	if in.TokenHash == "" {
@@ -957,13 +957,13 @@ func (s *Store) RedeemNativeInvitation(ctx context.Context, in storage.NativeInv
 		// verified the password against the user's stored hash. Just load
 		// the row so the returned model.User reflects the current state.
 		err = tx.QueryRow(ctx, `
-			SELECT id, organization_id, kinde_sub, email, COALESCE(name, ''),
+			SELECT id, organization_id, external_id, email, COALESCE(name, ''),
 			       password_hash, password_set_at, created_at, last_seen
 			FROM users
 			WHERE id = $1`,
 			in.ExistingUserID,
 		).Scan(
-			&user.ID, &user.OrganizationID, &user.KindeSub, &user.Email, &user.Name,
+			&user.ID, &user.OrganizationID, &user.ExternalID, &user.Email, &user.Name,
 			&user.PasswordHash, &user.PasswordSetAt, &user.CreatedAt, &user.LastSeen,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -992,17 +992,17 @@ func (s *Store) RedeemNativeInvitation(ctx context.Context, in storage.NativeInv
 			return model.User{}, model.Membership{}, fmt.Errorf("postgres: redeem native invitation: user_id and password_hash required for new user")
 		}
 		now := time.Now().UTC()
-		kindeSub := "native:" + in.UserID
+		externalID := "native:" + in.UserID
 		err = tx.QueryRow(ctx, `
 			INSERT INTO users (
-				id, organization_id, kinde_sub, email, name,
+				id, organization_id, external_id, email, name,
 				password_hash, password_set_at, created_at, last_seen
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $7)
-			RETURNING id, organization_id, kinde_sub, email, name,
+			RETURNING id, organization_id, external_id, email, name,
 			          password_hash, password_set_at, created_at, last_seen`,
-			in.UserID, organizationID, kindeSub, email, in.UserName, in.PasswordHash, now,
+			in.UserID, organizationID, externalID, email, in.UserName, in.PasswordHash, now,
 		).Scan(
-			&user.ID, &user.OrganizationID, &user.KindeSub, &user.Email, &user.Name,
+			&user.ID, &user.OrganizationID, &user.ExternalID, &user.Email, &user.Name,
 			&user.PasswordHash, &user.PasswordSetAt, &user.CreatedAt, &user.LastSeen,
 		)
 		if err != nil {
