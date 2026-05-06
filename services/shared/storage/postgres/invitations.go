@@ -96,7 +96,7 @@ func (s *Store) CreatePendingInvitation(ctx context.Context, inv model.PendingIn
 			updated_at         = NOW()
 		RETURNING id, organization_id, email, role,
 		          invited_by_user_id, invited_by_email,
-		          status, kinde_invitation_id, kinde_user_id,
+		          status,
 		          expires_at, created_at, updated_at,
 		          (xmax = 0) AS inserted`,
 		id, inv.OrganizationID, inv.Email, inv.Role,
@@ -107,7 +107,7 @@ func (s *Store) CreatePendingInvitation(ctx context.Context, inv model.PendingIn
 	if err := row.Scan(
 		&out.ID, &out.OrganizationID, &out.Email, &out.Role,
 		&out.InvitedByUserID, &out.InvitedByEmail,
-		&out.Status, &out.KindeInvitationID, &out.KindeUserID,
+		&out.Status,
 		&out.ExpiresAt, &out.CreatedAt, &out.UpdatedAt,
 		&inserted,
 	); err != nil {
@@ -141,7 +141,7 @@ func (s *Store) ListPendingInvitations(ctx context.Context, status string) ([]mo
 	rows, err := tx.Query(ctx, `
 		SELECT id, organization_id, email, role,
 		       invited_by_user_id, invited_by_email,
-		       status, kinde_invitation_id, kinde_user_id,
+		       status,
 		       expires_at, created_at, updated_at
 		FROM pending_memberships
 		WHERE status = $1
@@ -159,7 +159,7 @@ func (s *Store) ListPendingInvitations(ctx context.Context, status string) ([]mo
 		if err := rows.Scan(
 			&inv.ID, &inv.OrganizationID, &inv.Email, &inv.Role,
 			&inv.InvitedByUserID, &inv.InvitedByEmail,
-			&inv.Status, &inv.KindeInvitationID, &inv.KindeUserID,
+			&inv.Status,
 			&inv.ExpiresAt, &inv.CreatedAt, &inv.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("postgres: list pending invitations scan: %w", err)
@@ -187,7 +187,7 @@ func (s *Store) GetPendingInvitation(ctx context.Context, id string) (model.Pend
 	err = tx.QueryRow(ctx, `
 		SELECT id, organization_id, email, role,
 		       invited_by_user_id, invited_by_email,
-		       status, kinde_invitation_id, kinde_user_id,
+		       status,
 		       expires_at, created_at, updated_at
 		FROM pending_memberships
 		WHERE id = $1`,
@@ -195,7 +195,7 @@ func (s *Store) GetPendingInvitation(ctx context.Context, id string) (model.Pend
 	).Scan(
 		&inv.ID, &inv.OrganizationID, &inv.Email, &inv.Role,
 		&inv.InvitedByUserID, &inv.InvitedByEmail,
-		&inv.Status, &inv.KindeInvitationID, &inv.KindeUserID,
+		&inv.Status,
 		&inv.ExpiresAt, &inv.CreatedAt, &inv.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
