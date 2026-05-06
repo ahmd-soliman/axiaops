@@ -4,23 +4,22 @@
 //
 // Plan §4.8.3 / D11 / architect S9: the seam that lets a SaaS-hosted variant
 // reactivate later by writing a second composition root (cmd/api-saashosted/
-// main.go) that swaps three to five constructors. Every dependency that
-// would diverge between Option A (Kinde-mirror SaaS) and Option B (self-
-// hosted) crosses the Deps boundary as an interface — so neither the
-// handler/business-logic layer nor this package needs to change.
+// main.go) that swaps a few constructors. Every dependency that would
+// diverge between self-hosted and a hypothetical SaaS reactivation crosses
+// the Deps boundary as an interface — so neither the handler/business-logic
+// layer nor this package needs to change.
 //
-// Five SaaS-extension seams cross Deps:
+// Four SaaS-extension seams cross Deps:
 //   - storage.Store    — already an interface; concrete impl is postgres
-//   - auth.Provider    — strangler tier (native|kinde|both); the ONLY
-//                        place AUTH_PROVIDER is consulted is the
-//                        composition root that builds this field
-//   - kinde.Client     — invitation Inviter (interface; nil → 503)
+//   - auth.Provider    — pluggable auth (today: native cookie sessions only;
+//                        the interface stays so a SaaS reactivation can
+//                        swap in a remote-IdP impl without touching the
+//                        rest of the chain)
 //   - sso.Discoverer   — pre-auth domain → connection lookup (B2)
 //   - sso.Connector    — connection CRUD with discovery-doc validation (B2)
 //
 // The smoke test in build_test.go boots ComposeServer with mock impls of
-// all five seams and proves the surface holds without shipping the SaaS
-// binary (plan §4.8.6 acceptance).
+// all four seams and proves the surface holds (plan §4.8.6 acceptance).
 package serverbuild
 
 import (
@@ -35,7 +34,6 @@ import (
 
 	"axiaops.io/api/internal/api"
 	"axiaops.io/api/internal/auth"
-	"axiaops.io/api/internal/kinde"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/api/internal/sso"
 	"axiaops.io/shared/cache"
@@ -56,7 +54,9 @@ type Config struct {
 	// May be empty in dev.
 	PublicHost string
 
-	// DevMode disables auth + uses the dev bypass middleware.
+	// DevMode disables auth + uses the dev bypass middleware. When true,
+	// native-auth handlers (login/bootstrap/OIDC ceremony) and the session-
+	// sweep ticker are NOT wired — DevBypass takes over the auth chain.
 	DevMode bool
 	// DevOrganizationID, DevUserID, DevUserEmail are read by DevBypass when
 	// DevMode is set. Required when DevMode=true; the composition root die()s
@@ -64,24 +64,6 @@ type Config struct {
 	DevOrganizationID string
 	DevUserID         string
 	DevUserEmail      string
-
-	// AuthProviderMode selects native | kinde | both. Empty defaults to
-	// "native". Read here for routing decisions (e.g. registering native
-	// auth handlers); the actual Provider impl is built by the composition
-	// root and passed in via Deps.AuthProvider.
-	AuthProviderMode string
-
-	// NativeAuthActive is true when native auth handlers should be wired
-	// (POST /v1/auth/{bootstrap,login,logout}, OIDC ceremony) AND the
-	// session-sweep ticker should run. The composition root computes this
-	// from (!DevMode && AuthProviderMode in {native, both}) and passes it
-	// in so this package doesn't need to inline the rule.
-	NativeAuthActive bool
-
-	// NativeInvitations controls whether /v1/invitations uses the
-	// token-bearing native path (true) or the legacy Kinde-Mgmt-API path
-	// (false). Composition root picks based on DevMode + AuthProviderMode.
-	NativeInvitations bool
 
 	// RedisConfigured is true when REDIS_URL was set. Drives whether
 	// rate-limiting and the readyz Redis check are wired in.
@@ -114,14 +96,12 @@ type Deps struct {
 	// in self-hosted; Redis LPUSH/BRPOP in SaaS). May be nil in tests.
 	Queue queue.Queue
 
-	// AuthProvider is the strangler-tier auth seam. ONLY the composition
-	// root consults AUTH_PROVIDER; this field is the resolved provider.
-	// nil iff Config.DevMode (DevBypass middleware replaces it).
+	// AuthProvider is the auth seam. Today there's a single impl
+	// (auth.NativeProvider — cookie + sessions table); the interface stays
+	// so a SaaS reactivation can swap in a remote-IdP impl without
+	// touching the rest of the chain. nil iff Config.DevMode (DevBypass
+	// middleware replaces it).
 	AuthProvider auth.Provider
-
-	// Inviter is the Kinde Mgmt API client (or stub). nil → /v1/invitations
-	// and PATCH /v1/organizations/me return 503 (the handler checks).
-	Inviter kinde.Client
 
 	// Discoverer is the pre-auth /v1/sso/discover seam. Production: native.
 	// SaaS: composite (Kinde + native). Required.
@@ -131,12 +111,12 @@ type Deps struct {
 	Connector sso.Connector
 
 	// SessionManager is the native-auth session orchestrator. Required
-	// when Config.NativeAuthActive; nil otherwise. Used by both the
-	// native auth handler and the OIDC callback (which mints sessions
-	// with auth_mode='sso').
+	// when !Config.DevMode; nil otherwise. Used by both the native auth
+	// handler and the OIDC callback (which mints sessions with
+	// auth_mode='sso').
 	SessionManager *auth.Manager
 	// CookieConfig governs the session cookie posture. Required when
-	// Config.NativeAuthActive.
+	// !Config.DevMode.
 	CookieConfig auth.CookieConfig
 
 	// EnforcementResolver looks up per-org SSO enforcement so the
@@ -146,8 +126,8 @@ type Deps struct {
 	EnforcementResolver middleware.SSOEnforcementResolver
 
 	// SSOValidator and SSOStateStore back the OIDC ceremony (initiate +
-	// callback). Required when the OIDC ceremony routes are wired,
-	// which the current composition root gates on Config.NativeAuthActive.
+	// callback). Required when the OIDC ceremony routes are wired
+	// (i.e. when !Config.DevMode).
 	SSOValidator  *sso.Validator
 	SSOStateStore *sso.StateStore
 
@@ -230,28 +210,24 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	if deps.Connector == nil {
 		return nil, fmt.Errorf("serverbuild: Deps.Connector is required (sso seam S8)")
 	}
-	if !cfg.DevMode && deps.AuthProvider == nil {
-		return nil, fmt.Errorf("serverbuild: Deps.AuthProvider is required when Config.DevMode=false")
-	}
-	if cfg.NativeAuthActive {
+	if !cfg.DevMode {
+		if deps.AuthProvider == nil {
+			return nil, fmt.Errorf("serverbuild: Deps.AuthProvider is required when Config.DevMode=false")
+		}
 		if deps.SessionManager == nil {
-			return nil, fmt.Errorf("serverbuild: Deps.SessionManager is required when Config.NativeAuthActive=true")
+			return nil, fmt.Errorf("serverbuild: Deps.SessionManager is required when Config.DevMode=false")
 		}
 		if deps.SSOValidator == nil || deps.SSOStateStore == nil {
-			return nil, fmt.Errorf("serverbuild: Deps.SSOValidator and SSOStateStore are required when Config.NativeAuthActive=true")
+			return nil, fmt.Errorf("serverbuild: Deps.SSOValidator and SSOStateStore are required when Config.DevMode=false")
 		}
 	}
 
 	mux := http.NewServeMux()
 
 	// ── Core API handler ──────────────────────────────────────────────────
-	apiH := api.New(deps.Store, deps.Queue)
+	apiH := api.New(deps.Store, deps.Queue).WithPublicHost(cfg.PublicHost)
 	if cfg.RedisConfigured && deps.Cache != nil {
 		apiH = apiH.WithRedisCache(deps.Cache)
-	}
-	apiH = apiH.WithKinde(deps.Inviter)
-	if cfg.NativeInvitations {
-		apiH = apiH.WithNativeInvitations(true, cfg.PublicHost)
 	}
 	apiH.Register(mux)
 
@@ -264,8 +240,8 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	mux.Handle("GET /v1/sso/discover", sso.NewDiscoverHandler(deps.Discoverer))
 
 	// ── Native-auth + OIDC ceremony ───────────────────────────────────────
-	// Wire only when the strangler tier has native auth active.
-	if cfg.NativeAuthActive {
+	// Wire when not in DevMode. DevBypass replaces the entire auth chain.
+	if !cfg.DevMode {
 		authH := auth.NewHandler(deps.Store, deps.SessionManager, deps.CookieConfig, auth.NewAuditWriter(deps.Store))
 		if deps.Cache != nil {
 			authH = authH.WithLoginRateLimit(auth.NewLoginRateLimiter(deps.Cache))

@@ -3,9 +3,9 @@ import { Spinner } from '../components/primitives';
 import { discoverSSO } from '../api/client';
 import { authColors as C, authStyles as S } from './_authShell';
 
-// NativeLoginScreen renders the email + password form for AUTH_PROVIDER=native|both.
-// onSubmit is called with {email, password}; the parent handles the API call,
-// surfaces errors via the `error` prop, and toggles the spinner via `loading`.
+// NativeLoginScreen renders the email + password form. onSubmit is called
+// with {email, password}; the parent handles the API call, surfaces errors
+// via the `error` prop, and toggles the spinner via `loading`.
 //
 // Email-blur SSO discovery (Phase B2 slice 5):
 //   1. User types an email.

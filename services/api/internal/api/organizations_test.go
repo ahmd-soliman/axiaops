@@ -2,23 +2,20 @@ package api_test
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"axiaops.io/api/internal/api"
-	"axiaops.io/api/internal/kinde"
 )
 
-// orgHandler builds a Handler with kinde stub so PATCH /v1/organizations/me works.
-func orgHandler(store *MockStore) (*http.ServeMux, *kinde.Stub) {
-	stub := kinde.NewStub()
-	h := api.New(store, noopQueue()).WithKinde(stub)
+// orgHandler builds a Handler ready to serve org routes.
+func orgHandler(store *MockStore) *http.ServeMux {
+	h := api.New(store, noopQueue())
 	mux := http.NewServeMux()
 	h.Register(mux)
-	return mux, stub
+	return mux
 }
 
 func orgReq(method, path, body string) *http.Request {
@@ -31,9 +28,9 @@ func orgReq(method, path, body string) *http.Request {
 
 // ── PATCH /v1/organizations/me ──────────────────────────────────────────────
 
-func TestPatchOrganization_HappyPath_PushesToKinde(t *testing.T) {
+func TestPatchOrganization_HappyPath_LocalOnly(t *testing.T) {
 	store := NewMockStore()
-	mux, stub := orgHandler(store)
+	mux := orgHandler(store)
 
 	body := `{"name":"Acme Corp"}`
 	w := httptest.NewRecorder()
@@ -42,9 +39,6 @@ func TestPatchOrganization_HappyPath_PushesToKinde(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d (body: %s)", w.Code, w.Body.String())
 	}
-	if got := stub.OrgName("organization-me"); got != "Acme Corp" {
-		t.Errorf("Kinde rename target=%q, want Acme Corp", got)
-	}
 	var resp map[string]any
 	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp["name"] != "Acme Corp" {
@@ -52,33 +46,9 @@ func TestPatchOrganization_HappyPath_PushesToKinde(t *testing.T) {
 	}
 }
 
-func TestPatchOrganization_KindeFails_RevertsLocal(t *testing.T) {
-	// We can't easily observe local revert without a real DB, but we can verify
-	// the handler returns 502 and the audit metadata pattern is respected.
-	store := NewMockStore()
-	stub := kinde.NewStub()
-	stub.FailNextRename(errors.New("kinde 502"))
-	h := api.New(store, noopQueue()).WithKinde(stub)
-	mux := http.NewServeMux()
-	h.Register(mux)
-
-	body := `{"name":"Acme Corp"}`
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, orgReq(http.MethodPatch, "/v1/organizations/me", body))
-
-	if w.Code != http.StatusBadGateway {
-		t.Fatalf("expected 502, got %d (body: %s)", w.Code, w.Body.String())
-	}
-	var resp map[string]string
-	_ = json.NewDecoder(w.Body).Decode(&resp)
-	if resp["error"] != "kinde_rename_failed" {
-		t.Errorf("error code=%q, want kinde_rename_failed", resp["error"])
-	}
-}
-
 func TestPatchOrganization_NameTooLong_400(t *testing.T) {
 	store := NewMockStore()
-	mux, _ := orgHandler(store)
+	mux := orgHandler(store)
 
 	longName := strings.Repeat("x", 200)
 	body := `{"name":"` + longName + `"}`
@@ -92,7 +62,7 @@ func TestPatchOrganization_NameTooLong_400(t *testing.T) {
 
 func TestPatchOrganization_EmptyName_400(t *testing.T) {
 	store := NewMockStore()
-	mux, _ := orgHandler(store)
+	mux := orgHandler(store)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgReq(http.MethodPatch, "/v1/organizations/me", `{"name":""}`))
@@ -104,9 +74,9 @@ func TestPatchOrganization_EmptyName_400(t *testing.T) {
 
 func TestPatchOrganization_ControlChars_400(t *testing.T) {
 	store := NewMockStore()
-	mux, _ := orgHandler(store)
+	mux := orgHandler(store)
 
-	body := "{\"name\":\"Acme\u0007Corp\"}" // U+0007 bell—must be rejected as a control char
+	body := "{\"name\":\"Acme\aCorp\"}" // U+0007 bell — must be rejected as a control char
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgReq(http.MethodPatch, "/v1/organizations/me", body))
 
@@ -117,7 +87,7 @@ func TestPatchOrganization_ControlChars_400(t *testing.T) {
 
 func TestPatchOrganization_NonOwner_403(t *testing.T) {
 	store := NewMockStore().WithRole("admin")
-	mux, _ := orgHandler(store)
+	mux := orgHandler(store)
 
 	body := `{"name":"Acme Corp"}`
 	w := httptest.NewRecorder()
@@ -128,26 +98,11 @@ func TestPatchOrganization_NonOwner_403(t *testing.T) {
 	}
 }
 
-func TestPatchOrganization_NoKinde_503(t *testing.T) {
-	store := NewMockStore()
-	h := api.New(store, noopQueue()) // no WithKinde
-	mux := http.NewServeMux()
-	h.Register(mux)
-
-	body := `{"name":"Acme Corp"}`
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, orgReq(http.MethodPatch, "/v1/organizations/me", body))
-
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 without Kinde wired, got %d", w.Code)
-	}
-}
-
 // ── POST /v1/organizations/me/onboarding/complete ───────────────────────────
 
 func TestCompleteOnboarding_HappyPath(t *testing.T) {
 	store := NewMockStore()
-	mux, _ := orgHandler(store)
+	mux := orgHandler(store)
 
 	body := `{"steps_skipped":["invite","aws-account"]}`
 	w := httptest.NewRecorder()
@@ -165,7 +120,7 @@ func TestCompleteOnboarding_HappyPath(t *testing.T) {
 
 func TestCompleteOnboarding_Idempotent(t *testing.T) {
 	store := NewMockStore()
-	mux, _ := orgHandler(store)
+	mux := orgHandler(store)
 
 	for i := 0; i < 3; i++ {
 		w := httptest.NewRecorder()
@@ -178,7 +133,7 @@ func TestCompleteOnboarding_Idempotent(t *testing.T) {
 
 func TestCompleteOnboarding_NonOwner_403(t *testing.T) {
 	store := NewMockStore().WithRole("member")
-	mux, _ := orgHandler(store)
+	mux := orgHandler(store)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgReq(http.MethodPost, "/v1/organizations/me/onboarding/complete", "{}"))

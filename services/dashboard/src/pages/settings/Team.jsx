@@ -31,9 +31,7 @@ export default function Team() {
   const [error, setError] = useState('');
   const [transferTo, setTransferTo] = useState('');
   // Most-recently-issued invitation, surfaced inline so the admin can copy
-  // the OOB redemption URL. The API returns redemption_url under
-  // AUTH_PROVIDER=native|both; absent under AUTH_PROVIDER=kinde where Kinde
-  // sends the email and the admin doesn't need to share a link manually.
+  // the OOB redemption URL.
   const [lastInvite, setLastInvite] = useState(null);
   const [copied, setCopied] = useState(false);
 
@@ -67,8 +65,7 @@ export default function Team() {
       setAddError('');
       setCopied(false);
       // Surface the redemption URL inline so the admin can share it OOB.
-      // Absent under AUTH_PROVIDER=kinde (Kinde sends an email itself) and
-      // also absent on the addMember fallback (existing-user-no-membership).
+      // Absent on the addMember fallback (existing-user-no-membership).
       if (data?.redemption_url) {
         // The API emits a relative path (`/accept-invite?token=...`) when
         // PUBLIC_HOST is unset (typical for local dev) and an absolute URL

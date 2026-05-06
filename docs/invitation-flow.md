@@ -1,9 +1,20 @@
 # Email-Based Team Invitation Flow
 
-Status: design — not yet implemented.
-Owner: API service. Touches `services/shared` (storage, model), `services/api` (handler, middleware, new `kinde` package), and `services/dashboard` (Members screen).
+> ⚠️ **HISTORICAL.** This was the original design for Kinde-Mgmt-API-mediated
+> invitations. ADR-0001 flipped the project to self-hosted, and the actual
+> shipped flow is **native end-to-end**: token + hash in `pending_memberships`,
+> redemption URL returned in the API response (`POST /v1/invitations` body)
+> for OOB sharing, redeemed at `POST /v1/auth/invitations/redeem`. Kinde was
+> removed in MR `chore/remove-kinde-auth` (2026-05-06) — references below to
+> the `kinde` package, Kinde Mgmt API, M2M client credentials, or the
+> two-phase Kinde-mediated redemption hook are **artefacts only**. Read this
+> doc for the data-shape (table layout, redemption semantics, audit events)
+> which remained intact; ignore the Kinde-call layer that no longer exists.
 
-This document is the implementation contract for `POST /v1/invitations` and the Kinde-mediated redemption hook. It assumes the prior decisions are settled (auto-create Kinde org on signup is on, Kinde-org per AxiaOps-org stays 1:1, single-org-per-user, Kinde free tier — Management API only).
+Status: design — superseded by native flow (see banner above).
+Owner: API service. Touches `services/shared` (storage, model), `services/api` (handler, middleware), and `services/dashboard` (Members screen).
+
+This document was the implementation contract for `POST /v1/invitations` and the Kinde-mediated redemption hook. It assumed the prior decisions were settled (auto-create Kinde org on signup is on, Kinde-org per AxiaOps-org stays 1:1, single-org-per-user, Kinde free tier — Management API only).
 
 ---
 
