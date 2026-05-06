@@ -3,7 +3,6 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { getToken, saveToken, clearToken } from './auth/storage';
 import { authLogout, setAuthToken, UNAUTHORIZED_EVENT } from './api/client';
 import { DEV_MODE, DEV_ORG_NAME } from './config';
-import { getKindeClient } from './auth/kinde';
 import { AppProvider } from './context/AppContext';
 import { MeProvider } from './context/MeContext';
 
@@ -28,7 +27,6 @@ import OnboardingLayout  from './pages/onboarding/OnboardingLayout';
 import OnboardingInvite  from './pages/onboarding/Invite';
 import OnboardingAws     from './pages/onboarding/AwsAccount';
 import Login      from './pages/Login';
-import Callback   from './pages/Callback';
 import NotFound   from './pages/NotFound';
 import BootstrapScreen     from './screens/BootstrapScreen';
 import AcceptInviteScreen  from './screens/AcceptInviteScreen';
@@ -118,16 +116,16 @@ export default function App() {
 
   useEffect(() => {
     if (DEV_MODE) {
+      // DEV_MODE seeds a fake token only so AuthenticatedApp's parseJwt
+      // can pull org_name for the navbar; the API itself bypasses auth
+      // and ignores the token. The native session cookie is HttpOnly
+      // (not legible from JS), so under live auth the navbar pulls
+      // org_name from /v1/me via MeContext instead.
       const payload = btoa(JSON.stringify({ org_name: DEV_ORG_NAME }));
       const devToken = `dev.${payload}.dev`;
       saveToken(devToken);
       setAuthToken(devToken);
-      setReady(true);
-      return;
     }
-    getKindeClient().catch(() => {});
-    const stored = getToken();
-    if (stored) setAuthToken(stored);
     setReady(true);
   }, []);
 
@@ -136,7 +134,6 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login"          element={<Login />} />
-      <Route path="/callback"       element={<Callback />} />
       <Route path="/bootstrap"      element={<BootstrapScreen />} />
       <Route path="/select-org"     element={<OrgPickerScreen />} />
       <Route path="/accept-invite"  element={<AcceptInviteScreen />} />

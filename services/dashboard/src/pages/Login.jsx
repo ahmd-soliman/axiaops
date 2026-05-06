@@ -1,18 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { authLogin, clearPendingOrgPick, setPendingOrgPick } from '../api/client';
-import { getKindeClient } from '../auth/kinde';
 import { getToken } from '../auth/storage';
-import { AUTH_PROVIDER, DEV_MODE } from '../config';
-import LoginScreen from '../screens/LoginScreen';
+import { DEV_MODE } from '../config';
 import NativeLoginScreen from '../screens/NativeLoginScreen';
 
-// Login is the unauthenticated landing page. Branches on AUTH_PROVIDER:
-//   - "native" / "both" / unset → NativeLoginScreen with email+password form
-//   - "kinde"                   → legacy LoginScreen (Kinde redirect button)
-//
-// DEV_MODE skips the page entirely — App.jsx mounts the dashboard
-// directly via DevBypass.
+// Login is the unauthenticated landing page. Renders NativeLoginScreen
+// (email + password form). DEV_MODE skips the page entirely — App.jsx
+// mounts the dashboard directly via DevBypass.
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -30,7 +25,7 @@ export default function Login() {
     // the state.error one-shot consume. Without `else if`, both
     // navigates would fire synchronously and the second would replace
     // the first's history entry — landing the user back on /login
-    // despite DEV_MODE=true (or a valid stored Kinde token).
+    // despite DEV_MODE=true.
     if (DEV_MODE || getToken()) {
       navigate('/', { replace: true });
     } else if (location.state?.error) {
@@ -42,21 +37,18 @@ export default function Login() {
     // No /v1/me probe under native auth: it races with logout's
     // authLogout — if the request is sent before the cookie is cleared,
     // we get a 200 and navigate to "/" while MeContext immediately sees
-    // the dead cookie and bounces back to /login. That ping-pong is the
-    // "blinks while logging out" symptom. The "user is already logged in
-    // on /login" case is rare and the worst outcome is logging in again.
+    // the dead cookie and bounces back to /login.
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset busy on bfcache restore (browser back from Kinde redirect).
-  // Both client.login() and client.register() redirect away mid-call; bfcache
-  // restores this page with React state intact, leaving the spinner stuck.
+  // Reset busy on bfcache restore. authLogin redirects away mid-call;
+  // bfcache restores this page with React state intact, leaving the
+  // spinner stuck.
   useEffect(() => {
     const handler = (e) => { if (e.persisted) setBusy(false); };
     window.addEventListener('pageshow', handler);
     return () => window.removeEventListener('pageshow', handler);
   }, []);
 
-  // ── Native path ──────────────────────────────────────────────────────────
   async function handleNativeLogin({ email, password }) {
     setBusy(true);
     setError('');
@@ -95,31 +87,5 @@ export default function Login() {
     }
   }
 
-  // ── Kinde path (legacy, AUTH_PROVIDER=kinde only) ────────────────────────
-  async function handleKindeLogin() {
-    setBusy(true);
-    try {
-      const client = await getKindeClient();
-      await client.login(); // browser redirects; Promise never resolves
-    } catch (e) {
-      console.error('Login failed:', e);
-      setBusy(false);
-    }
-  }
-
-  async function handleKindeSignUp() {
-    setBusy(true);
-    try {
-      const client = await getKindeClient();
-      await client.register({ authUrlParams: { is_create_org: 'true' } });
-    } catch (e) {
-      console.error('Sign-up failed:', e);
-      setBusy(false);
-    }
-  }
-
-  if (AUTH_PROVIDER === 'kinde') {
-    return <LoginScreen onLogin={handleKindeLogin} onSignUp={handleKindeSignUp} loading={busy} />;
-  }
   return <NativeLoginScreen onSubmit={handleNativeLogin} loading={busy} error={error} />;
 }

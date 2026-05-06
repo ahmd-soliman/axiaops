@@ -13,7 +13,6 @@
     "format:fix": "prettier --write ."
   },
   "dependencies": {
-    "@kinde-oss/kinde-auth-pkce-js": "^4.3.0",
     "@tanstack/react-query": "^5.96.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
