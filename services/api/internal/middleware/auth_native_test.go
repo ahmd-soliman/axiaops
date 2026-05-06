@@ -154,9 +154,12 @@ func TestWrapNativeNilProviderPanics(t *testing.T) {
 
 func TestWrapNativeTelemetryEmitsTierLabel(t *testing.T) {
 	// Verifies the AuthMode → tier mapping: password/sso/bootstrap →
-	// "native"; anything unrecognised → "unknown"; empty → empty. Reads
-	// the singleton counter via testutil.ToFloat64 — not parallel-safe
-	// with other tests that increment the same series, so kept serial.
+	// "native"; empty or any unrecognised mode → "unknown" (the metric
+	// label diverges from /v1/me here so a Provider returning an Identity
+	// with no AuthMode surfaces in metrics rather than silently bleeding
+	// into native). Reads the singleton counter via testutil.ToFloat64 —
+	// not parallel-safe with other tests that increment the same series,
+	// so kept serial.
 	cases := []struct {
 		name     string
 		authMode string
@@ -165,7 +168,7 @@ func TestWrapNativeTelemetryEmitsTierLabel(t *testing.T) {
 		{"password→native", "password", "native"},
 		{"sso→native", "sso", "native"},
 		{"bootstrap→native", "bootstrap", "native"},
-		{"unrecognised→unknown", "kinde", "unknown"},
+		{"unrecognised→unknown", "future-saas-mode", "unknown"},
 		{"empty→unknown", "", "unknown"},
 	}
 	for _, tc := range cases {
