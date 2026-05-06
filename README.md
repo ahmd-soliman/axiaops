@@ -25,7 +25,7 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 | Backend | Go 1.25+ |
 | Database | PostgreSQL 16 (with Row-Level Security) |
 | Frontend | Vite + React — web |
-| Auth | Kinde OAuth 2.0 (PKCE + RS256 JWT) |
+| Auth | Native cookie sessions (argon2id) + OIDC SSO |
 | Hosting | AWS App Runner + RDS |
 | Cloud APIs | AWS Cost Explorer, CloudWatch |
 
@@ -58,10 +58,11 @@ make start-dev
 - API → `http://localhost/api/`
 - Ingestion → `http://localhost:8081` (internal)
 
-To enable Kinde auth, use:
+To exercise the full auth chain (native cookie sessions, no DEV_MODE bypass), use:
 ```bash
 make start-staging
 ```
+First-run bootstrap walkthrough lives in `docs/native-auth-bootstrap.md`.
 
 To stop:
 ```bash
@@ -369,7 +370,7 @@ axiaops/
 
 ### Phase 2 — Alpha (in progress, target August 2026)
 - [x] AWS Cost Explorer + CloudWatch + resource discovery integration
-- [x] Kinde OAuth 2.0 auth + multi-tenancy (RLS)
+- [x] Native cookie auth + OIDC SSO + multi-tenancy (RLS)
 - [x] Account management — connect AWS accounts, encrypted secrets, on-demand scan
 - [x] Resource inventory view — all resources with zombie/active annotation
 - [x] Savings history / trend (`zombie_snapshots` + `GET /v1/trend`)

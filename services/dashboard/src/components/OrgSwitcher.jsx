@@ -26,8 +26,8 @@ import { queryClient } from '../main';
 //     let the user re-navigate."
 //
 // `fallbackName` is shown during the initial /v1/me round-trip so the
-// navbar slot isn't blank on first paint — under Kinde mode this is the
-// JWT-decoded org_name; under native it's empty until /v1/me lands.
+// navbar slot isn't blank on first paint. Under DEV_MODE it's the
+// parseJwt-extracted DEV_ORG_NAME; otherwise empty until /v1/me lands.
 //
 // Failure modes:
 //   - 403 not_a_member: usually a stale dropdown (admin removed the

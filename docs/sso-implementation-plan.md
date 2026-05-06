@@ -2,7 +2,9 @@
 
 > Implementation roadmap for the native auth + SSO work designed in [`sso-integration-design.md`](sso-integration-design.md) and committed by [ADR-0001](decisions/0001-deployment-model.md). The design doc is the *why*; this is the *what to ship in what order*.
 >
-> **Status**: draft, 2026-04-30. Lives on the `feat/sso` integration branch.
+> **Status**: B1 / B1.5 / B1.6 / B1.7 / B2 shipped (MR !85). Phase C (SAML SP) pending.
+>
+> **⚠ Kinde removal completed (2026-05-06).** The `AUTH_PROVIDER` strangler tier (D1/D2) is **executed** — the kinde Go package, dashboard surface, deploy YAML wiring, and CI strangler gates were deleted in `chore/remove-kinde-auth`. References below to `AUTH_PROVIDER=kinde\|both`, the strangler-gate deploy job, and the `kinde_invitation_id` / `kinde_user_id` columns are **historical**; treat them as past-tense. The migration originally proposed as 023 (tighten `pending_memberships`) shipped as **024_drop_kinde_residue** in the same MR. The `auth.Provider` interface, `Discoverer` / `Connector` SSO seams, and `serverbuild.ComposeServer` composition root are preserved — a future SaaS reactivation swaps a few constructors and reuses the same chain. See `docs/kinde-removal-plan.md` for the deletion playbook.
 
 ---
 

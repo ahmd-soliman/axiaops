@@ -242,13 +242,13 @@ func (s *Store) LoadZombies(ctx context.Context) ([]model.ZombieResource, error)
 	return zombies, tx.Commit(ctx)
 }
 
-// UpsertOrganization creates an organization on first login or returns the existing one.
+// UpsertOrganization creates an organization on first login or returns the
+// existing one.
 //
-// The on-conflict clause is a no-op (`SET org_code = EXCLUDED.org_code`) — once
-// a row exists, AxiaOps owns the `name` field and renames go through
-// PATCH /v1/organizations/me which also pushes to Kinde. Without this, every
-// authenticated request would clobber any local rename with whatever org_name
-// claim is in the JWT. See docs/onboarding-wizard.md §3.
+// The on-conflict clause is a no-op (`SET org_code = EXCLUDED.org_code`) —
+// once a row exists, AxiaOps owns the `name` field and renames go through
+// PATCH /v1/organizations/me. Without this, an upsert called with an empty
+// or stale name argument would clobber the local value.
 func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (model.Organization, error) {
 	now := time.Now().UTC()
 	id := uuid.New().String()
@@ -293,10 +293,8 @@ func (s *Store) GetOrganizationByID(ctx context.Context, id string) (model.Organ
 	return t, nil
 }
 
-// RenameOrganization updates the organization name for the org in ctx. The
-// caller (PATCH /v1/organizations/me handler) wraps this in a sequence with
-// kinde.Client.RenameOrganization to push the change to Kinde — see
-// docs/onboarding-wizard.md §5.1.
+// RenameOrganization updates the organization name for the org in ctx.
+// PATCH /v1/organizations/me is the only caller.
 func (s *Store) RenameOrganization(ctx context.Context, name string) error {
 	organizationID := storage.OrganizationIDFromCtx(ctx)
 	if organizationID == "" {
@@ -366,9 +364,9 @@ func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string
 // generated). Used by dev mode at startup to guarantee a known-id user row so
 // DevBypass can inject user_id onto the request context.
 //
-// A synthetic kinde_sub of the form "dev:<id>" is used so the UNIQUE constraint
-// on kinde_sub can coexist with real Kinde-issued users in the same database.
-// Migration 013 adds a CHECK constraint enforcing this invariant.
+// A synthetic external_id of the form "dev:<id>" is used so the UNIQUE
+// constraint on external_id stays usable for non-SSO users (real SSO users
+// get the IdP-issued `sub` claim).
 //
 // Conflict handling is DO UPDATE (not DO NOTHING) so that rotating DEV_ORGANIZATION_ID
 // or DEV_USER_EMAIL across runs self-corrects the existing row — otherwise the
@@ -381,16 +379,16 @@ func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string
 // those must use storage.WithOrganizationID and the transaction pattern.
 func (s *Store) EnsureUser(ctx context.Context, u model.User) error {
 	now := time.Now().UTC()
-	kindeSub := "dev:" + u.ID
+	externalID := "dev:" + u.ID
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO users (id, organization_id, kinde_sub, email, name, created_at, last_seen)
+		INSERT INTO users (id, organization_id, external_id, email, name, created_at, last_seen)
 		VALUES ($1, $2, $3, $4, $5, $6, $6)
 		ON CONFLICT (id) DO UPDATE SET
 			organization_id = EXCLUDED.organization_id,
 			email     = EXCLUDED.email,
 			name      = EXCLUDED.name,
 			last_seen = EXCLUDED.last_seen`,
-		u.ID, u.OrganizationID, kindeSub, u.Email, u.Name, now,
+		u.ID, u.OrganizationID, externalID, u.Email, u.Name, now,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: ensure user: %w", err)
@@ -399,18 +397,18 @@ func (s *Store) EnsureUser(ctx context.Context, u model.User) error {
 }
 
 // UpsertUser creates a user on first login or updates email, name, and last_seen.
-func (s *Store) UpsertUser(ctx context.Context, organizationID, kindeSub, email, name string) (model.User, error) {
+func (s *Store) UpsertUser(ctx context.Context, organizationID, externalID, email, name string) (model.User, error) {
 	now := time.Now().UTC()
 	id := uuid.New().String()
 
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO users (id, organization_id, kinde_sub, email, name, created_at, last_seen)
+		INSERT INTO users (id, organization_id, external_id, email, name, created_at, last_seen)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (kinde_sub) DO UPDATE SET
+		ON CONFLICT (external_id) DO UPDATE SET
 			email     = EXCLUDED.email,
 			name      = EXCLUDED.name,
 			last_seen = EXCLUDED.last_seen`,
-		id, organizationID, kindeSub, email, name, now, now,
+		id, organizationID, externalID, email, name, now, now,
 	)
 	if err != nil {
 		return model.User{}, fmt.Errorf("postgres: upsert user: %w", err)
@@ -418,8 +416,8 @@ func (s *Store) UpsertUser(ctx context.Context, organizationID, kindeSub, email,
 
 	var u model.User
 	err = s.pool.QueryRow(ctx,
-		`SELECT id, organization_id, kinde_sub, email, name, created_at, last_seen FROM users WHERE kinde_sub = $1`, kindeSub,
-	).Scan(&u.ID, &u.OrganizationID, &u.KindeSub, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
+		`SELECT id, organization_id, external_id, email, name, created_at, last_seen FROM users WHERE external_id = $1`, externalID,
+	).Scan(&u.ID, &u.OrganizationID, &u.ExternalID, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
 	if err != nil {
 		return model.User{}, fmt.Errorf("postgres: fetch user: %w", err)
 	}
@@ -1896,9 +1894,9 @@ func (s *Store) TransferOwnership(ctx context.Context, toUserID string) error {
 }
 
 // EnsureFirstMembership inserts an owner row only when no membership exists
-// for the organization. The partial unique index is the race-safe backstop: a second
-// concurrent INSERT in a brand-new Kinde org loses on the index, the caller
-// sees err with constraint code 23505 → swallowed → ok=false.
+// for the organization. The partial unique index is the race-safe backstop:
+// a second concurrent INSERT loses on the index, the caller sees err with
+// constraint code 23505 → swallowed → ok=false.
 //
 // Opens its own transaction and sets app.organization_id so the INSERT satisfies
 // the WITH CHECK clause of the memberships RLS policy. Works whether the
@@ -1976,11 +1974,11 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, e
 	var u model.User
 	// users has no RLS; organization scoping is explicit in the WHERE clause.
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, organization_id, kinde_sub, email, name, created_at, last_seen
+		SELECT id, organization_id, external_id, email, name, created_at, last_seen
 		FROM users
 		WHERE organization_id = $1 AND lower(email) = lower($2)`,
 		organizationID, email,
-	).Scan(&u.ID, &u.OrganizationID, &u.KindeSub, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
+	).Scan(&u.ID, &u.OrganizationID, &u.ExternalID, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, storage.ErrUserNotFound
 	}

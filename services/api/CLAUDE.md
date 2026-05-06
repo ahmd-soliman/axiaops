@@ -51,9 +51,9 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 | GET | /me | Yes | Current user's role + permission set; no permission required beyond authn |
 | GET | /memberships | Yes | List organization memberships |
 | POST | /memberships | Yes | Promote an existing user (by user_id) and assign a role; admin+ only |
-| POST | /invitations | Yes | Invite by email. Under `AUTH_PROVIDER=native\|both`: writes a token-bearing `pending_memberships` row and returns `redemption_url` in the response body for OOB sharing (admin pastes into Slack/email). Under `AUTH_PROVIDER=kinde`: sends Kinde org-scoped invite via Mgmt API. Admin+ for member/viewer; owner for admin |
+| POST | /invitations | Yes | Invite by email. Writes a token-bearing `pending_memberships` row and returns `redemption_url` in the response body for OOB sharing (admin pastes into Slack/email). Admin+ for member/viewer; owner for admin |
 | GET | /invitations | Yes | List pending invitations for the current org (?status=pending\|expired\|revoked) |
-| DELETE | /invitations/{id} | Yes | Revoke a pending invitation; calls Kinde Mgmt API to remove user from org first (no-op under `AUTH_PROVIDER=native`) |
+| DELETE | /invitations/{id} | Yes | Revoke a pending invitation. The OOB redemption URL becomes invalid the moment the row flips to revoked. |
 | PATCH | /memberships/{id}/role | Yes | Promote or demote a member; permission tier depends on target role |
 | DELETE | /memberships/{id} | Yes | Remove a member; self-leave bypasses permission check (last-owner guard still applies) |
 | POST | /organizations/transfer-ownership | Yes | Atomically transfer owner role to another user; owner only |
@@ -90,12 +90,11 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 
 ## Auth Middleware
 
-- Location: `internal/middleware/auth.go`
-- Fetches JWKS from Kinde's `.well-known/jwks.json` endpoint
-- Verifies RS256 signature + expiry
-- `DEV_MODE=true` → auth bypassed, uses `DEV_ORGANIZATION_ID`
-- Organization mapped: Kinde `org_code` → `organizations.id` via `UpsertOrganization()`
-- After `EnsureFirstMembership`, calls `RedeemPendingInvitation(ctx, orgID, userID, email)` to convert a matching `pending_memberships` row (from `POST /v1/invitations`) into a real membership in one transaction. No-op when no pending row matches. See `docs/invitation-flow.md`.
+- Locations: `internal/middleware/auth.go` (context-key getters/setters + `DevBypass` + `publicPath`); `internal/middleware/auth_native.go` (`WrapNative` — wraps the `auth.Provider` seam, attaches the resolved `Identity` to the request context).
+- Production provider is `auth.NativeProvider`: cookie-bound session lookup against the `sessions` table, role + org resolved via `MembershipLookup`. The `auth.Provider` interface is preserved as a single-impl seam so a future SaaS reactivation can swap implementations without touching the middleware chain.
+- `DEV_MODE=true` → auth chain replaced by `DevBypass`, uses `DEV_ORGANIZATION_ID` / `DEV_USER_ID` / `DEV_USER_EMAIL`.
+- OIDC SSO ceremony (`/v1/sso/oidc/{cid}/{initiate,callback}`) is wired in `serverbuild.ComposeServer` when `!cfg.DevMode`; on success it mints a native session via the same `SessionManager` with `auth_mode='sso'`.
+- See `docs/invitation-flow.md` for how `pending_memberships` rows get redeemed on first login.
 
 ## Prometheus Metrics (Phase 2.6)
 
@@ -153,7 +152,6 @@ Errors are logged to stdout with structured context (JSON format in production).
 | DATABASE_URL | Yes | — | PostgreSQL app-user connection |
 | MIGRATION_DATABASE_URL | Yes | — | PostgreSQL owner connection (migrations) |
 | API_ADDR | No | :8080 | Listen address |
-| AUTH_PROVIDER | No | native | Strangler tier: `native` (cookie + sessions table — terminal state), `both` (cookie OR Bearer JWT — transitional during rolling deploy), `kinde` (legacy Bearer JWT only — deletion gate D2 = 2026-10-30). The runbook MUST move kinde→both→native in that order; jumping kinde→native causes auth flapping mid-rolling-restart. |
 | SESSION_TTL_HOURS | No | 24 | Native session lifetime. |
 | SESSIONS_PER_USER_CAP | No | 10 | Max concurrent active sessions per user. The (cap+1)th login revokes the oldest. `0` disables the cap. |
 | BOOTSTRAP_INSTALL_TOKEN | No | — | Optional override for the auto-generated install token (unattended k8s installs). When set the banner is suppressed; same single-use semantics. Clear from secret stores after first boot. |
@@ -161,11 +159,6 @@ Errors are logged to stdout with structured context (JSON format in production).
 | BOOTSTRAP_PRINT_BANNER | No | false | Default-secure: when false, the install token is only written to the file (never stdout). Set `true` for ephemeral local dev where stdout-leak risk is zero. |
 | PASSWORD_RESET_TTL_HOURS | No | 4 | Admin-issued password-reset token lifetime. Short by design — admins are expected to share the URL OOB and the user redeems promptly. |
 | PUBLIC_HOST | No | — | Externally-reachable origin (`https://app.example.com`) used to build OOB redemption URLs for invitations and password resets. Empty produces relative URLs the frontend resolves against `window.location.origin`. |
-| KINDE_ISSUER | Prod (kinde\|both) | — | Kinde issuer URL (OAuth 2.0 authorization server). Required only under AUTH_PROVIDER=kinde or both. |
-| KINDE_M2M_CLIENT_ID | When invitations are enabled | — | M2M app client ID with scopes `read:users`, `create:users`, `update:user_properties`, `delete:users`, `read:organizations`, `update:organizations`, `update:organization_users`, `delete:organization_users`. Used by `POST /v1/invitations`, `DELETE /v1/invitations/{id}`, and `PATCH /v1/organizations/me`. |
-| KINDE_M2M_CLIENT_SECRET | When invitations are enabled | — | Secret for the M2M app. Loaded via env, never logged. |
-| KINDE_MGMT_API_URL | No | `KINDE_ISSUER` | Override the Mgmt API base URL when it differs from the issuer. |
-| KINDE_USE_STUB | No | false (true in `make start-staging`) | When `true`, the Mgmt API client is replaced with an in-memory stub. Invitation emails and Kinde-side org renames become no-ops. Set when running staging without a real M2M app. **Never enable in production.** |
 | INVITATION_TTL_DAYS | No | 14 | How long a `pending_memberships` row stays redeemable. |
 | DEV_MODE | No | false | Skip auth, use fixed organization |
 | DEV_ORGANIZATION_ID | When `DEV_MODE=true` | — | Organization ID for dev bypass. No default — startup `die()`s if unset while `DEV_MODE=true`. |
