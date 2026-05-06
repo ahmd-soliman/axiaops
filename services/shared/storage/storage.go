@@ -118,11 +118,8 @@ type Store interface {
 
 	// RenameOrganization updates the organization name for the org in ctx.
 	// AxiaOps owns the name field after first insert; this is the only path
-	// that updates it (UpsertOrganization is now insert-only on name). The
-	// handler that calls this is responsible for pushing the same value to
-	// Kinde via kinde.Client.RenameOrganization to keep external surfaces
-	// (invitation emails, hosted UI) aligned. Returns ErrOrganizationNotFound
-	// when no row matches.
+	// that updates it (UpsertOrganization is now insert-only on name).
+	// Returns ErrOrganizationNotFound when no row matches.
 	RenameOrganization(ctx context.Context, name string) error
 
 	// MarkOnboardingComplete sets onboarding_completed_at = NOW() on the
@@ -137,8 +134,10 @@ type Store interface {
 	EnsureOrganization(ctx context.Context, id, orgCode, name string) error
 
 	// UpsertUser creates a user on first login or updates last_seen.
-	// Keyed on kinde_sub — the stable Kinde user identifier.
-	UpsertUser(ctx context.Context, organizationID, kindeSub, email, name string) (model.User, error)
+	// Keyed on the stable external identifier (SSO `sub` for SSO users;
+	// `native:<id>` synthetic prefix for native-auth users; `dev:<id>`
+	// for DEV_MODE users).
+	UpsertUser(ctx context.Context, organizationID, externalID, email, name string) (model.User, error)
 
 	// EnsureUser creates a user with a caller-supplied id, or updates
 	// organization_id/email/name/last_seen if a row with that id already exists.
@@ -363,11 +362,6 @@ type Store interface {
 	// or ErrUserExistsNoMembership (email is a known user without membership)
 	// before hitting the partial unique index. ctx must carry organization_id.
 	CreatePendingInvitation(ctx context.Context, inv model.PendingInvitation) (model.PendingInvitation, bool, error)
-
-	// UpdateInvitationKindeIDs records the Kinde Mgmt API IDs returned after the
-	// invite was sent. Called from the handler immediately after a successful
-	// kinde.InviteUser. Returns ErrInvitationNotFound if the row doesn't exist.
-	UpdateInvitationKindeIDs(ctx context.Context, id, kindeInvitationID, kindeUserID string) error
 
 	// ListPendingInvitations returns invitations for the organization in ctx
 	// filtered by status. status="" returns only status='pending' rows.

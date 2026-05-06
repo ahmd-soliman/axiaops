@@ -20,20 +20,10 @@ const orgNameMaxLen = 120
 
 // updateCurrentOrganization handles PATCH /v1/organizations/me.
 //
-// Two-phase commit (matches docs/onboarding-wizard.md §5.1):
-//  1. Local DB rename (no-op via UPDATE — autocommitted).
-//  2. Push to Kinde via kinde.RenameOrganization.
-//  3. On Kinde failure, revert local rename.
-//
-// Permission gate: PermOrganizationUpdate (owner-only). Wired via Require.
+// Local DB rename + audit. Permission gate: PermOrganizationUpdate
+// (owner-only). Wired via Require.
 func (h *Handler) updateCurrentOrganization(w http.ResponseWriter, r *http.Request) {
-	if h.kinde == nil {
-		http.Error(w, "rename not configured", http.StatusServiceUnavailable)
-		return
-	}
-
 	tid := middleware.OrganizationID(r.Context())
-	orgCode := middleware.OrganizationCode(r.Context())
 	ctx := storage.WithOrganizationID(r.Context(), tid)
 
 	var req struct {
@@ -49,12 +39,8 @@ func (h *Handler) updateCurrentOrganization(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Snapshot the current org so we can revert if Kinde rejects the rename
-	// and so the audit metadata carries the old name. Read with an empty name
-	// argument: the on-conflict DO UPDATE is a no-op (preserves stored name)
-	// and the row already exists by the time a request reaches PATCH (auth
-	// middleware called UpsertOrganization with the JWT org_name).
-	current, err := h.store.UpsertOrganization(ctx, orgCode, "")
+	// Snapshot the current org so audit metadata carries the old name.
+	current, err := h.store.GetOrganizationByID(ctx, tid)
 	if err != nil {
 		slog.Error("organizations: load failed", "error", err, "organization_id", tid)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -62,7 +48,6 @@ func (h *Handler) updateCurrentOrganization(w http.ResponseWriter, r *http.Reque
 	}
 	oldName := current.Name
 
-	// Phase 1: local rename.
 	if err := h.store.RenameOrganization(ctx, req.Name); err != nil {
 		switch {
 		case errors.Is(err, storage.ErrOrganizationNotFound):
@@ -74,31 +59,17 @@ func (h *Handler) updateCurrentOrganization(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Phase 2: push to Kinde. On failure, revert local.
-	if err := h.kinde.RenameOrganization(ctx, orgCode, req.Name); err != nil {
-		slog.Error("organizations: Kinde rename failed; reverting local",
-			"error", err, "organization_id", tid)
-		if rerr := h.store.RenameOrganization(ctx, oldName); rerr != nil {
-			slog.Error("organizations: local revert failed",
-				"error", rerr, "organization_id", tid)
-		}
-		writeError(w, http.StatusBadGateway, "kinde_rename_failed", "failed to sync rename with Kinde; please retry")
-		return
-	}
-
 	audit.Record(r, h.store, model.AuditEvent{
 		Action:       model.AuditActionOrganizationRenamed,
 		ResourceType: "organization",
 		ResourceID:   tid,
 		Metadata: map[string]any{
-			"old_name":     oldName,
-			"new_name":     req.Name,
-			"kinde_synced": true,
+			"old_name": oldName,
+			"new_name": req.Name,
 		},
 	})
 
-	// Re-read to surface the updated name + onboarding flag in the response.
-	updated, err := h.store.UpsertOrganization(ctx, orgCode, req.Name)
+	updated, err := h.store.GetOrganizationByID(ctx, tid)
 	if err != nil {
 		slog.Error("organizations: re-load failed", "error", err, "organization_id", tid)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -163,8 +134,7 @@ func toOrganizationResponse(o model.Organization) organizationResponse {
 
 // validOrgName enforces 1..orgNameMaxLen runes and rejects strings containing
 // control characters. Whitespace inside the name is fine, and we don't impose
-// language-specific rules — Kinde will perform its own server-side validation
-// and bounce 4xx errors back through the two-phase commit.
+// language-specific rules.
 func validOrgName(s string) bool {
 	if s == "" {
 		return false

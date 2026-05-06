@@ -153,8 +153,8 @@ func TestWrapNativeNilProviderPanics(t *testing.T) {
 }
 
 func TestWrapNativeTelemetryEmitsTierLabel(t *testing.T) {
-	// Verifies the strangler-tier mapping (plan §4.5): AuthMode "password"
-	// → provider="native"; AuthMode "kinde" → provider="kinde". Reads
+	// Verifies the AuthMode → tier mapping: password/sso/bootstrap →
+	// "native"; anything unrecognised → "unknown"; empty → empty. Reads
 	// the singleton counter via testutil.ToFloat64 — not parallel-safe
 	// with other tests that increment the same series, so kept serial.
 	cases := []struct {
@@ -165,7 +165,7 @@ func TestWrapNativeTelemetryEmitsTierLabel(t *testing.T) {
 		{"password→native", "password", "native"},
 		{"sso→native", "sso", "native"},
 		{"bootstrap→native", "bootstrap", "native"},
-		{"kinde→kinde", "kinde", "kinde"},
+		{"unrecognised→unknown", "kinde", "unknown"},
 		{"empty→unknown", "", "unknown"},
 	}
 	for _, tc := range cases {

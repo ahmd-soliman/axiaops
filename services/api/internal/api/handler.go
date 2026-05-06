@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 
 	"axiaops.io/api/internal/audit"
-	"axiaops.io/api/internal/kinde"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/authz"
@@ -37,22 +36,8 @@ type Handler struct {
 	// "Redis was not configured for this deployment" — readyz reports
 	// "skipped" rather than treating it as a fault. Callers wire this only
 	// when REDIS_URL is set; the wider request path uses cache.Cache directly
-	// via middleware (auth JWKS, rate limiter), independent of this field.
+	// via middleware (rate limiter), independent of this field.
 	redisCache cache.Cache
-
-	// kinde is the Kinde Management API client used by /v1/invitations and
-	// PATCH /v1/organizations/me. nil means "Kinde Mgmt API not configured" —
-	// those handlers return 503 in that case.
-	kinde kinde.Client
-
-	// nativeAuth selects the invitation creation path under
-	// AUTH_PROVIDER=native|both: when true, POST /v1/invitations writes
-	// a token-bearing pending_memberships row and returns the
-	// redemption URL in the response body (no Kinde Mgmt API call).
-	// When false (AUTH_PROVIDER=kinde, the legacy default), the
-	// existing Kinde-Mgmt-API path runs unchanged. Set via
-	// WithNativeInvitations from cmd/main.go after reading AUTH_PROVIDER.
-	nativeAuth bool
 
 	// publicHost is the externally-reachable origin used to build
 	// invitation redemption URLs (https://<host>/accept-invite?token=…).
@@ -78,20 +63,10 @@ func (h *Handler) WithRedisCache(c cache.Cache) *Handler {
 	return h
 }
 
-// WithKinde wires the Kinde Management API client. Required for invitations
-// and PATCH /v1/organizations/me; in DEV_MODE pass kinde.NewStub().
-func (h *Handler) WithKinde(c kinde.Client) *Handler {
-	h.kinde = c
-	return h
-}
-
-// WithNativeInvitations switches POST /v1/invitations to the native-auth
-// path: token-bearing pending_memberships row + OOB redemption URL in
-// the response. Pass true under AUTH_PROVIDER=native|both. Public host
-// is the origin (https://<host>) used to build the URL — pass empty to
-// emit a relative URL the frontend can resolve.
-func (h *Handler) WithNativeInvitations(enabled bool, publicHost string) *Handler {
-	h.nativeAuth = enabled
+// WithPublicHost sets the externally-reachable origin (https://<host>) used
+// to build OOB redemption URLs for invitations and password resets. Empty →
+// relative URLs the frontend resolves against window.location.origin.
+func (h *Handler) WithPublicHost(publicHost string) *Handler {
 	h.publicHost = strings.TrimRight(publicHost, "/")
 	return h
 }
@@ -164,7 +139,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /v1/organizations/transfer-ownership", require(authz.PermOrganizationTransfer, h.transferOwnership))
 
 	// Organization rename + onboarding completion (Phase 2).
-	// PATCH does a two-phase commit with Kinde — see docs/onboarding-wizard.md §5.
 	mux.Handle("PATCH /v1/organizations/me", require(authz.PermOrganizationUpdate, h.updateCurrentOrganization))
 	mux.Handle("POST /v1/organizations/me/onboarding/complete", require(authz.PermOrganizationUpdate, h.completeOnboarding))
 
@@ -1348,10 +1322,10 @@ func decodeAuditCursor(s string) (model.AuditCursor, error) {
 }
 
 // dismissActor returns the identifier stored in dismissed_by / revoked_by.
-// Prefers the stable user id (immutable UUID) so the stored value doesn't drift
-// when a user's email changes in Kinde. Falls back to email when the user id is
-// unavailable (e.g. Auth.Wrap with store=nil in tests), and finally to organization
-// id so rows are never written with "".
+// Prefers the stable user id (immutable UUID) so the stored value doesn't
+// drift when a user's email changes. Falls back to email when the user id
+// is unavailable, and finally to organization id so rows are never written
+// with "".
 func dismissActor(ctx context.Context) string {
 	if id := middleware.UserID(ctx); id != "" {
 		return id

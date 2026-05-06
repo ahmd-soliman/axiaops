@@ -119,34 +119,6 @@ func (s *Store) CreatePendingInvitation(ctx context.Context, inv model.PendingIn
 	return out, inserted, nil
 }
 
-// UpdateInvitationKindeIDs records the Kinde Mgmt API invitation/user IDs
-// returned after the invite was successfully sent. Best-effort — failure does
-// not roll back the local invitation; the row stays pending without IDs and
-// can be revoked normally (DELETE will skip the Kinde step in that case).
-func (s *Store) UpdateInvitationKindeIDs(ctx context.Context, id, kindeInvitationID, kindeUserID string) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("postgres: update kinde ids begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := setOrganization(ctx, tx); err != nil {
-		return err
-	}
-	tag, err := tx.Exec(ctx, `
-		UPDATE pending_memberships
-		SET kinde_invitation_id = $1, kinde_user_id = $2, updated_at = NOW()
-		WHERE id = $3`,
-		kindeInvitationID, kindeUserID, id,
-	)
-	if err != nil {
-		return fmt.Errorf("postgres: update kinde ids: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return storage.ErrInvitationNotFound
-	}
-	return tx.Commit(ctx)
-}
-
 // ListPendingInvitations returns invitations for the organization in ctx
 // filtered by status. status="" returns only status='pending' rows.
 func (s *Store) ListPendingInvitations(ctx context.Context, status string) ([]model.PendingInvitation, error) {

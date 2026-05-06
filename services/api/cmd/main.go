@@ -7,9 +7,9 @@
 // ComposeServer's responsibility.
 //
 // SaaS reactivation will add cmd/api-saashosted/main.go alongside this
-// file; that variant will swap a few constructors (kindeConnector instead
-// of nativeConnector, compositeDiscoverer wrapping native + Kinde) and
-// call the same ComposeServer.
+// file; that variant will swap a few constructors (a remote-IdP auth
+// provider, a SaaS-specific Discoverer/Connector pair) and call the
+// same ComposeServer.
 
 package main
 
@@ -27,7 +27,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"axiaops.io/api/internal/auth"
-	"axiaops.io/api/internal/kinde"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/api/internal/serverbuild"
 	"axiaops.io/api/internal/sso"
@@ -106,11 +105,7 @@ func main() {
 
 	// ── Resolve modes from env ───────────────────────────────────────────
 	devMode := devModeEnabled()
-	authMode := os.Getenv("AUTH_PROVIDER")
-	if authMode == "" {
-		authMode = "native"
-	}
-	nativeAuthActive := !devMode && (authMode == "native" || authMode == "both")
+	nativeAuthActive := !devMode
 	redisConfigured := os.Getenv("REDIS_URL") != ""
 
 	// ── Dev-mode setup (must run BEFORE composing the server so the
@@ -165,7 +160,9 @@ func main() {
 	var sessionMgr *auth.Manager
 	cookieCfg := auth.NewCookieConfig()
 	if !devMode {
-		authProvider, sessionMgr = buildAuthProvider(ctx, authMode, store, c)
+		sessionMgr = buildSessionManager(store, c)
+		authProvider = auth.NewNativeProvider(sessionMgr, membershipLookup(store))
+		slog.Info("auth: native provider enabled (cookie + sessions table)")
 	}
 
 	ssoValidator := sso.NewValidator(c)
@@ -195,17 +192,6 @@ func main() {
 		DevOrganizationID:    devOrganizationID,
 		DevUserID:            devUserID,
 		DevUserEmail:         devUserEmail,
-		AuthProviderMode:     authMode,
-		NativeAuthActive:     nativeAuthActive,
-		// NativeInvitations is gated on AUTH_PROVIDER alone — DEV_MODE only
-		// bypasses session/cookie machinery (handled by nativeAuthActive). The
-		// invitation creation path needs to surface a redemption_url under
-		// AUTH_PROVIDER=native|both regardless of DEV_MODE so admins testing
-		// locally can complete the OOB invite/redeem ceremony end-to-end.
-		// Previously gated on !devMode, which silently routed invitations to
-		// the Kinde stub in DEV_MODE and dropped redemption_url from the
-		// response — observed via [invite-diag] logging in commit 8e9b86b.
-		NativeInvitations:    authMode == "" || authMode == "native" || authMode == "both",
 		RedisConfigured:      redisConfigured,
 		StuckScanTimeout:     stuckScanTimeout,
 		MigrationDatabaseURL: migrationURL,
@@ -216,7 +202,6 @@ func main() {
 		Cache:               c,
 		Queue:               q,
 		AuthProvider:        authProvider,
-		Inviter:             buildKindeClient(),
 		Discoverer:          ssoDiscoverer,
 		Connector:           ssoConnector,
 		SessionManager:      sessionMgr,
@@ -280,69 +265,6 @@ func main() {
 	}
 }
 
-// buildAuthProvider resolves the strangler tier into an auth.Provider plus
-// the *auth.Manager (the latter required for native-auth handlers and OIDC
-// callback session minting). Returns (nil, nil) under DEV_MODE — the
-// caller passes DevBypass middleware via Config.DevMode instead.
-func buildAuthProvider(ctx context.Context, mode string, store storage.Store, c cache.Cache) (auth.Provider, *auth.Manager) {
-	switch mode {
-	case "native":
-		mgr := buildSessionManager(store, c)
-		slog.Info("auth: native provider enabled (cookie + sessions table)")
-		return auth.NewNativeProvider(mgr, membershipLookup(store)), mgr
-	case "kinde":
-		kindeAuth := mustNewKindeAuth(ctx, store, c)
-		slog.Info("auth: kinde provider enabled (Bearer JWT)")
-		// Kinde-only mode has no session manager — nil signals that to
-		// ComposeServer (which gates native handler registration on
-		// Config.NativeAuthActive).
-		return middleware.NewKindeProvider(kindeAuth), nil
-	case "both":
-		mgr := buildSessionManager(store, c)
-		kindeAuth := mustNewKindeAuth(ctx, store, c)
-		slog.Warn("auth: composite provider enabled (native + kinde) — transitional only")
-		return auth.NewCompositeProvider(
-			auth.NewNativeProvider(mgr, membershipLookup(store)),
-			middleware.NewKindeProvider(kindeAuth),
-		), mgr
-	default:
-		die("auth: invalid AUTH_PROVIDER", "value", mode, "expected", "native|kinde|both")
-		return nil, nil // unreachable
-	}
-}
-
-// buildKindeClient picks the Kinde Management API client based on environment.
-//
-//	DEV_MODE=true                 → in-memory stub (no network)
-//	KINDE_USE_STUB=true           → in-memory stub (opt-in for staging without real M2M)
-//	M2M creds set                 → real HTTPClient
-//	M2M creds unset, no opt-in    → nil (handlers return 503 until configured)
-func buildKindeClient() kinde.Client {
-	if devModeEnabled() {
-		slog.Info("kinde: DEV_MODE — using in-memory stub")
-		return kinde.NewStub()
-	}
-	if os.Getenv("KINDE_USE_STUB") == "true" {
-		slog.Warn("kinde: KINDE_USE_STUB=true — using in-memory stub. Invitation emails and Kinde-side org renames are NO-OPS. Do not enable in production.")
-		return kinde.NewStub()
-	}
-	issuer := os.Getenv("KINDE_ISSUER")
-	mgmtURL := os.Getenv("KINDE_MGMT_API_URL")
-	clientID := os.Getenv("KINDE_M2M_CLIENT_ID")
-	clientSecret := os.Getenv("KINDE_M2M_CLIENT_SECRET")
-	if issuer == "" || clientID == "" || clientSecret == "" {
-		slog.Warn("kinde: KINDE_M2M_CLIENT_ID/SECRET unset — invitations will return 503. Set KINDE_USE_STUB=true for local staging.")
-		return nil
-	}
-	c, err := kinde.New(issuer, mgmtURL, clientID, clientSecret)
-	if err != nil {
-		slog.Error("kinde: client init failed", "error", err)
-		return nil
-	}
-	slog.Info("kinde: management API client initialised")
-	return c
-}
-
 // buildSessionManager wires the native-auth session orchestrator. Reads
 // SESSION_TTL_HOURS and SESSIONS_PER_USER_CAP — defaults match
 // docs/sso-implementation-plan.md §4.5 (24h TTL, cap 10).
@@ -376,17 +298,4 @@ func membershipLookup(store storage.Store) auth.MembershipLookup {
 		}
 		return auth.MembershipDetails{Role: role, Email: email}, nil
 	}
-}
-
-func mustNewKindeAuth(ctx context.Context, store storage.Store, c cache.Cache) *middleware.Auth {
-	issuer := os.Getenv("KINDE_ISSUER")
-	if issuer == "" {
-		die("auth: AUTH_PROVIDER set to kinde or both requires KINDE_ISSUER to be set")
-	}
-	a, err := middleware.NewAuth(ctx, issuer, store, c)
-	if err != nil {
-		die("auth: kinde init failed", "error", err)
-	}
-	slog.Info("auth: kinde JWT verification ready", "issuer", issuer)
-	return a
 }
