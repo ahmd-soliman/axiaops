@@ -42,7 +42,7 @@ const codeExchangeTimeout = 10 * time.Second
 type CallbackStore interface {
 	GetSSOConnectionByID(ctx context.Context, id string) (model.SSOConnection, error)
 	GetVerifiedSSODomainByName(ctx context.Context, domain string) (model.SSODomain, error)
-	UpsertUser(ctx context.Context, organizationID, kindeSub, email, name string) (model.User, error)
+	UpsertUser(ctx context.Context, organizationID, externalID, email, name string) (model.User, error)
 	RedeemPendingInvitation(ctx context.Context, organizationID, userID, email string) (bool, error)
 	ListSSOGroupMappings(ctx context.Context, connID string) ([]model.SSOGroupMapping, error)
 	SaveMembership(ctx context.Context, m model.Membership) error
