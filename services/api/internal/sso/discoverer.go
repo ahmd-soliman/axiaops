@@ -19,6 +19,7 @@ package sso
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 
@@ -84,9 +85,17 @@ func (d *NativeDiscoverer) Discover(ctx context.Context, email string) (Discover
 		return DiscoverResult{HasSSO: false}, err
 	}
 
+	// Forward the typed email to /initiate as ?email=<urlencoded>. /initiate
+	// turns it into the OIDC `login_hint` param so the IdP login form is
+	// pre-populated (RFC 6749 §3.1.2 + OIDC Core §3.1.2.1). Pure UX polish —
+	// `prompt=login` already forces fresh auth on the IdP side, login_hint
+	// only affects the rendered username field. We URL-encode via url.Values
+	// so `+` (e.g. `alice+test@acme.com`) and other reserved chars round-trip.
+	q := url.Values{}
+	q.Set("email", email)
 	return DiscoverResult{
 		HasSSO:         true,
-		RedirectURL:    d.publicHost + "/v1/sso/oidc/" + dom.SSOConnectionID + "/initiate",
+		RedirectURL:    d.publicHost + "/v1/sso/oidc/" + dom.SSOConnectionID + "/initiate?" + q.Encode(),
 		ConnectionID:   dom.SSOConnectionID,
 		OrganizationID: dom.OrganizationID,
 		// Protocol is on the connection, not the domain — the OIDC RP slice

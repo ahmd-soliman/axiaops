@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -303,6 +304,65 @@ func TestNativeDiscoverer_DomainConfusion(t *testing.T) {
 			}
 			if res.ConnectionID != "" {
 				t.Errorf("Discover(%q): ConnectionID=%q; want empty on miss", tc.email, res.ConnectionID)
+			}
+		})
+	}
+}
+
+// TestNativeDiscoverer_RedirectURL_CarriesEmailLoginHint pins that a successful
+// discover returns a redirect URL with the typed email as a `?email=` query
+// param. /initiate forwards that param as the OIDC `login_hint` so the IdP
+// login form is pre-populated — closes the round-trip "user types email at
+// /login then types it AGAIN at the IdP" friction (Tasks.md row 2.7.19).
+//
+// Also pins URL-encoding for emails containing `+` (subaddressing) and other
+// reserved chars: a raw `+` in the URL would decode to space at /initiate's
+// `r.URL.Query().Get("email")`, breaking the hint.
+func TestNativeDiscoverer_RedirectURL_CarriesEmailLoginHint(t *testing.T) {
+	verifiedRow := model.SSODomain{
+		ID:              "dom-1",
+		OrganizationID:  "org-acme",
+		SSOConnectionID: "conn-acme",
+		Domain:          "acme.com",
+		Status:          model.SSODomainStatusVerified,
+	}
+	store := &fakeDiscoverStore{
+		verified: map[string]model.SSODomain{"acme.com": verifiedRow},
+	}
+	d := sso.NewNativeDiscoverer(store, "https://app.axiaops.io")
+
+	cases := []struct {
+		name         string
+		email        string
+		wantEmailRaw string // value returned by url.Values.Get("email") at /initiate
+	}{
+		{"plain email", "alice@acme.com", "alice@acme.com"},
+		{"subaddressing with +", "alice+work@acme.com", "alice+work@acme.com"},
+		{"uppercase preserved (IdP normalises, not us)", "Alice@ACME.COM", "Alice@ACME.COM"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := d.Discover(context.Background(), tc.email)
+			if err != nil {
+				t.Fatalf("Discover(%q) error = %v", tc.email, err)
+			}
+			if !res.HasSSO {
+				t.Fatalf("Discover(%q): HasSSO=false; want true", tc.email)
+			}
+
+			// Parse the redirect URL and check the email param round-trips.
+			// We deliberately use url.Parse (not strings.Contains) so the test
+			// catches encoding bugs — a raw `+` would pass a substring check
+			// but decode to space at the receiver.
+			u, perr := url.Parse(res.RedirectURL)
+			if perr != nil {
+				t.Fatalf("RedirectURL is not a valid URL: %v (raw: %q)", perr, res.RedirectURL)
+			}
+			if got, want := u.Path, "/v1/sso/oidc/conn-acme/initiate"; got != want {
+				t.Errorf("RedirectURL.Path = %q; want %q", got, want)
+			}
+			if got := u.Query().Get("email"); got != tc.wantEmailRaw {
+				t.Errorf("RedirectURL ?email= decodes to %q; want %q (raw URL: %q)", got, tc.wantEmailRaw, res.RedirectURL)
 			}
 		})
 	}
