@@ -97,8 +97,9 @@ func VerifyAtBoot(devMode bool) error {
 		// are all exercised in dev. The fixture is signed by a dev-only key
 		// (devEmbeddedPubKeyPEM); production-tagged binaries zero both the
 		// fixture and the dev pubkey, so this branch literally cannot fire
-		// in a customer build (cmd/devmode_production.go also forces
-		// devModeEnabled to false, so we never reach here either way).
+		// in a customer build (cmd/devmode_production.go also hard-wires
+		// devModeEnabled() to false — both seams must regress simultaneously
+		// for the bypass channel to re-open).
 		if len(devFixtureJWT) == 0 {
 			// Fallback: dev fixture not compiled in — possible only in a
 			// production-tagged build that somehow set devMode=true. Treat

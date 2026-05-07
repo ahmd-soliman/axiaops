@@ -32,8 +32,10 @@ func TestVerifyAtBoot_DevModeLoadsFixture(t *testing.T) {
 	t.Setenv(license.EnvLicensePath, t.TempDir()+"/no-such-license.jwt")
 	// EnvPubKeyPath must NOT point at a test key here — the dev fixture is
 	// signed with the dev-only key (embed_dev.go) and verified through the
-	// fallback branch in Load. Other tests that t.Setenv this to a temp
-	// path are isolated by t.Setenv's per-test scope.
+	// fallback branch in Load. t.Setenv-isolated tests already clean up on
+	// completion; the explicit clear below is belt-and-braces against any
+	// future test that sets this via plain os.Setenv (no cleanup).
+	t.Setenv(license.EnvPubKeyPath, "")
 
 	if err := license.VerifyAtBoot(true); err != nil {
 		t.Fatalf("DEV_MODE returned error: %v", err)
