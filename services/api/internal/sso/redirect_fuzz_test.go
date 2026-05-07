@@ -214,7 +214,7 @@ func TestSSO_OpenRedirect_DefenseInDepth(t *testing.T) {
 
 			ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
 
-			rec := ct.hit("conn-1", "auth-code-xyz", state)
+			rec := ct.hit("auth-code-xyz", state)
 
 			// Callback success path returns 302 with Location set. The
 			// absolute requirement: Location MUST be the safe default "/",
@@ -280,7 +280,7 @@ func TestSSO_OpenRedirect_HappyPath(t *testing.T) {
 
 	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 
 	if rec.Code != 302 {
 		t.Fatalf("status: got %d want 302; body=%q", rec.Code, rec.Body.String())

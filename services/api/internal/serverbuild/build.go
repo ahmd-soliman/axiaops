@@ -253,15 +253,25 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 		}
 		mux.Handle("GET /v1/sso/oidc/{cid}/initiate",
 			sso.NewInitiateHandler(deps.Store, deps.SSOValidator, deps.SSOStateStore, cfg.PublicHost))
-		mux.Handle("GET /v1/sso/oidc/{cid}/callback",
-			sso.NewCallbackHandler(sso.CallbackOptions{
-				Store:        deps.Store,
-				Validator:    deps.SSOValidator,
-				StateStore:   deps.SSOStateStore,
-				Sessions:     deps.SessionManager,
-				CookieConfig: deps.CookieConfig,
-				PublicHost:   cfg.PublicHost,
-			}))
+		callback := sso.NewCallbackHandler(sso.CallbackOptions{
+			Store:        deps.Store,
+			Validator:    deps.SSOValidator,
+			StateStore:   deps.SSOStateStore,
+			Sessions:     deps.SessionManager,
+			CookieConfig: deps.CookieConfig,
+			PublicHost:   cfg.PublicHost,
+		})
+		// Standard, connection-agnostic callback URL (Tasks.md 2.7.22). Connection
+		// identity flows through the state parameter rather than the path. This
+		// is the redirect URI initiate puts in `redirect_uri`, and the one
+		// customers register in their IdP.
+		mux.Handle("GET "+sso.CallbackPath, callback)
+		// Legacy path-cid callback. Kept for one release as a deprecation
+		// window so already-registered IdP redirect URIs keep working while
+		// customers update their app registrations. Hits surface via
+		// axiaops_sso_legacy_callback_total{cid}; remove when the rate
+		// stays at zero across all customers for a release.
+		mux.Handle("GET /v1/sso/oidc/{cid}/callback", callback)
 	}
 
 	// Prometheus scrape endpoint — outside auth so the scrape worker
