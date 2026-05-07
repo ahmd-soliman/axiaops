@@ -1,0 +1,12 @@
+[
+  {
+    "service": "AmazonEC2",
+    "region": "eu-central-1",
+    "resource_id": "i-0idle1",
+    "monthly_cost": 189.6,
+    "usage_metric": "CPUUtilization",
+    "usage_avg": 1.2,
+    "reason": "EC2 instance CPU utilization below 5% — likely idle",
+    "owner": "platform"
+  }
+]

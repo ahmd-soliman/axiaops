@@ -52,6 +52,31 @@ Pure functions in `analyzer/detector.go`:
 Detection rules are a module-level map `serviceRules`. Owner is derived from the `team` tag.
 Resources with no matching rule or no usage data are skipped (not flagged).
 
+## Validation (B + golden harness)
+
+`model.CostRecord.Validate()` and `analyzer.UsageRecord.Validate()` enforce strict invariants on every record entering the detection pipeline:
+
+- **Strict** — unknown services, malformed currencies, bad regions, negative amounts → `*model.ValidationError` with the offending field.
+- **Single source of truth** — `model.KnownServices` is the canonical set of internal service identifiers. Add a new service there *first*; both validators key off it.
+- **Caller-decided posture** — production scan paths may log-and-skip on validation errors; tests should fail-fast. The validators do not log or call into runtime — they return.
+
+Why strict: a loose validator passes "wrong-spelling EC2" through, the row is silently dropped by `Detect()` because `serviceRules` doesn't recognise it, and the test that expected a zombie just shows "0 zombies" with no signal. Strict turns silent-drop into a labelled error at the boundary.
+
+### Golden-file detection tests
+
+`analyzer/golden_test.go` runs every folder under `analyzer/testdata/golden/<scenario>/` as a sub-test:
+
+```
+testdata/golden/<scenario>/
+  input_costs.json       — []model.CostRecord (validated before Detect)
+  input_usage.json       — []analyzer.UsageRecord (validated before Detect)
+  expected_zombies.json  — []goldenZombie projection, sorted by resource_id
+```
+
+Add a new rule case → add a new folder. Intentionally changing a rule → run `UPDATE_GOLDEN=1 go test ./analyzer/...` to rewrite the expected files in place. Review the diff before committing — `expected_zombies.json` *is* the spec.
+
+The harness validates inputs first (B), so a fixture that uses an unregistered service or malformed currency fails at load time with the offending field — not as a confusing "0 zombies" mismatch downstream.
+
 ## PostgreSQL Conventions
 
 - Migrations in `storage/postgres/migrations/` — `NNN_name.up.sql` / `NNN_name.down.sql`
