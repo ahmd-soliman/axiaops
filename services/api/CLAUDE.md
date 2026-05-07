@@ -51,7 +51,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 | GET | /me | Yes | Current user's role + permission set; no permission required beyond authn |
 | GET | /memberships | Yes | List organization memberships |
 | POST | /memberships | Yes | Promote an existing user (by user_id) and assign a role; admin+ only |
-| POST | /invitations | Yes | Invite by email. Writes a token-bearing `pending_memberships` row and returns `redemption_url` in the response body for OOB sharing (admin pastes into Slack/email). Admin+ for member/viewer; owner for admin |
+| POST | /invitations | Yes | Invite by email. Writes a token-bearing `pending_memberships` row and returns `redemption_url` in the response body for OOB sharing (admin pastes into Slack/email). Admin+ for member/viewer; owner for admin. Optional `enforcement_hint: "sso_required"` (Tasks.md 2.7.20) is set when the org has at least one active OIDC connection with `enforcement="required"` — the URL still works for the redemption hop but every authed request afterward 403s with `sso_required`, so the dashboard renders a yellow callout telling the admin to route the invitee through SSO instead. |
 | GET | /invitations | Yes | List pending invitations for the current org (?status=pending\|expired\|revoked) |
 | DELETE | /invitations/{id} | Yes | Revoke a pending invitation. The OOB redemption URL becomes invalid the moment the row flips to revoked. |
 | PATCH | /memberships/{id}/role | Yes | Promote or demote a member; permission tier depends on target role |
