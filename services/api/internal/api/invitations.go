@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -39,7 +40,26 @@ type invitationResponse struct {
 	// — a previously-minted token's plaintext can't be reconstructed from
 	// the stored hash.
 	RedemptionURL string `json:"redemption_url,omitempty"`
+
+	// EnforcementHint is set to "sso_required" when the inviter's org has
+	// an active OIDC connection with enforcement="required". The
+	// redemption URL still mints a password session — the row is needed
+	// for cross-org / IdP-outage break-glass — but EnforceSSO will 403
+	// every authed request the invitee makes after redeeming, bricking
+	// them on the second hop. The dashboard reads this field to render a
+	// yellow callout on the invite-success modal so the admin knows to
+	// tell the invitee to use SSO instead. Empty (omitted) when the org
+	// is on optional / preferred / no enforcement, or when no active OIDC
+	// connection is configured. Snapshot at invite-creation time, not a
+	// live join — the frontend is free to lag if enforcement flips.
+	// Tasks.md row 2.7.20.
+	EnforcementHint string `json:"enforcement_hint,omitempty"`
 }
+
+// invitationEnforcementHintRequired is the literal string the dashboard
+// pivots on. Constant rather than inlined so the test pin and the
+// frontend reference resolve through the same symbol.
+const invitationEnforcementHintRequired = "sso_required"
 
 func toInvitationResponse(inv model.PendingInvitation) invitationResponse {
 	out := invitationResponse{
@@ -149,11 +169,46 @@ func (h *Handler) createInvitation(w http.ResponseWriter, r *http.Request) {
 
 	resp := toInvitationResponse(inv)
 	resp.RedemptionURL = h.buildRedemptionURL(plaintext)
+	if h.orgHasRequiredSSO(ctx) {
+		resp.EnforcementHint = invitationEnforcementHintRequired
+	}
 	status := http.StatusOK
 	if inserted {
 		status = http.StatusCreated
 	}
 	writeJSONStatus(w, status, resp)
+}
+
+// orgHasRequiredSSO reports whether the request-scoped org has at least
+// one active OIDC connection with enforcement="required". Mirrors the
+// posture that middleware.EnforceSSO actually gates on (org-wide,
+// independent of the invitee's email domain — the invitee's domain
+// doesn't enter the EnforceSSO decision, so it must not enter this
+// hint either, or the dashboard would silently miss footgun cases).
+//
+// Failure-mode posture: any store error → false (no hint). The hint is
+// pure UX clarity, not a security boundary; missing it on a transient
+// DB hiccup is strictly better than failing the invitation creation.
+func (h *Handler) orgHasRequiredSSO(ctx context.Context) bool {
+	conns, err := h.store.ListSSOConnections(ctx)
+	if err != nil {
+		// Debug, not Warn: this fires on every invite create in every org
+		// regardless of SSO posture, so a transient pool blip during a
+		// high-volume window would otherwise spam Warn with no actionable
+		// signal. The failure-mode is already pure UX (no hint = same
+		// posture as a non-SSO org), not a security boundary.
+		slog.Debug("invitations: enforcement-hint probe failed", "error", err)
+		return false
+	}
+	for _, c := range conns {
+		if c.Status != model.SSOStatusActive || c.Protocol != model.SSOProtocolOIDC {
+			continue
+		}
+		if c.Enforcement == model.SSOEnforcementRequired {
+			return true
+		}
+	}
+	return false
 }
 
 // buildRedemptionURL composes the OOB URL the admin shares with the
