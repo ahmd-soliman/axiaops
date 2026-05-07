@@ -108,6 +108,7 @@ func (h *Handler) WithLoginRateLimit(rl *LoginRateLimiter) *Handler {
 
 // Register attaches the auth routes to the supplied mux. Endpoints:
 //
+//	GET  /v1/auth/bootstrap/state        first-run probe — {available: bool}
 //	POST /v1/auth/bootstrap              first-owner install token redemption
 //	POST /v1/auth/login                  email + password → session cookie (or org picker on multi-org)
 //	POST /v1/auth/select-org             email + password + organization_id → session cookie (B1.5 multi-org follow-up)
@@ -117,6 +118,7 @@ func (h *Handler) WithLoginRateLimit(rl *LoginRateLimiter) *Handler {
 //	POST /v1/auth/invitations/redeem     accept invite token → set password (new user) or verify password (existing user) → session
 //	POST /v1/auth/password-reset/redeem  redeem reset token → set new password → all sessions revoked
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/auth/bootstrap/state", h.bootstrapState)
 	mux.HandleFunc("POST /v1/auth/bootstrap", h.bootstrap)
 	mux.HandleFunc("POST /v1/auth/login", h.login)
 	mux.HandleFunc("POST /v1/auth/select-org", h.selectOrg)
@@ -125,6 +127,44 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/invitations/preview", h.previewInvitation)
 	mux.HandleFunc("POST /v1/auth/invitations/redeem", h.redeemInvitation)
 	mux.HandleFunc("POST /v1/auth/password-reset/redeem", h.redeemPasswordReset)
+}
+
+// ── GET /v1/auth/bootstrap/state ────────────────────────────────────────────
+
+// bootstrapStateResponse is the public probe shape used by the dashboard
+// at mount time to decide whether to auto-redirect a fresh-install
+// visitor to /bootstrap. `available` mirrors the post-side gate: true
+// iff a bootstrap_state row currently exists, i.e. a POST to
+// /v1/auth/bootstrap with the right token would succeed.
+type bootstrapStateResponse struct {
+	Available bool `json:"available"`
+}
+
+// bootstrapState reports whether the install is still in its first-run
+// window. Read-only and unauthenticated; not a new oracle — callers can
+// already discover the same posture by POSTing junk to /v1/auth/bootstrap
+// and reading 409 (sealed) vs 401 (token mismatch). Centralising the
+// probe lets the dashboard avoid the dead-end /login landing on a fresh
+// install (Tasks.md row 2.7.16).
+func (h *Handler) bootstrapState(w http.ResponseWriter, r *http.Request) {
+	// Cache-Control no-store on every response: a returning visitor on
+	// the same browser would otherwise see a cached `{available:true}`
+	// after the row has been consumed and bounce to /bootstrap → 409 →
+	// back to /login (flash-of-wrong-screen). The probe is cheap enough
+	// to never want a cached read.
+	w.Header().Set("Cache-Control", "no-store")
+	_, _, err := h.store.GetBootstrapState(r.Context())
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, bootstrapStateResponse{Available: true})
+	case errors.Is(err, storage.ErrBootstrapAlreadyDone):
+		// Row absent: pre-startup or post-consume. The dashboard treats
+		// both the same — render /login, not /bootstrap.
+		writeJSON(w, http.StatusOK, bootstrapStateResponse{Available: false})
+	default:
+		slog.Error("auth: bootstrap state probe failed", "err", err)
+		writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+	}
 }
 
 // ── POST /v1/auth/bootstrap ─────────────────────────────────────────────────

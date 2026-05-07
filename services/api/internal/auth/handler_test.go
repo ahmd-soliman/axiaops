@@ -110,6 +110,90 @@ func mustDecode[T any](t *testing.T, w *httptest.ResponseRecorder) T {
 	return v
 }
 
+// getJSON drives a GET against the in-memory mux. Mirrors postJSON's
+// shape so tests stay symmetric.
+func getJSON(t *testing.T, mux http.Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodGet, path, nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	return w
+}
+
+// ── /v1/auth/bootstrap/state ────────────────────────────────────────────────
+
+// TestBootstrapStateAvailableWhenSeeded — fresh-install posture. A row
+// in bootstrap_state means the operator's POST to /v1/auth/bootstrap
+// would succeed; the dashboard's mount probe must read this as
+// "redirect newcomers to /bootstrap" (Tasks.md row 2.7.16 part b).
+// Also pins Cache-Control: no-store so a stale cached `available:true`
+// can't bounce a returning visitor through /bootstrap → 409 → /login
+// after the row has been consumed.
+func TestBootstrapStateAvailableWhenSeeded(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	_ = seedInstallToken(t, store)
+
+	w := getJSON(t, mux(h), "/v1/auth/bootstrap/state")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q; want %q", got, "no-store")
+	}
+	got := mustDecode[map[string]any](t, w)
+	if got["available"] != true {
+		t.Errorf("available = %v; want true", got["available"])
+	}
+}
+
+// TestBootstrapStateUnavailableAfterConsume — sealed posture. After a
+// successful POST consume, the singleton row is deleted; the probe
+// must flip to available=false so newcomers land on /login.
+func TestBootstrapStateUnavailableAfterConsume(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedInstallToken(t, store)
+
+	w := postJSON(t, mux(h), "/v1/auth/bootstrap", map[string]string{
+		"token":    token,
+		"email":    "owner@example.com",
+		"name":     "Owner",
+		"password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("bootstrap consume failed: %d / %s", w.Code, w.Body.String())
+	}
+
+	w2 := getJSON(t, mux(h), "/v1/auth/bootstrap/state")
+	if w2.Code != http.StatusOK {
+		t.Fatalf("state status = %d; want 200; body = %s", w2.Code, w2.Body.String())
+	}
+	got := mustDecode[map[string]any](t, w2)
+	if got["available"] != false {
+		t.Errorf("available = %v; want false (sealed after consume)", got["available"])
+	}
+}
+
+// TestBootstrapStateUnavailableWhenNeverMinted — pre-startup edge case.
+// No bootstrap_state row was ever created (e.g. operator inspecting
+// the endpoint before the api process has finished MaybeGenerateInstallToken).
+// Same shape as the sealed posture — the dashboard treats both as
+// "do nothing, defer to AuthGuard".
+func TestBootstrapStateUnavailableWhenNeverMinted(t *testing.T) {
+	t.Parallel()
+	h, _, _ := newHandlerTest(t)
+
+	w := getJSON(t, mux(h), "/v1/auth/bootstrap/state")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body = %s", w.Code, w.Body.String())
+	}
+	got := mustDecode[map[string]any](t, w)
+	if got["available"] != false {
+		t.Errorf("available = %v; want false (never minted)", got["available"])
+	}
+}
+
 // ── /v1/auth/bootstrap ──────────────────────────────────────────────────────
 
 // seedInstallToken plants a bootstrap_state row. Returns the plaintext

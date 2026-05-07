@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from '../components/primitives';
-import { authBootstrap } from '../api/client';
+import { authBootstrap, authBootstrapState } from '../api/client';
 import { authColors as C, authStyles as S } from './_authShell';
 
 // BootstrapScreen renders the first-run install form.
@@ -21,6 +21,23 @@ export default function BootstrapScreen() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  // Probe the install posture on mount. If the install is sealed (which
+  // is the post-consume reality for ~every running deployment), bounce
+  // the visitor to /login with a flash hint instead of letting them fill
+  // out a form that will 409. Best-effort: any probe failure leaves the
+  // form rendered as a fallback.
+  useEffect(() => {
+    let cancelled = false;
+    authBootstrapState().then((available) => {
+      if (cancelled || available) return;
+      navigate('/login', {
+        replace: true,
+        state: { error: 'Bootstrap is already complete on this installation. Please sign in.' },
+      });
+    });
+    return () => { cancelled = true; };
+  }, [navigate]);
 
   async function onSubmit(e) {
     e.preventDefault();
