@@ -88,7 +88,18 @@ docker compose logs api 2>&1 | grep -A 8 "first-run setup"
 
 ### 5. Open the bootstrap form
 
-Open **`http://localhost:8082/bootstrap`** in a browser.
+Open **`http://localhost:8082`** in a browser. On a fresh install with no
+organizations yet, the dashboard probes `GET /v1/auth/bootstrap/state`
+at mount time and auto-redirects to `/bootstrap` (Tasks.md row 2.7.16) —
+older docs and the install banner still name `/bootstrap` directly, and
+both paths land in the same place. Quick CLI probe before opening a
+browser:
+
+```bash
+curl -s http://localhost:8082/api/v1/auth/bootstrap/state
+# {"available":true}   ← redirect will fire on the dashboard
+# {"available":false}  ← bootstrap is sealed; sign in at /login
+```
 
 | Field | Notes |
 |---|---|
