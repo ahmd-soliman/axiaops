@@ -26,11 +26,13 @@ provisioning.
    - Client ID: `axiaops-rp` (you'll paste this into AxiaOps).
    - Client authentication: **on** — confidential client; Keycloak mints a secret.
    - Authentication flow: **Standard flow on**, others off.
-   - Valid redirect URIs: `http://localhost:8082/v1/sso/oidc/*/callback`
-     - The wildcard is required because the connection ID is in the path and
-       Keycloak does exact-match. Replace with the literal connection ID once
-       you've created the AxiaOps connection (step 3.1) if you'd rather avoid
-       wildcards.
+   - Valid redirect URIs: `http://localhost:8082/v1/sso/oidc/callback`
+     - Single literal URI — connection identity flows through the `state`
+       parameter, not the URL path. The legacy `/v1/sso/oidc/<cid>/callback`
+       form still resolves for one release (Tasks.md 2.7.22 deprecation
+       window); add it as an additional redirect URI only if you're
+       upgrading an existing AxiaOps install whose initiate side has not
+       yet been redeployed.
    - Web origins: `http://localhost:8082`.
    - **Save**, then in the **Credentials** tab copy the secret. You'll paste it
      into AxiaOps.
@@ -86,9 +88,10 @@ In the dashboard, **Settings → SSO**:
    - Save as **draft** first → copy the connection ID from the URL → flip to
      **active**.
 
-2. **(Optional) Update the Keycloak redirect URI** to the exact callback if
-   you don't want a wildcard:
-   `http://localhost:8082/v1/sso/oidc/<conn-id>/callback`
+2. **(Optional) Update the Keycloak redirect URI**: the cid-less
+   `/v1/sso/oidc/callback` form set in §1 covers every connection, so
+   nothing needs to change here. Skip unless you specifically want to
+   enumerate per-connection callback URIs (rare).
 
 3. **Domains → Add `example.com`** (or whatever domain matches your test
    user's email).
@@ -197,7 +200,7 @@ A successful round-trip exercises:
 
 - `/v1/sso/discover` — pre-auth, constant-shape, latency-floored (architect N4 fuzz)
 - `/v1/sso/oidc/<cid>/initiate` — PKCE + state + nonce ceremony
-- `/v1/sso/oidc/<cid>/callback` — full ID-token validation chain (alg-
+- `/v1/sso/oidc/callback` — full ID-token validation chain (alg-
   confusion, issuer, audience, nonce, anti-spoofing domain check), JIT
   membership, session minting with `auth_mode='sso'`, audit row
 - `/v1/me` — returns the SSO-provisioned user with the JIT-resolved role

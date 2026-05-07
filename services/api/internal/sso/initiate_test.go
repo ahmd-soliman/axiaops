@@ -98,7 +98,12 @@ func TestInitiate_Redirects_WithAllRequiredParams(t *testing.T) {
 	if q.Get("code_challenge_method") != "S256" {
 		t.Errorf("code_challenge_method: got %q want S256", q.Get("code_challenge_method"))
 	}
-	wantRedirectURI := "https://app.example.com/v1/sso/oidc/" + cid + "/callback"
+	// Standard cid-less callback URL (Tasks.md 2.7.22). Connection identity
+	// flows through the state parameter, not the URL path — flipping this
+	// to the path-cid form would break the IdP redirect for every customer
+	// that registered the new shape.
+	_ = cid // referenced elsewhere; kept to mark the per-connection nature of the ceremony
+	wantRedirectURI := "https://app.example.com" + sso.CallbackPath
 	if q.Get("redirect_uri") != wantRedirectURI {
 		t.Errorf("redirect_uri: got %q want %q", q.Get("redirect_uri"), wantRedirectURI)
 	}

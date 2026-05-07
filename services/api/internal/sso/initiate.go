@@ -20,6 +20,16 @@ type InitiateStore interface {
 	GetSSOConnectionByID(ctx context.Context, id string) (model.SSOConnection, error)
 }
 
+// CallbackPath is the standard, connection-agnostic OIDC callback URL.
+// The connection ID is carried by the state parameter rather than the URL
+// path, matching every other major OIDC RP shape and giving customers a
+// single redirect URI to register at their IdP regardless of how many
+// AxiaOps SSO connections they create. The legacy
+// /v1/sso/oidc/{cid}/callback route remains wired for one release as a
+// deprecation window — see Tasks.md 2.7.22 and the
+// axiaops_sso_legacy_callback_total counter.
+const CallbackPath = "/v1/sso/oidc/callback"
+
 // initiateScopes are the OIDC scopes the RP requests at authorize time.
 // Group membership comes through the IdP-side token configuration (Entra
 // "groups claim"); we don't request a separate `groups` scope because some
@@ -130,8 +140,17 @@ func NewInitiateHandler(store InitiateStore, validator *Validator, stateStore *S
 		}
 
 		authorizeURL, err := buildAuthorizeURL(doc.AuthorizationEndpoint, authorizeParams{
-			ClientID:      conn.OIDCClientID,
-			RedirectURI:   publicHost + "/v1/sso/oidc/" + cid + "/callback",
+			ClientID: conn.OIDCClientID,
+			// Standard cid-less callback URL (Tasks.md 2.7.22). Connection
+			// identity flows through the state parameter (StateData.CID),
+			// matching the shape every other OIDC RP uses (Auth0, Kinde,
+			// Clerk, etc.) and removing the per-connection IdP redirect-URI
+			// re-registration burden when admins recreate a connection.
+			// Customers MUST register this URL in their IdP before upgrading;
+			// the legacy /v1/sso/oidc/{cid}/callback route is preserved for
+			// one release as a deprecation window — hits surface via the
+			// axiaops_sso_legacy_callback_total counter.
+			RedirectURI:   publicHost + CallbackPath,
 			Scope:         initiateScopes,
 			State:         state,
 			Nonce:         data.Nonce,
