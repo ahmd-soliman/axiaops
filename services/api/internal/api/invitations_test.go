@@ -130,6 +130,91 @@ func TestCreateInvitation_UserExistsNoMembership_409(t *testing.T) {
 	}
 }
 
+// TestCreateInvitation_EnforcementHint pins the Tasks.md 2.7.20 contract:
+// the response carries `enforcement_hint: "sso_required"` iff the org has
+// at least one ACTIVE OIDC connection with enforcement="required". Draft
+// / disabled / SAML / non-required connections must NOT contribute — a
+// false-positive hint would mislead the admin into telling the invitee
+// to use SSO when password redemption would actually work.
+func TestCreateInvitation_EnforcementHint(t *testing.T) {
+	cases := []struct {
+		name     string
+		conns    []model.SSOConnection
+		wantHint string // "" means field omitted
+	}{
+		{
+			name:     "no_sso_configured",
+			conns:    nil,
+			wantHint: "",
+		},
+		{
+			name: "active_oidc_optional",
+			conns: []model.SSOConnection{
+				{ID: "c1", Status: model.SSOStatusActive, Protocol: model.SSOProtocolOIDC, Enforcement: model.SSOEnforcementOptional},
+			},
+			wantHint: "",
+		},
+		{
+			name: "active_oidc_preferred",
+			conns: []model.SSOConnection{
+				{ID: "c1", Status: model.SSOStatusActive, Protocol: model.SSOProtocolOIDC, Enforcement: model.SSOEnforcementPreferred},
+			},
+			wantHint: "",
+		},
+		{
+			name: "active_oidc_required",
+			conns: []model.SSOConnection{
+				{ID: "c1", Status: model.SSOStatusActive, Protocol: model.SSOProtocolOIDC, Enforcement: model.SSOEnforcementRequired},
+			},
+			wantHint: "sso_required",
+		},
+		{
+			name: "draft_oidc_required_does_not_count",
+			conns: []model.SSOConnection{
+				{ID: "c1", Status: model.SSOStatusDraft, Protocol: model.SSOProtocolOIDC, Enforcement: model.SSOEnforcementRequired},
+			},
+			wantHint: "",
+		},
+		{
+			name: "disabled_oidc_required_does_not_count",
+			conns: []model.SSOConnection{
+				{ID: "c1", Status: model.SSOStatusDisabled, Protocol: model.SSOProtocolOIDC, Enforcement: model.SSOEnforcementRequired},
+			},
+			wantHint: "",
+		},
+		{
+			name: "highest_wins_among_mixed",
+			conns: []model.SSOConnection{
+				{ID: "c1", Status: model.SSOStatusActive, Protocol: model.SSOProtocolOIDC, Enforcement: model.SSOEnforcementOptional},
+				{ID: "c2", Status: model.SSOStatusActive, Protocol: model.SSOProtocolOIDC, Enforcement: model.SSOEnforcementRequired},
+			},
+			wantHint: "sso_required",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewMockStore().WithSSOConnections(tc.conns)
+			mux := invHandler(store)
+
+			body := `{"email":"new@example.com","role":"member"}`
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, invReq(http.MethodPost, "/v1/invitations", body))
+
+			if w.Code != http.StatusCreated {
+				t.Fatalf("expected 201, got %d (body: %s)", w.Code, w.Body.String())
+			}
+			var resp map[string]any
+			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			gotHint, _ := resp["enforcement_hint"].(string)
+			if gotHint != tc.wantHint {
+				t.Errorf("enforcement_hint=%q, want %q (resp=%+v)", gotHint, tc.wantHint, resp)
+			}
+		})
+	}
+}
+
 func TestCreateInvitation_Owner_403_FromValidationNotPerm(t *testing.T) {
 	// Owner role is invalid for invitations regardless of caller permissions.
 	store := NewMockStore()
