@@ -101,6 +101,11 @@ type MockStore struct {
 	// ── Pending invitations (Phase 2 invitations) ──
 	pendingInvitations []model.PendingInvitation
 
+	// ── SSO connections (Phase B2 — used by Tasks.md 2.7.20 enforcement
+	// hint resolver). Empty slice (default) → ListSSOConnections returns
+	// nil — same posture as an org with no SSO configured.
+	ssoConnections []model.SSOConnection
+
 	// ── Account Status (for concurrency testing) ──
 	accountScanning map[string]bool // account ID → is scanning
 
@@ -1300,7 +1305,24 @@ func (m *MockStore) GetSSOConnectionByID(context.Context, string) (model.SSOConn
 	return model.SSOConnection{}, storage.ErrSSOConnectionNotFound
 }
 func (m *MockStore) ListSSOConnections(context.Context) ([]model.SSOConnection, error) {
-	return nil, errors.New("MockStore.ListSSOConnections not implemented")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.ssoConnections) == 0 {
+		return nil, nil
+	}
+	out := make([]model.SSOConnection, len(m.ssoConnections))
+	copy(out, m.ssoConnections)
+	return out, nil
+}
+
+// WithSSOConnections plants SSO connections returned by ListSSOConnections.
+// Used by the Tasks.md 2.7.20 enforcement-hint resolver tests; pass an
+// empty slice (default) for "no SSO configured".
+func (m *MockStore) WithSSOConnections(conns []model.SSOConnection) *MockStore {
+	m.mu.Lock()
+	m.ssoConnections = conns
+	m.mu.Unlock()
+	return m
 }
 func (m *MockStore) UpdateSSOConnection(context.Context, model.SSOConnection) error {
 	return errors.New("MockStore.UpdateSSOConnection not implemented")
