@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { getToken, saveToken, clearToken } from './auth/storage';
-import { authLogout, setAuthToken, UNAUTHORIZED_EVENT } from './api/client';
+import { authLogout, authBootstrapState, setAuthToken, UNAUTHORIZED_EVENT } from './api/client';
 import { DEV_MODE, DEV_ORG_NAME } from './config';
 import { AppProvider } from './context/AppContext';
 import { MeProvider } from './context/MeContext';
@@ -113,6 +113,8 @@ function AuthenticatedApp() {
 
 export default function App() {
   const [ready, setReady] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (DEV_MODE) {
@@ -128,6 +130,27 @@ export default function App() {
     }
     setReady(true);
   }, []);
+
+  // First-run auto-redirect (Tasks.md row 2.7.16). On a fresh self-hosted
+  // install no organization exists yet, so /login is a dead-end — the
+  // user must reach /bootstrap to consume the install token. Probe the
+  // public state endpoint and bounce only from the routes a newcomer
+  // typically lands on (/ and /login). Token-bearing public routes
+  // (/accept-invite, /password-reset, /select-org) and /bootstrap itself
+  // are intentionally left alone. Best-effort: api error → no-op (the
+  // helper resolves to false on any failure), so a degraded api can't
+  // freeze the dashboard at the door.
+  useEffect(() => {
+    if (DEV_MODE) return;
+    const eligible = location.pathname === '/' || location.pathname === '/login';
+    if (!eligible) return;
+    let cancelled = false;
+    authBootstrapState().then((available) => {
+      if (cancelled || !available) return;
+      navigate('/bootstrap', { replace: true });
+    });
+    return () => { cancelled = true; };
+  }, [location.pathname, navigate]);
 
   if (!ready) return null;
 
