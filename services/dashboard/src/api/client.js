@@ -748,6 +748,26 @@ export async function authLogout() {
   await ifetch(`${BASE_URL}/v1/auth/logout`, { method: 'POST' });
 }
 
+// authBootstrapState probes whether the install is still in its
+// first-run window. Returns true iff `/v1/auth/bootstrap` would succeed
+// with the right token. Best-effort: any transport / 5xx error resolves
+// to false so the caller falls through to the normal login flow rather
+// than freezing the dashboard on a degraded api. Tasks.md row 2.7.16.
+//
+// No `credentials: 'include'` — the endpoint is public and ignores any
+// session cookie; sending one only triggers a CORS pre-flight on
+// cross-origin deploys with a non-wildcard CORS_ORIGIN.
+export async function authBootstrapState() {
+  try {
+    const res = await fetch(`${BASE_URL}/v1/auth/bootstrap/state`);
+    if (!res.ok) return false;
+    const body = await res.json();
+    return body.available === true;
+  } catch {
+    return false;
+  }
+}
+
 // authBootstrap consumes the install token and creates the first owner.
 // Body fields per plan §4.2: token, email, password, name,
 // organization_name (optional, defaults to "AxiaOps" server-side).
