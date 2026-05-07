@@ -1,0 +1,9 @@
+[
+  {
+    "resource_id": "db-stag-01",
+    "metric": "DatabaseConnections",
+    "unit": "Count",
+    "avg": 0,
+    "period_days": 30
+  }
+]

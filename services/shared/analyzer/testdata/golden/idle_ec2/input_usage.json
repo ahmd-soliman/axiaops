@@ -1,0 +1,9 @@
+[
+  {
+    "resource_id": "i-0idle1",
+    "metric": "CPUUtilization",
+    "unit": "Percent",
+    "avg": 1.2,
+    "period_days": 30
+  }
+]
