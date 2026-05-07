@@ -2,7 +2,11 @@
 // usage metrics and applying per-service threshold rules.
 package analyzer
 
-import "axiaops.io/shared/model"
+import (
+	"fmt"
+
+	"axiaops.io/shared/model"
+)
 
 // UsageRecord holds the average usage metric for a single resource over a
 // billing period. Sourced from CloudWatch in production; from a fixture file
@@ -13,6 +17,30 @@ type UsageRecord struct {
 	Unit       string  `json:"unit"`
 	Avg        float64 `json:"avg"`
 	PeriodDays int     `json:"period_days"`
+}
+
+// Validate enforces the strict invariants every UsageRecord must satisfy:
+//   - ResourceID non-empty
+//   - Metric non-empty
+//   - Avg non-negative (no AWS metric AxiaOps consumes can legitimately be < 0)
+//   - PeriodDays non-negative
+//
+// Unit is informational and not checked. Returns *model.ValidationError on
+// failure so callers can switch on the field.
+func (u UsageRecord) Validate() error {
+	if u.ResourceID == "" {
+		return &model.ValidationError{Field: "resource_id", Message: "must be non-empty"}
+	}
+	if u.Metric == "" {
+		return &model.ValidationError{Field: "metric", Message: "must be non-empty"}
+	}
+	if u.Avg < 0 {
+		return &model.ValidationError{Field: "avg", Message: fmt.Sprintf("%.4f is negative", u.Avg)}
+	}
+	if u.PeriodDays < 0 {
+		return &model.ValidationError{Field: "period_days", Message: fmt.Sprintf("%d is negative", u.PeriodDays)}
+	}
+	return nil
 }
 
 // Detect joins cost records with usage metrics and returns any resources that
