@@ -66,8 +66,10 @@ const maxGracePeriodDays = 90
 //
 // StateNotLoaded is a separate value (not a permissive default of StateValid)
 // so callers like the scan-gate in slice 5 can decide policy explicitly:
-// DEV_MODE / SaaS / pre-license-ceremony all surface as StateNotLoaded and
-// the policy lives at the call site, not buried in this accessor.
+// SaaS / pre-license-ceremony / production-without-license all surface as
+// StateNotLoaded and the policy lives at the call site, not buried in this
+// accessor. Post B1.7 layer 4, DEV_MODE no longer surfaces here — the dev
+// fixture loads through Snapshot() with state=Valid like a real license.
 type State int
 
 const (
@@ -174,13 +176,15 @@ func loadFromJWT(raw string) (*License, error) {
 		// compiled in — production-tagged builds zero this seam out so
 		// the fallback is unreachable. The `!ErrTokenUnverifiable` guard
 		// narrows away the alg-confusion path: golang-jwt v5 wraps
-		// `WithValidMethods` rejections with both sentinels, but those
-		// inputs (alg=none, alg=HS256) cannot validate against any RSA
-		// pubkey, so a fallback attempt is wasted CPU. The keyfunc-side
-		// alg guard returns a plain error and only wraps Unverifiable, so
-		// it never reaches this branch in the first place. Any other
-		// error (parse failure, malformed claims) is fatal — those are
-		// not signed-by-the-other-key problems and re-trying buys nothing.
+		// `WithValidMethods` rejections with both `ErrTokenSignatureInvalid`
+		// and `ErrTokenUnverifiable`, but those inputs (alg=none, alg=HS256)
+		// cannot validate against any RSA pubkey so the fallback attempt is
+		// wasted CPU. golang-jwt also wraps keyfunc-returned errors with
+		// `ErrTokenUnverifiable` (not `ErrTokenSignatureInvalid`), so the
+		// keyfunc-path alg guard naturally falls through `else if sigErr != nil`
+		// without retrying. Any other error (parse failure, malformed claims)
+		// is fatal — those are not signed-by-the-other-key problems and
+		// re-trying buys nothing.
 		devPub, devErr := jwt.ParseRSAPublicKeyFromPEM(devEmbeddedPubKeyPEM)
 		if devErr != nil {
 			// Embedded dev key failed to parse — package-level bug,
