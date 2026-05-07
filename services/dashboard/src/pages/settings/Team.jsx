@@ -100,6 +100,13 @@ export default function Team() {
             email: data._email || data.email,
             role: data._role || data.role,
             url,
+            // Tasks.md row 2.7.20: yellow callout when the org gates on
+            // SSO. The URL still works for the redemption hop, but every
+            // authed request afterward 403s with `sso_required` because
+            // EnforceSSO blocks password sessions in such orgs. The
+            // admin needs to know this is a break-glass, not the happy
+            // path. `enforcement_hint` is "sso_required" or absent.
+            enforcementHint: data.enforcement_hint || '',
           });
         } else {
           setLastInvite(null);
@@ -235,6 +242,27 @@ export default function Team() {
                   ×
                 </button>
               </div>
+              {lastInvite.enforcementHint === 'sso_required' && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    padding: 8,
+                    borderRadius: 4,
+                    backgroundColor: isDark ? 'rgba(234,179,8,0.12)' : '#fef9c3',
+                    border: `1px solid ${isDark ? 'rgba(234,179,8,0.35)' : '#fde047'}`,
+                    color: isDark ? '#fde68a' : '#854d0e',
+                    fontSize: 11,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <strong>SSO is enforced for this organization.</strong> The
+                  invitee will be auto-onboarded on first SSO login — ask them
+                  to sign in via your SSO provider instead of clicking this
+                  link. The URL still works as a break-glass for cross-org or
+                  IdP-outage cases, but the password-based session it mints
+                  will be blocked on the next request.
+                </div>
+              )}
               <div style={{ position: 'relative' }}>
                 <input
                   type="text"
