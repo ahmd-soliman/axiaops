@@ -90,6 +90,14 @@ type Metrics struct {
 	// disappears from dashboards.
 	LicenseStateInfo       *prometheus.GaugeVec   // labels: state (valid|in_grace|expired), customer_id — exactly one label-set should be 1 at any time
 	LicenseLoadErrorsTotal *prometheus.CounterVec // labels: reason (signature|format|missing|wrong_issuer|wrong_audience|future_iat|dev_mode_with_license) — boot-time refusal taxonomy for the alert runbook. `dev_mode_with_license` (B1.7 layer 2) is the only reason that still corresponds to an actual os.Exit post-B1.6-amendment; the rest soft-fail to scan-gate enforcement.
+
+	// SSO callback shape — see Tasks.md 2.7.22 / docs/sso-implementation-plan.md.
+	// Increments on every hit to the legacy `/v1/sso/oidc/{cid}/callback` route
+	// (the path-cid form retired in favour of the standard `/v1/sso/oidc/callback`
+	// shape). Drives the deprecation runbook: when the rate over the last day
+	// drops to zero across all customers, the legacy route can be removed in
+	// the next release. Cardinality bound: one series per active connection.
+	SSOLegacyCallbackTotal *prometheus.CounterVec // labels: cid
 }
 
 // registry is the package-private Prometheus registry. Held private to avoid
@@ -290,6 +298,11 @@ func newMetrics() *Metrics {
 			Name: "axiaops_license_load_errors_total",
 			Help: "Boot-time license verification failures by failure mode. Non-zero means the binary refused to start at least once — operator should consult the audit_log row license_invalid_signature for context.",
 		}, []string{"reason"}),
+
+		SSOLegacyCallbackTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_sso_legacy_callback_total",
+			Help: "Hits on the legacy /v1/sso/oidc/{cid}/callback route. Drops to zero once every customer has re-registered the standard /v1/sso/oidc/callback redirect URI in their IdP — cue to remove the path-cid route in the following release (Tasks.md 2.7.22).",
+		}, []string{"cid"}),
 	}
 
 	return m

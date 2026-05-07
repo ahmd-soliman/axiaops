@@ -36,13 +36,20 @@ const (
 //     by definition. The handler returns a constant response shape and
 //     pads response time to mask whether the domain is verified, so the
 //     bypass doesn't introduce an enumeration channel.
-//  4. OIDC ceremony: /v1/sso/oidc/{cid}/initiate and /callback — both
-//     are pre-session (browser pre-redirect / browser post-IdP). Suffix-
-//     match explicitly so a future authenticated SSO-management route
-//     (e.g. /v1/sso/oidc/{cid}/settings) does NOT silently bypass auth.
+//  4. OIDC ceremony: /v1/sso/oidc/{cid}/initiate, /v1/sso/oidc/callback
+//     (cid-less standard form per Tasks.md 2.7.22), and the legacy
+//     /v1/sso/oidc/{cid}/callback (deprecation window) — all pre-session
+//     (browser pre-redirect / browser post-IdP). Suffix-match explicitly so
+//     a future authenticated SSO-management route (e.g.
+//     /v1/sso/oidc/{cid}/settings) does NOT silently bypass auth.
 func publicPath(p string) bool {
 	switch p {
 	case "/health", "/livez", "/readyz", "/metrics", "/v1/sso/discover":
+		return true
+	// Cid-less OIDC callback (Tasks.md 2.7.22). Exact match — kept distinct
+	// from the prefix+suffix branch below so a future authenticated route
+	// like /v1/sso/oidc/manage/callback can't slip through that pattern.
+	case "/v1/sso/oidc/callback":
 		return true
 	}
 	if strings.HasPrefix(p, "/v1/sso/oidc/") &&
