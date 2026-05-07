@@ -1,0 +1,12 @@
+[
+  {
+    "service": "AmazonRDS",
+    "region": "us-east-1",
+    "resource_id": "db-stag-01",
+    "monthly_cost": 210,
+    "usage_metric": "DatabaseConnections",
+    "usage_avg": 0,
+    "reason": "RDS instance has zero database connections — likely abandoned",
+    "owner": "data"
+  }
+]
