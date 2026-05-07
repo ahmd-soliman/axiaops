@@ -84,6 +84,7 @@ logs/
 
 # ─── Claude Code (local-only overrides) ──────────────────────────────────────
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Go compiled binaries (service-specific)
 services/api/api
