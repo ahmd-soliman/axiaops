@@ -5,18 +5,27 @@ import "sync/atomic"
 // current holds the boot-time *License so handlers (slice 5 scan-gate) and
 // the runtime ticker (slice 4) can read the validated claims without
 // re-running JWT parsing on every call. Set once during cmd/main.go startup
-// via SetCurrent; nil under DEV_MODE or in the SaaS binary.
+// via SetCurrent. After B1.7 layer 4 (issue #75) DEV_MODE also populates
+// this with the embedded dev fixture — `current == nil` now means "no
+// license loaded in a production deployment" or "this is the SaaS binary"
+// (the latter doesn't yet exist; planned per §4.9.6).
 //
 // This is the only package-level mutable state; the rest of the package is
 // pure functions (license.go) so unit tests can run without disturbing it.
 var current atomic.Pointer[License]
 
 // enforcementBypass is the explicit "this binary is exempt from license
-// enforcement" flag. Set by VerifyAtBoot when DEV_MODE=true; the future SaaS
-// composition root will set it through the same predicate. Distinct from
-// `current == nil` (which under the B1.6 amendment now means "no license
-// installed in production" and gates scans) so the gate can tell DEV_MODE
-// apart from missing-license without re-reading os.Getenv.
+// enforcement" flag. Reserved for the future SaaS composition root
+// (cmd/api-saashosted, planned per §4.9.6) — no production code path in
+// the self-hosted binary sets it post B1.7 layer 4. DEV_MODE used to flip
+// this flag; layer 4 retired that shortcut by loading the embedded dev
+// fixture through the same Load → CheckExpiry chain a real customer
+// license travels, so dev exercises the full state machine.
+//
+// Test helpers (`scheduler_test.go`, `test_main_test.go`, etc.) still call
+// SetEnforcementBypass directly to skip license setup in tests under
+// check that are orthogonal to license behaviour. That's a test-time
+// convenience, distinct from the runtime contract.
 //
 // atomic.Bool not atomic.Pointer because the value is two-valued and never
 // needs to compare against a struct pointer; the lock-free read shape matches
@@ -28,13 +37,18 @@ var enforcementBypass atomic.Bool
 // ticker never calls SetCurrent — license re-issuance lands via restart, not
 // hot-reload).
 //
-// Pass nil to clear (DEV_MODE bypass / SaaS binary).
+// Pass nil to clear (test cleanup, future SaaS composition root if it skips
+// license loading entirely). Self-hosted binaries always have a non-nil
+// snapshot post B1.7 layer 4 — DEV_MODE loads the dev fixture and real
+// production loads the customer license, both via Load.
 func SetCurrent(l *License) {
 	current.Store(l)
 }
 
 // Snapshot returns the boot-time License or nil when no license is loaded
-// (DEV_MODE / SaaS binary). Lock-free read — safe under concurrency.
+// (production-without-a-license, or the future SaaS binary). Self-hosted
+// dev binaries return the embedded fixture per B1.7 layer 4. Lock-free
+// read — safe under concurrency.
 //
 // The returned pointer is **read-only by contract** — callers must not
 // mutate any field. The same pointer is shared by the runtime ticker for
@@ -45,8 +59,8 @@ func Snapshot() *License {
 }
 
 // SnapshotState classifies the boot-time license against time.Now(), or
-// returns StateNotLoaded when no license is set (DEV_MODE / SaaS binary /
-// pre-VerifyAtBoot). Lock-free read.
+// returns StateNotLoaded when no license is set (production-without-a-
+// license, future SaaS binary, or pre-VerifyAtBoot). Lock-free read.
 //
 // Most call sites should prefer IsScanAllowed (the policy-encoded predicate);
 // SnapshotState is the right call only when the caller needs the specific
@@ -61,12 +75,14 @@ func SnapshotState() State {
 }
 
 // SetEnforcementBypass marks this process as exempt from license enforcement.
-// Called by VerifyAtBoot under DEV_MODE; the future SaaS composition root
-// (cmd/api-saashosted, planned per §4.9.6) will call it directly so its scan
-// path falls through. Once set, never cleared during the process lifetime.
+// Reserved for the future SaaS composition root (cmd/api-saashosted, planned
+// per §4.9.6) and for test helpers that skip license setup (`scheduler_test.go`,
+// `test_main_test.go`). VerifyAtBoot used to flip this flag under DEV_MODE; B1.7
+// layer 4 retired that shortcut and dev now loads the embedded fixture
+// instead. Once set, never cleared during a real process lifetime.
 //
-// Tests use a t.Cleanup pattern (see resetEnforcementBypass) to keep the
-// flag from leaking across test cases.
+// Tests use a t.Cleanup pattern (see resetSnapshot in startup_test.go) to
+// keep the flag from leaking across test cases.
 func SetEnforcementBypass() {
 	enforcementBypass.Store(true)
 }
@@ -122,11 +138,17 @@ func IsScanAllowedForState(state State) bool {
 }
 
 // IsEnforcementBypassed reports whether the enforcement-bypass flag is set.
-// Handlers consult this to distinguish DEV_MODE (no banner, no 403, scans
-// fall through) from production-with-no-license (banner, 403, scans gated).
+// Returns false in every self-hosted runtime path post B1.7 layer 4 — DEV_MODE
+// loads the dev fixture (state=valid drives scan-gate fall-through) and real
+// production loads a customer license. The flag remains the seam through
+// which the future SaaS composition root will exempt itself from
+// scan-gating; until cmd/api-saashosted exists, the flag is effectively
+// always false in production.
 //
-// The /v1/version endpoint and the scan-gate handler both branch on this so
-// the dashboard and the API agree on which "no snapshot" semantics apply.
+// The /v1/version endpoint still branches on this for forward-compatibility
+// with the SaaS reactivation, so dashboard and API agree on which "no
+// snapshot" semantics apply when SetEnforcementBypass eventually has a
+// caller.
 func IsEnforcementBypassed() bool {
 	return enforcementBypass.Load()
 }

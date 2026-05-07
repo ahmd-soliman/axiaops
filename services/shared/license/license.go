@@ -7,7 +7,11 @@
 //
 // SaaS deployments do not use this package — the SaaS composition root
 // gates access via Stripe instead. Self-hosted main.go calls Load + CheckExpiry
-// before serverbuild.ComposeServer; DEV_MODE=true short-circuits the call.
+// before serverbuild.ComposeServer. Post B1.7 layer 4 (issue #75), DEV_MODE
+// loads an embedded 100-year dev fixture through the same Load chain a
+// real customer license travels — dev exercises CheckExpiry, the runtime
+// ticker, the scan-gate predicates, and the /v1/version handler the same
+// way a customer install does.
 package license
 
 import (
@@ -133,6 +137,13 @@ type licenseClaims struct {
 // against the embedded (or EnvPubKeyPath-overridden) public key, validates
 // iss / aud / iat / nbf, and returns the parsed License.
 //
+// In dev builds Load also accepts a JWT signed by the embedded dev key
+// (B1.7 layer 4 / issue #75) — the production pubkey is tried first, and
+// only on a signature-invalid error does the dev key get a turn. Customer-
+// shipping (`-tags production`) binaries embed `nil` for the dev key, so
+// the fallback branch is unreachable structurally and a leaked dev fixture
+// cannot authenticate against a customer install.
+//
 // The function is a pure read — it does not cache, does not log, and does
 // not mutate global state. Callers re-invoke on restart.
 func Load() (*License, error) {
@@ -140,33 +151,53 @@ func Load() (*License, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadFromJWT(raw)
+}
 
-	pub, err := loadPublicKey()
+// loadFromJWT verifies a raw JWT against the available public keys and
+// returns the parsed License. Factored out so VerifyAtBoot can pass the
+// embedded dev fixture in directly (B1.7 layer 4) without round-tripping
+// through env vars or temp files.
+func loadFromJWT(raw string) (*License, error) {
+	prodPub, err := loadProductionPublicKey()
 	if err != nil {
 		return nil, fmt.Errorf("license: load public key: %w", err)
 	}
 
-	claims := &licenseClaims{}
-	// Claim validation is intentionally disabled here so Load can return a
-	// parsed License even when exp has passed — the in-grace classification
-	// is CheckExpiry's job. iss / aud / iat are validated manually below
-	// against the same claim values; signature and alg are still enforced
-	// by the parser.
-	parser := jwt.NewParser(
-		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Name}),
-		jwt.WithoutClaimsValidation(),
-	)
-	if _, err := parser.ParseWithClaims(raw, claims, func(t *jwt.Token) (any, error) {
-		// Algorithm-confusion mitigation (plan §4.9 → §11.3 generalised).
-		// jwt.WithValidMethods already gates the alg header, but we belt-and-
-		// braces with a type assertion in case a future library change weakens
-		// the gate.
-		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected signing method %q", t.Method.Alg())
+	claims, sigErr := verifyJWT(raw, prodPub)
+	if sigErr != nil &&
+		errors.Is(sigErr, jwt.ErrTokenSignatureInvalid) &&
+		!errors.Is(sigErr, jwt.ErrTokenUnverifiable) &&
+		len(devEmbeddedPubKeyPEM) > 0 {
+		// Dev-key fallback (B1.7 layer 4). Only attempted when the prod
+		// pubkey rejected the *signature* AND we actually have a dev pubkey
+		// compiled in — production-tagged builds zero this seam out so
+		// the fallback is unreachable. The `!ErrTokenUnverifiable` guard
+		// narrows away the alg-confusion path: golang-jwt v5 wraps
+		// `WithValidMethods` rejections with both sentinels, but those
+		// inputs (alg=none, alg=HS256) cannot validate against any RSA
+		// pubkey, so a fallback attempt is wasted CPU. The keyfunc-side
+		// alg guard returns a plain error and only wraps Unverifiable, so
+		// it never reaches this branch in the first place. Any other
+		// error (parse failure, malformed claims) is fatal — those are
+		// not signed-by-the-other-key problems and re-trying buys nothing.
+		devPub, devErr := jwt.ParseRSAPublicKeyFromPEM(devEmbeddedPubKeyPEM)
+		if devErr != nil {
+			// Embedded dev key failed to parse — package-level bug,
+			// surface the original prod-key signature error so the
+			// operator-facing message stays consistent.
+			return nil, fmt.Errorf("license: verify: %w", sigErr)
 		}
-		return pub, nil
-	}); err != nil {
-		return nil, fmt.Errorf("license: verify: %w", err)
+		var retryErr error
+		claims, retryErr = verifyJWT(raw, devPub)
+		if retryErr != nil {
+			// Neither key verified — return the prod-key error since
+			// it's the one operators should see for a real-license
+			// signature problem.
+			return nil, fmt.Errorf("license: verify: %w", sigErr)
+		}
+	} else if sigErr != nil {
+		return nil, fmt.Errorf("license: verify: %w", sigErr)
 	}
 
 	if claims.Issuer != Issuer {
@@ -277,9 +308,12 @@ func readLicenseJWT() (string, error) {
 	return raw, nil
 }
 
-// loadPublicKey returns the parsed *rsa.PublicKey from EnvPubKeyPath when
-// set (test/dev override), otherwise from the embedded pubkey.pem.
-func loadPublicKey() (*rsa.PublicKey, error) {
+// loadProductionPublicKey returns the parsed *rsa.PublicKey from
+// EnvPubKeyPath when set (test override) or from the embedded pubkey.pem
+// otherwise. The dev pubkey (devEmbeddedPubKeyPEM, defined in
+// embed_dev.go / embed_production.go) is consulted separately by Load on
+// signature-failure fallback — it is not merged with this key.
+func loadProductionPublicKey() (*rsa.PublicKey, error) {
 	pem := embeddedPubKeyPEM
 	if path := os.Getenv(EnvPubKeyPath); path != "" {
 		b, err := os.ReadFile(path)
@@ -293,6 +327,29 @@ func loadPublicKey() (*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("parse public key: %w", err)
 	}
 	return pub, nil
+}
+
+// verifyJWT runs the RS256 + alg-confusion-guard parse against a single
+// public key and returns the decoded claims. The wraps-jwt.ErrTokenSignatureInvalid
+// shape is what Load() inspects to decide whether to try a dev-key fallback.
+// Callers must never reorder the parser options — WithValidMethods is the
+// alg-confusion gate, WithoutClaimsValidation defers exp checking to
+// CheckExpiry (per the in-grace handling design).
+func verifyJWT(raw string, pub *rsa.PublicKey) (*licenseClaims, error) {
+	claims := &licenseClaims{}
+	parser := jwt.NewParser(
+		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Name}),
+		jwt.WithoutClaimsValidation(),
+	)
+	if _, err := parser.ParseWithClaims(raw, claims, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method %q", t.Method.Alg())
+		}
+		return pub, nil
+	}); err != nil {
+		return nil, err
+	}
+	return claims, nil
 }
 
 // claimsHasAudience checks if the audience set on the claims contains the

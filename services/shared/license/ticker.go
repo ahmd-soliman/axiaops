@@ -27,8 +27,11 @@ const DefaultTickerInterval = time.Hour
 //
 // Returns when ctx is cancelled. Designed to run as a goroutine launched
 // from cmd/main.go after VerifyAtBoot. No-op when no license is loaded
-// (DEV_MODE / SaaS binary) — the ticker exits immediately and the launching
-// goroutine is reaped.
+// (production-without-a-license, future SaaS binary) — the ticker exits
+// immediately and the launching goroutine is reaped. Self-hosted dev
+// binaries DO run the ticker post B1.7 layer 4: the embedded dev fixture
+// is a real Snapshot, so dev exercises the same hourly state-transition
+// detection a customer install runs.
 func RunTicker(ctx context.Context, interval time.Duration) {
 	if Snapshot() == nil {
 		slog.Info("license: ticker not started (no license loaded)")

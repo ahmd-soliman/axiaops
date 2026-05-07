@@ -922,6 +922,57 @@ This is what HashiCorp Enterprise, Atlassian DC, GitLab EE all do for license-en
 - Layer 1 lands **immediately** after this plan entry merges. Pure yaml; no test risk.
 - Layer 2 lands **before B2 → develop → main**. Closes a real customer-side gap; the change is 10 lines.
 - Layer 3 lands **before first paying self-hosted customer ship**. Tracked as a separate slice (potentially split as `B1.7 layer 3` or rolled into `B1.7-binary-distribution`); requires architect sign-off on the build-tag convention.
+- Layer 4 lands **before first paying self-hosted customer ship**, after layer 3. See §4.10.8.
+
+#### 4.10.8 Layer 4 — decouple license verification from `DEV_MODE` (issue #75)
+
+Layers 1–3 left one structural gap: `VerifyAtBoot(devMode=true)` short-circuited via `SetEnforcementBypass()` and never parsed a JWT. Dev never exercised the `Load → CheckExpiry → IsScanAllowedForState` chain customers run; only the unit suite did. A regression in `Load()` could ship undetected to a customer install if no integration step hit the customer-shaped path before release.
+
+**Mechanism**: dev builds embed two new artefacts alongside `pubkey.pem`:
+
+- `services/shared/license/pubkey-dev.pem` — RS256 dev pubkey (committed)
+- `services/shared/license/fixture-dev.jwt` — 100-year fixture license signed by the dev key, claims `customer_id="axiaops-dev-fixture"`, `max_organizations=10`, `features=["base"]` (committed)
+
+Build-tag split mirrors layer 3:
+
+- `services/shared/license/embed_dev.go` (`//go:build !production`) — `//go:embed`s both files into `devEmbeddedPubKeyPEM` and `devFixtureJWT`.
+- `services/shared/license/embed_production.go` (`//go:build production`) — same var names, both nil. The dev fallback branch in `Load()` becomes structurally unreachable in customer-shipping binaries, so a leaked dev fixture cannot authenticate against a real customer install.
+
+**Load() chain**: `loadFromJWT` tries the production pubkey first; on `errors.Is(err, jwt.ErrTokenSignatureInvalid)` AND `len(devEmbeddedPubKeyPEM) > 0`, it retries with the dev key. Any other parse error is fatal — those aren't signed-by-the-other-key problems and re-trying buys nothing.
+
+**VerifyAtBoot(devMode=true)** now:
+
+1. **License configured (env or file)** → layer 2 anti-tamper refusal (unchanged).
+2. **Dev fixture compiled in** (default build) → `loadFromJWT(devFixtureJWT)` → `SetCurrent` → state=`StateValid` → scans run via state, NOT via `enforcementBypass`. Logs `license: DEV_MODE — using embedded dev fixture customer_id=axiaops-dev-fixture`.
+3. **Dev fixture absent** (production build that somehow reaches `devMode=true` — unreachable structurally per layer 3) → soft-fail to `StateNotLoaded`. Belt-and-braces; the `devmode_production.go` hard-wire to false is the real defense.
+
+**`enforcementBypass`** is preserved as a seam for `cmd/api-saashosted` (not yet built; plan §4.9.6) but is no longer set by `VerifyAtBoot`. Production binaries running self-hosted have no path that flips it. Test helpers (`scheduler_test.go`, `test_main_test.go`) still call `SetEnforcementBypass` directly to skip license setup; that's a test-time convenience, distinct from runtime policy.
+
+#### 4.10.9 Layer 4 acceptance criteria
+
+- [x] `services/shared/license/{embed_dev.go,embed_production.go,pubkey-dev.pem,fixture-dev.jwt}` exist with the build-tag split. Re-mint procedure documented in `embed_dev.go`'s docstring.
+- [x] `Load()` accepts the dev fixture in default builds (`TestEmbedDev_FixtureRoundTrips`) and rejects it in `-tags production` builds (`TestEmbedProduction_DevFixtureNotCompiledIn`).
+- [x] `VerifyAtBoot(devMode=true)` loads the fixture instead of flipping `enforcementBypass` (`TestVerifyAtBoot_DevModeLoadsFixture`). `IsEnforcementBypassed()` is false; `IsScanAllowed()` is true via `state=valid`; `Snapshot()` returns the fixture license.
+- [x] `make start-dev` boot path: dev now exercises `Load → CheckExpiry → IsScanAllowedForState` end-to-end, matching customer behaviour. `customer_id=axiaops-dev-fixture` is the operator-facing signal.
+- [x] Settings → License pane shows "Valid" with `customer_id=axiaops-dev-fixture` in the claim sub-object. The legacy "Dev bypass" copy is now dead-code defence-in-depth — only fires if a regression re-enables the legacy bypass shortcut.
+- [x] Both unit test suites green: `make test` (default) and `make build-production` + `go test -tags production ./...`. The production-tagged license suite includes `TestEmbedProduction_DevFixtureNotCompiledIn` and `TestEmbedProduction_DevModeWithoutFixtureSoftFails`.
+- [x] Plan amendment (this section) documents the dev-fixture story.
+
+#### 4.10.10 Re-minting the dev fixture
+
+Rare — the JWT is good for 100 years. Procedure if the claim shape needs to change (e.g. add a `feature`, change `max_organizations`):
+
+```
+openssl genrsa -out /tmp/dev-private.pem 4096
+openssl rsa -in /tmp/dev-private.pem -pubout -out services/shared/license/pubkey-dev.pem
+LICENSE_SIGNING_KEY_PATH=/tmp/dev-private.pem go run ./services/api/cmd/license-issue \
+    -customer-id=axiaops-dev-fixture -contract-id=DEV-FIXTURE-100Y -days=36500 \
+    -max-organizations=10 -features=base -grace-period-days=0 \
+    > services/shared/license/fixture-dev.jwt
+rm -P /tmp/dev-private.pem   # destroy — never commit, never archive
+```
+
+The dev private key is **destroyed at generation time**. There is no custody chain because there is no post-mint use for it — every developer's binary embeds the matching public key, and the fixture itself never expires. Re-running the procedure rotates both files atomically.
 
 ---
 

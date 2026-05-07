@@ -21,15 +21,19 @@ import { fetchVersion } from '../../api/client';
 // (e.g. after a license renewal restart).
 //
 // State semantics map 1:1 to the api's licenseSummary() in handler.go:
-//   valid       → green badge, claim sub-object rendered
+//   valid       → green badge, claim sub-object rendered. In dev builds
+//                 customer_id="axiaops-dev-fixture" identifies the embedded
+//                 100-year dev license (B1.7 layer 4 / issue #75) — same
+//                 chip copy as a real customer license, with the fixture
+//                 identity visible in the claim sub-object below.
 //   in_grace    → amber, claim sub-object + grace-period explainer
 //   expired     → red, claim sub-object + renewal contact
-//   not_loaded  → red OR amber depending on whether DEV_MODE is baked:
-//                 - dashboard built with VITE_DEV_MODE=true → "DEV_MODE
-//                   bypass active" amber chip (this is the dev posture,
-//                   not an error)
-//                 - dashboard built with VITE_DEV_MODE=false → "No license
-//                   installed" red banner (production, action required)
+//   not_loaded  → only reachable in production deployments without a license
+//                 installed. Pre-layer-4 the dashboard reflected DEV_MODE here
+//                 too; layer 4 retired that branch — DEV_MODE now loads the
+//                 dev fixture and reports state="valid". The IS_DEV_MODE
+//                 fallback copy below remains as defence-in-depth in case a
+//                 future regression re-enables the legacy bypass shortcut.
 
 const INSTALL_URL = 'https://axiaops.io/install';
 const RENEWAL_EMAIL = 'sales@axiaops.io';
