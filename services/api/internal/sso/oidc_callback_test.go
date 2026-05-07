@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/sso"
 	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/observability"
 	"axiaops.io/shared/storage"
 )
 
@@ -192,16 +194,20 @@ func newCallbackTest(t *testing.T) *callbackTest {
 	minter := &stubMinter{}
 
 	mux := http.NewServeMux()
-	mux.Handle("GET /v1/sso/oidc/{cid}/callback",
-		sso.NewCallbackHandler(sso.CallbackOptions{
-			Store:        store,
-			Validator:    v,
-			StateStore:   stateStore,
-			Sessions:     minter,
-			CookieConfig: auth.NewCookieConfig(),
-			PublicHost:   "https://app.example.com",
-			HTTPClient:   idp.server.Client(),
-		}))
+	cb := sso.NewCallbackHandler(sso.CallbackOptions{
+		Store:        store,
+		Validator:    v,
+		StateStore:   stateStore,
+		Sessions:     minter,
+		CookieConfig: auth.NewCookieConfig(),
+		PublicHost:   "https://app.example.com",
+		HTTPClient:   idp.server.Client(),
+	})
+	// Wire both routes the same way serverbuild.ComposeServer does so
+	// hit() can target either form and prove both still resolve to the
+	// same handler (Tasks.md 2.7.22).
+	mux.Handle("GET "+sso.CallbackPath, cb)
+	mux.Handle("GET /v1/sso/oidc/{cid}/callback", cb)
 
 	return &callbackTest{
 		t:      t,
@@ -242,7 +248,26 @@ func (ct *callbackTest) claimsFor(nonce string) jwt.MapClaims {
 	}
 }
 
-func (ct *callbackTest) hit(cid, code, state string) *httptest.ResponseRecorder {
+// hit drives the standard cid-less callback route. Connection identity is
+// carried by state (mint via generateState), not the URL — there is no cid
+// parameter. Use hitLegacy when a path-cid is required (CSRF mismatch test,
+// deprecation-counter tests).
+func (ct *callbackTest) hit(code, state string) *httptest.ResponseRecorder {
+	ct.t.Helper()
+	rec := httptest.NewRecorder()
+	target := sso.CallbackPath
+	if code != "" || state != "" {
+		target += "?code=" + code + "&state=" + state
+	}
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	ct.mux.ServeHTTP(rec, req)
+	return rec
+}
+
+// hitLegacy targets the deprecated path-cid callback route. Used by the
+// CID-mismatch CSRF test (mismatch is only enforceable when there's a path
+// cid to compare) and the deprecation-counter test.
+func (ct *callbackTest) hitLegacy(cid, code, state string) *httptest.ResponseRecorder {
 	ct.t.Helper()
 	rec := httptest.NewRecorder()
 	target := "/v1/sso/oidc/" + cid + "/callback"
@@ -261,7 +286,7 @@ func TestCallback_HappyPath_JITDefaultRole(t *testing.T) {
 	state, data := ct.generateState("conn-1")
 	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status: got %d want %d. body=%q", rec.Code, http.StatusFound, rec.Body.String())
@@ -306,7 +331,7 @@ func TestCallback_HappyPath_GroupMappingPrecedence(t *testing.T) {
 	claims["groups"] = []any{"engineers", "platform-admins"}
 	ct.idp.SetNextToken(claims)
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -339,7 +364,7 @@ func TestCallback_HappyPath_JITRoleUpdated(t *testing.T) {
 	claims["groups"] = []any{"platform-admins"}
 	ct.idp.SetNextToken(claims)
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -382,7 +407,7 @@ func TestCallback_InvitePlacedMembership_NotOverwrittenByJIT(t *testing.T) {
 	claims["groups"] = []any{"engineers"}
 	ct.idp.SetNextToken(claims)
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -422,7 +447,7 @@ func TestCallback_HappyPath_JITNoopOnUnchangedRole(t *testing.T) {
 	state, data := ct.generateState("conn-1")
 	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -446,7 +471,7 @@ func TestCallback_InvitationRedeemError_FailsLogin(t *testing.T) {
 	state, data := ct.generateState("conn-1")
 	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 	assertCallbackError(t, rec, ct.minter)
 	// Critical: must NOT silently fall through to JIT — admin-chosen role
 	// would otherwise be silently replaced.
@@ -469,7 +494,7 @@ func TestCallback_HappyPath_PendingInviteWinsOverJIT(t *testing.T) {
 	claims["groups"] = []any{"platform-admins"}
 	ct.idp.SetNextToken(claims)
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status: %d", rec.Code)
 	}
@@ -490,26 +515,29 @@ func TestCallback_HappyPath_PendingInviteWinsOverJIT(t *testing.T) {
 func TestCallback_MissingCode_RedirectsToLoginError(t *testing.T) {
 	ct := newCallbackTest(t)
 	state, _ := ct.generateState("conn-1")
-	rec := ct.hit("conn-1", "", state)
+	rec := ct.hit("", state)
 	assertCallbackError(t, rec, ct.minter)
 }
 
 func TestCallback_MissingState_RedirectsToLoginError(t *testing.T) {
 	ct := newCallbackTest(t)
-	rec := ct.hit("conn-1", "auth-code-xyz", "")
+	rec := ct.hit("auth-code-xyz", "")
 	assertCallbackError(t, rec, ct.minter)
 }
 
 func TestCallback_UnknownState_RedirectsToLoginError(t *testing.T) {
 	ct := newCallbackTest(t)
-	rec := ct.hit("conn-1", "auth-code-xyz", "never-issued-state")
+	rec := ct.hit("auth-code-xyz", "never-issued-state")
 	assertCallbackError(t, rec, ct.minter)
 }
 
 func TestCallback_StateCIDMismatch_RedirectsToLoginError(t *testing.T) {
 	ct := newCallbackTest(t)
 	state, _ := ct.generateState("conn-1") // state issued for conn-1 ...
-	rec := ct.hit("conn-2", "auth-code-xyz", state) // ... but presented at conn-2
+	// Path-cid mismatch is only enforceable on the legacy route; the new
+	// route has no path cid, so the cross-connection guard is supplied by
+	// state.CID alone (the connection is bound to state at initiate time).
+	rec := ct.hitLegacy("conn-2", "auth-code-xyz", state)
 	assertCallbackError(t, rec, ct.minter)
 }
 
@@ -520,7 +548,7 @@ func TestCallback_TokenEndpointRejects_AuditsAndRedirects(t *testing.T) {
 	state, _ := ct.generateState("conn-1")
 	ct.idp.SetTokenError("invalid_grant")
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 	assertCallbackError(t, rec, ct.minter)
 	if !ct.store.hasAudit(model.AuditActionSSOLoginFailed) {
 		t.Error("AuditActionSSOLoginFailed not written on token-endpoint failure")
@@ -533,7 +561,7 @@ func TestCallback_NonceMismatch_AuditsAndRedirects(t *testing.T) {
 	claims := ct.claimsFor("wrong-nonce-from-attacker")
 	ct.idp.SetNextToken(claims)
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 	assertCallbackError(t, rec, ct.minter)
 	if !ct.store.hasAudit(model.AuditActionSSOLoginFailed) {
 		t.Error("AuditActionSSOLoginFailed not written on id-token validation failure")
@@ -546,7 +574,7 @@ func TestCallback_DomainNotVerified_AuditsAndRedirects(t *testing.T) {
 	state, data := ct.generateState("conn-1")
 	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 	assertCallbackError(t, rec, ct.minter)
 	if !ct.store.hasAudit(model.AuditActionSSOLoginFailed) {
 		t.Error("AuditActionSSOLoginFailed not written on domain-unverified")
@@ -561,7 +589,7 @@ func TestCallback_DomainBoundToDifferentConnection_AuditsAndRedirects(t *testing
 	state, data := ct.generateState("conn-1")
 	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
 
-	rec := ct.hit("conn-1", "auth-code-xyz", state)
+	rec := ct.hit("auth-code-xyz", state)
 	assertCallbackError(t, rec, ct.minter)
 	if !ct.store.hasAudit(model.AuditActionSSOLoginFailed) {
 		t.Error("AuditActionSSOLoginFailed not written on cross-connection domain")
@@ -574,16 +602,100 @@ func TestCallback_StateIsSingleUse(t *testing.T) {
 	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
 
 	// First call — happy path.
-	rec1 := ct.hit("conn-1", "auth-code-xyz", state)
+	rec1 := ct.hit("auth-code-xyz", state)
 	if rec1.Code != http.StatusFound || rec1.Header().Get("Location") != "/" {
 		t.Fatalf("first call must succeed; got %d %s", rec1.Code, rec1.Header().Get("Location"))
 	}
 
 	// Second call with same state — must fail at state-consume.
 	ct.idp.SetNextToken(ct.claimsFor(data.Nonce)) // re-arm, would otherwise 400
-	rec2 := ct.hit("conn-1", "auth-code-xyz", state)
+	rec2 := ct.hit("auth-code-xyz", state)
 	if rec2.Code != http.StatusFound || rec2.Header().Get("Location") != "/login?error=auth_failed" {
 		t.Errorf("replayed state must fail at consume; got %d %q", rec2.Code, rec2.Header().Get("Location"))
+	}
+}
+
+// ─── legacy /v1/sso/oidc/{cid}/callback shape (Tasks.md 2.7.22) ────────────
+
+// counterCIDLegacyHit / counterCIDStandardHit / counterCIDStillWorks are
+// distinct cid labels for the counter-assertion tests so each test owns
+// its own series and concurrent / re-ordered runs of the test binary
+// can't pollute each others' before/after deltas. The mock store returns
+// the same connection regardless of the cid lookup, so any unique string
+// works as a label here.
+const (
+	counterCIDLegacyHit    = "conn-counter-legacy-inc"
+	counterCIDStandardHit  = "conn-counter-standard-inc"
+	counterCIDStillWorks   = "conn-counter-still-works"
+)
+
+// TestCallback_LegacyPathCID_StillWorks pins that the deprecated path-cid
+// route resolves the same handler and lands on the post-login redirect.
+// The standard route is the one initiate now points at, but the legacy
+// route stays wired for one release so customers whose IdP still has the
+// old redirect URI registered keep working through the upgrade window.
+func TestCallback_LegacyPathCID_StillWorks(t *testing.T) {
+	ct := newCallbackTest(t)
+	state, data := ct.generateState(counterCIDStillWorks)
+	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
+
+	rec := ct.hitLegacy(counterCIDStillWorks, "auth-code-xyz", state)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/" {
+		t.Fatalf("legacy callback: got %d %q; want 302 / redirect", rec.Code, rec.Header().Get("Location"))
+	}
+	if !ct.minter.called {
+		t.Error("legacy callback did not mint a session")
+	}
+}
+
+// TestCallback_LegacyPathCID_IncrementsCounter pins the deprecation
+// observability seam: every hit on the legacy path-cid route increments
+// axiaops_sso_legacy_callback_total{cid}. Operators watch this counter
+// to decide when the route can be removed (rate stays at zero across all
+// customers for a release → safe to delete).
+//
+// NOT t.Parallel(): reads the global Prometheus counter via
+// testutil.ToFloat64; another parallel test incrementing the same
+// labelled series would race the before/after delta.
+func TestCallback_LegacyPathCID_IncrementsCounter(t *testing.T) {
+	ct := newCallbackTest(t)
+	state, data := ct.generateState(counterCIDLegacyHit)
+	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
+
+	counter := observability.Global.SSOLegacyCallbackTotal.WithLabelValues(counterCIDLegacyHit)
+	before := testutil.ToFloat64(counter)
+
+	rec := ct.hitLegacy(counterCIDLegacyHit, "auth-code-xyz", state)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status: got %d want 302", rec.Code)
+	}
+
+	after := testutil.ToFloat64(counter)
+	if after-before != 1 {
+		t.Errorf("axiaops_sso_legacy_callback_total{cid=%s} delta = %v; want 1", counterCIDLegacyHit, after-before)
+	}
+}
+
+// TestCallback_StandardRoute_DoesNotIncrementLegacyCounter is the negative
+// of the test above — the cid-less route must never bump the legacy
+// counter, otherwise the deprecation gauge is permanently noisy and the
+// removal trigger never fires.
+func TestCallback_StandardRoute_DoesNotIncrementLegacyCounter(t *testing.T) {
+	ct := newCallbackTest(t)
+	state, data := ct.generateState(counterCIDStandardHit)
+	ct.idp.SetNextToken(ct.claimsFor(data.Nonce))
+
+	counter := observability.Global.SSOLegacyCallbackTotal.WithLabelValues(counterCIDStandardHit)
+	before := testutil.ToFloat64(counter)
+
+	rec := ct.hit("auth-code-xyz", state)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status: got %d want 302", rec.Code)
+	}
+
+	after := testutil.ToFloat64(counter)
+	if after != before {
+		t.Errorf("standard route incremented legacy counter: delta = %v; want 0", after-before)
 	}
 }
 

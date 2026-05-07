@@ -478,15 +478,19 @@ func newFixture(t *testing.T) *fixture {
 
 	mux.Handle("GET /v1/sso/oidc/{cid}/initiate",
 		sso.NewInitiateHandler(store, validator, stateStore, apiServer.URL))
-	mux.Handle("GET /v1/sso/oidc/{cid}/callback",
-		sso.NewCallbackHandler(sso.CallbackOptions{
-			Store:        store,
-			Validator:    validator,
-			StateStore:   stateStore,
-			Sessions:     sessionMgr,
-			CookieConfig: cookieCfg,
-			PublicHost:   apiServer.URL,
-		}))
+	cb := sso.NewCallbackHandler(sso.CallbackOptions{
+		Store:        store,
+		Validator:    validator,
+		StateStore:   stateStore,
+		Sessions:     sessionMgr,
+		CookieConfig: cookieCfg,
+		PublicHost:   apiServer.URL,
+	})
+	// Mirror serverbuild.ComposeServer: standard cid-less route is the one
+	// initiate's redirect_uri now points at, legacy path-cid route is kept
+	// for the deprecation window (Tasks.md 2.7.22).
+	mux.Handle("GET "+sso.CallbackPath, cb)
+	mux.Handle("GET /v1/sso/oidc/{cid}/callback", cb)
 
 	return &fixture{
 		store:      store,
