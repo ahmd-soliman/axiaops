@@ -181,12 +181,15 @@ Now that you have the AxiaOps cid:
    **+ Add URI** if a Web platform already exists).
 2. Redirect URI:
    ```
-   http://localhost:8082/v1/sso/oidc/<cid>/callback
+   http://localhost:8082/v1/sso/oidc/callback
    ```
    - `http` (not https) — Entra's localhost exception.
-   - Include the cid in the path — AxiaOps's callback handler is registered
-     at `/v1/sso/oidc/{cid}/callback`. See Tasks.md 2.7.22 for a planned
-     refactor that drops the cid from the path.
+   - **No cid in the path.** Connection identity flows through the
+     `state` parameter — one redirect URI per AxiaOps host, regardless of
+     how many SSO connections you create. The legacy
+     `/v1/sso/oidc/<cid>/callback` form still resolves for one release as
+     a deprecation window (see Tasks.md 2.7.22), but new app registrations
+     should use the cid-less form.
 3. Do **not** tick the implicit-flow checkboxes (Access tokens / ID tokens) —
    we use authorization code + PKCE only.
 4. **Save**.
@@ -223,7 +226,7 @@ You'll hit at least one of these on the first try. Translation table:
 | Error | Meaning | Fix |
 |---|---|---|
 | **AADSTS700016** "Application … was not found in the directory" | The client_id in your Discovery URL's tenant doesn't exist there. Either the client_id is wrong (often a Secret ID pasted as Client ID — see §2.6) OR the tenant in the Discovery URL is a different tenant than where the app was registered. | Re-open the app's **Overview** page, copy Application (client) ID and Directory (tenant) ID **from the same page session**. Don't trust values from older tabs. |
-| **AADSTS50011** "redirect URI specified in the request does not match" | The redirect URI AxiaOps sent (`http://localhost:8082/v1/sso/oidc/<cid>/callback`) isn't registered in the Entra app. | Add it under Authentication → Web → Redirect URIs (§4). Exact-match — `http` vs `https`, port, cid, and trailing path all matter. |
+| **AADSTS50011** "redirect URI specified in the request does not match" | The redirect URI AxiaOps sent (`http://localhost:8082/v1/sso/oidc/callback`) isn't registered in the Entra app. | Add it under Authentication → Web → Redirect URIs (§4). Exact-match — `http` vs `https`, port, and trailing path all matter. The `state` parameter carries the cid; the URL itself is cid-less. |
 | **AADSTS50105** "your administrator has configured the application … to block users unless they are specifically granted access" | The app has **Assignment required = Yes** and Alice isn't assigned. | Either: **Enterprise applications** → app → Properties → flip to **No**; or **Users and groups** → **+ Add** → Alice. |
 | **AADSTS50058** "silent sign-in request was sent but no user is signed in" | Browser blocked iframe cookies during silent token renewal. Almost always a Safari / Brave / Firefox-strict / locked-down Chrome session. | Allow third-party cookies for `[*.]microsoftonline.com` (and `microsoft.com`, `office.com`, `live.com`). Or use a fresh Chrome / Edge profile. |
 | **MSAL JS `no_tokens_found`** | Same root cause as AADSTS50058 — third-party storage blocked. | Same fix. |
@@ -286,7 +289,7 @@ next iteration.
   Entra-managed domain.
 - `/v1/sso/oidc/<cid>/initiate` — PKCE + state + nonce + login_hint +
   prompt=login ceremony against `login.microsoftonline.com`.
-- `/v1/sso/oidc/<cid>/callback` — full ID-token validation chain against
+- `/v1/sso/oidc/callback` — full ID-token validation chain against
   Microsoft's JWKS (cross-tenant signing-key sharing closed by the
   `oidc_tenant_id` binding), JIT with `oid`-as-`external_id`, session
   minting with `auth_mode='sso'`, audit row.
