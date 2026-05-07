@@ -21,33 +21,10 @@ func resetSnapshot(t *testing.T) {
 	})
 }
 
-func TestVerifyAtBoot_DevModeBypass(t *testing.T) {
-	resetSnapshot(t)
-	// Explicitly clear license sources — under B1.7 layer 2 the bypass
-	// only fires when no license is configured. Without these Setenv calls
-	// a CI runner with /etc/axiaops/license.jwt installed would flip this
-	// test into the layer-2 refusal path.
-	t.Setenv(license.EnvLicense, "")
-	t.Setenv(license.EnvLicensePath, t.TempDir()+"/no-such-license.jwt")
-	if err := license.VerifyAtBoot(true); err != nil {
-		t.Fatalf("DEV_MODE bypass returned error: %v", err)
-	}
-	if license.Snapshot() != nil {
-		t.Errorf("DEV_MODE should leave Snapshot() nil")
-	}
-	if state := license.SnapshotState(); state != license.StateNotLoaded {
-		t.Errorf("SnapshotState() under DEV_MODE = %v, want StateNotLoaded — /v1/version reads this", state)
-	}
-	// Post-amendment: DEV_MODE flips the enforcement-bypass flag so scans
-	// fall through despite SnapshotState being StateNotLoaded. Without the
-	// bypass the gate would 403 every dev request.
-	if !license.IsEnforcementBypassed() {
-		t.Errorf("DEV_MODE should set IsEnforcementBypassed=true so scans fall through")
-	}
-	if !license.IsScanAllowed() {
-		t.Errorf("IsScanAllowed under DEV_MODE = false, want true (scans must work in dev slots)")
-	}
-}
+// TestVerifyAtBoot_DevModeLoadsFixture lives in embed_dev_test.go because
+// the dev fixture is only compiled into !production builds. The
+// startup_test.go suite covers paths that work under both build tags; the
+// fixture-specific assertion lives next to its dependency.
 
 func TestVerifyAtBoot_ValidLicense(t *testing.T) {
 	resetSnapshot(t)

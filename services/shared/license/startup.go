@@ -16,9 +16,17 @@ import (
 //
 // Per the B1.6 amendment (docs/b1.6-amendment-feature-gating.md), this
 // function never returns an error for the *missing-license* / *expired*
-// cases — those soft-fail to a scan-gated runtime. The five outcomes are:
+// cases — those soft-fail to a scan-gated runtime. The outcomes are:
 //
-//   - DEV_MODE bypass    → SetEnforcementBypass; no Snapshot; slog.Warn.
+//   - DEV_MODE + dev fixture compiled in (B1.7 layer 4 / issue #75)
+//                          → loads the embedded 100-year dev fixture via Load,
+//                            SetCurrent stores the parsed License with
+//                            customer_id="axiaops-dev-fixture", scan-gate
+//                            falls through via state=valid (NOT via the
+//                            legacy enforcementBypass shortcut). Dev now
+//                            exercises the same Load → CheckExpiry → state
+//                            chain as a real customer. slog.Info confirms
+//                            the fixture path.
 //   - DEV_MODE + license configured → **layer 2 anti-tamper refusal**: returns
 //                          a non-nil error so cmd/main.go's die() fires. This
 //                          is the one case VerifyAtBoot is allowed to refuse;
@@ -82,8 +90,46 @@ func VerifyAtBoot(devMode bool) error {
 				path,
 			)
 		}
-		SetEnforcementBypass()
-		slog.Warn("license: DEV_MODE — skipping verification")
+		// B1.7 layer 4 (issue #75): instead of flipping enforcementBypass,
+		// load the embedded dev fixture and run it through the same
+		// classification chain a real customer license travels. Closes the
+		// dev/prod parity gap — Load(), CheckExpiry(), IsScanAllowedForState()
+		// are all exercised in dev. The fixture is signed by a dev-only key
+		// (devEmbeddedPubKeyPEM); production-tagged binaries zero both the
+		// fixture and the dev pubkey, so this branch literally cannot fire
+		// in a customer build (cmd/devmode_production.go also forces
+		// devModeEnabled to false, so we never reach here either way).
+		if len(devFixtureJWT) == 0 {
+			// Fallback: dev fixture not compiled in — possible only in a
+			// production-tagged build that somehow set devMode=true. Treat
+			// as missing-license rather than a hard refuse so the test
+			// suites that cross-build with -tags production don't regress
+			// on a corner case the runtime never actually sees.
+			slog.Error("license: DEV_MODE without an embedded dev fixture — install a real license or run a default build")
+			observability.Global.LicenseLoadErrorsTotal.WithLabelValues("missing").Inc()
+			return nil
+		}
+		lic, err := loadFromJWT(string(devFixtureJWT))
+		if err != nil {
+			// Embedded fixture failed to verify — package-level bug, surface
+			// loud. Don't fall through to the real-license code path because
+			// the dev fixture being broken doesn't mean the operator wants
+			// strict licensing in dev.
+			slog.Error("license: dev fixture failed to load — likely embed mismatch", "err", err)
+			observability.Global.LicenseLoadErrorsTotal.WithLabelValues("format").Inc()
+			return nil
+		}
+		state := CheckExpiry(lic)
+		days := lic.DaysRemaining()
+		observability.Global.LicenseExpiresAt.Set(float64(lic.ExpiresAt.Unix()))
+		observability.Global.LicenseDaysRemaining.Set(float64(days))
+		observability.Global.LicenseStateInfo.Reset()
+		observability.Global.LicenseStateInfo.WithLabelValues(state.String(), lic.CustomerID).Set(1)
+		SetCurrent(lic)
+		slog.Info("license: DEV_MODE — using embedded dev fixture",
+			"customer_id", lic.CustomerID,
+			"days_remaining", days,
+		)
 		return nil
 	}
 
