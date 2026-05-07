@@ -21,6 +21,7 @@ import (
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/observability"
 	"axiaops.io/shared/storage"
 )
 
@@ -75,13 +76,22 @@ type CallbackOptions struct {
 	HTTPClient   *http.Client // optional; defaults to http.DefaultClient
 }
 
-// NewCallbackHandler serves GET /v1/sso/oidc/{cid}/callback — the OAuth 2.0
-// redirect URI. Pre-auth (browser arrives from IdP redirect with no
-// session). Wired in cmd/main.go alongside /v1/sso/oidc/{cid}/initiate.
+// NewCallbackHandler serves the OIDC callback. Wired at two routes:
+//
+//   - GET /v1/sso/oidc/callback         — standard, connection-agnostic shape (Tasks.md 2.7.22).
+//   - GET /v1/sso/oidc/{cid}/callback   — legacy form, kept for one release so already-registered
+//     IdP redirect URIs continue to work; hits increment
+//     axiaops_sso_legacy_callback_total{cid}.
+//
+// Pre-auth route (browser arrives from IdP redirect with no session). Wired
+// in serverbuild.ComposeServer alongside the initiate handler.
 //
 // Ceremony (design §10.1, plan §5.2):
 //  1. Validate code + state present.
-//  2. Consume state (single-use; state.CID must equal {cid} in the path).
+//  2. Consume state (single-use). Connection ID is read from state.CID.
+//     When the legacy path-cid route fires, the path cid must agree with
+//     state.CID — guards against a hypothetical state-store compromise where
+//     an attacker rewrites a state record's CID.
 //  3. Look up connection (unscoped); reject inactive / non-OIDC.
 //  4. Decrypt OIDCClientSecretCiphertext.
 //  5. Exchange auth code for tokens at the IdP token_endpoint.
@@ -111,30 +121,41 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 	}
 	publicHost := strings.TrimRight(opts.PublicHost, "/")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cid := r.PathValue("cid")
+		// pathCID is empty on the standard /v1/sso/oidc/callback route and
+		// non-empty on the legacy path-cid form. Connection identity comes
+		// from state.CID after Consume — pathCID is used only as a
+		// defence-in-depth check when the legacy route fires.
+		pathCID := r.PathValue("cid")
+		if pathCID != "" {
+			observability.Global.SSOLegacyCallbackTotal.WithLabelValues(pathCID).Inc()
+		}
 		code := r.URL.Query().Get("code")
 		stateToken := r.URL.Query().Get("state")
-		if cid == "" || code == "" || stateToken == "" {
-			slog.Warn("sso: callback: missing parameters", "cid", cid, "code_present", code != "", "state_present", stateToken != "")
+		if code == "" || stateToken == "" {
+			slog.Warn("sso: callback: missing parameters", "path_cid", pathCID, "code_present", code != "", "state_present", stateToken != "")
 			http.Redirect(w, r, callbackErrorRedirect, http.StatusFound)
 			return
 		}
 
 		stateData, err := opts.StateStore.Consume(r.Context(), stateToken)
 		if err != nil {
-			slog.Warn("sso: callback: state invalid", "cid", cid, "err", err)
+			slog.Warn("sso: callback: state invalid", "path_cid", pathCID, "err", err)
 			http.Redirect(w, r, callbackErrorRedirect, http.StatusFound)
 			return
 		}
-		// CSRF defense: the cid in the URL path must agree with the cid the
-		// state was minted for. Without this, an attacker could trigger a
-		// state issued for connection A and present it at connection B's
-		// callback URL.
-		if stateData.CID != cid {
-			slog.Warn("sso: callback: state cid mismatch", "path_cid", cid, "state_cid", stateData.CID)
+		// On the legacy path-cid route, the path cid and state cid must
+		// agree. State is the source of truth for the connection (it's the
+		// 256-bit CSPRNG nonce minted at initiate time and bound to the
+		// connection there); the path-cid check is a second seam against
+		// a hypothetical state-store compromise where an attacker rewrites
+		// a state record's CID. The standard route bypasses this check
+		// because there is no path cid to compare.
+		if pathCID != "" && stateData.CID != pathCID {
+			slog.Warn("sso: callback: state cid mismatch", "path_cid", pathCID, "state_cid", stateData.CID)
 			http.Redirect(w, r, callbackErrorRedirect, http.StatusFound)
 			return
 		}
+		cid := stateData.CID
 
 		conn, err := opts.Store.GetSSOConnectionByID(r.Context(), cid)
 		if err != nil {
@@ -170,7 +191,11 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 			CodeVerifier: stateData.CodeVerifier,
 			ClientID:     conn.OIDCClientID,
 			ClientSecret: clientSecret,
-			RedirectURI:  publicHost + "/v1/sso/oidc/" + cid + "/callback",
+			// Must match the redirect_uri that initiate sent at authorize time
+			// (RFC 6749 §4.1.3). Initiate now always uses the cid-less standard
+			// form regardless of which route the IdP redirects back to, so the
+			// exchange URI is fixed.
+			RedirectURI: publicHost + CallbackPath,
 		})
 		if err != nil {
 			slog.Warn("sso: callback: code exchange", "cid", cid, "err", err)
