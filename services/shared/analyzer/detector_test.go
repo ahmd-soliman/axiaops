@@ -269,6 +269,55 @@ func TestDetect_SkipsServicesWithoutRules(t *testing.T) {
 	}
 }
 
+// ── UsageRecord.Validate ──────────────────────────────────────────────────────
+
+func TestUsageRecord_Validate_HappyPath(t *testing.T) {
+	u := analyzer.UsageRecord{
+		ResourceID: "i-1",
+		Metric:     "CPUUtilization",
+		Unit:       "Percent",
+		Avg:        4.2,
+		PeriodDays: 30,
+	}
+	if err := u.Validate(); err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+}
+
+func TestUsageRecord_Validate_RejectsBadFields(t *testing.T) {
+	cases := []struct {
+		name  string
+		mut   func(*analyzer.UsageRecord)
+		field string
+	}{
+		{"empty resource_id", func(u *analyzer.UsageRecord) { u.ResourceID = "" }, "resource_id"},
+		{"empty metric", func(u *analyzer.UsageRecord) { u.Metric = "" }, "metric"},
+		{"negative avg", func(u *analyzer.UsageRecord) { u.Avg = -1 }, "avg"},
+		{"negative period_days", func(u *analyzer.UsageRecord) { u.PeriodDays = -1 }, "period_days"},
+	}
+
+	base := analyzer.UsageRecord{
+		ResourceID: "i-1", Metric: "CPUUtilization", Avg: 1.0, PeriodDays: 7,
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			u := base
+			tc.mut(&u)
+			err := u.Validate()
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			ve, ok := err.(*model.ValidationError)
+			if !ok {
+				t.Fatalf("expected *model.ValidationError, got %T (%v)", err, err)
+			}
+			if ve.Field != tc.field {
+				t.Errorf("Field = %q, want %q", ve.Field, tc.field)
+			}
+		})
+	}
+}
+
 // ── Summarize ─────────────────────────────────────────────────────────────────
 
 func TestSummarize_Empty(t *testing.T) {
