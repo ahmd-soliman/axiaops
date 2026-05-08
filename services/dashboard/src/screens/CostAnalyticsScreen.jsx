@@ -599,7 +599,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                     {selectedServiceBreakdown.map((e, i) => (
                       <div key={e.resourceId ?? `__none__${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: i < selectedServiceBreakdown.length - 1 ? `1px solid ${t.border}` : 'none' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 11, color: t.text, fontFamily: e.resourceId ? 'monospace' : 'inherit', fontStyle: e.resourceId ? 'normal' : 'italic', wordBreak: 'break-all' }}>
+                          <div style={{ fontSize: 11, color: t.text, fontFamily: e.resourceId ? '"Geist Mono Variable", monospace' : 'inherit', fontStyle: e.resourceId ? 'normal' : 'italic', wordBreak: 'break-all' }}>
                             {e.resourceId ?? 'No resource ID'}
                           </div>
                           <div style={{ fontSize: 10, color: t.textMuted, marginTop: 2 }}>

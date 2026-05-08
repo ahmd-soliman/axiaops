@@ -244,7 +244,7 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
               onChange={(e) => setForm((f) => ({ ...f, force_reauth: e.target.checked }))}
             />
             <span style={{ fontSize: 13, color: t.text }}>
-              Send <code style={{ fontFamily: 'ui-monospace, monospace' }}>prompt=login</code> on the OIDC authorize URL
+              Send <code style={{ fontFamily: '"Geist Mono Variable", ui-monospace, monospace' }}>prompt=login</code> on the OIDC authorize URL
             </span>
           </label>
         </Field>
