@@ -148,16 +148,19 @@ export default function AppShell() {
           AxiaOps
         </span>
 
-        {/* Nav links */}
+        {/* Nav links — color + weight signal active state; bg is reserved
+            for hover feedback so inactive items aren't dead targets. */}
         <nav aria-label="Main navigation" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
           {visibleNavItems.map(({ label, path, Icon }) => {
             const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
-            const activeBg = isDark ? 'rgba(255, 255, 255, 0.05)' : t.accentLight;
+            const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
             return (
               <button
                 key={path}
                 onClick={() => navigate(path)}
                 aria-current={isActive ? 'page' : undefined}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -165,8 +168,9 @@ export default function AppShell() {
                   padding: '5px 10px',
                   borderRadius: 7,
                   border: 'none',
-                  backgroundColor: isActive ? activeBg : 'transparent',
+                  backgroundColor: 'transparent',
                   cursor: 'pointer',
+                  transition: 'background-color 120ms ease',
                 }}
               >
                 <Icon color={isActive ? t.accent : t.text} />
