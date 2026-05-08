@@ -5,8 +5,17 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Tabular numerals — currency, percent, timestamps align column-wise across rows. */
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Geist Mono used wherever we ask for `monospace`. Existing inline
+   `fontFamily: 'monospace'` callers resolve via the system fallback chain;
+   <code>/<pre>/<kbd>/<samp> tags pick up Geist Mono directly. */
+code, pre, kbd, samp {
+  font-family: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
 }
 
 #root {
