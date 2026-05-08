@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { palettes, PALETTE_IDS, DEFAULT_PALETTE_ID } from './palettes';
 
 const storage = {
   async getItem(key) {
@@ -9,18 +10,22 @@ const storage = {
   },
 };
 
-// ─── Light Theme ──────────────────────────────────────────────────────────────
-// Palette philosophy
-//   Neutral : Tailwind slate — cool, professional, finance-grade
-//   Brand   : Orange (bold, action-oriented, distinctive) — AAA accessible
-//   Contrast: All text tokens meet WCAG AA minimum; primary text AAA
-//   Depth   : Clear 4-level hierarchy with distinct elevation
-const lightTheme = {
+// ─── Light Theme — neutrals only ──────────────────────────────────────────────
+// Brand tokens (accent / accentMuted / accentLight / accentBorder / accentText)
+// are merged in at runtime from the selected palette in `palettes.js`. Edit
+// neutrals here; edit brand colors there.
+//
+// Minimal warm-shift: the four large-surface neutrals (bg, bgSecondary, text,
+// border) move from Tailwind slate (cool) to stone (warm) for a softer,
+// GitLab/Notion-leaning feel. Text mid/muted/sub and chip neutrals stay slate
+// — at those tiers the cool/warm cast is imperceptible and slate retains the
+// established hierarchy. Surfaces stay pure white. Dark mode is unchanged.
+const lightBase = {
   // Backgrounds — 4-level hierarchy (page → section → card → raised)
-  bg: '#F8FAFC',                // page background, clean slate-50
-  bgSecondary: '#F1F5F9',       // sidebars, headers, grouped sections (slate-100)
+  bg: '#FAFAF9',                // page background, stone-50 (warm off-white)
+  bgSecondary: '#F5F5F4',       // sidebars, headers, grouped sections (stone-100)
   surface: '#FFFFFF',           // cards, panels
-  surfaceAlt: '#F8FAFC',        // alternate rows, subtle hover fills
+  surfaceAlt: '#FAFAF9',        // alternate rows, subtle hover fills (matches bg)
   surfaceRaised: '#FAFBFC',     // modals, dropdowns, badges (slight elevation)
 
   // Legacy navy aliases — preserved so existing callers keep working
@@ -28,15 +33,8 @@ const lightTheme = {
   navyMid: '#1E293B',
   navyLight: '#334155',
 
-  // Brand accent — orange (bold, action-oriented, AAA accessible)
-  accent: '#EA580C',            // orange-600, 4.6:1 on white (AA+), vibrant
-  accentMuted: '#92400E',       // copper/amber-800, warm — inactive clickable items
-  accentLight: '#FFF7ED',       // orange-50, tinted backgrounds
-  accentBorder: '#FDBA74',      // orange-300, soft brand borders
-  accentText: '#9A3412',        // orange-800, high contrast on accentLight
-
-  // Text hierarchy — 4 distinct, AA-clear levels
-  text: '#0F172A',              // slate-900, 18:1 on surface (AAA)
+  // Text hierarchy — text shifts warm; mid/muted/sub stay slate
+  text: '#1C1917',              // stone-900, 17:1 on surface (AAA)
   textMid: '#334155',           // slate-700, 9.6:1 (AAA)
   textMuted: '#64748B',         // slate-500, 4.6:1 on bg (AA) — non-interactive labels
   textSub: '#94A3B8',           // slate-400, 3.2:1 — non-interactive hints
@@ -45,9 +43,9 @@ const lightTheme = {
 
   // Surfaces & chrome
   card: '#FFFFFF',
-  border: '#CBD5E1',            // slate-300, stronger definition
+  border: '#E7E5E4',            // stone-200, soft warm border
 
-  // Chips / badges
+  // Chips / badges — slate, matches established hierarchy
   chipBg: '#F1F5F9',            // slate-100
   chipText: '#475569',          // slate-600, 7.5:1 on chipBg
   chipProdBg: '#FEE2E2',        // red-100
@@ -60,16 +58,13 @@ const lightTheme = {
   // Semantic status — clear, accessible
   error: '#DC2626',             // red-600
   success: '#059669',           // emerald-600 (more professional than green)
-  warning: '#D97706',           // amber-600, 4.5:1 on bg (AA)
+  warning: '#A16207',           // yellow-700 — distinct hue from orange brand,
+                                // pushed darker than yellow-500 because yellow
+                                // on white is famously low-contrast (1.9:1 AA fail)
 };
 
-// ─── Dark Theme ────────────────────────────────────────────────────────────────
-// Palette philosophy
-//   Neutral : Tailwind slate, darker end — clean, high-contrast, no blue cast.
-//   Brand   : Indigo shifts lighter (400/300) so it stays readable on dark bg.
-//   Comfort : Text off-whites avoid pure #FFF; status colors desaturated.
-//   Depth   : 4-level elevation ladder (bg → bgSecondary → surface → raised).
-const darkTheme = {
+// ─── Dark Theme — neutrals only ───────────────────────────────────────────────
+const darkBase = {
   // Backgrounds — clear 4-level elevation ladder
   bg: '#0B1220',                // deepest layer (page)
   bgSecondary: '#111827',       // sidebars, grouped sections
@@ -81,13 +76,6 @@ const darkTheme = {
   navy: '#0B1220',
   navyMid: '#111827',
   navyLight: '#2A3550',
-
-  // Brand accent — orange tuned for dark readability
-  accent: '#FB923C',            // orange-400, 8:1 on bg (AAA)
-  accentMuted: '#D97706',       // amber-600, softer — inactive clickable items
-  accentLight: '#2D1200',       // orange-950 wash
-  accentBorder: '#7C3200',      // orange-800, visible border
-  accentText: '#FBBF24',        // amber-400, 10:1 on accentLight
 
   // Text hierarchy — warm off-whites, 4 distinct levels
   text: '#E5ECF5',              // warm off-white, 15:1 on bg (AAA)
@@ -114,20 +102,33 @@ const darkTheme = {
   // Semantic status — desaturated/lightened for dark-mode comfort
   error: '#F87171',             // red-400, soft coral
   success: '#34D399',           // emerald-400
-  warning: '#FBBF24',           // amber-400
+  warning: '#FACC15',           // yellow-400, distinct hue from orange brand
 };
+
+function buildTheme(isDark, paletteId) {
+  const base = isDark ? darkBase : lightBase;
+  const palette = palettes[paletteId] || palettes[DEFAULT_PALETTE_ID];
+  const brand = isDark ? palette.dark : palette.light;
+  return { ...base, ...brand };
+}
 
 const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
   const [isDark, setIsDark] = useState(true);
+  const [paletteId, setPaletteIdState] = useState(DEFAULT_PALETTE_ID);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    storage.getItem('theme').then((saved) => {
-      if (saved) setIsDark(saved === 'dark');
-      setIsLoading(false);
-    });
+    Promise.all([storage.getItem('theme'), storage.getItem('palette')]).then(
+      ([savedTheme, savedPalette]) => {
+        if (savedTheme) setIsDark(savedTheme === 'dark');
+        if (savedPalette && PALETTE_IDS.includes(savedPalette)) {
+          setPaletteIdState(savedPalette);
+        }
+        setIsLoading(false);
+      },
+    );
   }, []);
 
   const toggleTheme = async () => {
@@ -136,10 +137,27 @@ export function ThemeProvider({ children }) {
     await storage.setItem('theme', newTheme ? 'dark' : 'light');
   };
 
+  const setPaletteId = async (id) => {
+    if (!PALETTE_IDS.includes(id)) return;
+    setPaletteIdState(id);
+    await storage.setItem('palette', id);
+  };
+
   if (isLoading) return null;
 
+  const theme = buildTheme(isDark, paletteId);
+
   return (
-    <ThemeContext.Provider value={{ theme: isDark ? darkTheme : lightTheme, isDark, toggleTheme }}>
+    <ThemeContext.Provider
+      value={{
+        theme,
+        isDark,
+        toggleTheme,
+        paletteId,
+        setPaletteId,
+        palettes,
+      }}
+    >
       {children}
     </ThemeContext.Provider>
   );
