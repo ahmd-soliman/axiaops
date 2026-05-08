@@ -262,7 +262,7 @@ else
     echo "Error: DEV_USER_EMAIL must match ^[A-Za-z0-9@._+-]+$ (got: ${DEV_USER_EMAIL_VAL})" >&2
     exit 1
   fi
-  psql_exec "INSERT INTO users (id, organization_id, kinde_sub, email, name, created_at, last_seen)
+  psql_exec "INSERT INTO users (id, organization_id, external_id, email, name, created_at, last_seen)
     VALUES ('${DEV_USER_ID_VAL}', '${ORGANIZATION_ID}', 'dev:${DEV_USER_ID_VAL}',
             '${DEV_USER_EMAIL_VAL}', 'Dev User', NOW(), NOW())
     ON CONFLICT (id) DO NOTHING;"
