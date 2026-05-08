@@ -9,7 +9,7 @@ import { useApp } from '../context/AppContext';
 // data) live on the Profile page itself, not in this dropdown, so a stray
 // click can't detonate anything from the navbar.
 export default function AvatarMenu() {
-  const { theme: t, isDark, paletteId, setPaletteId, palettes } = useTheme();
+  const { theme: t, isDark } = useTheme();
   const { me } = useMe();
   const { onLogout } = useApp();
   const navigate = useNavigate();
@@ -84,7 +84,7 @@ export default function AvatarMenu() {
             position: 'absolute',
             top: 'calc(100% + 6px)',
             right: 0,
-            minWidth: 320,
+            minWidth: 200,
             backgroundColor: t.surface,
             border: `1px solid ${t.border}`,
             borderRadius: 8,
@@ -95,138 +95,9 @@ export default function AvatarMenu() {
         >
           <MenuItem t={t} onClick={() => go('/profile')}>My Profile</MenuItem>
           <div style={{ height: 1, backgroundColor: t.border, margin: '4px 0' }} />
-          <PaletteSwitcher
-            t={t}
-            isDark={isDark}
-            paletteId={paletteId}
-            setPaletteId={setPaletteId}
-            palettes={palettes}
-          />
-          <StatusPreview t={t} />
-          <div style={{ height: 1, backgroundColor: t.border, margin: '4px 0' }} />
           <MenuItem t={t} onClick={signOut}>Sign Out</MenuItem>
         </div>
       )}
-    </div>
-  );
-}
-
-// Experimental palette switcher (branch: experiment/theme-explore).
-// Lets us flip the brand palette live without rebuilding. Remove before
-// merging back to develop — or promote to a real preference if we ship it.
-function PaletteSwitcher({ t, isDark, paletteId, setPaletteId, palettes }) {
-  const entries = Object.values(palettes);
-  return (
-    <div style={{ padding: '6px 10px 8px' }}>
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: 0.6,
-          textTransform: 'uppercase',
-          color: t.textMuted,
-          marginBottom: 6,
-        }}
-      >
-        Palette (dev)
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 10px' }}>
-        {entries.map((p) => {
-          const selected = p.id === paletteId;
-          const swatch = isDark ? p.swatch.dark : p.swatch.light;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setPaletteId(p.id)}
-              aria-label={`Use ${p.name} palette`}
-              aria-pressed={selected}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 3,
-                width: 50,
-                background: 'transparent',
-                border: 'none',
-                padding: 0,
-                cursor: 'pointer',
-                outline: 'none',
-              }}
-            >
-              <span
-                aria-hidden="true"
-                style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: '50%',
-                  border: selected ? `2px solid ${t.text}` : `1px solid ${t.border}`,
-                  backgroundColor: swatch,
-                }}
-              />
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: selected ? 700 : 500,
-                  color: selected ? t.text : t.textMuted,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  maxWidth: '100%',
-                }}
-              >
-                {p.name}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// Experimental — shows the four semantic status tokens in a single row so we
-// can eyeball them across palette/mode flips without triggering the actual
-// state in the product (license banner, scan-timeout, etc.).
-function StatusPreview({ t }) {
-  const tokens = [
-    { key: 'error',   label: 'Error',   bg: `${t.error}22`,   fg: t.error },
-    { key: 'warning', label: 'Warning', bg: `${t.warning}22`, fg: t.warning },
-    { key: 'success', label: 'Success', bg: `${t.success}22`, fg: t.success },
-    { key: 'accent',  label: 'Brand',   bg: t.accentLight,    fg: t.accentText },
-  ];
-  return (
-    <div style={{ padding: '4px 10px 8px' }}>
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: 0.6,
-          textTransform: 'uppercase',
-          color: t.textMuted,
-          marginBottom: 6,
-        }}
-      >
-        Status (dev)
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-        {tokens.map(({ key, label, bg, fg }) => (
-          <span
-            key={key}
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              padding: '3px 7px',
-              borderRadius: 5,
-              backgroundColor: bg,
-              color: fg,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {label}
-          </span>
-        ))}
-      </div>
     </div>
   );
 }
