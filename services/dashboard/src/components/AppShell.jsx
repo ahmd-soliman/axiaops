@@ -177,7 +177,7 @@ export default function AppShell() {
                 <Icon color={isActive ? t.accent : t.text} />
                 <span style={{
                   fontSize: 13,
-                  fontWeight: isActive ? 700 : 500,
+                  fontWeight: isActive ? 700 : 550,
                   color: isActive ? t.accent : t.text,
                 }}>
                   {label}
