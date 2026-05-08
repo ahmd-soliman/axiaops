@@ -1,0 +1,90 @@
+[
+  {
+    "date": "2026-05-01",
+    "linked_account": "000000000000",
+    "service": "AmazonS3",
+    "tags": {"env": "prod"},
+    "metrics": {
+      "UnblendedCost":    {"amount": "12.50", "unit": "USD"},
+      "BlendedCost":      {"amount": "12.50", "unit": "USD"},
+      "NetAmortizedCost": {"amount": "12.50", "unit": "USD"}
+    }
+  },
+  {
+    "date": "2026-05-02",
+    "linked_account": "000000000000",
+    "service": "AmazonS3",
+    "tags": {"env": "prod"},
+    "metrics": {
+      "UnblendedCost":    {"amount": "12.50", "unit": "USD"},
+      "BlendedCost":      {"amount": "12.50", "unit": "USD"},
+      "NetAmortizedCost": {"amount": "12.50", "unit": "USD"}
+    }
+  },
+  {
+    "date": "2026-05-01",
+    "linked_account": "000000000000",
+    "service": "AWSLambda",
+    "tags": {"env": "prod"},
+    "metrics": {
+      "UnblendedCost":    {"amount": "3.20", "unit": "USD"},
+      "BlendedCost":      {"amount": "3.20", "unit": "USD"},
+      "NetAmortizedCost": {"amount": "3.20", "unit": "USD"}
+    }
+  },
+  {
+    "date": "2026-05-02",
+    "linked_account": "000000000000",
+    "service": "AWSLambda",
+    "tags": {"env": "prod"},
+    "metrics": {
+      "UnblendedCost":    {"amount": "3.20", "unit": "USD"},
+      "BlendedCost":      {"amount": "3.20", "unit": "USD"},
+      "NetAmortizedCost": {"amount": "3.20", "unit": "USD"}
+    }
+  },
+  {
+    "date": "2026-05-01",
+    "linked_account": "000000000000",
+    "service": "AmazonDynamoDB",
+    "tags": {"env": "prod"},
+    "metrics": {
+      "UnblendedCost":    {"amount": "5.75", "unit": "USD"},
+      "BlendedCost":      {"amount": "5.75", "unit": "USD"},
+      "NetAmortizedCost": {"amount": "5.75", "unit": "USD"}
+    }
+  },
+  {
+    "date": "2026-05-02",
+    "linked_account": "000000000000",
+    "service": "AmazonDynamoDB",
+    "tags": {"env": "prod"},
+    "metrics": {
+      "UnblendedCost":    {"amount": "5.75", "unit": "USD"},
+      "BlendedCost":      {"amount": "5.75", "unit": "USD"},
+      "NetAmortizedCost": {"amount": "5.75", "unit": "USD"}
+    }
+  },
+  {
+    "date": "2026-05-01",
+    "linked_account": "000000000000",
+    "service": "AmazonCloudWatch",
+    "tags": {"env": "prod"},
+    "metrics": {
+      "UnblendedCost":    {"amount": "1.20", "unit": "USD"},
+      "BlendedCost":      {"amount": "1.20", "unit": "USD"},
+      "NetAmortizedCost": {"amount": "1.20", "unit": "USD"}
+    }
+  },
+  {
+    "date": "2026-05-02",
+    "linked_account": "000000000000",
+    "service": "AmazonCloudWatch",
+    "tags": {"env": "prod"},
+    "metrics": {
+      "UnblendedCost":    {"amount": "1.20", "unit": "USD"},
+      "BlendedCost":      {"amount": "1.20", "unit": "USD"},
+      "NetAmortizedCost": {"amount": "1.20", "unit": "USD"}
+    }
+  }
+]
