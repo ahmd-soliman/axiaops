@@ -76,7 +76,7 @@ function CLICommand({ cmd, theme }) {
   return (
     <div style={{ marginTop: 10, borderRadius: 10, overflow: 'hidden', border: '1px solid #334155' }}>
       <div style={{ backgroundColor: '#0f172a', padding: '12px 14px', position: 'relative' }}>
-        <code style={{ fontFamily: 'monospace', fontSize: 12, color: '#e2e8f0', lineHeight: '20px', display: 'block', paddingRight: 36, wordBreak: 'break-all' }}>
+        <code style={{ fontFamily: '"Geist Mono Variable", monospace', fontSize: 12, color: '#e2e8f0', lineHeight: '20px', display: 'block', paddingRight: 36, wordBreak: 'break-all' }}>
           {cmd}
         </code>
         <button
@@ -317,7 +317,7 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
                     fontWeight: 600,
                     textAlign: 'right',
                     flex: 1,
-                    fontFamily: mono ? 'monospace' : undefined,
+                    fontFamily: mono ? '"Geist Mono Variable", monospace' : undefined,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                   }}>

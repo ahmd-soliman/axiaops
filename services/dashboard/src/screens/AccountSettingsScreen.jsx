@@ -19,7 +19,7 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint,
           fontSize: 14,
           color: theme.text,
           outline: 'none',
-          fontFamily: mono ? 'monospace' : undefined,
+          fontFamily: mono ? '"Geist Mono Variable", monospace' : undefined,
         }}
         value={value}
         onChange={e => onChange(e.target.value)}
