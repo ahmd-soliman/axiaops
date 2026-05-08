@@ -16,14 +16,34 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const themeFile = path.resolve(here, '..', 'ThemeContext.jsx');
+const palettesFile = path.resolve(here, '..', 'palettes.js');
 
-function extractTheme(src, name) {
-  const m = src.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`));
-  if (!m) throw new Error(`Could not find const ${name} in ThemeContext.jsx`);
+function extractObject(src, marker) {
+  // Pull a `{ ... }` block keyed by `marker` (e.g. `const lightBase = {`,
+  // `light: {`). Greedy-match to the *next* `},` at column 0/2 so nested
+  // objects don't fool us. Returns a flat key→hex map.
+  const re = new RegExp(`${marker}\\s*\\{([\\s\\S]*?)\\n\\s*\\}[,;]`);
+  const m = src.match(re);
+  if (!m) return null;
   const out = {};
   for (const line of m[1].split('\n')) {
     const kv = line.match(/^\s*([a-zA-Z]+)\s*:\s*'(#[0-9A-Fa-f]{3,8})'\s*,?/);
     if (kv) out[kv[1]] = kv[2];
+  }
+  return out;
+}
+
+function extractPalettes(src) {
+  // Scan for every `<id>: { ... light: {...} ... dark: {...} ... }` entry.
+  const out = {};
+  const idRe = /^\s{2}([a-z]+):\s*\{$/gm;
+  let m;
+  while ((m = idRe.exec(src))) {
+    const id = m[1];
+    const block = src.slice(m.index);
+    const light = extractObject(block, `light:`);
+    const dark  = extractObject(block, `dark:`);
+    if (light && dark) out[id] = { light, dark };
   }
   return out;
 }
@@ -77,45 +97,58 @@ const PAIRS = [
   { fg: 'warning',      bg: 'bg',          min: 3.0 },
 ];
 
-const src = fs.readFileSync(themeFile, 'utf8');
-const themes = {
-  light: extractTheme(src, 'lightTheme'),
-  dark:  extractTheme(src, 'darkTheme'),
+const themeSrc = fs.readFileSync(themeFile, 'utf8');
+const palettesSrc = fs.readFileSync(palettesFile, 'utf8');
+
+const bases = {
+  light: extractObject(themeSrc, 'const lightBase ='),
+  dark:  extractObject(themeSrc, 'const darkBase ='),
 };
+if (!bases.light || !bases.dark) {
+  throw new Error('Could not find lightBase/darkBase in ThemeContext.jsx');
+}
+
+const palettes = extractPalettes(palettesSrc);
+if (!Object.keys(palettes).length) {
+  throw new Error('No palettes parsed from palettes.js');
+}
 
 let failures = 0;
 
-// Token parity check — keys must match across themes.
-const lightKeys = Object.keys(themes.light).sort();
-const darkKeys  = Object.keys(themes.dark).sort();
-const onlyL = lightKeys.filter(k => !darkKeys.includes(k));
-const onlyD = darkKeys.filter(k => !lightKeys.includes(k));
-if (onlyL.length || onlyD.length) {
-  failures++;
-  console.log('── Token parity ── FAIL');
-  if (onlyL.length) console.log('  only in light:', onlyL);
-  if (onlyD.length) console.log('  only in dark :', onlyD);
-} else {
-  console.log(`── Token parity ── OK (${lightKeys.length} tokens in each theme)`);
+// Brand-token parity check across palettes — keys must match between
+// light/dark within each palette.
+for (const [id, p] of Object.entries(palettes)) {
+  const lk = Object.keys(p.light).sort();
+  const dk = Object.keys(p.dark).sort();
+  const onlyL = lk.filter(k => !dk.includes(k));
+  const onlyD = dk.filter(k => !lk.includes(k));
+  if (onlyL.length || onlyD.length) {
+    failures++;
+    console.log(`── Palette parity (${id}) ── FAIL`);
+    if (onlyL.length) console.log('  only in light:', onlyL);
+    if (onlyD.length) console.log('  only in dark :', onlyD);
+  }
 }
 
-for (const themeName of ['light', 'dark']) {
-  console.log(`\n── ${themeName.toUpperCase()} ── (${themeFile})`);
-  const t = themes[themeName];
-  for (const { fg, bg, min } of PAIRS) {
-    if (!t[fg] || !t[bg]) {
-      console.log(`  SKIP  ${fg} on ${bg}  (missing token)`);
-      continue;
+for (const [id, p] of Object.entries(palettes)) {
+  for (const themeName of ['light', 'dark']) {
+    console.log(`\n── ${id.toUpperCase()} / ${themeName.toUpperCase()} ──`);
+    const t = { ...bases[themeName], ...p[themeName] };
+    for (const { fg, bg, min } of PAIRS) {
+      if (!t[fg] || !t[bg]) {
+        console.log(`  SKIP  ${fg} on ${bg}  (missing token)`);
+        continue;
+      }
+      const r = ratio(t[fg], t[bg]);
+      const tag = grade(r);
+      const pass = r >= min;
+      if (!pass) failures++;
+      const pad = `${fg} on ${bg}`.padEnd(36);
+      const marker = pass ? ' ' : '✗';
+      console.log(
+        `  ${marker} ${pad} ${t[fg]} on ${t[bg]}  →  ${r.toFixed(2)}:1  [${tag}]  (min ${min})`
+      );
     }
-    const r = ratio(t[fg], t[bg]);
-    const tag = grade(r);
-    const pass = r >= min;
-    if (!pass) failures++;
-    const pad = `${fg} on ${bg}`.padEnd(36);
-    const marker = pass ? ' ' : '✗';
-    console.log(
-      `  ${marker} ${pad} ${t[fg]} on ${t[bg]}  →  ${r.toFixed(2)}:1  [${tag}]  (min ${min})`
-    );
   }
 }
 
