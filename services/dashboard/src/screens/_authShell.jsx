@@ -86,7 +86,7 @@ export const authStyles = {
     fontFamily: 'inherit',
   },
   inputMono: {
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    fontFamily: '"Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace',
     fontSize: 12,
   },
   button: {

@@ -191,7 +191,7 @@ function Td({ t, children, align, mono }) {
       padding: '10px 12px',
       color: t.text,
       textAlign: align || 'left',
-      fontFamily: mono ? 'monospace' : undefined,
+      fontFamily: mono ? '"Geist Mono Variable", monospace' : undefined,
       fontSize: mono ? 12 : 13,
     }}>{children}</td>
   );
