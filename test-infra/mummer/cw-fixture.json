@@ -5,16 +5,40 @@
       "metric_name": "Invocations",
       "dimensions": {"FunctionName": "axiaops-active-fn"},
       "datapoints": [
-        {"timestamp": "2026-05-08T10:00:00Z", "sum": 42, "sample_count": 42, "unit": "Count"},
-        {"timestamp": "2026-05-08T11:00:00Z", "sum": 17, "sample_count": 17, "unit": "Count"}
+        {"timestamp": "2026-05-07T10:00:00Z", "sum": 42, "sample_count": 42, "average": 42, "unit": "Count"},
+        {"timestamp": "2026-05-07T11:00:00Z", "sum": 17, "sample_count": 17, "average": 17, "unit": "Count"}
+      ]
+    },
+    {
+      "namespace": "AWS/Lambda",
+      "metric_name": "Invocations",
+      "dimensions": {"FunctionName": "axiaops-zombie-fn"},
+      "datapoints": [
+        {"timestamp": "2026-05-07T10:00:00Z", "sum": 0, "sample_count": 0, "average": 0, "unit": "Count"}
       ]
     },
     {
       "namespace": "AWS/S3",
       "metric_name": "AllRequests",
-      "dimensions": {"BucketName": "axiaops-active-bucket"},
+      "dimensions": {"BucketName": "axiaops-active-bucket", "FilterId": "EntireBucket"},
       "datapoints": [
-        {"timestamp": "2026-05-08T10:00:00Z", "sum": 250, "sample_count": 250, "unit": "Count"}
+        {"timestamp": "2026-05-07T10:00:00Z", "sum": 250, "sample_count": 250, "average": 250, "unit": "Count"}
+      ]
+    },
+    {
+      "namespace": "AWS/S3",
+      "metric_name": "AllRequests",
+      "dimensions": {"BucketName": "axiaops-zombie-bucket", "FilterId": "EntireBucket"},
+      "datapoints": [
+        {"timestamp": "2026-05-07T10:00:00Z", "sum": 0, "sample_count": 0, "average": 0, "unit": "Count"}
+      ]
+    },
+    {
+      "namespace": "AWS/S3",
+      "metric_name": "AllRequests",
+      "dimensions": {"BucketName": "axiaops-old-bucket", "FilterId": "EntireBucket"},
+      "datapoints": [
+        {"timestamp": "2026-05-07T10:00:00Z", "sum": 0, "sample_count": 0, "average": 0, "unit": "Count"}
       ]
     },
     {
@@ -22,7 +46,7 @@
       "metric_name": "ConsumedReadCapacityUnits",
       "dimensions": {"TableName": "axiaops-active-table"},
       "datapoints": [
-        {"timestamp": "2026-05-08T10:00:00Z", "sum": 12.5, "sample_count": 1, "unit": "Count"}
+        {"timestamp": "2026-05-07T10:00:00Z", "sum": 12.5, "sample_count": 1, "average": 12.5, "unit": "Count"}
       ]
     }
   ]
