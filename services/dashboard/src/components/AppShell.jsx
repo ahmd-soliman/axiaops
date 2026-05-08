@@ -248,7 +248,7 @@ export default function AppShell() {
           padding: '6px 12px',
           textAlign: 'right',
           fontSize: 10,
-          fontFamily: 'monospace',
+          fontFamily: '"Geist Mono Variable", monospace',
           color: t.textMuted,
           opacity: 0.6,
           flexShrink: 0,

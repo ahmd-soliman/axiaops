@@ -161,7 +161,7 @@ function EventRow({ event, theme, isDark }) {
       onKeyDown={handleKey}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div role="cell" style={{ flex: '0 0 200px', fontSize: 12, color: theme.textMuted, fontFamily: 'monospace' }}>
+        <div role="cell" style={{ flex: '0 0 200px', fontSize: 12, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace' }}>
           {fmtTime(event.created_at)}
         </div>
         <div role="cell" style={{ flex: '0 0 140px' }}>
@@ -170,7 +170,7 @@ function EventRow({ event, theme, isDark }) {
         <div role="cell" style={{ flex: '1 1 180px', fontSize: 13, color: theme.text, minWidth: 0 }}>
           {event.actor_email || event.user_id || <em style={{ color: theme.textMuted }}>system</em>}
         </div>
-        <div role="cell" style={{ flex: '1 1 220px', fontSize: 12, color: theme.textMid, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+        <div role="cell" style={{ flex: '1 1 220px', fontSize: 12, color: theme.textMid, fontFamily: '"Geist Mono Variable", monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
           {event.resource_type ? `${event.resource_type}/${event.resource_id}` : event.resource_id || '—'}
         </div>
         {hasMetadata && (
@@ -341,7 +341,7 @@ export default function AuditScreen() {
           <div role="alert" style={{ padding: 40, textAlign: 'center', color: theme.textMuted, fontSize: 13 }}>
             Failed to load audit events.
             {query.error?.message && (
-              <div style={{ marginTop: 6, fontSize: 11, fontFamily: 'monospace', color: theme.textMuted, opacity: 0.7 }}>
+              <div style={{ marginTop: 6, fontSize: 11, fontFamily: '"Geist Mono Variable", monospace', color: theme.textMuted, opacity: 0.7 }}>
                 {query.error.message}
               </div>
             )}

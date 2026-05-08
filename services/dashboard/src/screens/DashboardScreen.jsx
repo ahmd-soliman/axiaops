@@ -527,7 +527,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
         <span style={{
           fontSize: 11,
           color: theme.textMuted,
-          fontFamily: 'monospace',
+          fontFamily: '"Geist Mono Variable", monospace',
           display: 'block',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -617,7 +617,7 @@ function DismissedCard({ item, theme, isDark }) {
           {reasonLabel}
         </span>
       </div>
-      <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: 'monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
+      <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
         {item.resource_id}
       </span>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
