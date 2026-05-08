@@ -47,6 +47,13 @@ services:
       # Override to `json` for parity with deployed envs.
       LOG_OUTPUT: ${LOG_OUTPUT:-text}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # AXIAOPS_LICENSE — `make start-staging` injects the dev fixture so
+      # the api boots into state="valid" and the scan-gate falls through.
+      # Empty default is fine: a `docker compose up` invoked directly (not
+      # via the Makefile) lands in state="not_loaded" and scans are gated,
+      # which is the correct posture without an explicit license. See
+      # Makefile start-staging target + issue #76 for the Tier-1 follow-up.
+      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE:-}
     volumes:
       - ${HOME}/.aws:/root/.aws:ro
     depends_on:
@@ -88,6 +95,8 @@ services:
       # See ingestion service above for rationale.
       LOG_OUTPUT: ${LOG_OUTPUT:-text}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # See ingestion service above for the dev-fixture-injection story.
+      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE:-}
     ports:
       - "8080:8080"
     depends_on:
