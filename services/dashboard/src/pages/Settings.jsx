@@ -75,15 +75,20 @@ export default function Settings() {
         >
           Settings
         </h2>
+        {/* Same active-state model as the top navbar: color + weight only,
+            bg is reserved for hover so inactive items aren't dead targets. */}
         <nav>
           {visible.map((tab) => {
             const active = location.pathname.startsWith(tab.path);
+            const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
             return (
               <button
                 key={tab.path}
                 type="button"
                 onClick={() => navigate(tab.path)}
                 aria-current={active ? 'page' : undefined}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                 style={{
                   display: 'block',
                   width: '100%',
@@ -92,11 +97,12 @@ export default function Settings() {
                   marginBottom: 2,
                   borderRadius: 6,
                   border: 'none',
-                  backgroundColor: active ? (isDark ? 'rgba(255,255,255,0.05)' : t.accentLight) : 'transparent',
+                  backgroundColor: 'transparent',
                   color: active ? t.accent : t.text,
                   fontSize: 13,
                   fontWeight: active ? 700 : 500,
                   cursor: 'pointer',
+                  transition: 'background-color 120ms ease',
                 }}
               >
                 {tab.label}
