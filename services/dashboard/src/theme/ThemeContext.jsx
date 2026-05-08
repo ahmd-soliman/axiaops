@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { palettes, PALETTE_IDS, DEFAULT_PALETTE_ID } from './palettes';
 
 const storage = {
   async getItem(key) {
@@ -10,28 +9,34 @@ const storage = {
   },
 };
 
-// ─── Light Theme — neutrals only ──────────────────────────────────────────────
-// Brand tokens (accent / accentMuted / accentLight / accentBorder / accentText)
-// are merged in at runtime from the selected palette in `palettes.js`. Edit
-// neutrals here; edit brand colors there.
-//
-// Minimal warm-shift: the four large-surface neutrals (bg, bgSecondary, text,
-// border) move from Tailwind slate (cool) to stone (warm) for a softer,
-// GitLab/Notion-leaning feel. Text mid/muted/sub and chip neutrals stay slate
-// — at those tiers the cool/warm cast is imperceptible and slate retains the
-// established hierarchy. Surfaces stay pure white. Dark mode is unchanged.
-const lightBase = {
+// ─── Light Theme ──────────────────────────────────────────────────────────────
+// Palette philosophy
+//   Neutral : Tailwind stone for the four large-surface tokens (bg, bgSecondary,
+//             text, border) — warmer / GitLab-Notion-leaning. Other neutrals
+//             stay slate (cool/warm cast is imperceptible at those sizes).
+//             Surfaces stay pure white. Dark mode stays cool slate.
+//   Brand   : Orange (bold, action-oriented, distinctive) — AA on white.
+//   Warning : Yellow-700, deliberately distinct hue family from the orange
+//             brand so the two never read as the same colour at a glance.
+const lightTheme = {
   // Backgrounds — 4-level hierarchy (page → section → card → raised)
   bg: '#FAFAF9',                // page background, stone-50 (warm off-white)
   bgSecondary: '#F5F5F4',       // sidebars, headers, grouped sections (stone-100)
   surface: '#FFFFFF',           // cards, panels
-  surfaceAlt: '#FAFAF9',        // alternate rows, subtle hover fills (matches bg)
+  surfaceAlt: '#FAFAF9',        // alternate rows, subtle hover fills
   surfaceRaised: '#FAFBFC',     // modals, dropdowns, badges (slight elevation)
 
   // Legacy navy aliases — preserved so existing callers keep working
   navy: '#0F172A',
   navyMid: '#1E293B',
   navyLight: '#334155',
+
+  // Brand accent — orange (bold, action-oriented, AAA accessible)
+  accent: '#EA580C',            // orange-600, 4.6:1 on white (AA+), vibrant
+  accentMuted: '#92400E',       // copper/amber-800, warm — inactive clickable items
+  accentLight: '#FFF7ED',       // orange-50, tinted backgrounds
+  accentBorder: '#FDBA74',      // orange-300, soft brand borders
+  accentText: '#9A3412',        // orange-800, high contrast on accentLight
 
   // Text hierarchy — text shifts warm; mid/muted/sub stay slate
   text: '#1C1917',              // stone-900, 17:1 on surface (AAA)
@@ -51,20 +56,25 @@ const lightBase = {
   chipProdBg: '#FEE2E2',        // red-100
   chipProdText: '#991B1B',      // red-800, 7.5:1
   chipStagBg: '#FEF3C7',        // amber-100
-  chipStagText: '#92400E',      // amber-800, stronger
+  chipStagText: '#92400E',      // amber-800
   zombieBadgeBg: '#FEF2F2',      // red-50 (softer danger wash)
-  zombieBadgeText: '#DC2626',    // red-600 (more vibrant alert)
+  zombieBadgeText: '#DC2626',    // red-600
 
   // Semantic status — clear, accessible
   error: '#DC2626',             // red-600
-  success: '#059669',           // emerald-600 (more professional than green)
-  warning: '#A16207',           // yellow-700 — distinct hue from orange brand,
-                                // pushed darker than yellow-500 because yellow
-                                // on white is famously low-contrast (1.9:1 AA fail)
+  success: '#059669',           // emerald-600
+  warning: '#A16207',           // yellow-700 — distinct hue from orange brand;
+                                // yellow-500 on white fails AA at 1.9:1, so we
+                                // push darker.
 };
 
-// ─── Dark Theme — neutrals only ───────────────────────────────────────────────
-const darkBase = {
+// ─── Dark Theme ────────────────────────────────────────────────────────────────
+// Palette philosophy
+//   Neutral : Tailwind slate, darker end — clean, high-contrast, no blue cast.
+//   Brand   : Orange shifts lighter (400) so it stays readable on dark bg.
+//   Comfort : Text off-whites avoid pure #FFF; status colors desaturated.
+//   Depth   : 4-level elevation ladder (bg → bgSecondary → surface → raised).
+const darkTheme = {
   // Backgrounds — clear 4-level elevation ladder
   bg: '#0B1220',                // deepest layer (page)
   bgSecondary: '#111827',       // sidebars, grouped sections
@@ -76,6 +86,13 @@ const darkBase = {
   navy: '#0B1220',
   navyMid: '#111827',
   navyLight: '#2A3550',
+
+  // Brand accent — orange tuned for dark readability
+  accent: '#FB923C',            // orange-400, 8:1 on bg (AAA)
+  accentMuted: '#D97706',       // amber-600, softer — inactive clickable items
+  accentLight: '#2D1200',       // orange-950 wash
+  accentBorder: '#7C3200',      // orange-800, visible border
+  accentText: '#FBBF24',        // amber-400, 10:1 on accentLight
 
   // Text hierarchy — warm off-whites, 4 distinct levels
   text: '#E5ECF5',              // warm off-white, 15:1 on bg (AAA)
@@ -105,30 +122,17 @@ const darkBase = {
   warning: '#FACC15',           // yellow-400, distinct hue from orange brand
 };
 
-function buildTheme(isDark, paletteId) {
-  const base = isDark ? darkBase : lightBase;
-  const palette = palettes[paletteId] || palettes[DEFAULT_PALETTE_ID];
-  const brand = isDark ? palette.dark : palette.light;
-  return { ...base, ...brand };
-}
-
 const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
   const [isDark, setIsDark] = useState(true);
-  const [paletteId, setPaletteIdState] = useState(DEFAULT_PALETTE_ID);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([storage.getItem('theme'), storage.getItem('palette')]).then(
-      ([savedTheme, savedPalette]) => {
-        if (savedTheme) setIsDark(savedTheme === 'dark');
-        if (savedPalette && PALETTE_IDS.includes(savedPalette)) {
-          setPaletteIdState(savedPalette);
-        }
-        setIsLoading(false);
-      },
-    );
+    storage.getItem('theme').then((saved) => {
+      if (saved) setIsDark(saved === 'dark');
+      setIsLoading(false);
+    });
   }, []);
 
   const toggleTheme = async () => {
@@ -137,27 +141,10 @@ export function ThemeProvider({ children }) {
     await storage.setItem('theme', newTheme ? 'dark' : 'light');
   };
 
-  const setPaletteId = async (id) => {
-    if (!PALETTE_IDS.includes(id)) return;
-    setPaletteIdState(id);
-    await storage.setItem('palette', id);
-  };
-
   if (isLoading) return null;
 
-  const theme = buildTheme(isDark, paletteId);
-
   return (
-    <ThemeContext.Provider
-      value={{
-        theme,
-        isDark,
-        toggleTheme,
-        paletteId,
-        setPaletteId,
-        palettes,
-      }}
-    >
+    <ThemeContext.Provider value={{ theme: isDark ? darkTheme : lightTheme, isDark, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );
