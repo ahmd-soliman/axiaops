@@ -19,7 +19,7 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint,
           fontSize: 14,
           color: theme.text,
           outline: 'none',
-          fontFamily: mono ? 'monospace' : undefined,
+          fontFamily: mono ? '"Geist Mono Variable", monospace' : undefined,
         }}
         value={value}
         onChange={e => onChange?.(e.target.value)}
@@ -61,7 +61,7 @@ function CopyableBlock({ label, value, theme }) {
         borderRadius: 8,
         padding: '10px 12px',
         fontSize: 13,
-        fontFamily: 'monospace',
+        fontFamily: '"Geist Mono Variable", monospace',
         color: theme.text,
         wordBreak: 'break-all',
       }}>{value}</code>
@@ -273,7 +273,7 @@ function AccessKeyTab({ onConnected, isEdit, account, theme, isDark }) {
           </span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {['ReadOnlyAccess (or below)', 'ce:GetCostAndUsage', 'cloudwatch:GetMetricStatistics', 'ec2:DescribeAddresses'].map(p => (
-              <code key={p} style={{ fontSize: 12, color: theme.textMid, fontFamily: 'monospace', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', padding: '2px 6px', borderRadius: 4, display: 'inline-block', width: 'fit-content' }}>
+              <code key={p} style={{ fontSize: 12, color: theme.textMid, fontFamily: '"Geist Mono Variable", monospace', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', padding: '2px 6px', borderRadius: 4, display: 'inline-block', width: 'fit-content' }}>
                 {p}
               </code>
             ))}

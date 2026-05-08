@@ -273,7 +273,7 @@ export default function Team() {
                     ...inputStyle(t),
                     width: '100%',
                     paddingRight: 36,
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontFamily: '"Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace',
                     fontSize: 12,
                   }}
                 />

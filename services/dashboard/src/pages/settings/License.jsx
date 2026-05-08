@@ -183,7 +183,7 @@ function ClaimRow({ t, k, v, mono }) {
         style={{
           fontSize: 13,
           color: t.text,
-          fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' : undefined,
+          fontFamily: mono ? '"Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' : undefined,
         }}
       >
         {v}

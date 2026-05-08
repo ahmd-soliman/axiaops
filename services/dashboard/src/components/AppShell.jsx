@@ -133,7 +133,7 @@ export default function AppShell() {
           position: 'sticky',
           top: 0,
           zIndex: 100,
-          backgroundColor: t.surface,
+          backgroundColor: t.bgSecondary,
           borderBottom: `1px solid ${t.border}`,
           height: 52,
           display: 'flex',
@@ -143,21 +143,25 @@ export default function AppShell() {
           flexShrink: 0,
         }}
       >
-        {/* Logo */}
-        <span style={{ color: t.accent, fontSize: 17, fontWeight: 800, letterSpacing: 0.3, marginRight: 8 }}>
+        {/* Logo — Geist 700 reads visually as 800 in the system font, plus
+            tighter letterSpacing because Geist sets generous spacing by default. */}
+        <span style={{ color: t.accent, fontSize: 18, fontWeight: 700, letterSpacing: -0.2, marginRight: 8 }}>
           AxiaOps
         </span>
 
-        {/* Nav links */}
+        {/* Nav links — color + weight signal active state; bg is reserved
+            for hover feedback so inactive items aren't dead targets. */}
         <nav aria-label="Main navigation" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
           {visibleNavItems.map(({ label, path, Icon }) => {
             const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
-            const activeBg = isDark ? 'rgba(255, 255, 255, 0.05)' : t.accentLight;
+            const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
             return (
               <button
                 key={path}
                 onClick={() => navigate(path)}
                 aria-current={isActive ? 'page' : undefined}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -165,15 +169,16 @@ export default function AppShell() {
                   padding: '5px 10px',
                   borderRadius: 7,
                   border: 'none',
-                  backgroundColor: isActive ? activeBg : 'transparent',
+                  backgroundColor: 'transparent',
                   cursor: 'pointer',
+                  transition: 'background-color 120ms ease',
                 }}
               >
-                <Icon color={isActive ? t.accent : t.accentMuted} />
+                <Icon color={isActive ? t.accent : t.text} />
                 <span style={{
                   fontSize: 13,
-                  fontWeight: isActive ? 700 : 500,
-                  color: isActive ? t.accent : t.accentMuted,
+                  fontWeight: isActive ? 700 : 550,
+                  color: isActive ? t.accent : t.text,
                 }}>
                   {label}
                 </span>
@@ -243,7 +248,7 @@ export default function AppShell() {
           padding: '6px 12px',
           textAlign: 'right',
           fontSize: 10,
-          fontFamily: 'monospace',
+          fontFamily: '"Geist Mono Variable", monospace',
           color: t.textMuted,
           opacity: 0.6,
           flexShrink: 0,
