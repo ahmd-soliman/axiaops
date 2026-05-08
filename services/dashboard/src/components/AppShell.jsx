@@ -143,8 +143,9 @@ export default function AppShell() {
           flexShrink: 0,
         }}
       >
-        {/* Logo */}
-        <span style={{ color: t.accent, fontSize: 17, fontWeight: 800, letterSpacing: 0.3, marginRight: 8 }}>
+        {/* Logo — Geist 700 reads visually as 800 in the system font, plus
+            tighter letterSpacing because Geist sets generous spacing by default. */}
+        <span style={{ color: t.accent, fontSize: 18, fontWeight: 700, letterSpacing: -0.2, marginRight: 8 }}>
           AxiaOps
         </span>
 
