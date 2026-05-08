@@ -44,9 +44,18 @@ start-dev: stop migrate
 # plain HTTP, which is correct for direct-port access.
 # Always runs `stop` first so host-mode services and stale containers are cleared.
 start-staging: stop migrate
-	DEV_MODE=false docker compose up --build -d
+	@# Inject the embedded dev fixture as AXIAOPS_LICENSE so the api boots
+	@# into state="valid" with customer_id="axiaops-dev-fixture" and the
+	@# scan-gate falls through. DEV_MODE=false routes the boot through the
+	@# real-license code path (Load → CheckExpiry → SetCurrent), exercising
+	@# the same chain a deployed staging install runs. The fixture is signed
+	@# by the dev key (embed_dev.go); default-tag builds embed the matching
+	@# pubkey, so verification falls back from prod-pubkey → dev-pubkey
+	@# → success. Throwaway plumbing — issue #76 retires this once CI-pulled
+	@# license seeding lands.
+	DEV_MODE=false AXIAOPS_LICENSE="$$(cat services/shared/license/fixture-dev.jwt)" docker compose up --build -d
 	@echo ""
-	@echo "Full Docker stack starting (DEV_MODE=false, native auth on)."
+	@echo "Full Docker stack starting (DEV_MODE=false, native auth on, dev fixture license loaded)."
 	@echo "  API:        http://localhost:8080  (direct, for curl)"
 	@echo "  Ingestion:  internal only (axiaops-ingestion:8081)"
 	@echo "  Dashboard:  http://localhost:8082  ← use this in the browser"
