@@ -133,7 +133,7 @@ export default function AppShell() {
           position: 'sticky',
           top: 0,
           zIndex: 100,
-          backgroundColor: t.surface,
+          backgroundColor: t.bgSecondary,
           borderBottom: `1px solid ${t.border}`,
           height: 52,
           display: 'flex',
@@ -169,11 +169,11 @@ export default function AppShell() {
                   cursor: 'pointer',
                 }}
               >
-                <Icon color={isActive ? t.accent : t.accentMuted} />
+                <Icon color={isActive ? t.accent : t.text} />
                 <span style={{
                   fontSize: 13,
                   fontWeight: isActive ? 700 : 500,
-                  color: isActive ? t.accent : t.accentMuted,
+                  color: isActive ? t.accent : t.text,
                 }}>
                   {label}
                 </span>
