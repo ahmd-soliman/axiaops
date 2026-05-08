@@ -9,6 +9,7 @@ This is the navigable hub for engineers working on AxiaOps. Read this first, the
 > - Auth: [auth.md](auth.md), [auth_flow.md](auth_flow.md), [native-auth-bootstrap.md](native-auth-bootstrap.md)
 > - Deployment: [deployment.md](deployment.md), [ci.md](ci.md)
 > - Detection: [aws-coverage.md](aws-coverage.md), [tier2_detections_status.md](tier2_detections_status.md), [cloudtrail-analysis.md](cloudtrail-analysis.md)
+> - Roadmap plans: [CUR_EXTENSION_PLAN.md](CUR_EXTENSION_PLAN.md) — adding AWS Cost & Usage Reports as a parallel data source to Cost Explorer
 
 ## TL;DR
 
