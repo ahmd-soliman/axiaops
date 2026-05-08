@@ -1,0 +1,29 @@
+{
+  "series": [
+    {
+      "namespace": "AWS/Lambda",
+      "metric_name": "Invocations",
+      "dimensions": {"FunctionName": "axiaops-active-fn"},
+      "datapoints": [
+        {"timestamp": "2026-05-08T10:00:00Z", "sum": 42, "sample_count": 42, "unit": "Count"},
+        {"timestamp": "2026-05-08T11:00:00Z", "sum": 17, "sample_count": 17, "unit": "Count"}
+      ]
+    },
+    {
+      "namespace": "AWS/S3",
+      "metric_name": "AllRequests",
+      "dimensions": {"BucketName": "axiaops-active-bucket"},
+      "datapoints": [
+        {"timestamp": "2026-05-08T10:00:00Z", "sum": 250, "sample_count": 250, "unit": "Count"}
+      ]
+    },
+    {
+      "namespace": "AWS/DynamoDB",
+      "metric_name": "ConsumedReadCapacityUnits",
+      "dimensions": {"TableName": "axiaops-active-table"},
+      "datapoints": [
+        {"timestamp": "2026-05-08T10:00:00Z", "sum": 12.5, "sample_count": 1, "unit": "Count"}
+      ]
+    }
+  ]
+}
