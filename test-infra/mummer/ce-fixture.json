@@ -1,0 +1,982 @@
+[
+  {
+    "date": "2026-05-01",
+    "linked_account": "000000000000",
+    "service": "AmazonS3",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-02",
+    "linked_account": "000000000000",
+    "service": "AmazonS3",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-03",
+    "linked_account": "000000000000",
+    "service": "AmazonS3",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-04",
+    "linked_account": "000000000000",
+    "service": "AmazonS3",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-05",
+    "linked_account": "000000000000",
+    "service": "AmazonS3",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-06",
+    "linked_account": "000000000000",
+    "service": "AmazonS3",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-07",
+    "linked_account": "000000000000",
+    "service": "AmazonS3",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "12.50",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-01",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-02",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-03",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-04",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-05",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-06",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-07",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "3.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-01",
+    "linked_account": "000000000000",
+    "service": "AmazonDynamoDB",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-02",
+    "linked_account": "000000000000",
+    "service": "AmazonDynamoDB",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-03",
+    "linked_account": "000000000000",
+    "service": "AmazonDynamoDB",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-04",
+    "linked_account": "000000000000",
+    "service": "AmazonDynamoDB",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-05",
+    "linked_account": "000000000000",
+    "service": "AmazonDynamoDB",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-06",
+    "linked_account": "000000000000",
+    "service": "AmazonDynamoDB",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-07",
+    "linked_account": "000000000000",
+    "service": "AmazonDynamoDB",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "5.75",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-01",
+    "linked_account": "000000000000",
+    "service": "AmazonCloudWatch",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-02",
+    "linked_account": "000000000000",
+    "service": "AmazonCloudWatch",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-03",
+    "linked_account": "000000000000",
+    "service": "AmazonCloudWatch",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-04",
+    "linked_account": "000000000000",
+    "service": "AmazonCloudWatch",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-05",
+    "linked_account": "000000000000",
+    "service": "AmazonCloudWatch",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-06",
+    "linked_account": "000000000000",
+    "service": "AmazonCloudWatch",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-07",
+    "linked_account": "000000000000",
+    "service": "AmazonCloudWatch",
+    "region": "us-east-1",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "1.20",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-01",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-active-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-01",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-zombie-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-02",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-active-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-02",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-zombie-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-03",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-active-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-03",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-zombie-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-04",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-active-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-04",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-zombie-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-05",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-active-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-05",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-zombie-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-06",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-active-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-06",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-zombie-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-07",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-active-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.45",
+        "unit": "USD"
+      }
+    }
+  },
+  {
+    "date": "2026-05-07",
+    "linked_account": "000000000000",
+    "service": "AWS Lambda",
+    "region": "us-east-1",
+    "resource_id": "axiaops-zombie-fn",
+    "tags": {
+      "env": "prod"
+    },
+    "metrics": {
+      "NetAmortizedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "UnblendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      },
+      "BlendedCost": {
+        "amount": "0.05",
+        "unit": "USD"
+      }
+    }
+  }
+]
