@@ -100,7 +100,7 @@ export default function Settings() {
                   backgroundColor: 'transparent',
                   color: active ? t.accent : t.text,
                   fontSize: 13,
-                  fontWeight: active ? 700 : 500,
+                  fontWeight: active ? 700 : 550,
                   cursor: 'pointer',
                   transition: 'background-color 120ms ease',
                 }}
