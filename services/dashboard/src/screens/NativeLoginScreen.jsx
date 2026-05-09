@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Spinner } from '../components/primitives';
 import { discoverSSO } from '../api/client';
-import { authColors as C, authStyles as S } from './_authShell';
+import { authColors as C, useAuthStyles } from './_authShell';
 
 // NativeLoginScreen renders the email + password form. onSubmit is called
 // with {email, password}; the parent handles the API call, surfaces errors
@@ -28,6 +28,7 @@ const DISCOVER_DEBOUNCE_MS = 600;
 const SSO_FALLBACK_REVEAL_MS = 1500;
 
 export default function NativeLoginScreen({ onSubmit, loading, error }) {
+  const S = useAuthStyles();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phase, setPhase] = useState('email'); // email | discovering | sso | password
