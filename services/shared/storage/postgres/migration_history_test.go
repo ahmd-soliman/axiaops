@@ -547,6 +547,14 @@ func TestSchemaMigrationsState_TableAbsent(t *testing.T) {
 		`, origVersion, origDirty); err != nil {
 			t.Logf("cleanup restore row: %v", err)
 		}
+		// 000_init's ALTER DEFAULT PRIVILEGES auto-grants blanket DML to
+		// the app user on every newly-created table in the axiaops schema
+		// — including the one we just recreated above. Re-run migration
+		// 026's REVOKE so subsequent privilege tests see the post-026
+		// posture they assert on. Idempotent.
+		if _, err := db.Exec(`REVOKE INSERT, UPDATE, DELETE ON axiaops.schema_migrations FROM axiaops`); err != nil {
+			t.Logf("cleanup re-revoke schema_migrations DML: %v", err)
+		}
 	})
 
 	if _, err := db.Exec(`DROP TABLE axiaops.schema_migrations`); err != nil {
