@@ -12,6 +12,8 @@
 -- so the down migration produces a slightly looser schema than what 023
 -- left behind. That's acceptable for a rollback.
 
+SET search_path TO axiaops;
+
 ALTER TABLE users RENAME COLUMN external_id TO kinde_sub;
 ALTER TABLE pending_memberships ADD COLUMN kinde_invitation_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE pending_memberships ADD COLUMN kinde_user_id       TEXT NOT NULL DEFAULT '';
