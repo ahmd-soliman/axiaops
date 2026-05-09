@@ -14,6 +14,8 @@ import {
 } from '../../api/client';
 import { PERM } from '../../api/permissions';
 import { Spinner } from '../../components/primitives';
+import { useBreakpoint } from '../../components/primitives/useBreakpoint';
+import { CardRow } from '../../components/primitives/CardRow';
 
 // Role labels in the order shown in dropdowns and the matrix in the design.
 // Owner is intentionally omitted — promotion to owner happens only via the
@@ -24,6 +26,8 @@ export default function Team() {
   const { theme: t, isDark } = useTheme();
   const { me, can, refresh } = useMe();
   const qc = useQueryClient();
+  const { isAtMost } = useBreakpoint();
+  const isMobile = isAtMost('sm');
 
   const [addEmail, setAddEmail] = useState('');
   const [addRole, setAddRole] = useState('member');
@@ -331,45 +335,85 @@ export default function Team() {
           <div style={{ padding: '12px 16px', borderBottom: `1px solid ${t.border}`, backgroundColor: t.surfaceRaised }}>
             <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: t.text }}>Pending invitations</h2>
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.surface }}>
-                <Th t={t}>Email</Th>
-                <Th t={t}>Role</Th>
-                <Th t={t}>Invited</Th>
-                <Th t={t}></Th>
-              </tr>
-            </thead>
-            <tbody>
-              {(invitations.data || []).map((inv) => (
-                <tr key={inv.id} style={{ borderBottom: `1px solid ${t.border}` }}>
-                  <Td t={t}>{inv.email}</Td>
-                  <Td t={t}>{inv.role}</Td>
-                  <Td t={t}>{new Date(inv.created_at).toLocaleDateString()}</Td>
-                  <Td t={t}>
-                    {canInvite && (inv.role !== 'admin' || canManageAdmin) && (
+          {isMobile ? (
+            // Phone layout — drop the <table> for a stacked card list.
+            // <table>'s columnar layout doesn't reflow; on a 375px viewport
+            // the 4-column header forces horizontal scroll. Cards keep the
+            // same data + actions accessible without a side-scroll gesture.
+            <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(invitations.data || []).map((inv) => {
+                const canRevoke = canInvite && (inv.role !== 'admin' || canManageAdmin);
+                return (
+                  <CardRow
+                    key={inv.id}
+                    header={
+                      <>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {inv.email}
+                        </span>
+                        <span style={roleBadge(inv.role, t, isDark)}>{inv.role}</span>
+                      </>
+                    }
+                    body={
+                      <span style={{ fontSize: 12, color: t.textMuted }}>
+                        Invited {new Date(inv.created_at).toLocaleDateString()}
+                      </span>
+                    }
+                    actions={canRevoke ? (
                       <button
                         type="button"
                         onClick={() => revokeInvitationMutation.mutate(inv.id)}
                         disabled={revokeInvitationMutation.isPending}
-                        style={{
-                          padding: '4px 10px',
-                          border: `1px solid ${t.border}`,
-                          borderRadius: 4,
-                          backgroundColor: 'transparent',
-                          color: '#ef4444',
-                          fontSize: 12,
-                          cursor: 'pointer',
-                        }}
+                        style={{ ...dangerButton(t), minHeight: 36 }}
                       >
                         Revoke
                       </button>
-                    )}
-                  </Td>
+                    ) : null}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.surface }}>
+                  <Th t={t}>Email</Th>
+                  <Th t={t}>Role</Th>
+                  <Th t={t}>Invited</Th>
+                  <Th t={t}></Th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(invitations.data || []).map((inv) => (
+                  <tr key={inv.id} style={{ borderBottom: `1px solid ${t.border}` }}>
+                    <Td t={t}>{inv.email}</Td>
+                    <Td t={t}>{inv.role}</Td>
+                    <Td t={t}>{new Date(inv.created_at).toLocaleDateString()}</Td>
+                    <Td t={t}>
+                      {canInvite && (inv.role !== 'admin' || canManageAdmin) && (
+                        <button
+                          type="button"
+                          onClick={() => revokeInvitationMutation.mutate(inv.id)}
+                          disabled={revokeInvitationMutation.isPending}
+                          style={{
+                            padding: '4px 10px',
+                            border: `1px solid ${t.border}`,
+                            borderRadius: 4,
+                            backgroundColor: 'transparent',
+                            color: '#ef4444',
+                            fontSize: 12,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Revoke
+                        </button>
+                      )}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </section>
       )}
 
@@ -385,6 +429,83 @@ export default function Team() {
           <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
         ) : memberships.isError ? (
           <div style={{ padding: 24, color: '#ef4444' }}>Failed to load members.</div>
+        ) : isMobile ? (
+          // Mobile card stack — six-column membership table doesn't reflow
+          // on phones (Email + Name + Role + Joined-via + Joined + Action).
+          // Cards retain every field and action; the role select stretches
+          // to the row width so it stays tappable.
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {(memberships.data || []).map((m) => {
+              const isSelf = me && m.user_id === me.user_id;
+              const targetIsElevated = m.role === 'admin' || m.role === 'owner';
+              const allowEdit =
+                !isSelf && m.role !== 'owner' && (
+                  targetIsElevated ? canManageAdmin : canManageBasic
+                );
+              const allowRemove =
+                isSelf
+                  ? m.role !== 'owner'
+                  : m.role !== 'owner' && (targetIsElevated ? canManageAdmin : canManageBasic);
+              return (
+                <CardRow
+                  key={m.id}
+                  header={
+                    <>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                        {m.email || '—'}
+                      </span>
+                      {!allowEdit && (
+                        <span style={roleBadge(m.role, t, isDark)}>{m.role}</span>
+                      )}
+                    </>
+                  }
+                  body={
+                    <>
+                      {m.name && <span style={{ color: t.text }}>{m.name}</span>}
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={provenanceBadge(m.provisioned_via, t, isDark)}>
+                          {provenanceLabel(m.provisioned_via)}
+                        </span>
+                        <span style={{ color: t.textMuted }}>
+                          Joined {formatDate(m.created_at)}
+                        </span>
+                      </div>
+                      {allowEdit && (
+                        <div style={{ marginTop: 4 }}>
+                          <span style={{ display: 'block', fontSize: 11, color: t.textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                            Role
+                          </span>
+                          <select
+                            value={m.role}
+                            onChange={(e) => updateMutation.mutate({ id: m.id, role: e.target.value })}
+                            style={{ ...inputStyle(t), width: '100%', minHeight: 40 }}
+                          >
+                            {ASSIGNABLE_ROLES.filter((r) => r !== 'admin' || canManageAdmin).map((r) => (
+                              <option key={r} value={r}>{r}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </>
+                  }
+                  actions={allowRemove ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const confirmText = isSelf
+                          ? 'Leave this organization?'
+                          : `Remove ${m.email || 'this user'}?`;
+                        if (window.confirm(confirmText)) removeMutation.mutate(m.id);
+                      }}
+                      style={{ ...dangerButton(t), minHeight: 36 }}
+                    >
+                      {isSelf ? 'Leave' : 'Remove'}
+                    </button>
+                  ) : null}
+                />
+              );
+            })}
+          </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
