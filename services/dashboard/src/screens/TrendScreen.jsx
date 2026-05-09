@@ -7,6 +7,7 @@ import AreaChart from '../components/AreaChart';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { useWindowWidth } from '../components/primitives';
+import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { Spinner } from '../components/primitives';
 import { csvEncode, downloadCSV } from '../utils/csv';
 
@@ -210,6 +211,8 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const { theme, isDark } = useTheme();
   const { toast } = useToast();
   const screenWidth = useWindowWidth();
+  const { isAtMost } = useBreakpoint();
+  const isMobile = isAtMost('xs');
   const [filterServices, setFilterServices]         = useState(() => new Set());
   const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
 
@@ -492,7 +495,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               onClick={clearServiceFilter}
               aria-pressed={filterServices.size === 0}
               style={{
-                padding: '4px 10px', borderRadius: 20, cursor: 'pointer', flexShrink: 0,
+                padding: isMobile ? '8px 14px' : '4px 10px', borderRadius: 20, cursor: 'pointer', flexShrink: 0,
                 backgroundColor: filterServices.size === 0 ? t.accent : t.surfaceRaised,
                 border: `1px solid ${filterServices.size === 0 ? t.accent : t.border}`,
                 fontSize: 12, fontWeight: 700,
@@ -511,7 +514,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                   aria-pressed={active}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 5,
-                    padding: '4px 10px', borderRadius: 20, cursor: 'pointer', flexShrink: 0,
+                    padding: isMobile ? '8px 14px' : '4px 10px', borderRadius: 20, cursor: 'pointer', flexShrink: 0,
                     backgroundColor: active ? t.accent : t.surfaceRaised,
                     border: `1px solid ${active ? t.accent : t.border}`,
                   }}
@@ -535,7 +538,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               onClick={clearResourceTypeFilter}
               aria-pressed={filterResourceTypes.size === 0}
               style={{
-                padding: '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
+                padding: isMobile ? '7px 12px' : '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
                 backgroundColor: filterResourceTypes.size === 0 ? t.textMid : t.surfaceRaised,
                 border: `1px solid ${filterResourceTypes.size === 0 ? t.textMid : t.border}`,
                 fontSize: 11, fontWeight: 600,
@@ -554,7 +557,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                   aria-pressed={active}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 4,
-                    padding: '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
+                    padding: isMobile ? '7px 12px' : '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
                     backgroundColor: active ? t.textMid : t.surfaceRaised,
                     border: `1px solid ${active ? t.textMid : t.border}`,
                   }}
@@ -611,7 +614,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
             disabled={exportRowCount === 0}
             aria-label="Export to CSV"
             style={{
-              padding: '4px 10px',
+              padding: isMobile ? '8px 12px' : '4px 10px',
               borderRadius: 6,
               border: `1px solid ${t.border}`,
               backgroundColor: t.surfaceRaised,

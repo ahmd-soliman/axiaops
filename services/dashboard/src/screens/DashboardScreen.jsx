@@ -237,7 +237,7 @@ function ServiceBreakdown({ byService, currency, theme, isMobile }) {
 
 // ─── Search + Sort bar ────────────────────────────────────────────────────────
 
-function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onClearFilter }) {
+function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onClearFilter, isMobile }) {
   return (
     <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', gap: 8 }}>
@@ -296,7 +296,10 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
         </select>
       </div>
 
-      {/* Active filter chips */}
+      {/* Active filter chips — phone bumps pill padding from 3/8/3/10 →
+          7/12/7/14 so the 22px-tall desktop chip becomes a ~32px-tall
+          mobile chip; still tighter than the 44px HIG floor but reliably
+          tappable. Same rationale for the "Clear all" link beside them. */}
       {activeFilters.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {activeFilters.map(f => (
@@ -308,7 +311,7 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
                 display: 'flex',
                 alignItems: 'center',
                 gap: 5,
-                padding: '3px 8px 3px 10px',
+                padding: isMobile ? '7px 12px 7px 14px' : '3px 8px 3px 10px',
                 backgroundColor: theme.accentLight,
                 border: `1px solid ${theme.accentBorder}`,
                 borderRadius: 20,
@@ -324,7 +327,7 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
           ))}
           <button
             onClick={() => activeFilters.forEach(f => onClearFilter(f.key))}
-            style={{ padding: '3px 8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: theme.textMuted }}
+            style={{ padding: isMobile ? '7px 10px' : '3px 8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: theme.textMuted }}
           >
             Clear all
           </button>
@@ -340,7 +343,7 @@ function FilterPills({
   byService, owners, resourceTypes,
   filterSvcs, filterOwner, filterResourceTypes,
   onToggleSvc, onFilterOwner, onToggleResourceType, onClearResourceTypes,
-  currency, theme, isDark,
+  currency, theme, isDark, isMobile,
 }) {
   const showSubfilter = filterSvcs.size === 1 && resourceTypes.length > 0;
   const noneSelected = filterResourceTypes.size === 0;
@@ -367,7 +370,7 @@ function FilterPills({
                   gap: 5,
                   backgroundColor: active ? theme.accent : theme.surfaceRaised,
                   borderRadius: 20,
-                  padding: '5px 10px',
+                  padding: isMobile ? '8px 14px' : '5px 10px',
                   border: `1px solid ${active ? theme.accent : theme.border}`,
                   cursor: 'pointer',
                   flexShrink: 0,
@@ -393,7 +396,7 @@ function FilterPills({
             onClick={onClearResourceTypes}
             aria-pressed={noneSelected}
             style={{
-              padding: '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
+              padding: isMobile ? '7px 12px' : '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
               backgroundColor: noneSelected ? theme.textMid : theme.surfaceRaised,
               border: `1px solid ${noneSelected ? theme.textMid : theme.border}`,
               fontSize: 11, fontWeight: 600,
@@ -412,7 +415,7 @@ function FilterPills({
                 aria-pressed={active}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
+                  padding: isMobile ? '7px 12px' : '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
                   backgroundColor: active ? theme.textMid : theme.surfaceRaised,
                   border: `1px solid ${active ? theme.textMid : theme.border}`,
                 }}
@@ -442,7 +445,7 @@ function FilterPills({
                 style={{
                   backgroundColor: active ? theme.navy : theme.surfaceRaised,
                   borderRadius: 20,
-                  padding: '4px 10px',
+                  padding: isMobile ? '8px 12px' : '4px 10px',
                   border: `1px solid ${active ? theme.navy : theme.border}`,
                   cursor: 'pointer',
                   flexShrink: 0,
@@ -1147,6 +1150,7 @@ export default function DashboardScreen({
           currency={summary.data?.currency ?? '$'}
           theme={t}
           isDark={isDark}
+          isMobile={isMobile}
         />
       </div>
 
@@ -1191,6 +1195,7 @@ export default function DashboardScreen({
           theme={t}
           activeFilters={activeFilters}
           onClearFilter={clearFilter}
+          isMobile={isMobile}
         />
       )}
 
