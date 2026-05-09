@@ -13,12 +13,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/lib/pq"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // migrationHistoryLockID is the wrapper-level session advisory lock held for
@@ -92,37 +90,6 @@ FROM axiaops.migration_history h;
 GRANT SELECT ON axiaops.migration_history   TO axiaops;
 GRANT SELECT ON axiaops.migration_history_v TO axiaops;
 `
-
-// driftCounter counts every drift event we observe at boot. Lazily registered
-// because Migrate() may be called from CLI binaries that have no Prometheus
-// HTTP endpoint — registration is harmless either way.
-var (
-	driftCounterOnce sync.Once
-	driftCounter     *prometheus.CounterVec
-)
-
-func driftMetric() *prometheus.CounterVec {
-	driftCounterOnce.Do(func() {
-		driftCounter = prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "axiaops_migration_history_drift_total",
-				Help: "Migration files whose on-disk SHA-256 differs from the recorded checksum.",
-			},
-			[]string{"version"},
-		)
-		// Best-effort: if another caller already registered the same metric,
-		// use the existing one rather than panicking.
-		if err := prometheus.Register(driftCounter); err != nil {
-			var are prometheus.AlreadyRegisteredError
-			if errors.As(err, &are) {
-				if cv, ok := are.ExistingCollector.(*prometheus.CounterVec); ok {
-					driftCounter = cv
-				}
-			}
-		}
-	})
-	return driftCounter
-}
 
 // migrationFile is one (version, name, direction) tuple resolved from the
 // embedded migrations FS.
@@ -640,7 +607,12 @@ func detectDrift(ctx context.Context, conn *sql.Conn, efs fs.FS, idx *migrationF
 			continue
 		}
 		drifts = append(drifts, drift{version: v, expected: expected.String, observed: observed})
-		driftMetric().WithLabelValues(strconv.FormatUint(uint64(v), 10)).Inc()
+		// Emitted to slog only — drift detection runs inside Migrate(),
+		// which only the short-lived migrate / axiaopsctl binaries call.
+		// They have no /metrics endpoint and exit before any scraper could
+		// reach them, so a Prometheus counter would be dead code. The log
+		// flows through the same observability pipeline that already
+		// alerts on warn-level events.
 		slog.Warn("migration_history: file checksum drift detected",
 			"version", v, "name", mf.name,
 			"expected_sha256", expected.String, "observed_sha256", observed,
