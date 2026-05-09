@@ -5,6 +5,7 @@ import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
 import { Spinner, InfoTooltip } from '../components/primitives';
+import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { csvEncode, downloadCSV } from '../utils/csv';
@@ -73,7 +74,7 @@ function MonthlyWasteCard({ onShowTrend, theme, children }) {
   );
 }
 
-function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, theme }) {
+function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, theme, isMobile }) {
   const data = summary.data;
   const waste = data?.potential_monthly_savings ?? 0;
   const zombieCount = data?.total_zombies ?? 0;
@@ -100,9 +101,11 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
     : null;
 
   return (
-    <div style={{ backgroundColor: theme.surfaceAlt || theme.surface, borderBottom: `1px solid ${theme.border}`, padding: '20px' }}>
-      {/* Two-stat row */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+    <div style={{ backgroundColor: theme.surfaceAlt || theme.surface, borderBottom: `1px solid ${theme.border}`, padding: isMobile ? '16px' : '20px' }}>
+      {/* Two-stat row — stacks vertically on phones; the 28px-bold spend value
+          + 11px label cluster only fits side-by-side once the viewport has
+          ~440px of inner width. */}
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 12 : 16, marginBottom: 16 }}>
         {/* Total Spend */}
         <button
           type="button"
@@ -187,12 +190,12 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
 
 // ─── Service breakdown ───────────────────────────────────────────────────────
 
-function ServiceBreakdown({ byService, currency, theme }) {
+function ServiceBreakdown({ byService, currency, theme, isMobile }) {
   if (byService.length === 0) return null;
   const maxSavings = Math.max(...byService.map(([, d]) => d.savings), 0.01);
 
   return (
-    <div style={{ padding: '16px 20px', borderBottom: `1px solid ${theme.border}` }}>
+    <div style={{ padding: isMobile ? '16px' : '16px 20px', borderBottom: `1px solid ${theme.border}` }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 12 }}>
         Waste by Service
       </span>
@@ -202,8 +205,19 @@ function ServiceBreakdown({ byService, currency, theme }) {
           const barWidth = (data.savings / maxSavings) * 100;
           return (
             <div key={svc}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {/* Header — at xs the label cluster (dot + name + count) and
+                  the right-aligned cost share too little width once names
+                  like "AmazonOpenSearchService" appear. Drop the row to a
+                  column with the cost on its own line. */}
+              <div style={{
+                display: 'flex',
+                flexDirection: isMobile ? 'column' : 'row',
+                alignItems: isMobile ? 'flex-start' : 'center',
+                justifyContent: 'space-between',
+                gap: isMobile ? 2 : 8,
+                marginBottom: 4,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
                   <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
                   <span style={{ fontSize: 11, color: theme.textMuted }}>{data.zombies} resource{data.zombies !== 1 ? 's' : ''}</span>
@@ -639,41 +653,56 @@ function DismissedCard({ item, theme, isDark }) {
 
 // ─── Bulk action bar ──────────────────────────────────────────────────────────
 
-function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, theme }) {
+function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, theme, isMobile }) {
+  // Sum of pixel widths inside the toolbar (~417px including padding/gap)
+  // overflows a 360px viewport. On mobile the bar spans the viewport with
+  // 12px side margins instead of centring around `left: 50%`, drops the
+  // divider, and reduces label/padding sizes to fit. The position stays
+  // fixed-to-bottom so the bar is reachable while the resource list scrolls.
+  const buttonStyle = (color) => ({
+    padding: isMobile ? '6px 8px' : '5px 12px',
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    border: 'none',
+    cursor: 'pointer',
+    color,
+    fontSize: isMobile ? 12 : 13,
+    fontWeight: 600,
+  });
   return (
     <div
       role="toolbar"
       aria-label="Bulk actions"
       style={{
         position: 'fixed',
-        bottom: 72,
-        left: '50%',
-        transform: 'translateX(-50%)',
+        bottom: isMobile ? 16 : 72,
+        ...(isMobile
+          ? { left: 12, right: 12 }
+          : { left: '50%', transform: 'translateX(-50%)' }),
         backgroundColor: theme.navy,
         borderRadius: 12,
-        padding: '10px 16px',
+        padding: isMobile ? '8px 10px' : '10px 16px',
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
+        gap: isMobile ? 6 : 10,
         boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
         zIndex: 200,
         whiteSpace: 'nowrap',
       }}
     >
-      <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
-        {count} selected
+      <span style={{ fontSize: isMobile ? 12 : 13, fontWeight: 700, color: '#fff' }}>
+        {count} {isMobile ? '' : 'selected'}
       </span>
-      <div style={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.2)' }} />
-      <button onClick={onDismiss} style={{ padding: '5px 12px', borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 600 }}>
-        Dismiss
-      </button>
-      <button onClick={onSnooze} style={{ padding: '5px 12px', borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', color: '#60a5fa', fontSize: 13, fontWeight: 600 }}>
-        Snooze 7d
-      </button>
-      <button onClick={onExport} style={{ padding: '5px 12px', borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', color: '#34d399', fontSize: 13, fontWeight: 600 }}>
-        Export
-      </button>
-      <button onClick={onClear} style={{ padding: '5px 8px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.5)', fontSize: 18, lineHeight: 1 }}>
+      {!isMobile && <div style={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.2)' }} />}
+      <button onClick={onDismiss} style={buttonStyle('#fff')}>Dismiss</button>
+      <button onClick={onSnooze} style={buttonStyle('#60a5fa')}>{isMobile ? 'Snooze' : 'Snooze 7d'}</button>
+      <button onClick={onExport} style={buttonStyle('#34d399')}>Export</button>
+      <div style={{ flex: 1 }} />
+      <button
+        onClick={onClear}
+        aria-label="Clear selection"
+        style={{ padding: '5px 8px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.5)', fontSize: 18, lineHeight: 1 }}
+      >
         ×
       </button>
     </div>
@@ -809,6 +838,8 @@ export default function DashboardScreen({
   const { toast }         = useToast();
   const { watch }         = useScanStatus();
   const queryClient       = useQueryClient();
+  const { isAtMost }      = useBreakpoint();
+  const isMobile          = isAtMost('xs');
   const t = theme;
 
   const [filterSvcs, setFilterSvcs]                   = useState(() => new Set());
@@ -1052,7 +1083,7 @@ export default function DashboardScreen({
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ backgroundColor: t.bg, minHeight: '100%', paddingBottom: selected.size > 0 ? 100 : 40 }}>
+    <div style={{ backgroundColor: t.bg, minHeight: '100%', paddingBottom: selected.size > 0 ? (isMobile ? 80 : 100) : 40 }}>
 
       {/* Account selector + refresh bar */}
       <div style={{
@@ -1095,10 +1126,10 @@ export default function DashboardScreen({
       </div>
 
       {/* Overview hero */}
-      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} onShowCosts={onShowCosts} theme={t} />
+      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} onShowCosts={onShowCosts} theme={t} isMobile={isMobile} />
 
       {/* Service breakdown */}
-      <ServiceBreakdown byService={byService} currency={summary.data?.currency ?? '$'} theme={t} />
+      <ServiceBreakdown byService={byService} currency={summary.data?.currency ?? '$'} theme={t} isMobile={isMobile} />
 
       {/* Filter pills */}
       <div style={{ padding: '12px 16px 0' }}>
@@ -1236,6 +1267,7 @@ export default function DashboardScreen({
           onExport={() => exportCSV(selectedItems, { zombieOnly }, toast)}
           onClear={() => setSelected(new Set())}
           theme={t}
+          isMobile={isMobile}
         />
       )}
 
