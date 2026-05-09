@@ -359,3 +359,15 @@ build-production:
 	cd services/api && go build -tags production -o /tmp/axiaops-api-production ./cmd/
 	cd services/ingestion && go build -tags production -o /tmp/axiaops-ingestion-production ./cmd/
 	@echo "production-tagged binaries built — DEV_MODE is no-op in /tmp/axiaops-{api,ingestion}-production"
+
+# axiaopsctl is the operator CLI for migrate up/down/force/drift/history.
+# See docs/migration-history-table-design.md §Operator UX.
+.PHONY: axiaopsctl migration-history migration-history-drift
+axiaopsctl:
+	cd services/shared && go build -o ../../bin/axiaopsctl ./cmd/migrate/
+
+migration-history: axiaopsctl
+	@MIGRATION_DATABASE_URL=$(MIGRATION_DATABASE_URL) bin/axiaopsctl migrate history $(V)
+
+migration-history-drift: axiaopsctl
+	@MIGRATION_DATABASE_URL=$(MIGRATION_DATABASE_URL) bin/axiaopsctl migrate drift
