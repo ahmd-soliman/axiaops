@@ -135,7 +135,7 @@ export default function AppShell() {
           zIndex: 100,
           backgroundColor: t.bgSecondary,
           borderBottom: `1px solid ${t.border}`,
-          height: 52,
+          height: 64,
           display: 'flex',
           alignItems: 'center',
           padding: '0 16px',
@@ -143,11 +143,14 @@ export default function AppShell() {
           flexShrink: 0,
         }}
       >
-        {/* Logo — Geist 700 reads visually as 800 in the system font, plus
-            tighter letterSpacing because Geist sets generous spacing by default. */}
-        <span style={{ color: t.accent, fontSize: 18, fontWeight: 700, letterSpacing: -0.2, marginRight: 8 }}>
-          AxiaOps
-        </span>
+        {/* Logo — SVG lockup. Source picked by isDark so the wordmark's
+            "Axia" text contrasts the navbar bg (dark text on light, light on
+            dark). The "Ops" wordmark and sonar mark stay constant across modes. */}
+        <img
+          src={isDark ? '/axiaops-logo-dark.svg' : '/axiaops-logo.svg'}
+          alt="AxiaOps"
+          style={{ height: 48, width: 'auto', marginRight: 12, display: 'block' }}
+        />
 
         {/* Nav links — color + weight signal active state; bg is reserved
             for hover feedback so inactive items aren't dead targets. */}

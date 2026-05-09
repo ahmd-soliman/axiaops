@@ -122,7 +122,7 @@ export default function NativeLoginScreen({ onSubmit, loading, error }) {
   return (
     <div style={S.container}>
       <form style={S.card} onSubmit={handleSubmit} noValidate>
-        <span style={S.logo}>AxiaOps</span>
+        <img src="/axiaops-logo-dark.svg" alt="AxiaOps" style={S.logoImg} />
         <span style={S.tagline}>
           Sign in to find idle cloud resources.
         </span>
