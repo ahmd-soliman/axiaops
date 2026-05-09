@@ -409,6 +409,15 @@ axiaops/
 
 ## Documentation
 
+**Start here:**
+
+| File | Description |
+|------|-------------|
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | **System architecture hub — diagrams of system, deployment, scan lifecycle, auth flows, data model. Read this first.** |
+| **[docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)** | **Developer onboarding — setup, conventions, common workflows, gotchas.** |
+
+**Reference docs:**
+
 | File | Description |
 |------|-------------|
 | [docs/development_plan.md](docs/development_plan.md) | Architecture decisions, data model, DB schema, phase plans |
