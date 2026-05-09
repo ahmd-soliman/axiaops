@@ -505,3 +505,62 @@ func TestMigrationHistory_DDLIdempotent(t *testing.T) {
 		t.Fatalf("second Bootstrap: %v", err)
 	}
 }
+
+// TestSchemaMigrationsState_TableAbsent reproduces the CI failure mode where
+// Bootstrap has run (so axiaops.migration_history exists) but golang-migrate
+// has not yet been called (so axiaops.schema_migrations does not exist). The
+// wrapper's pre-flight (recoverOrphans → backfillIfEmpty) reads
+// schema_migrations on a brand-new DB; it must collapse SQLSTATE 42P01
+// (undefined_table) to hasRow=false rather than panic.
+//
+// Single-process integration suite (-p=1), so dropping + restoring
+// schema_migrations between tests is safe. Restore Cleanup is registered
+// BEFORE the drop so it fires even if the test t.Fatals.
+func TestSchemaMigrationsState_TableAbsent(t *testing.T) {
+	url := migrationURLOrSkip(t)
+	db := openOwner(t)
+
+	// Snapshot the current row before dropping; we'll restore it.
+	var origVersion int64
+	var origDirty bool
+	if err := db.QueryRow(`SELECT version, dirty FROM axiaops.schema_migrations`).Scan(&origVersion, &origDirty); err != nil {
+		t.Fatalf("snapshot schema_migrations: %v", err)
+	}
+
+	t.Cleanup(func() {
+		// Recreate exactly the schema golang-migrate's
+		// migratepg.ensureVersionTable would create, then restore the row.
+		// Idempotent — IF NOT EXISTS / ON CONFLICT — so a noop if the test
+		// path successfully restored it some other way.
+		if _, err := db.Exec(`
+			CREATE TABLE IF NOT EXISTS axiaops.schema_migrations (
+				version BIGINT NOT NULL PRIMARY KEY,
+				dirty   BOOLEAN NOT NULL
+			)
+		`); err != nil {
+			t.Logf("cleanup recreate schema_migrations: %v", err)
+		}
+		if _, err := db.Exec(`
+			INSERT INTO axiaops.schema_migrations (version, dirty)
+			VALUES ($1, $2)
+			ON CONFLICT (version) DO UPDATE SET dirty = EXCLUDED.dirty
+		`, origVersion, origDirty); err != nil {
+			t.Logf("cleanup restore row: %v", err)
+		}
+	})
+
+	if _, err := db.Exec(`DROP TABLE axiaops.schema_migrations`); err != nil {
+		t.Fatalf("drop schema_migrations: %v", err)
+	}
+
+	version, dirty, hasRow, err := postgres.SchemaMigrationsStateForTest(context.Background(), url)
+	if err != nil {
+		t.Fatalf("SchemaMigrationsState must tolerate missing table, got: %v", err)
+	}
+	if hasRow {
+		t.Fatal("hasRow must be false when the table does not exist")
+	}
+	if version != 0 || dirty {
+		t.Fatalf("zero values expected, got version=%d dirty=%v", version, dirty)
+	}
+}

@@ -15,3 +15,17 @@ func RecoverOrphansForTest(ctx context.Context, migrationURL string) error {
 		return recoverOrphans(ctx, conn)
 	})
 }
+
+// SchemaMigrationsStateForTest exposes the helper that reads
+// axiaops.schema_migrations from the history-writer connection. Used by the
+// regression test that confirms a missing schema_migrations table (fresh DB
+// state, before migratepg.WithInstance has run) collapses to hasRow=false
+// rather than erroring.
+func SchemaMigrationsStateForTest(ctx context.Context, migrationURL string) (version int64, dirty bool, hasRow bool, err error) {
+	err = withHistoryConn(ctx, migrationURL, func(conn *sql.Conn) error {
+		var innerErr error
+		version, dirty, hasRow, innerErr = schemaMigrationsState(ctx, conn)
+		return innerErr
+	})
+	return version, dirty, hasRow, err
+}
