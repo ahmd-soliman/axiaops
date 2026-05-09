@@ -3,6 +3,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { fetchAuditEvents } from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
+import { useBreakpoint } from '../components/primitives/useBreakpoint';
 
 // ─── Action catalogue ────────────────────────────────────────────────────────
 // Keep in sync with services/shared/model/audit.go `AuditAction*`. The order
@@ -129,7 +130,7 @@ function MetadataPanel({ event, theme }) {
   );
 }
 
-function EventRow({ event, theme, isDark }) {
+function EventRow({ event, theme, isDark, isMobile }) {
   const [expanded, setExpanded] = useState(false);
   const hasMetadata = event.metadata && Object.keys(event.metadata).length > 0;
 
@@ -143,10 +144,61 @@ function EventRow({ event, theme, isDark }) {
     }
   }
 
+  const resourceText = event.resource_type
+    ? `${event.resource_type}/${event.resource_id}`
+    : event.resource_id || '—';
+  const actorNode = event.actor_email || event.user_id || <em style={{ color: theme.textMuted }}>system</em>;
+
   // ARIA: role="row" with aria-expanded is the treegrid pattern for an
   // expandable row. Putting role="button" on the row itself would invalidate
   // the role="cell" descendants (cells must live inside a row, not a button)
   // and break column attribution for screen readers.
+  if (isMobile) {
+    // Phone layout — desktop's pseudo-table sums to >340px in fixed
+    // column bases alone (200 + 140) before any flexible cells, which
+    // is wider than a 375px viewport's content area. Stack the cells
+    // vertically: action chip + UTC timestamp + chevron on the top
+    // row, actor on the second, resource on the third (mono, allowed
+    // to wrap with break-all so long ARNs don't horizontal-scroll).
+    return (
+      <div
+        role="row"
+        tabIndex={hasMetadata ? 0 : undefined}
+        aria-expanded={hasMetadata ? expanded : undefined}
+        onClick={hasMetadata ? () => setExpanded((v) => !v) : undefined}
+        onKeyDown={handleKey}
+        style={{
+          padding: '12px 14px',
+          borderBottom: `1px solid ${theme.border}`,
+          cursor: hasMetadata ? 'pointer' : 'default',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <ActionChip action={event.action} theme={theme} isDark={isDark} />
+          <span style={{ flex: 1, minWidth: 0 }} />
+          <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace' }}>
+            {fmtTime(event.created_at)}
+          </span>
+          {hasMetadata && (
+            <span aria-hidden="true" style={{ color: theme.textMuted, fontSize: 12 }}>
+              {expanded ? '▾' : '▸'}
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 13, color: theme.text }}>
+          {actorNode}
+        </div>
+        <div style={{ fontSize: 12, color: theme.textMid, fontFamily: '"Geist Mono Variable", monospace', wordBreak: 'break-all' }}>
+          {resourceText}
+        </div>
+        {expanded && <MetadataPanel event={event} theme={theme} />}
+      </div>
+    );
+  }
+
   return (
     <div
       role="row"
@@ -168,10 +220,10 @@ function EventRow({ event, theme, isDark }) {
           <ActionChip action={event.action} theme={theme} isDark={isDark} />
         </div>
         <div role="cell" style={{ flex: '1 1 180px', fontSize: 13, color: theme.text, minWidth: 0 }}>
-          {event.actor_email || event.user_id || <em style={{ color: theme.textMuted }}>system</em>}
+          {actorNode}
         </div>
         <div role="cell" style={{ flex: '1 1 220px', fontSize: 12, color: theme.textMid, fontFamily: '"Geist Mono Variable", monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-          {event.resource_type ? `${event.resource_type}/${event.resource_id}` : event.resource_id || '—'}
+          {resourceText}
         </div>
         {hasMetadata && (
           <div aria-hidden="true" style={{ flex: '0 0 auto', color: theme.textMuted, fontSize: 12 }}>
@@ -239,6 +291,8 @@ function DateInput({ label, value, onChange, theme }) {
 
 export default function AuditScreen() {
   const { theme, isDark } = useTheme();
+  const { isAtMost } = useBreakpoint();
+  const isMobile = isAtMost('sm');
 
   const [action, setAction]             = useState('');
   const [resourceType, setResourceType] = useState('');
@@ -276,7 +330,7 @@ export default function AuditScreen() {
   const hasNext = query.hasNextPage;
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: isMobile ? 16 : 24 }}>
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: theme.text }}>
@@ -311,25 +365,31 @@ export default function AuditScreen() {
         borderRadius: 10,
         overflow: 'hidden',
       }}>
-        {/* Column headers */}
-        <div role="row" style={{
-          display: 'flex',
-          gap: 12,
-          padding: '10px 16px',
-          backgroundColor: theme.surfaceRaised,
-          borderBottom: `1px solid ${theme.border}`,
-          fontSize: 10,
-          fontWeight: 700,
-          color: theme.textMuted,
-          letterSpacing: 1.2,
-          textTransform: 'uppercase',
-        }}>
-          <div role="columnheader" style={{ flex: '0 0 200px' }}>Time</div>
-          <div role="columnheader" style={{ flex: '0 0 140px' }}>Action</div>
-          <div role="columnheader" style={{ flex: '1 1 180px' }}>Actor</div>
-          <div role="columnheader" style={{ flex: '1 1 220px' }}>Resource</div>
-          <div role="columnheader" aria-label="Expand" style={{ flex: '0 0 20px' }} />
-        </div>
+        {/* Column headers — desktop only. The phone layout renders cards
+            with implicit semantics (each card carries its action chip,
+            timestamp, actor, resource on labelled rows), so a column
+            header would be redundant and would force a horizontal-scroll
+            mismatch with the cell layout below. */}
+        {!isMobile && (
+          <div role="row" style={{
+            display: 'flex',
+            gap: 12,
+            padding: '10px 16px',
+            backgroundColor: theme.surfaceRaised,
+            borderBottom: `1px solid ${theme.border}`,
+            fontSize: 10,
+            fontWeight: 700,
+            color: theme.textMuted,
+            letterSpacing: 1.2,
+            textTransform: 'uppercase',
+          }}>
+            <div role="columnheader" style={{ flex: '0 0 200px' }}>Time</div>
+            <div role="columnheader" style={{ flex: '0 0 140px' }}>Action</div>
+            <div role="columnheader" style={{ flex: '1 1 180px' }}>Actor</div>
+            <div role="columnheader" style={{ flex: '1 1 220px' }}>Resource</div>
+            <div role="columnheader" aria-label="Expand" style={{ flex: '0 0 20px' }} />
+          </div>
+        )}
 
         {query.isLoading && (
           <div style={{ padding: 40, display: 'flex', justifyContent: 'center' }}>
@@ -355,7 +415,7 @@ export default function AuditScreen() {
         )}
 
         {events.map((e) => (
-          <EventRow key={e.id} event={e} theme={theme} isDark={isDark} />
+          <EventRow key={e.id} event={e} theme={theme} isDark={isDark} isMobile={isMobile} />
         ))}
 
         {hasNext && (
