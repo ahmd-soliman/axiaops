@@ -134,8 +134,31 @@ func Migrate(migrationURL string) error {
 			return err
 		}
 		defer closeFn()
+		// schema_migrations exists at this point — migratepg.WithInstance
+		// inside openMigrate creates it lazily on first call. Stamp the
+		// COMMENT so a reader doing `\d+ axiaops.schema_migrations` in psql
+		// sees the table's role at a glance, instead of guessing why a
+		// "schema_migrations" table holds exactly one row.
+		if err := commentSchemaMigrations(ctx, conn); err != nil {
+			return err
+		}
 		return runUpLoop(ctx, conn, m, migrationsFS, idx, ident)
 	})
+}
+
+// commentSchemaMigrations is idempotent — Postgres' COMMENT ON TABLE
+// overwrites any existing comment and never errors on a no-op. Runs on
+// every Migrate() call so the comment stays in sync if the helper string
+// is ever updated.
+func commentSchemaMigrations(ctx context.Context, conn *sql.Conn) error {
+	const stmt = `COMMENT ON TABLE axiaops.schema_migrations IS ` +
+		`'golang-migrate state pointer (one row: version + dirty bit). ` +
+		`For per-event audit (every up/down/force with file SHA-256 + timing) ` +
+		`see axiaops.migration_history.'`
+	if _, err := conn.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("migrate: comment schema_migrations: %w", err)
+	}
+	return nil
 }
 
 // MigrateDown rolls back n steps with full history recording. Operator-only;
