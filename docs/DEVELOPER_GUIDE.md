@@ -151,9 +151,11 @@ The full play is documented in the [db-migration skill](../.claude/skills/db-mig
    CREATE POLICY tenant_isolation ON my_table
      USING (organization_id = current_setting('app.organization_id', true));
    ```
-3. Migrations run on service startup using `MIGRATION_DATABASE_URL` (owner role).
+3. Migrations run on service startup using `MIGRATION_DATABASE_URL` (owner role). On every boot the wrapper drives `m.Steps(1)` and records each event in `axiaops.migration_history` — every up / down / force gets a forensic row with file SHA-256, build identity, and timing.
 4. Don't forget the `.down.sql` — it gets run by integration test setup/teardown.
-5. If the schema change implies a new Store method, add to the `Store` interface + postgres impl + integration test under `services/shared/storage/postgres/postgres_test.go`.
+5. **Editing an already-applied migration triggers drift detection.** If you must mutate one (rare — usually you'd write a new migration instead), expect a `axiaops_migration_history_drift_total{version=...}` warning on the next boot. CI runs `MIGRATION_HISTORY_STRICT=true` so the boot fails, which is the canary you want.
+6. For ad-hoc migrate operations use `bin/axiaopsctl migrate {up,down,force,drift,history}` (`make axiaopsctl` to build). A bastion `migrate` install bypasses the history table — never use that path.
+7. If the schema change implies a new Store method, add to the `Store` interface + postgres impl + integration test under `services/shared/storage/postgres/postgres_test.go`.
 
 See [docs/migrations.md](migrations.md) for the deeper conventions.
 

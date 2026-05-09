@@ -304,6 +304,16 @@ erDiagram
 
 Versioned SQL files, run on service startup using `MIGRATION_DATABASE_URL` (owner role). Naming: `NNN_description.up.sql` / `NNN_description.down.sql`. As of 2026-05, the migration count is in the high 050s — see [docs/migrations.md](migrations.md) for the workflow when adding one.
 
+`postgres.Migrate` is a wrapper, not a thin call to golang-migrate. On every boot it:
+
+1. Pins a `*sql.Conn` and acquires a wrapper-level session advisory lock (`AxiaOpsM`).
+2. Runs **orphan recovery** — finalises any `axiaops.migration_history` row whose post-step UPDATE was lost to a crash (per the §Failure modes truth table in `docs/migration-history-table-design.md`).
+3. Runs **backfill** if `migration_history` is empty but `schema_migrations` is non-empty (first deploy).
+4. Runs **drift detection** — compares the on-disk SHA-256 of every embedded `.up.sql` against the recorded SHA. Mismatch → `slog.Warn` + `axiaops_migration_history_drift_total{version=...}`. `MIGRATION_HISTORY_STRICT=true` flips to refuse-to-start.
+5. Drives `m.Steps(1)` in a loop. Each step gets a pre-INSERT 'started' row (committed before the DDL) and a post-step UPDATE to `succeeded`/`failed`.
+
+`schema_migrations` is still owned by golang-migrate as before. `migration_history` layers on top — every event (up / down / force) lands a forensic row keyed by `id BIGSERIAL`. Operators inspect via `bin/axiaopsctl migrate history` or directly from `axiaops.migration_history_v` (the convenience view). DML on the table is owner-only; the app user has `SELECT` only.
+
 ---
 
 ## 6. Authentication & Authorization
