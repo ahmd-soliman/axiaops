@@ -12,6 +12,8 @@
 -- See `docs/kinde-removal-plan.md` §"Migration 024 — single migration does
 -- column drops AND rename" for the full rationale.
 
+SET search_path TO axiaops;
+
 -- pending_memberships: any rows that reached this DB without invite_token_hash
 -- came from the legacy Kinde-mode invitation flow (CreatePendingInvitation +
 -- UpdateInvitationKindeIDs). With kinde gone, those rows can't be redeemed —
