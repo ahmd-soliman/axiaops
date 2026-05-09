@@ -418,3 +418,51 @@ Pattern B (own warehouse) adds another ~6–8 weeks for the storage/replication 
 5. **Week 7:** soak in staging with real CUR, then release behind a per-customer flag for a small beta.
 
 Each step ships independently. If any step turns up a deal-breaker, the previous step's work isn't wasted — we still have the connection plumbing for a future re-attempt.
+
+---
+
+## 7. Testing approach
+
+CUR's testing surface is materially different from CE's, and easier in most respects. This section captures the implications and cross-references the broader AWS-testing decision.
+
+> See `docs/aws-integration-testing.md` for the project-wide policy: AxiaOps does not depend on AWS emulators for QA-load-bearing tests. CUR ingestion inherits that policy.
+
+### 7.1 What CUR makes cheaper to test
+
+- **No API rate ceiling, no per-call cost.** CUR is a set of Parquet files in S3. Tests read files; nothing throttles, nothing bills per request. Whole categories of CE-testing pain (CE rate limits at scale, the recurring CE-call bill in staging) disappear.
+- **Synthetic Parquet fixtures live in the repo.** Unit tests for the CUR reader, normaliser, and detection-engine integration run against a small Parquet file committed to `services/ingestion/internal/provider/aws/testdata/`. Deterministic, free, no network. This is the dominant CUR test path.
+- **Resource attribution is literal, not inferred.** Every CUR line item carries `lineItem/ResourceId` directly. The CE path's `resourceLevelServices` allowlist (`aws.go:397`) and the heuristic guesses about which service families return resource-level cost go away — the test assertions become "did we read the field" rather than "did we correctly infer attribution."
+
+### 7.2 What CUR makes harder to test
+
+- **Schema drift.** AWS evolves the CUR schema (new columns added, legacy ones renamed in Cost Optimization Hub variants, FOCUS-conformant exports diverge). Synthetic fixtures must be regenerated when AWS changes the schema. Mitigation: a `tools/capture-cur-fixture` script that downloads a single CUR file from the real test fleet's CUR delivery and snapshots a small subset of rows.
+- **The S3 → Athena → query-result path is integration-only.** Pattern A in §2 runs Athena queries against the customer's S3 bucket. The query-builder and result-parser unit-test cleanly; the actual Athena execution does not — that path is exercised only by the staging canary against a real CUR delivery.
+- **CUR delivery setup is a one-time-per-account dance.** Customer enables CUR, points it at our S3 bucket (or theirs with a cross-account read role), waits up to 24 hours for the first delivery. Test-fleet setup needs to wait through this once; subsequent test runs read the already-delivered files.
+
+### 7.3 Real-AWS test fleet additions
+
+The test fleet defined in `docs/aws-integration-testing.md` §4.2 grows by:
+
+| Resource | Purpose | Approximate monthly cost |
+|---|---|---|
+| 1× S3 bucket for CUR delivery | Receive CUR Parquet files | <€0.10 (low volume) |
+| CUR delivery configuration (one-time) | AWS writes daily Parquet for the test account | €0 (CUR delivery itself is free) |
+| Athena workgroup + result bucket | Pattern A query target | <€1/mo at test-fleet scale |
+| Glue catalog table over the CUR location | Schema for Athena to query | €0 |
+
+Total addition: **<€2/mo** — within the existing €60/mo Budgets ceiling.
+
+### 7.4 Layered tests for CUR ingestion
+
+| Layer | What it asserts | Cost |
+|---|---|---|
+| Unit — CUR reader | Parquet → `model.CostRecord` shape conversion is correct (column mapping, type coercion, line-item-type filtering, RI/SP amortisation arithmetic) | free |
+| Unit — Athena query builder | The SQL emitted for a given filter/groupby/timeframe is the SQL we expect | free |
+| Golden — detection rules with hourly granularity | Rules that need hourly resolution (idle-window detection beyond CE's daily floor) produce expected zombies given a synthetic hourly CUR | free |
+| Acceptance / canary — real CUR delivery | The CUR S3 path actually receives files daily; Athena queries return non-empty results; CUR-derived totals match CE-derived totals to within ±1% (the CE-vs-CUR cross-check called out in §6 step 2 is a continuous canary, not a one-off) | ~€2/mo |
+
+The CE-vs-CUR cross-check is the most valuable acceptance test: it catches both CE drift and CUR ingestion bugs simultaneously, because the two should agree on totals when CUR is operating correctly.
+
+### 7.5 What does not change
+
+The §1 decision in `docs/aws-integration-testing.md` stands: no emulator (Floci, kumo, mummer, LocalStack, or any future entrant) is load-bearing for CUR QA. CUR's S3-and-Parquet shape happens to be more emulator-trivial than CE's API surface — `localstack` or any S3-compatible store can serve the files — but the same trust-divergence reasoning applies, and synthetic fixtures committed to the repo are simpler, cheaper, and more deterministic than running an S3 emulator next to the test process.
