@@ -8,6 +8,8 @@
 // palette as the legacy LoginScreen so the strangler transition is
 // visually invisible to users.
 
+import { useBreakpoint } from '../components/primitives/useBreakpoint';
+
 const C = {
   bg: '#0B1220',
   navyMid: '#182031',
@@ -137,3 +139,22 @@ export const authStyles = {
     lineHeight: '16px',
   },
 };
+
+// useAuthStyles — same shape as authStyles, but with mobile-friendly
+// container/card padding on phones. The static `authStyles` export above
+// stays unchanged for any caller that wants the desktop-only shape; the
+// 5 pre-auth screens consume this hook so the card stops cramping its
+// 247px-content shape on a 375px viewport (375 − 48 container − 80 card =
+// 247). On phones the container drops to 16px on each side and the card's
+// 40px padding drops to 24, buying back ~48px of usable form width.
+export function useAuthStyles() {
+  const { isAtMost } = useBreakpoint();
+  const isMobile = isAtMost('xs');
+  if (!isMobile) return authStyles;
+  return {
+    ...authStyles,
+    container: { ...authStyles.container, padding: 16 },
+    card: { ...authStyles.card, padding: 24 },
+    logoImg: { ...authStyles.logoImg, height: 64, margin: '0 auto 8px' },
+  };
+}
