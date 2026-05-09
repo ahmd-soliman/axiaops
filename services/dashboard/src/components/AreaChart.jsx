@@ -1,7 +1,13 @@
 import { useState, useRef, useId } from 'react';
 
 const CHART_HEIGHT = 200;
+// Default desktop margins. The 56px left gutter holds 5-character y-axis
+// labels like "$1.2k" with breathing room — fine on a 1280px chart, but
+// at 360px viewport width the same 56px eats 17% of the plot. The
+// component picks a narrower left margin (40px) below 480px CSS pixels;
+// "$10k" still fits at 40px, and the smaller gutter buys ~16px of plot.
 const MARGIN = { top: 16, right: 20, bottom: 32, left: 56 };
+const MARGIN_LEFT_NARROW = 40;
 
 function formatCost(val) {
   if (val >= 10000) return `${(val / 1000).toFixed(0)}k`;
@@ -32,7 +38,8 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
 
   const t = theme;
   const width = Math.max(320, screenWidth - 32);
-  const plotW = width - MARGIN.left - MARGIN.right;
+  const marginLeft = screenWidth < 480 ? MARGIN_LEFT_NARROW : MARGIN.left;
+  const plotW = width - marginLeft - MARGIN.right;
   const plotH = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
 
   const values = data.map(s => s.total_monthly_cost);
@@ -45,7 +52,7 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
 
   // Map data to pixel coordinates
   const points = data.map((s, i) => ({
-    x: MARGIN.left + (i / (data.length - 1)) * plotW,
+    x: marginLeft + (i / (data.length - 1)) * plotW,
     y: MARGIN.top + plotH - ((s.total_monthly_cost - minVal) / valRange) * plotH,
   }));
 
@@ -119,7 +126,7 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
 
         {/* Horizontal grid lines */}
         {yTicks.map((tick, i) => (
-          <line key={i} x1={MARGIN.left} y1={tick.y} x2={width - MARGIN.right} y2={tick.y}
+          <line key={i} x1={marginLeft} y1={tick.y} x2={width - MARGIN.right} y2={tick.y}
             stroke={t.border} strokeWidth="1" opacity="0.4" />
         ))}
 
@@ -132,7 +139,7 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
 
         {/* Y-axis labels */}
         {yTicks.map((tick, i) => (
-          <text key={i} x={MARGIN.left - 10} y={tick.y + 4} textAnchor="end"
+          <text key={i} x={marginLeft - 10} y={tick.y + 4} textAnchor="end"
             fontSize="10" fontFamily="system-ui, sans-serif" fill={t.textMuted}>
             ${formatCost(tick.val)}
           </text>
