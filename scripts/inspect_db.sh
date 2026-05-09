@@ -30,7 +30,7 @@ echo ""
 # ── Users ─────────────────────────────────────────────────────────────────────
 
 echo "=== Users ==="
-q "SELECT id, organization_id, kinde_sub, email, name, last_seen FROM users ORDER BY last_seen DESC;"
+q "SELECT id, organization_id, external_id, email, name, last_seen FROM users ORDER BY last_seen DESC;"
 
 echo ""
 
