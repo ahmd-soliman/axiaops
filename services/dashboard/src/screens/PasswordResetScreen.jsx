@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Spinner } from '../components/primitives';
 import { authRedeemPasswordReset } from '../api/client';
-import { authColors as C, authStyles as S } from './_authShell';
+import { authColors as C, useAuthStyles } from './_authShell';
 
 // loginRedirectDelayMs is how long the success message stays visible
 // before we redirect to /login. Long enough to register, short enough
@@ -16,6 +16,7 @@ const loginRedirectDelayMs = 1500;
 // dashboard therefore lands the user on /login, not /dashboard, so
 // they pick the new password up via a fresh login.
 export default function PasswordResetScreen() {
+  const S = useAuthStyles();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const tokenFromUrl = params.get('token') || '';
