@@ -468,17 +468,47 @@ guaranteed.
 
 ### Posture
 
-**warn-and-continue** in v1: log a structured warning, emit a Prometheus
-counter `axiaops_migration_history_drift_total{version=...}`, keep starting
-the service. Customer self-hosted installs can have legitimate reasons for
-drift (operator hand-edited a migration, restored a backup from before a
-column existed) and refusing to start would turn drift into a deploy outage on
+**warn-and-continue** in v1: log a structured warning, keep starting the
+service. Customer self-hosted installs can have legitimate reasons for drift
+(operator hand-edited a migration, restored a backup from before a column
+existed) and refusing to start would turn drift into a deploy outage on
 installs we don't operate.
 
 A `MIGRATION_HISTORY_STRICT=true` env var flips the posture to
 refuse-to-start; we default it on in CI and our own staging/dev envs and off
 elsewhere. The escalation path to defaulting it on for production is a
 quarter of real data on how often legitimate drift occurs.
+
+#### No Prometheus counter (revised from earlier draft)
+
+The original draft called for an `axiaops_migration_history_drift_total`
+Prometheus counter alongside the slog.Warn. Dropped during implementation
+once we noticed the wiring doesn't reach a scraper:
+
+- `Migrate()` is only called by the dedicated migrate Docker image and
+  `axiaopsctl` — both short-lived, no `/metrics` endpoint, exit within
+  ~500 ms.
+- `services/api` and `services/ingestion` do **not** call `postgres.Migrate`;
+  they assume the migrate container has already run. So the long-lived
+  binaries with `/metrics` never run drift detection and never increment any
+  counter.
+
+Net effect of a counter would be: incremented in-memory in a process that
+exits before any Prometheus scrape can reach it, then garbage-collected.
+Pure dead code, plus a transitive dep that bloats the slim migrate Docker
+image.
+
+The slog.Warn flows through the same observability pipeline (Loki / journald
+/ stdout) that already handles every other warn-level event in this project,
+so a log-based alert
+`count_over_time({job=~"axiaops-migrate"} |= "file checksum drift detected" [1h]) > 0`
+is workable. Active inspection lives in `bin/axiaopsctl migrate drift`,
+which queries the database directly without touching the registry.
+
+If we ever wire `postgres.Migrate` (or a thin `postgres.CheckDrift` helper)
+into api/ingestion startup — long-lived binaries that DO serve `/metrics` —
+the counter becomes useful and we'd reintroduce it. Today it would just be
+noise.
 
 ### Backfill
 
