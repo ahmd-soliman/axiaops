@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AxiaOps logo — small vs big cubies</title>
+  <style>
+    :root {
+      --bg-page: #f8fafc;
+      --bg-panel-light: #ffffff;
+      --bg-panel-dark: #0B1220;
+      --border: #e2e8f0;
+      --text-primary: #0f172a;
+      --text-secondary: #64748b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 48px 64px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-page);
+      color: var(--text-primary);
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 500;
+      letter-spacing: -0.5px;
+      margin: 0 0 8px 0;
+    }
+    p.intro {
+      color: var(--text-secondary);
+      margin: 0 0 40px 0;
+      max-width: 720px;
+      line-height: 1.55;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+    .label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      letter-spacing: 0.5px;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+    .panel {
+      padding: 64px 48px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 320px;
+    }
+    .panel.light { background: var(--bg-panel-light); border: 1px solid var(--border); }
+    .panel.dark  { background: var(--bg-panel-dark); }
+    .logo {
+      width: 100%;
+      max-width: 520px;
+      height: auto;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <h1>AxiaOps logo — small vs big cubies</h1>
+  <p class="intro">Same cube, same large cutout, same wordmark. The only difference is the size of the six floating cubies. Left column is current production. Right column scales each cubie up by roughly 1.6×.</p>
+
+  <div class="row">
+    <div>
+      <div class="label">SMALL CUBIES (CURRENT) — LIGHT</div>
+      <div class="panel light">
+        <svg viewBox="0 0 360 100" class="logo" xmlns="http://www.w3.org/2000/svg">
+          <g transform="translate(50 50) scale(0.7)">
+            <polygon points="-33,-20 0,-1 0,36 -33,18" fill="#9a3412"/>
+            <polygon points="0,-1 16.5,-10.5 16.5,8 33,-1.5 33,18 0,36" fill="#ea580c"/>
+            <polygon points="0,-38 16.5,-29 0,-20 16.5,-10.5 0,-1 -33,-20" fill="#fb923c"/>
+            <g transform="translate(40 -25)" opacity="0.9"><polygon points="0,-7 6,-3.5 0,0 -6,-3.5" fill="#fb923c"/><polygon points="0,0 6,-3.5 6,3.5 0,7" fill="#ea580c"/><polygon points="0,0 -6,-3.5 -6,3.5 0,7" fill="#9a3412"/></g>
+            <g transform="translate(48 -42)" opacity="0.7"><polygon points="0,-5 4,-2.5 0,0 -4,-2.5" fill="#fb923c"/><polygon points="0,0 4,-2.5 4,2.5 0,5" fill="#ea580c"/><polygon points="0,0 -4,-2.5 -4,2.5 0,5" fill="#9a3412"/></g>
+            <g transform="translate(58 -28)" opacity="0.55"><polygon points="0,-4 3.5,-2 0,0 -3.5,-2" fill="#fb923c"/><polygon points="0,0 3.5,-2 3.5,2 0,4" fill="#ea580c"/><polygon points="0,0 -3.5,-2 -3.5,2 0,4" fill="#9a3412"/></g>
+            <g transform="translate(38 -52)" opacity="0.45"><polygon points="0,-3.5 3,-1.75 0,0 -3,-1.75" fill="#fb923c"/><polygon points="0,0 3,-1.75 3,1.75 0,3.5" fill="#ea580c"/><polygon points="0,0 -3,-1.75 -3,1.75 0,3.5" fill="#9a3412"/></g>
+            <g transform="translate(64 -45)" opacity="0.32"><polygon points="0,-3 2.6,-1.5 0,0 -2.6,-1.5" fill="#fb923c"/><polygon points="0,0 2.6,-1.5 2.6,1.5 0,3" fill="#ea580c"/><polygon points="0,0 -2.6,-1.5 -2.6,1.5 0,3" fill="#9a3412"/></g>
+            <g transform="translate(54 -58)" opacity="0.2"><polygon points="0,-2.5 2.2,-1.2 0,0 -2.2,-1.2" fill="#fb923c"/><polygon points="0,0 2.2,-1.2 2.2,1.2 0,2.5" fill="#ea580c"/><polygon points="0,0 -2.2,-1.2 -2.2,1.2 0,2.5" fill="#9a3412"/></g>
+          </g>
+          <text x="115" y="63" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" font-weight="500" font-size="40" letter-spacing="-0.8" fill="#0f172a">Axia<tspan fill="#f97316">Ops</tspan></text>
+        </svg>
+      </div>
+    </div>
+    <div>
+      <div class="label">BIG CUBIES — LIGHT</div>
+      <div class="panel light">
+        <svg viewBox="0 0 360 100" class="logo" xmlns="http://www.w3.org/2000/svg">
+          <g transform="translate(50 50) scale(0.7)">
+            <polygon points="-33,-20 0,-1 0,36 -33,18" fill="#9a3412"/>
+            <polygon points="0,-1 16.5,-10.5 16.5,8 33,-1.5 33,18 0,36" fill="#ea580c"/>
+            <polygon points="0,-38 16.5,-29 0,-20 16.5,-10.5 0,-1 -33,-20" fill="#fb923c"/>
+            <g transform="translate(42 -28)" opacity="0.9"><polygon points="0,-11 9.5,-5.5 0,0 -9.5,-5.5" fill="#fb923c"/><polygon points="0,0 9.5,-5.5 9.5,5.5 0,11" fill="#ea580c"/><polygon points="0,0 -9.5,-5.5 -9.5,5.5 0,11" fill="#9a3412"/></g>
+            <g transform="translate(56 -48)" opacity="0.7"><polygon points="0,-8 7,-4 0,0 -7,-4" fill="#fb923c"/><polygon points="0,0 7,-4 7,4 0,8" fill="#ea580c"/><polygon points="0,0 -7,-4 -7,4 0,8" fill="#9a3412"/></g>
+            <g transform="translate(66 -32)" opacity="0.55"><polygon points="0,-6 5,-3 0,0 -5,-3" fill="#fb923c"/><polygon points="0,0 5,-3 5,3 0,6" fill="#ea580c"/><polygon points="0,0 -5,-3 -5,3 0,6" fill="#9a3412"/></g>
+            <g transform="translate(38 -56)" opacity="0.45"><polygon points="0,-5 4,-2.5 0,0 -4,-2.5" fill="#fb923c"/><polygon points="0,0 4,-2.5 4,2.5 0,5" fill="#ea580c"/><polygon points="0,0 -4,-2.5 -4,2.5 0,5" fill="#9a3412"/></g>
+            <g transform="translate(70 -52)" opacity="0.32"><polygon points="0,-4 3.5,-2 0,0 -3.5,-2" fill="#fb923c"/><polygon points="0,0 3.5,-2 3.5,2 0,4" fill="#ea580c"/><polygon points="0,0 -3.5,-2 -3.5,2 0,4" fill="#9a3412"/></g>
+            <g transform="translate(56 -68)" opacity="0.2"><polygon points="0,-3 2.5,-1.5 0,0 -2.5,-1.5" fill="#fb923c"/><polygon points="0,0 2.5,-1.5 2.5,1.5 0,3" fill="#ea580c"/><polygon points="0,0 -2.5,-1.5 -2.5,1.5 0,3" fill="#9a3412"/></g>
+          </g>
+          <text x="115" y="63" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" font-weight="500" font-size="40" letter-spacing="-0.8" fill="#0f172a">Axia<tspan fill="#f97316">Ops</tspan></text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <div class="label">SMALL CUBIES (CURRENT) — DARK</div>
+      <div class="panel dark">
+        <svg viewBox="0 0 360 100" class="logo" xmlns="http://www.w3.org/2000/svg">
+          <g transform="translate(50 50) scale(0.7)">
+            <polygon points="-33,-20 0,-1 0,36 -33,18" fill="#9a3412"/>
+            <polygon points="0,-1 16.5,-10.5 16.5,8 33,-1.5 33,18 0,36" fill="#ea580c"/>
+            <polygon points="0,-38 16.5,-29 0,-20 16.5,-10.5 0,-1 -33,-20" fill="#fb923c"/>
+            <g transform="translate(40 -25)" opacity="0.9"><polygon points="0,-7 6,-3.5 0,0 -6,-3.5" fill="#fb923c"/><polygon points="0,0 6,-3.5 6,3.5 0,7" fill="#ea580c"/><polygon points="0,0 -6,-3.5 -6,3.5 0,7" fill="#9a3412"/></g>
+            <g transform="translate(48 -42)" opacity="0.7"><polygon points="0,-5 4,-2.5 0,0 -4,-2.5" fill="#fb923c"/><polygon points="0,0 4,-2.5 4,2.5 0,5" fill="#ea580c"/><polygon points="0,0 -4,-2.5 -4,2.5 0,5" fill="#9a3412"/></g>
+            <g transform="translate(58 -28)" opacity="0.55"><polygon points="0,-4 3.5,-2 0,0 -3.5,-2" fill="#fb923c"/><polygon points="0,0 3.5,-2 3.5,2 0,4" fill="#ea580c"/><polygon points="0,0 -3.5,-2 -3.5,2 0,4" fill="#9a3412"/></g>
+            <g transform="translate(38 -52)" opacity="0.45"><polygon points="0,-3.5 3,-1.75 0,0 -3,-1.75" fill="#fb923c"/><polygon points="0,0 3,-1.75 3,1.75 0,3.5" fill="#ea580c"/><polygon points="0,0 -3,-1.75 -3,1.75 0,3.5" fill="#9a3412"/></g>
+            <g transform="translate(64 -45)" opacity="0.32"><polygon points="0,-3 2.6,-1.5 0,0 -2.6,-1.5" fill="#fb923c"/><polygon points="0,0 2.6,-1.5 2.6,1.5 0,3" fill="#ea580c"/><polygon points="0,0 -2.6,-1.5 -2.6,1.5 0,3" fill="#9a3412"/></g>
+            <g transform="translate(54 -58)" opacity="0.2"><polygon points="0,-2.5 2.2,-1.2 0,0 -2.2,-1.2" fill="#fb923c"/><polygon points="0,0 2.2,-1.2 2.2,1.2 0,2.5" fill="#ea580c"/><polygon points="0,0 -2.2,-1.2 -2.2,1.2 0,2.5" fill="#9a3412"/></g>
+          </g>
+          <text x="115" y="63" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" font-weight="500" font-size="40" letter-spacing="-0.8" fill="#ffffff">Axia<tspan fill="#f97316">Ops</tspan></text>
+        </svg>
+      </div>
+    </div>
+    <div>
+      <div class="label">BIG CUBIES — DARK</div>
+      <div class="panel dark">
+        <svg viewBox="0 0 360 100" class="logo" xmlns="http://www.w3.org/2000/svg">
+          <g transform="translate(50 50) scale(0.7)">
+            <polygon points="-33,-20 0,-1 0,36 -33,18" fill="#9a3412"/>
+            <polygon points="0,-1 16.5,-10.5 16.5,8 33,-1.5 33,18 0,36" fill="#ea580c"/>
+            <polygon points="0,-38 16.5,-29 0,-20 16.5,-10.5 0,-1 -33,-20" fill="#fb923c"/>
+            <g transform="translate(42 -28)" opacity="0.9"><polygon points="0,-11 9.5,-5.5 0,0 -9.5,-5.5" fill="#fb923c"/><polygon points="0,0 9.5,-5.5 9.5,5.5 0,11" fill="#ea580c"/><polygon points="0,0 -9.5,-5.5 -9.5,5.5 0,11" fill="#9a3412"/></g>
+            <g transform="translate(56 -48)" opacity="0.7"><polygon points="0,-8 7,-4 0,0 -7,-4" fill="#fb923c"/><polygon points="0,0 7,-4 7,4 0,8" fill="#ea580c"/><polygon points="0,0 -7,-4 -7,4 0,8" fill="#9a3412"/></g>
+            <g transform="translate(66 -32)" opacity="0.55"><polygon points="0,-6 5,-3 0,0 -5,-3" fill="#fb923c"/><polygon points="0,0 5,-3 5,3 0,6" fill="#ea580c"/><polygon points="0,0 -5,-3 -5,3 0,6" fill="#9a3412"/></g>
+            <g transform="translate(38 -56)" opacity="0.45"><polygon points="0,-5 4,-2.5 0,0 -4,-2.5" fill="#fb923c"/><polygon points="0,0 4,-2.5 4,2.5 0,5" fill="#ea580c"/><polygon points="0,0 -4,-2.5 -4,2.5 0,5" fill="#9a3412"/></g>
+            <g transform="translate(70 -52)" opacity="0.32"><polygon points="0,-4 3.5,-2 0,0 -3.5,-2" fill="#fb923c"/><polygon points="0,0 3.5,-2 3.5,2 0,4" fill="#ea580c"/><polygon points="0,0 -3.5,-2 -3.5,2 0,4" fill="#9a3412"/></g>
+            <g transform="translate(56 -68)" opacity="0.2"><polygon points="0,-3 2.5,-1.5 0,0 -2.5,-1.5" fill="#fb923c"/><polygon points="0,0 2.5,-1.5 2.5,1.5 0,3" fill="#ea580c"/><polygon points="0,0 -2.5,-1.5 -2.5,1.5 0,3" fill="#9a3412"/></g>
+          </g>
+          <text x="115" y="63" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" font-weight="500" font-size="40" letter-spacing="-0.8" fill="#ffffff">Axia<tspan fill="#f97316">Ops</tspan></text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
