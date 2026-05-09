@@ -362,10 +362,10 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                     key={g}
                     onClick={() => { setGranularity(g); setSelectedChartDate(null); }}
                     style={{
-                      padding: '3px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
+                      padding: isMobile ? '6px 12px' : '3px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
                       backgroundColor: effectiveGranularity === g ? t.accent : 'transparent',
                       color: effectiveGranularity === g ? '#fff' : t.textMuted,
-                      fontSize: 11, fontWeight: 600, textTransform: 'capitalize',
+                      fontSize: isMobile ? 12 : 11, fontWeight: 600, textTransform: 'capitalize',
                     }}
                   >
                     {g}
@@ -380,7 +380,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                 key={p.days}
                 onClick={() => { setPeriod(p.days); setSelectedService(null); setSelectedChartDate(null); }}
                 style={{
-                  padding: '4px 10px',
+                  padding: isMobile ? '7px 12px' : '4px 10px',
                   borderRadius: 6,
                   border: `1px solid ${period === p.days ? t.accent : t.border}`,
                   backgroundColor: period === p.days ? t.accent : t.surfaceRaised,
@@ -429,7 +429,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                     display: 'flex',
                     alignItems: 'center',
                     gap: 5,
-                    padding: '4px 10px',
+                    padding: isMobile ? '8px 14px' : '4px 10px',
                     borderRadius: 20,
                     border: `1px solid ${active ? t.accent : t.border}`,
                     backgroundColor: active ? t.accent : t.surfaceRaised,
@@ -503,7 +503,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                 disabled={records.length === 0}
                 aria-label="Export to CSV"
                 style={{
-                  padding: '4px 10px',
+                  padding: isMobile ? '8px 12px' : '4px 10px',
                   borderRadius: 6,
                   border: `1px solid ${t.border}`,
                   backgroundColor: t.surfaceRaised,
