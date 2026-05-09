@@ -414,7 +414,7 @@ function PrimaryButton({ onClick, loading, label, theme }) {
   );
 }
 
-function TabButton({ active, label, onClick, theme }) {
+function TabButton({ active, label, sublabel, onClick, theme }) {
   return (
     <button
       onClick={onClick}
@@ -428,9 +428,22 @@ function TabButton({ active, label, onClick, theme }) {
         color: active ? theme.text : theme.textMid,
         fontSize: 13,
         fontWeight: active ? 700 : 500,
+        minHeight: 44, // HIG touch-target floor — also helps the two
+        // wrapped tabs share row height equally on a narrow viewport.
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 1,
+        lineHeight: 1.2,
       }}
     >
-      {label}
+      <span>{label}</span>
+      {sublabel && (
+        <span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+          {sublabel}
+        </span>
+      )}
     </button>
   );
 }
@@ -465,8 +478,19 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
 
         {!isEdit && FEATURE_ROLE_AUTH && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-            <TabButton active={activeTab === 'role'} label="Role ARN (recommended)" onClick={() => setActiveTab('role')} theme={theme} />
-            <TabButton active={activeTab === 'access_key'} label="Access Keys" onClick={() => setActiveTab('access_key')} theme={theme} />
+            <TabButton
+              active={activeTab === 'role'}
+              label="Role ARN"
+              sublabel="recommended"
+              onClick={() => setActiveTab('role')}
+              theme={theme}
+            />
+            <TabButton
+              active={activeTab === 'access_key'}
+              label="Access Keys"
+              onClick={() => setActiveTab('access_key')}
+              theme={theme}
+            />
           </div>
         )}
 
