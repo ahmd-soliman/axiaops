@@ -304,13 +304,13 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    alignItems: 'center',
+                    alignItems: 'flex-start',
                     padding: '11px 16px',
                     borderBottom: i < details.length - 1 ? `1px solid ${t.border}` : 'none',
                     gap: 16,
                   }}
                 >
-                  <span style={{ fontSize: 12, color: t.textMuted, fontWeight: 500, flexShrink: 0 }}>{label}</span>
+                  <span style={{ fontSize: 12, color: t.textMuted, fontWeight: 500, flexShrink: 0, paddingTop: 2 }}>{label}</span>
                   <span style={{
                     fontSize: mono ? 11 : 13,
                     color: t.text,
@@ -318,8 +318,13 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
                     textAlign: 'right',
                     flex: 1,
                     fontFamily: mono ? '"Geist Mono Variable", monospace' : undefined,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
+                    // Mono values (resource ID, ARNs) are arbitrarily long;
+                    // truncating them with ellipsis hides the most useful
+                    // info. Allow break-all so they wrap inside the row.
+                    // Non-mono values stay on a single line with ellipsis.
+                    wordBreak: mono ? 'break-all' : undefined,
+                    overflow: mono ? undefined : 'hidden',
+                    textOverflow: mono ? undefined : 'ellipsis',
                   }}>
                     {value}
                   </span>
