@@ -116,7 +116,7 @@ export default function AcceptInviteScreen() {
   return (
     <div style={S.container}>
       <form style={S.card} onSubmit={onSubmit} noValidate>
-        <span style={S.logo}>AxiaOps</span>
+        <img src="/axiaops-logo-dark.svg" alt="AxiaOps" style={S.logoImg} />
         <span style={S.title}>
           {isExisting
             ? `Welcome back${preview?.existing_user_name ? `, ${preview.existing_user_name}` : ''}`

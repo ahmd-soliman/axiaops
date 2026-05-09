@@ -53,6 +53,14 @@ export const authStyles = {
     textAlign: 'center',
     marginBottom: 4,
   },
+  // SVG lockup variant — pre-auth screens are always dark, so we ship the
+  // dark-on-dark logo file. Centered via auto margins; height locks proportions.
+  logoImg: {
+    height: 88,
+    width: 'auto',
+    display: 'block',
+    margin: '0 auto 12px',
+  },
   title: {
     fontSize: 18,
     fontWeight: 700,
