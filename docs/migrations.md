@@ -13,7 +13,7 @@ On every startup, both the `api` and `ingestion` services call `postgres.Migrate
 1. Opens a pinned `*sql.Conn` against `MIGRATION_DATABASE_URL` and acquires the wrapper-level session advisory lock (`AxiaOpsM`).
 2. Runs **orphan recovery** — finalises any `axiaops.migration_history` row whose post-step UPDATE was lost to a wrapper crash. See [§Migration history](#migration-history) and `docs/migration-history-table-design.md` §Failure modes.
 3. Runs **backfill** if `migration_history` is empty but `schema_migrations` is non-empty (first deploy of the history table on an existing env). Inserts one `status='backfilled'` row per applied version with the live-file SHA-256.
-4. Runs **drift detection** — compares the SHA-256 of every embedded `.up.sql` against the most recent succeeded recorded checksum. Mismatch → `slog.Warn` + Prometheus counter. With `MIGRATION_HISTORY_STRICT=true` the wrapper refuses to start.
+4. Runs **drift detection** — compares the SHA-256 of every embedded `.up.sql` against the most recent succeeded recorded checksum. Mismatch → `slog.Warn` (the only signal — see [§Drift detection](#drift-detection) for why there's no Prometheus counter). With `MIGRATION_HISTORY_STRICT=true` the wrapper refuses to start.
 5. Drives golang-migrate one step at a time (`Steps(1)` in a loop). For each step it INSERT-and-COMMITs a `status='started'` row **before** the step, then UPDATEs it to `succeeded`/`failed` **after** the step on a separate transaction.
 6. Releases the advisory lock and closes the pinned conn.
 
@@ -148,7 +148,9 @@ WHERE status = 'started' AND finished_at IS NULL;
 
 ### Drift detection
 
-On every boot the wrapper compares the on-disk SHA-256 of every embedded `.up.sql` to the most recent succeeded recorded SHA. Mismatch → `slog.Warn` + `axiaops_migration_history_drift_total{version=...}` Prometheus counter, **service still starts**. Set `MIGRATION_HISTORY_STRICT=true` to flip the posture to refuse-to-start (default-on for CI / staging / dev; default-off for customer self-hosted installs).
+On every boot the wrapper compares the on-disk SHA-256 of every embedded `.up.sql` to the most recent succeeded recorded SHA. Mismatch → `slog.Warn`, **service still starts**. Set `MIGRATION_HISTORY_STRICT=true` to flip the posture to refuse-to-start (default-on for CI / staging / dev; default-off for customer self-hosted installs).
+
+The signal is log-only by design. `Migrate()` runs in short-lived contexts — the dedicated migrate Docker image and `axiaopsctl` — neither of which serves a `/metrics` endpoint, so a Prometheus counter would be incremented in-memory and lost on process exit before any scraper could reach it. Logs flow through the same observability pipeline (Loki / journald / stdout) on every deploy, where `count_over_time({job=~"axiaops-migrate"} |= "file checksum drift detected" [1h]) > 0` makes a workable alert. The on-demand `bin/axiaopsctl migrate drift` command (which queries the database directly, not the metric) covers active inspection.
 
 `bin/axiaopsctl migrate drift` (or `make migration-history-drift`) prints the drift table on demand:
 
