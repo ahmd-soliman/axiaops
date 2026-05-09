@@ -163,8 +163,12 @@ function hasClaims(lic) {
 }
 
 function ClaimsGrid({ lic, t }) {
+  // Two-column grid is fine on tablet+ but cramps the customer_id mono
+  // value on phones — at 360px each cell gets ~170px after padding, and
+  // the customer ID is typically wider than that. CSS auto-fit handles
+  // both shapes without a JS breakpoint hook.
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
       <ClaimRow t={t} k="Customer ID"     v={lic.customer_id || '—'} mono />
       <ClaimRow t={t} k="Max organizations" v={lic.max_organizations ?? '—'} />
       <ClaimRow t={t} k="Expires at"      v={formatDate(lic.expires_at)} mono />
@@ -175,7 +179,7 @@ function ClaimsGrid({ lic, t }) {
 
 function ClaimRow({ t, k, v, mono }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 8, minWidth: 0 }}>
       <span style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>
         {k}
       </span>
@@ -184,6 +188,9 @@ function ClaimRow({ t, k, v, mono }) {
           fontSize: 13,
           color: t.text,
           fontFamily: mono ? '"Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' : undefined,
+          // Customer IDs are arbitrarily long; without break-all they
+          // overflow the grid cell on phones.
+          wordBreak: mono ? 'break-all' : undefined,
         }}
       >
         {v}
