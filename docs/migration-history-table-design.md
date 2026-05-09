@@ -4,7 +4,7 @@
 
 ## Goal
 
-Keep a permanent, append-only record of **every migration event** applied to an
+Keep a permanent, durable record of **every migration event** applied to an
 AxiaOps database — every up, every down, every `force`, including failures —
 with enough metadata to answer the questions `axiaops.schema_migrations` cannot:
 
@@ -19,6 +19,25 @@ the same `version=24, dirty=false` row, and yet the schemas drifted because the
 files had been *edited* between applications and we had no way to see that from
 the DB. A history table with file checksums turns "schema drift caused by
 mutated migrations" from "discover by stack trace" into "tail one query."
+
+### Row durability vs row mutability
+
+The table is **durable at the event grain**: no row is ever deleted by the
+wrapper, no event is forgotten or rewritten. Each migration event produces
+exactly one row, identified by `id BIGSERIAL`.
+
+The row's *lifecycle*, however, is not append-only — its `status` field
+transitions exactly once, from `started` (set at INSERT, before `Steps(±1)`)
+to one of `succeeded` / `failed` (set by a single UPDATE on the same row,
+after the step returns). `backfilled` and `force` rows are inserted directly
+at their terminal status and never UPDATEd. Pairing started/finished as two
+separate rows would double the write volume and make orphan recovery span
+two tables; the single-row-with-UPDATE shape is the deliberate trade-off.
+
+The post-INSERT UPDATE means this table cannot be replicated to a downstream
+audit sink by tailing INSERT-only logical replication — the UPDATEs would be
+missed. Operators who want a strict append-only audit trail should ship rows
+downstream by polling the table on a schedule, not by streaming WAL.
 
 ## Non-goals
 
@@ -89,12 +108,12 @@ on the `ALTER DEFAULT PRIVILEGES` shipped there.
 | `status` | `TEXT` | NO | — | One of `started`, `succeeded`, `failed`, `backfilled`. `started` is inserted *before* the migration runs so a crashed wrapper still leaves a forensic trail; the wrapper updates it to `succeeded`/`failed` on completion. `backfilled` is reserved for the one-shot rows inserted on first deploy of this feature for migrations applied before the table existed. |
 | `started_at` | `TIMESTAMPTZ` | NO | `now()` | When the wrapper inserts the `started` row. UTC by convention. |
 | `finished_at` | `TIMESTAMPTZ` | YES | NULL | NULL while `status='started'`. Set on the wrapper's UPDATE when the migration returns. Stays NULL forever if the wrapper crashes mid-run — that's the forensic signal "this row never finished." |
-| `duration_ms` | `BIGINT` | YES | NULL | Computed Go-side as `(finishedAt - startedAt).Milliseconds()` and stored. NULL while in-flight, NULL forever for crashed-mid-run rows, NULL for backfilled rows. |
+| `duration_ms` | `BIGINT` | YES | NULL | Computed Go-side as `(finishedAt - startedAt).Milliseconds()` and stored. NULL while in-flight, NULL forever for crashed-mid-run rows, NULL for backfilled rows. Includes the wrapper's pre-step COMMIT and post-step UPDATE wall-clock — for a sub-second migration the bookkeeping overhead is detectable. Treat values as ±100 ms accurate when comparing across builds. |
 | `error_message` | `TEXT` | YES | NULL | The error string from the migration driver, truncated Go-side to a hard cap of `maxErrorMessageBytes = 4096`. `CHECK (length(error_message) <= 4096)` enforces it at the DB. NULL on success. Captured even on `dirty` outcomes so the operator can read what went wrong without grepping container logs. |
 | `file_sha256` | `TEXT` | YES | NULL | Lowercase hex SHA-256 of the migration file's bytes, validated by a regex CHECK. The hash is taken of the *raw bytes as embedded in `migrationsFS` at build time* — no normalization, no whitespace trimming, no line-ending fixup. Linux/macOS dev and Linux CI build identical hashes; a Windows developer running with `core.autocrlf=true` would produce a different hash, which is out of scope for this codebase (we do not support Windows builds). NULL for `force` (no file executed) and for `backfilled` rows where we baseline against the live file. |
 | `applied_by_actor` | `TEXT` | YES | NULL | "Who/what applied this." Container hostname (App Runner / docker compose container ID prefix) by default; override via `MIGRATION_ACTOR_LABEL` env var when running `axiaopsctl` from a bastion. Free-form text on purpose — operators want to grep, not enforce a schema. |
-| `applied_by_image` | `TEXT` | YES | NULL | The build identity of the binary that ran the wrapper: `${APP_VERSION}@${APP_COMMIT_SHA}` from the existing observability env vars (see `services/shared/CLAUDE.md` → Logging). Falls back to `unknown@unknown` if both are empty. |
-| `schema_migrations_dirty_after` | `BOOLEAN` | YES | NULL | Snapshot of `axiaops.schema_migrations.dirty` read by a separate `SELECT` on the history-writer connection *after* `m.Steps(1)` returns, just before the wrapper UPDATE. On the success path it is redundant with `status='succeeded'` — but it is the only way to record the post-failure dirty state, since on a wrapper crash by definition the UPDATE never runs and the column stays NULL forever (which is itself the correct forensic signal). |
+| `applied_by_image` | `TEXT` | YES | NULL | The build identity of the binary that ran the wrapper: `${APP_VERSION}@${APP_COMMIT_SHA}` from the existing observability env vars (see `services/shared/CLAUDE.md` → Logging). Falls back to `unknown@unknown` if either is empty — the wrapper logs a one-shot startup WARN (`migration_history: applied_by_image will be 'unknown@unknown'; drift forensics degraded`) when this fallback fires. CI and deploy pipelines must set both. |
+| `schema_migrations_dirty_after` | `BOOLEAN` | YES | NULL | Snapshot of `axiaops.schema_migrations.dirty` read by a separate `SELECT` on the history-writer connection *after* `m.Steps(±1)` returns, just before the wrapper UPDATE. **Always populated on the post-step UPDATE path** — success or failure — so readers don't special-case NULL on succeeded rows. NULL means *only* one of: row is still in-flight (`status='started'`), wrapper crashed before UPDATE, or row is `backfilled`/`force` (no UPDATE happens for those). On the success path it is redundant with `status='succeeded'`; the column earns its keep on the post-failure dirty state and as the forensic signal "this row's UPDATE never ran." |
 
 ### Columns explicitly considered and dropped
 
@@ -176,9 +195,14 @@ The wrapper therefore takes its own session-level advisory lock on the
 history-writer connection, held for the entire duration of the loop:
 
 ```go
-const migrationHistoryLockID int64 = 0x4178696F70734D48 // "AxiopsMH" - distinct from any
-                                                        // golang-migrate-internal lock ID
-                                                        // to avoid self-deadlock.
+const migrationHistoryLockID int64 = 0x417869614F70734D // ASCII "AxiaOpsM" — full brand "AxiaOps"
+                                                        // (7 bytes) + "M" for Migration. Exactly
+                                                        // 8 bytes to fit int64. Distinct from any
+                                                        // golang-migrate-internal lock ID to
+                                                        // avoid self-deadlock. Sibling-lock
+                                                        // convention: replace the trailing letter
+                                                        // (e.g. "AxiaOpsB" for a future bootstrap
+                                                        // lock, "AxiaOpsR" for replication).
 
 if _, err := historyConn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrationHistoryLockID); err != nil {
     return fmt.Errorf("migrate: acquire history lock: %w", err)
@@ -194,55 +218,80 @@ released it.
 
 ### The loop
 
-`migrate.Migrate.sourceDrv` is unexported, so the wrapper cannot directly ask
-the source driver for "the next pending version." Instead we invoke
-`Steps(1)`, then read the version that was just applied via `m.Version()`,
-and use that to locate the file in `migrationsFS` for hashing. The loop
-terminates on either of two sentinel errors:
-
-- `migrate.ErrNoChange` — returned from `Steps(0)`, or from the very first
-  call when there is nothing pending.
-- `migrate.ErrShortLimit{Short: 1}` — returned from subsequent calls once the
-  pending queue has drained mid-loop. **This is the normal-termination
-  sentinel** for our loop, not `ErrNoChange`.
+The wrapper must know **V** (the version it's about to apply) *before*
+`Steps(1)` so it can write the `started` row pre-step. `golang-migrate`'s own
+source driver (`migrate.Migrate.sourceDrv`) is unexported, so we cannot ask
+it. The wrapper indexes `migrationsFS` itself once at startup — walking the
+embed.FS yields the full set of `(version, name, hasUp, hasDown)` tuples — and
+computes the next pending version as
+`min(version | version > current_version AND hasUp)`. This is V; we
+sanity-check it against `m.Version()` after `Steps(1)` returns.
 
 ```go
+// indexEmbeddedMigrations walks migrationsFS once at startup and returns a
+// map[version] -> (name, hasUp, hasDown). Implementation: fs.WalkDir on
+// "migrations/", regex-match "(\d+)_(\w+)\.(up|down)\.sql".
+fsIndex := indexEmbeddedMigrations(migrationsFS)
+
 for {
-    // 1. Run one step.
-    stepErr := m.Steps(1)
-
-    // 2. Both sentinels mean "no more work" — clean exit.
-    var shortLimit migrate.ErrShortLimit
-    if errors.Is(stepErr, migrate.ErrNoChange) || errors.As(stepErr, &shortLimit) {
-        break
+    // 1. Determine the next pending version *before* Steps(1).
+    current, _, vErr := m.Version()
+    if vErr != nil && !errors.Is(vErr, migrate.ErrNilVersion) {
+        return fmt.Errorf("migrate: read pre-step version: %w", vErr)
     }
-
-    // 3. m.Version() returns the version we just touched (success or dirty).
-    version, dirty, vErr := m.Version()
-    if vErr != nil {
-        return fmt.Errorf("migrate: read post-step version: %w", vErr)
+    V, name, ok := fsIndex.nextPendingUp(current) // smallest V > current with an up file
+    if !ok {
+        break // No more pending up migrations.
     }
-
-    // 4. Resolve identifier (e.g. "024_drop_kinde_residue.up.sql"), hash bytes,
-    //    derive name (see Schema row for derivation rule).
-    identifier := fmt.Sprintf("%03d_%s.up.sql", version, lookupNameFromFS(version))
+    identifier := fmt.Sprintf("%03d_%s.up.sql", V, name)
     fileBytes, err := migrationsFS.ReadFile("migrations/" + identifier)
     if err != nil {
         return fmt.Errorf("migrate: read embedded file %s: %w", identifier, err)
     }
     sha := fmt.Sprintf("%x", sha256.Sum256(fileBytes))
-    name := strings.TrimSuffix(strings.TrimPrefix(identifier, fmt.Sprintf("%03d_", version)), ".up.sql")
 
-    // 5. Write the history row(s) for this step. The 'started' row was
-    //    INSERT-and-COMMITted *before* Steps(1) (see §"Pre-step row" below);
-    //    here we only complete it.
-    if stepErr != nil {
-        completeRowFailed(historyConn, version, name, sha, dirty, stepErr)
-        return fmt.Errorf("migrate: step %d: %w", version, stepErr)
+    // 2. INSERT-and-COMMIT the started row on the history-writer connection.
+    //    Durable on disk before Steps(1) runs.
+    historyID, err := insertStartedRow(historyConn, V, name, "up", sha)
+    if err != nil {
+        return fmt.Errorf("migrate: insert started row for V=%d: %w", V, err)
     }
-    completeRowSucceeded(historyConn, version, name, sha, dirty)
+
+    // 3. Run one step.
+    stepErr := m.Steps(1)
+
+    // 4. ErrNoChange / ErrShortLimit here means golang-migrate disagreed with
+    //    our index — possible if the embed.FS was rebuilt against a different
+    //    binary than the DB has seen. Resolve the started row and exit.
+    var shortLimit migrate.ErrShortLimit
+    if errors.Is(stepErr, migrate.ErrNoChange) || errors.As(stepErr, &shortLimit) {
+        completeRowAsNeverStarted(historyConn, historyID,
+            "library returned no-change despite indexed pending version")
+        break
+    }
+
+    // 5. Read post-step version + dirty flag; sanity-check.
+    postV, dirty, _ := m.Version()
+    if stepErr == nil && postV != V {
+        slog.Warn("post-step version mismatch", "expected", V, "got", postV)
+    }
+
+    // 6. Complete the row.
+    if stepErr != nil {
+        completeRowFailed(historyConn, historyID, dirty, stepErr)
+        return fmt.Errorf("migrate: step %d: %w", V, stepErr)
+    }
+    completeRowSucceeded(historyConn, historyID, dirty)
 }
 ```
+
+The loop terminates on either of two sentinels emitted by `m.Steps(1)` —
+`migrate.ErrNoChange` (returned when no pending version is known to the
+library, typically the first call against an up-to-date DB) or
+`migrate.ErrShortLimit{Short: 1}` (returned from subsequent calls once the
+pending queue has drained). In practice with the index-driven approach
+above, we exit via the `nextPendingUp` `!ok` path before either sentinel
+fires; the sentinel handler is defensive against index/library disagreement.
 
 ### Pre-step row vs post-step UPDATE
 
@@ -267,21 +316,72 @@ started."
 
 ### Down direction
 
-The same wrapper, with `Steps(-1)` instead of `Steps(1)`. The hashed file is
-the `.down.sql` for that version. `m.Version()` post-step reports the version
-the database is now at (so for a down from 24 → 23, it reports 23 — the
-wrapper looks up the *down* file for the *just-rolled-back* version, which it
-held in a local before the call, not the post-step version). Other than that,
-all rules above (advisory lock, two-connection model, pre-step commit,
-post-step UPDATE, termination sentinels) apply unchanged.
+Same wrapper structure with `Steps(-1)`. The asymmetry: for an up step, V is
+the *post-step* version; for a down step, V is the *pre-step* version (the
+version we're rolling back FROM). The wrapper captures V before the call,
+hashes the `.down.sql` for V, writes the started row keyed by V, runs
+`Steps(-1)`, then expects `m.Version()` to report `V-1`.
+
+```go
+// Loop iteration for a down step.
+current, _, vErr := m.Version()
+if vErr != nil {
+    if errors.Is(vErr, migrate.ErrNilVersion) {
+        break // Nothing to roll back.
+    }
+    return fmt.Errorf("migrate down: read pre-step version: %w", vErr)
+}
+V := current // V is the version we're rolling back FROM.
+name, hasDown := fsIndex.lookupDown(V)
+if !hasDown {
+    return fmt.Errorf("migrate down: no .down.sql in fsIndex for V=%d", V)
+}
+identifier := fmt.Sprintf("%03d_%s.down.sql", V, name)
+fileBytes, err := migrationsFS.ReadFile("migrations/" + identifier)
+if err != nil {
+    return fmt.Errorf("migrate down: read embedded file %s: %w", identifier, err)
+}
+sha := fmt.Sprintf("%x", sha256.Sum256(fileBytes))
+
+historyID, err := insertStartedRow(historyConn, V, name, "down", sha)
+if err != nil {
+    return fmt.Errorf("migrate down: insert started row for V=%d: %w", V, err)
+}
+
+stepErr := m.Steps(-1)
+
+postV, dirty, _ := m.Version()
+if stepErr == nil && postV != V-1 {
+    slog.Warn("post-down version mismatch", "expected", V-1, "got", postV)
+}
+
+if stepErr != nil {
+    completeRowFailed(historyConn, historyID, dirty, stepErr)
+    return fmt.Errorf("migrate down: step %d→%d: %w", V, V-1, stepErr)
+}
+completeRowSucceeded(historyConn, historyID, dirty)
+```
+
+Advisory lock, two-connection model, pre-step commit / post-step UPDATE, and
+orphan-recovery handling all apply unchanged. The orphan-recovery truth
+table (§Failure modes) branches on direction — see there for how a crashed
+down step is distinguished from a crashed up step.
 
 ### Force direction
 
-`force` is **not** the wrapper's responsibility. `axiaopsctl migrate force N`
-issues `m.Force(N)` directly and writes a single history row with
+`force` is **not** the up/down wrapper's responsibility. `axiaopsctl migrate
+force N` issues `m.Force(N)` directly and writes a single history row with
 `direction='force'`, `status='succeeded'`, `file_sha256=NULL` (no file was
 applied). This is intentional: `Force(N)` does no DDL — it only writes
-`(N, false)` into `schema_migrations`.
+`(N, false)` into `schema_migrations`. Because the row is born terminal,
+there is no `started`→`succeeded` lifecycle and no orphan-recovery case for
+force.
+
+The force subcommand acquires the same wrapper-level advisory lock
+(`migrationHistoryLockID`) as the up/down loop before calling `m.Force(N)`
+and writing the history row. Without the lock, a concurrent `axiaopsctl
+migrate up` from another replica could observe `schema_migrations` mid-force
+and the orphan detector could race the force-row INSERT.
 
 ## Bootstrap
 
@@ -330,6 +430,15 @@ migration file. Schema *changes* to `migration_history` (e.g. "add a column")
 go in `Bootstrap()` itself as additional `ALTER TABLE ... ADD COLUMN IF NOT
 EXISTS` statements, idempotent and gated. Same posture as schema/user
 creation.
+
+**CHECK-constraint enum changes** (e.g. adding a new `status` value beyond
+`started/succeeded/failed/backfilled`) are *not* idempotent via a simple
+`ADD CONSTRAINT IF NOT EXISTS` — Postgres has no such form for CHECK, and
+re-issuing `ALTER TABLE ... ADD CONSTRAINT` against an existing constraint
+name fails. The pattern when this becomes necessary: name the constraint
+explicitly (`status_check`), `DROP CONSTRAINT IF EXISTS status_check`, then
+`ADD CONSTRAINT status_check CHECK (...)`. Until that need arises, prefer
+adding new orthogonal columns over extending existing enums.
 
 The convenience view `migration_history_v` (see §Operator UX) is also created
 in `Bootstrap()` via `CREATE OR REPLACE VIEW` — idempotent, and the view's
@@ -394,35 +503,59 @@ trips the condition again). This is acceptable: the table is forensic, not
 evidentiary (see §Open questions). Operators who truncate the audit trail
 have the audit trail they deserve.
 
+**Partial deletion** (e.g. `DELETE FROM migration_history WHERE id < N`)
+leaves the table non-empty and does *not* trigger backfill. Drift detection
+then runs against a hole-y history and may report drift for any version
+whose checksum row was deleted. This is by design: the backfill condition
+is unambiguous (empty / non-empty) rather than per-version-coverage
+checking, at the cost that gaps caused by partial deletion are not
+auto-repaired. Operators who want gaps backfilled should `TRUNCATE` rather
+than `DELETE`.
+
 ## Failure modes
 
 ### Wrapper crashes mid-recording — orphan recovery
 
-The orphan detector runs once at the top of every `Migrate()` call, before
-the wrapper-level advisory lock is acquired (no — it runs *after* the lock,
-so concurrent calls don't fight over the same orphans). Concretely: after
-acquiring `migrationHistoryLockID`, before the `Steps(1)` loop, the wrapper
-selects every row with `status='started' AND finished_at IS NULL`.
+The orphan detector runs once at the top of every `Migrate()` call, **after**
+the wrapper-level advisory lock is acquired and **before** the `Steps(±1)`
+loop. Holding the lock during recovery prevents two replicas from racing on
+the same orphan rows: replica B blocks on `pg_advisory_lock` while replica A
+resolves orphans, then sees a clean state. Concretely: after acquiring
+`migrationHistoryLockID`, the wrapper selects every row with
+`status='started' AND finished_at IS NULL`.
 
 For each orphan row `(history_id, version=V, direction=D)`:
 
 1. Read `(current_version, dirty)` from `axiaops.schema_migrations`.
-2. Decide:
+2. Decide. Each direction has a *target* version the migration should land
+   at on success — for `up V` the target is `V`; for `down V` the target is
+   `V-1`. The orphan resolver compares `current_version` against the target,
+   not against V directly:
 
-   | `current_version` vs `V` | `dirty` | Verdict | UPDATE |
-   |---|---|---|---|
-   | `current_version == V` | `false` | Migration succeeded; only the post-step UPDATE was lost. | `status='succeeded'`, `finished_at=now()`, `duration_ms=NULL`, `error_message='timing lost; recovered post-crash'`, `schema_migrations_dirty_after=false`. |
-   | `current_version == V` | `true` | Migration failed (golang-migrate left dirty=true) and the wrapper crashed before the UPDATE. | `status='failed'`, `finished_at=now()`, `error_message='migration failed; details lost in wrapper crash'`, `schema_migrations_dirty_after=true`. |
-   | `current_version < V` | any | The migration step never started — the wrapper crashed between INSERT and `Steps(1)`. The next loop iteration will retry V. | `status='failed'`, `finished_at=now()`, `error_message='wrapper killed before migration step'`, `schema_migrations_dirty_after=NULL`. |
-   | `current_version > V` | any | Should not happen — V is the orphan but a newer version is current. Treat as the "succeeded but UPDATE lost" case (D=down would make this normal; for D=up, log a warning and apply the same UPDATE as row 1). | as row 1, plus a structured warning. |
+   | `direction` | `current_version` | `dirty` | Verdict | UPDATE |
+   |---|---|---|---|---|
+   | `up` | `== V` (target) | `false` | Up succeeded; only the post-step UPDATE was lost. | `status='succeeded'`, `finished_at=now()`, `duration_ms=NULL`, `error_message='timing lost; recovered post-crash'`, `schema_migrations_dirty_after=false`. |
+   | `up` | `== V` | `true` | Up failed (golang-migrate left dirty=true); wrapper crashed before the UPDATE. | `status='failed'`, `finished_at=now()`, `error_message='migration failed; details lost in wrapper crash'`, `schema_migrations_dirty_after=true`. |
+   | `up` | `== V-1` (pre-state) | `false` | Up step never started — wrapper crashed between INSERT and `Steps(1)`. Next loop iteration retries V. | `status='failed'`, `finished_at=now()`, `error_message='wrapper killed before migration step'`, `schema_migrations_dirty_after=NULL`. |
+   | `down` | `== V-1` (target) | `false` | Down succeeded; only the post-step UPDATE was lost. | as for up-success above. |
+   | `down` | `== V` | `true` | Down failed (dirty); wrapper crashed before the UPDATE. | as for up-failure above. |
+   | `down` | `== V` (pre-state) | `false` | Down step never started — wrapper crashed between INSERT and `Steps(-1)`. Next loop iteration retries. | as for up-never-started above. |
+   | any | none of the above | any | Should not happen. Log a structured warning with `(direction, V, current_version, dirty)` and treat as the lost-UPDATE case. | as for up-success above, plus a warning. |
 
-Crucially: the algorithm is **version-exact**. We never write
-`current_version >= V → succeeded` because that confuses "V succeeded before
-crash" with "V is the next pending version." The orphan resolver only
-declares success when `current_version == V AND dirty=false`.
+Crucially: the algorithm is **direction-aware and version-exact**. The two
+"never started" cases (`up` at `V-1`, `down` at `V`) are indistinguishable
+without `direction` — both mean "schema_migrations is still at the row's
+pre-state" — and they *must* be distinguished from "succeeded" because the
+SQL/dirty state for a successful down (`V-1, false`) is identical to the
+pre-state for a never-started up of `V` (`V-1, false`). The resolver only
+declares success when `current_version` matches the *direction's target*
+AND `dirty=false`.
 
-After the orphan UPDATE, the loop proceeds to `Steps(1)` and either re-runs
-V (in the third row above) or moves past it.
+`force` rows are never orphans — they are inserted directly at terminal
+status (§Force direction) and have no started phase.
+
+After the orphan UPDATE, the loop proceeds to `Steps(±1)` and either
+re-runs the version (in the never-started rows above) or moves past it.
 
 ### Migration succeeds in postgres but the wrapper's UPDATE fails
 
@@ -458,11 +591,16 @@ axiaopsctl migrate drift             # Print drift table (Go-side hash + DB comp
 axiaopsctl migrate history [V]       # Pretty-print migration_history_v rows
 ```
 
-Implementation lives in the same Go module
-(`axiaops.io/shared/cmd/migrate/`); `services/migrate/main.go` is kept as a
-thin shim that calls `up` for backward compatibility with existing
-Dockerfiles. The make target `migrate-image` (existing) builds the binary; a
-new make target invokes it locally:
+Canonical implementation path is `services/shared/cmd/migrate/main.go` (Go
+module `axiaops.io/shared/cmd/migrate/`). The legacy entrypoint at
+`services/migrate/main.go` is kept as a temporary backward-compat shim that
+forwards to `axiaopsctl migrate up`, so existing Dockerfiles, CI scripts,
+and the `migrate-image` Make target keep working unchanged. The shim is
+deleted in a follow-up MR once `grep -r "services/migrate" .gitlab-ci.yml
+deploy/ services/*/Dockerfile` returns no hits.
+
+The make target `migrate-image` (existing) builds the binary; a new make
+target invokes it locally:
 
 ```make
 axiaopsctl: ## Build the migrate/operator CLI
@@ -496,13 +634,20 @@ SELECT
     h.schema_migrations_dirty_after,
     LEFT(h.file_sha256, 8) AS file_sha256_short,
     h.file_sha256
-FROM axiaops.migration_history h
-ORDER BY h.started_at, h.id;
+FROM axiaops.migration_history h;
 ```
 
-`ORDER BY started_at, id` — `id` breaks same-millisecond ties deterministically.
-`file_sha256_short` is for at-a-glance reading, `file_sha256` is the full
-value for diffs.
+**No `ORDER BY` in the view definition.** Postgres does not guarantee that
+an `ORDER BY` written into a view's `SELECT` is preserved when the view is
+queried — the planner may discard it. Operator queries and the
+`axiaopsctl migrate history` printer must add their own
+`ORDER BY started_at, id`. `id` (a `BIGSERIAL`) breaks same-millisecond ties
+deterministically.
+
+`file_sha256_short` (8 hex chars = 32 bits) is **for at-a-glance display
+only** — collision probability is ~10⁻⁵ over a few thousand rows, fine for
+visual reading but never use it for drift comparison. The full `file_sha256`
+column is the diff target.
 
 ### Drift query
 
@@ -528,22 +673,24 @@ The following are intentionally not in v1:
 
 ## Open questions
 
-1. **Should `axiaopsctl migrate up` replace the implicit migrate step in
-   `make start-staging`?** Currently `make start-staging` runs the migrate
-   image first, then `docker compose up`. Mechanical change once the
-   subcommand lands; small docs/Makefile delta.
-2. **How aggressive should drift posture be in CI?** CI builds run their
+1. **How aggressive should drift posture be in CI?** CI builds run their
    own migrations on disposable Postgres containers, so drift is impossible
    there by construction. "Set `MIGRATION_HISTORY_STRICT=true` in CI envs"
    is a reflex worth pinning before the first developer trips on it.
-3. **Truncation of `error_message` at 4 KB.** The cap is now enforced by a
+2. **Truncation of `error_message` at 4 KB.** The cap is now enforced by a
    Go constant + a CHECK constraint. The number itself (4 KB) is a guess;
    pin a final value once we have one quarter of real `pq` error strings.
-4. **Connection-context details.** Some bastion-run migrations connect with
+3. **Connection-context details.** Some bastion-run migrations connect with
    one `sslmode`, App Runner forces another. Adding `applied_by_connection`
    is doable but noisy and not on the critical path.
 
 ### Settled, not open
+
+**`make start-staging` migration step.** Cosmetic, not architectural. Once
+`axiaopsctl` ships, `make start-staging` invokes `axiaopsctl migrate up`
+instead of the bare migrate binary; same image, same `Bootstrap()`, just a
+longer argv. No design impact; tracked as a follow-up MR docs/Makefile
+delta.
 
 **Tamper-evidence.** `migration_history` is forensic, not legal-evidentiary.
 If an operator with owner credentials drops or truncates it, the next boot
