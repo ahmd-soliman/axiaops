@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from '../components/primitives';
 import { authBootstrap, authBootstrapState } from '../api/client';
-import { authColors as C, authStyles as S } from './_authShell';
+import { authColors as C, useAuthStyles } from './_authShell';
 
 // BootstrapScreen renders the first-run install form.
 //
@@ -13,6 +13,7 @@ import { authColors as C, authStyles as S } from './_authShell';
 // they pasted the right value; a show/hide toggle is overkill for a
 // one-time setup screen.
 export default function BootstrapScreen() {
+  const S = useAuthStyles();
   const navigate = useNavigate();
   const [token, setToken] = useState('');
   const [email, setEmail] = useState('');

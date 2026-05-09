@@ -6,7 +6,7 @@ import {
   getPendingOrgPick,
 } from '../api/client';
 import { Spinner } from '../components/primitives';
-import { authColors as C, authStyles as S } from './_authShell';
+import { authColors as C, useAuthStyles } from './_authShell';
 
 // OrgPickerScreen lands users coming off /v1/auth/login when their account
 // belongs to multiple organisations (the server returned 200 with
@@ -26,6 +26,7 @@ import { authColors as C, authStyles as S } from './_authShell';
 // null → guard fires → <Navigate to="/login" />. The user just signs in
 // again, which is the documented recovery path.
 export default function OrgPickerScreen() {
+  const S = useAuthStyles();
   const navigate = useNavigate();
   // Read the pending pick once on first render. getPendingOrgPick is
   // idempotent (it doesn't clear), so React StrictMode's double-mount
