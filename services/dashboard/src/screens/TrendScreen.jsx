@@ -437,10 +437,13 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                     key={g}
                     onClick={() => { setGranularity(g); setSelectedSnap(null); }}
                     style={{
-                      padding: '3px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
+                      // Bumped from 3/8 padding so the segmented toggle clears
+                      // a finger-pad on touch input. The visual size grows by
+                      // ~6px each — fine on desktop, important on phones.
+                      padding: '6px 12px', borderRadius: 4, border: 'none', cursor: 'pointer',
                       backgroundColor: effectiveGranularity === g ? t.accent : 'transparent',
                       color: effectiveGranularity === g ? '#fff' : t.textMuted,
-                      fontSize: 11, fontWeight: 600, textTransform: 'capitalize',
+                      fontSize: 12, fontWeight: 600, textTransform: 'capitalize',
                     }}
                   >
                     {g}
@@ -458,7 +461,13 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                   onClick={() => changePeriod(p.days)}
                   aria-pressed={active}
                   style={{
-                    padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                    // 4/10 → 7/14 puts each pill at ~36×30px vs the prior
+                    // ~22×24px — still tighter than the 44px HIG floor but
+                    // close enough to be reliably tappable, and the row
+                    // wraps if all 4 don't fit. Single padding pair so the
+                    // pill height stays consistent with the granularity
+                    // toggle next to it.
+                    padding: '7px 14px', borderRadius: 6, cursor: 'pointer',
                     backgroundColor: active ? t.accent : t.surfaceRaised,
                     border: `1px solid ${active ? t.accent : t.border}`,
                     fontSize: 12, fontWeight: 700,
