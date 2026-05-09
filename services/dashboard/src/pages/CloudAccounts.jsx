@@ -6,6 +6,8 @@ import { useToast } from '../context/ToastContext';
 import { fetchAccounts, scanAccount } from '../api/client';
 import { PERM } from '../api/permissions';
 import { Spinner } from '../components/primitives';
+import { useBreakpoint } from '../components/primitives/useBreakpoint';
+import { CardRow } from '../components/primitives/CardRow';
 import { STATUS_LABEL } from '../utils/accountStatus';
 import { formatRelative } from '../utils/relativeTime';
 
@@ -20,6 +22,8 @@ export default function CloudAccounts() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { isAtMost } = useBreakpoint();
+  const isMobile = isAtMost('sm');
 
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
 
@@ -47,8 +51,14 @@ export default function CloudAccounts() {
   const canScan = can(PERM.ACCOUNTS_SCAN);
 
   return (
-    <div style={{ padding: 24, color: t.textMid }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24, gap: 16 }}>
+    <div style={{ padding: isMobile ? 16 : 24, color: t.textMid }}>
+      <div style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'stretch' : 'center',
+        marginBottom: isMobile ? 16 : 24,
+        gap: 12,
+      }}>
         <div style={{ flex: 1 }}>
           <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Cloud Accounts</h1>
           <p style={{ marginTop: 4, marginBottom: 0, color: t.textMuted, fontSize: 13 }}>
@@ -56,7 +66,11 @@ export default function CloudAccounts() {
           </p>
         </div>
         {canConnect && (
-          <button type="button" onClick={() => navigate('/connect')} style={primaryButton(t)}>
+          <button
+            type="button"
+            onClick={() => navigate('/connect')}
+            style={{ ...primaryButton(t), width: isMobile ? '100%' : undefined, minHeight: isMobile ? 44 : undefined }}
+          >
             + Connect Account
           </button>
         )}
@@ -76,6 +90,77 @@ export default function CloudAccounts() {
           <div style={{ padding: 24, color: '#ef4444', fontSize: 13 }}>Failed to load accounts.</div>
         ) : accounts.data?.length === 0 ? (
           <EmptyState t={t} canConnect={canConnect} onConnect={() => navigate('/connect')} />
+        ) : isMobile ? (
+          // Phone layout — six-column <table> doesn't reflow (Label, AWS
+          // Account, Region, Status, Last Scan, Actions). Cards keep every
+          // field accessible without horizontal page scroll. Tapping the
+          // card body navigates to the management page (same as desktop
+          // row click); action buttons live on their own row inside each
+          // card with stopPropagation so they don't trigger the body nav.
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {(accounts.data || []).map((a) => {
+              const isScanning = a.status === 'scanning';
+              return (
+                <CardRow
+                  key={a.id}
+                  onClick={() => navigate(`/cloud-accounts/${a.id}`)}
+                  header={
+                    <>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                        {a.label || '—'}
+                      </span>
+                      <StatusBadge t={t} isDark={isDark} status={a.status} />
+                    </>
+                  }
+                  body={
+                    <>
+                      {a.account_id && (
+                        <span style={{ fontFamily: '"Geist Mono Variable", monospace', fontSize: 12, color: t.textMid, wordBreak: 'break-all' }}>
+                          {a.account_id}
+                        </span>
+                      )}
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: t.textMuted }}>
+                        <span>{a.region}</span>
+                        {a.last_scanned_at && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span>Last scan {formatRelative(a.last_scanned_at)}</span>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  }
+                  actions={
+                    <div
+                      style={{ display: 'flex', gap: 8, width: '100%' }}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}
+                      role="presentation"
+                    >
+                      {canScan && (
+                        <button
+                          type="button"
+                          onClick={() => scanMutation.mutate(a.id)}
+                          disabled={isScanning}
+                          style={{ ...ghostButton(t, isScanning), flex: 1, minHeight: 40 }}
+                        >
+                          {isScanning ? 'Scanning…' : 'Scan'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/cloud-accounts/${a.id}`)}
+                        aria-label="Manage account"
+                        style={{ ...ghostButton(t), flex: 1, minHeight: 40 }}
+                      >
+                        Manage
+                      </button>
+                    </div>
+                  }
+                />
+              );
+            })}
+          </div>
         ) : (
           <table aria-label="Connected cloud accounts" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
