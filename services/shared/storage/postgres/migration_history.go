@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
+	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -325,7 +326,20 @@ func recordStarted(ctx context.Context, conn *sql.Conn, version uint, name, dire
 // own m.Version() reads via its driver connection; the wrapper sometimes
 // needs the post-step state from a different transaction.
 //
-// hasRow=false when the table has no row at all (fresh DB).
+// hasRow=false in three indistinguishable-from-the-wrapper's-POV cases:
+//
+//  1. Table has no row at all (fresh DB after Bootstrap, before the first
+//     m.Steps()).
+//  2. Table itself does not exist yet (truly fresh DB before
+//     migratepg.WithInstance has run — Bootstrap creates the axiaops schema
+//     and migration_history but golang-migrate creates schema_migrations
+//     lazily on first WithInstance call). Detected via SQLSTATE 42P01
+//     (undefined_table).
+//  3. (Hypothetical) row count > 0 but Scan returned ErrNoRows. Not reachable.
+//
+// All three collapse to "no migration has ever run on this DB" — the right
+// signal for orphan recovery / backfill, neither of which should fire on a
+// pristine DB.
 func schemaMigrationsState(ctx context.Context, conn *sql.Conn) (version int64, dirty bool, hasRow bool, err error) {
 	row := conn.QueryRowContext(ctx, `SELECT version, dirty FROM axiaops.schema_migrations LIMIT 1`)
 	switch err := row.Scan(&version, &dirty); {
@@ -334,6 +348,10 @@ func schemaMigrationsState(ctx context.Context, conn *sql.Conn) (version int64, 
 	case errors.Is(err, sql.ErrNoRows):
 		return 0, false, false, nil
 	default:
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "42P01" {
+			return 0, false, false, nil
+		}
 		return 0, false, false, fmt.Errorf("migration_history: read schema_migrations: %w", err)
 	}
 }
