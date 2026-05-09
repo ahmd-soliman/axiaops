@@ -8,15 +8,18 @@
 
 ## How It Works
 
-On every startup, both the `api` and `ingestion` services call `postgres.Migrate(dbURL)` before opening the connection pool. golang-migrate:
+On every startup, both the `api` and `ingestion` services call `postgres.Migrate(dbURL)` before opening the connection pool. The wrapper:
 
-1. Connects to PostgreSQL
-2. Acquires an advisory lock (safe if both services start simultaneously)
-3. Checks `axiaops.schema_migrations` — a table it owns and manages
-4. Runs any `.up.sql` files not yet recorded there, in version order
-5. Records each applied migration and releases the lock
+1. Opens a pinned `*sql.Conn` against `MIGRATION_DATABASE_URL` and acquires the wrapper-level session advisory lock (`AxiaOpsM`).
+2. Runs **orphan recovery** — finalises any `axiaops.migration_history` row whose post-step UPDATE was lost to a wrapper crash. See [§Migration history](#migration-history) and `docs/migration-history-table-design.md` §Failure modes.
+3. Runs **backfill** if `migration_history` is empty but `schema_migrations` is non-empty (first deploy of the history table on an existing env). Inserts one `status='backfilled'` row per applied version with the live-file SHA-256.
+4. Runs **drift detection** — compares the SHA-256 of every embedded `.up.sql` against the most recent succeeded recorded checksum. Mismatch → `slog.Warn` + Prometheus counter. With `MIGRATION_HISTORY_STRICT=true` the wrapper refuses to start.
+5. Drives golang-migrate one step at a time (`Steps(1)` in a loop). For each step it INSERT-and-COMMITs a `status='started'` row **before** the step, then UPDATEs it to `succeeded`/`failed` **after** the step on a separate transaction.
+6. Releases the advisory lock and closes the pinned conn.
 
-If no new migrations are pending, it exits immediately with no side effects.
+If no new migrations are pending, the loop exits immediately and only the boot-time bookkeeping (orphan recovery + drift detection) runs.
+
+`axiaops.schema_migrations` is still owned by golang-migrate as before — `migration_history` layers on top, it does not replace it.
 
 ---
 
@@ -97,34 +100,108 @@ golang-migrate records applied migrations in `axiaops.schema_migrations`:
 - `version` — the number prefix of the migration file (`001` → `1`)
 - `dirty` — `true` if the last migration failed mid-run; requires manual intervention before any new migrations can run
 
+`schema_migrations` carries the *current* state. For *what was applied, when, by which build, against which file bytes*, see `migration_history` below.
+
+---
+
+## Migration history
+
+`axiaops.migration_history` is a per-event audit table written by our wrapper on every up / down / force. It exists to answer questions `schema_migrations` cannot:
+
+- *When* was migration N applied to this env, and how long did it take?
+- *Which build* (`APP_VERSION@APP_COMMIT_SHA`) ran it?
+- *Which file bytes* were applied — i.e. is the file on disk today the same SHA-256 that ran two months ago?
+- Did the version ever roll back, then re-apply, on this database?
+
+The table lives in the `axiaops` schema, owned by `axiaops_owner`. The app user (`axiaops`) has `SELECT` only — DML is owner-only by policy. The schema is created in `Bootstrap()` (not as a numbered migration) because it must exist *before* `000_init.up.sql` runs; full rationale lives in `docs/migration-history-table-design.md` §Bootstrap.
+
+### Useful queries
+
+Inspect the convenience view rather than the raw table:
+
+```sql
+SELECT id, version, name, direction, status, started_at, duration_ms,
+       schema_migrations_dirty_after, file_sha256_short, applied_by_image
+FROM axiaops.migration_history_v
+ORDER BY started_at, id;
+```
+
+Note: the view itself has **no** `ORDER BY` — Postgres does not guarantee that a view's `ORDER BY` is preserved at query time. Always add it in the operator query (and `axiaopsctl migrate history` does).
+
+Latest succeeded checksum for one version:
+
+```sql
+SELECT file_sha256
+FROM axiaops.migration_history
+WHERE version = 24 AND direction = 'up' AND status = 'succeeded'
+  AND file_sha256 IS NOT NULL
+ORDER BY id DESC LIMIT 1;
+```
+
+In-flight or crashed-mid-run rows (none expected during normal operation):
+
+```sql
+SELECT id, version, direction, started_at
+FROM axiaops.migration_history
+WHERE status = 'started' AND finished_at IS NULL;
+```
+
+### Drift detection
+
+On every boot the wrapper compares the on-disk SHA-256 of every embedded `.up.sql` to the most recent succeeded recorded SHA. Mismatch → `slog.Warn` + `axiaops_migration_history_drift_total{version=...}` Prometheus counter, **service still starts**. Set `MIGRATION_HISTORY_STRICT=true` to flip the posture to refuse-to-start (default-on for CI / staging / dev; default-off for customer self-hosted installs).
+
+`bin/axiaopsctl migrate drift` (or `make migration-history-drift`) prints the drift table on demand:
+
+```
+VERSION  NAME                   EXPECTED   OBSERVED
+24       drop_kinde_residue     a1b2c3d4   ff0011ee
+```
+
+### Operator escape hatches
+
+- **Truncating `migration_history` is allowed** but acts as a re-baseline: the next boot sees an empty history with a non-empty `schema_migrations` and inserts a `backfilled` row per applied version, taking the live-file SHA as ground truth. Anything you wanted to forensically catch is gone. The table is forensic, not legal-evidentiary; for un-tamperable history, ship rows to S3 / a SIEM out-of-band.
+- **`bin/axiaopsctl migrate force N` writes a force history row** with `direction='force'`, `status='succeeded'`, `file_sha256=NULL` (no file is applied — `Force` only rewrites `schema_migrations`). Prefer this over the upstream `migrate force` so the event is on the record.
+- **A bastion `migrate` install bypasses the history table.** The legitimate channel is `axiaopsctl`. There is no `migrate-binary-on-bastion` workflow we support post-history-table.
+
+For deeper architecture (advisory-lock layout, two-connection model, orphan-recovery truth table, force semantics) see `docs/migration-history-table-design.md`.
+
 ---
 
 ## Running Migrations Manually
 
-Migrations run automatically on startup. To run them manually (useful for production database management without restarting the app), install the CLI:
+Migrations run automatically on startup. For ad-hoc operator work — applying or rolling back without restarting the app, inspecting history, hunting drift — use **`axiaopsctl`**, the project's own migrate CLI:
 
 ```bash
-brew install golang-migrate
+make axiaopsctl                    # builds bin/axiaopsctl
+
+# Apply all pending migrations (also: argv-less call lands here)
+bin/axiaopsctl migrate up
+
+# Roll back N migrations — each step records a 'down' history row
+bin/axiaopsctl migrate down 1
+
+# Force schema_migrations to version N without running DDL.
+# Writes a single 'force' history row for forensics. Use only when fixing dirty=true.
+bin/axiaopsctl migrate force 24
+
+# Print every history row (optionally filter by version)
+bin/axiaopsctl migrate history
+bin/axiaopsctl migrate history 24
+
+# Print versions whose on-disk SHA differs from the recorded SHA
+bin/axiaopsctl migrate drift
 ```
 
-Then:
+`axiaopsctl` is the same Go binary the api/ingestion services run on startup (`services/shared/cmd/migrate/`), just with a different entrypoint. That's load-bearing: a bare `migrate` install from Homebrew bypasses the wrapper, so the operation lands in the database without leaving a `migration_history` row. Use `axiaopsctl` always.
+
+Make wrappers exist for the inspection subcommands:
 
 ```bash
-# Apply all pending migrations
-migrate -path services/shared/storage/postgres/migrations \
-        -database "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable&search_path=axiaops" \
-        up
-
-# Roll back the last migration
-migrate -path services/shared/storage/postgres/migrations \
-        -database "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable&search_path=axiaops" \
-        down 1
-
-# Check current version
-migrate -path services/shared/storage/postgres/migrations \
-        -database "..." \
-        version
+make migration-history V=24        # bin/axiaopsctl migrate history 24
+make migration-history-drift       # bin/axiaopsctl migrate drift
 ```
+
+Both pass `MIGRATION_DATABASE_URL` through.
 
 ---
 
