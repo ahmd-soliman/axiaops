@@ -36,5 +36,5 @@
       <polygon points="0,0 -2.2,-1.2 -2.2,1.2 0,2.5" fill="#9a3412"/>
     </g>
   </g>
-  <text x="115" y="63" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" font-weight="500" font-size="40" letter-spacing="-0.8" fill="#0f172a">Axia<tspan fill="#f97316">Ops</tspan></text>
+  <text x="115" y="63" font-family="Geist, -apple-system, sans-serif" font-weight="700" font-size="40" letter-spacing="-0.8" fill="#0f172a">Axia<tspan fill="#f97316">Ops</tspan></text>
 </svg>
