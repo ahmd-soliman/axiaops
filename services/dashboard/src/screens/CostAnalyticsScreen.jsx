@@ -365,7 +365,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                       padding: isMobile ? '6px 12px' : '3px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
                       backgroundColor: effectiveGranularity === g ? t.accent : 'transparent',
                       color: effectiveGranularity === g ? '#fff' : t.textMuted,
-                      fontSize: 12, fontWeight: 600, textTransform: 'capitalize',
+                      fontSize: isMobile ? 12 : 11, fontWeight: 600, textTransform: 'capitalize',
                     }}
                   >
                     {g}

@@ -237,9 +237,7 @@ function ServiceBreakdown({ byService, currency, theme, isMobile }) {
 
 // ─── Search + Sort bar ────────────────────────────────────────────────────────
 
-function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onClearFilter }) {
-  const { isAtMost } = useBreakpoint();
-  const isMobile = isAtMost('xs');
+function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onClearFilter, isMobile }) {
   return (
     <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', gap: 8 }}>
@@ -345,10 +343,8 @@ function FilterPills({
   byService, owners, resourceTypes,
   filterSvcs, filterOwner, filterResourceTypes,
   onToggleSvc, onFilterOwner, onToggleResourceType, onClearResourceTypes,
-  currency, theme, isDark,
+  currency, theme, isDark, isMobile,
 }) {
-  const { isAtMost } = useBreakpoint();
-  const isMobile = isAtMost('xs');
   const showSubfilter = filterSvcs.size === 1 && resourceTypes.length > 0;
   const noneSelected = filterResourceTypes.size === 0;
   return (
@@ -374,7 +370,7 @@ function FilterPills({
                   gap: 5,
                   backgroundColor: active ? theme.accent : theme.surfaceRaised,
                   borderRadius: 20,
-                  padding: isMobile ? '8px 12px' : '5px 10px',
+                  padding: isMobile ? '8px 14px' : '5px 10px',
                   border: `1px solid ${active ? theme.accent : theme.border}`,
                   cursor: 'pointer',
                   flexShrink: 0,
@@ -1154,6 +1150,7 @@ export default function DashboardScreen({
           currency={summary.data?.currency ?? '$'}
           theme={t}
           isDark={isDark}
+          isMobile={isMobile}
         />
       </div>
 
@@ -1198,6 +1195,7 @@ export default function DashboardScreen({
           theme={t}
           activeFilters={activeFilters}
           onClearFilter={clearFilter}
+          isMobile={isMobile}
         />
       )}
 
