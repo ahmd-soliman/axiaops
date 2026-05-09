@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Spinner } from '../components/primitives';
 import { authPreviewInvitation, authRedeemInvitation } from '../api/client';
-import { authColors as C, authStyles as S } from './_authShell';
+import { authColors as C, useAuthStyles } from './_authShell';
 
 // AcceptInviteScreen handles the OOB redemption URL admins share with
 // invitees: /accept-invite?token=<plaintext>. The token comes from the
@@ -18,6 +18,7 @@ import { authColors as C, authStyles as S } from './_authShell';
 // On success the server creates / extends the membership AND mints a
 // session cookie, so we land the user straight in the dashboard.
 export default function AcceptInviteScreen() {
+  const S = useAuthStyles();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const tokenFromUrl = params.get('token') || '';

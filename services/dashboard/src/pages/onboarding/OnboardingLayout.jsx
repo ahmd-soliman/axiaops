@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { useTheme } from '../../theme/ThemeContext';
+import { useBreakpoint } from '../../components/primitives/useBreakpoint';
 
 const STEPS = [
   { path: '/onboarding/invite', label: 'Invite teammates' },
@@ -12,6 +13,8 @@ const STEPS = [
 export default function OnboardingLayout() {
   const { theme: t, isDark } = useTheme();
   const location = useLocation();
+  const { isAtMost } = useBreakpoint();
+  const isMobile = isAtMost('sm');
   const idx = STEPS.findIndex((s) => location.pathname.startsWith(s.path));
   const currentIdx = idx >= 0 ? idx : 0;
 
@@ -25,10 +28,13 @@ export default function OnboardingLayout() {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        paddingTop: 80,
+        // Desktop wants the wizard pinned ~80px below the navbar; phones
+        // have far less vertical space (and no navbar at all on these
+        // routes), so the same gap eats the area above the form.
+        paddingTop: isMobile ? 32 : 80,
       }}
     >
-      <div style={{ width: '100%', maxWidth: 600, padding: '0 24px' }}>
+      <div style={{ width: '100%', maxWidth: 600, padding: isMobile ? '0 16px' : '0 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, justifyContent: 'center' }}>
           {STEPS.map((s, i) => (
             <div
