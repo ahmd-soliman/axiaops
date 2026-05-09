@@ -68,7 +68,7 @@ export default function PasswordResetScreen() {
   return (
     <div style={S.container}>
       <form style={S.card} onSubmit={onSubmit} noValidate>
-        <span style={S.logo}>AxiaOps</span>
+        <img src="/axiaops-logo-dark.svg" alt="AxiaOps" style={S.logoImg} />
         <span style={S.title}>Reset your password</span>
         <span style={S.tagline}>
           Choose a new password. All existing sessions will be signed out for
