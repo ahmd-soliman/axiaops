@@ -96,7 +96,7 @@ export default function OrgPickerScreen() {
   return (
     <div style={S.container}>
       <div style={{ ...S.card, gap: 12 }}>
-        <span style={S.logo}>AxiaOps</span>
+        <img src="/axiaops-logo-dark.svg" alt="AxiaOps" style={S.logoImg} />
         <span style={S.title}>Choose an organisation</span>
         <span style={S.tagline}>
           You're signed in as <strong style={{ color: C.white }}>{email}</strong> and
