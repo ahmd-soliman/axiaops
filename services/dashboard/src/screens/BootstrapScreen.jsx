@@ -79,7 +79,7 @@ export default function BootstrapScreen() {
   return (
     <div style={S.container}>
       <form style={S.card} onSubmit={onSubmit} noValidate>
-        <span style={S.logo}>AxiaOps</span>
+        <img src="/axiaops-logo-dark.svg" alt="AxiaOps" style={S.logoImg} />
         <span style={S.title}>First-run setup</span>
         <span style={S.tagline}>
           Create the first owner account. The install token was printed to the API
