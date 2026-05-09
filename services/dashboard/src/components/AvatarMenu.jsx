@@ -8,7 +8,12 @@ import { useApp } from '../context/AppContext';
 // stay narrow on purpose — destructive actions (Delete account, Download
 // data) live on the Profile page itself, not in this dropdown, so a stray
 // click can't detonate anything from the navbar.
-export default function AvatarMenu() {
+//
+// `compact` is set by AppShell at xs/sm where the email text doesn't fit
+// alongside the logo, hamburger, and other navbar mass. Compact drops the
+// email span and renders just the avatar circle as the trigger; the
+// dropdown body is unchanged.
+export default function AvatarMenu({ compact = false }) {
   const { theme: t, isDark } = useTheme();
   const { me } = useMe();
   const { onLogout } = useApp();
@@ -43,8 +48,19 @@ export default function AvatarMenu() {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Account menu"
-        style={{
+        aria-label={compact && email ? `Account menu (${email})` : 'Account menu'}
+        style={compact ? {
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          border: `1px solid ${t.border}`,
+          backgroundColor: 'transparent',
+          cursor: 'pointer',
+          padding: 0,
+        } : {
           display: 'flex',
           alignItems: 'center',
           gap: 8,
@@ -61,20 +77,22 @@ export default function AvatarMenu() {
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: 24,
-            height: 24,
+            width: compact ? 28 : 24,
+            height: compact ? 28 : 24,
             borderRadius: '50%',
             backgroundColor: t.accent,
             color: '#fff',
-            fontSize: 12,
+            fontSize: compact ? 13 : 12,
             fontWeight: 700,
           }}
         >
           {initial}
         </span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: t.accentMuted, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {email || 'Account'}
-        </span>
+        {!compact && (
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.accentMuted, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {email || 'Account'}
+          </span>
+        )}
       </button>
 
       {open && (

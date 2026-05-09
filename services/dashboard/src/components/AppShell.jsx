@@ -5,31 +5,12 @@ import { useApp } from '../context/AppContext';
 import { useMe } from '../context/MeContext';
 import { fetchVersion } from '../api/client';
 import { APP_VERSION, APP_COMMIT_SHA } from '../config';
+import { useBreakpoint } from './primitives/useBreakpoint';
+import { NAV_ITEMS, isNavActive } from './navItems';
 import AvatarMenu from './AvatarMenu';
 import OrgSwitcher from './OrgSwitcher';
 import LicenseBanner from './LicenseBanner';
-
-// ─── SVG icons ────────────────────────────────────────────────────────────────
-
-function IconOverview({ color, size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" />
-      <rect x="14" y="3" width="7" height="7" />
-      <rect x="3" y="14" width="7" height="7" />
-      <rect x="14" y="14" width="7" height="7" />
-    </svg>
-  );
-}
-
-function IconTrend({ color, size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
-      <polyline points="16 7 22 7 22 13" />
-    </svg>
-  );
-}
+import MobileNav from './MobileNav';
 
 function IconSun({ color, size = 17 }) {
   return (
@@ -55,60 +36,30 @@ function IconMoon({ color, size = 17 }) {
   );
 }
 
-function IconCost({ color, size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="1" x2="12" y2="23" />
-      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
-  );
-}
-
-function IconCloud({ color, size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-    </svg>
-  );
-}
-
-function IconSettings({ color, size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  );
-}
-
-// ─── Nav config ───────────────────────────────────────────────────────────────
+// AppShell — sticky top navbar + page content + build footer.
 //
-// `requires` gates the entry on a permission grant from MeContext. Items
-// without it are visible to every authenticated user. Filtering happens in
-// the render path, not here, so role changes show up on the next render.
+// Two presentation modes pivoting on viewport width:
 //
-// Settings is ungated: every authenticated user has audit:read, so the
-// hub's sub-nav always has at least one accessible tab. The hub itself
-// filters tabs per-permission internally.
-
-const NAV_ITEMS = [
-  { label: 'Overview',       path: '/',                Icon: IconOverview },
-  { label: 'Trends',         path: '/trend',           Icon: IconTrend },
-  { label: 'Costs',          path: '/cost',            Icon: IconCost },
-  { label: 'Cloud Accounts', path: '/cloud-accounts',  Icon: IconCloud },
-  { label: 'Settings',       path: '/settings',        Icon: IconSettings },
-];
-
-// ─── Top navbar ───────────────────────────────────────────────────────────────
-
+//   xs/sm (≤767px): logo + hamburger (MobileNav) on the left, AvatarMenu
+//     on the right in compact form. Nav links, OrgSwitcher, and theme
+//     toggle live inside the MobileNav drawer.
+//
+//   md/lg (≥768px): the original desktop layout — logo, inline nav links,
+//     theme toggle, OrgSwitcher, AvatarMenu (full width with email).
+//
+// 768px is the cut-over because at sm (480–767px) there's no room for
+// 5 nav links + OrgSwitcher (max 180px) + AvatarMenu (max 160px + chrome)
+// alongside the 48px logo. At md (768+) the desktop row fits with margin.
 export default function AppShell() {
   const { theme, isDark, toggleTheme } = useTheme();
   const { orgName } = useApp();
   const { can } = useMe();
   const navigate  = useNavigate();
   const location  = useLocation();
+  const { isAtMost } = useBreakpoint();
   const t = theme;
 
+  const isMobile = isAtMost('sm');
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.requires || can(item.requires));
 
   // Backend build identifier — fetched once per session and cached. The footer
@@ -138,89 +89,105 @@ export default function AppShell() {
           height: 64,
           display: 'flex',
           alignItems: 'center',
-          padding: '0 16px',
-          gap: 8,
+          padding: isMobile ? '0 12px' : '0 16px',
+          gap: isMobile ? 8 : 8,
           flexShrink: 0,
         }}
       >
         {/* Logo — SVG lockup. Source picked by isDark so the wordmark's
             "Axia" text contrasts the navbar bg (dark text on light, light on
-            dark). The "Ops" wordmark and sonar mark stay constant across modes. */}
+            dark). The "Ops" wordmark and sonar mark stay constant across modes.
+            Slightly smaller on mobile to leave room for the hamburger. */}
         <img
           src={isDark ? '/axiaops-logo-dark.svg' : '/axiaops-logo.svg'}
           alt="AxiaOps"
-          style={{ height: 48, width: 'auto', marginRight: 12, display: 'block' }}
+          style={{
+            height: isMobile ? 36 : 48,
+            width: 'auto',
+            marginRight: isMobile ? 4 : 12,
+            display: 'block',
+          }}
         />
 
-        {/* Nav links — color + weight signal active state; bg is reserved
-            for hover feedback so inactive items aren't dead targets. */}
-        <nav aria-label="Main navigation" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
-          {visibleNavItems.map(({ label, path, Icon }) => {
-            const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
-            const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
-            return (
+        {isMobile ? (
+          <>
+            <div style={{ flex: 1 }} />
+            <AvatarMenu compact />
+            <MobileNav />
+          </>
+        ) : (
+          <>
+            {/* Nav links — color + weight signal active state; bg is reserved
+                for hover feedback so inactive items aren't dead targets. */}
+            <nav aria-label="Main navigation" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
+              {visibleNavItems.map(({ label, path, Icon }) => {
+                const isActive = isNavActive(path, location.pathname);
+                const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+                return (
+                  <button
+                    key={path}
+                    onClick={() => navigate(path)}
+                    aria-current={isActive ? 'page' : undefined}
+                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '5px 10px',
+                      borderRadius: 7,
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      transition: 'background-color 120ms ease',
+                    }}
+                  >
+                    <Icon color={isActive ? t.accent : t.text} />
+                    <span style={{
+                      fontSize: 13,
+                      fontWeight: isActive ? 700 : 550,
+                      color: isActive ? t.accent : t.text,
+                    }}>
+                      {label}
+                    </span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Right-side actions */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {/* Theme toggle */}
               <button
-                key={path}
-                onClick={() => navigate(path)}
-                aria-current={isActive ? 'page' : undefined}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                onClick={toggleTheme}
+                aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '5px 10px',
+                  padding: '6px 7px',
                   borderRadius: 7,
-                  border: 'none',
+                  border: `1px solid ${t.border}`,
                   backgroundColor: 'transparent',
                   cursor: 'pointer',
-                  transition: 'background-color 120ms ease',
+                  display: 'flex',
+                  alignItems: 'center',
                 }}
               >
-                <Icon color={isActive ? t.accent : t.text} />
-                <span style={{
-                  fontSize: 13,
-                  fontWeight: isActive ? 700 : 550,
-                  color: isActive ? t.accent : t.text,
-                }}>
-                  {label}
-                </span>
+                {isDark ? <IconSun color={t.accentMuted} /> : <IconMoon color={t.accentMuted} />}
               </button>
-            );
-          })}
-        </nav>
 
-        {/* Right-side actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {/* Theme toggle */}
-          <button
-            onClick={toggleTheme}
-            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            style={{
-              padding: '6px 7px',
-              borderRadius: 7,
-              border: `1px solid ${t.border}`,
-              backgroundColor: 'transparent',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            {isDark ? <IconSun color={t.accentMuted} /> : <IconMoon color={t.accentMuted} />}
-          </button>
+              {/* Org badge / switcher. OrgSwitcher renders the same static
+                  badge shape for single-membership users (no UI change vs
+                  B1) and an interactive dropdown for multi-membership
+                  users that rotates the session via /v1/auth/switch-org.
+                  The `fallbackName` fills the navbar slot during the
+                  initial /v1/me round-trip so it isn't blank on first
+                  paint. Under DEV_MODE it's the parseJwt-extracted
+                  DEV_ORG_NAME; otherwise empty until /v1/me lands. */}
+              <OrgSwitcher fallbackName={orgName} />
 
-          {/* Org badge / switcher. OrgSwitcher renders the same static
-              badge shape for single-membership users (no UI change vs
-              B1) and an interactive dropdown for multi-membership
-              users that rotates the session via /v1/auth/switch-org.
-              The `fallbackName` fills the navbar slot during the
-              initial /v1/me round-trip so it isn't blank on first
-              paint. Under DEV_MODE it's the parseJwt-extracted
-              DEV_ORG_NAME; otherwise empty until /v1/me lands. */}
-          <OrgSwitcher fallbackName={orgName} />
-
-          <AvatarMenu />
-        </div>
+              <AvatarMenu />
+            </div>
+          </>
+        )}
       </header>
 
       {/* ── License banner (B1.6 slice 8) ── */}
