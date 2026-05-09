@@ -27,6 +27,14 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
+# Normalise perms so the nginx worker (uid 101, non-root) can read everything
+# under the docroot regardless of whatever umask the build host happened to
+# carry into the BuildKit context. Without this, files routed through Vite's
+# public-dir static-copy (favicon.svg, axiaops-logo*.svg) inherit the build
+# host's mode — observed as 0770 root:root on GitLab runners — and 403 at
+# request time. Generated assets/* are fine because Vite writes them fresh
+# under the build process's umask. u=rwX,go=rX = 0644 for files, 0755 for dirs.
+RUN chmod -R u=rwX,go=rX /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY inject-env.sh /docker-entrypoint.d/40-inject-env.sh
 RUN chmod +x /docker-entrypoint.d/40-inject-env.sh
