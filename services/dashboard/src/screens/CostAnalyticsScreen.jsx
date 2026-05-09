@@ -9,6 +9,8 @@ import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner } from '../components/primitives';
 import { useWindowWidth } from '../components/primitives';
+import { useBreakpoint } from '../components/primitives/useBreakpoint';
+import { MobileSheet } from '../components/primitives/MobileSheet';
 import { csvEncode, downloadCSV } from '../utils/csv';
 
 const PERIOD_OPTIONS = [
@@ -18,6 +20,12 @@ const PERIOD_OPTIONS = [
   { label: '6m',  days: 180 },
   { label: '1y',  days: 365 },
 ];
+
+// AWS Cost Explorer's GetCostAndUsageWithResources tops out at 14 days of
+// resource-level history. The drill-down panel is clamped to this window
+// so its service total reconciles with its per-resource breakdown — see
+// the comment beside `panelWindowDays` in the component body.
+const PANEL_MAX_DAYS = 14;
 
 function formatCost(val) {
   if (val >= 1000) return `${(val / 1000).toFixed(2)}k`;
@@ -59,6 +67,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const { watch }     = useScanStatus();
   const queryClient   = useQueryClient();
   const screenWidth = useWindowWidth();
+  const { isAtMost } = useBreakpoint();
+  const isMobile = isAtMost('sm');
   const [period, setPeriod] = useState(30);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
   const [filterServices, setFilterServices] = useState(() => new Set());
@@ -155,13 +165,12 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
       .sort((a, b) => b.total - a.total);
   }, [filteredCosts]);
 
-  // The drill-down side panel is clamped to a maximum 14-day window to match
-  // AWS Cost Explorer's resource-level data ceiling (GetCostAndUsageWithResources).
-  // Without this clamp, the panel's service total spans the user's selected
-  // period (up to a year) while the resource breakdown only spans the last
-  // 14 days — the two numbers don't reconcile and resource rows look like
-  // they're "missing" most of the cost.
-  const PANEL_MAX_DAYS = 14;
+  // The drill-down side panel is clamped to a maximum 14-day window
+  // (PANEL_MAX_DAYS at module scope) to match AWS Cost Explorer's
+  // resource-level data ceiling — without it, the panel's service total
+  // spans the user's selected period (up to a year) while the resource
+  // breakdown only spans the last 14 days, and the two numbers don't
+  // reconcile so resource rows look like they're "missing" most of the cost.
   const panelWindowDays = Math.min(period, PANEL_MAX_DAYS);
   const panelClamped = period > PANEL_MAX_DAYS;
 
@@ -472,11 +481,15 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
         </div>
       )}
 
-      {/* Cost records list */}
+      {/* Cost records list — desktop puts the records column and the
+          service-detail panel side-by-side via flex; on phones (xs/sm)
+          the 350px sticky panel doesn't fit alongside any list, so the
+          records column takes the full width and the panel renders as
+          a bottom sheet only when a service is selected. */}
       {records.length > 0 && (
-        <div style={{ display: 'flex', gap: 16, padding: '16px' }}>
+        <div style={{ display: 'flex', gap: isMobile ? 0 : 16, padding: isMobile ? '12px' : '16px' }}>
           {/* Records list */}
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             {/* Summary header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${t.border}` }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -502,7 +515,10 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               </button>
             </div>
 
-            {/* Service-group rows */}
+            {/* Service-group rows — at xs/sm the four-column row (dot + info
+                + 100px period + 70px cost) is too tight, so stack the
+                period+cost block under the info column. Cost gets larger
+                emphasis on its own line on phones to stay scannable. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {serviceGroups.map(group => {
                 const cfg = serviceConfig(group.service);
@@ -513,8 +529,9 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                     onClick={() => setSelectedService(isSelected ? null : group.service)}
                     style={{
                       display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
+                      flexDirection: isMobile ? 'column' : 'row',
+                      alignItems: isMobile ? 'stretch' : 'center',
+                      gap: isMobile ? 6 : 12,
                       padding: '12px 14px',
                       backgroundColor: isSelected ? t.surfaceRaised : t.surface,
                       border: `1px solid ${isSelected ? t.accent : t.border}`,
@@ -522,102 +539,155 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
-                        {cfg.label}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
+                          {cfg.label}
+                        </div>
+                        <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
+                          {group.count} record{group.count !== 1 ? 's' : ''} · {group.regions.length} region{group.regions.length !== 1 ? 's' : ''}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
-                        {group.count} record{group.count !== 1 ? 's' : ''} · {group.regions.length} region{group.regions.length !== 1 ? 's' : ''}
+                    </div>
+                    {isMobile ? (
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, paddingLeft: 14 }}>
+                        <span style={{ fontSize: 11, color: t.textMuted }}>
+                          {formatDateShort(group.periodStart)} – {formatDateShort(group.periodEnd)}
+                        </span>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: t.accent }}>
+                          ${formatCost(group.total)}
+                        </span>
                       </div>
-                    </div>
-                    <div style={{ fontSize: 11, color: t.textMuted, textAlign: 'right', flexShrink: 0, minWidth: 100 }}>
-                      {formatDateShort(group.periodStart)} – {formatDateShort(group.periodEnd)}
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: t.accent, textAlign: 'right', flexShrink: 0, minWidth: 70 }}>
-                      ${formatCost(group.total)}
-                    </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 11, color: t.textMuted, textAlign: 'right', flexShrink: 0, minWidth: 100 }}>
+                          {formatDateShort(group.periodStart)} – {formatDateShort(group.periodEnd)}
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: t.accent, textAlign: 'right', flexShrink: 0, minWidth: 70 }}>
+                          ${formatCost(group.total)}
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* Service-detail panel — drill-down by resource_id, clamped to 14d */}
-          {selectedService && panelStats && selectedServiceBreakdown && (() => {
-            const cfg = serviceConfig(selectedService);
-            return (
-              <div style={{ width: 350, backgroundColor: t.surface, borderRadius: 8, border: `1px solid ${t.border}`, padding: 16, height: 'fit-content', position: 'sticky', top: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${t.border}` }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: cfg.color }} />
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{cfg.label}</div>
-                    <div style={{ fontSize: 11, color: t.textMuted }}>{selectedService}</div>
-                  </div>
-                </div>
-
-                {panelClamped && (
-                  <div style={{ fontSize: 10, color: t.textMuted, fontStyle: 'italic', marginBottom: 12, padding: '6px 8px', backgroundColor: t.surfaceRaised, borderRadius: 4 }}>
-                    Showing last {PANEL_MAX_DAYS} days · resource-level cost data is capped at {PANEL_MAX_DAYS} days by AWS Cost Explorer. The chart and the table to the left still reflect your selected period.
-                  </div>
-                )}
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-                      Total
-                    </div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: t.accent }}>
-                      ${panelStats.total.toFixed(2)} {panelStats.currency}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-                      Period
-                    </div>
-                    <div style={{ fontSize: 12, color: t.text }}>
-                      {formatDateShort(panelStats.periodStart)} – {formatDateShort(panelStats.periodEnd)} · {panelStats.count} record{panelStats.count !== 1 ? 's' : ''}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-                      Regions
-                    </div>
-                    <div style={{ fontSize: 12, color: t.text }}>
-                      {panelStats.regions.join(', ')}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 12 }}>
-                  <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 8 }}>
-                    Resources · {selectedServiceBreakdown.length}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
-                    {selectedServiceBreakdown.map((e, i) => (
-                      <div key={e.resourceId ?? `__none__${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: i < selectedServiceBreakdown.length - 1 ? `1px solid ${t.border}` : 'none' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 11, color: t.text, fontFamily: e.resourceId ? '"Geist Mono Variable", monospace' : 'inherit', fontStyle: e.resourceId ? 'normal' : 'italic', wordBreak: 'break-all' }}>
-                            {e.resourceId ?? 'No resource ID'}
-                          </div>
-                          <div style={{ fontSize: 10, color: t.textMuted, marginTop: 2 }}>
-                            {e.count} record{e.count !== 1 ? 's' : ''} · {e.regions.join(', ')}
-                          </div>
-                        </div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: t.accent, flexShrink: 0 }}>
-                          ${formatCost(e.total)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+          {/* Service-detail panel (desktop) — drill-down by resource_id,
+              clamped to 14d. On phones this same content renders inside
+              a MobileSheet outside the flex row (see below). */}
+          {!isMobile && selectedService && panelStats && selectedServiceBreakdown && (
+            <div style={{ width: 350, backgroundColor: t.surface, borderRadius: 8, border: `1px solid ${t.border}`, padding: 16, height: 'fit-content', position: 'sticky', top: 16 }}>
+              <ServiceDetailPanelBody
+                t={t}
+                selectedService={selectedService}
+                panelStats={panelStats}
+                panelClamped={panelClamped}
+                selectedServiceBreakdown={selectedServiceBreakdown}
+              />
+            </div>
+          )}
         </div>
       )}
+
+      {/* Service-detail sheet (mobile) — same content as the desktop side
+          panel, surfaced as a bottom sheet so it doesn't compete for
+          horizontal space with the records list. Closing the sheet
+          clears the selection so the next tap starts fresh. */}
+      <MobileSheet
+        visible={isMobile && !!selectedService && !!panelStats && !!selectedServiceBreakdown}
+        onClose={() => setSelectedService(null)}
+        ariaLabel="Service cost detail"
+      >
+        <div style={{ padding: '4px 16px 24px' }}>
+          {selectedService && panelStats && selectedServiceBreakdown && (
+            <ServiceDetailPanelBody
+              t={t}
+              selectedService={selectedService}
+              panelStats={panelStats}
+              panelClamped={panelClamped}
+              selectedServiceBreakdown={selectedServiceBreakdown}
+            />
+          )}
+        </div>
+      </MobileSheet>
     </div>
+  );
+}
+
+// Extracted so desktop's sticky right-rail and mobile's bottom sheet
+// render identical content without diverging.
+function ServiceDetailPanelBody({ t, selectedService, panelStats, panelClamped, selectedServiceBreakdown }) {
+  const cfg = serviceConfig(selectedService);
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, paddingBottom: 12, borderBottom: `1px solid ${t.border}` }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: cfg.color }} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{cfg.label}</div>
+          <div style={{ fontSize: 11, color: t.textMuted, wordBreak: 'break-all' }}>{selectedService}</div>
+        </div>
+      </div>
+
+      {panelClamped && (
+        <div style={{ fontSize: 10, color: t.textMuted, fontStyle: 'italic', marginBottom: 12, padding: '6px 8px', backgroundColor: t.surfaceRaised, borderRadius: 4 }}>
+          Showing last {PANEL_MAX_DAYS} days · resource-level cost data is capped at {PANEL_MAX_DAYS} days by AWS Cost Explorer. The chart and the table still reflect your selected period.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+            Total
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: t.accent }}>
+            ${panelStats.total.toFixed(2)} {panelStats.currency}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+            Period
+          </div>
+          <div style={{ fontSize: 12, color: t.text }}>
+            {formatDateShort(panelStats.periodStart)} – {formatDateShort(panelStats.periodEnd)} · {panelStats.count} record{panelStats.count !== 1 ? 's' : ''}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+            Regions
+          </div>
+          <div style={{ fontSize: 12, color: t.text }}>
+            {panelStats.regions.join(', ')}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 12 }}>
+        <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', fontWeight: 600, marginBottom: 8 }}>
+          Resources · {selectedServiceBreakdown.length}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
+          {selectedServiceBreakdown.map((e, i) => (
+            <div key={e.resourceId ?? `__none__${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: i < selectedServiceBreakdown.length - 1 ? `1px solid ${t.border}` : 'none' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: t.text, fontFamily: e.resourceId ? '"Geist Mono Variable", monospace' : 'inherit', fontStyle: e.resourceId ? 'normal' : 'italic', wordBreak: 'break-all' }}>
+                  {e.resourceId ?? 'No resource ID'}
+                </div>
+                <div style={{ fontSize: 10, color: t.textMuted, marginTop: 2 }}>
+                  {e.count} record{e.count !== 1 ? 's' : ''} · {e.regions.join(', ')}
+                </div>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: t.accent, flexShrink: 0 }}>
+                ${formatCost(e.total)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
