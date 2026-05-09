@@ -1,9 +1,15 @@
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
+import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { PERM } from '../api/permissions';
 
-// Settings hub: vertical sub-nav (left) + active tab pane (right).
+// Settings hub: vertical sub-nav (left) + active tab pane (right) on
+// desktop. On phones (xs/sm, ≤767px) the aside collapses to a horizontal
+// scrollable tab strip pinned under the navbar — the 220px aside left
+// 0px of usable content width on a 375px viewport, blocking every
+// settings sub-route on mobile.
+//
 // Tabs are gated by permission; tabs the caller can't see don't render.
 //
 // Sub-nav fits the SaaS standard (Stripe, Linear, GitHub, Vercel) — keeps
@@ -35,6 +41,8 @@ export default function Settings() {
   const { can, loading } = useMe();
   const location = useLocation();
   const navigate = useNavigate();
+  const { isAtMost } = useBreakpoint();
+  const isMobile = isAtMost('sm');
 
   // Wait for /v1/me before deciding what to render. On first paint
   // `loading` is true and every `can()` returns false — without this gate
@@ -53,64 +61,17 @@ export default function Settings() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100%', backgroundColor: t.bg }}>
-      <aside
-        style={{
-          width: 220,
-          flexShrink: 0,
-          borderRight: `1px solid ${t.border}`,
-          backgroundColor: t.surface,
-          padding: '24px 12px',
-        }}
-      >
-        <h2
-          style={{
-            margin: '0 8px 12px',
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: 0.5,
-            textTransform: 'uppercase',
-            color: t.textMuted,
-          }}
-        >
-          Settings
-        </h2>
-        {/* Same active-state model as the top navbar: color + weight only,
-            bg is reserved for hover so inactive items aren't dead targets. */}
-        <nav>
-          {visible.map((tab) => {
-            const active = location.pathname.startsWith(tab.path);
-            const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
-            return (
-              <button
-                key={tab.path}
-                type="button"
-                onClick={() => navigate(tab.path)}
-                aria-current={active ? 'page' : undefined}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '8px 10px',
-                  marginBottom: 2,
-                  borderRadius: 6,
-                  border: 'none',
-                  backgroundColor: 'transparent',
-                  color: active ? t.accent : t.text,
-                  fontSize: 13,
-                  fontWeight: active ? 700 : 550,
-                  cursor: 'pointer',
-                  transition: 'background-color 120ms ease',
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
+    <div style={{
+      display: 'flex',
+      flexDirection: isMobile ? 'column' : 'row',
+      minHeight: '100%',
+      backgroundColor: t.bg,
+    }}>
+      {isMobile ? (
+        <MobileTabs visible={visible} location={location} navigate={navigate} t={t} isDark={isDark} />
+      ) : (
+        <DesktopAside visible={visible} location={location} navigate={navigate} t={t} isDark={isDark} />
+      )}
       <main style={{ flex: 1, minWidth: 0 }}>
         {visible.length === 0 ? (
           <div style={{ padding: 24, color: t.textMuted, fontSize: 13 }}>
@@ -120,6 +81,127 @@ export default function Settings() {
           <Outlet />
         )}
       </main>
+    </div>
+  );
+}
+
+function DesktopAside({ visible, location, navigate, t, isDark }) {
+  return (
+    <aside
+      style={{
+        width: 220,
+        flexShrink: 0,
+        borderRight: `1px solid ${t.border}`,
+        backgroundColor: t.surface,
+        padding: '24px 12px',
+      }}
+    >
+      <h2
+        style={{
+          margin: '0 8px 12px',
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: 0.5,
+          textTransform: 'uppercase',
+          color: t.textMuted,
+        }}
+      >
+        Settings
+      </h2>
+      {/* Same active-state model as the top navbar: color + weight only,
+          bg is reserved for hover so inactive items aren't dead targets. */}
+      <nav>
+        {visible.map((tab) => {
+          const active = location.pathname.startsWith(tab.path);
+          const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+          return (
+            <button
+              key={tab.path}
+              type="button"
+              onClick={() => navigate(tab.path)}
+              aria-current={active ? 'page' : undefined}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                padding: '8px 10px',
+                marginBottom: 2,
+                borderRadius: 6,
+                border: 'none',
+                backgroundColor: 'transparent',
+                color: active ? t.accent : t.text,
+                fontSize: 13,
+                fontWeight: active ? 700 : 550,
+                cursor: 'pointer',
+                transition: 'background-color 120ms ease',
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
+  );
+}
+
+// MobileTabs — horizontal scrollable strip pinned under the AppShell navbar.
+// Each tab is a pill with an underline-on-active visual. The strip
+// `overflow-x: auto`s when the tab labels exceed viewport width so an org
+// with every permission can still reach all 5 tabs on a 375px screen.
+function MobileTabs({ visible, location, navigate, t, isDark }) {
+  return (
+    <div
+      style={{
+        position: 'sticky',
+        top: 64, // matches AppShell navbar height
+        zIndex: 50, // below navbar (100) and modals (1000)
+        backgroundColor: t.surface,
+        borderBottom: `1px solid ${t.border}`,
+      }}
+    >
+      <nav
+        aria-label="Settings sections"
+        style={{
+          display: 'flex',
+          gap: 4,
+          padding: '8px 12px',
+          overflowX: 'auto',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {visible.map((tab) => {
+          const active = location.pathname.startsWith(tab.path);
+          const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+          return (
+            <button
+              key={tab.path}
+              type="button"
+              onClick={() => navigate(tab.path)}
+              aria-current={active ? 'page' : undefined}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = active ? hoverBg : hoverBg; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              style={{
+                flexShrink: 0,
+                padding: '10px 14px',
+                minHeight: 44, // 44px HIG touch-target floor
+                border: 'none',
+                borderBottom: active ? `2px solid ${t.accent}` : '2px solid transparent',
+                backgroundColor: 'transparent',
+                color: active ? t.accent : t.text,
+                fontSize: 14,
+                fontWeight: active ? 700 : 550,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }
