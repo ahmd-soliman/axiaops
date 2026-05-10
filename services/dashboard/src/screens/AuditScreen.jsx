@@ -52,30 +52,25 @@ function actionDisplay(action) {
   }
 }
 
-function toneColors(tone, theme) {
+function toneFg(tone, theme) {
   switch (tone) {
-    case 'success': return { bg: `${theme.success}26`, fg: theme.success };
-    case 'danger':  return { bg: `${theme.error}26`,   fg: theme.error };
-    case 'warn':    return { bg: `${theme.warning}26`, fg: theme.warning };
-    case 'info':    return { bg: '#3b82f626',          fg: '#3b82f6' }; // blue — no semantic token in theme
-    case 'accent':  return { bg: theme.accentLight,    fg: theme.accent };
-    case 'muted':   return { bg: theme.surfaceRaised,  fg: theme.textMuted };
-    default:        return { bg: theme.surfaceRaised,  fg: theme.textMuted };
+    case 'success': return theme.success;
+    case 'danger':  return theme.error;
+    case 'warn':    return theme.warning;
+    case 'info':    return '#3b82f6'; // blue — no semantic token in theme
+    case 'accent':  return theme.accent;
+    case 'muted':   return theme.textMuted;
+    default:        return theme.textMuted;
   }
 }
 
 function ActionChip({ action, theme }) {
   const { label, tone } = actionDisplay(action);
-  const { bg, fg } = toneColors(tone, theme);
   return (
     <span style={{
-      display: 'inline-block',
-      padding: '2px 8px',
-      borderRadius: 4,
       fontSize: 11,
       fontWeight: 600,
-      color: fg,
-      backgroundColor: bg,
+      color: toneFg(tone, theme),
       letterSpacing: 0.2,
       whiteSpace: 'nowrap',
     }}>
