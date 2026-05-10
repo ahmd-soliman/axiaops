@@ -31,6 +31,7 @@ export default function Profile() {
       </p>
 
       <Section t={t} title="Profile">
+        <Field t={t} label="Display name" value={me?.name || '—'} />
         <Field t={t} label="Email" value={me?.email || '—'} />
         <Field t={t} label="Role" value={me?.role || '—'} />
         <Field t={t} label="Organization" value={me?.organization?.name || orgName || me?.organization_id || '—'} />
