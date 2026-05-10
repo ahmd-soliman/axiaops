@@ -140,7 +140,7 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
       setModalVisible(false);
       toast(
         modalAction === 'snooze' ? `Resource snoozed for ${snoozeDays} day${snoozeDays !== 1 ? 's' : ''}` : 'Resource dismissed',
-        'success',
+        modalAction === 'snooze' ? 'info' : 'success',
       );
       if (onDismissed) onDismissed();
       onBack();
