@@ -176,7 +176,7 @@ export default function OnboardingInvite() {
             border: 'none',
             borderRadius: 8,
             backgroundColor: t.accent,
-            color: '#fff',
+            color: t.textOnDark,
             fontWeight: 600,
             fontSize: 14,
             cursor: sending ? 'not-allowed' : 'pointer',

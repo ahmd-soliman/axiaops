@@ -154,7 +154,7 @@ function primaryButton(t, disabled) {
     border: 'none',
     borderRadius: 6,
     backgroundColor: t.accent,
-    color: '#fff',
+    color: t.textOnDark,
     fontWeight: 600,
     fontSize: 13,
     cursor: disabled ? 'not-allowed' : 'pointer',

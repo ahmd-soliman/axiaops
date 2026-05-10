@@ -1,0 +1,116 @@
+<!doctype html>
+<!--
+  Static maintenance page — served by nginx when the API is unreachable
+  or during planned maintenance windows. Lives outside the SPA bundle
+  on purpose: if the dashboard's index.html / Vite build is broken,
+  this file is still reachable from /maintenance.html and renders a
+  branded error state instead of an nginx default page.
+
+  Wiring is intentionally NOT in nginx.conf yet — that's a separate
+  infra change (likely an `error_page 503 /maintenance.html;` line plus
+  a health-check upstream). This file is here so the wiring can land
+  without a second dashboard deploy.
+
+  Inlined CSS / no external deps so the page is one HTTP request and
+  works even if the static asset host is degraded.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AxiaOps — Temporarily unavailable</title>
+    <link rel="icon" href="/favicon.svg" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #FAFAF9;
+        --surface-raised: #FFFFFF;
+        --text: #0F172A;
+        --text-mid: #334155;
+        --text-muted: #64748B;
+        --border: #E5E7EB;
+        --accent: #EA580C;
+        --accent-text: #FFFFFF;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0F172A;
+          --surface-raised: #182031;
+          --text: #F8FAFC;
+          --text-mid: #CBD5E1;
+          --text-muted: #94A3B8;
+          --border: #1F2A3D;
+          --accent: #FB923C;
+          --accent-text: #0F172A;
+        }
+      }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header { padding: 20px 24px; }
+      header img { height: 36px; width: auto; display: block; }
+      main {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card { max-width: 480px; width: 100%; text-align: center; }
+      .label {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-muted);
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        margin-bottom: 16px;
+      }
+      h1 {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        margin: 0 0 12px;
+      }
+      p {
+        font-size: 15px;
+        line-height: 24px;
+        color: var(--text-mid);
+        margin: 0 0 28px;
+      }
+      button {
+        padding: 11px 22px;
+        border-radius: 10px;
+        background: var(--accent);
+        color: var(--accent-text);
+        border: none;
+        cursor: pointer;
+        font-weight: 700;
+        font-size: 14px;
+        font-family: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <picture>
+        <source srcset="/axiaops-logo-dark.svg" media="(prefers-color-scheme: dark)" />
+        <img src="/axiaops-logo.svg" alt="AxiaOps" />
+      </picture>
+    </header>
+    <main>
+      <div class="card">
+        <span class="label">Error 503</span>
+        <h1>We'll be back shortly</h1>
+        <p>AxiaOps is temporarily unavailable while we perform maintenance. No action is needed on your side — your data is safe.</p>
+        <button type="button" onclick="window.location.reload()">Try again</button>
+      </div>
+    </main>
+  </body>
+</html>
