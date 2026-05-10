@@ -12,14 +12,14 @@ On every startup, both the `api` and `ingestion` services call `postgres.Migrate
 
 1. Opens a pinned `*sql.Conn` against `MIGRATION_DATABASE_URL` and acquires the wrapper-level session advisory lock (`AxiaOpsM`).
 2. Runs **orphan recovery** — finalises any `axiaops.migration_history` row whose post-step UPDATE was lost to a wrapper crash. See [§Migration history](#migration-history) and `docs/migration-history-table-design.md` §Failure modes.
-3. Runs **backfill** if `migration_history` is empty but `schema_migrations` is non-empty (first deploy of the history table on an existing env). Inserts one `status='backfilled'` row per applied version with the live-file SHA-256.
+3. Runs **backfill** if `migration_history` is empty but `migration_state` is non-empty (first deploy of the history table on an existing env). Inserts one `status='backfilled'` row per applied version with the live-file SHA-256.
 4. Runs **drift detection** — compares the SHA-256 of every embedded `.up.sql` against the most recent succeeded recorded checksum. Mismatch → `slog.Warn` (the only signal — see [§Drift detection](#drift-detection) for why there's no Prometheus counter). With `MIGRATION_HISTORY_STRICT=true` the wrapper refuses to start.
 5. Drives golang-migrate one step at a time (`Steps(1)` in a loop). For each step it INSERT-and-COMMITs a `status='started'` row **before** the step, then UPDATEs it to `succeeded`/`failed` **after** the step on a separate transaction.
 6. Releases the advisory lock and closes the pinned conn.
 
 If no new migrations are pending, the loop exits immediately and only the boot-time bookkeeping (orphan recovery + drift detection) runs.
 
-`axiaops.schema_migrations` is still owned by golang-migrate as before — `migration_history` layers on top, it does not replace it.
+`axiaops.migration_state` is still owned by golang-migrate as before — `migration_history` layers on top, it does not replace it.
 
 ---
 
@@ -89,7 +89,9 @@ ALTER TABLE zombie_records DROP COLUMN status;
 
 ## Schema Migrations Table
 
-golang-migrate records applied migrations in `axiaops.schema_migrations`:
+> **Renamed 2026-05-10**: `axiaops.schema_migrations` → `axiaops.migration_state`. The old name was golang-migrate's compiled-in default but it was a misnomer (plural name, single-row table). Bootstrap's atomic guard `ALTER TABLE`-renames existing DBs idempotently; nothing on disk references the old name except in historical breadcrumbs like this one. If you grep for `schema_migrations` in an old runbook, the new name is `migration_state`.
+
+golang-migrate records applied migrations in `axiaops.migration_state`:
 
 ```
  version | dirty
@@ -100,13 +102,13 @@ golang-migrate records applied migrations in `axiaops.schema_migrations`:
 - `version` — the number prefix of the migration file (`001` → `1`)
 - `dirty` — `true` if the last migration failed mid-run; requires manual intervention before any new migrations can run
 
-`schema_migrations` carries the *current* state. For *what was applied, when, by which build, against which file bytes*, see `migration_history` below.
+`migration_state` carries the *current* state. For *what was applied, when, by which build, against which file bytes*, see `migration_history` below.
 
 ---
 
 ## Migration history
 
-`axiaops.migration_history` is a per-event audit table written by our wrapper on every up / down / force. It exists to answer questions `schema_migrations` cannot:
+`axiaops.migration_history` is a per-event audit table written by our wrapper on every up / down / force. It exists to answer questions `migration_state` cannot:
 
 - *When* was migration N applied to this env, and how long did it take?
 - *Which build* (`APP_VERSION@APP_COMMIT_SHA`) ran it?
@@ -117,16 +119,18 @@ The table lives in the `axiaops` schema, owned by `axiaops_owner`. The app user 
 
 ### Useful queries
 
-Inspect the convenience view rather than the raw table:
+Inspect the table directly:
 
 ```sql
 SELECT id, version, name, direction, status, started_at, duration_ms,
-       schema_migrations_dirty_after, file_sha256_short, applied_by_image
-FROM axiaops.migration_history_v
+       migration_state_dirty_after, LEFT(file_sha256, 8) AS sha8, applied_by_image
+FROM axiaops.migration_history
 ORDER BY started_at, id;
 ```
 
-Note: the view itself has **no** `ORDER BY` — Postgres does not guarantee that a view's `ORDER BY` is preserved at query time. Always add it in the operator query (and `axiaopsctl migrate history` does).
+`LEFT(file_sha256, 8)` is for at-a-glance display only — collision probability is ~10⁻⁵ over a few thousand rows, fine for visual reading but never use it for drift comparison. The full `file_sha256` column is the diff target.
+
+(There used to be a `migration_history_v` convenience view that pre-computed this short hash; dropped 2026-05-10 — the view did `SELECT *` and one `LEFT()` and didn't earn its schema-evolution friction.)
 
 Latest succeeded checksum for one version:
 
@@ -161,8 +165,8 @@ VERSION  NAME                   EXPECTED   OBSERVED
 
 ### Operator escape hatches
 
-- **Truncating `migration_history` is allowed** but acts as a re-baseline: the next boot sees an empty history with a non-empty `schema_migrations` and inserts a `backfilled` row per applied version, taking the live-file SHA as ground truth. Anything you wanted to forensically catch is gone. The table is forensic, not legal-evidentiary; for un-tamperable history, ship rows to S3 / a SIEM out-of-band.
-- **`bin/axiaopsctl migrate force N` writes a force history row** with `direction='force'`, `status='succeeded'`, `file_sha256=NULL` (no file is applied — `Force` only rewrites `schema_migrations`). Prefer this over the upstream `migrate force` so the event is on the record.
+- **Truncating `migration_history` is allowed** but acts as a re-baseline: the next boot sees an empty history with a non-empty `migration_state` and inserts a `backfilled` row per applied version, taking the live-file SHA as ground truth. Anything you wanted to forensically catch is gone. The table is forensic, not legal-evidentiary; for un-tamperable history, ship rows to S3 / a SIEM out-of-band.
+- **`bin/axiaopsctl migrate force N` writes a force history row** with `direction='force'`, `status='succeeded'`, `file_sha256=NULL` (no file is applied — `Force` only rewrites `migration_state`). Prefer this over the upstream `migrate force` so the event is on the record.
 - **A bastion `migrate` install bypasses the history table.** The legitimate channel is `axiaopsctl`. There is no `migrate-binary-on-bastion` workflow we support post-history-table.
 
 For deeper architecture (advisory-lock layout, two-connection model, orphan-recovery truth table, force semantics) see `docs/migration-history-table-design.md`.
@@ -182,7 +186,7 @@ bin/axiaopsctl migrate up
 # Roll back N migrations — each step records a 'down' history row
 bin/axiaopsctl migrate down 1
 
-# Force schema_migrations to version N without running DDL.
+# Force migration_state to version N without running DDL.
 # Writes a single 'force' history row for forensics. Use only when fixing dirty=true.
 bin/axiaopsctl migrate force 24
 
@@ -270,7 +274,7 @@ docker run --rm \
 Connect to RDS and check the migrations table:
 
 ```sql
-SELECT version, dirty FROM axiaops.schema_migrations ORDER BY version DESC LIMIT 5;
+SELECT version, dirty FROM axiaops.migration_state ORDER BY version DESC LIMIT 5;
 ```
 
 `dirty = false` on the latest version means the migration completed cleanly. If

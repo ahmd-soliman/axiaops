@@ -5,5 +5,4 @@
 -- this migration re-creates the security gap the .up.sql closed; only
 -- meaningful in migration-reversibility tests.
 
-GRANT INSERT, UPDATE, DELETE ON axiaops.migration_history   TO axiaops;
-GRANT INSERT, UPDATE, DELETE ON axiaops.migration_history_v TO axiaops;
+GRANT INSERT, UPDATE, DELETE ON axiaops.migration_history TO axiaops;
