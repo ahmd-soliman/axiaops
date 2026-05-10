@@ -235,8 +235,7 @@ func main() {
 	// the api binary's ticker — both run independently so each binary's
 	// Prometheus gauges advance with the wall clock, and slog.Warn fires on
 	// transitions in both processes. No-op under DEV_MODE. Bound to sigCtx
-	// for clean SIGTERM behaviour (the api-side ticker has a TODO to do the
-	// same; tracking that under a single follow-up).
+	// for clean SIGTERM behaviour.
 	go license.RunTicker(sigCtx, license.DefaultTickerInterval)
 
 	// Background ticker: trigger scheduled auto-scans across all organizations.
