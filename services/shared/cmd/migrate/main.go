@@ -20,7 +20,7 @@ import (
 //	axiaopsctl migrate down N       Steps(-N) with history recording
 //	axiaopsctl migrate force N      Force(N) + write a force history row
 //	axiaopsctl migrate drift        Compare on-disk SHAs with recorded SHAs
-//	axiaopsctl migrate history [V]  Pretty-print migration_history_v rows (optionally for one version)
+//	axiaopsctl migrate history [V]  Pretty-print migration_history rows (optionally for one version)
 //
 // Argv-less invocation (`axiaopsctl` with no args) is treated as `migrate up`
 // so the existing `services/migrate` Dockerfile and migrate-image Make target
@@ -68,7 +68,7 @@ func printUsage() {
 Subcommands:
   up              Bootstrap + apply pending migrations (default)
   down N          Roll back N migrations
-  force N         Mark schema_migrations at version N (no DDL)
+  force N         Mark migration_state at version N (no DDL)
   drift           Print versions whose on-disk SHA differs from the recorded SHA
   history [V]     Show migration_history rows (optionally filtered by version V)
 
