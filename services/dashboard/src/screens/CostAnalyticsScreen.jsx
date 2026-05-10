@@ -364,7 +364,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                     style={{
                       padding: isMobile ? '6px 12px' : '3px 8px', borderRadius: 4, border: 'none', cursor: 'pointer',
                       backgroundColor: effectiveGranularity === g ? t.accent : 'transparent',
-                      color: effectiveGranularity === g ? '#fff' : t.textMuted,
+                      color: effectiveGranularity === g ? t.textOnDark : t.textMuted,
                       fontSize: isMobile ? 12 : 11, fontWeight: 600, textTransform: 'capitalize',
                     }}
                   >
@@ -384,7 +384,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                   borderRadius: 6,
                   border: `1px solid ${period === p.days ? t.accent : t.border}`,
                   backgroundColor: period === p.days ? t.accent : t.surfaceRaised,
-                  color: period === p.days ? '#fff' : t.textMid,
+                  color: period === p.days ? t.textOnDark : t.textMid,
                   fontWeight: 700,
                   fontSize: 12,
                   cursor: 'pointer',
@@ -408,7 +408,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                 borderRadius: 20,
                 border: `1px solid ${filterServices.size === 0 ? t.accent : t.border}`,
                 backgroundColor: filterServices.size === 0 ? t.accent : t.surfaceRaised,
-                color: filterServices.size === 0 ? '#fff' : t.textMid,
+                color: filterServices.size === 0 ? t.textOnDark : t.textMid,
                 fontWeight: 700,
                 fontSize: 12,
                 cursor: 'pointer',
@@ -433,7 +433,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                     borderRadius: 20,
                     border: `1px solid ${active ? t.accent : t.border}`,
                     backgroundColor: active ? t.accent : t.surfaceRaised,
-                    color: active ? '#fff' : t.textMid,
+                    color: active ? t.textOnDark : t.textMid,
                     fontWeight: 700,
                     fontSize: 12,
                     cursor: 'pointer',
@@ -441,7 +441,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                     flexShrink: 0,
                   }}
                 >
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color, flexShrink: 0 }} />
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? t.textOnDark : cfg.color, flexShrink: 0 }} />
                   {cfg.label}
                 </button>
               );
