@@ -97,22 +97,28 @@ function LicensePane({ lic, version, t, isDark }) {
 
   return (
     <>
+      {/* Status card: neutral surface (matches the Claims/Build cards below)
+          with a thin tonal border + colored Chip carrying the state cue.
+          Earlier revisions tinted the whole card with palette.bg / palette.fg;
+          that read as a celebratory wash on a read-only ops inspector.
+          The colored border + badge alone are sufficient to surface tone,
+          and the neutral surface keeps the page visually uniform. */}
       <section
         style={{
           border: `1px solid ${palette.border}`,
           borderRadius: 8,
           padding: 16,
           marginBottom: 16,
-          backgroundColor: palette.bg,
+          backgroundColor: sectionBg,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
           <Chip tone={tone} label={chipLabel(lic)} t={t} />
-          <span style={{ fontSize: 13, color: palette.fg, fontWeight: 600 }}>
+          <span style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>
             {headlineFor(lic)}
           </span>
         </div>
-        <p style={{ margin: 0, fontSize: 12, color: palette.fg, lineHeight: '18px' }}>
+        <p style={{ margin: 0, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
           {detailFor(lic)}
         </p>
       </section>
