@@ -461,8 +461,8 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
               style={{ flex: 1, padding: '13px', borderRadius: 10, backgroundColor: t.accent, border: 'none', cursor: 'pointer', opacity: submitting ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               {submitting
-                ? <Spinner size={20} color="#fff" />
-                : <span style={{ color: '#fff', fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss' : 'Snooze'}</span>
+                ? <Spinner size={20} color={t.textOnDark} />
+                : <span style={{ color: t.textOnDark, fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss' : 'Snooze'}</span>
               }
             </button>
           </div>
