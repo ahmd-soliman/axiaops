@@ -45,7 +45,7 @@ export function useDestructiveConfirm({ target, mutationFn, successMessage, onSu
 }
 
 export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, confirmLabel }) {
-  const { theme: t, isDark } = useTheme();
+  const { theme: t } = useTheme();
   const targetMissing = ctrl.target === '';
 
   return (
@@ -56,7 +56,6 @@ export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, con
         aria-label={title}
         style={{
           backgroundColor: t.surface,
-          border: `1px solid ${isDark ? 'rgba(239,68,68,0.5)' : '#fecaca'}`,
           borderRadius: 10,
           padding: 20,
           maxWidth: 480,

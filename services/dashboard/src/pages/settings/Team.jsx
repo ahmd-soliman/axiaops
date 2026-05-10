@@ -212,7 +212,7 @@ export default function Team() {
             </button>
           </form>
           {addError && (
-            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#ef4444' }}>{addError}</p>
+            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: t.error }}>{addError}</p>
           )}
 
           {lastInvite && (
@@ -400,7 +400,7 @@ export default function Team() {
                             border: `1px solid ${t.border}`,
                             borderRadius: 4,
                             backgroundColor: 'transparent',
-                            color: '#ef4444',
+                            color: t.error,
                             fontSize: 12,
                             cursor: 'pointer',
                           }}
@@ -428,7 +428,7 @@ export default function Team() {
         {memberships.isPending ? (
           <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
         ) : memberships.isError ? (
-          <div style={{ padding: 24, color: '#ef4444' }}>Failed to load members.</div>
+          <div style={{ padding: 24, color: t.error }}>Failed to load members.</div>
         ) : isMobile ? (
           // Mobile card stack — six-column membership table doesn't reflow
           // on phones (Email + Name + Role + Joined-via + Joined + Action).
@@ -686,7 +686,7 @@ function dangerButton(t) {
     border: `1px solid ${t.border}`,
     borderRadius: 6,
     backgroundColor: 'transparent',
-    color: '#ef4444',
+    color: t.error,
     fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
