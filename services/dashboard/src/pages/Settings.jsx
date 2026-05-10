@@ -88,7 +88,15 @@ export default function Settings() {
     <div style={{
       display: 'flex',
       flexDirection: isMobile ? 'column' : 'row',
-      minHeight: '100%',
+      // Pin to viewport (minus the AppShell navbar) so the sidebar bg +
+      // right border extend to the bottom of the page even when the right
+      // pane has less content. `minHeight: 100%` was unreliable —
+      // AppShell's <main> has `flex: 1, overflowY: auto` and no definite
+      // height, so the percentage resolved to content-height in some
+      // browsers and stub-cut the sidebar mid-page. `--navbar-height` is
+      // declared on AppShell's root and tracks the navbar's actual height
+      // — single source of truth.
+      minHeight: 'calc(100vh - var(--navbar-height))',
       backgroundColor: t.bg,
     }}>
       {isMobile ? (
@@ -192,7 +200,7 @@ function MobileTabs({ visible, location, navigate, t, isDark }) {
     <div
       style={{
         position: 'sticky',
-        top: 64, // matches AppShell navbar height
+        top: 'var(--navbar-height)', // pinned just below the AppShell navbar
         zIndex: 50, // below navbar (100) and modals (1000)
         backgroundColor: t.surface,
         borderBottom: `1px solid ${t.border}`,
