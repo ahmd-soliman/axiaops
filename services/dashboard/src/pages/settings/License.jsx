@@ -29,16 +29,15 @@ import { shouldNagRenewal } from '../../utils/license';
 //                 identity visible in the claim sub-object below.
 //   in_grace    → amber, claim sub-object + grace-period explainer
 //   expired     → red, claim sub-object + renewal contact
-//   not_loaded  → only reachable in production deployments without a license
-//                 installed. Pre-layer-4 the dashboard reflected DEV_MODE here
-//                 too; layer 4 retired that branch — DEV_MODE now loads the
-//                 dev fixture and reports state="valid". The IS_DEV_MODE
-//                 fallback copy below remains as defence-in-depth in case a
-//                 future regression re-enables the legacy bypass shortcut.
+//   not_loaded  → red, only reachable in production deployments without a
+//                 license installed. DEV_MODE loads the embedded fixture and
+//                 reports state="valid" (B1.7 layer 4 / issue #75) — so this
+//                 branch never fires in dev. If a regression ever did make it
+//                 fire, we want the operator to see "scans are blocked" and
+//                 investigate, not a misleading "Dev bypass" message.
 
 const INSTALL_URL = 'https://axiaops.io/install';
 const RENEWAL_EMAIL = 'sales@axiaops.io';
-const IS_DEV_MODE = (import.meta.env?.VITE_DEV_MODE ?? 'false') === 'true';
 
 export default function License() {
   const { theme: t, isDark } = useTheme();
@@ -237,7 +236,7 @@ function toneFor(lic) {
   }
   if (lic.state === 'in_grace') return 'warning';
   if (lic.state === 'expired') return 'error';
-  if (lic.state === 'not_loaded') return IS_DEV_MODE ? 'info' : 'error';
+  if (lic.state === 'not_loaded') return 'error';
   return 'info';
 }
 
@@ -252,7 +251,7 @@ function chipLabel(lic) {
   if (lic.state === 'valid') return 'Valid';
   if (lic.state === 'in_grace') return 'In Grace';
   if (lic.state === 'expired') return 'Expired';
-  if (lic.state === 'not_loaded') return IS_DEV_MODE ? 'Dev bypass' : 'Not loaded';
+  if (lic.state === 'not_loaded') return 'Not loaded';
   return lic.state || 'Unknown';
 }
 
@@ -264,9 +263,7 @@ function headlineFor(lic) {
   }
   if (lic.state === 'in_grace') return 'License has expired and is in grace period.';
   if (lic.state === 'expired') return 'License past grace period — scans are blocked.';
-  if (lic.state === 'not_loaded') {
-    return IS_DEV_MODE ? 'Enforcement bypassed (DEV_MODE).' : 'No license installed — scans are blocked.';
-  }
+  if (lic.state === 'not_loaded') return 'No license installed — scans are blocked.';
   return 'Unknown license state.';
 }
 
@@ -284,9 +281,6 @@ function detailFor(lic) {
     return `Reads, dashboard, and member-management remain available — only POST /accounts/{id}/scan and the scheduled-scan ticker are gated. Contact ${RENEWAL_EMAIL} to renew; drop the new license in and restart the API + ingestion services.`;
   }
   if (lic.state === 'not_loaded') {
-    if (IS_DEV_MODE) {
-      return `This dashboard build was compiled with VITE_DEV_MODE=true; the API binary is running with DEV_MODE=true; license enforcement is suspended in this slot for developer iteration. Customer-shipping binaries (built with -tags production) cannot honour DEV_MODE — see services/api/CLAUDE.md "Build tags" for the convention.`;
-    }
     return `Install a license JWT to enable scans. The runbook lives in docs/license-issuance.md; the install URL is ${INSTALL_URL}.`;
   }
   return '';
