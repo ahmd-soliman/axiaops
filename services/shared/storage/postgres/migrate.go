@@ -21,7 +21,7 @@ var migrationsFS embed.FS
 // Bootstrap ensures the prerequisites for Migrate are in place:
 //   - the application database user exists and its password matches appURL
 //   - the axiaops schema exists so golang-migrate can create its
-//     schema_migrations tracking table inside it
+//     migration_state tracking table inside it
 //   - axiaops.migration_history table + view + grants exist (must be created
 //     here, before 000_init.up.sql, because the ALTER DEFAULT PRIVILEGES in
 //     000_init applies only to tables created after that statement runs —
@@ -88,19 +88,97 @@ func Bootstrap(ownerURL, appURL string) error {
 	}
 
 	// Create the axiaops schema if it does not exist yet. This must happen
-	// before Migrate() runs, because golang-migrate creates its
-	// schema_migrations tracking table inside this schema before applying the
-	// first migration — chicken-and-egg otherwise.
-	// Owned by the connecting role (axiaops_owner), not the app user.
+	// before Migrate() runs, because golang-migrate creates its bookkeeping
+	// table inside this schema before applying the first migration —
+	// chicken-and-egg otherwise. Owned by the connecting role
+	// (axiaops_owner), not the app user.
 	if _, err := db.Exec(`CREATE SCHEMA IF NOT EXISTS axiaops`); err != nil {
 		return fmt.Errorf("bootstrap: create schema: %w", err)
 	}
 
-	// Create migration_history (table + view + grants) before golang-migrate
+	// Atomic rename guard: schema_migrations → migration_state.
+	//
+	// Pre-rename history: golang-migrate's compiled-in default
+	// MigrationsTable is "schema_migrations" (a misnomer — the table holds
+	// exactly one row, version + dirty bit, but the plural name was
+	// inherited from Rails' multi-row schema). We renamed it to
+	// migration_state, which honestly reflects single-row cardinality and
+	// pairs cleanly with the migration_history audit table.
+	//
+	// This guard runs BEFORE migratepg.WithInstance, which means:
+	//   - On an existing DB that has schema_migrations applied: the
+	//     ALTER TABLE RENAME flips the table name. Privileges + COMMENT
+	//     carry through automatically (Postgres semantics). WithInstance
+	//     then sees migration_state and uses it.
+	//   - On a fresh DB: neither table exists. The IF EXISTS guard is
+	//     false, this block is a no-op. WithInstance creates
+	//     migration_state from scratch.
+	//   - On a re-boot of an already-renamed DB: schema_migrations no
+	//     longer exists, migration_state does. The IF EXISTS guard is
+	//     false. No-op.
+	//
+	// The DO block is idempotent across all three cases.
+	if _, err := db.Exec(`
+		DO $$
+		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM information_schema.tables
+				WHERE table_schema = 'axiaops' AND table_name = 'schema_migrations'
+			) AND NOT EXISTS (
+				SELECT 1 FROM information_schema.tables
+				WHERE table_schema = 'axiaops' AND table_name = 'migration_state'
+			) THEN
+				ALTER TABLE axiaops.schema_migrations RENAME TO migration_state;
+			END IF;
+		END $$;
+	`); err != nil {
+		return fmt.Errorf("bootstrap: rename schema_migrations to migration_state: %w", err)
+	}
+
+	// Atomic column rename inside migration_history:
+	// schema_migrations_dirty_after → migration_state_dirty_after.
+	//
+	// Companion to the table rename above. The column name was anchored
+	// on the OLD metadata table name; the rename keeps the schema
+	// internally consistent. Must run BEFORE migrationHistoryDDL because
+	// that DDL's CREATE OR REPLACE VIEW references the new column name —
+	// without this rename, the view recreation would fail on existing DBs
+	// with the old column name still in place.
+	//
+	// Idempotent across all three states: column is old (rename), column
+	// is new (no-op via IF EXISTS guard), table doesn't exist yet (no-op
+	// because the column query returns no rows).
+	if _, err := db.Exec(`
+		DO $$
+		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'axiaops'
+				  AND table_name   = 'migration_history'
+				  AND column_name  = 'schema_migrations_dirty_after'
+			) THEN
+				ALTER TABLE axiaops.migration_history
+					RENAME COLUMN schema_migrations_dirty_after TO migration_state_dirty_after;
+			END IF;
+		END $$;
+	`); err != nil {
+		return fmt.Errorf("bootstrap: rename schema_migrations_dirty_after column: %w", err)
+	}
+
+	// Create migration_history (table + grants) before golang-migrate
 	// gets a chance to run 000_init. Idempotent: every statement is IF NOT
 	// EXISTS / OR REPLACE.
 	if _, err := db.Exec(migrationHistoryDDL); err != nil {
 		return fmt.Errorf("bootstrap: migration history ddl: %w", err)
+	}
+
+	// Drop the legacy migration_history_v view if it still exists. The view
+	// was a SELECT * + LEFT(file_sha256, 8) wrapper that didn't earn its
+	// keep — see the comment in migrationHistoryDDL. IF EXISTS keeps this
+	// idempotent (no-op once it's been dropped, and never created on fresh
+	// DBs anymore).
+	if _, err := db.Exec(`DROP VIEW IF EXISTS axiaops.migration_history_v`); err != nil {
+		return fmt.Errorf("bootstrap: drop legacy migration_history_v view: %w", err)
 	}
 
 	return nil
@@ -134,29 +212,29 @@ func Migrate(migrationURL string) error {
 			return err
 		}
 		defer closeFn()
-		// schema_migrations exists at this point — migratepg.WithInstance
-		// inside openMigrate creates it lazily on first call. Stamp the
-		// COMMENT so a reader doing `\d+ axiaops.schema_migrations` in psql
-		// sees the table's role at a glance, instead of guessing why a
-		// "schema_migrations" table holds exactly one row.
-		if err := commentSchemaMigrations(ctx, conn); err != nil {
+		// migration_state exists at this point — migratepg.WithInstance
+		// inside openMigrate creates it lazily on first call (with the
+		// renamed-by-Bootstrap table on existing DBs, or fresh on new ones).
+		// Stamp the COMMENT so a reader doing `\d+ axiaops.migration_state`
+		// in psql sees the table's role at a glance.
+		if err := commentMigrationState(ctx, conn); err != nil {
 			return err
 		}
 		return runUpLoop(ctx, conn, m, migrationsFS, idx, ident)
 	})
 }
 
-// commentSchemaMigrations is idempotent — Postgres' COMMENT ON TABLE
+// commentMigrationState is idempotent — Postgres' COMMENT ON TABLE
 // overwrites any existing comment and never errors on a no-op. Runs on
 // every Migrate() call so the comment stays in sync if the helper string
-// is ever updated.
-func commentSchemaMigrations(ctx context.Context, conn *sql.Conn) error {
-	const stmt = `COMMENT ON TABLE axiaops.schema_migrations IS ` +
-		`'golang-migrate state pointer (one row: version + dirty bit). ` +
-		`For per-event audit (every up/down/force with file SHA-256 + timing) ` +
-		`see axiaops.migration_history.'`
+// is ever updated. Old name was commentSchemaMigrations (pre-rename).
+func commentMigrationState(ctx context.Context, conn *sql.Conn) error {
+	const stmt = `COMMENT ON TABLE axiaops.migration_state IS ` +
+		`'golang-migrate state pointer (one row: version + dirty bit; renamed ` +
+		`from schema_migrations 2026-05-10). For per-event audit (every ` +
+		`up/down/force with file SHA-256 + timing) see axiaops.migration_history.'`
 	if _, err := conn.ExecContext(ctx, stmt); err != nil {
-		return fmt.Errorf("migrate: comment schema_migrations: %w", err)
+		return fmt.Errorf("migrate: comment migration_state: %w", err)
 	}
 	return nil
 }
@@ -185,7 +263,7 @@ func MigrateDown(migrationURL string, n int) error {
 }
 
 // MigrateForce runs migrate.Force(version) and writes a single terminal
-// 'force' history row. No DDL is executed — only schema_migrations is
+// 'force' history row. No DDL is executed — only migration_state is
 // rewritten. Operator-only; invoked via `axiaopsctl migrate force N`.
 func MigrateForce(migrationURL string, version int) error {
 	ctx := context.Background()
@@ -226,8 +304,11 @@ func openMigrate(migrationURL string) (*migrate.Migrate, func(), error) {
 		return nil, nil, fmt.Errorf("migrate: load source: %w", err)
 	}
 	driver, err := migratepg.WithInstance(db, &migratepg.Config{
-		SchemaName:      "axiaops",
-		MigrationsTable: "schema_migrations",
+		SchemaName: "axiaops",
+		// Renamed from the golang-migrate default "schema_migrations" —
+		// see Bootstrap's atomic rename guard. The table holds exactly
+		// one row (version, dirty), so the singular name is honest.
+		MigrationsTable: "migration_state",
 	})
 	if err != nil {
 		_ = db.Close()

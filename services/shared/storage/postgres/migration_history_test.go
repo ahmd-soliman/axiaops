@@ -49,7 +49,7 @@ func openApp(t *testing.T) *sql.DB {
 	return db
 }
 
-func TestMigrationHistory_TableAndViewExist(t *testing.T) {
+func TestMigrationHistory_TableExists(t *testing.T) {
 	db := openOwner(t)
 	var tableExists bool
 	if err := db.QueryRow(`
@@ -62,16 +62,20 @@ func TestMigrationHistory_TableAndViewExist(t *testing.T) {
 	if !tableExists {
 		t.Fatal("axiaops.migration_history does not exist — Bootstrap regression")
 	}
+	// The legacy migration_history_v view must NOT exist — Bootstrap drops
+	// it idempotently, and migrationHistoryDDL no longer creates it. Pinning
+	// this here as a regression guard against a future "let's add the view
+	// back" PR slipping in unnoticed.
 	var viewExists bool
 	if err := db.QueryRow(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.views
 			WHERE table_schema='axiaops' AND table_name='migration_history_v'
 		)`).Scan(&viewExists); err != nil {
-		t.Fatalf("check view: %v", err)
+		t.Fatalf("check view absence: %v", err)
 	}
-	if !viewExists {
-		t.Fatal("axiaops.migration_history_v does not exist — Bootstrap regression")
+	if viewExists {
+		t.Fatal("axiaops.migration_history_v exists but was dropped 2026-05-10; Bootstrap should not recreate it")
 	}
 }
 
@@ -114,14 +118,14 @@ func TestMigrationHistory_RowsExistForAppliedVersions(t *testing.T) {
 	if versionsWithHistory == 0 {
 		t.Fatal("no migration_history rows after TestMain Migrate — wrapper not recording")
 	}
-	// schema_migrations should also be populated.
+	// migration_state should also be populated.
 	var sm int64
 	var dirty bool
-	if err := db.QueryRow(`SELECT version, dirty FROM axiaops.schema_migrations`).Scan(&sm, &dirty); err != nil {
-		t.Fatalf("read schema_migrations: %v", err)
+	if err := db.QueryRow(`SELECT version, dirty FROM axiaops.migration_state`).Scan(&sm, &dirty); err != nil {
+		t.Fatalf("read migration_state: %v", err)
 	}
 	if dirty {
-		t.Fatalf("schema_migrations dirty=true after TestMain — Migrate is broken")
+		t.Fatalf("migration_state dirty=true after TestMain — Migrate is broken")
 	}
 }
 
@@ -147,7 +151,7 @@ func TestMigrationHistory_RerunMigrateAddsNoNewRows(t *testing.T) {
 func TestMigrationHistory_OrphanIndeterminateResolvesToSucceeded(t *testing.T) {
 	url := migrationURLOrSkip(t)
 	db := openOwner(t)
-	// Phantom version=9999 — not in fsIndex, schema_migrations doesn't
+	// Phantom version=9999 — not in fsIndex, migration_state doesn't
 	// reference it. Orphan resolver lands on the §Failure modes
 	// "indeterminate" fallthrough which records succeeded + dirty_after=false
 	// (treat-as-lost-UPDATE-success).
@@ -172,7 +176,7 @@ func TestMigrationHistory_OrphanIndeterminateResolvesToSucceeded(t *testing.T) {
 	var finished sql.NullTime
 	var dirtyAfter sql.NullBool
 	if err := db.QueryRow(`
-		SELECT status, finished_at, schema_migrations_dirty_after
+		SELECT status, finished_at, migration_state_dirty_after
 		FROM axiaops.migration_history WHERE id = $1
 	`, id).Scan(&status, &finished, &dirtyAfter); err != nil {
 		t.Fatalf("read orphan: %v", err)
@@ -190,35 +194,35 @@ func TestMigrationHistory_OrphanIndeterminateResolvesToSucceeded(t *testing.T) {
 }
 
 // TestMigrationHistory_OrphanTruthTable exercises the six concrete rows of
-// the §Failure modes truth table by faking schema_migrations into each
+// the §Failure modes truth table by faking migration_state into each
 // pre-state and confirming the resolver writes the right terminal row.
 //
 // Each sub-test:
-//  1. Reads the real schema_migrations state.
+//  1. Reads the real migration_state row.
 //  2. Forces it into the fixture's pre-state via UPDATE (no DDL is touched —
 //     this only rewrites the bookkeeping table).
 //  3. Inserts a synthetic 'started' row.
 //  4. Runs RecoverOrphansForTest.
 //  5. Asserts the row's terminal status / dirty_after.
-//  6. Restores schema_migrations to the original state.
+//  6. Restores migration_state to the original row.
 //
 // The phantom version is well beyond any embedded migration so the resolver
 // can't accidentally collide with the fsIndex. NOTE: this test mutates
-// axiaops.schema_migrations transiently — keep it serial (no t.Parallel).
+// axiaops.migration_state transiently — keep it serial (no t.Parallel).
 func TestMigrationHistory_OrphanTruthTable(t *testing.T) {
 	url := migrationURLOrSkip(t)
 	db := openOwner(t)
 
 	const phantomV int64 = 9000
 
-	// Stash + restore schema_migrations.
+	// Stash + restore migration_state.
 	var origVersion int64
 	var origDirty bool
-	if err := db.QueryRow(`SELECT version, dirty FROM axiaops.schema_migrations`).Scan(&origVersion, &origDirty); err != nil {
-		t.Fatalf("read schema_migrations: %v", err)
+	if err := db.QueryRow(`SELECT version, dirty FROM axiaops.migration_state`).Scan(&origVersion, &origDirty); err != nil {
+		t.Fatalf("read migration_state: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = db.Exec(`UPDATE axiaops.schema_migrations SET version=$1, dirty=$2`, origVersion, origDirty)
+		_, _ = db.Exec(`UPDATE axiaops.migration_state SET version=$1, dirty=$2`, origVersion, origDirty)
 	})
 
 	type want struct {
@@ -291,8 +295,8 @@ func TestMigrationHistory_OrphanTruthTable(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := db.Exec(`UPDATE axiaops.schema_migrations SET version=$1, dirty=$2`, tc.smVersion, tc.smDirty); err != nil {
-				t.Fatalf("set schema_migrations: %v", err)
+			if _, err := db.Exec(`UPDATE axiaops.migration_state SET version=$1, dirty=$2`, tc.smVersion, tc.smDirty); err != nil {
+				t.Fatalf("set migration_state: %v", err)
 			}
 			var id int64
 			if err := db.QueryRow(`
@@ -315,7 +319,7 @@ func TestMigrationHistory_OrphanTruthTable(t *testing.T) {
 			var dirty sql.NullBool
 			var errMsg sql.NullString
 			if err := db.QueryRow(`
-				SELECT status, schema_migrations_dirty_after, error_message
+				SELECT status, migration_state_dirty_after, error_message
 				FROM axiaops.migration_history WHERE id = $1
 			`, id).Scan(&status, &dirty, &errMsg); err != nil {
 				t.Fatalf("read row: %v", err)
@@ -340,8 +344,8 @@ func TestMigrationHistory_ForceWritesForceRow(t *testing.T) {
 	url := migrationURLOrSkip(t)
 	db := openOwner(t)
 	var current int64
-	if err := db.QueryRow(`SELECT version FROM axiaops.schema_migrations`).Scan(&current); err != nil {
-		t.Fatalf("read schema_migrations: %v", err)
+	if err := db.QueryRow(`SELECT version FROM axiaops.migration_state`).Scan(&current); err != nil {
+		t.Fatalf("read migration_state: %v", err)
 	}
 	if err := postgres.MigrateForce(url, int(current)); err != nil {
 		t.Fatalf("MigrateForce: %v", err)
@@ -445,7 +449,7 @@ func TestMigrationHistory_StrictModeFailsOnDrift(t *testing.T) {
 	if err := db.QueryRow(`
 		INSERT INTO axiaops.migration_history
 		    (version, name, direction, status, file_sha256, finished_at, duration_ms,
-		     applied_by_actor, applied_by_image, schema_migrations_dirty_after)
+		     applied_by_actor, applied_by_image, migration_state_dirty_after)
 		VALUES ($1, 'drift_injected', 'up', 'succeeded', $2, now(), 0,
 		        'test', 'test@test', false)
 		RETURNING id
@@ -506,25 +510,27 @@ func TestMigrationHistory_DDLIdempotent(t *testing.T) {
 	}
 }
 
-// TestSchemaMigrationsState_TableAbsent reproduces the CI failure mode where
+// TestMigrationStateRead_TableAbsent reproduces the CI failure mode where
 // Bootstrap has run (so axiaops.migration_history exists) but golang-migrate
-// has not yet been called (so axiaops.schema_migrations does not exist). The
+// has not yet been called (so axiaops.migration_state does not exist). The
 // wrapper's pre-flight (recoverOrphans → backfillIfEmpty) reads
-// schema_migrations on a brand-new DB; it must collapse SQLSTATE 42P01
+// migration_state on a brand-new DB; it must collapse SQLSTATE 42P01
 // (undefined_table) to hasRow=false rather than panic.
 //
 // Single-process integration suite (-p=1), so dropping + restoring
-// schema_migrations between tests is safe. Restore Cleanup is registered
+// migration_state between tests is safe. Restore Cleanup is registered
 // BEFORE the drop so it fires even if the test t.Fatals.
-func TestSchemaMigrationsState_TableAbsent(t *testing.T) {
+//
+// Old name TestSchemaMigrationsState_TableAbsent (pre-rename 2026-05-10).
+func TestMigrationStateRead_TableAbsent(t *testing.T) {
 	url := migrationURLOrSkip(t)
 	db := openOwner(t)
 
 	// Snapshot the current row before dropping; we'll restore it.
 	var origVersion int64
 	var origDirty bool
-	if err := db.QueryRow(`SELECT version, dirty FROM axiaops.schema_migrations`).Scan(&origVersion, &origDirty); err != nil {
-		t.Fatalf("snapshot schema_migrations: %v", err)
+	if err := db.QueryRow(`SELECT version, dirty FROM axiaops.migration_state`).Scan(&origVersion, &origDirty); err != nil {
+		t.Fatalf("snapshot migration_state: %v", err)
 	}
 
 	t.Cleanup(func() {
@@ -533,15 +539,15 @@ func TestSchemaMigrationsState_TableAbsent(t *testing.T) {
 		// Idempotent — IF NOT EXISTS / ON CONFLICT — so a noop if the test
 		// path successfully restored it some other way.
 		if _, err := db.Exec(`
-			CREATE TABLE IF NOT EXISTS axiaops.schema_migrations (
+			CREATE TABLE IF NOT EXISTS axiaops.migration_state (
 				version BIGINT NOT NULL PRIMARY KEY,
 				dirty   BOOLEAN NOT NULL
 			)
 		`); err != nil {
-			t.Logf("cleanup recreate schema_migrations: %v", err)
+			t.Logf("cleanup recreate migration_state: %v", err)
 		}
 		if _, err := db.Exec(`
-			INSERT INTO axiaops.schema_migrations (version, dirty)
+			INSERT INTO axiaops.migration_state (version, dirty)
 			VALUES ($1, $2)
 			ON CONFLICT (version) DO UPDATE SET dirty = EXCLUDED.dirty
 		`, origVersion, origDirty); err != nil {
@@ -552,18 +558,18 @@ func TestSchemaMigrationsState_TableAbsent(t *testing.T) {
 		// — including the one we just recreated above. Re-run migration
 		// 026's REVOKE so subsequent privilege tests see the post-026
 		// posture they assert on. Idempotent.
-		if _, err := db.Exec(`REVOKE INSERT, UPDATE, DELETE ON axiaops.schema_migrations FROM axiaops`); err != nil {
-			t.Logf("cleanup re-revoke schema_migrations DML: %v", err)
+		if _, err := db.Exec(`REVOKE INSERT, UPDATE, DELETE ON axiaops.migration_state FROM axiaops`); err != nil {
+			t.Logf("cleanup re-revoke migration_state DML: %v", err)
 		}
 	})
 
-	if _, err := db.Exec(`DROP TABLE axiaops.schema_migrations`); err != nil {
-		t.Fatalf("drop schema_migrations: %v", err)
+	if _, err := db.Exec(`DROP TABLE axiaops.migration_state`); err != nil {
+		t.Fatalf("drop migration_state: %v", err)
 	}
 
-	version, dirty, hasRow, err := postgres.SchemaMigrationsStateForTest(context.Background(), url)
+	version, dirty, hasRow, err := postgres.MigrationStateReadForTest(context.Background(), url)
 	if err != nil {
-		t.Fatalf("SchemaMigrationsState must tolerate missing table, got: %v", err)
+		t.Fatalf("MigrationStateRead must tolerate missing table, got: %v", err)
 	}
 	if hasRow {
 		t.Fatal("hasRow must be false when the table does not exist")

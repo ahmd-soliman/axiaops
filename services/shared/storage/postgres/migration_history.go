@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS axiaops.migration_history (
                                   CHECK (file_sha256 ~ '^[0-9a-f]{64}$'),
     applied_by_actor              TEXT,
     applied_by_image              TEXT,
-    schema_migrations_dirty_after BOOLEAN
+    migration_state_dirty_after   BOOLEAN
 );
 
 CREATE INDEX IF NOT EXISTS migration_history_version_idx
@@ -69,26 +69,13 @@ CREATE INDEX IF NOT EXISTS migration_history_version_idx
 CREATE INDEX IF NOT EXISTS migration_history_started_at_idx
     ON axiaops.migration_history (started_at DESC);
 
-CREATE OR REPLACE VIEW axiaops.migration_history_v AS
-SELECT
-    h.id,
-    h.version,
-    h.name,
-    h.direction,
-    h.status,
-    h.started_at,
-    h.finished_at,
-    h.duration_ms,
-    h.error_message,
-    h.applied_by_image,
-    h.applied_by_actor,
-    h.schema_migrations_dirty_after,
-    LEFT(h.file_sha256, 8) AS file_sha256_short,
-    h.file_sha256
-FROM axiaops.migration_history h;
+-- The 'migration_history_v' convenience view used to live here. Removed
+-- 2026-05-10: it was SELECT * + LEFT(file_sha256, 8) and nothing else —
+-- no joins, no WHERE, no aggregate. The 8-char short hash is computed
+-- Go-side in the CLI printer instead. Bootstrap idempotently DROPs any
+-- leftover view (see postgres.Bootstrap in migrate.go for the call).
 
-GRANT SELECT ON axiaops.migration_history   TO axiaops;
-GRANT SELECT ON axiaops.migration_history_v TO axiaops;
+GRANT SELECT ON axiaops.migration_history TO axiaops;
 `
 
 // migrationFile is one (version, name, direction) tuple resolved from the
@@ -288,10 +275,13 @@ func recordStarted(ctx context.Context, conn *sql.Conn, version uint, name, dire
 	return id, nil
 }
 
-// schemaMigrationsState reads (version, dirty) directly from
-// axiaops.schema_migrations on the history-writer connection. golang-migrate's
+// migrationStateRead reads (version, dirty) directly from
+// axiaops.migration_state on the history-writer connection. golang-migrate's
 // own m.Version() reads via its driver connection; the wrapper sometimes
 // needs the post-step state from a different transaction.
+//
+// (Renamed from schemaMigrationsState 2026-05-10 alongside the table rename
+// from schema_migrations → migration_state.)
 //
 // hasRow=false in three indistinguishable-from-the-wrapper's-POV cases:
 //
@@ -299,7 +289,7 @@ func recordStarted(ctx context.Context, conn *sql.Conn, version uint, name, dire
 //     m.Steps()).
 //  2. Table itself does not exist yet (truly fresh DB before
 //     migratepg.WithInstance has run — Bootstrap creates the axiaops schema
-//     and migration_history but golang-migrate creates schema_migrations
+//     and migration_history but golang-migrate creates migration_state
 //     lazily on first WithInstance call). Detected via SQLSTATE 42P01
 //     (undefined_table).
 //  3. (Hypothetical) row count > 0 but Scan returned ErrNoRows. Not reachable.
@@ -307,8 +297,8 @@ func recordStarted(ctx context.Context, conn *sql.Conn, version uint, name, dire
 // All three collapse to "no migration has ever run on this DB" — the right
 // signal for orphan recovery / backfill, neither of which should fire on a
 // pristine DB.
-func schemaMigrationsState(ctx context.Context, conn *sql.Conn) (version int64, dirty bool, hasRow bool, err error) {
-	row := conn.QueryRowContext(ctx, `SELECT version, dirty FROM axiaops.schema_migrations LIMIT 1`)
+func migrationStateRead(ctx context.Context, conn *sql.Conn) (version int64, dirty bool, hasRow bool, err error) {
+	row := conn.QueryRowContext(ctx, `SELECT version, dirty FROM axiaops.migration_state LIMIT 1`)
 	switch err := row.Scan(&version, &dirty); {
 	case err == nil:
 		return version, dirty, true, nil
@@ -319,7 +309,7 @@ func schemaMigrationsState(ctx context.Context, conn *sql.Conn) (version int64, 
 		if errors.As(err, &pqErr) && pqErr.Code == "42P01" {
 			return 0, false, false, nil
 		}
-		return 0, false, false, fmt.Errorf("migration_history: read schema_migrations: %w", err)
+		return 0, false, false, fmt.Errorf("migration_history: read migration_state: %w", err)
 	}
 }
 
@@ -327,7 +317,7 @@ func schemaMigrationsState(ctx context.Context, conn *sql.Conn) (version int64, 
 //   - On success path: status='succeeded', error_message NULL, dirty snapshot populated.
 //   - On failure path: status='failed', error_message populated, dirty snapshot populated.
 //   - On orphan recovery (never-started) path: pass dirtyValid=false to write NULL into
-//     schema_migrations_dirty_after — the post-step UPDATE never ran.
+//     migration_state_dirty_after — the post-step UPDATE never ran.
 //
 // Uses context.Background() rather than the caller's ctx because the
 // migration step has already returned: cancelling between Steps() and the
@@ -352,7 +342,7 @@ func completeRow(_ context.Context, conn *sql.Conn, id int64, status string, sta
 		    finished_at = $2,
 		    duration_ms = $3,
 		    error_message = $4,
-		    schema_migrations_dirty_after = $5
+		    migration_state_dirty_after = $5
 		WHERE id = $6
 	`, status, finished, durationMS, nullableErr, nullableDirty, id); err != nil {
 		return fmt.Errorf("migration_history: update id=%d to %s: %w", id, status, err)
@@ -380,7 +370,7 @@ func completeRowOrphan(_ context.Context, conn *sql.Conn, id int64, status, errM
 		    finished_at = now(),
 		    duration_ms = NULL,
 		    error_message = $2,
-		    schema_migrations_dirty_after = $3
+		    migration_state_dirty_after = $3
 		WHERE id = $4
 	`, status, nullableErr, nullableDirty, id); err != nil {
 		return fmt.Errorf("migration_history: orphan update id=%d to %s: %w", id, status, err)
@@ -422,7 +412,7 @@ func recoverOrphans(ctx context.Context, conn *sql.Conn) error {
 	if len(orphans) == 0 {
 		return nil
 	}
-	smVersion, smDirty, smHasRow, err := schemaMigrationsState(ctx, conn)
+	smVersion, smDirty, smHasRow, err := migrationStateRead(ctx, conn)
 	if err != nil {
 		return err
 	}
@@ -450,8 +440,8 @@ func resolveOrphan(ctx context.Context, conn *sql.Conn, id int64, v int64, direc
 	downTarget := v - 1
 	downPreState := v
 
-	// "Never started" only makes sense if schema_migrations actually has a
-	// row matching the pre-state. If schema_migrations has no row at all,
+	// "Never started" only makes sense if migration_state actually has a
+	// row matching the pre-state. If migration_state has no row at all,
 	// neither the up-V-1 nor down-V branches can match (the migration
 	// could not have run).
 	if smHasRow {
@@ -492,7 +482,7 @@ func resolveOrphan(ctx context.Context, conn *sql.Conn, id int64, v int64, direc
 	// real failed-dirty resolution and break operators grepping by status.
 	slog.Warn("migration_history: orphan in indeterminate state; treating as lost-UPDATE success",
 		"id", id, "version", v, "direction", direction,
-		"schema_migrations_version", smVersion, "schema_migrations_dirty", smDirty, "schema_migrations_has_row", smHasRow,
+		"migration_state_version", smVersion, "migration_state_dirty", smDirty, "migration_state_has_row", smHasRow,
 	)
 	return completeRowOrphan(ctx, conn, id, "succeeded",
 		fmt.Sprintf("indeterminate state; recovered post-crash (sm_version=%d sm_dirty=%t)", smVersion, smDirty),
@@ -500,7 +490,7 @@ func resolveOrphan(ctx context.Context, conn *sql.Conn, id int64, v int64, direc
 }
 
 // backfillIfEmpty inserts one 'backfilled' row per applied version when
-// migration_history is empty AND schema_migrations has at least one row.
+// migration_history is empty AND migration_state has at least one row.
 // No-op otherwise.
 //
 // MUST be called inside withHistoryConn — the empty/non-empty check and the
@@ -515,7 +505,7 @@ func backfillIfEmpty(ctx context.Context, conn *sql.Conn, efs fs.FS, idx *migrat
 	if historyCount > 0 {
 		return nil
 	}
-	smVersion, _, smHasRow, err := schemaMigrationsState(ctx, conn)
+	smVersion, _, smHasRow, err := migrationStateRead(ctx, conn)
 	if err != nil {
 		return err
 	}
@@ -560,7 +550,7 @@ func backfillIfEmpty(ctx context.Context, conn *sql.Conn, efs fs.FS, idx *migrat
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("migration_history: backfill commit: %w", err)
 	}
-	slog.Info("migration_history: backfilled applied versions", "count", count, "schema_migrations_version", smVersion)
+	slog.Info("migration_history: backfilled applied versions", "count", count, "migration_state_version", smVersion)
 	return nil
 }
 
@@ -666,7 +656,7 @@ func runUpLoop(ctx context.Context, conn *sql.Conn, m *migrate.Migrate, efs fs.F
 			}
 			return fmt.Errorf("migration_history: library returned %w for indexed pending v=%d", stepErr, v)
 		}
-		_, dirty, smHasRow, smErr := schemaMigrationsState(ctx, conn)
+		_, dirty, smHasRow, smErr := migrationStateRead(ctx, conn)
 		if smErr != nil {
 			return smErr
 		}
@@ -711,7 +701,7 @@ func runDownSteps(ctx context.Context, conn *sql.Conn, m *migrate.Migrate, efs f
 			return err
 		}
 		stepErr := m.Steps(-1)
-		_, dirty, smHasRow, smErr := schemaMigrationsState(ctx, conn)
+		_, dirty, smHasRow, smErr := migrationStateRead(ctx, conn)
 		if smErr != nil {
 			return smErr
 		}
@@ -732,7 +722,7 @@ func runDownSteps(ctx context.Context, conn *sql.Conn, m *migrate.Migrate, efs f
 // responsible for invoking m.Force(version) under the same advisory lock,
 // before this call.
 //
-// schema_migrations_dirty_after is read back from the live table rather than
+// migration_state_dirty_after is read back from the live table rather than
 // hardcoded — golang-migrate's current Force semantics are
 // SetVersion(N, false), so the snapshot is always false today, but reading
 // it keeps the column self-consistent across all code paths if upstream
@@ -742,7 +732,7 @@ func recordForce(ctx context.Context, conn *sql.Conn, version int64, idx *migrat
 	if mf, ok := idx.byVersion[uint(version)]; ok {
 		name = mf.name
 	}
-	_, dirty, smHasRow, err := schemaMigrationsState(ctx, conn)
+	_, dirty, smHasRow, err := migrationStateRead(ctx, conn)
 	if err != nil {
 		return err
 	}
@@ -754,7 +744,7 @@ func recordForce(ctx context.Context, conn *sql.Conn, version int64, idx *migrat
 		INSERT INTO axiaops.migration_history
 		    (version, name, direction, status, started_at, finished_at,
 		     duration_ms, file_sha256, applied_by_actor, applied_by_image,
-		     schema_migrations_dirty_after)
+		     migration_state_dirty_after)
 		VALUES ($1, $2, 'force', 'succeeded', now(), now(),
 		        NULL, NULL, $3, $4, $5)
 	`, version, name, ident.actor, ident.image, nullableDirty); err != nil {
