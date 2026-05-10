@@ -109,7 +109,8 @@ function AuthenticatedApp() {
                   <Route path="profile"   element={<Profile />} />
                   <Route path="cloud-accounts"             element={<CloudAccounts />} />
                   <Route path="cloud-accounts/:accountId"  element={<CloudAccountSettings />} />
-                  <Route path="team"      element={<SettingsTeam />} />
+                  <Route path="members"   element={<SettingsTeam />} />
+                  <Route path="team"      element={<Navigate to="/settings/members" replace />} />
                   <Route path="audit"     element={<SettingsAudit />} />
                   <Route path="sso"       element={<SettingsSSO />} />
                   <Route path="organization" element={<SettingsOrganization />} />

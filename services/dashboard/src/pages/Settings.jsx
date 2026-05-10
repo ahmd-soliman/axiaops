@@ -46,7 +46,7 @@ const TAB_GROUPS = [
     label: 'Workspace',
     items: [
       { label: 'Cloud Accounts', path: '/settings/cloud-accounts', requires: PERM.ACCOUNTS_READ },
-      { label: 'Team',           path: '/settings/team',           requires: PERM.MEMBERS_INVITE },
+      { label: 'Members',        path: '/settings/members',        requires: PERM.MEMBERS_INVITE },
       { label: 'Audit Log',      path: '/settings/audit',          requires: PERM.AUDIT_READ },
       { label: 'SSO',            path: '/settings/sso',            requires: PERM.SSO_MANAGE },
       { label: 'Organization',   path: '/settings/organization',   requires: PERM.ORGANIZATION_DELETE },
