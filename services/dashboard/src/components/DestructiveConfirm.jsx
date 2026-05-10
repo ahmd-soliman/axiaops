@@ -141,7 +141,7 @@ function dangerBtn(t, disabled) {
     border: 'none',
     borderRadius: 6,
     backgroundColor: t.error,
-    color: '#fff',
+    color: t.textOnDark,
     fontWeight: 600,
     fontSize: 13,
     cursor: disabled ? 'not-allowed' : 'pointer',

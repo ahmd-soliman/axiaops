@@ -267,7 +267,6 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
               borderRadius: 8,
               fontSize: 13,
               color: theme.text,
-              outline: 'none',
               boxSizing: 'border-box',
             }}
           />
@@ -286,7 +285,6 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
             fontSize: 13,
             color: theme.textMid,
             cursor: 'pointer',
-            outline: 'none',
             flexShrink: 0,
           }}
         >
@@ -487,7 +485,10 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
         transition: 'border-color 0.15s',
       }}
     >
-      {/* Checkbox column */}
+      {/* Checkbox column — div onClick widens the tap target to the whole
+          padded column. The input's own click must stopPropagation so it
+          doesn't bubble back into the div and double-toggle (input onChange
+          fires first, then div onClick on bubble → net zero change). */}
       <div
         style={{ padding: '16px 0 16px 12px', display: 'flex', alignItems: 'flex-start', flexShrink: 0 }}
         onClick={e => { e.stopPropagation(); onToggleSelect(item.resource_id); }}
@@ -496,6 +497,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
           type="checkbox"
           checked={isSelected}
           onChange={() => onToggleSelect(item.resource_id)}
+          onClick={e => e.stopPropagation()}
           aria-label={`Select ${item.resource_id}`}
           style={{ width: 16, height: 16, cursor: 'pointer', accentColor: theme.accent, marginTop: 1 }}
         />
@@ -520,17 +522,12 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
           <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
 
           {item.is_zombie && (
-            <div style={{
-              padding: '2px 6px',
-              borderRadius: 4,
-              backgroundColor: theme.zombieBadgeBg,
-              border: `1px solid ${theme.error}33`,
-              flexShrink: 0,
-            }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: theme.zombieBadgeText, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: theme.zombieBadgeText }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: theme.zombieBadgeText }}>
                 zombie
               </span>
-            </div>
+            </span>
           )}
 
           <div style={{ flex: 1 }} />
@@ -599,7 +596,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
 
 // ─── Dismissed resource card ──────────────────────────────────────────────────
 
-function DismissedCard({ item, theme, isDark }) {
+function DismissedCard({ item, theme, isDark, cost }) {
   const cfg = serviceConfig(item.service);
   const reasonLabel = {
     intentional: 'Intentional', scheduled_deletion: 'Scheduled', false_positive: 'False positive',
@@ -621,25 +618,28 @@ function DismissedCard({ item, theme, isDark }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
         <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
-        <div style={{
-          padding: '2px 6px', borderRadius: 4,
-          backgroundColor: isSnoozed ? (isDark ? '#1e3a5f' : '#DBEAFE') : (isDark ? '#374151' : '#F3F4F6'),
-        }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: isSnoozed ? '#60a5fa' : '#9CA3AF' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+          <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: isSnoozed ? '#2563EB' : '#9CA3AF' }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: isSnoozed ? '#2563EB' : '#9CA3AF' }}>
             {isSnoozed ? 'snoozed' : 'dismissed'}
           </span>
-        </div>
-        <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, color: theme.textMid, fontWeight: 600 }}>
-          {reasonLabel}
         </span>
+        <div style={{ flex: 1 }} />
+        {cost && (
+          <span style={{ fontSize: 14, fontWeight: 700, color: theme.accent, flexShrink: 0 }}>
+            {cost.currency} {cost.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted }}>/mo</span>
+          </span>
+        )}
       </div>
       <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
         {item.resource_id}
       </span>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <span style={{ fontSize: 11, color: theme.textMuted, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4 }}>
           {item.region}
+        </span>
+        <span style={{ fontSize: 11, color: theme.textMid, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>
+          {reasonLabel}
         </span>
         {isSnoozed && item.snoozed_until && (
           <span style={{ fontSize: 11, color: theme.textMuted }}>
@@ -693,7 +693,7 @@ function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, theme, i
         whiteSpace: 'nowrap',
       }}
     >
-      <span style={{ fontSize: isMobile ? 12 : 13, fontWeight: 700, color: '#fff' }}>
+      <span style={{ fontSize: isMobile ? 12 : 13, fontWeight: 700, color: theme.textOnDark }}>
         {count} {isMobile ? '' : 'selected'}
       </span>
       {!isMobile && <div style={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.2)' }} />}
@@ -714,7 +714,7 @@ function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, theme, i
 
 // ─── Bulk dismiss modal ───────────────────────────────────────────────────────
 
-function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, theme }) {
+function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, theme, isDark }) {
   const [reason, setReason]  = useState('intentional');
   const [note, setNote]      = useState('');
   const [loading, setLoading] = useState(false);
@@ -733,7 +733,7 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, backgroundColor: '#00000080', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+      style={{ position: 'fixed', inset: 0, backgroundColor: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(15,23,42,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
       onClick={onClose}
     >
       <div
@@ -773,7 +773,7 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
             value={note}
             onChange={e => setNote(e.target.value)}
             placeholder={reason === 'other' ? 'Note (required)…' : 'Add a note (optional)…'}
-            style={{ marginTop: 8, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, borderRadius: 8, padding: 12, color: theme.text, fontSize: 14, minHeight: 56, width: '100%', boxSizing: 'border-box', resize: 'vertical', outline: 'none' }}
+            style={{ marginTop: 8, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, borderRadius: 8, padding: 12, color: theme.text, fontSize: 14, minHeight: 56, width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
           />
         )}
 
@@ -782,7 +782,7 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
             <span style={{ color: theme.textMid, fontWeight: 700, fontSize: 14 }}>Cancel</span>
           </button>
           <button onClick={handleConfirm} disabled={loading} style={{ flex: 1, padding: '12px', borderRadius: 10, backgroundColor: theme.accent, border: 'none', cursor: 'pointer', opacity: loading ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {loading ? <Spinner size={18} color="#fff" /> : <span style={{ color: '#fff', fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss All' : 'Snooze All'}</span>}
+            {loading ? <Spinner size={18} color={theme.textOnDark} /> : <span style={{ color: theme.textOnDark, fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss All' : 'Snooze All'}</span>}
           </button>
         </div>
       </div>
@@ -833,7 +833,7 @@ function sortResources(list, sortBy) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function DashboardScreen({
+export default function OverviewScreen({
   onShowTrend, onShowCosts, onSelectZombie, accounts = [], onConnectAccount, onEditAccount,
   selectedAccount, onSelectAccount,
 }) {
@@ -854,6 +854,7 @@ export default function DashboardScreen({
   const [sortBy, setSortBy]             = useState('cost_desc');
   const [selected, setSelected]         = useState(new Set());
   const [bulkModal, setBulkModal]       = useState(null); // 'dismiss' | 'snooze' | null
+  const [hiddenFilter, setHiddenFilter] = useState('all'); // 'all' | 'dismissed' | 'snoozed'
 
   const summary    = useQuery({ queryKey: ['summary', selectedAccount],    queryFn: () => fetchSummary(selectedAccount) });
   const resources  = useQuery({ queryKey: ['resources', selectedAccount],  queryFn: () => fetchResources(selectedAccount) });
@@ -884,6 +885,30 @@ export default function DashboardScreen({
   const byService = useMemo(
     () => Object.entries(summary.data?.by_service ?? {}).sort((a, b) => b[1].savings - a[1].savings),
     [summary.data],
+  );
+
+  // Last-known monthly cost per resource_id, sourced from the current scan.
+  // Dismissed/snoozed cards look this up to render cost on the hidden view.
+  // Orphaned dismissals (resource no longer in the latest scan) get undefined
+  // and render no cost — see GitLab issue for backend enrichment that closes
+  // that edge case.
+  const costsById = useMemo(() => {
+    const m = new Map();
+    for (const r of resources.data ?? []) {
+      if (r.resource_id) m.set(r.resource_id, { monthly_cost: r.monthly_cost, currency: r.currency });
+    }
+    return m;
+  }, [resources.data]);
+
+  // Hidden-view sub-pill counts. Lifted above the isLoading/isError early
+  // returns so the hook order stays stable across renders.
+  const dismissedCount = useMemo(
+    () => (dismissals.data ?? []).filter(d => d.action === 'dismiss').length,
+    [dismissals.data],
+  );
+  const snoozedCount = useMemo(
+    () => (dismissals.data ?? []).filter(d => d.action === 'snooze').length,
+    [dismissals.data],
   );
 
   // Distinct resource sub-types within the currently selected service.
@@ -1003,7 +1028,10 @@ export default function DashboardScreen({
     queryClient.invalidateQueries({ queryKey: ['dismissals'] });
     setSelected(new Set());
     setBulkModal(null);
-    toast(`${action === 'snooze' ? 'Snoozed' : 'Dismissed'} ${succeeded} resource${succeeded !== 1 ? 's' : ''}`, 'success');
+    toast(
+      `${action === 'snooze' ? 'Snoozed' : 'Dismissed'} ${succeeded} resource${succeeded !== 1 ? 's' : ''}`,
+      action === 'snooze' ? 'info' : 'success',
+    );
   }
 
   const activeFilters = [
@@ -1053,7 +1081,7 @@ export default function DashboardScreen({
           onClick={refresh}
           style={{ marginTop: 12, backgroundColor: t.accent, padding: '10px 24px', borderRadius: 8, border: 'none', cursor: 'pointer' }}
         >
-          <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>Retry</span>
+          <span style={{ color: t.textOnDark, fontWeight: 700, fontSize: 14 }}>Retry</span>
         </button>
       </div>
     );
@@ -1061,7 +1089,21 @@ export default function DashboardScreen({
 
   // ── Compute list ───────────────────────────────────────────────────────────
   const listData = (() => {
-    if (showDismissed) return dismissals.data ?? [];
+    if (showDismissed) {
+      let list = dismissals.data ?? [];
+      if (hiddenFilter === 'dismissed') list = list.filter(d => d.action === 'dismiss');
+      if (hiddenFilter === 'snoozed')   list = list.filter(d => d.action === 'snooze');
+      // Snoozed-only view: sort soonest-returning first so the user sees what's
+      // about to come back at the top. Other views keep server order.
+      if (hiddenFilter === 'snoozed') {
+        list = [...list].sort((a, b) => {
+          if (!a.snoozed_until) return 1;
+          if (!b.snoozed_until) return -1;
+          return new Date(a.snoozed_until) - new Date(b.snoozed_until);
+        });
+      }
+      return list;
+    }
     let list = resources.data ?? [];
     if (zombieOnly) list = list.filter(r => r.is_zombie);
     list = list.filter(r => !dismissedSet.has(r.resource_id));
@@ -1160,7 +1202,7 @@ export default function DashboardScreen({
           { label: 'Zombies', active: zombieOnly && !showDismissed, onClick: () => { setZombieOnly(true); setShowDismissed(false); } },
           { label: 'All', active: !zombieOnly && !showDismissed, onClick: () => { setZombieOnly(false); setShowDismissed(false); } },
           (dismissals.data?.length ?? 0) > 0 && {
-            label: `Dismissed (${dismissals.data?.length})`,
+            label: `Hidden (${dismissals.data?.length})`,
             active: showDismissed,
             onClick: () => setShowDismissed(v => !v),
           },
@@ -1184,6 +1226,42 @@ export default function DashboardScreen({
           </button>
         ))}
       </div>
+
+      {/* Hidden-view sub-filter pills: All / Dismissed / Snoozed */}
+      {showDismissed && (dismissals.data?.length ?? 0) > 0 && (
+        <div
+          role="group"
+          aria-label="Filter hidden resources"
+          style={{ display: 'flex', gap: 6, padding: '8px 16px 0', flexWrap: 'wrap' }}
+        >
+          {[
+            { value: 'all',       label: `All (${dismissals.data.length})` },
+            { value: 'dismissed', label: `Dismissed (${dismissedCount})` },
+            { value: 'snoozed',   label: `Snoozed (${snoozedCount})` },
+          ].map(p => {
+            const active = hiddenFilter === p.value;
+            return (
+              <button
+                key={p.value}
+                onClick={() => setHiddenFilter(p.value)}
+                aria-pressed={active}
+                style={{
+                  padding: isMobile ? '7px 12px' : '4px 10px',
+                  borderRadius: 14,
+                  backgroundColor: active ? t.textMid : t.surfaceRaised,
+                  border: `1px solid ${active ? t.textMid : t.border}`,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: active ? '#fff' : t.textMid,
+                }}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Search + sort (only for non-dismissed view) */}
       {!showDismissed && (
@@ -1211,8 +1289,11 @@ export default function DashboardScreen({
           />
         )}
         <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
-          {showDismissed ? 'Dismissed Resources' : zombieOnly ? `Zombie Resources` : 'All Resources'}
+          {showDismissed
+            ? (hiddenFilter === 'snoozed' ? 'Snoozed Resources' : hiddenFilter === 'dismissed' ? 'Dismissed Resources' : 'Hidden Resources')
+            : zombieOnly ? `Zombie Resources` : 'All Resources'}
           {!showDismissed && ` · ${listData.length}`}
+          {showDismissed && ` · ${listData.length}`}
         </span>
         {!showDismissed && (
           <button
@@ -1251,7 +1332,7 @@ export default function DashboardScreen({
       {/* Resource list */}
       {listData.map((item) => (
         showDismissed
-          ? <DismissedCard key={String(item.id)} item={item} theme={t} isDark={isDark} />
+          ? <DismissedCard key={String(item.id)} item={item} theme={t} isDark={isDark} cost={costsById.get(item.resource_id)} />
           : <ResourceCard
               key={item.resource_id}
               item={item}
@@ -1284,6 +1365,7 @@ export default function DashboardScreen({
         count={selected.size}
         modalAction={bulkModal}
         theme={t}
+        isDark={isDark}
       />
     </div>
   );

@@ -100,7 +100,7 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
             border: 'none',
             borderRadius: 6,
             backgroundColor: t.accent,
-            color: '#fff',
+            color: t.textOnDark,
             fontWeight: 600,
             fontSize: 13,
             cursor: !dirty || saving ? 'not-allowed' : 'pointer',

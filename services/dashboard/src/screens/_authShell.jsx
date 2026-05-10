@@ -90,7 +90,6 @@ export const authStyles = {
     color: C.white,
     fontSize: 14,
     padding: '10px 12px',
-    outline: 'none',
     width: '100%',
     boxSizing: 'border-box',
     fontFamily: 'inherit',
