@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { getToken, saveToken, clearToken } from './auth/storage';
 import { authLogout, authBootstrapState, setAuthToken, UNAUTHORIZED_EVENT } from './api/client';
 import { DEV_MODE, DEV_ORG_NAME } from './config';
@@ -32,6 +32,13 @@ import BootstrapScreen     from './screens/BootstrapScreen';
 import AcceptInviteScreen  from './screens/AcceptInviteScreen';
 import PasswordResetScreen from './screens/PasswordResetScreen';
 import OrgPickerScreen     from './screens/OrgPickerScreen';
+
+// Preserves the :accountId param when redirecting from the legacy
+// /cloud-accounts/:id path to /settings/cloud-accounts/:id.
+function RedirectAccount() {
+  const { accountId } = useParams();
+  return <Navigate to={`/settings/cloud-accounts/${accountId}`} replace />;
+}
 
 function parseJwt(token) {
   try {
@@ -92,11 +99,18 @@ function AuthenticatedApp() {
                 <Route path="/trend"               element={<Trend />} />
                 <Route path="/cost"                element={<CostAnalytics />} />
                 <Route path="/connect"             element={<Connect />} />
-                <Route path="/cloud-accounts"      element={<CloudAccounts />} />
-                <Route path="/cloud-accounts/:accountId" element={<CloudAccountSettings />} />
-                <Route path="/profile"             element={<Profile />} />
+                {/* Profile and Cloud Accounts moved under /settings; old
+                    paths kept as redirects so bookmarks and share-links
+                    don't break. */}
+                <Route path="/profile"             element={<Navigate to="/settings/profile" replace />} />
+                <Route path="/cloud-accounts"      element={<Navigate to="/settings/cloud-accounts" replace />} />
+                <Route path="/cloud-accounts/:accountId" element={<RedirectAccount />} />
                 <Route path="/settings"            element={<Settings />}>
-                  <Route path="team"      element={<SettingsTeam />} />
+                  <Route path="profile"   element={<Profile />} />
+                  <Route path="cloud-accounts"             element={<CloudAccounts />} />
+                  <Route path="cloud-accounts/:accountId"  element={<CloudAccountSettings />} />
+                  <Route path="members"   element={<SettingsTeam />} />
+                  <Route path="team"      element={<Navigate to="/settings/members" replace />} />
                   <Route path="audit"     element={<SettingsAudit />} />
                   <Route path="sso"       element={<SettingsSSO />} />
                   <Route path="organization" element={<SettingsOrganization />} />

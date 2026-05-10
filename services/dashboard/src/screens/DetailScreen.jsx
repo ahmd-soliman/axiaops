@@ -367,7 +367,7 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
             boxShadow: '0 16px 40px rgba(0,0,0,0.3)',
           }}
         >
-          <span style={{ fontSize: 18, fontWeight: 800, color: t.text, display: 'block', marginBottom: 4 }}>
+          <span style={{ fontSize: 18, fontWeight: 800, color: modalAction === 'dismiss' ? t.error : t.text, display: 'block', marginBottom: 4 }}>
             {modalAction === 'dismiss' ? 'Dismiss Resource' : 'Snooze Resource'}
           </span>
           <span style={{ fontSize: 13, color: t.textMuted, display: 'block', marginBottom: 18 }}>

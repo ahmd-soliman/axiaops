@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../../theme/ThemeContext';
 import { fetchVersion } from '../../api/client';
+import { shouldNagRenewal } from '../../utils/license';
 
 // Settings → License — owner-only read-only inspector for the self-hosted
 // license state (Phase B1.6 amendment + B1.7 follow-up). Complements
@@ -28,16 +29,13 @@ import { fetchVersion } from '../../api/client';
 //                 identity visible in the claim sub-object below.
 //   in_grace    → amber, claim sub-object + grace-period explainer
 //   expired     → red, claim sub-object + renewal contact
-//   not_loaded  → only reachable in production deployments without a license
-//                 installed. Pre-layer-4 the dashboard reflected DEV_MODE here
-//                 too; layer 4 retired that branch — DEV_MODE now loads the
-//                 dev fixture and reports state="valid". The IS_DEV_MODE
-//                 fallback copy below remains as defence-in-depth in case a
-//                 future regression re-enables the legacy bypass shortcut.
+//   not_loaded  → red, only reachable in production deployments without a
+//                 license installed. If a regression ever did make this branch
+//                 fire, we want the operator to see "scans are blocked" and
+//                 investigate, not a misleading message.
 
 const INSTALL_URL = 'https://axiaops.io/install';
 const RENEWAL_EMAIL = 'sales@axiaops.io';
-const IS_DEV_MODE = (import.meta.env?.VITE_DEV_MODE ?? 'false') === 'true';
 
 export default function License() {
   const { theme: t, isDark } = useTheme();
@@ -91,30 +89,34 @@ export default function License() {
 
 function LicensePane({ lic, version, t, isDark }) {
   const tone = toneFor(lic);
-  const palette = paletteFor(tone, t);
+  const detail = detailFor(lic);
   const sectionBg = isDark ? 'rgba(255,255,255,0.03)' : '#fff';
   const border = isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb';
 
   return (
     <>
+      {/* Status card: neutral surface and border, matching the cards below.
+          Tone is carried by the Chip alone. */}
       <section
         style={{
-          border: `1px solid ${palette.border}`,
+          border: `1px solid ${border}`,
           borderRadius: 8,
           padding: 16,
           marginBottom: 16,
-          backgroundColor: palette.bg,
+          backgroundColor: sectionBg,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: detail ? 8 : 0 }}>
           <Chip tone={tone} label={chipLabel(lic)} t={t} />
-          <span style={{ fontSize: 13, color: palette.fg, fontWeight: 600 }}>
+          <span style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>
             {headlineFor(lic)}
           </span>
         </div>
-        <p style={{ margin: 0, fontSize: 12, color: palette.fg, lineHeight: '18px' }}>
-          {detailFor(lic)}
-        </p>
+        {detail && (
+          <p style={{ margin: 0, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
+            {detail}
+          </p>
+        )}
       </section>
 
       {hasClaims(lic) && (
@@ -128,7 +130,7 @@ function LicensePane({ lic, version, t, isDark }) {
           }}
         >
           <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>
-            Claims
+            License details
           </h2>
           <ClaimsGrid lic={lic} t={t} />
         </section>
@@ -163,16 +165,14 @@ function hasClaims(lic) {
 }
 
 function ClaimsGrid({ lic, t }) {
-  // Two-column grid is fine on tablet+ but cramps the customer_id mono
-  // value on phones — at 360px each cell gets ~170px after padding, and
-  // the customer ID is typically wider than that. CSS auto-fit handles
-  // both shapes without a JS breakpoint hook.
+  // Two-column auto-fit grid handles tablet+ down to ~360px without a JS
+  // breakpoint hook. Order: most-actionable first.
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-      <ClaimRow t={t} k="Customer ID"     v={lic.customer_id || '—'} mono />
-      <ClaimRow t={t} k="Max organizations" v={lic.max_organizations ?? '—'} />
-      <ClaimRow t={t} k="Expires at"      v={formatDate(lic.expires_at)} mono />
       <ClaimRow t={t} k="Days remaining"  v={formatDays(lic.days_remaining)} />
+      <ClaimRow t={t} k="Expires at"      v={formatDate(lic.expires_at)} mono />
+      <ClaimRow t={t} k="Max organizations" v={lic.max_organizations ?? '—'} />
+      <ClaimRow t={t} k="Customer ID"     v={lic.customer_id || '—'} mono />
     </div>
   );
 }
@@ -200,6 +200,10 @@ function ClaimRow({ t, k, v, mono }) {
 }
 
 function Chip({ tone, label, t }) {
+  // Filled pill — primary affirmation for the License page state. Different
+  // design context from list-row status chips (which are stripped to inline
+  // text): this one sits at the top of a focused page, paired with a single
+  // headline, so the heavier visual treatment earns its space.
   const palette = paletteFor(tone, t);
   return (
     <span
@@ -225,13 +229,12 @@ function Chip({ tone, label, t }) {
 // affirmative ("license OK") not just nagging.
 function toneFor(lic) {
   if (lic.state === 'valid') {
-    if (typeof lic.days_remaining === 'number' && lic.days_remaining < 14) return 'warning';
+    if (shouldNagRenewal(lic)) return 'warning';
     return 'success';
   }
   if (lic.state === 'in_grace') return 'warning';
   if (lic.state === 'expired') return 'error';
-  if (lic.state === 'not_loaded') return IS_DEV_MODE ? 'info' : 'error';
-  return 'info';
+  return 'error';
 }
 
 function paletteFor(tone, t) {
@@ -245,31 +248,26 @@ function chipLabel(lic) {
   if (lic.state === 'valid') return 'Valid';
   if (lic.state === 'in_grace') return 'In Grace';
   if (lic.state === 'expired') return 'Expired';
-  if (lic.state === 'not_loaded') return IS_DEV_MODE ? 'Dev bypass' : 'Not loaded';
-  return lic.state || 'Unknown';
+  return 'Not loaded';
 }
 
 function headlineFor(lic) {
   if (lic.state === 'valid') {
-    if (typeof lic.days_remaining === 'number' && lic.days_remaining < 14) {
-      return `License is active — expires in ${lic.days_remaining} day${lic.days_remaining === 1 ? '' : 's'}.`;
-    }
-    return 'License is active.';
+    return shouldNagRenewal(lic)
+      ? 'License is active. Renewal due soon.'
+      : 'License is active. Scans run normally.';
   }
   if (lic.state === 'in_grace') return 'License has expired and is in grace period.';
   if (lic.state === 'expired') return 'License past grace period — scans are blocked.';
-  if (lic.state === 'not_loaded') {
-    return IS_DEV_MODE ? 'Enforcement bypassed (DEV_MODE).' : 'No license installed — scans are blocked.';
-  }
-  return 'Unknown license state.';
+  return 'No license installed — scans are blocked.';
 }
 
 function detailFor(lic) {
   if (lic.state === 'valid') {
-    if (typeof lic.days_remaining === 'number' && lic.days_remaining < 14) {
+    if (shouldNagRenewal(lic)) {
       return `Renewal will land via the issuance CLI; restart the API and ingestion services after dropping the new JWT in to pick it up. Contact ${RENEWAL_EMAIL} if a renewal hasn't been arranged.`;
     }
-    return `Scans run normally. The runtime ticker re-classifies state hourly; this pane reflects the most recent classification.`;
+    return '';
   }
   if (lic.state === 'in_grace') {
     return `Reads, dashboard, and member-management remain available. New scans continue to run during the grace window. Contact ${RENEWAL_EMAIL} to renew before the grace period ends.`;
@@ -277,13 +275,8 @@ function detailFor(lic) {
   if (lic.state === 'expired') {
     return `Reads, dashboard, and member-management remain available — only POST /accounts/{id}/scan and the scheduled-scan ticker are gated. Contact ${RENEWAL_EMAIL} to renew; drop the new license in and restart the API + ingestion services.`;
   }
-  if (lic.state === 'not_loaded') {
-    if (IS_DEV_MODE) {
-      return `This dashboard build was compiled with VITE_DEV_MODE=true; the API binary is running with DEV_MODE=true; license enforcement is suspended in this slot for developer iteration. Customer-shipping binaries (built with -tags production) cannot honour DEV_MODE — see services/api/CLAUDE.md "Build tags" for the convention.`;
-    }
-    return `Install a license JWT to enable scans. The runbook lives in docs/license-issuance.md; the install URL is ${INSTALL_URL}.`;
-  }
-  return '';
+  // not_loaded or unknown state
+  return `Install a license JWT to enable scans. The runbook lives in docs/license-issuance.md; the install URL is ${INSTALL_URL}.`;
 }
 
 function formatDate(iso) {

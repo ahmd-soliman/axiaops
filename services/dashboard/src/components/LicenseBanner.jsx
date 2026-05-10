@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
 import { fetchVersion } from '../api/client';
+import { shouldNagRenewal } from '../utils/license';
 
 // LicenseBanner renders a top-of-page nag for the self-hosted license
 // lifecycle (Phase B1.6 slice 8, B1.6 amendment). Shape decisions:
@@ -41,7 +42,6 @@ import { fetchVersion } from '../api/client';
 //    (the hard cutoff). NOT days until exp. That's why the in_grace copy
 //    says "until scans pause" — the same number is what the scan-gate
 //    classifier flips on.
-const LEAD_TIME_DAYS = 14;
 const INSTALL_URL = 'https://axiaops.io/install';
 const IS_DEV_MODE = (import.meta.env?.VITE_DEV_MODE ?? 'false') === 'true';
 
@@ -123,7 +123,7 @@ function severity(lic) {
     return IS_DEV_MODE ? null : 'error';
   }
   if (lic.state === 'in_grace') return 'warning';
-  if (lic.state === 'valid' && typeof lic.days_remaining === 'number' && lic.days_remaining < LEAD_TIME_DAYS) {
+  if (shouldNagRenewal(lic)) {
     return 'warning';
   }
   return null;
