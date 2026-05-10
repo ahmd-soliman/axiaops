@@ -204,19 +204,22 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
             </div>
 
             {zombie.is_zombie && !isDismissed && !isSnoozed && (
-              <div style={{ padding: '3px 8px', borderRadius: 6, backgroundColor: t.zombieBadgeBg, border: `1px solid ${t.error}33` }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: t.zombieBadgeText, textTransform: 'uppercase', letterSpacing: 0.3 }}>zombie</span>
-              </div>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: t.zombieBadgeText }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: t.zombieBadgeText }}>zombie</span>
+              </span>
             )}
             {isDismissed && (
-              <div style={{ padding: '3px 8px', borderRadius: 6, backgroundColor: isDark ? '#374151' : '#F3F4F6', border: `1px solid ${t.border}` }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' }}>dismissed</span>
-              </div>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#9CA3AF' }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#9CA3AF' }}>dismissed</span>
+              </span>
             )}
             {isSnoozed && (
-              <div style={{ padding: '3px 8px', borderRadius: 6, backgroundColor: isDark ? '#1e3a5f' : '#DBEAFE', border: '1px solid #3b82f633' }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase' }}>snoozed</span>
-              </div>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#2563EB' }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#2563EB' }}>snoozed</span>
+              </span>
             )}
           </div>
 
