@@ -158,7 +158,7 @@ function Editor({ connectionId, t, isDark, onSaved }) {
     return <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>;
   }
   if (mappings.isError) {
-    return <div style={{ padding: 24, color: '#ef4444' }}>Failed to load mappings.</div>;
+    return <div style={{ padding: 24, color: t.error }}>Failed to load mappings.</div>;
   }
 
   return (
@@ -223,7 +223,7 @@ function Editor({ connectionId, t, isDark, onSaved }) {
                   </select>
                 </Td>
                 <Td t={t}>
-                  <button type="button" onClick={() => removeRow(idx)} style={{ ...ghostButton(t), color: '#ef4444' }}>
+                  <button type="button" onClick={() => removeRow(idx)} style={{ ...ghostButton(t), color: t.error }}>
                     Remove
                   </button>
                 </Td>
