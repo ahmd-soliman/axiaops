@@ -35,11 +35,11 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint,
 
 function StatusBadge({ status, theme }) {
   const config = {
-    connected:            { color: theme.success, label: 'Connected',            bg: `${theme.success}18` },
-    error:                { color: theme.error,   label: 'Connection Error',      bg: `${theme.error}18` },
-    scan_timeout:         { color: theme.warning, label: 'Scan Timeout',          bg: `${theme.warning}18` },
-    circuit_breaker_open: { color: theme.warning, label: 'Circuit Breaker Open',  bg: `${theme.warning}18` },
-    scanning:             { color: theme.accent,  label: 'Scanning…',             bg: `${theme.accent}18` },
+    connected:            { color: theme.success, label: 'Connected',  bg: `${theme.success}18` },
+    error:                { color: theme.error,   label: 'Disconnected', bg: `${theme.error}18` },
+    scan_timeout:         { color: theme.warning, label: 'Timed Out',  bg: `${theme.warning}18` },
+    circuit_breaker_open: { color: theme.warning, label: 'Paused',     bg: `${theme.warning}18` },
+    scanning:             { color: theme.accent,  label: 'Scanning…',  bg: `${theme.accent}18` },
   };
   const c = config[status] ?? { color: theme.textMuted, label: 'Unknown', bg: theme.surfaceRaised };
 
@@ -49,6 +49,20 @@ function StatusBadge({ status, theme }) {
       <span style={{ fontSize: 13, fontWeight: 700, color: c.color }}>{c.label}</span>
     </div>
   );
+}
+
+// One-line affirmation/diagnosis paired with the chip. Mirrors the License
+// page pattern (chip = state, sentence = consequence) so screen-reader users
+// hear the meaning, not just the state name.
+function statusHeadline(status) {
+  switch (status) {
+    case 'connected':            return 'Connection healthy. Scans run on schedule.';
+    case 'error':                return 'Last scan failed — check credentials and region.';
+    case 'scan_timeout':         return 'Last scan timed out at 15 minutes.';
+    case 'circuit_breaker_open': return 'Paused after repeated scan failures.';
+    case 'scanning':             return 'Scan in progress.';
+    default:                     return '';
+  }
 }
 
 export default function AccountSettingsScreen({ account, onBack, onAccountUpdated, onAccountDeleted }) {
@@ -171,8 +185,13 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
             flexDirection: 'column',
             gap: 14,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-              <StatusBadge status={account.status} theme={t} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <StatusBadge status={account.status} theme={t} />
+                <span style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>
+                  {statusHeadline(account.status)}
+                </span>
+              </div>
               {account.last_scanned_at && (
                 <span style={{ fontSize: 12, color: t.textMuted }}>
                   Last scan: {new Date(account.last_scanned_at).toLocaleString()}
@@ -218,13 +237,10 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                   </>
                 )}
               </button>
-              {/* Secondary destructive — ghost button next to the primary
-                  Scan Now CTA. Earlier revision tinted bg + border with the
-                  error tone; we now reserve color for the text only, so the
-                  hierarchy reads as filled-primary + outlined-ghost-destructive.
-                  Same minimal language as the row-action delete buttons in
-                  Team.jsx / SSO Connections. The destructive cue is the red
-                  text + the type-to-confirm modal that follows the click. */}
+              {/* Destructive primary — filled red, white label. Mirrors the
+                  Delete Organization button (DangerSection in Profile.jsx /
+                  Organization.jsx) so destructive primaries look the same
+                  across the app. Type-to-confirm modal still gates the action. */}
               <button
                 onClick={() => setShowDeleteConfirm(true)}
                 disabled={deleting}
@@ -232,8 +248,8 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                 style={{
                   padding: '11px 16px',
                   borderRadius: 8,
-                  backgroundColor: 'transparent',
-                  border: `1px solid ${t.border}`,
+                  backgroundColor: t.error,
+                  border: 'none',
                   cursor: deleting ? 'not-allowed' : 'pointer',
                   opacity: deleting ? 0.6 : 1,
                   display: 'flex',
@@ -242,8 +258,8 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                   gap: 6,
                 }}
               >
-                {deleting ? <Spinner size={16} color={t.error} /> : (
-                  <span style={{ color: t.error, fontSize: 14, fontWeight: 700 }}>Delete</span>
+                {deleting ? <Spinner size={16} color="#fff" /> : (
+                  <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>Delete</span>
                 )}
               </button>
             </div>
