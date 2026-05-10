@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { getToken, saveToken, clearToken } from './auth/storage';
-import { authLogout, authBootstrapState, setAuthToken, UNAUTHORIZED_EVENT } from './api/client';
+import {
+  authLogout,
+  authBootstrapState,
+  setAuthToken,
+  UNAUTHORIZED_EVENT,
+  SERVICE_UNAVAILABLE_EVENT,
+} from './api/client';
 import { DEV_MODE, DEV_ORG_NAME } from './config';
 import { AppProvider } from './context/AppContext';
 import { MeProvider } from './context/MeContext';
 
 import AppShell   from './components/AppShell';
+import AppErrorBoundary from './components/AppErrorBoundary';
 import AuthGuard  from './components/AuthGuard';
 import OnboardingGate from './components/OnboardingGate';
-import Dashboard  from './pages/Dashboard';
+import Overview   from './pages/Overview';
 import Detail     from './pages/Detail';
 import Trend      from './pages/Trend';
 import CostAnalytics from './pages/CostAnalytics';
@@ -28,6 +35,7 @@ import OnboardingInvite  from './pages/onboarding/Invite';
 import OnboardingAws     from './pages/onboarding/AwsAccount';
 import Login      from './pages/Login';
 import NotFound   from './pages/NotFound';
+import ServiceUnavailable from './pages/ServiceUnavailable';
 import BootstrapScreen     from './screens/BootstrapScreen';
 import AcceptInviteScreen  from './screens/AcceptInviteScreen';
 import PasswordResetScreen from './screens/PasswordResetScreen';
@@ -94,7 +102,7 @@ function AuthenticatedApp() {
                 <Route path="aws-account" element={<OnboardingAws />} />
               </Route>
               <Route element={<AppShell />}>
-                <Route path="/"                    element={<Dashboard />} />
+                <Route path="/"                    element={<Overview />} />
                 <Route path="/detail/:id"          element={<Detail />} />
                 <Route path="/trend"               element={<Trend />} />
                 <Route path="/cost"                element={<CostAnalytics />} />
@@ -116,6 +124,9 @@ function AuthenticatedApp() {
                   <Route path="organization" element={<SettingsOrganization />} />
                   <Route path="license"   element={<SettingsLicense />} />
                 </Route>
+                {/* Catch-all inside AppShell so unknown URLs render NotFound
+                    with the nav still visible, instead of an empty pane. */}
+                <Route path="*" element={<NotFound />} />
               </Route>
             </Route>
           </Route>
@@ -166,17 +177,42 @@ export default function App() {
     return () => { cancelled = true; };
   }, [location.pathname, navigate]);
 
+  // Any 503 response from the API bounces the user to the dedicated
+  // /service-unavailable page. client.js dispatches the event once per
+  // 503 response; we de-dupe by checking the current path so a flurry
+  // of in-flight requests all returning 503 doesn't fire a navigate
+  // loop. The page itself has a "Try again" button that reloads —
+  // that's the recovery path once the API is back.
+  useEffect(() => {
+    const handler = () => {
+      if (location.pathname === '/service-unavailable') return;
+      navigate('/service-unavailable', { replace: true });
+    };
+    window.addEventListener(SERVICE_UNAVAILABLE_EVENT, handler);
+    return () => window.removeEventListener(SERVICE_UNAVAILABLE_EVENT, handler);
+  }, [navigate, location.pathname]);
+
   if (!ready) return null;
 
+  // AppErrorBoundary takes resetKey={location.pathname} so a transient
+  // render error doesn't latch the 500 fallback for the rest of the
+  // session — navigating to a new route clears the latch and gives the
+  // new tree a fresh attempt.
   return (
-    <Routes>
-      <Route path="/login"          element={<Login />} />
-      <Route path="/bootstrap"      element={<BootstrapScreen />} />
-      <Route path="/select-org"     element={<OrgPickerScreen />} />
-      <Route path="/accept-invite"  element={<AcceptInviteScreen />} />
-      <Route path="/password-reset" element={<PasswordResetScreen />} />
-      <Route path="/*"              element={<AuthenticatedApp />} />
-      <Route path="*"               element={<NotFound />} />
-    </Routes>
+    <AppErrorBoundary resetKey={location.pathname}>
+      <Routes>
+        <Route path="/login"                element={<Login />} />
+        <Route path="/bootstrap"            element={<BootstrapScreen />} />
+        <Route path="/select-org"           element={<OrgPickerScreen />} />
+        <Route path="/accept-invite"        element={<AcceptInviteScreen />} />
+        <Route path="/password-reset"       element={<PasswordResetScreen />} />
+        <Route path="/service-unavailable"  element={<ServiceUnavailable />} />
+        {/* "/*" splats catch every remaining path. AuthenticatedApp
+            owns its own inner NotFound route, so unauthenticated junk
+            paths hit AuthGuard → redirect to /login, and authenticated
+            junk paths render NotFound inside AppShell. */}
+        <Route path="/*"                    element={<AuthenticatedApp />} />
+      </Routes>
+    </AppErrorBoundary>
   );
 }

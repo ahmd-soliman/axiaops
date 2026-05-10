@@ -135,6 +135,15 @@ export function ThemeProvider({ children }) {
     });
   }, []);
 
+  // Project the theme onto the root `color-scheme` so native UA controls
+  // (date pickers, scrollbars, autofill chrome, focus rings) follow the app's
+  // theme instead of the OS preference. Without this, Firefox renders the
+  // <input type="date"> popup in OS dark mode even when the app is in light
+  // mode, and Chrome's calendar-picker-indicator picks the wrong tint.
+  useEffect(() => {
+    document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+  }, [isDark]);
+
   const toggleTheme = async () => {
     const newTheme = !isDark;
     setIsDark(newTheme);
