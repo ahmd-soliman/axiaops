@@ -23,18 +23,42 @@ import { PERM } from '../api/permissions';
 // the SSO settings pane in read-only mode for non-owners"); that mode is
 // deferred to a follow-up. Until it lands, exposing the panes to viewers
 // would render mutation controls that 403 — worse UX than hiding the tab.
-const TABS = [
-  { label: 'Team',      path: '/settings/team',      requires: PERM.MEMBERS_INVITE },
-  { label: 'Audit Log', path: '/settings/audit',     requires: PERM.AUDIT_READ },
-  { label: 'SSO',       path: '/settings/sso',       requires: PERM.SSO_MANAGE },
-  { label: 'Organization', path: '/settings/organization', requires: PERM.ORGANIZATION_DELETE },
-  // License is gated to the same owner-tier as Organization. Licensing is a
-  // billing/contract concern; non-owners can't act on it and the LicenseBanner
-  // already covers the "scans paused" warning surface for everyone. This pane
-  // is the affirmative read-only inspector for the healthy + DEV_MODE-bypass
-  // states the banner is silent on. See services/dashboard/src/pages/settings/License.jsx.
-  { label: 'License',   path: '/settings/license',   requires: PERM.ORGANIZATION_DELETE },
+// Tab groups go personal → org-wide. Profile (every user) sits under
+// Account; org-shared admin tabs sit under Workspace. `requires` of
+// undefined means the item is visible to every authenticated user — the
+// visible-filter below handles the absence. Group headers render only on
+// desktop; the mobile tab strip flattens them since horizontal scrolling
+// + section headers don't compose well at 375px.
+//
+// License is gated to the same owner-tier as Organization. Licensing is a
+// billing/contract concern; non-owners can't act on it and LicenseBanner
+// already covers the "scans paused" warning surface for everyone. The pane
+// is the affirmative read-only inspector for the healthy + DEV_MODE-bypass
+// states the banner is silent on. See pages/settings/License.jsx.
+const TAB_GROUPS = [
+  {
+    label: 'Account',
+    items: [
+      { label: 'Profile', path: '/settings/profile' },
+    ],
+  },
+  {
+    label: 'Workspace',
+    items: [
+      { label: 'Cloud Accounts', path: '/settings/cloud-accounts', requires: PERM.ACCOUNTS_READ },
+      { label: 'Members',        path: '/settings/members',        requires: PERM.MEMBERS_INVITE },
+      { label: 'Audit Log',      path: '/settings/audit',          requires: PERM.AUDIT_READ },
+      { label: 'SSO',            path: '/settings/sso',            requires: PERM.SSO_MANAGE },
+      { label: 'Organization',   path: '/settings/organization',   requires: PERM.ORGANIZATION_DELETE },
+      { label: 'License',        path: '/settings/license',        requires: PERM.ORGANIZATION_DELETE },
+    ],
+  },
 ];
+
+// Flat list — used for the visible filter and the Navigate-to-first-tab
+// fallback. Order across groups is preserved so visible[0] is still the
+// first item on the page (Profile, for any signed-in user).
+const TABS = TAB_GROUPS.flatMap((g) => g.items);
 
 export default function Settings() {
   const { theme: t, isDark } = useTheme();
@@ -49,7 +73,7 @@ export default function Settings() {
   // the user sees the empty-state flash before the redirect can fire.
   if (loading) return null;
 
-  const visible = TABS.filter((tab) => can(tab.requires));
+  const visible = TABS.filter((tab) => !tab.requires || can(tab.requires));
 
   // Land on first visible tab. <Navigate> is the declarative form;
   // imperative navigate() during render fights React's render cycle.
@@ -64,13 +88,21 @@ export default function Settings() {
     <div style={{
       display: 'flex',
       flexDirection: isMobile ? 'column' : 'row',
-      minHeight: '100%',
+      // Pin to viewport (minus the AppShell navbar) so the sidebar bg +
+      // right border extend to the bottom of the page even when the right
+      // pane has less content. `minHeight: 100%` was unreliable —
+      // AppShell's <main> has `flex: 1, overflowY: auto` and no definite
+      // height, so the percentage resolved to content-height in some
+      // browsers and stub-cut the sidebar mid-page. `--navbar-height` is
+      // declared on AppShell's root and tracks the navbar's actual height
+      // — single source of truth.
+      minHeight: 'calc(100vh - var(--navbar-height))',
       backgroundColor: t.bg,
     }}>
       {isMobile ? (
         <MobileTabs visible={visible} location={location} navigate={navigate} t={t} isDark={isDark} />
       ) : (
-        <DesktopAside visible={visible} location={location} navigate={navigate} t={t} isDark={isDark} />
+        <DesktopAside can={can} location={location} navigate={navigate} t={t} isDark={isDark} />
       )}
       <main style={{ flex: 1, minWidth: 0 }}>
         {visible.length === 0 ? (
@@ -85,7 +117,16 @@ export default function Settings() {
   );
 }
 
-function DesktopAside({ visible, location, navigate, t, isDark }) {
+function DesktopAside({ can, location, navigate, t, isDark }) {
+  // Filter each group's items by permission and drop empty groups so a
+  // viewer (no admin tabs) doesn't see a "Workspace" header with nothing
+  // beneath it. Same group order, item order within a group is preserved.
+  const visibleGroups = TAB_GROUPS
+    .map((g) => ({ ...g, items: g.items.filter((tab) => !tab.requires || can(tab.requires)) }))
+    .filter((g) => g.items.length > 0);
+
+  const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+
   return (
     <aside
       style={{
@@ -96,53 +137,56 @@ function DesktopAside({ visible, location, navigate, t, isDark }) {
         padding: '24px 12px',
       }}
     >
-      <h2
-        style={{
-          margin: '0 8px 12px',
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: 0.5,
-          textTransform: 'uppercase',
-          color: t.textMuted,
-        }}
-      >
-        Settings
-      </h2>
       {/* Same active-state model as the top navbar: color + weight only,
           bg is reserved for hover so inactive items aren't dead targets. */}
-      <nav>
-        {visible.map((tab) => {
-          const active = location.pathname.startsWith(tab.path);
-          const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
-          return (
-            <button
-              key={tab.path}
-              type="button"
-              onClick={() => navigate(tab.path)}
-              aria-current={active ? 'page' : undefined}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-              style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                padding: '8px 10px',
-                marginBottom: 2,
-                borderRadius: 6,
-                border: 'none',
-                backgroundColor: 'transparent',
-                color: active ? t.accent : t.text,
-                fontSize: 13,
-                fontWeight: active ? 700 : 550,
-                cursor: 'pointer',
-                transition: 'background-color 120ms ease',
-              }}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </nav>
+      {visibleGroups.map((group, idx) => (
+        <div key={group.label} style={{ marginTop: idx === 0 ? 0 : 16 }}>
+          <h3
+            style={{
+              margin: '0 8px 8px',
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+              color: t.textMuted,
+            }}
+          >
+            {group.label}
+          </h3>
+          <nav>
+            {group.items.map((tab) => {
+              const active = location.pathname.startsWith(tab.path);
+              return (
+                <button
+                  key={tab.path}
+                  type="button"
+                  onClick={() => navigate(tab.path)}
+                  aria-current={active ? 'page' : undefined}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '8px 10px',
+                    marginBottom: 2,
+                    borderRadius: 6,
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: active ? t.accent : t.text,
+                    fontSize: 13,
+                    fontWeight: active ? 700 : 550,
+                    cursor: 'pointer',
+                    transition: 'background-color 120ms ease',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      ))}
     </aside>
   );
 }
@@ -156,7 +200,7 @@ function MobileTabs({ visible, location, navigate, t, isDark }) {
     <div
       style={{
         position: 'sticky',
-        top: 64, // matches AppShell navbar height
+        top: 'var(--navbar-height)', // pinned just below the AppShell navbar
         zIndex: 50, // below navbar (100) and modals (1000)
         backgroundColor: t.surface,
         borderBottom: `1px solid ${t.border}`,

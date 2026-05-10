@@ -8,6 +8,7 @@ import {
   useDestructiveConfirm,
   DestructiveConfirmModal,
 } from '../../components/DestructiveConfirm';
+import { DangerSection } from '../../components/DangerSection';
 
 // Organization tab — organization-level destructive controls. Only owners
 // reach this route (Settings sub-nav filters on PERM.ORGANIZATION_DELETE
@@ -31,7 +32,6 @@ export default function Organization() {
       <RenameOrganizationSection t={t} isDark={isDark} currentName={currentName} toast={toast} refresh={refresh} />
       <DeleteOrganizationSection
         t={t}
-        isDark={isDark}
         orgName={currentName}
         toast={toast}
         onLogout={onLogout}
@@ -45,8 +45,6 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
   const [saving, setSaving] = useState(false);
   const trimmed = name.trim();
   const dirty = trimmed !== currentName && trimmed.length > 0 && trimmed.length <= 120;
-  const sectionBg = isDark ? 'rgba(255,255,255,0.03)' : '#fff';
-  const border = isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb';
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -67,11 +65,11 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
   return (
     <section
       style={{
-        border: `1px solid ${border}`,
+        border: `1px solid ${t.border}`,
         borderRadius: 8,
         padding: 16,
         marginBottom: 16,
-        backgroundColor: sectionBg,
+        backgroundColor: t.surface,
       }}
     >
       <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: t.text }}>Organization Name</h2>
@@ -87,7 +85,7 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
           style={{
             flex: 1,
             padding: '7px 10px',
-            border: `1px solid ${border}`,
+            border: `1px solid ${t.border}`,
             borderRadius: 6,
             backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#fafafa',
             color: t.text,
@@ -116,7 +114,7 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
   );
 }
 
-function DeleteOrganizationSection({ t, isDark, orgName, toast, onLogout }) {
+function DeleteOrganizationSection({ t, orgName, toast, onLogout }) {
   const ctrl = useDestructiveConfirm({
     target: orgName || '',
     mutationFn: deleteCurrentOrganization,
@@ -128,7 +126,6 @@ function DeleteOrganizationSection({ t, isDark, orgName, toast, onLogout }) {
   return (
     <DangerSection
       t={t}
-      isDark={isDark}
       title="Delete This Organization"
       blurb="Permanently deletes the entire organization and every record it owns: cloud accounts, scan history, dismissals, audit log, and member memberships. Members lose access immediately. This cannot be undone."
       buttonLabel="Delete Organization"
@@ -147,44 +144,3 @@ function DeleteOrganizationSection({ t, isDark, orgName, toast, onLogout }) {
   );
 }
 
-function DangerSection({ t, isDark, title, blurb, buttonLabel, onClick, disabled, disabledHint, children }) {
-  const dangerBorder = isDark ? 'rgba(239,68,68,0.5)' : '#fecaca';
-  const dangerTint = isDark ? 'rgba(239,68,68,0.07)' : '#fef2f2';
-  return (
-    <section
-      style={{
-        border: `1px solid ${dangerBorder}`,
-        borderRadius: 8,
-        padding: 16,
-        marginBottom: 16,
-        backgroundColor: dangerTint,
-      }}
-    >
-      <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: '#ef4444' }}>{title}</h2>
-      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>{blurb}</p>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        title={disabled ? disabledHint : undefined}
-        style={{
-          padding: '7px 14px',
-          border: 'none',
-          borderRadius: 6,
-          backgroundColor: '#ef4444',
-          color: '#fff',
-          fontWeight: 600,
-          fontSize: 13,
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          opacity: disabled ? 0.55 : 1,
-        }}
-      >
-        {buttonLabel}
-      </button>
-      {disabled && disabledHint && (
-        <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: t.textMuted }}>{disabledHint}</p>
-      )}
-      {children}
-    </section>
-  );
-}

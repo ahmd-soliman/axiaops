@@ -60,10 +60,21 @@ export const NAV_ITEMS = [
   { label: 'Overview',       path: '/',                Icon: IconOverview },
   { label: 'Trends',         path: '/trend',           Icon: IconTrend },
   { label: 'Costs',          path: '/cost',            Icon: IconCost },
-  { label: 'Cloud Accounts', path: '/cloud-accounts',  Icon: IconCloud },
-  { label: 'Settings',       path: '/settings',        Icon: IconSettings },
+  { label: 'Cloud Accounts', path: '/settings/cloud-accounts',  Icon: IconCloud },
+  { label: 'Settings',       path: '/settings',                 Icon: IconSettings },
 ];
 
-export function isNavActive(path, pathname) {
-  return path === '/' ? pathname === '/' : pathname.startsWith(path);
+// isNavActive — sibling-aware prefix match. The naive `pathname.startsWith`
+// version made BOTH "Settings" (/settings) and "Cloud Accounts"
+// (/settings/cloud-accounts) read as active on /settings/cloud-accounts
+// once Cloud Accounts moved under settings. The fix: only the longest
+// matching path among the candidates wins. Pass the full NAV_ITEMS in so
+// the helper knows what the siblings are.
+export function isNavActive(path, pathname, items = NAV_ITEMS) {
+  if (path === '/') return pathname === '/';
+  if (!pathname.startsWith(path)) return false;
+  // If a sibling has a longer prefix that also matches, that one wins.
+  return !items.some(
+    (i) => i.path !== path && i.path.startsWith(path) && pathname.startsWith(i.path),
+  );
 }

@@ -157,7 +157,7 @@ export default function Team() {
 
   return (
     <div style={{ padding: 24, color: t.textMid }}>
-      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Team</h1>
+      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Members</h1>
       <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
         Manage the people in your organization.
       </p>
@@ -179,7 +179,7 @@ export default function Team() {
           }}
         >
           <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>
-            Invite a teammate
+            Invite a member
           </h2>
           <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMuted }}>
             Generates an invitation link. Copy it and share with the user out of
@@ -212,7 +212,7 @@ export default function Team() {
             </button>
           </form>
           {addError && (
-            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#ef4444' }}>{addError}</p>
+            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: t.error }}>{addError}</p>
           )}
 
           {lastInvite && (
@@ -351,7 +351,7 @@ export default function Team() {
                         <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {inv.email}
                         </span>
-                        <span style={roleBadge(inv.role, t, isDark)}>{inv.role}</span>
+                        <span style={roleBadge(t)}>{inv.role}</span>
                       </>
                     }
                     body={
@@ -400,7 +400,7 @@ export default function Team() {
                             border: `1px solid ${t.border}`,
                             borderRadius: 4,
                             backgroundColor: 'transparent',
-                            color: '#ef4444',
+                            color: t.error,
                             fontSize: 12,
                             cursor: 'pointer',
                           }}
@@ -428,7 +428,7 @@ export default function Team() {
         {memberships.isPending ? (
           <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
         ) : memberships.isError ? (
-          <div style={{ padding: 24, color: '#ef4444' }}>Failed to load members.</div>
+          <div style={{ padding: 24, color: t.error }}>Failed to load members.</div>
         ) : isMobile ? (
           // Mobile card stack — six-column membership table doesn't reflow
           // on phones (Email + Name + Role + Joined-via + Joined + Action).
@@ -455,7 +455,7 @@ export default function Team() {
                         {m.email || '—'}
                       </span>
                       {!allowEdit && (
-                        <span style={roleBadge(m.role, t, isDark)}>{m.role}</span>
+                        <span style={roleBadge(t)}>{m.role}</span>
                       )}
                     </>
                   }
@@ -463,7 +463,7 @@ export default function Team() {
                     <>
                       {m.name && <span style={{ color: t.text }}>{m.name}</span>}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span style={provenanceBadge(m.provisioned_via, t, isDark)}>
+                        <span style={provenanceBadge(t)}>
                           {provenanceLabel(m.provisioned_via)}
                         </span>
                         <span style={{ color: t.textMuted }}>
@@ -546,11 +546,11 @@ export default function Team() {
                           ))}
                         </select>
                       ) : (
-                        <span style={roleBadge(m.role, t, isDark)}>{m.role}</span>
+                        <span style={roleBadge(t)}>{m.role}</span>
                       )}
                     </Td>
                     <Td t={t}>
-                      <span style={provenanceBadge(m.provisioned_via, t, isDark)}>
+                      <span style={provenanceBadge(t)}>
                         {provenanceLabel(m.provisioned_via)}
                       </span>
                     </Td>
@@ -686,29 +686,25 @@ function dangerButton(t) {
     border: `1px solid ${t.border}`,
     borderRadius: 6,
     backgroundColor: 'transparent',
-    color: '#ef4444',
+    color: t.error,
     fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
   };
 }
 
-function roleBadge(role, t, isDark) {
-  const palette = {
-    owner:  { fg: '#7c3aed', bg: isDark ? 'rgba(124,58,237,0.15)' : '#ede9fe' },
-    admin:  { fg: '#3b82f6', bg: isDark ? 'rgba(59,130,246,0.15)' : '#dbeafe' },
-    member: { fg: '#10b981', bg: isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5' },
-    viewer: { fg: t.textMuted, bg: t.surfaceRaised },
-  }[role] || { fg: t.textMuted, bg: t.surfaceRaised };
+function roleBadge(t) {
+  // Inline muted uppercase — same color for every role. Roles are
+  // categorical identity, not state; per-role color coding (purple owner,
+  // blue admin, etc.) was decorative. The label discriminates; sort the
+  // member list by role if hierarchy-at-a-glance matters. Weight matches
+  // provenanceBadge (600) so both metadata columns share a visual register.
   return {
-    display: 'inline-block',
-    padding: '2px 8px',
-    borderRadius: 4,
     fontSize: 11,
     fontWeight: 600,
-    color: palette.fg,
-    backgroundColor: palette.bg,
-    letterSpacing: 0.2,
+    color: t.textMid,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   };
 }
 
@@ -727,23 +723,15 @@ function provenanceLabel(via) {
   }
 }
 
-function provenanceBadge(via, t, isDark) {
-  const palette = {
-    invitation: { fg: '#10b981', bg: isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5' },
-    manual:     { fg: t.textMuted, bg: t.surfaceRaised },
-    jit:        { fg: '#3b82f6', bg: isDark ? 'rgba(59,130,246,0.15)' : '#dbeafe' },
-    scim:       { fg: '#3b82f6', bg: isDark ? 'rgba(59,130,246,0.15)' : '#dbeafe' },
-    bootstrap:  { fg: '#7c3aed', bg: isDark ? 'rgba(124,58,237,0.15)' : '#ede9fe' },
-    legacy:     { fg: t.textMuted, bg: t.surfaceRaised },
-  }[via] || { fg: t.textMuted, bg: t.surfaceRaised };
+function provenanceBadge(t) {
+  // Inline muted text — same color for every provenance. Like roleBadge,
+  // these are categorical labels (how someone joined the org), not state;
+  // the colored pill recipe was decorative. Mixed-case kept (some labels
+  // are short phrases — "Invite accepted" — and would feel shouty in caps).
   return {
-    display: 'inline-block',
-    padding: '2px 8px',
-    borderRadius: 4,
     fontSize: 11,
     fontWeight: 600,
-    color: palette.fg,
-    backgroundColor: palette.bg,
+    color: t.textMid,
     letterSpacing: 0.2,
   };
 }

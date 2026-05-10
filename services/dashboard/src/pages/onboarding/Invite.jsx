@@ -59,7 +59,7 @@ export default function OnboardingInvite() {
       }
     }
     if (succeeded > 0) {
-      toast(`Invitations sent to ${succeeded} teammate${succeeded === 1 ? '' : 's'}.`, 'success');
+      toast(`Invitations sent to ${succeeded} member${succeeded === 1 ? '' : 's'}.`, 'success');
     }
     setSending(false);
     navigate('/onboarding/aws-account', { replace: true });
@@ -72,10 +72,10 @@ export default function OnboardingInvite() {
   return (
     <div>
       <h1 style={{ color: t.text, fontSize: 26, fontWeight: 700, margin: 0, marginBottom: 8 }}>
-        Invite your teammates
+        Invite your members
       </h1>
       <p style={{ color: t.textMid, fontSize: 14, marginTop: 0, marginBottom: 24 }}>
-        Send email invitations now, or skip and do it later from Settings → Team.
+        Send email invitations now, or skip and do it later from Settings → Members.
       </p>
 
       {rows.map((row, i) => (
@@ -84,7 +84,7 @@ export default function OnboardingInvite() {
             type="email"
             value={row.email}
             onChange={(e) => updateRow(i, { email: e.target.value })}
-            placeholder="teammate@example.com"
+            placeholder="name@example.com"
             style={{
               flex: 2,
               padding: '8px 10px',
