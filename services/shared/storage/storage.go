@@ -349,6 +349,14 @@ type Store interface {
 	// the invite-by-email flow. Returns ErrUserNotFound when no match.
 	GetUserByEmail(ctx context.Context, email string) (model.User, error)
 
+	// GetUserByID looks up a user by their internal UUID. Org-agnostic — the
+	// users table is global (a user with cross-org memberships has one row;
+	// users.organization_id tracks the *primary* org and is not used to scope
+	// this lookup). Returns ErrUserNotFound when no match. Used by /v1/me to
+	// surface the caller's display name regardless of which org they're
+	// currently bound to.
+	GetUserByID(ctx context.Context, id string) (model.User, error)
+
 	// ── Pending invitations (see docs/invitation-flow.md) ────────────────────
 
 	// CreatePendingInvitation inserts a pending_memberships row, or upserts an
