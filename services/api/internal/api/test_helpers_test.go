@@ -893,6 +893,17 @@ func (m *MockStore) GetUserByEmail(_ context.Context, email string) (model.User,
 	return model.User{}, storage.ErrUserNotFound
 }
 
+func (m *MockStore) GetUserByID(_ context.Context, id string) (model.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id {
+			return u, nil
+		}
+	}
+	return model.User{}, storage.ErrUserNotFound
+}
+
 func (m *MockStore) DeleteUser(_ context.Context, userID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

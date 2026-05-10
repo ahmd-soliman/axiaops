@@ -18,6 +18,12 @@ type meResponse struct {
 	UserID         string                `json:"user_id"`
 	OrganizationID string                `json:"organization_id"`
 	Email          string                `json:"email"`
+	// Name is the user's display name as stored in users.name. Always
+	// present in the response (empty string when unset). Surfaces on the
+	// dashboard's Profile page; the same value drives invitation emails
+	// and audit log entries via separate API paths. Editable form is
+	// tracked under issue #78 (PATCH /v1/users/me).
+	Name           string                `json:"name"`
 	Role           string                `json:"role"`
 	Permissions    []string              `json:"permissions"`
 	Organization   *organizationResponse `json:"organization,omitempty"`
@@ -86,6 +92,19 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		Permissions:    permStrs,
 		AuthProvider:   auth.AuthProviderTier(authMode),
 		AuthMode:       authMode,
+	}
+
+	// Display name — best-effort. Fetch the user row by id (org-agnostic
+	// so cross-org members work the same from any org context). Failures
+	// degrade to an empty Name rather than 500ing /v1/me — the dashboard
+	// renders "—" in that case and the rest of the page still works.
+	if uid != "" {
+		if u, err := h.store.GetUserByID(ctx, uid); err == nil {
+			resp.Name = u.Name
+		} else {
+			slog.Warn("me: get user by id failed; serving empty name",
+				"user_id", uid, "error", err)
+		}
 	}
 
 	// Organization block — best-effort. A pure read keyed on the
