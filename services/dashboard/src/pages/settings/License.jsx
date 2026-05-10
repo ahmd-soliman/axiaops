@@ -203,6 +203,10 @@ function ClaimRow({ t, k, v, mono }) {
 }
 
 function Chip({ tone, label, t }) {
+  // Filled pill — primary affirmation for the License page state. Different
+  // design context from list-row status chips (which are stripped to inline
+  // text): this one sits at the top of a focused page, paired with a single
+  // headline, so the heavier visual treatment earns its space.
   const palette = paletteFor(tone, t);
   return (
     <span
