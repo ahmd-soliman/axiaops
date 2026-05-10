@@ -10,12 +10,13 @@ const ICONS = {
   warning: '⚠',
 };
 
-// Light mode: saturated bg + white text (loud, classic notification look).
-// Dark mode: surfaceRaised bg + colored border + colored text — keeps the
-// toast cohesive with the dark UI ladder instead of slapping a saturated
-// patch over it. theme.success/error/warning shift hues per mode (darker
-// for AA-on-white in light, lighter for legibility on dark surfaces) so
-// each branch picks the correct shade for its background context.
+// Light mode: saturated bg + white text (loud, classic notification look),
+// no border — same-as-bg outline was decorative and read as a 1px lip.
+// Dark mode: surfaceRaised bg + colored border + colored text so the toast
+// reads against the dark UI ladder instead of slapping a saturated patch
+// over it; the border carries the semantic colour. theme.success/error/
+// warning shift hues per mode (darker for AA-on-white in light, lighter
+// for legibility on dark surfaces) so each branch picks the right shade.
 function toastPalette(type, theme, isDark) {
   const color = ({
     success: theme.success,
@@ -28,7 +29,7 @@ function toastPalette(type, theme, isDark) {
   if (isDark) {
     return { bg: theme.surfaceRaised, border: color, fg: color };
   }
-  return { bg: color, border: color, fg: theme.textOnDark };
+  return { bg: color, border: null, fg: theme.textOnDark };
 }
 
 function ToastItem({ toast, onDismiss }) {
@@ -41,7 +42,7 @@ function ToastItem({ toast, onDismiss }) {
       onClick={() => onDismiss(toast.id)}
       style={{
         backgroundColor: c.bg,
-        border: `1px solid ${c.border}`,
+        border: c.border ? `1px solid ${c.border}` : 'none',
         color: c.fg,
         padding: '11px 16px',
         borderRadius: 10,
