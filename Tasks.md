@@ -1,6 +1,6 @@
 # AxiaOps — Task Tracker
 
-_Single source of truth for project work. Last updated: 2026-04-26._
+_Single source of truth for project work. Last updated: 2026-05-10._
 
 > User-story tracking (GitLab issues) lives in `docs/USER_STORIES_STATUS.md`
 > and the two scripts in `scripts/`. This file is the engineering view —
@@ -68,6 +68,7 @@ _Single source of truth for project work. Last updated: 2026-04-26._
 | Remove CE anomaly-monitor "ghost" detection | `DiscoverIdleCEAnomalyMonitors`, its call site, test, constant, and IAM policy lines (`ce:GetAnomalyMonitors`, `ce:GetAnomalies`) all removed. AWS Cost Anomaly Detection is free — the `$3/mo` pricing claim was fabricated. |
 | Tier 1 detections (API-only) | EBS unattached + orphaned snapshots, long-stopped EC2, old AMIs, unattached EIPs |
 | Tier 2 detections (CloudWatch + API) | ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, EKS, Secrets Manager, CloudFront, Kinesis, S3, RDS snapshots, ECR, log groups |
+| User-friendly error pages | Reusable `components/ErrorPage.jsx` (logo, code label, human-language heading, primary/secondary actions, optional support ref; `embedded` prop drops the logo header when rendered inside AppShell). Route pages: 404 (`pages/NotFound.jsx`, embedded inside AppShell), 500 (`pages/ServerError.jsx`), 503 (`pages/ServiceUnavailable.jsx`). Top-level `AppErrorBoundary` in `App.jsx` catches uncaught render errors → renders 500 fallback. Static `services/dashboard/public/maintenance.html` lives outside the SPA bundle for true 503 when the SPA itself is unreachable (nginx `error_page` wiring is a follow-up infra change). 403 page deliberately omitted — cross-org access already resolves to 404 via RLS, role gates surface inline, SSO-required lockout has its own callout. |
 
 ### 🔲 Remaining
 
