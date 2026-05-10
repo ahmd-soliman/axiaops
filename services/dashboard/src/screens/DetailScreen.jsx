@@ -419,7 +419,6 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
                 width: '100%',
                 boxSizing: 'border-box',
                 resize: 'vertical',
-                outline: 'none',
               }}
             />
           )}
