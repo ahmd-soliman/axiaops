@@ -103,7 +103,7 @@ export default function CloudAccounts() {
               return (
                 <CardRow
                   key={a.id}
-                  onClick={() => navigate(`/cloud-accounts/${a.id}`)}
+                  onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
                   header={
                     <>
                       <span style={{ fontSize: 14, fontWeight: 700, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
@@ -149,7 +149,7 @@ export default function CloudAccounts() {
                       )}
                       <button
                         type="button"
-                        onClick={() => navigate(`/cloud-accounts/${a.id}`)}
+                        onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
                         aria-label="Manage account"
                         style={{ ...ghostButton(t), flex: 1, minHeight: 40 }}
                       >
@@ -178,7 +178,7 @@ export default function CloudAccounts() {
                 <tr
                   key={a.id}
                   style={{ borderBottom: `1px solid ${t.border}`, cursor: 'pointer' }}
-                  onClick={() => navigate(`/cloud-accounts/${a.id}`)}
+                  onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
                 >
                   <Td t={t}><span style={{ color: t.text, fontWeight: 600 }}>{a.label || '—'}</span></Td>
                   <Td t={t} mono>{a.account_id || '—'}</Td>
@@ -199,7 +199,7 @@ export default function CloudAccounts() {
                       )}
                       <button
                         type="button"
-                        onClick={() => navigate(`/cloud-accounts/${a.id}`)}
+                        onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
                         aria-label="Manage account"
                         title="Manage"
                         style={ghostButton(t)}
