@@ -41,9 +41,19 @@ export const FORBIDDEN_EVENT = 'axiaops:forbidden';
 // can re-authenticate instead of staring at a stuck UI.
 export const UNAUTHORIZED_EVENT = 'axiaops:unauthorized';
 
-// notifyForbidden / notifyUnauthorized are decoupled from React deliberately —
-// keeping client.js as a plain JS module avoids importing React into the data
-// layer. Listeners register on window in MeContext / App.
+// SERVICE_UNAVAILABLE_EVENT fires when a request returns 503 — i.e. the
+// API is reachable but degraded (load balancer 503, app boot, planned
+// maintenance window). App.jsx listens and bounces to /service-unavailable
+// so the user gets a friendly "we'll be back shortly" page instead of
+// a half-loaded UI peppered with red error banners. Distinct from the
+// static public/maintenance.html, which the edge proxy serves when the
+// SPA bundle itself can't be fetched.
+export const SERVICE_UNAVAILABLE_EVENT = 'axiaops:service-unavailable';
+
+// notifyForbidden / notifyUnauthorized / notifyServiceUnavailable are
+// decoupled from React deliberately — keeping client.js as a plain JS
+// module avoids importing React into the data layer. Listeners register
+// on window in MeContext / App.
 function notifyForbidden(detail) {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(FORBIDDEN_EVENT, { detail }));
@@ -53,6 +63,12 @@ function notifyForbidden(detail) {
 function notifyUnauthorized(detail) {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT, { detail }));
+  }
+}
+
+function notifyServiceUnavailable(detail) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(SERVICE_UNAVAILABLE_EVENT, { detail }));
   }
 }
 
@@ -74,6 +90,7 @@ async function ifetch(url, opts) {
   // MeContext refresh on remount), and the resulting tight loop is what
   // Chrome's navigation throttle catches.
   if (res.status === 401 && !url.endsWith('/v1/me')) notifyUnauthorized({ path: url });
+  if (res.status === 503) notifyServiceUnavailable({ path: url });
   // 403s split into two categories:
   //   • Capability/role 403 (membership removed, role demoted) — fire
   //     FORBIDDEN_EVENT so MeContext re-fetches /v1/me and the UI re-gates.

@@ -9,24 +9,33 @@ const ICONS = {
   warning: '⚠',
 };
 
-const COLORS = {
-  success: { bg: '#059669', border: '#047857' },
-  error:   { bg: '#DC2626', border: '#B91C1C' },
-  info:    { bg: '#2563EB', border: '#1D4ED8' },
-  warning: { bg: '#D97706', border: '#B45309' },
+// Toasts use a fixed dark-saturated palette in both modes — they are
+// notification flags, not surface colours. Pulling bg from theme.success/
+// error/warning failed AA contrast in dark mode (those tokens are tuned
+// as *colored text* on dark surfaces, so emerald-400 / red-400 / yellow-
+// 400 leave white toast text at <3:1, sometimes <2:1).
+//
+// Each shade below clears AA (≥ 4.5:1) against white text; visually still
+// reads as the same green / red / amber / blue notification register.
+const TOAST_BG = {
+  success: '#047857', // emerald-700, 5.56:1 on white
+  error:   '#B91C1C', // red-700,     6.41:1 on white
+  warning: '#92400E', // amber-800,   6.18:1 on white
+  info:    '#1D4ED8', // blue-700,    7.01:1 on white
 };
 
 function ToastItem({ toast, onDismiss }) {
-  const c = COLORS[toast.type] || COLORS.info;
+  const bg = TOAST_BG[toast.type] || TOAST_BG.info;
+  const fg = '#FFFFFF';
   return (
     <div
       role="alert"
       aria-live="polite"
       onClick={() => onDismiss(toast.id)}
       style={{
-        backgroundColor: c.bg,
-        border: `1px solid ${c.border}`,
-        color: '#ffffff',
+        backgroundColor: bg,
+        border: 'none',
+        color: fg,
         padding: '11px 16px',
         borderRadius: 10,
         display: 'flex',

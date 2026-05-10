@@ -74,15 +74,15 @@ function CLICommand({ cmd, theme }) {
   }
 
   return (
-    <div style={{ marginTop: 10, borderRadius: 10, overflow: 'hidden', border: '1px solid #334155' }}>
-      <div style={{ backgroundColor: '#0f172a', padding: '12px 14px', position: 'relative' }}>
-        <code style={{ fontFamily: '"Geist Mono Variable", monospace', fontSize: 12, color: '#e2e8f0', lineHeight: '20px', display: 'block', paddingRight: 36, wordBreak: 'break-all' }}>
+    <div style={{ marginTop: 10, borderRadius: 10, overflow: 'hidden', border: `1px solid ${theme.border}` }}>
+      <div style={{ backgroundColor: theme.bgSecondary, padding: '12px 14px', position: 'relative' }}>
+        <code style={{ fontFamily: '"Geist Mono Variable", monospace', fontSize: 12, color: theme.text, lineHeight: '20px', display: 'block', paddingRight: 36, wordBreak: 'break-all' }}>
           {cmd}
         </code>
         <button
           onClick={handleCopy}
           aria-label={copied ? 'Copied!' : 'Copy command'}
-          style={{ position: 'absolute', top: 10, right: 10, padding: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: copied ? '#34d399' : '#94a3b8' }}
+          style={{ position: 'absolute', top: 10, right: 10, padding: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: copied ? theme.success : theme.textMuted }}
         >
           {copied ? '✓' : '⧉'}
         </button>
@@ -140,7 +140,7 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
       setModalVisible(false);
       toast(
         modalAction === 'snooze' ? `Resource snoozed for ${snoozeDays} day${snoozeDays !== 1 ? 's' : ''}` : 'Resource dismissed',
-        'success',
+        modalAction === 'snooze' ? 'info' : 'success',
       );
       if (onDismissed) onDismissed();
       onBack();
@@ -204,19 +204,22 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
             </div>
 
             {zombie.is_zombie && !isDismissed && !isSnoozed && (
-              <div style={{ padding: '3px 8px', borderRadius: 6, backgroundColor: t.zombieBadgeBg, border: `1px solid ${t.error}33` }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: t.zombieBadgeText, textTransform: 'uppercase', letterSpacing: 0.3 }}>zombie</span>
-              </div>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: t.zombieBadgeText }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: t.zombieBadgeText }}>zombie</span>
+              </span>
             )}
             {isDismissed && (
-              <div style={{ padding: '3px 8px', borderRadius: 6, backgroundColor: isDark ? '#374151' : '#F3F4F6', border: `1px solid ${t.border}` }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' }}>dismissed</span>
-              </div>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#9CA3AF' }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#9CA3AF' }}>dismissed</span>
+              </span>
             )}
             {isSnoozed && (
-              <div style={{ padding: '3px 8px', borderRadius: 6, backgroundColor: isDark ? '#1e3a5f' : '#DBEAFE', border: '1px solid #3b82f633' }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase' }}>snoozed</span>
-              </div>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#2563EB' }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#2563EB' }}>snoozed</span>
+              </span>
             )}
           </div>
 
@@ -419,7 +422,6 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
                 width: '100%',
                 boxSizing: 'border-box',
                 resize: 'vertical',
-                outline: 'none',
               }}
             />
           )}
@@ -461,8 +463,8 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
               style={{ flex: 1, padding: '13px', borderRadius: 10, backgroundColor: t.accent, border: 'none', cursor: 'pointer', opacity: submitting ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               {submitting
-                ? <Spinner size={20} color="#fff" />
-                : <span style={{ color: '#fff', fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss' : 'Snooze'}</span>
+                ? <Spinner size={20} color={t.textOnDark} />
+                : <span style={{ color: t.textOnDark, fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss' : 'Snooze'}</span>
               }
             </button>
           </div>

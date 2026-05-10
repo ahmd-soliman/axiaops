@@ -1,10 +1,10 @@
 import { useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAccounts } from '../api/client';
-import DashboardScreen from '../screens/DashboardScreen';
+import OverviewScreen from '../screens/OverviewScreen';
 import WhatsNextPanel from '../components/onboarding/WhatsNextPanel';
 
-export default function Dashboard() {
+export default function Overview() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const selectedAccount = params.get('account');
@@ -17,7 +17,7 @@ export default function Dashboard() {
   return (
     <>
       <WhatsNextPanel />
-      <DashboardScreen
+      <OverviewScreen
         accounts={accounts.data ?? []}
         selectedAccount={selectedAccount}
         onSelectAccount={(id) => id ? setParams({ account: id }) : setParams({})}
