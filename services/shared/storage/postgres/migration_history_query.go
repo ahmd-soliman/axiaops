@@ -19,7 +19,12 @@ type DriftRow struct {
 	ObservedSHA string
 }
 
-// HistoryRow mirrors axiaops.migration_history_v for CLI rendering.
+// HistoryRow mirrors axiaops.migration_history for CLI rendering.
+//
+// FileSHAShort is computed Go-side as the first 8 chars of FileSHA — the
+// pre-rename design used a SQL view to expose this column, but the view
+// did nothing else (no joins, no WHERE) so it was dropped. See migrate.go's
+// migrationHistoryDDL comment.
 type HistoryRow struct {
 	ID             int64
 	Version        int64
@@ -33,7 +38,7 @@ type HistoryRow struct {
 	AppliedByImage sql.NullString
 	AppliedByActor sql.NullString
 	DirtyAfter     sql.NullBool
-	FileSHAShort   string
+	FileSHAShort   string // computed Go-side from FileSHA, or "-" when FileSHA is NULL
 	FileSHA        sql.NullString
 }
 
@@ -62,11 +67,9 @@ func QueryDrift(ctx context.Context, migrationURL string) ([]DriftRow, error) {
 			return nil, err
 		}
 		var expected sql.NullString
-		// Read via migration_history_v so the CLI is decoupled from the
-		// base table's exact column layout — design §Drift query.
 		err = db.QueryRowContext(ctx, `
 			SELECT file_sha256
-			FROM axiaops.migration_history_v
+			FROM axiaops.migration_history
 			WHERE version = $1
 			  AND direction = 'up'
 			  AND status = 'succeeded'
@@ -91,9 +94,9 @@ func QueryDrift(ctx context.Context, migrationURL string) ([]DriftRow, error) {
 	return drifts, nil
 }
 
-// QueryHistory returns rows of axiaops.migration_history_v ordered by
+// QueryHistory returns rows of axiaops.migration_history ordered by
 // (started_at, id) ASC. Pass a non-nil filterVersion to constrain to a single
-// version.
+// version. file_sha256_short is computed Go-side per HistoryRow.FileSHAShort.
 func QueryHistory(ctx context.Context, migrationURL string, filterVersion *int64) ([]HistoryRow, error) {
 	db, err := sql.Open("postgres", migrationURL)
 	if err != nil {
@@ -104,8 +107,8 @@ func QueryHistory(ctx context.Context, migrationURL string, filterVersion *int64
 	const baseSelect = `
 		SELECT id, version, name, direction, status, started_at, finished_at,
 		       duration_ms, error_message, applied_by_image, applied_by_actor,
-		       schema_migrations_dirty_after, file_sha256_short, file_sha256
-		FROM axiaops.migration_history_v
+		       migration_state_dirty_after, file_sha256
+		FROM axiaops.migration_history
 	`
 	var (
 		rows *sql.Rows
@@ -126,16 +129,17 @@ func QueryHistory(ctx context.Context, migrationURL string, filterVersion *int64
 	var out []HistoryRow
 	for rows.Next() {
 		var r HistoryRow
-		var shaShort sql.NullString
 		if err := rows.Scan(
 			&r.ID, &r.Version, &r.Name, &r.Direction, &r.Status, &r.StartedAt,
 			&r.FinishedAt, &r.DurationMS, &r.ErrorMessage, &r.AppliedByImage,
-			&r.AppliedByActor, &r.DirtyAfter, &shaShort, &r.FileSHA,
+			&r.AppliedByActor, &r.DirtyAfter, &r.FileSHA,
 		); err != nil {
 			return nil, fmt.Errorf("query history: scan: %w", err)
 		}
-		if shaShort.Valid {
-			r.FileSHAShort = shaShort.String
+		// Compute the 8-char short hash Go-side. Replaces the dropped view's
+		// `LEFT(file_sha256, 8) AS file_sha256_short` column.
+		if r.FileSHA.Valid && len(r.FileSHA.String) >= 8 {
+			r.FileSHAShort = r.FileSHA.String[:8]
 		} else {
 			r.FileSHAShort = "-"
 		}
