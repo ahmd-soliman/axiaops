@@ -363,10 +363,9 @@ type TickerOptions struct {
 //     sessions where expires_at OR revoked_at is older than 7 days.
 //   - SSO sweep (24h): marks expired verified sso_domains as stale.
 //
-// All tickers run on context.Background() — they're observability/cleanup,
-// not in-flight request work, so process termination doesn't risk
-// corruption. ctx is captured for cancellation only when the composition
-// root explicitly cancels (e.g. tests).
+// ctx is the cancellation source for every ticker — production wires
+// the signal context so SIGTERM/SIGINT shuts them down with the HTTP
+// server; tests pass a cancellable context to stop after assertions.
 //
 // Composition roots call this AFTER ComposeServer and BEFORE
 // http.Server.ListenAndServe.
