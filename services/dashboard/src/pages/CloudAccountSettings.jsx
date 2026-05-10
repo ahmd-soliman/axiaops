@@ -27,7 +27,7 @@ export default function CloudAccountSettings() {
   }
 
   if (!account) {
-    navigate('/', { replace: true });
+    navigate('/settings/cloud-accounts', { replace: true });
     return null;
   }
 
@@ -37,11 +37,11 @@ export default function CloudAccountSettings() {
       onBack={() => navigate(-1)}
       onAccountUpdated={() => {
         queryClient.invalidateQueries({ queryKey: ['accounts'] });
-        navigate('/', { replace: true });
+        navigate('/settings/cloud-accounts', { replace: true });
       }}
       onAccountDeleted={() => {
         queryClient.invalidateQueries({ queryKey: ['accounts'] });
-        navigate('/', { replace: true });
+        navigate('/settings/cloud-accounts', { replace: true });
       }}
     />
   );

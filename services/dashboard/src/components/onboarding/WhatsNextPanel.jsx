@@ -80,7 +80,7 @@ export default function WhatsNextPanel() {
       key: 'scan',
       label: 'Run your first scan',
       done: accountsArr.some((a) => a.last_scanned_at),
-      onClick: () => navigate('/cloud-accounts'),
+      onClick: () => navigate('/settings/cloud-accounts'),
       show: true,
     },
   ].filter((tile) => tile.show);
