@@ -485,7 +485,10 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
         transition: 'border-color 0.15s',
       }}
     >
-      {/* Checkbox column */}
+      {/* Checkbox column — div onClick widens the tap target to the whole
+          padded column. The input's own click must stopPropagation so it
+          doesn't bubble back into the div and double-toggle (input onChange
+          fires first, then div onClick on bubble → net zero change). */}
       <div
         style={{ padding: '16px 0 16px 12px', display: 'flex', alignItems: 'flex-start', flexShrink: 0 }}
         onClick={e => { e.stopPropagation(); onToggleSelect(item.resource_id); }}
@@ -494,6 +497,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
           type="checkbox"
           checked={isSelected}
           onChange={() => onToggleSelect(item.resource_id)}
+          onClick={e => e.stopPropagation()}
           aria-label={`Select ${item.resource_id}`}
           style={{ width: 16, height: 16, cursor: 'pointer', accentColor: theme.accent, marginTop: 1 }}
         />
