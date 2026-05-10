@@ -17,7 +17,7 @@ import {
 // organization, transfer ownership) live under /settings/organization —
 // they're org admin, not personal.
 export default function Profile() {
-  const { theme: t, isDark } = useTheme();
+  const { theme: t } = useTheme();
   const { me, can } = useMe();
   const { orgName, onLogout } = useApp();
   const { toast } = useToast();
@@ -39,7 +39,6 @@ export default function Profile() {
 
       <DeleteUserSection
         t={t}
-        isDark={isDark}
         email={me?.email}
         toast={toast}
         onLogout={onLogout}
@@ -80,7 +79,7 @@ function ExportSection({ t, toast }) {
   );
 }
 
-function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
+function DeleteUserSection({ t, email, toast, onLogout }) {
   const ctrl = useDestructiveConfirm({
     target: email || '',
     mutationFn: deleteCurrentUser,
@@ -95,7 +94,6 @@ function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
   return (
     <DangerSection
       t={t}
-      isDark={isDark}
       title="Delete My Account"
       blurb="Permanently deletes your AxiaOps user. Your audit-log entries are anonymised across your organizations. This cannot be undone."
       buttonLabel="Delete My Account"
@@ -131,27 +129,30 @@ function Section({ t, title, children }) {
   );
 }
 
-function DangerSection({ t, isDark, title, blurb, buttonLabel, onClick, disabled, disabledHint, children }) {
-  const dangerBorder = isDark ? 'rgba(239,68,68,0.5)' : '#fecaca';
-  const dangerTint = isDark ? 'rgba(239,68,68,0.07)' : '#fef2f2';
+function DangerSection({ t, title, blurb, buttonLabel, onClick, disabled, disabledHint, children }) {
+  // Neutral card surface (t.border / t.surface) — same recipe as the benign
+  // Section helper above and as Organization.jsx's DangerSection. Red title +
+  // red button are the only chromatic cues. Pattern precedent: GitLab/Linear/
+  // Vercel settings pages. Keep this in lockstep with Organization.jsx;
+  // extract to a shared component if a third caller appears.
   return (
     <section
       style={{
-        border: `1px solid ${dangerBorder}`,
+        border: `1px solid ${t.border}`,
         borderRadius: 8,
         padding: 16,
         marginBottom: 16,
-        backgroundColor: dangerTint,
+        backgroundColor: t.surface,
       }}
     >
-      <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: '#ef4444' }}>{title}</h2>
+      <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: t.error }}>{title}</h2>
       <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>{blurb}</p>
       <button
         type="button"
         onClick={onClick}
         disabled={disabled}
         title={disabled ? disabledHint : undefined}
-        style={dangerBtn(disabled)}
+        style={dangerBtn(t, disabled)}
       >
         {buttonLabel}
       </button>
@@ -194,12 +195,12 @@ function primaryButton(t, disabled) {
   };
 }
 
-function dangerBtn(disabled) {
+function dangerBtn(t, disabled) {
   return {
     padding: '7px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: '#ef4444',
+    backgroundColor: t.error,
     color: '#fff',
     fontWeight: 600,
     fontSize: 13,

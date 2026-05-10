@@ -218,6 +218,13 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                   </>
                 )}
               </button>
+              {/* Secondary destructive — ghost button next to the primary
+                  Scan Now CTA. Earlier revision tinted bg + border with the
+                  error tone; we now reserve color for the text only, so the
+                  hierarchy reads as filled-primary + outlined-ghost-destructive.
+                  Same minimal language as the row-action delete buttons in
+                  Team.jsx / SSO Connections. The destructive cue is the red
+                  text + the type-to-confirm modal that follows the click. */}
               <button
                 onClick={() => setShowDeleteConfirm(true)}
                 disabled={deleting}
@@ -225,8 +232,8 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                 style={{
                   padding: '11px 16px',
                   borderRadius: 8,
-                  backgroundColor: `${t.error}18`,
-                  border: `1px solid ${t.error}40`,
+                  backgroundColor: 'transparent',
+                  border: `1px solid ${t.border}`,
                   cursor: deleting ? 'not-allowed' : 'pointer',
                   opacity: deleting ? 0.6 : 1,
                   display: 'flex',
