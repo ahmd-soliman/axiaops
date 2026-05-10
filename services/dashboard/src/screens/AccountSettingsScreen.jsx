@@ -34,17 +34,19 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint,
 }
 
 function StatusBadge({ status, theme }) {
+  // Inline dot + label — no pill chrome. The colored dot is the at-a-glance
+  // indicator; the headline beside it carries the operational message.
   const config = {
-    connected:            { color: theme.success, label: 'Connected',  bg: `${theme.success}18` },
-    error:                { color: theme.error,   label: 'Disconnected', bg: `${theme.error}18` },
-    scan_timeout:         { color: theme.warning, label: 'Timed Out',  bg: `${theme.warning}18` },
-    circuit_breaker_open: { color: theme.warning, label: 'Paused',     bg: `${theme.warning}18` },
-    scanning:             { color: theme.accent,  label: 'Scanning…',  bg: `${theme.accent}18` },
+    connected:            { color: theme.success, label: 'Connected' },
+    error:                { color: theme.error,   label: 'Disconnected' },
+    scan_timeout:         { color: theme.warning, label: 'Timed Out' },
+    circuit_breaker_open: { color: theme.warning, label: 'Paused' },
+    scanning:             { color: theme.accent,  label: 'Scanning…' },
   };
-  const c = config[status] ?? { color: theme.textMuted, label: 'Unknown', bg: theme.surfaceRaised };
+  const c = config[status] ?? { color: theme.textMuted, label: 'Unknown' };
 
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 12px', borderRadius: 8, backgroundColor: c.bg, border: `1px solid ${c.color}33` }}>
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
       <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: c.color, flexShrink: 0 }} />
       <span style={{ fontSize: 13, fontWeight: 700, color: c.color }}>{c.label}</span>
     </div>
@@ -327,7 +329,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
           onClick={e => e.stopPropagation()}
           style={{ backgroundColor: t.surface, borderRadius: 16, padding: 24, maxWidth: 400, width: '90vw', boxShadow: '0 16px 40px rgba(0,0,0,0.3)' }}
         >
-          <span style={{ fontSize: 18, fontWeight: 800, color: t.text, display: 'block', marginBottom: 10 }}>
+          <span style={{ fontSize: 18, fontWeight: 800, color: t.error, display: 'block', marginBottom: 10 }}>
             Delete Account
           </span>
           <span style={{ fontSize: 14, color: t.textMid, lineHeight: '21px', display: 'block', marginBottom: 24 }}>
