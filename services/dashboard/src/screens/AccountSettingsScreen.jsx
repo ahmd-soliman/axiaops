@@ -4,7 +4,8 @@ import { updateAccount, deleteAccount, scanAccount } from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
-import { Spinner, Overlay } from '../components/primitives';
+import { Spinner } from '../components/primitives';
+import { useDestructiveConfirm, DestructiveConfirmModal } from '../components/DestructiveConfirm';
 
 function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, theme }) {
   return (
@@ -79,10 +80,20 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   const [region, setRegion]           = useState(account?.region ?? 'eu-central-1');
   const [scanIntervalHours, setScanIntervalHours] = useState(account?.scan_interval_hours?.toString() ?? '24');
   const [loading, setLoading]         = useState(false);
-  const [deleting, setDeleting]       = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError]             = useState('');
   const scanning = account?.status === 'scanning';
+  const accountName = account ? (account.label || account.access_key_id.slice(0, 8) + '…') : '';
+
+  // Type-to-confirm delete flow — same UX as Profile / Organization
+  // destructive flows. The user must type the account name before the
+  // Delete button enables.
+  const deleteCtrl = useDestructiveConfirm({
+    target: accountName,
+    mutationFn: () => deleteAccount(account.id),
+    successMessage: 'Account deleted.',
+    onSuccess: () => onAccountDeleted(account.id),
+    toast,
+  });
 
   async function handleSave() {
     if (!accessKeyId.trim()) { setError('Access Key ID is required.'); return; }
@@ -146,21 +157,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
 
   const handleScan = () => scanMutation.mutate(account.id);
 
-  async function confirmDelete() {
-    setShowDeleteConfirm(false);
-    setDeleting(true);
-    try {
-      await deleteAccount(account.id);
-      toast('Account deleted', 'success');
-      onAccountDeleted(account.id);
-    } catch {
-      toast('Failed to delete account. Please try again.', 'error');
-      setDeleting(false);
-    }
-  }
-
   const t = theme;
-  const accountName = account.label || account.access_key_id.slice(0, 8) + '…';
 
   return (
     <div style={{ minHeight: '100%', backgroundColor: t.bg }}>
@@ -244,23 +241,23 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                   Organization.jsx) so destructive primaries look the same
                   across the app. Type-to-confirm modal still gates the action. */}
               <button
-                onClick={() => setShowDeleteConfirm(true)}
-                disabled={deleting}
+                onClick={deleteCtrl.openModal}
+                disabled={deleteCtrl.isPending}
                 aria-label="Delete account"
                 style={{
                   padding: '11px 16px',
                   borderRadius: 8,
                   backgroundColor: t.error,
                   border: 'none',
-                  cursor: deleting ? 'not-allowed' : 'pointer',
-                  opacity: deleting ? 0.6 : 1,
+                  cursor: deleteCtrl.isPending ? 'not-allowed' : 'pointer',
+                  opacity: deleteCtrl.isPending ? 0.6 : 1,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 6,
                 }}
               >
-                {deleting ? <Spinner size={16} color="#fff" /> : (
+                {deleteCtrl.isPending ? <Spinner size={16} color="#fff" /> : (
                   <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>Delete</span>
                 )}
               </button>
@@ -320,37 +317,13 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
         </div>
       </div>
 
-      {/* Delete confirmation modal */}
-      <Overlay visible={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}>
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Confirm account deletion"
-          onClick={e => e.stopPropagation()}
-          style={{ backgroundColor: t.surface, borderRadius: 16, padding: 24, maxWidth: 400, width: '90vw', boxShadow: '0 16px 40px rgba(0,0,0,0.3)' }}
-        >
-          <span style={{ fontSize: 18, fontWeight: 800, color: t.error, display: 'block', marginBottom: 10 }}>
-            Delete Account
-          </span>
-          <span style={{ fontSize: 14, color: t.textMid, lineHeight: '21px', display: 'block', marginBottom: 24 }}>
-            Are you sure you want to delete <strong>"{accountName}"</strong>? All scan history and resource data for this account will be permanently removed.
-          </span>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              onClick={() => setShowDeleteConfirm(false)}
-              style={{ flex: 1, padding: '12px', borderRadius: 10, border: `1px solid ${t.border}`, backgroundColor: t.surfaceRaised, cursor: 'pointer' }}
-            >
-              <span style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>Cancel</span>
-            </button>
-            <button
-              onClick={confirmDelete}
-              style={{ flex: 1, padding: '12px', borderRadius: 10, backgroundColor: t.error, border: 'none', cursor: 'pointer' }}
-            >
-              <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>Delete</span>
-            </button>
-          </div>
-        </div>
-      </Overlay>
+      <DestructiveConfirmModal
+        ctrl={deleteCtrl}
+        title="Delete Account?"
+        warning={`This permanently deletes the cloud account "${accountName}", all its scan history, and every resource record tied to it. Cannot be undone.`}
+        targetLabel="account name"
+        confirmLabel="Delete Account"
+      />
     </div>
   );
 }
