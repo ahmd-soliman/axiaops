@@ -7,6 +7,11 @@ package model
 import "time"
 
 // DismissAction is a single dismiss-or-snooze record stored in dismissed_zombies.
+//
+// MonthlyCost / Currency are last-known cost from the most recent zombie_records
+// row that matches this dismissal's fingerprint. nil when the underlying resource
+// has been deleted upstream and no longer appears in any scan (orphaned dismissal).
+// Source: LEFT JOIN against zombie_records in ListActiveDismissals.
 type DismissAction struct {
 	ID           int64      `json:"id"`
 	AccountID    string     `json:"account_id"` // internal account UUID
@@ -22,6 +27,8 @@ type DismissAction struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
 	RevokedBy    string     `json:"revoked_by,omitempty"`
+	MonthlyCost  *float64   `json:"monthly_cost,omitempty"`
+	Currency     string     `json:"currency,omitempty"`
 }
 
 // Valid action values.
