@@ -109,7 +109,7 @@ export default function CloudAccounts() {
                       <span style={{ fontSize: 14, fontWeight: 700, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
                         {a.label || '—'}
                       </span>
-                      <StatusBadge t={t} isDark={isDark} status={a.status} />
+                      <StatusBadge t={t} status={a.status} />
                     </>
                   }
                   body={
@@ -183,7 +183,7 @@ export default function CloudAccounts() {
                   <Td t={t}><span style={{ color: t.text, fontWeight: 600 }}>{a.label || '—'}</span></Td>
                   <Td t={t} mono>{a.account_id || '—'}</Td>
                   <Td t={t}>{a.region}</Td>
-                  <Td t={t}><StatusBadge t={t} isDark={isDark} status={a.status} /></Td>
+                  <Td t={t}><StatusBadge t={t} status={a.status} /></Td>
                   <Td t={t}>{formatRelative(a.last_scanned_at)}</Td>
                   <Td t={t} align="right">
                     <div style={{ display: 'inline-flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
@@ -233,23 +233,20 @@ function EmptyState({ t, canConnect, onConnect }) {
   );
 }
 
-function StatusBadge({ t, isDark, status }) {
-  const palette = {
-    connected:            { fg: '#10b981', bg: isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5' },
-    scanning:             { fg: '#3b82f6', bg: isDark ? 'rgba(59,130,246,0.15)' : '#dbeafe' },
-    error:                { fg: '#ef4444', bg: isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2' },
-    scan_timeout:         { fg: '#f59e0b', bg: isDark ? 'rgba(245,158,11,0.15)' : '#fef3c7' },
-    circuit_breaker_open: { fg: '#f59e0b', bg: isDark ? 'rgba(245,158,11,0.15)' : '#fef3c7' },
-  }[status] || { fg: t.textMuted, bg: t.surfaceRaised };
+function StatusBadge({ t, status }) {
+  // Inline colored label — no pill chrome. Color carries the state cue.
+  const fg = {
+    connected:            '#10b981',
+    scanning:             '#3b82f6',
+    error:                '#ef4444',
+    scan_timeout:         '#f59e0b',
+    circuit_breaker_open: '#f59e0b',
+  }[status] || t.textMuted;
   return (
     <span style={{
-      display: 'inline-block',
-      padding: '2px 8px',
-      borderRadius: 4,
       fontSize: 11,
       fontWeight: 600,
-      color: palette.fg,
-      backgroundColor: palette.bg,
+      color: fg,
       letterSpacing: 0.2,
     }}>
       {STATUS_LABEL[status] ?? status ?? 'Unknown'}
