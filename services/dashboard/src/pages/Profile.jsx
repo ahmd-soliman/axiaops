@@ -11,13 +11,14 @@ import {
   useDestructiveConfirm,
   DestructiveConfirmModal,
 } from '../components/DestructiveConfirm';
+import { DangerSection } from '../components/DangerSection';
 
 // "Manage me" surface: read-only profile + GDPR Art. 15/20 export +
 // Art. 17 self-erasure. Organization-level destructive actions (delete
 // organization, transfer ownership) live under /settings/organization —
 // they're org admin, not personal.
 export default function Profile() {
-  const { theme: t, isDark } = useTheme();
+  const { theme: t } = useTheme();
   const { me, can } = useMe();
   const { orgName, onLogout } = useApp();
   const { toast } = useToast();
@@ -30,6 +31,7 @@ export default function Profile() {
       </p>
 
       <Section t={t} title="Profile">
+        <Field t={t} label="Display name" value={me?.name || '—'} />
         <Field t={t} label="Email" value={me?.email || '—'} />
         <Field t={t} label="Role" value={me?.role || '—'} />
         <Field t={t} label="Organization" value={me?.organization?.name || orgName || me?.organization_id || '—'} />
@@ -39,7 +41,6 @@ export default function Profile() {
 
       <DeleteUserSection
         t={t}
-        isDark={isDark}
         email={me?.email}
         toast={toast}
         onLogout={onLogout}
@@ -80,7 +81,7 @@ function ExportSection({ t, toast }) {
   );
 }
 
-function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
+function DeleteUserSection({ t, email, toast, onLogout }) {
   const ctrl = useDestructiveConfirm({
     target: email || '',
     mutationFn: deleteCurrentUser,
@@ -95,7 +96,6 @@ function DeleteUserSection({ t, isDark, email, toast, onLogout }) {
   return (
     <DangerSection
       t={t}
-      isDark={isDark}
       title="Delete My Account"
       blurb="Permanently deletes your AxiaOps user. Your audit-log entries are anonymised across your organizations. This cannot be undone."
       buttonLabel="Delete My Account"
@@ -126,38 +126,6 @@ function Section({ t, title, children }) {
       }}
     >
       <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function DangerSection({ t, isDark, title, blurb, buttonLabel, onClick, disabled, disabledHint, children }) {
-  const dangerBorder = isDark ? 'rgba(239,68,68,0.5)' : '#fecaca';
-  const dangerTint = isDark ? 'rgba(239,68,68,0.07)' : '#fef2f2';
-  return (
-    <section
-      style={{
-        border: `1px solid ${dangerBorder}`,
-        borderRadius: 8,
-        padding: 16,
-        marginBottom: 16,
-        backgroundColor: dangerTint,
-      }}
-    >
-      <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: '#ef4444' }}>{title}</h2>
-      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>{blurb}</p>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        title={disabled ? disabledHint : undefined}
-        style={dangerBtn(disabled)}
-      >
-        {buttonLabel}
-      </button>
-      {disabled && disabledHint && (
-        <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: t.textMuted }}>{disabledHint}</p>
-      )}
       {children}
     </section>
   );
@@ -194,16 +162,3 @@ function primaryButton(t, disabled) {
   };
 }
 
-function dangerBtn(disabled) {
-  return {
-    padding: '7px 14px',
-    border: 'none',
-    borderRadius: 6,
-    backgroundColor: '#ef4444',
-    color: '#fff',
-    fontWeight: 600,
-    fontSize: 13,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.55 : 1,
-  };
-}
