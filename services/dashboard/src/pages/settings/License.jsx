@@ -30,11 +30,9 @@ import { shouldNagRenewal } from '../../utils/license';
 //   in_grace    → amber, claim sub-object + grace-period explainer
 //   expired     → red, claim sub-object + renewal contact
 //   not_loaded  → red, only reachable in production deployments without a
-//                 license installed. DEV_MODE loads the embedded fixture and
-//                 reports state="valid" (B1.7 layer 4 / issue #75) — so this
-//                 branch never fires in dev. If a regression ever did make it
+//                 license installed. If a regression ever did make this branch
 //                 fire, we want the operator to see "scans are blocked" and
-//                 investigate, not a misleading "Dev bypass" message.
+//                 investigate, not a misleading message.
 
 const INSTALL_URL = 'https://axiaops.io/install';
 const RENEWAL_EMAIL = 'sales@axiaops.io';
@@ -236,8 +234,7 @@ function toneFor(lic) {
   }
   if (lic.state === 'in_grace') return 'warning';
   if (lic.state === 'expired') return 'error';
-  if (lic.state === 'not_loaded') return 'error';
-  return 'info';
+  return 'error';
 }
 
 function paletteFor(tone, t) {
@@ -251,8 +248,7 @@ function chipLabel(lic) {
   if (lic.state === 'valid') return 'Valid';
   if (lic.state === 'in_grace') return 'In Grace';
   if (lic.state === 'expired') return 'Expired';
-  if (lic.state === 'not_loaded') return 'Not loaded';
-  return lic.state || 'Unknown';
+  return 'Not loaded';
 }
 
 function headlineFor(lic) {
@@ -263,8 +259,7 @@ function headlineFor(lic) {
   }
   if (lic.state === 'in_grace') return 'License has expired and is in grace period.';
   if (lic.state === 'expired') return 'License past grace period — scans are blocked.';
-  if (lic.state === 'not_loaded') return 'No license installed — scans are blocked.';
-  return 'Unknown license state.';
+  return 'No license installed — scans are blocked.';
 }
 
 function detailFor(lic) {
@@ -280,10 +275,8 @@ function detailFor(lic) {
   if (lic.state === 'expired') {
     return `Reads, dashboard, and member-management remain available — only POST /accounts/{id}/scan and the scheduled-scan ticker are gated. Contact ${RENEWAL_EMAIL} to renew; drop the new license in and restart the API + ingestion services.`;
   }
-  if (lic.state === 'not_loaded') {
-    return `Install a license JWT to enable scans. The runbook lives in docs/license-issuance.md; the install URL is ${INSTALL_URL}.`;
-  }
-  return '';
+  // not_loaded or unknown state
+  return `Install a license JWT to enable scans. The runbook lives in docs/license-issuance.md; the install URL is ${INSTALL_URL}.`;
 }
 
 function formatDate(iso) {
