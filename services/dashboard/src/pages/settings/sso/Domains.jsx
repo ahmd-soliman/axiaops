@@ -94,7 +94,7 @@ export default function Domains() {
       {domains.isPending ? (
         <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
       ) : domains.isError ? (
-        <div style={{ padding: 24, color: '#ef4444' }}>Failed to load domains.</div>
+        <div style={{ padding: 24, color: t.error }}>Failed to load domains.</div>
       ) : (domains.data || []).length === 0 ? (
         <EmptyState t={t} />
       ) : (
@@ -140,7 +140,7 @@ export default function Domains() {
                       }
                     }}
                     disabled={deletingId === d.id}
-                    style={{ ...ghostButton(t), color: '#ef4444', marginLeft: 6 }}
+                    style={{ ...ghostButton(t), color: t.error, marginLeft: 6 }}
                   >
                     {deletingId === d.id ? 'Deleting…' : 'Delete'}
                   </button>
@@ -235,7 +235,7 @@ function AddDomainModal({ connections, onClose, onCreated, t, isDark }) {
             style={inputStyle(t)}
           />
         </Field>
-        {error && <Banner color="#ef4444" bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>{error}</Banner>}
+        {error && <Banner color={t.error} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>{error}</Banner>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <button type="button" onClick={onClose} style={ghostButton(t)}>Cancel</button>
           <button
