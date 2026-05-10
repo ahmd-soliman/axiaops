@@ -3,7 +3,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import { useBreakpoint } from '../../components/primitives/useBreakpoint';
 
 const STEPS = [
-  { path: '/onboarding/invite', label: 'Invite teammates' },
+  { path: '/onboarding/invite', label: 'Invite members' },
   { path: '/onboarding/aws-account', label: 'Connect AWS' },
 ];
 

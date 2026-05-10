@@ -63,7 +63,7 @@ export default function Connections() {
       {conns.isPending ? (
         <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
       ) : conns.isError ? (
-        <div style={{ padding: 24, color: '#ef4444' }}>Failed to load connections.</div>
+        <div style={{ padding: 24, color: t.error }}>Failed to load connections.</div>
       ) : (conns.data || []).length === 0 ? (
         <EmptyState t={t} />
       ) : (
@@ -83,7 +83,7 @@ export default function Connections() {
               <tr key={c.id} style={{ borderBottom: `1px solid ${t.border}` }}>
                 <Td t={t}>{c.label || '—'}</Td>
                 <Td t={t}><code style={{ fontSize: 12 }}>{c.protocol}</code></Td>
-                <Td t={t}><StatusBadge status={c.status} t={t} isDark={isDark} /></Td>
+                <Td t={t}><StatusBadge status={c.status} t={t} /></Td>
                 <Td t={t}>{c.enforcement || 'optional'}</Td>
                 <Td t={t}>{c.default_role || 'viewer'}</Td>
                 <Td t={t}>
@@ -98,7 +98,7 @@ export default function Connections() {
                       }
                     }}
                     disabled={deletingId === c.id}
-                    style={{ ...ghostButton(t), color: '#ef4444', marginLeft: 6 }}
+                    style={{ ...ghostButton(t), color: t.error, marginLeft: 6 }}
                   >
                     {deletingId === c.id ? 'Deleting…' : 'Delete'}
                   </button>
@@ -284,7 +284,7 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
           <input type="text" value={form.oidc_tenant_id} onChange={set('oidc_tenant_id')} style={inputStyle(t)} />
         </Field>
 
-        {error && <Banner color="#ef4444" bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>{error}</Banner>}
+        {error && <Banner color={t.error} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>{error}</Banner>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <button type="button" onClick={onClose} style={ghostButton(t)}>Cancel</button>
@@ -356,18 +356,15 @@ function EmptyState({ t }) {
   );
 }
 
-function StatusBadge({ status, t, isDark }) {
-  const palette = {
-    active:   { fg: '#10b981', bg: isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5' },
-    draft:    { fg: t.textMuted, bg: t.surfaceRaised },
-    disabled: { fg: '#ef4444', bg: isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2' },
-  }[status] || { fg: t.textMuted, bg: t.surfaceRaised };
+function StatusBadge({ status, t }) {
+  // Inline colored label — no pill chrome. Color carries the state cue.
+  const fg = {
+    active:   '#10b981',
+    draft:    t.textMuted,
+    disabled: '#ef4444',
+  }[status] || t.textMuted;
   return (
-    <span style={{
-      display: 'inline-block', padding: '2px 8px', borderRadius: 4,
-      fontSize: 11, fontWeight: 600, color: palette.fg, backgroundColor: palette.bg,
-      letterSpacing: 0.2,
-    }}>
+    <span style={{ fontSize: 11, fontWeight: 600, color: fg, letterSpacing: 0.2 }}>
       {status}
     </span>
   );

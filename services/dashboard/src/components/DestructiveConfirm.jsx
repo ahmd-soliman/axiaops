@@ -45,7 +45,7 @@ export function useDestructiveConfirm({ target, mutationFn, successMessage, onSu
 }
 
 export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, confirmLabel }) {
-  const { theme: t, isDark } = useTheme();
+  const { theme: t } = useTheme();
   const targetMissing = ctrl.target === '';
 
   return (
@@ -56,7 +56,6 @@ export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, con
         aria-label={title}
         style={{
           backgroundColor: t.surface,
-          border: `1px solid ${isDark ? 'rgba(239,68,68,0.5)' : '#fecaca'}`,
           borderRadius: 10,
           padding: 20,
           maxWidth: 480,
@@ -64,7 +63,7 @@ export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, con
           boxShadow: '0 12px 32px rgba(0,0,0,0.3)',
         }}
       >
-        <h3 style={{ margin: 0, marginBottom: 12, fontSize: 16, fontWeight: 700, color: t.text }}>{title}</h3>
+        <h3 style={{ margin: 0, marginBottom: 12, fontSize: 16, fontWeight: 700, color: t.error }}>{title}</h3>
         <p style={pText(t)}>{warning}</p>
         {targetMissing ? (
           <Banner color="#fbbf24" bg="rgba(251,191,36,0.15)">
@@ -101,7 +100,7 @@ export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, con
             type="button"
             onClick={ctrl.confirm}
             disabled={!ctrl.matches || ctrl.isPending}
-            style={dangerBtn(!ctrl.matches || ctrl.isPending)}
+            style={dangerBtn(t, !ctrl.matches || ctrl.isPending)}
           >
             {ctrl.isPending ? 'Working…' : confirmLabel}
           </button>
@@ -136,12 +135,12 @@ function ghostBtn(t) {
   };
 }
 
-function dangerBtn(disabled) {
+function dangerBtn(t, disabled) {
   return {
     padding: '7px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: '#ef4444',
+    backgroundColor: t.error,
     color: '#fff',
     fontWeight: 600,
     fontSize: 13,

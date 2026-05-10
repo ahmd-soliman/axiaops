@@ -94,7 +94,7 @@ export default function Domains() {
       {domains.isPending ? (
         <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
       ) : domains.isError ? (
-        <div style={{ padding: 24, color: '#ef4444' }}>Failed to load domains.</div>
+        <div style={{ padding: 24, color: t.error }}>Failed to load domains.</div>
       ) : (domains.data || []).length === 0 ? (
         <EmptyState t={t} />
       ) : (
@@ -114,7 +114,7 @@ export default function Domains() {
               <tr key={d.id} style={{ borderBottom: `1px solid ${t.border}` }}>
                 <Td t={t}><code style={{ fontSize: 13 }}>{d.domain}</code></Td>
                 <Td t={t}>{connLabel(d.sso_connection_id)}</Td>
-                <Td t={t}><StatusBadge status={d.status} t={t} isDark={isDark} /></Td>
+                <Td t={t}><StatusBadge status={d.status} t={t} /></Td>
                 <Td t={t}>{formatDate(d.verified_at)}</Td>
                 <Td t={t}>{formatDate(d.expires_at)}</Td>
                 <Td t={t}>
@@ -140,7 +140,7 @@ export default function Domains() {
                       }
                     }}
                     disabled={deletingId === d.id}
-                    style={{ ...ghostButton(t), color: '#ef4444', marginLeft: 6 }}
+                    style={{ ...ghostButton(t), color: t.error, marginLeft: 6 }}
                   >
                     {deletingId === d.id ? 'Deleting…' : 'Delete'}
                   </button>
@@ -235,7 +235,7 @@ function AddDomainModal({ connections, onClose, onCreated, t, isDark }) {
             style={inputStyle(t)}
           />
         </Field>
-        {error && <Banner color="#ef4444" bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>{error}</Banner>}
+        {error && <Banner color={t.error} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>{error}</Banner>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <button type="button" onClick={onClose} style={ghostButton(t)}>Cancel</button>
           <button
@@ -337,19 +337,16 @@ function EmptyState({ t }) {
   );
 }
 
-function StatusBadge({ status, t, isDark }) {
-  const palette = {
-    verified: { fg: '#10b981', bg: isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5' },
-    pending:  { fg: '#f59e0b', bg: isDark ? 'rgba(245,158,11,0.15)' : '#fef3c7' },
-    stale:    { fg: '#ef4444', bg: isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2' },
-    revoked:  { fg: t.textMuted, bg: t.surfaceRaised },
-  }[status] || { fg: t.textMuted, bg: t.surfaceRaised };
+function StatusBadge({ status, t }) {
+  // Inline colored label — no pill chrome. Color carries the state cue.
+  const fg = {
+    verified: '#10b981',
+    pending:  '#f59e0b',
+    stale:    '#ef4444',
+    revoked:  t.textMuted,
+  }[status] || t.textMuted;
   return (
-    <span style={{
-      display: 'inline-block', padding: '2px 8px', borderRadius: 4,
-      fontSize: 11, fontWeight: 600, color: palette.fg, backgroundColor: palette.bg,
-      letterSpacing: 0.2,
-    }}>
+    <span style={{ fontSize: 11, fontWeight: 600, color: fg, letterSpacing: 0.2 }}>
       {status}
     </span>
   );
