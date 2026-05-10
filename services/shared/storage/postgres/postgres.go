@@ -1964,6 +1964,31 @@ func (s *Store) EnsureDevMembership(ctx context.Context, organizationID, userID,
 	return tx.Commit(ctx)
 }
 
+// GetUserByID looks up a user by internal UUID, org-agnostic. The users
+// table is global; users.organization_id tracks the user's primary org and
+// is intentionally NOT used in the WHERE clause so a cross-org member can
+// read their own row from any org context (e.g. /v1/me). RLS doesn't cover
+// the users table; scoping happens on the caller side.
+func (s *Store) GetUserByID(ctx context.Context, id string) (model.User, error) {
+	if id == "" {
+		return model.User{}, storage.ErrUserNotFound
+	}
+	var u model.User
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, organization_id, external_id, email, name, created_at, last_seen
+		FROM users
+		WHERE id = $1`,
+		id,
+	).Scan(&u.ID, &u.OrganizationID, &u.ExternalID, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, storage.ErrUserNotFound
+	}
+	if err != nil {
+		return model.User{}, fmt.Errorf("postgres: get user by id: %w", err)
+	}
+	return u, nil
+}
+
 // GetUserByEmail looks up a user by email within the organization in ctx. Used by
 // the invite-by-email flow.
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, error) {

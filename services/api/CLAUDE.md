@@ -48,7 +48,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 | GET | /dismissals | Yes | List active dismissals (?account_id) |
 | DELETE | /dismissals/{id} | Yes | Revoke a dismissal |
 | GET | /audit | Yes | Organization audit timeline (?user_id, ?resource_type, ?resource_id, ?action, ?since, ?until, ?limit, ?cursor) |
-| GET | /me | Yes | Current user's role + permission set; no permission required beyond authn |
+| GET | /me | Yes | Current user's role + permission set + display `name` (always present, empty string when unset) + memberships + auth provider/mode. No permission required beyond authn. Display-name editing tracked under issue #78. |
 | GET | /memberships | Yes | List organization memberships |
 | POST | /memberships | Yes | Promote an existing user (by user_id) and assign a role; admin+ only |
 | POST | /invitations | Yes | Invite by email. Writes a token-bearing `pending_memberships` row and returns `redemption_url` in the response body for OOB sharing (admin pastes into Slack/email). Admin+ for member/viewer; owner for admin. Optional `enforcement_hint: "sso_required"` (Tasks.md 2.7.20) is set when the org has at least one active OIDC connection with `enforcement="required"` — the URL still works for the redemption hop but every authed request afterward 403s with `sso_required`, so the dashboard renders a yellow callout telling the admin to route the invitee through SSO instead. |
