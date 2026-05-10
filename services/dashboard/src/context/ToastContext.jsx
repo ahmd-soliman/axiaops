@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react';
+import { useTheme } from '../theme/ThemeContext';
 
 const ToastContext = createContext(null);
 
@@ -9,15 +10,30 @@ const ICONS = {
   warning: '⚠',
 };
 
-const COLORS = {
-  success: { bg: '#059669', border: '#047857' },
-  error:   { bg: '#DC2626', border: '#B91C1C' },
-  info:    { bg: '#2563EB', border: '#1D4ED8' },
-  warning: { bg: '#D97706', border: '#B45309' },
-};
+// Light mode: saturated bg + white text (loud, classic notification look).
+// Dark mode: surfaceRaised bg + colored border + colored text — keeps the
+// toast cohesive with the dark UI ladder instead of slapping a saturated
+// patch over it. theme.success/error/warning shift hues per mode (darker
+// for AA-on-white in light, lighter for legibility on dark surfaces) so
+// each branch picks the correct shade for its background context.
+function toastPalette(type, theme, isDark) {
+  const color = ({
+    success: theme.success,
+    error:   theme.error,
+    warning: theme.warning,
+    // No semantic blue token in the palette — keep tailwind blue-500 here
+    // until we add one. Tracked alongside the other audit-log info chip.
+    info:    '#3B82F6',
+  })[type] || '#3B82F6';
+  if (isDark) {
+    return { bg: theme.surfaceRaised, border: color, fg: color };
+  }
+  return { bg: color, border: color, fg: theme.textOnDark };
+}
 
 function ToastItem({ toast, onDismiss }) {
-  const c = COLORS[toast.type] || COLORS.info;
+  const { theme, isDark } = useTheme();
+  const c = toastPalette(toast.type, theme, isDark);
   return (
     <div
       role="alert"
@@ -26,7 +42,7 @@ function ToastItem({ toast, onDismiss }) {
       style={{
         backgroundColor: c.bg,
         border: `1px solid ${c.border}`,
-        color: '#ffffff',
+        color: c.fg,
         padding: '11px 16px',
         borderRadius: 10,
         display: 'flex',
