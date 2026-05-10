@@ -8,6 +8,7 @@ import {
   useDestructiveConfirm,
   DestructiveConfirmModal,
 } from '../../components/DestructiveConfirm';
+import { DangerSection } from '../../components/DangerSection';
 
 // Organization tab — organization-level destructive controls. Only owners
 // reach this route (Settings sub-nav filters on PERM.ORGANIZATION_DELETE
@@ -143,48 +144,3 @@ function DeleteOrganizationSection({ t, orgName, toast, onLogout }) {
   );
 }
 
-function DangerSection({ t, title, blurb, buttonLabel, onClick, disabled, disabledHint, children }) {
-  // Neutral card surface (t.border / t.surface) — same recipe as the benign
-  // sections above and as Profile.jsx's DangerSection. Red title + red button
-  // are the only chromatic cues; the colored border/tint earlier revisions
-  // used was decorative redundancy. Pattern precedent: GitLab/Linear/Vercel
-  // settings pages. Keep this in lockstep with Profile.jsx; extract to a
-  // shared component if a third caller appears.
-  return (
-    <section
-      style={{
-        border: `1px solid ${t.border}`,
-        borderRadius: 8,
-        padding: 16,
-        marginBottom: 16,
-        backgroundColor: t.surface,
-      }}
-    >
-      <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: t.error }}>{title}</h2>
-      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>{blurb}</p>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        title={disabled ? disabledHint : undefined}
-        style={{
-          padding: '7px 14px',
-          border: 'none',
-          borderRadius: 6,
-          backgroundColor: t.error,
-          color: '#fff',
-          fontWeight: 600,
-          fontSize: 13,
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          opacity: disabled ? 0.55 : 1,
-        }}
-      >
-        {buttonLabel}
-      </button>
-      {disabled && disabledHint && (
-        <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: t.textMuted }}>{disabledHint}</p>
-      )}
-      {children}
-    </section>
-  );
-}

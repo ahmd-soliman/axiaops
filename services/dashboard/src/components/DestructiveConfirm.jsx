@@ -101,7 +101,7 @@ export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, con
             type="button"
             onClick={ctrl.confirm}
             disabled={!ctrl.matches || ctrl.isPending}
-            style={dangerBtn(!ctrl.matches || ctrl.isPending)}
+            style={dangerBtn(t, !ctrl.matches || ctrl.isPending)}
           >
             {ctrl.isPending ? 'Working…' : confirmLabel}
           </button>
@@ -136,12 +136,12 @@ function ghostBtn(t) {
   };
 }
 
-function dangerBtn(disabled) {
+function dangerBtn(t, disabled) {
   return {
     padding: '7px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: '#ef4444',
+    backgroundColor: t.error,
     color: '#fff',
     fontWeight: 600,
     fontSize: 13,
