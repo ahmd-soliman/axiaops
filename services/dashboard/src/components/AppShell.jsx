@@ -76,7 +76,11 @@ export default function AppShell() {
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', backgroundColor: t.bg }}>
+    // --navbar-height: read by descendant pages that need to size relative
+    // to the viewport minus the sticky navbar (e.g. Settings sidebar's
+    // full-height calc). Single source of truth — when this value changes,
+    // every consumer using var(--navbar-height) tracks automatically.
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', backgroundColor: t.bg, '--navbar-height': '64px' }}>
 
       {/* ── Sticky top navbar ── */}
       <header
@@ -86,7 +90,7 @@ export default function AppShell() {
           zIndex: 100,
           backgroundColor: t.bgSecondary,
           borderBottom: `1px solid ${t.border}`,
-          height: 64,
+          height: 'var(--navbar-height)',
           display: 'flex',
           alignItems: 'center',
           padding: isMobile ? '0 12px' : '0 16px',
