@@ -83,7 +83,7 @@ export default function Enforcement() {
       {conns.isPending ? (
         <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
       ) : conns.isError ? (
-        <div style={{ padding: 24, color: '#ef4444' }}>Failed to load connections.</div>
+        <div style={{ padding: 24, color: t.error }}>Failed to load connections.</div>
       ) : (conns.data || []).length === 0 ? (
         <div style={{ padding: 32, textAlign: 'center', color: t.textMuted, fontSize: 13 }}>
           No connections yet. Create one in the Connections tab to set its enforcement stance.
@@ -222,7 +222,7 @@ function RequiredGuardModal({ connection, onCancel, onConfirm, t, isDark }) {
             onClick={onConfirm}
             style={{
               ...primaryButton(t),
-              backgroundColor: '#ef4444',
+              backgroundColor: t.error,
               opacity: acknowledged ? 1 : 0.5,
               cursor: acknowledged ? 'pointer' : 'not-allowed',
             }}

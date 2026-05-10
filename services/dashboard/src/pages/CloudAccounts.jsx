@@ -87,7 +87,7 @@ export default function CloudAccounts() {
         {accounts.isPending ? (
           <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
         ) : accounts.isError ? (
-          <div style={{ padding: 24, color: '#ef4444', fontSize: 13 }}>Failed to load accounts.</div>
+          <div style={{ padding: 24, color: t.error, fontSize: 13 }}>Failed to load accounts.</div>
         ) : accounts.data?.length === 0 ? (
           <EmptyState t={t} canConnect={canConnect} onConnect={() => navigate('/connect')} />
         ) : isMobile ? (
