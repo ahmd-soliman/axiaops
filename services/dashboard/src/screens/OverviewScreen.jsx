@@ -596,7 +596,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
 
 // ─── Dismissed resource card ──────────────────────────────────────────────────
 
-function DismissedCard({ item, theme, isDark, cost }) {
+function DismissedCard({ item, theme, isDark }) {
   const cfg = serviceConfig(item.service);
   const reasonLabel = {
     intentional: 'Intentional', scheduled_deletion: 'Scheduled', false_positive: 'False positive',
@@ -625,9 +625,9 @@ function DismissedCard({ item, theme, isDark, cost }) {
           </span>
         </span>
         <div style={{ flex: 1 }} />
-        {cost && (
+        {typeof item.monthly_cost === 'number' && (
           <span style={{ fontSize: 14, fontWeight: 700, color: theme.accent, flexShrink: 0 }}>
-            {cost.currency} {cost.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted }}>/mo</span>
+            {item.currency} {item.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted }}>/mo</span>
           </span>
         )}
       </div>
@@ -886,19 +886,6 @@ export default function OverviewScreen({
     () => Object.entries(summary.data?.by_service ?? {}).sort((a, b) => b[1].savings - a[1].savings),
     [summary.data],
   );
-
-  // Last-known monthly cost per resource_id, sourced from the current scan.
-  // Dismissed/snoozed cards look this up to render cost on the hidden view.
-  // Orphaned dismissals (resource no longer in the latest scan) get undefined
-  // and render no cost — see GitLab issue for backend enrichment that closes
-  // that edge case.
-  const costsById = useMemo(() => {
-    const m = new Map();
-    for (const r of resources.data ?? []) {
-      if (r.resource_id) m.set(r.resource_id, { monthly_cost: r.monthly_cost, currency: r.currency });
-    }
-    return m;
-  }, [resources.data]);
 
   // Hidden-view sub-pill counts. Lifted above the isLoading/isError early
   // returns so the hook order stays stable across renders.
@@ -1332,7 +1319,7 @@ export default function OverviewScreen({
       {/* Resource list */}
       {listData.map((item) => (
         showDismissed
-          ? <DismissedCard key={String(item.id)} item={item} theme={t} isDark={isDark} cost={costsById.get(item.resource_id)} />
+          ? <DismissedCard key={String(item.id)} item={item} theme={t} isDark={isDark} />
           : <ResourceCard
               key={item.resource_id}
               item={item}
