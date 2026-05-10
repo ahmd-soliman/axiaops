@@ -1255,28 +1255,43 @@ func (s *Store) ListActiveDismissals(ctx context.Context, accountID string) ([]m
 		return nil, err
 	}
 
+	// LEFT JOIN zombie_records on the dismissal fingerprint to surface the
+	// last-known monthly_cost / currency. SaveZombies replaces zombie_records
+	// wholesale per (organization_id, internal_account_id), so at most one
+	// row matches each dismissal — no aggregation needed. Orphaned dismissals
+	// (resource gone from the latest scan) get NULL → nil pointer in Go →
+	// omitted from the JSON response.
+	const selectCols = `dz.id, dz.account_id, dz.provider, dz.service, dz.region, dz.resource_id,
+		       dz.action, dz.reason, dz.note, dz.snoozed_until, dz.dismissed_by, dz.created_at,
+		       dz.revoked_at, dz.revoked_by,
+		       zr.monthly_cost, zr.currency`
+	const joinClause = `FROM   dismissed_zombies dz
+		LEFT JOIN zombie_records zr
+		       ON zr.organization_id     = dz.organization_id
+		      AND zr.internal_account_id = dz.account_id
+		      AND zr.provider            = dz.provider
+		      AND zr.service             = dz.service
+		      AND zr.region              = dz.region
+		      AND zr.resource_id         = dz.resource_id`
+
 	var rows pgx.Rows
 	if accountID != "" {
 		rows, err = tx.Query(ctx, `
-			SELECT id, account_id, provider, service, region, resource_id,
-			       action, reason, note, snoozed_until, dismissed_by, created_at,
-			       revoked_at, revoked_by
-			FROM   dismissed_zombies
-			WHERE  revoked_at IS NULL
-			  AND  (action = 'dismiss' OR snoozed_until > NOW())
-			  AND  account_id = $1
-			ORDER BY created_at DESC`,
+			SELECT `+selectCols+`
+			`+joinClause+`
+			WHERE  dz.revoked_at IS NULL
+			  AND  (dz.action = 'dismiss' OR dz.snoozed_until > NOW())
+			  AND  dz.account_id = $1
+			ORDER BY dz.created_at DESC`,
 			accountID,
 		)
 	} else {
 		rows, err = tx.Query(ctx, `
-			SELECT id, account_id, provider, service, region, resource_id,
-			       action, reason, note, snoozed_until, dismissed_by, created_at,
-			       revoked_at, revoked_by
-			FROM   dismissed_zombies
-			WHERE  revoked_at IS NULL
-			  AND  (action = 'dismiss' OR snoozed_until > NOW())
-			ORDER BY created_at DESC`,
+			SELECT `+selectCols+`
+			`+joinClause+`
+			WHERE  dz.revoked_at IS NULL
+			  AND  (dz.action = 'dismiss' OR dz.snoozed_until > NOW())
+			ORDER BY dz.created_at DESC`,
 		)
 	}
 	if err != nil {
@@ -1287,17 +1302,22 @@ func (s *Store) ListActiveDismissals(ctx context.Context, accountID string) ([]m
 	var out []model.DismissAction
 	for rows.Next() {
 		var d model.DismissAction
+		var currency *string
 		if err := rows.Scan(
 			&d.ID, &d.AccountID, &d.Provider, &d.Service, &d.Region, &d.ResourceID,
 			&d.Action, &d.Reason, &d.Note, &d.SnoozedUntil, &d.DismissedBy, &d.CreatedAt,
 			&d.RevokedAt, &d.RevokedBy,
+			&d.MonthlyCost, &currency,
 		); err != nil {
 			return nil, fmt.Errorf("postgres: scan dismissed_zombie: %w", err)
+		}
+		if currency != nil {
+			d.Currency = *currency
 		}
 		out = append(out, d)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("postgres: iterate dismissed_zombies: %w", err)
 	}
 	return out, tx.Commit(ctx)
 }
