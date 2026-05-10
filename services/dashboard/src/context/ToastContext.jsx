@@ -10,14 +10,13 @@ const ICONS = {
   warning: '⚠',
 };
 
-// Light mode: saturated bg + white text (loud, classic notification look),
-// no border — same-as-bg outline was decorative and read as a 1px lip.
-// Dark mode: surfaceRaised bg + colored border + colored text so the toast
-// reads against the dark UI ladder instead of slapping a saturated patch
-// over it; the border carries the semantic colour. theme.success/error/
-// warning shift hues per mode (darker for AA-on-white in light, lighter
-// for legibility on dark surfaces) so each branch picks the right shade.
-function toastPalette(type, theme, isDark) {
+// Saturated bg + white text in both modes — toasts are flag-coloured
+// notifications and stay loud regardless of theme. Pulling bg from
+// theme.success/error/warning works in both modes because those tokens
+// shift to lighter shades in dark mode that still carry enough contrast
+// against white text. No border — the bg colour carries the meaning,
+// and box-shadow already provides depth on both surfaces.
+function toastPalette(type, theme) {
   const color = ({
     success: theme.success,
     error:   theme.error,
@@ -26,15 +25,12 @@ function toastPalette(type, theme, isDark) {
     // until we add one. Tracked alongside the other audit-log info chip.
     info:    '#3B82F6',
   })[type] || '#3B82F6';
-  if (isDark) {
-    return { bg: theme.surfaceRaised, border: color, fg: color };
-  }
-  return { bg: color, border: null, fg: theme.textOnDark };
+  return { bg: color, fg: theme.textOnDark };
 }
 
 function ToastItem({ toast, onDismiss }) {
-  const { theme, isDark } = useTheme();
-  const c = toastPalette(toast.type, theme, isDark);
+  const { theme } = useTheme();
+  const c = toastPalette(toast.type, theme);
   return (
     <div
       role="alert"
@@ -42,7 +38,7 @@ function ToastItem({ toast, onDismiss }) {
       onClick={() => onDismiss(toast.id)}
       style={{
         backgroundColor: c.bg,
-        border: c.border ? `1px solid ${c.border}` : 'none',
+        border: 'none',
         color: c.fg,
         padding: '11px 16px',
         borderRadius: 10,
