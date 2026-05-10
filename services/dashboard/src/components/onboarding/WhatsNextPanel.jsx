@@ -71,9 +71,9 @@ export default function WhatsNextPanel() {
     },
     {
       key: 'invite',
-      label: 'Invite teammates',
+      label: 'Invite members',
       done: membershipsArr.length > 1 || invitationsArr.length > 0,
-      onClick: () => navigate('/settings/team'),
+      onClick: () => navigate('/settings/members'),
       show: canInvite,
     },
     {
