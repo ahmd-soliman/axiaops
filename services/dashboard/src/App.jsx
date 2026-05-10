@@ -9,7 +9,7 @@ import { MeProvider } from './context/MeContext';
 import AppShell   from './components/AppShell';
 import AuthGuard  from './components/AuthGuard';
 import OnboardingGate from './components/OnboardingGate';
-import Dashboard  from './pages/Dashboard';
+import Overview   from './pages/Overview';
 import Detail     from './pages/Detail';
 import Trend      from './pages/Trend';
 import CostAnalytics from './pages/CostAnalytics';
@@ -94,7 +94,7 @@ function AuthenticatedApp() {
                 <Route path="aws-account" element={<OnboardingAws />} />
               </Route>
               <Route element={<AppShell />}>
-                <Route path="/"                    element={<Dashboard />} />
+                <Route path="/"                    element={<Overview />} />
                 <Route path="/detail/:id"          element={<Detail />} />
                 <Route path="/trend"               element={<Trend />} />
                 <Route path="/cost"                element={<CostAnalytics />} />
