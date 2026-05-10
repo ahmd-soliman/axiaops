@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../../theme/ThemeContext';
 import { fetchVersion } from '../../api/client';
+import { shouldNagRenewal } from '../../utils/license';
 
 // Settings → License — owner-only read-only inspector for the self-hosted
 // license state (Phase B1.6 amendment + B1.7 follow-up). Complements
@@ -167,17 +168,12 @@ function hasClaims(lic) {
 }
 
 function ClaimsGrid({ lic, t }) {
-  // Days remaining + Expires at are surfaced in the status-card headline on
-  // the happy path; hide them here to avoid duplication. On any non-valid
-  // state, or if either field is missing on a "valid" row (anomaly), show
-  // all four so the operator can still see the timing.
   // Two-column auto-fit grid handles tablet+ down to ~360px without a JS
-  // breakpoint hook.
-  const liveInHeadline = lic.state === 'valid' && lic.days_remaining != null && lic.expires_at;
+  // breakpoint hook. Order: most-actionable first.
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-      {!liveInHeadline && <ClaimRow t={t} k="Days remaining"  v={formatDays(lic.days_remaining)} />}
-      {!liveInHeadline && <ClaimRow t={t} k="Expires at"      v={formatDate(lic.expires_at)} mono />}
+      <ClaimRow t={t} k="Days remaining"  v={formatDays(lic.days_remaining)} />
+      <ClaimRow t={t} k="Expires at"      v={formatDate(lic.expires_at)} mono />
       <ClaimRow t={t} k="Max organizations" v={lic.max_organizations ?? '—'} />
       <ClaimRow t={t} k="Customer ID"     v={lic.customer_id || '—'} mono />
     </div>
@@ -232,7 +228,7 @@ function Chip({ tone, label, t }) {
 // affirmative ("license OK") not just nagging.
 function toneFor(lic) {
   if (lic.state === 'valid') {
-    if (typeof lic.days_remaining === 'number' && lic.days_remaining < 14) return 'warning';
+    if (shouldNagRenewal(lic)) return 'warning';
     return 'success';
   }
   if (lic.state === 'in_grace') return 'warning';
@@ -258,12 +254,9 @@ function chipLabel(lic) {
 
 function headlineFor(lic) {
   if (lic.state === 'valid') {
-    const days = formatDays(lic.days_remaining);
-    const expiry = formatDate(lic.expires_at);
-    if (days !== '—' && expiry !== '—') {
-      return `License is active — ${days} remaining, expires ${expiry}.`;
-    }
-    return 'License is active.';
+    return shouldNagRenewal(lic)
+      ? 'License is active. Renewal due soon.'
+      : 'License is active. Scans run normally.';
   }
   if (lic.state === 'in_grace') return 'License has expired and is in grace period.';
   if (lic.state === 'expired') return 'License past grace period — scans are blocked.';
@@ -275,7 +268,7 @@ function headlineFor(lic) {
 
 function detailFor(lic) {
   if (lic.state === 'valid') {
-    if (typeof lic.days_remaining === 'number' && lic.days_remaining < 14) {
+    if (shouldNagRenewal(lic)) {
       return `Renewal will land via the issuance CLI; restart the API and ingestion services after dropping the new JWT in to pick it up. Contact ${RENEWAL_EMAIL} if a renewal hasn't been arranged.`;
     }
     return '';
