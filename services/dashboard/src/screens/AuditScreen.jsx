@@ -52,21 +52,21 @@ function actionDisplay(action) {
   }
 }
 
-function toneColors(tone, theme, isDark) {
+function toneColors(tone, theme) {
   switch (tone) {
-    case 'success': return { bg: isDark ? 'rgba(16,185,129,0.15)' : '#d1fae5', fg: '#10b981' };
-    case 'danger':  return { bg: isDark ? 'rgba(239,68,68,0.15)'  : '#fee2e2', fg: '#ef4444' };
-    case 'warn':    return { bg: isDark ? 'rgba(245,158,11,0.15)' : '#fef3c7', fg: '#f59e0b' };
-    case 'info':    return { bg: isDark ? 'rgba(59,130,246,0.15)' : '#dbeafe', fg: '#3b82f6' };
-    case 'accent':  return { bg: theme.accentLight || '#ede9fe',  fg: theme.accent };
-    case 'muted':   return { bg: theme.surfaceRaised,             fg: theme.textMuted };
-    default:        return { bg: theme.surfaceRaised,             fg: theme.textMuted };
+    case 'success': return { bg: `${theme.success}26`, fg: theme.success };
+    case 'danger':  return { bg: `${theme.error}26`,   fg: theme.error };
+    case 'warn':    return { bg: `${theme.warning}26`, fg: theme.warning };
+    case 'info':    return { bg: '#3b82f626',          fg: '#3b82f6' }; // blue — no semantic token in theme
+    case 'accent':  return { bg: theme.accentLight,    fg: theme.accent };
+    case 'muted':   return { bg: theme.surfaceRaised,  fg: theme.textMuted };
+    default:        return { bg: theme.surfaceRaised,  fg: theme.textMuted };
   }
 }
 
-function ActionChip({ action, theme, isDark }) {
+function ActionChip({ action, theme }) {
   const { label, tone } = actionDisplay(action);
-  const { bg, fg } = toneColors(tone, theme, isDark);
+  const { bg, fg } = toneColors(tone, theme);
   return (
     <span style={{
       display: 'inline-block',
@@ -130,7 +130,7 @@ function MetadataPanel({ event, theme }) {
   );
 }
 
-function EventRow({ event, theme, isDark, isMobile }) {
+function EventRow({ event, theme, isMobile }) {
   const [expanded, setExpanded] = useState(false);
   const hasMetadata = event.metadata && Object.keys(event.metadata).length > 0;
 
@@ -177,7 +177,7 @@ function EventRow({ event, theme, isDark, isMobile }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <ActionChip action={event.action} theme={theme} isDark={isDark} />
+          <ActionChip action={event.action} theme={theme} />
           <span style={{ flex: 1, minWidth: 0 }} />
           <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace' }}>
             {fmtTime(event.created_at)}
@@ -217,7 +217,7 @@ function EventRow({ event, theme, isDark, isMobile }) {
           {fmtTime(event.created_at)}
         </div>
         <div role="cell" style={{ flex: '0 0 140px' }}>
-          <ActionChip action={event.action} theme={theme} isDark={isDark} />
+          <ActionChip action={event.action} theme={theme} />
         </div>
         <div role="cell" style={{ flex: '1 1 180px', fontSize: 13, color: theme.text, minWidth: 0 }}>
           {actorNode}
@@ -290,7 +290,7 @@ function DateInput({ label, value, onChange, theme }) {
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function AuditScreen() {
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
 
@@ -415,7 +415,7 @@ export default function AuditScreen() {
         )}
 
         {events.map((e) => (
-          <EventRow key={e.id} event={e} theme={theme} isDark={isDark} isMobile={isMobile} />
+          <EventRow key={e.id} event={e} theme={theme} isMobile={isMobile} />
         ))}
 
         {hasNext && (
