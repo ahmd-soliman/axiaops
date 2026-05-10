@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, useCallback } from 'react';
-import { useTheme } from '../theme/ThemeContext';
 
 const ToastContext = createContext(null);
 
@@ -10,36 +9,33 @@ const ICONS = {
   warning: '⚠',
 };
 
-// Saturated bg + white text in both modes — toasts are flag-coloured
-// notifications and stay loud regardless of theme. Pulling bg from
-// theme.success/error/warning works in both modes because those tokens
-// shift to lighter shades in dark mode that still carry enough contrast
-// against white text. No border — the bg colour carries the meaning,
-// and box-shadow already provides depth on both surfaces.
-function toastPalette(type, theme) {
-  const color = ({
-    success: theme.success,
-    error:   theme.error,
-    warning: theme.warning,
-    // No semantic blue token in the palette — keep tailwind blue-500 here
-    // until we add one. Tracked alongside the other audit-log info chip.
-    info:    '#3B82F6',
-  })[type] || '#3B82F6';
-  return { bg: color, fg: theme.textOnDark };
-}
+// Toasts use a fixed dark-saturated palette in both modes — they are
+// notification flags, not surface colours. Pulling bg from theme.success/
+// error/warning failed AA contrast in dark mode (those tokens are tuned
+// as *colored text* on dark surfaces, so emerald-400 / red-400 / yellow-
+// 400 leave white toast text at <3:1, sometimes <2:1).
+//
+// Each shade below clears AA (≥ 4.5:1) against white text; visually still
+// reads as the same green / red / amber / blue notification register.
+const TOAST_BG = {
+  success: '#047857', // emerald-700, 5.56:1 on white
+  error:   '#B91C1C', // red-700,     6.41:1 on white
+  warning: '#92400E', // amber-800,   6.18:1 on white
+  info:    '#1D4ED8', // blue-700,    7.01:1 on white
+};
 
 function ToastItem({ toast, onDismiss }) {
-  const { theme } = useTheme();
-  const c = toastPalette(toast.type, theme);
+  const bg = TOAST_BG[toast.type] || TOAST_BG.info;
+  const fg = '#FFFFFF';
   return (
     <div
       role="alert"
       aria-live="polite"
       onClick={() => onDismiss(toast.id)}
       style={{
-        backgroundColor: c.bg,
+        backgroundColor: bg,
         border: 'none',
-        color: c.fg,
+        color: fg,
         padding: '11px 16px',
         borderRadius: 10,
         display: 'flex',
