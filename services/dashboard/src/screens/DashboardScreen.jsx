@@ -1005,7 +1005,10 @@ export default function DashboardScreen({
     queryClient.invalidateQueries({ queryKey: ['dismissals'] });
     setSelected(new Set());
     setBulkModal(null);
-    toast(`${action === 'snooze' ? 'Snoozed' : 'Dismissed'} ${succeeded} resource${succeeded !== 1 ? 's' : ''}`, 'success');
+    toast(
+      `${action === 'snooze' ? 'Snoozed' : 'Dismissed'} ${succeeded} resource${succeeded !== 1 ? 's' : ''}`,
+      action === 'snooze' ? 'info' : 'success',
+    );
   }
 
   const activeFilters = [
