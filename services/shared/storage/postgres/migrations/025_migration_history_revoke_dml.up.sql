@@ -1,7 +1,7 @@
 -- 025_migration_history_revoke_dml.up.sql
 --
--- Revoke INSERT/UPDATE/DELETE on axiaops.migration_history (and the
--- companion view) from the app user. DML is owner-only by policy — see
+-- Revoke INSERT/UPDATE/DELETE on axiaops.migration_history from the app
+-- user. DML is owner-only by policy — see
 -- docs/migration-history-table-design.md §Schema.
 --
 -- Why this migration exists at all: postgres.Bootstrap creates the table
@@ -15,6 +15,18 @@
 -- modify 000_init.up.sql (that would trip drift detection on every env
 -- that already applied it), so we restore the design intent here.
 --
+-- (Edit 2026-05-10: removed the parallel REVOKE on migration_history_v.
+-- The view was dropped in the same MR as the schema_migrations →
+-- migration_state rename — it was a SELECT * + LEFT() wrapper that didn't
+-- earn its keep. Bootstrap now DROPs any leftover view idempotently. Envs
+-- that applied this migration before the edit will see drift detection
+-- log a warning on the next boot. To clear it, run the rebaseline dance:
+--   axiaopsctl migrate down 1   if the env is currently at version 25
+--   axiaopsctl migrate down 2   if the env has 026 applied (down 026 first, then 025)
+--   axiaopsctl migrate up
+-- After up replays 025 with the new bytes, drift detection's
+-- "most-recent-succeeded" lookup picks the new SHA and the warning clears.)
+--
 -- Idempotent: REVOKE on a privilege the role doesn't hold is a no-op
 -- with a NOTICE — fine on re-runs.
 --
@@ -22,5 +34,4 @@
 -- via 000_init's blanket sequence grant, which is intentional (the app user
 -- never inserts, but the sequence's existence is harmless to read).
 
-REVOKE INSERT, UPDATE, DELETE ON axiaops.migration_history   FROM axiaops;
-REVOKE INSERT, UPDATE, DELETE ON axiaops.migration_history_v FROM axiaops;
+REVOKE INSERT, UPDATE, DELETE ON axiaops.migration_history FROM axiaops;

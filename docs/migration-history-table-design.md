@@ -1,12 +1,14 @@
 # Migration History Table — Design
 
-**Status:** Design proposal | **Owner:** platform | **Companion to:** [`docs/migrations.md`](migrations.md)
+**Status:** Implemented | **Owner:** platform | **Companion to:** [`docs/migrations.md`](migrations.md)
+
+> **Naming update 2026-05-10:** golang-migrate's bookkeeping table was renamed `schema_migrations` → `migration_state` (singular, accurately reflects single-row cardinality, pairs cleanly with `migration_history`). The migrate wrapper's Bootstrap layer ALTER-renames the table idempotently on existing DBs; on fresh DBs the new name is created from the start via `MigrationsTable: "migration_state"` in `migratepg.WithInstance`. References to the old name throughout this doc have been updated; the renaming rationale lives in `docs/migrations.md` §Schema Migrations Table.
 
 ## Goal
 
 Keep a permanent, durable record of **every migration event** applied to an
 AxiaOps database — every up, every down, every `force`, including failures —
-with enough metadata to answer the questions `axiaops.schema_migrations` cannot:
+with enough metadata to answer the questions `axiaops.migration_state` cannot:
 
 - *When* was migration N applied to this env, and how long did it take?
 - *Which build of the app* (binary SHA / image tag) ran it?
@@ -44,8 +46,8 @@ downstream by polling the table on a schedule, not by streaming WAL.
 The history table is **infra metadata**, not a domain audit. Things it
 explicitly does *not* do:
 
-- **No replacement for `schema_migrations`**. golang-migrate continues to own
-  `axiaops.schema_migrations` (single row, version + dirty). We layer on top.
+- **No replacement for `migration_state`**. golang-migrate continues to own
+  `axiaops.migration_state` (single row, version + dirty). We layer on top.
   Touching that table directly is still off-limits.
 - **No row-counts, no schema diffs, no DDL parsing.** Recording how many rows
   the migration touched, or what columns it added, is out of scope.
@@ -83,7 +85,7 @@ CREATE TABLE IF NOT EXISTS axiaops.migration_history (
                                   CHECK (file_sha256 ~ '^[0-9a-f]{64}$'),
     applied_by_actor              TEXT,
     applied_by_image              TEXT,
-    schema_migrations_dirty_after BOOLEAN
+    migration_state_dirty_after BOOLEAN
 );
 
 CREATE INDEX IF NOT EXISTS migration_history_version_idx
@@ -102,9 +104,9 @@ on the `ALTER DEFAULT PRIVILEGES` shipped there.
 | Column | Type | Null? | Default | Why |
 |---|---|---|---|---|
 | `id` | `BIGSERIAL` | NO | seq | Stable insertion order independent of `started_at` (so two history rows in the same millisecond still order deterministically). The same version can appear many times (up → down → up); `id` is the unique key, not `version`. |
-| `version` | `BIGINT` | NO | — | Mirror of `schema_migrations.version` — the integer prefix of the file. Indexed because every operator query starts "show me history for version N." `BIGINT` matches what golang-migrate uses internally. |
+| `version` | `BIGINT` | NO | — | Mirror of `migration_state.version` — the integer prefix of the file. Indexed because every operator query starts "show me history for version N." `BIGINT` matches what golang-migrate uses internally. |
 | `name` | `TEXT` | NO | — | Filename without extension or version prefix, e.g. `add_account_id_to_accounts`. Derivation is fixed by `name = strings.TrimSuffix(strings.TrimPrefix(identifier, fmt.Sprintf("%03d_", version)), ".up.sql")` (or `.down.sql` for downs). The `%03d` zero-pad is load-bearing — version `0` → `000`, version `24` → `024`. |
-| `direction` | `TEXT` | NO | — | One of `up`, `down`, `force`. CHECK constraint enforces the enum. `force` rows are written exclusively by the `axiaopsctl migrate force` subcommand (see §Operator UX); the wrapper itself never produces a `force` row because `migrate.Force(N)` does not go through `Steps()` — it only calls `SetVersion(N, false)` against `schema_migrations`. |
+| `direction` | `TEXT` | NO | — | One of `up`, `down`, `force`. CHECK constraint enforces the enum. `force` rows are written exclusively by the `axiaopsctl migrate force` subcommand (see §Operator UX); the wrapper itself never produces a `force` row because `migrate.Force(N)` does not go through `Steps()` — it only calls `SetVersion(N, false)` against `migration_state`. |
 | `status` | `TEXT` | NO | — | One of `started`, `succeeded`, `failed`, `backfilled`. `started` is inserted *before* the migration runs so a crashed wrapper still leaves a forensic trail; the wrapper updates it to `succeeded`/`failed` on completion. `backfilled` is reserved for the one-shot rows inserted on first deploy of this feature for migrations applied before the table existed. |
 | `started_at` | `TIMESTAMPTZ` | NO | `now()` | When the wrapper inserts the `started` row. UTC by convention. |
 | `finished_at` | `TIMESTAMPTZ` | YES | NULL | NULL while `status='started'`. Set on the wrapper's UPDATE when the migration returns. Stays NULL forever if the wrapper crashes mid-run — that's the forensic signal "this row never finished." |
@@ -113,7 +115,7 @@ on the `ALTER DEFAULT PRIVILEGES` shipped there.
 | `file_sha256` | `TEXT` | YES | NULL | Lowercase hex SHA-256 of the migration file's bytes, validated by a regex CHECK. The hash is taken of the *raw bytes as embedded in `migrationsFS` at build time* — no normalization, no whitespace trimming, no line-ending fixup. Linux/macOS dev and Linux CI build identical hashes; a Windows developer running with `core.autocrlf=true` would produce a different hash, which is out of scope for this codebase (we do not support Windows builds). NULL for `force` (no file executed) and for `backfilled` rows where we baseline against the live file. |
 | `applied_by_actor` | `TEXT` | YES | NULL | "Who/what applied this." Container hostname (App Runner / docker compose container ID prefix) by default; override via `MIGRATION_ACTOR_LABEL` env var when running `axiaopsctl` from a bastion. Free-form text on purpose — operators want to grep, not enforce a schema. |
 | `applied_by_image` | `TEXT` | YES | NULL | The build identity of the binary that ran the wrapper: `${APP_VERSION}@${APP_COMMIT_SHA}` from the existing observability env vars (see `services/shared/CLAUDE.md` → Logging). Falls back to `unknown@unknown` if either is empty — the wrapper logs a one-shot startup WARN (`migration_history: applied_by_image will be 'unknown@unknown'; drift forensics degraded`) when this fallback fires. CI and deploy pipelines must set both. |
-| `schema_migrations_dirty_after` | `BOOLEAN` | YES | NULL | Snapshot of `axiaops.schema_migrations.dirty` read by a separate `SELECT` on the history-writer connection *after* `m.Steps(±1)` returns, just before the wrapper UPDATE. **Always populated on the post-step UPDATE path** — success or failure — so readers don't special-case NULL on succeeded rows. NULL means *only* one of: row is still in-flight (`status='started'`), wrapper crashed before UPDATE, or row is `backfilled`/`force` (no UPDATE happens for those). On the success path it is redundant with `status='succeeded'`; the column earns its keep on the post-failure dirty state and as the forensic signal "this row's UPDATE never ran." |
+| `migration_state_dirty_after` | `BOOLEAN` | YES | NULL | Snapshot of `axiaops.migration_state.dirty` read by a separate `SELECT` on the history-writer connection *after* `m.Steps(±1)` returns, just before the wrapper UPDATE. **Always populated on the post-step UPDATE path** — success or failure — so readers don't special-case NULL on succeeded rows. NULL means *only* one of: row is still in-flight (`status='started'`), wrapper crashed before UPDATE, or row is `backfilled`/`force` (no UPDATE happens for those). On the success path it is redundant with `status='succeeded'`; the column earns its keep on the post-failure dirty state and as the forensic signal "this row's UPDATE never ran." |
 
 ### Columns explicitly considered and dropped
 
@@ -132,14 +134,14 @@ on the `ALTER DEFAULT PRIVILEGES` shipped there.
 
 ### Options considered
 
-**(a) DB trigger on `axiaops.schema_migrations`** — `AFTER INSERT/UPDATE/DELETE`
+**(a) DB trigger on `axiaops.migration_state`** — `AFTER INSERT/UPDATE/DELETE`
 fires a function that appends to `migration_history`. Rejected: the trigger
 sees only `version` and `dirty`. It cannot compute `file_sha256` (file bytes
 never enter Postgres as data, only as parsed-and-applied DDL), cannot record
 the actor or the image, and has no robust way to distinguish "this dirty=true
 update is the start" from "this dirty=false update is the end" without
 stateful book-keeping. Without checksums the table is just a slower
-`schema_migrations`, and checksums are precisely the column that would have
+`migration_state`, and checksums are precisely the column that would have
 caught the 010.down / 024 drift bug.
 
 **(b) Go-side stepwise wrapper** — replace `m.Up()` with a loop over
@@ -172,13 +174,13 @@ role does **not** inherit DML on it (see §Bootstrap, M8 grant).
 
 1. **Driver connection** — the existing `*sql.DB` opened in
    `postgres.Migrate()` and handed to `migratepg.WithInstance`. Owns
-   `schema_migrations` and the migration DDL. **Owned by golang-migrate** for
+   `migration_state` and the migration DDL. **Owned by golang-migrate** for
    the lifetime of the call. The wrapper does not run side queries on this
    connection.
 2. **History-writer connection** — a separate `*sql.DB` opened by the wrapper
    on the same `MIGRATION_DATABASE_URL`. Used for: the wrapper-level advisory
    lock (see below), every `INSERT INTO migration_history`, every UPDATE, the
-   `SELECT dirty FROM schema_migrations` snapshot, and the orphan-recovery
+   `SELECT dirty FROM migration_state` snapshot, and the orphan-recovery
    queries. Closed in `defer` when `Migrate()` returns.
 
 ### Wrapper-level advisory lock
@@ -305,7 +307,7 @@ wrapper process is killed during `m.Steps(1)`. Therefore:
 2. **After** `m.Steps(1)` returns, the wrapper executes a single `UPDATE` on
    the history-writer connection (auto-commit) that sets `status`,
    `finished_at`, `duration_ms`, `error_message`, and
-   `schema_migrations_dirty_after = (SELECT dirty FROM axiaops.schema_migrations)`.
+   `migration_state_dirty_after = (SELECT dirty FROM axiaops.migration_state)`.
 
 The two are deliberately on **different transactions on a different connection
 from the migration driver**. That separation is the property the orphan
@@ -373,14 +375,14 @@ down step is distinguished from a crashed up step.
 force N` issues `m.Force(N)` directly and writes a single history row with
 `direction='force'`, `status='succeeded'`, `file_sha256=NULL` (no file was
 applied). This is intentional: `Force(N)` does no DDL — it only writes
-`(N, false)` into `schema_migrations`. Because the row is born terminal,
+`(N, false)` into `migration_state`. Because the row is born terminal,
 there is no `started`→`succeeded` lifecycle and no orphan-recovery case for
 force.
 
 The force subcommand acquires the same wrapper-level advisory lock
 (`migrationHistoryLockID`) as the up/down loop before calling `m.Force(N)`
 and writing the history row. Without the lock, a concurrent `axiaopsctl
-migrate up` from another replica could observe `schema_migrations` mid-force
+migrate up` from another replica could observe `migration_state` mid-force
 and the orphan detector could race the force-row INSERT.
 
 ## Bootstrap
@@ -440,9 +442,15 @@ explicitly (`status_check`), `DROP CONSTRAINT IF EXISTS status_check`, then
 `ADD CONSTRAINT status_check CHECK (...)`. Until that need arises, prefer
 adding new orthogonal columns over extending existing enums.
 
-The convenience view `migration_history_v` (see §Operator UX) is also created
-in `Bootstrap()` via `CREATE OR REPLACE VIEW` — idempotent, and the view's
-shape can evolve without DDL conflicts.
+The convenience view `migration_history_v` (see §Operator UX) was *originally*
+designed to live in Bootstrap. **Removed during implementation** (2026-05-10):
+the view was a `SELECT *` + `LEFT(file_sha256, 8)` wrapper with no joins, no
+WHERE, no aggregate, and the schema-evolution friction it created (every
+column rename needed a `DROP VIEW` + `CREATE` dance because Postgres'
+`CREATE OR REPLACE VIEW` can't rename output columns) wasn't worth the
+saved 3 lines in the CLI's printer. The 8-char short hash is now computed
+Go-side. Bootstrap idempotently drops any leftover view from earlier
+deploys.
 
 ## Drift detection
 
@@ -514,7 +522,7 @@ noise.
 
 Existing envs (dev-1, dev-2, staging) already have 24+ migrations applied and
 zero history rows. The backfill block runs **iff `migration_history` is empty
-AND `schema_migrations` has at least one row**:
+AND `migration_state` has at least one row**:
 
 1. `Bootstrap()` creates the table and grants.
 2. Right after, before `Migrate()` runs new migrations, the wrapper checks the
@@ -528,7 +536,7 @@ AND `schema_migrations` has at least one row**:
    truth.
 
 If an operator `TRUNCATE`s `migration_history` post-rollout and restarts, the
-next boot **does** re-baseline (empty history + non-empty `schema_migrations`
+next boot **does** re-baseline (empty history + non-empty `migration_state`
 trips the condition again). This is acceptable: the table is forensic, not
 evidentiary (see §Open questions). Operators who truncate the audit trail
 have the audit trail they deserve.
@@ -556,7 +564,7 @@ resolves orphans, then sees a clean state. Concretely: after acquiring
 
 For each orphan row `(history_id, version=V, direction=D)`:
 
-1. Read `(current_version, dirty)` from `axiaops.schema_migrations`.
+1. Read `(current_version, dirty)` from `axiaops.migration_state`.
 2. Decide. Each direction has a *target* version the migration should land
    at on success — for `up V` the target is `V`; for `down V` the target is
    `V-1`. The orphan resolver compares `current_version` against the target,
@@ -564,9 +572,9 @@ For each orphan row `(history_id, version=V, direction=D)`:
 
    | `direction` | `current_version` | `dirty` | Verdict | UPDATE |
    |---|---|---|---|---|
-   | `up` | `== V` (target) | `false` | Up succeeded; only the post-step UPDATE was lost. | `status='succeeded'`, `finished_at=now()`, `duration_ms=NULL`, `error_message='timing lost; recovered post-crash'`, `schema_migrations_dirty_after=false`. |
-   | `up` | `== V` | `true` | Up failed (golang-migrate left dirty=true); wrapper crashed before the UPDATE. | `status='failed'`, `finished_at=now()`, `error_message='migration failed; details lost in wrapper crash'`, `schema_migrations_dirty_after=true`. |
-   | `up` | `== V-1` (pre-state) | `false` | Up step never started — wrapper crashed between INSERT and `Steps(1)`. Next loop iteration retries V. | `status='failed'`, `finished_at=now()`, `error_message='wrapper killed before migration step'`, `schema_migrations_dirty_after=NULL`. |
+   | `up` | `== V` (target) | `false` | Up succeeded; only the post-step UPDATE was lost. | `status='succeeded'`, `finished_at=now()`, `duration_ms=NULL`, `error_message='timing lost; recovered post-crash'`, `migration_state_dirty_after=false`. |
+   | `up` | `== V` | `true` | Up failed (golang-migrate left dirty=true); wrapper crashed before the UPDATE. | `status='failed'`, `finished_at=now()`, `error_message='migration failed; details lost in wrapper crash'`, `migration_state_dirty_after=true`. |
+   | `up` | `== V-1` (pre-state) | `false` | Up step never started — wrapper crashed between INSERT and `Steps(1)`. Next loop iteration retries V. | `status='failed'`, `finished_at=now()`, `error_message='wrapper killed before migration step'`, `migration_state_dirty_after=NULL`. |
    | `down` | `== V-1` (target) | `false` | Down succeeded; only the post-step UPDATE was lost. | as for up-success above. |
    | `down` | `== V` | `true` | Down failed (dirty); wrapper crashed before the UPDATE. | as for up-failure above. |
    | `down` | `== V` (pre-state) | `false` | Down step never started — wrapper crashed between INSERT and `Steps(-1)`. Next loop iteration retries. | as for up-never-started above. |
@@ -574,7 +582,7 @@ For each orphan row `(history_id, version=V, direction=D)`:
 
 Crucially: the algorithm is **direction-aware and version-exact**. The two
 "never started" cases (`up` at `V-1`, `down` at `V`) are indistinguishable
-without `direction` — both mean "schema_migrations is still at the row's
+without `direction` — both mean "migration_state is still at the row's
 pre-state" — and they *must* be distinguished from "succeeded" because the
 SQL/dirty state for a successful down (`V-1, false`) is identical to the
 pre-state for a never-started up of `V` (`V-1, false`). The resolver only
@@ -618,7 +626,7 @@ axiaopsctl migrate up                # Bootstrap + Migrate (current default)
 axiaopsctl migrate down N            # Steps(-N) with history recording
 axiaopsctl migrate force N           # Force(N) + write a force history row
 axiaopsctl migrate drift             # Print drift table (Go-side hash + DB compare)
-axiaopsctl migrate history [V]       # Pretty-print migration_history_v rows
+axiaopsctl migrate history [V]       # Pretty-print migration_history rows
 ```
 
 Canonical implementation path is `services/shared/cmd/migrate/main.go` (Go
@@ -643,41 +651,26 @@ migration-history-drift: axiaopsctl
     @MIGRATION_DATABASE_URL=$(MIGRATION_DATABASE_URL) bin/axiaopsctl migrate drift
 ```
 
-### SQL view
+### SQL view (removed)
 
-`Bootstrap()` creates a convenience view alongside the table:
+The original draft proposed a convenience view `axiaops.migration_history_v`
+that exposed `LEFT(file_sha256, 8) AS file_sha256_short` alongside every
+column of the base table. **Dropped during implementation 2026-05-10**: with
+no joins, no WHERE, no aggregate, the view did nothing the base table didn't,
+and the `DROP VIEW` + `CREATE VIEW` dance required for any column rename
+(Postgres' `CREATE OR REPLACE VIEW` can't rename output columns) outweighed
+the saved 3 lines in the CLI's printer. The 8-char short hash is now
+computed Go-side. Bootstrap idempotently drops any leftover view from
+earlier deploys.
 
-```sql
-CREATE OR REPLACE VIEW axiaops.migration_history_v AS
-SELECT
-    h.id,
-    h.version,
-    h.name,
-    h.direction,
-    h.status,
-    h.started_at,
-    h.finished_at,
-    h.duration_ms,
-    h.error_message,
-    h.applied_by_image,
-    h.applied_by_actor,
-    h.schema_migrations_dirty_after,
-    LEFT(h.file_sha256, 8) AS file_sha256_short,
-    h.file_sha256
-FROM axiaops.migration_history h;
-```
+Operator queries should `SELECT … FROM axiaops.migration_history` directly,
+adding their own `ORDER BY started_at, id` — `id` (a `BIGSERIAL`) breaks
+same-millisecond ties deterministically.
 
-**No `ORDER BY` in the view definition.** Postgres does not guarantee that
-an `ORDER BY` written into a view's `SELECT` is preserved when the view is
-queried — the planner may discard it. Operator queries and the
-`axiaopsctl migrate history` printer must add their own
-`ORDER BY started_at, id`. `id` (a `BIGSERIAL`) breaks same-millisecond ties
-deterministically.
-
-`file_sha256_short` (8 hex chars = 32 bits) is **for at-a-glance display
-only** — collision probability is ~10⁻⁵ over a few thousand rows, fine for
-visual reading but never use it for drift comparison. The full `file_sha256`
-column is the diff target.
+`LEFT(file_sha256, 8)` (8 hex chars = 32 bits) inline is **for at-a-glance
+display only** — collision probability is ~10⁻⁵ over a few thousand rows,
+fine for visual reading but never use it for drift comparison. The full
+`file_sha256` column is the diff target.
 
 ### Drift query
 
