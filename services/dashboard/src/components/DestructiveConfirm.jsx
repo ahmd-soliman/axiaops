@@ -63,7 +63,7 @@ export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, con
           boxShadow: '0 12px 32px rgba(0,0,0,0.3)',
         }}
       >
-        <h3 style={{ margin: 0, marginBottom: 12, fontSize: 16, fontWeight: 700, color: t.text }}>{title}</h3>
+        <h3 style={{ margin: 0, marginBottom: 12, fontSize: 16, fontWeight: 700, color: t.error }}>{title}</h3>
         <p style={pText(t)}>{warning}</p>
         {targetMissing ? (
           <Banner color="#fbbf24" bg="rgba(251,191,36,0.15)">
