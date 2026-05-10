@@ -91,36 +91,34 @@ export default function License() {
 
 function LicensePane({ lic, version, t, isDark }) {
   const tone = toneFor(lic);
-  const palette = paletteFor(tone, t);
+  const detail = detailFor(lic);
   const sectionBg = isDark ? 'rgba(255,255,255,0.03)' : '#fff';
   const border = isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb';
 
   return (
     <>
-      {/* Status card: neutral surface (matches the Claims/Build cards below)
-          with a thin tonal border + colored Chip carrying the state cue.
-          Earlier revisions tinted the whole card with palette.bg / palette.fg;
-          that read as a celebratory wash on a read-only ops inspector.
-          The colored border + badge alone are sufficient to surface tone,
-          and the neutral surface keeps the page visually uniform. */}
+      {/* Status card: neutral surface and border, matching the cards below.
+          Tone is carried by the Chip alone. */}
       <section
         style={{
-          border: `1px solid ${palette.border}`,
+          border: `1px solid ${border}`,
           borderRadius: 8,
           padding: 16,
           marginBottom: 16,
           backgroundColor: sectionBg,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: detail ? 8 : 0 }}>
           <Chip tone={tone} label={chipLabel(lic)} t={t} />
           <span style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>
             {headlineFor(lic)}
           </span>
         </div>
-        <p style={{ margin: 0, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
-          {detailFor(lic)}
-        </p>
+        {detail && (
+          <p style={{ margin: 0, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
+            {detail}
+          </p>
+        )}
       </section>
 
       {hasClaims(lic) && (
@@ -134,7 +132,7 @@ function LicensePane({ lic, version, t, isDark }) {
           }}
         >
           <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>
-            Claims
+            License details
           </h2>
           <ClaimsGrid lic={lic} t={t} />
         </section>
@@ -169,16 +167,19 @@ function hasClaims(lic) {
 }
 
 function ClaimsGrid({ lic, t }) {
-  // Two-column grid is fine on tablet+ but cramps the customer_id mono
-  // value on phones — at 360px each cell gets ~170px after padding, and
-  // the customer ID is typically wider than that. CSS auto-fit handles
-  // both shapes without a JS breakpoint hook.
+  // Days remaining + Expires at are surfaced in the status-card headline on
+  // the happy path; hide them here to avoid duplication. On any non-valid
+  // state, or if either field is missing on a "valid" row (anomaly), show
+  // all four so the operator can still see the timing.
+  // Two-column auto-fit grid handles tablet+ down to ~360px without a JS
+  // breakpoint hook.
+  const liveInHeadline = lic.state === 'valid' && lic.days_remaining != null && lic.expires_at;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-      <ClaimRow t={t} k="Customer ID"     v={lic.customer_id || '—'} mono />
+      {!liveInHeadline && <ClaimRow t={t} k="Days remaining"  v={formatDays(lic.days_remaining)} />}
+      {!liveInHeadline && <ClaimRow t={t} k="Expires at"      v={formatDate(lic.expires_at)} mono />}
       <ClaimRow t={t} k="Max organizations" v={lic.max_organizations ?? '—'} />
-      <ClaimRow t={t} k="Expires at"      v={formatDate(lic.expires_at)} mono />
-      <ClaimRow t={t} k="Days remaining"  v={formatDays(lic.days_remaining)} />
+      <ClaimRow t={t} k="Customer ID"     v={lic.customer_id || '—'} mono />
     </div>
   );
 }
@@ -257,8 +258,10 @@ function chipLabel(lic) {
 
 function headlineFor(lic) {
   if (lic.state === 'valid') {
-    if (typeof lic.days_remaining === 'number' && lic.days_remaining < 14) {
-      return `License is active — expires in ${lic.days_remaining} day${lic.days_remaining === 1 ? '' : 's'}.`;
+    const days = formatDays(lic.days_remaining);
+    const expiry = formatDate(lic.expires_at);
+    if (days !== '—' && expiry !== '—') {
+      return `License is active — ${days} remaining, expires ${expiry}.`;
     }
     return 'License is active.';
   }
@@ -275,7 +278,7 @@ function detailFor(lic) {
     if (typeof lic.days_remaining === 'number' && lic.days_remaining < 14) {
       return `Renewal will land via the issuance CLI; restart the API and ingestion services after dropping the new JWT in to pick it up. Contact ${RENEWAL_EMAIL} if a renewal hasn't been arranged.`;
     }
-    return `Scans run normally. The runtime ticker re-classifies state hourly; this pane reflects the most recent classification.`;
+    return '';
   }
   if (lic.state === 'in_grace') {
     return `Reads, dashboard, and member-management remain available. New scans continue to run during the grace window. Contact ${RENEWAL_EMAIL} to renew before the grace period ends.`;

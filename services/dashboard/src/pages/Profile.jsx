@@ -11,6 +11,7 @@ import {
   useDestructiveConfirm,
   DestructiveConfirmModal,
 } from '../components/DestructiveConfirm';
+import { DangerSection } from '../components/DangerSection';
 
 // "Manage me" surface: read-only profile + GDPR Art. 15/20 export +
 // Art. 17 self-erasure. Organization-level destructive actions (delete
@@ -129,41 +130,6 @@ function Section({ t, title, children }) {
   );
 }
 
-function DangerSection({ t, title, blurb, buttonLabel, onClick, disabled, disabledHint, children }) {
-  // Neutral card surface (t.border / t.surface) — same recipe as the benign
-  // Section helper above and as Organization.jsx's DangerSection. Red title +
-  // red button are the only chromatic cues. Pattern precedent: GitLab/Linear/
-  // Vercel settings pages. Keep this in lockstep with Organization.jsx;
-  // extract to a shared component if a third caller appears.
-  return (
-    <section
-      style={{
-        border: `1px solid ${t.border}`,
-        borderRadius: 8,
-        padding: 16,
-        marginBottom: 16,
-        backgroundColor: t.surface,
-      }}
-    >
-      <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: t.error }}>{title}</h2>
-      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>{blurb}</p>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        title={disabled ? disabledHint : undefined}
-        style={dangerBtn(t, disabled)}
-      >
-        {buttonLabel}
-      </button>
-      {disabled && disabledHint && (
-        <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: t.textMuted }}>{disabledHint}</p>
-      )}
-      {children}
-    </section>
-  );
-}
-
 function Field({ t, label, value }) {
   return (
     <div style={{ display: 'flex', gap: 12, padding: '6px 0', fontSize: 13 }}>
@@ -195,16 +161,3 @@ function primaryButton(t, disabled) {
   };
 }
 
-function dangerBtn(t, disabled) {
-  return {
-    padding: '7px 14px',
-    border: 'none',
-    borderRadius: 6,
-    backgroundColor: t.error,
-    color: '#fff',
-    fontWeight: 600,
-    fontSize: 13,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.55 : 1,
-  };
-}
