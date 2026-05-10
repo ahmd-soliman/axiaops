@@ -693,7 +693,7 @@ function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, theme, i
         whiteSpace: 'nowrap',
       }}
     >
-      <span style={{ fontSize: isMobile ? 12 : 13, fontWeight: 700, color: '#fff' }}>
+      <span style={{ fontSize: isMobile ? 12 : 13, fontWeight: 700, color: theme.textOnDark }}>
         {count} {isMobile ? '' : 'selected'}
       </span>
       {!isMobile && <div style={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.2)' }} />}
@@ -782,7 +782,7 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
             <span style={{ color: theme.textMid, fontWeight: 700, fontSize: 14 }}>Cancel</span>
           </button>
           <button onClick={handleConfirm} disabled={loading} style={{ flex: 1, padding: '12px', borderRadius: 10, backgroundColor: theme.accent, border: 'none', cursor: 'pointer', opacity: loading ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {loading ? <Spinner size={18} color="#fff" /> : <span style={{ color: '#fff', fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss All' : 'Snooze All'}</span>}
+            {loading ? <Spinner size={18} color={theme.textOnDark} /> : <span style={{ color: theme.textOnDark, fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss All' : 'Snooze All'}</span>}
           </button>
         </div>
       </div>
@@ -1053,7 +1053,7 @@ export default function DashboardScreen({
           onClick={refresh}
           style={{ marginTop: 12, backgroundColor: t.accent, padding: '10px 24px', borderRadius: 8, border: 'none', cursor: 'pointer' }}
         >
-          <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>Retry</span>
+          <span style={{ color: t.textOnDark, fontWeight: 700, fontSize: 14 }}>Retry</span>
         </button>
       </div>
     );

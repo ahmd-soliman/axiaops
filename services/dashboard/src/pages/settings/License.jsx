@@ -215,7 +215,7 @@ function Chip({ tone, label, t }) {
         textTransform: 'uppercase',
         letterSpacing: 0.4,
         backgroundColor: palette.fg,
-        color: '#fff',
+        color: t.textOnDark,
       }}
     >
       {label}

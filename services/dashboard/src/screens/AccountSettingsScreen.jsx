@@ -226,13 +226,13 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                   gap: 6,
                 }}
               >
-                {scanning ? <Spinner size={16} color="#fff" /> : (
+                {scanning ? <Spinner size={16} color={t.textOnDark} /> : (
                   <>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
                       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                     </svg>
-                    <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>Scan Now</span>
+                    <span style={{ color: t.textOnDark, fontSize: 14, fontWeight: 700 }}>Scan Now</span>
                   </>
                 )}
               </button>
@@ -257,8 +257,8 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                   gap: 6,
                 }}
               >
-                {deleteCtrl.isPending ? <Spinner size={16} color="#fff" /> : (
-                  <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>Delete</span>
+                {deleteCtrl.isPending ? <Spinner size={16} color={t.textOnDark} /> : (
+                  <span style={{ color: t.textOnDark, fontSize: 14, fontWeight: 700 }}>Delete</span>
                 )}
               </button>
             </div>
@@ -311,7 +311,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                 justifyContent: 'center',
               }}
             >
-              {loading ? <Spinner size={20} color="#fff" /> : <span style={{ color: '#fff', fontSize: 15, fontWeight: 700 }}>Save Changes</span>}
+              {loading ? <Spinner size={20} color={t.textOnDark} /> : <span style={{ color: t.textOnDark, fontSize: 15, fontWeight: 700 }}>Save Changes</span>}
             </button>
           </div>
         </div>
