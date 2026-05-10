@@ -74,15 +74,15 @@ function CLICommand({ cmd, theme }) {
   }
 
   return (
-    <div style={{ marginTop: 10, borderRadius: 10, overflow: 'hidden', border: '1px solid #334155' }}>
-      <div style={{ backgroundColor: '#0f172a', padding: '12px 14px', position: 'relative' }}>
-        <code style={{ fontFamily: '"Geist Mono Variable", monospace', fontSize: 12, color: '#e2e8f0', lineHeight: '20px', display: 'block', paddingRight: 36, wordBreak: 'break-all' }}>
+    <div style={{ marginTop: 10, borderRadius: 10, overflow: 'hidden', border: `1px solid ${theme.border}` }}>
+      <div style={{ backgroundColor: theme.bgSecondary, padding: '12px 14px', position: 'relative' }}>
+        <code style={{ fontFamily: '"Geist Mono Variable", monospace', fontSize: 12, color: theme.text, lineHeight: '20px', display: 'block', paddingRight: 36, wordBreak: 'break-all' }}>
           {cmd}
         </code>
         <button
           onClick={handleCopy}
           aria-label={copied ? 'Copied!' : 'Copy command'}
-          style={{ position: 'absolute', top: 10, right: 10, padding: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: copied ? '#34d399' : '#94a3b8' }}
+          style={{ position: 'absolute', top: 10, right: 10, padding: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: copied ? theme.success : theme.textMuted }}
         >
           {copied ? '✓' : '⧉'}
         </button>
