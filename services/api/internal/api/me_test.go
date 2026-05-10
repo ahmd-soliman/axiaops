@@ -213,6 +213,65 @@ func TestGetMe_MembershipsEmptyArrayNotNull(t *testing.T) {
 	}
 }
 
+// TestGetMe_DisplayName locks in the contract that /v1/me returns the
+// authenticated user's display name (users.name) under the JSON key "name".
+// Drives the dashboard's Profile page (issue #78). Returns the empty string
+// when the row exists but name is unset; returns the empty string when the
+// row lookup fails (best-effort — see slog.Warn in the handler).
+func TestGetMe_DisplayName(t *testing.T) {
+	store := NewMockStore().WithRole("admin").WithUsers([]model.User{
+		{ID: "user-me", OrganizationID: "organization-me", Email: "me@example.com", Name: "Test User"},
+	})
+	h := api.New(store, newQueueShim())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, meRequest(http.MethodGet, "/v1/me"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Name != "Test User" {
+		t.Errorf("name = %q; want \"Test User\"", resp.Name)
+	}
+}
+
+// TestGetMe_DisplayNameAlwaysPresent guards the wire-shape contract: the
+// "name" key MUST be in the JSON response even when the user row is missing
+// from the store (handler degrades to empty string, never omits the field).
+// Frontend code does `me.name || '—'` and would not handle `undefined`.
+func TestGetMe_DisplayNameAlwaysPresent(t *testing.T) {
+	store := NewMockStore().WithRole("admin") // no users seeded
+	h := api.New(store, newQueueShim())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, meRequest(http.MethodGet, "/v1/me"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d", w.Code)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	got, ok := raw["name"]
+	if !ok {
+		t.Fatalf("`name` key missing from response: %s", w.Body.String())
+	}
+	if string(got) != `""` {
+		t.Errorf("name = %s; want \"\" (empty string, not null/missing)", got)
+	}
+}
+
 func TestGetMe_NoMembershipReturnsEmptyRole(t *testing.T) {
 	store := NewMockStore().WithRole("")
 	h := api.New(store, newQueueShim())
