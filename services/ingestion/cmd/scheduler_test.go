@@ -147,6 +147,9 @@ func (m *mockStoreForScheduler) EnsureDevMembership(context.Context, string, str
 func (m *mockStoreForScheduler) GetUserByEmail(context.Context, string) (model.User, error) {
 	return model.User{}, nil
 }
+func (m *mockStoreForScheduler) GetUserByID(context.Context, string) (model.User, error) {
+	return model.User{}, nil
+}
 func (m *mockStoreForScheduler) DeleteUser(context.Context, string) error                { return nil }
 func (m *mockStoreForScheduler) DeleteOrganizationCascade(context.Context, string) error { return nil }
 func (m *mockStoreForScheduler) CreatePendingInvitation(context.Context, model.PendingInvitation) (model.PendingInvitation, bool, error) {
