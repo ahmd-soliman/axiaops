@@ -267,7 +267,6 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
               borderRadius: 8,
               fontSize: 13,
               color: theme.text,
-              outline: 'none',
               boxSizing: 'border-box',
             }}
           />
@@ -286,7 +285,6 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
             fontSize: 13,
             color: theme.textMid,
             cursor: 'pointer',
-            outline: 'none',
             flexShrink: 0,
           }}
         >
@@ -773,7 +771,7 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
             value={note}
             onChange={e => setNote(e.target.value)}
             placeholder={reason === 'other' ? 'Note (required)…' : 'Add a note (optional)…'}
-            style={{ marginTop: 8, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, borderRadius: 8, padding: 12, color: theme.text, fontSize: 14, minHeight: 56, width: '100%', boxSizing: 'border-box', resize: 'vertical', outline: 'none' }}
+            style={{ marginTop: 8, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, borderRadius: 8, padding: 12, color: theme.text, fontSize: 14, minHeight: 56, width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
           />
         )}
 
