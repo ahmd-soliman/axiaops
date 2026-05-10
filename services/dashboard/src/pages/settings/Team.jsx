@@ -157,7 +157,7 @@ export default function Team() {
 
   return (
     <div style={{ padding: 24, color: t.textMid }}>
-      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Team</h1>
+      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Members</h1>
       <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
         Manage the people in your organization.
       </p>
@@ -179,7 +179,7 @@ export default function Team() {
           }}
         >
           <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>
-            Invite a teammate
+            Invite a member
           </h2>
           <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMuted }}>
             Generates an invitation link. Copy it and share with the user out of
