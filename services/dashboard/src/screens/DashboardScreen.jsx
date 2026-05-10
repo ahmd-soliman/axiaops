@@ -714,7 +714,7 @@ function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, theme, i
 
 // ─── Bulk dismiss modal ───────────────────────────────────────────────────────
 
-function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, theme }) {
+function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, theme, isDark }) {
   const [reason, setReason]  = useState('intentional');
   const [note, setNote]      = useState('');
   const [loading, setLoading] = useState(false);
@@ -733,7 +733,7 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, backgroundColor: '#00000080', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+      style={{ position: 'fixed', inset: 0, backgroundColor: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(15,23,42,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
       onClick={onClose}
     >
       <div
@@ -1284,6 +1284,7 @@ export default function DashboardScreen({
         count={selected.size}
         modalAction={bulkModal}
         theme={t}
+        isDark={isDark}
       />
     </div>
   );
