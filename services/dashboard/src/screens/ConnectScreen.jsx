@@ -407,8 +407,8 @@ function PrimaryButton({ onClick, loading, label, theme }) {
       }}
     >
       {loading
-        ? <Spinner size={20} color="#fff" />
-        : <span style={{ color: '#fff', fontSize: 15, fontWeight: 700 }}>{label}</span>
+        ? <Spinner size={20} color={theme.textOnDark} />
+        : <span style={{ color: theme.textOnDark, fontSize: 15, fontWeight: 700 }}>{label}</span>
       }
     </button>
   );

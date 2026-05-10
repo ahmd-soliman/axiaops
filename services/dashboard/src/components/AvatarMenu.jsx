@@ -81,7 +81,7 @@ export default function AvatarMenu({ compact = false }) {
             height: compact ? 28 : 24,
             borderRadius: '50%',
             backgroundColor: t.accent,
-            color: '#fff',
+            color: t.textOnDark,
             fontSize: compact ? 13 : 12,
             fontWeight: 700,
           }}
