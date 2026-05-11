@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -18,6 +17,7 @@ import (
 
 	"axiaops.io/api/internal/audit"
 	"axiaops.io/api/internal/auth"
+	"axiaops.io/api/internal/httpip"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/model"
@@ -318,7 +318,7 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 			UserID:         user.ID,
 			OrganizationID: conn.OrganizationID,
 			AuthMode:       model.AuthModeSSO,
-			IP:             callbackClientIP(r),
+			IP:             httpip.Request(r),
 			UserAgent:      r.Header.Get("User-Agent"),
 		})
 		if err != nil {
@@ -540,24 +540,3 @@ func recordEvent(r *http.Request, w audit.Writer, conn model.SSOConnection, user
 	})
 }
 
-// callbackClientIP returns the request's client IP as net.IP for session
-// binding. XFF-aware (production sits behind nginx/App Runner that
-// overwrites the header). Returns nil if neither XFF nor RemoteAddr
-// yields a parseable IP — auth.MintSession persists IP=nil as NULL.
-func callbackClientIP(r *http.Request) net.IP {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		if first, _, ok := strings.Cut(fwd, ","); ok {
-			if ip := net.ParseIP(strings.TrimSpace(first)); ip != nil {
-				return ip
-			}
-		}
-		if ip := net.ParseIP(strings.TrimSpace(fwd)); ip != nil {
-			return ip
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	return net.ParseIP(host)
-}
