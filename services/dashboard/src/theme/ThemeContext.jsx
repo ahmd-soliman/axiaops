@@ -1,13 +1,30 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-const storage = {
-  async getItem(key) {
-    try { return localStorage.getItem(key); } catch { return null; }
-  },
-  async setItem(key, value) {
-    try { localStorage.setItem(key, value); } catch { /* ignore */ }
-  },
-};
+// Theme preference is one of three values:
+//   - 'light'  : user explicitly picked light
+//   - 'dark'   : user explicitly picked dark
+//   - 'system' : follow the OS via prefers-color-scheme (default for new users)
+// Stored as-is in localStorage under the 'theme' key. The resolved isDark flag
+// is derived: explicit prefs win, 'system' delegates to matchMedia.
+const STORAGE_KEY = 'theme';
+const PREFERENCES = ['light', 'dark', 'system'];
+
+function readPreference() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (PREFERENCES.includes(saved)) return saved;
+  } catch { /* ignore */ }
+  return 'system';
+}
+
+function writePreference(value) {
+  try { localStorage.setItem(STORAGE_KEY, value); } catch { /* ignore */ }
+}
+
+function getSystemDark() {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+}
 
 // ─── Light Theme ──────────────────────────────────────────────────────────────
 // Palette philosophy
@@ -66,6 +83,24 @@ const lightTheme = {
   warning: '#A16207',           // yellow-700 — distinct hue from orange brand;
                                 // yellow-500 on white fails AA at 1.9:1, so we
                                 // push darker.
+
+  // Dashboard alert / status tokens (UI color system review, 2026-05-11).
+  // Distinct from the generic error/warning above so callers signal "this is
+  // a FinOps alert" rather than "this is a form-validation error". Values
+  // are picked to pass WCAG AA on white at large-text size (3:1) and body
+  // size where used (4.5:1). Orange is reserved as brand-only — the
+  // Monthly Waste headline uses amber, not the brand accent.
+  alertCritical: '#DC2626',     // red-600, 4.8:1 on white — waste-ratio bar
+  alertWarning:  '#D97706',     // amber-600, 4.5:1 on white — monthly waste
+  statusOk:      '#16A34A',     // green-600 — onboarding completion ticks
+
+  // Data-viz sequential ramp (light theme). 5-bucket cyan/teal scale, dark
+  // end = biggest waste. Bar fills are non-text content so the 3:1 AA bar
+  // applies to the fill-vs-track contrast, not fill-vs-white. The track is
+  // slate-100, deliberately dimmer than #fff so the lightest ramp stop is
+  // still distinguishable.
+  vizRamp: ['#0E7490', '#0891B2', '#06B6D4', '#22D3EE', '#7DD3FC'],
+  track: '#F1F5F9',             // slate-100 — bar track for unfilled portion
 };
 
 // ─── Dark Theme ────────────────────────────────────────────────────────────────
@@ -120,40 +155,62 @@ const darkTheme = {
   error: '#F87171',             // red-400, soft coral
   success: '#34D399',           // emerald-400
   warning: '#FACC15',           // yellow-400, distinct hue from orange brand
+
+  // Dashboard alert / status tokens (UI color system review, 2026-05-11).
+  // Mirror the light-theme additions; the FinOps-alert semantics are the
+  // same on dark — they just need readability against the deep-navy bg.
+  alertCritical: '#F87171',     // red-400, matches error — waste-ratio bar
+  alertWarning:  '#FBBF24',     // amber-400 — monthly waste headline
+  statusOk:      '#34D399',     // emerald-400 — onboarding completion ticks
+
+  // Data-viz sequential ramp (dark theme). Lighter end = biggest waste so the
+  // brightest stop pops on the dark page bg (inverse of light theme).
+  vizRamp: ['#7DD3FC', '#38BDF8', '#0EA5E9', '#0891B2', '#155E75'],
+  track: '#263042',             // matches chipBg — bar track on dark surfaces
 };
 
 const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
-  const [isDark, setIsDark] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
+  // Sync init — both reads are synchronous so the very first render already
+  // has the right theme. The previous async storage read was guarded by an
+  // `if (isLoading) return null` gate that produced a blank-screen flicker
+  // on cold load; killing that gate is the main FOUC win here.
+  const [preference, setPreferenceState] = useState(readPreference);
+  const [systemDark, setSystemDark] = useState(getSystemDark);
 
+  // Listen for OS theme changes. Always-on (cheap) so a switch from 'system'
+  // → explicit → back to 'system' picks up the current OS state without
+  // re-subscribing.
   useEffect(() => {
-    storage.getItem('theme').then((saved) => {
-      if (saved) setIsDark(saved === 'dark');
-      setIsLoading(false);
-    });
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const update = () => setSystemDark(mql.matches);
+    mql.addEventListener?.('change', update);
+    return () => mql.removeEventListener?.('change', update);
   }, []);
+
+  const isDark = preference === 'system' ? systemDark : preference === 'dark';
 
   // Project the theme onto the root `color-scheme` so native UA controls
   // (date pickers, scrollbars, autofill chrome, focus rings) follow the app's
   // theme instead of the OS preference. Without this, Firefox renders the
   // <input type="date"> popup in OS dark mode even when the app is in light
-  // mode, and Chrome's calendar-picker-indicator picks the wrong tint.
+  // mode, and Chrome's calendar-picker-indicator picks the wrong tint. The
+  // inline boot script in index.html primes the same property before React
+  // mounts to avoid a one-frame flash on cold load.
   useEffect(() => {
     document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
   }, [isDark]);
 
-  const toggleTheme = async () => {
-    const newTheme = !isDark;
-    setIsDark(newTheme);
-    await storage.setItem('theme', newTheme ? 'dark' : 'light');
+  const setPreference = (next) => {
+    if (!PREFERENCES.includes(next)) return;
+    setPreferenceState(next);
+    writePreference(next);
   };
 
-  if (isLoading) return null;
-
   return (
-    <ThemeContext.Provider value={{ theme: isDark ? darkTheme : lightTheme, isDark, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme: isDark ? darkTheme : lightTheme, isDark, preference, setPreference }}>
       {children}
     </ThemeContext.Provider>
   );
