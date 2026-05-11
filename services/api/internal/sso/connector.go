@@ -65,9 +65,21 @@ func NewNativeConnector(store storage.Store) *NativeConnector {
 // kinde_connection_id MUST be empty in self-hosted mode. The DB CHECK
 // constraint also rejects status=active+oidc with empty client_secret —
 // that's a backstop, not a primary validation.
+//
+// Discovery / metadata URLs are required to be https. Audit H-3: a
+// deceptive admin can otherwise route the OIDC ceremony over plain HTTP,
+// exposing client_secret on the token POST to any LAN-side observer
+// (we sit behind nginx but the IdP hop happens before that). Loopback
+// http://localhost is permitted so local fake-IdP tests keep working.
 func (n *NativeConnector) Save(ctx context.Context, c model.SSOConnection) (model.SSOConnection, error) {
 	if strings.TrimSpace(c.KindeConnectionID) != "" {
 		return model.SSOConnection{}, fmt.Errorf("sso: kinde_connection_id must be empty under self-hosted deployment (Option B per design §4.2)")
+	}
+	if err := requireHTTPS(c.OIDCDiscoveryURL, "oidc_discovery_url"); err != nil {
+		return model.SSOConnection{}, err
+	}
+	if err := requireHTTPS(c.IdPMetadataURL, "idp_metadata_url"); err != nil {
+		return model.SSOConnection{}, err
 	}
 	if c.ID == "" {
 		return n.store.CreateSSOConnection(ctx, c)
@@ -105,3 +117,22 @@ func (n *NativeConnector) Test(_ context.Context, _ string) (TestResult, error) 
 }
 
 var _ Connector = (*NativeConnector)(nil)
+
+// requireHTTPS enforces https:// on the IdP-facing URL fields persisted on a
+// connection. Empty is allowed (the field is optional for non-OIDC flows or
+// when discovery is disabled). Loopback http://localhost / 127.0.0.1 is
+// permitted so the local fake-IdP test fixture keeps working without TLS.
+func requireHTTPS(raw, field string) error {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return nil
+	}
+	lower := strings.ToLower(v)
+	if strings.HasPrefix(lower, "https://") {
+		return nil
+	}
+	if strings.HasPrefix(lower, "http://localhost") || strings.HasPrefix(lower, "http://127.0.0.1") {
+		return nil
+	}
+	return fmt.Errorf("sso: %s must use https:// (got %q) — plain HTTP leaks client_secret on the token POST", field, raw)
+}
