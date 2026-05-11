@@ -741,12 +741,13 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
   const [reason, setReason]  = useState('intentional');
   const [note, setNote]      = useState('');
   const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
 
   if (!visible) return null;
 
   async function handleConfirm() {
     if (reason === 'other' && !note.trim()) {
-      alert('Please add a note when selecting "Other".');
+      toast('Please add a note when selecting "Other".', 'error');
       return;
     }
     setLoading(true);
