@@ -24,6 +24,7 @@ var errCacheOutage = errors.New("simulated cache outage")
 func (erroringCache) Get(context.Context, string) ([]byte, error)              { return nil, errCacheOutage }
 func (erroringCache) Set(context.Context, string, []byte, time.Duration) error { return errCacheOutage }
 func (erroringCache) Del(context.Context, string) error                        { return errCacheOutage }
+func (erroringCache) GetDel(context.Context, string) ([]byte, error)           { return nil, errCacheOutage }
 func (erroringCache) Incr(context.Context, string, time.Duration) (int64, error) {
 	return 0, errCacheOutage
 }
