@@ -16,6 +16,8 @@ import { PERM } from '../../api/permissions';
 import { Spinner } from '../../components/primitives';
 import { useBreakpoint } from '../../components/primitives/useBreakpoint';
 import { CardRow } from '../../components/primitives/CardRow';
+import { useDestructiveConfirm, DestructiveConfirmModal } from '../../components/DestructiveConfirm';
+import { useToast } from '../../context/ToastContext';
 
 // Role labels in the order shown in dropdowns and the matrix in the design.
 // Owner is intentionally omitted — promotion to owner happens only via the
@@ -25,6 +27,7 @@ const ASSIGNABLE_ROLES = ['admin', 'member', 'viewer'];
 export default function Team() {
   const { theme: t, isDark } = useTheme();
   const { me, can, refresh } = useMe();
+  const { toast } = useToast();
   const qc = useQueryClient();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
@@ -34,6 +37,11 @@ export default function Team() {
   const [addError, setAddError] = useState('');
   const [error, setError] = useState('');
   const [transferTo, setTransferTo] = useState('');
+  // Target row for the remove-member confirm modal. Shared across the card
+  // and table layouts; one modal instance, two triggers. Self-leave uses the
+  // literal "leave" as the type-to-confirm target (member emails are not
+  // shown to users typing their own removal).
+  const [removeTarget, setRemoveTarget] = useState(null);
   // Most-recently-issued invitation, surfaced inline so the admin can copy
   // the OOB redemption URL.
   const [lastInvite, setLastInvite] = useState(null);
@@ -135,19 +143,39 @@ export default function Team() {
     onError: (err) => setError(humanize(err, 'Failed to change role')),
   });
 
-  const removeMutation = useMutation({
-    mutationFn: (id) => removeMember(id),
-    onSuccess: invalidate,
-    onError: (err) => setError(humanize(err, 'Failed to remove member')),
-  });
-
-  const transferMutation = useMutation({
-    mutationFn: (toUserID) => transferOwnership(toUserID),
+  // Destructive-action confirm modals — type-to-confirm UX shared with other
+  // pages (org delete, account delete, user delete). Replaces three earlier
+  // window.confirm() sites (per issue #84).
+  //
+  // The onSuccess callbacks below reference `removeCtrl` / `transferCtrl` —
+  // the very const they're being assigned to. JS closures resolve by name at
+  // call time (against the enclosing scope), and onSuccess only runs after a
+  // mutation completes, by which point the const has been initialised on at
+  // least one render. Safe in practice; the alternative (the hook auto-closes
+  // on success) would require a primitive change in DestructiveConfirm.jsx.
+  const removeCtrl = useDestructiveConfirm({
+    target: removeTarget?.isSelf ? 'leave' : (removeTarget?.email || ''),
+    mutationFn: () => removeMember(removeTarget?.id),
+    successMessage: removeTarget?.isSelf ? 'Left the organization' : 'Member removed',
     onSuccess: () => {
-      setTransferTo('');
+      setRemoveTarget(null);
+      removeCtrl.close();
       invalidate();
     },
-    onError: (err) => setError(humanize(err, 'Failed to transfer ownership')),
+    toast,
+  });
+
+  const transferToEmail = (memberships.data || []).find((m) => m.user_id === transferTo)?.email || '';
+  const transferCtrl = useDestructiveConfirm({
+    target: transferToEmail,
+    mutationFn: () => transferOwnership(transferTo),
+    successMessage: 'Ownership transferred',
+    onSuccess: () => {
+      setTransferTo('');
+      transferCtrl.close();
+      invalidate();
+    },
+    toast,
   });
 
   const canInvite = can(PERM.MEMBERS_INVITE);
@@ -492,10 +520,8 @@ export default function Team() {
                     <button
                       type="button"
                       onClick={() => {
-                        const confirmText = isSelf
-                          ? 'Leave this organization?'
-                          : `Remove ${m.email || 'this user'}?`;
-                        if (window.confirm(confirmText)) removeMutation.mutate(m.id);
+                        setRemoveTarget({ id: m.id, email: m.email || '', isSelf });
+                        removeCtrl.openModal();
                       }}
                       style={{ ...dangerButton(t), minHeight: 36 }}
                     >
@@ -560,10 +586,8 @@ export default function Team() {
                         <button
                           type="button"
                           onClick={() => {
-                            const confirmText = isSelf
-                              ? 'Leave this organization?'
-                              : `Remove ${m.email || 'this user'}?`;
-                            if (window.confirm(confirmText)) removeMutation.mutate(m.id);
+                            setRemoveTarget({ id: m.id, email: m.email || '', isSelf });
+                            removeCtrl.openModal();
                           }}
                           style={dangerButton(t)}
                         >
@@ -612,19 +636,36 @@ export default function Team() {
             </select>
             <button
               type="button"
-              disabled={!transferTo || transferMutation.isPending}
-              onClick={() => {
-                if (window.confirm('Transfer ownership? You will be demoted to admin.')) {
-                  transferMutation.mutate(transferTo);
-                }
-              }}
+              disabled={!transferTo || transferCtrl.isPending}
+              onClick={() => transferCtrl.openModal()}
               style={primaryButton(t)}
             >
-              {transferMutation.isPending ? 'Transferring…' : 'Transfer'}
+              {transferCtrl.isPending ? 'Transferring…' : 'Transfer'}
             </button>
           </div>
         </section>
       )}
+
+      <DestructiveConfirmModal
+        ctrl={removeCtrl}
+        title={removeTarget?.isSelf ? 'Leave organization' : 'Remove member'}
+        warning={
+          removeTarget?.isSelf
+            ? 'You will lose access to this organization and all its data. You can be re-invited by an admin.'
+            : `${removeTarget?.email || 'This user'} will lose access to this organization and all its data. They can be re-invited by an admin.`
+        }
+        targetLabel={removeTarget?.isSelf ? 'word' : 'member email'}
+        confirmLabel={removeTarget?.isSelf ? 'Leave' : 'Remove'}
+      />
+      <DestructiveConfirmModal
+        ctrl={transferCtrl}
+        title="Transfer ownership"
+        warning={
+          `${transferToEmail || 'The selected user'} will become the owner of this organization. You will be demoted to admin in the same operation.`
+        }
+        targetLabel="new owner's email"
+        confirmLabel="Transfer"
+      />
     </div>
   );
 }
