@@ -115,7 +115,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
           <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
             Total Spend
           </span>
-          <span style={{ fontSize: 28, fontWeight: 800, color: theme.text, letterSpacing: -0.5, display: 'block' }}>
+          <span style={{ fontSize: 28, fontWeight: 800, color: theme.text, letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
             {currency} {totalSpend.toFixed(2)}
           </span>
           <span style={{ fontSize: 12, color: theme.textMuted, marginTop: 2, display: 'block' }}>
@@ -148,7 +148,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
               }
             />
           </div>
-          <span style={{ fontSize: 28, fontWeight: 800, color: theme.accent, letterSpacing: -0.5, display: 'block' }}>
+          <span style={{ fontSize: 28, fontWeight: 800, color: theme.alertWarning, letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
             {currency} {waste.toFixed(2)}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
@@ -156,7 +156,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
               {zombieCount} zombie{zombieCount !== 1 ? 's' : ''}
             </span>
             {delta !== null && (
-              <span style={{ fontSize: 11, color: delta > 0 ? theme.error : theme.success, fontWeight: 700 }}>
+              <span style={{ fontSize: 11, color: delta > 0 ? theme.alertCritical : theme.statusOk, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                 {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
               </span>
             )}
@@ -165,34 +165,62 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
       </div>
 
       {/* Waste bar */}
-      {totalSpend > 0 && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted }}>Waste ratio</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: wastePercent > 20 ? theme.error : wastePercent > 10 ? theme.warning : theme.success }}>
-              {wastePercent.toFixed(1)}%
-            </span>
+      {totalSpend > 0 && (() => {
+        // Red is reserved for the headline pain — waste ratio over the threshold.
+        // Below threshold, amber/green carry the warning/ok semantics. See
+        // docs/ui-color-system-review.md §4 (red is overused).
+        const ratioColor = wastePercent > 20
+          ? theme.alertCritical
+          : wastePercent > 10
+            ? theme.alertWarning
+            : theme.statusOk;
+        return (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted }}>Waste ratio</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: ratioColor, fontVariantNumeric: 'tabular-nums' }}>
+                {wastePercent.toFixed(1)}%
+              </span>
+            </div>
+            <div style={{ height: 6, backgroundColor: theme.track, borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${Math.min(wastePercent, 100)}%`,
+                backgroundColor: ratioColor,
+                borderRadius: 3,
+                transition: 'width 0.3s',
+              }} />
+            </div>
           </div>
-          <div style={{ height: 6, backgroundColor: theme.border, borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{
-              height: '100%',
-              width: `${Math.min(wastePercent, 100)}%`,
-              backgroundColor: wastePercent > 20 ? theme.error : wastePercent > 10 ? theme.warning : theme.success,
-              borderRadius: 3,
-              transition: 'width 0.3s',
-            }} />
-          </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
 
 // ─── Service breakdown ───────────────────────────────────────────────────────
 
+// Pick a sequential-ramp color by rank. byService is already sorted desc by
+// savings (biggest first), so rank=0 → ramp[0] (= biggest waste). The eye
+// reads magnitude from color saturation in addition to bar length — redundant
+// encoding is desirable in data viz. See docs/ui-color-system-review.md.
+//
+// Contract: callers MUST supply `vizRamp` ordered from "biggest-waste end" to
+// "smallest-waste end" — the function only looks up by index. The light theme
+// runs dark→light (dark teal = biggest), the dark theme runs light→dark
+// (bright sky = biggest, dim teal = smallest); both work because each ramp is
+// internally ordered to put the visually-dominant stop at index 0. Reordering
+// either ramp without updating this contract silently inverts the encoding.
+function rampColorByRank(rank, total, vizRamp) {
+  if (total <= vizRamp.length) return vizRamp[Math.min(rank, vizRamp.length - 1)];
+  const idx = Math.min(vizRamp.length - 1, Math.floor((rank / total) * vizRamp.length));
+  return vizRamp[idx];
+}
+
 function ServiceBreakdown({ byService, currency, theme, isMobile }) {
   if (byService.length === 0) return null;
   const maxSavings = Math.max(...byService.map(([, d]) => d.savings), 0.01);
+  const total = byService.length;
 
   return (
     <div style={{ padding: isMobile ? '16px' : '16px 20px', borderBottom: `1px solid ${theme.border}` }}>
@@ -200,9 +228,10 @@ function ServiceBreakdown({ byService, currency, theme, isMobile }) {
         Waste by Service
       </span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {byService.map(([svc, data]) => {
+        {byService.map(([svc, data], rank) => {
           const cfg = serviceConfig(svc);
           const barWidth = (data.savings / maxSavings) * 100;
+          const rampColor = rampColorByRank(rank, total, theme.vizRamp);
           return (
             <div key={svc}>
               {/* Header — at xs the label cluster (dot + name + count) and
@@ -218,14 +247,14 @@ function ServiceBreakdown({ byService, currency, theme, isMobile }) {
                 marginBottom: 4,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: rampColor, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
                   <span style={{ fontSize: 11, color: theme.textMuted }}>{data.zombies} resource{data.zombies !== 1 ? 's' : ''}</span>
                 </div>
-                <span style={{ fontSize: 12, fontWeight: 700, color: theme.accent }}>{currency}{data.savings.toFixed(2)}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: theme.text, fontVariantNumeric: 'tabular-nums' }}>{currency}{data.savings.toFixed(2)}</span>
               </div>
-              <div style={{ height: 4, backgroundColor: theme.border, borderRadius: 2, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${barWidth}%`, backgroundColor: cfg.color, borderRadius: 2, transition: 'width 0.3s' }} />
+              <div style={{ height: 6, backgroundColor: theme.track, borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${barWidth}%`, backgroundColor: rampColor, borderRadius: 2, transition: 'width 0.3s' }} />
               </div>
             </div>
           );
