@@ -1,7 +1,7 @@
 # UI Color System Review — Dashboard Overview
 
 **Status:** Proposal / design critique
-**Scope:** Light mode only (dark mode toggle to be removed — see §6)
+**Scope:** Light mode (dark mode is also supported; recommendations here apply to both unless noted)
 **Surface reviewed:** Dashboard "Overview" page (Total Spend / Monthly Waste / Waste by Service)
 **Author:** Design review pass, 2026-05-11
 
@@ -61,11 +61,7 @@ Red should only mark anomalies, threshold breaches, and the waste-ratio bar. Ser
 - The strikethrough on completed items (`Connect AWS account`, `Run your first scan`) reads as "errors / removed" more than "done." Use a muted green check + gray (not strikethrough) text — strikethrough is a destructive affordance.
 - Consider docking this into the page rather than floating it; floating panels imply transience but this is onboarding state that persists across visits until dismissed.
 
-## 6. Dead control: dark mode toggle
-
-The moon icon in the top right is shown, but per the current product decision this is a **light-mode-only** product. Remove the toggle rather than leave a non-functional or half-supported control.
-
-## 7. Bar styling
+## 6. Bar styling
 
 The bars in "Waste by Service" are ~3–4px tall, which makes the row feel anemic and hard to scan at distance. Recommend:
 
@@ -73,7 +69,7 @@ The bars in "Waste by Service" are ~3–4px tall, which makes the row feel anemi
 - Track color: `--color-neutral-100` (very subtle, so the filled portion does the work).
 - Label/value typography: tabular numerals (`font-feature-settings: "tnum"`) so digits and decimals align column-wise.
 
-## 8. Brand accent discipline
+## 7. Brand accent discipline
 
 The AxiaOps logo uses an orange→purple gradient. That gradient is the brand. It should appear **only** on:
 
@@ -87,76 +83,70 @@ It should NOT appear on data visualization. Data viz is a separate problem with 
 
 ## Recommended token system
 
-Proposed CSS custom properties for the dashboard (`services/dashboard/src/styles/tokens.css` or equivalent):
+The dashboard distributes design tokens as JS objects via `useTheme()` (a React context in `services/dashboard/src/theme/ThemeContext.jsx`) — there is no `tokens.css` and no Tailwind. The tokens below are added to **both** the light and dark `theme` objects in that file:
 
-```css
-:root {
-  /* Brand — logo, primary CTAs, active nav only */
-  --color-brand-500: #f97316;          /* orange CTA */
-  --color-brand-gradient: linear-gradient(135deg, #f97316, #a855f7);
+```js
+// services/dashboard/src/theme/ThemeContext.jsx
+const lightTheme = {
+  // … existing tokens (accent, text, surface, border, error, success, warning) …
 
-  /* Semantic — alerts, status */
-  --color-alert-critical: #dc2626;     /* red — waste ratio, anomalies */
-  --color-alert-warning:  #f59e0b;     /* amber — monthly waste headline */
-  --color-status-ok:      #16a34a;     /* green — completed onboarding */
+  // Dashboard alert / status tokens — distinct from generic error/warning so
+  // callers signal "this is a FinOps alert" rather than "form validation".
+  alertCritical: '#DC2626',     // red — waste ratio, anomalies
+  alertWarning:  '#D97706',     // amber — monthly waste headline
+  statusOk:      '#16A34A',     // green — completed onboarding
 
-  /* Data viz — sequential ramp, applied by rank */
-  --viz-ramp-1: #0e7490;               /* darkest = biggest waste */
-  --viz-ramp-2: #0891b2;
-  --viz-ramp-3: #06b6d4;
-  --viz-ramp-4: #22d3ee;
-  --viz-ramp-5: #67e8f9;               /* lightest = smallest waste */
+  // Data-viz sequential ramp, applied by rank. Light theme: dark teal end =
+  // biggest waste; light cyan end = smallest. Dark theme has a complementary
+  // inverted ramp where the brightest stop maps to biggest waste.
+  vizRamp: ['#0E7490', '#0891B2', '#06B6D4', '#22D3EE', '#7DD3FC'],
+  track:   '#F1F5F9',           // bar track — slate-100
+};
+```
 
-  /* Neutrals */
-  --color-text-primary:   #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-muted:     #94a3b8;
-  --color-surface:        #ffffff;
-  --color-surface-alt:    #f8fafc;
-  --color-border:         #e2e8f0;
-  --color-track:          #f1f5f9;     /* bar track */
+The bar component picks a ramp color by **rank**, not by service name:
+
+```jsx
+function rampColorByRank(rank, total, vizRamp) {
+  if (total <= vizRamp.length) return vizRamp[Math.min(rank, vizRamp.length - 1)];
+  const idx = Math.min(vizRamp.length - 1, Math.floor((rank / total) * vizRamp.length));
+  return vizRamp[idx];
 }
 ```
 
-The bar component then picks a ramp color by **rank**, not by service name:
+This way EC2 at #1 is always the most prominent stop, CloudWatch at #11 is always the dimmest, and the eye reads magnitude from color saturation — same as it already reads it from bar length. Redundant encoding is good in data viz.
 
-```tsx
-function rampColorByRank(rank: number, total: number): string {
-  const ramps = [
-    'var(--viz-ramp-1)', 'var(--viz-ramp-2)', 'var(--viz-ramp-3)',
-    'var(--viz-ramp-4)', 'var(--viz-ramp-5)',
-  ];
-  const bucket = Math.min(
-    ramps.length - 1,
-    Math.floor((rank / total) * ramps.length),
-  );
-  return ramps[bucket];
-}
-```
-
-This way EC2 at #1 is always the darkest, CloudWatch at #11 is always the lightest, and the eye reads magnitude from color saturation — same as it already reads it from bar length. Redundant encoding is good in data viz.
+> **Why JS tokens instead of `tokens.css`?** The codebase is CSS-in-JS via React context — every component already reads colors via `useTheme().theme.x`. Introducing CSS custom properties alongside the existing JS object would force a parallel system. Migrating fully to `:root[data-theme]` + CSS variables is the long-term cleanup (see "Dark mode posture" §10 below) but is a larger refactor than this review's scope.
 
 ---
 
 ## Change checklist
 
-- [ ] Define design tokens (see above) in `services/dashboard/src/styles/tokens.css`.
-- [ ] Migrate "Waste by Service" bars + chips to `rampColorByRank()`.
-- [ ] Remove per-service hardcoded colors from the legend chips at the bottom — they should match the bar above them, which now comes from rank, not service identity.
-- [ ] Change the "Monthly Waste" headline color from raw orange to `--color-alert-warning`.
-- [ ] Change the waste-ratio bar from raw red to `--color-alert-critical`.
-- [ ] Recolor the "What's Next" panel: links → neutral text + `--color-brand-500` only on the active step's arrow; completed items → `--color-status-ok` check + `--color-text-muted` body, no strikethrough.
-- [ ] Bump bar height to 6–8px, add 2px radius, apply `--color-track` to the unfilled portion.
-- [ ] Apply `font-variant-numeric: tabular-nums` to all currency and percentage values.
-- [ ] Remove the dark-mode toggle from the top-right of the header.
-- [ ] Verify all proposed colors pass WCAG AA contrast against `--color-surface` (4.5:1 for body text, 3:1 for graphics).
+- [x] Define design tokens on both `lightTheme` and `darkTheme` in `ThemeContext.jsx`.
+- [x] Migrate "Waste by Service" bars + dots to `rampColorByRank()`.
+- [x] Per-service legend chips removed in favour of the rank-based encoding (the dot color now comes from rank, not service identity).
+- [x] Change the "Monthly Waste" headline color from `theme.accent` to `theme.alertWarning`.
+- [x] Change the waste-ratio bar bands to `theme.alertCritical` / `theme.alertWarning` / `theme.statusOk`.
+- [x] Recolor the "What's Next" panel: pending items → neutral text + `theme.accent` only on the arrow; completed items → `theme.statusOk` check + `theme.textMuted` body, no strikethrough.
+- [x] Bump "Waste by Service" bar height to 6px, 2px radius, apply `theme.track` to the unfilled portion.
+- [x] Apply `font-variant-numeric: tabular-nums` to all currency and percentage values in the Overview hero + ServiceBreakdown.
+- [ ] Verify all proposed colors pass WCAG AA contrast against `theme.surface` (4.5:1 for body text, 3:1 for graphics) in **both** themes — partly done by inspection (existing tokens carry AA/AAA notes); a tool-assisted audit pass is still owed.
 
 ## Out of scope (track separately)
 
 - Trends / Costs / Cloud Accounts pages — same token system applies but each page needs its own review pass.
 - Empty states and error states.
 - Mobile / narrow-viewport layout.
-- Dark mode (per current decision, dropped).
+- Dark-mode-specific posture work — the toggle stays. See the "Dark mode posture" section below for what's worth a follow-up pass.
+
+## Dark mode posture
+
+Dark mode is a fully-built, deliberately-maintained surface — the toggle stays. This pass also brought the surrounding plumbing up to current best practice:
+
+- [x] **OS-preference default** — replaces the hard-coded `useState(true)`. Cold load with no stored choice resolves via `window.matchMedia('(prefers-color-scheme: dark)')`; a `matchMedia` listener keeps `isDark` in sync if the OS flips while the user is on `system`.
+- [x] **Three-state preference** — `light` / `dark` / `system` stored under the `theme` localStorage key. AppShell (desktop) shows a three-icon segmented control; MobileNav (drawer) shows three labelled rows. Picking `system` re-delegates to the OS.
+- [x] **FOUC fix** — provider is now synchronous (no `isLoading` blank-screen gate). An inline `<script>` in `index.html` primes `document.documentElement.style.colorScheme` before React mounts so native UA chrome (scrollbars, form controls, focus rings) renders in the right theme on the first paint. The inline script's resolution logic mirrors `ThemeContext.readPreference` + `getSystemDark` — keep them in sync.
+- [ ] **CSS custom properties on `:root[data-theme=...]`** — deferred. Tokens are still JS objects distributed via React context. Moving to CSS variables would let descendants inherit theme values without re-rendering on toggle and let the inline boot script eliminate FOUC for React-rendered content too (currently it only handles UA chrome). Bigger refactor; track separately.
 
 ## Open questions
 
