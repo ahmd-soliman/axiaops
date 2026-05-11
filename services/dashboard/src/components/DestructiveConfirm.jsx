@@ -91,7 +91,7 @@ export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, con
             />
           </>
         )}
-        {ctrl.error && <Banner color="#fca5a5" bg="rgba(239,68,68,0.15)">{ctrl.error}</Banner>}
+        {ctrl.error && <Banner color={'var(--color-error)'} bg="rgba(239,68,68,0.15)">{ctrl.error}</Banner>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
           <button type="button" onClick={ctrl.close} style={ghostBtn}>Cancel</button>
           <button
