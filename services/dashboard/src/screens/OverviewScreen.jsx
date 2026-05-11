@@ -596,25 +596,48 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
 
 // ─── Dismissed resource card ──────────────────────────────────────────────────
 
-function DismissedCard({ item, theme, isDark }) {
+function DismissedCard({ item, theme, isDark, onSelect }) {
   const cfg = serviceConfig(item.service);
   const reasonLabel = {
     intentional: 'Intentional', scheduled_deletion: 'Scheduled', false_positive: 'False positive',
     cost_accepted: 'Cost accepted', other: 'Other',
   }[item.reason] ?? item.reason;
   const isSnoozed = item.action === 'snooze';
+  const [focused, setFocused] = useState(false);
+
+  const handleSelect = () => {
+    onSelect?.({
+      resource_id: item.resource_id,
+      internal_account_id: item.account_id,
+      region: item.region,
+      service: item.service,
+    });
+  };
 
   return (
-    <div style={{
-      backgroundColor: theme.card,
-      marginLeft: 16,
-      marginRight: 16,
-      marginBottom: 8,
-      borderRadius: 10,
-      padding: '12px 14px',
-      border: `1px solid ${theme.border}`,
-      opacity: 0.75,
-    }}>
+    <button
+      type="button"
+      onClick={handleSelect}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={{
+        backgroundColor: theme.card,
+        marginLeft: 16,
+        marginRight: 16,
+        marginBottom: 8,
+        borderRadius: 10,
+        padding: '12px 14px',
+        border: `1px solid ${theme.border}`,
+        opacity: 0.75,
+        cursor: onSelect ? 'pointer' : 'default',
+        textAlign: 'left',
+        width: 'calc(100% - 32px)',
+        font: 'inherit',
+        color: 'inherit',
+        outline: focused ? `2px solid ${theme.accent}` : 'none',
+        outlineOffset: 2,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
         <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
@@ -650,7 +673,7 @@ function DismissedCard({ item, theme, isDark }) {
       {item.note ? (
         <span style={{ fontSize: 12, color: theme.textMid, fontStyle: 'italic', display: 'block', marginTop: 4 }}>"{item.note}"</span>
       ) : null}
-    </div>
+    </button>
   );
 }
 
@@ -1319,7 +1342,7 @@ export default function OverviewScreen({
       {/* Resource list */}
       {listData.map((item) => (
         showDismissed
-          ? <DismissedCard key={String(item.id)} item={item} theme={t} isDark={isDark} />
+          ? <DismissedCard key={String(item.id)} item={item} theme={t} isDark={isDark} onSelect={onSelectZombie} />
           : <ResourceCard
               key={item.resource_id}
               item={item}
