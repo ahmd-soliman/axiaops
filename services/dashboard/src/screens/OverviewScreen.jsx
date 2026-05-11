@@ -200,65 +200,110 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
 
 // ─── Service breakdown ───────────────────────────────────────────────────────
 
-// Pick a sequential-ramp color by rank. byService is already sorted desc by
-// savings (biggest first), so rank=0 → ramp[0] (= biggest waste). The eye
-// reads magnitude from color saturation in addition to bar length — redundant
-// encoding is desirable in data viz. See docs/ui-color-system-review.md.
-//
-// Contract: callers MUST supply `vizRamp` ordered from "biggest-waste end" to
-// "smallest-waste end" — the function only looks up by index. The light theme
-// runs dark→light (dark teal = biggest), the dark theme runs light→dark
-// (bright sky = biggest, dim teal = smallest); both work because each ramp is
-// internally ordered to put the visually-dominant stop at index 0. Reordering
-// either ramp without updating this contract silently inverts the encoding.
-function rampColorByRank(rank, total, vizRamp) {
-  if (total <= vizRamp.length) return vizRamp[Math.min(rank, vizRamp.length - 1)];
-  const idx = Math.min(vizRamp.length - 1, Math.floor((rank / total) * vizRamp.length));
-  return vizRamp[idx];
+// Single chart row. Lives outside ServiceBreakdown so it can hold the
+// `focused` state used for the keyboard focus ring. Children are all <span>s
+// (not <div>s) because <button> only accepts phrasing content per the HTML
+// spec — block descendants inside a <button> aren't valid and trip up some
+// screen readers / validators. display:flex on a span behaves the same as on
+// a div visually.
+function ServiceBreakdownRow({ svc, data, maxSavings, totalSavings, currency, theme, isMobile, active, onToggleSvc }) {
+  const cfg = serviceConfig(svc);
+  const barWidth = (data.savings / maxSavings) * 100;
+  const pctOfTotal = (data.savings / Math.max(totalSavings, 0.01)) * 100;
+  const [focused, setFocused] = useState(false);
+  // Active = the resource list below is filtered to this service. Multi-select:
+  // same shape as the FilterPills row, so the chart and the pills stay in sync
+  // without either being the source of truth.
+  //
+  // Per-service color (cfg.color) is used on both the dot AND the bar so
+  // service identity is consistent with the FilterPills + resource rows. Bar
+  // length already encodes magnitude; a separate rank-ramp would put the same
+  // service under different colors in different surfaces and break visual
+  // continuity.
+  return (
+    <button
+      type="button"
+      onClick={() => onToggleSvc(svc)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      aria-pressed={active}
+      aria-label={`Filter resources by ${cfg.label} — ${currency}${data.savings.toFixed(2)}, ${pctOfTotal.toFixed(1)}% of total waste`}
+      style={{
+        background: active ? theme.accentLight : 'transparent',
+        border: `1px solid ${active ? theme.accentBorder : 'transparent'}`,
+        borderRadius: 6,
+        padding: '6px 8px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        font: 'inherit',
+        color: 'inherit',
+        width: '100%',
+        transition: 'background 0.15s, border-color 0.15s',
+        outline: focused ? `2px solid ${theme.accent}` : 'none',
+        outlineOffset: 1,
+      }}
+    >
+      {/* Header — at xs the label cluster (dot + name + count) and the
+          right-aligned cost share too little width once names like
+          "AmazonOpenSearchService" appear. Drop the row to a column with
+          the cost on its own line. */}
+      <span style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'flex-start' : 'center',
+        justifyContent: 'space-between',
+        gap: isMobile ? 2 : 8,
+        marginBottom: 4,
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
+          <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
+          <span style={{ fontSize: 11, color: theme.textMuted }}>{data.zombies} resource{data.zombies !== 1 ? 's' : ''}</span>
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: theme.text, fontVariantNumeric: 'tabular-nums' }}>
+          {currency}{data.savings.toFixed(2)}
+          <span style={{ fontWeight: 500, color: theme.textMuted, marginLeft: 6 }}>· {pctOfTotal.toFixed(1)}%</span>
+        </span>
+      </span>
+      <span style={{ display: 'block', height: 6, backgroundColor: theme.track, borderRadius: 2, overflow: 'hidden' }}>
+        <span style={{
+          display: 'block',
+          height: '100%',
+          width: `${barWidth}%`,
+          backgroundColor: cfg.color,
+          borderRadius: 2,
+          transition: 'width 0.3s',
+        }} />
+      </span>
+    </button>
+  );
 }
 
-function ServiceBreakdown({ byService, currency, theme, isMobile }) {
+function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, onToggleSvc }) {
   if (byService.length === 0) return null;
   const maxSavings = Math.max(...byService.map(([, d]) => d.savings), 0.01);
-  const total = byService.length;
+  const totalSavings = byService.reduce((sum, [, d]) => sum + d.savings, 0);
 
   return (
     <div style={{ padding: isMobile ? '16px' : '16px 20px', borderBottom: `1px solid ${theme.border}` }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 12 }}>
         Waste by Service
       </span>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {byService.map(([svc, data], rank) => {
-          const cfg = serviceConfig(svc);
-          const barWidth = (data.savings / maxSavings) * 100;
-          const rampColor = rampColorByRank(rank, total, theme.vizRamp);
-          return (
-            <div key={svc}>
-              {/* Header — at xs the label cluster (dot + name + count) and
-                  the right-aligned cost share too little width once names
-                  like "AmazonOpenSearchService" appear. Drop the row to a
-                  column with the cost on its own line. */}
-              <div style={{
-                display: 'flex',
-                flexDirection: isMobile ? 'column' : 'row',
-                alignItems: isMobile ? 'flex-start' : 'center',
-                justifyContent: 'space-between',
-                gap: isMobile ? 2 : 8,
-                marginBottom: 4,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: rampColor, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
-                  <span style={{ fontSize: 11, color: theme.textMuted }}>{data.zombies} resource{data.zombies !== 1 ? 's' : ''}</span>
-                </div>
-                <span style={{ fontSize: 12, fontWeight: 700, color: theme.text, fontVariantNumeric: 'tabular-nums' }}>{currency}{data.savings.toFixed(2)}</span>
-              </div>
-              <div style={{ height: 6, backgroundColor: theme.track, borderRadius: 2, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${barWidth}%`, backgroundColor: rampColor, borderRadius: 2, transition: 'width 0.3s' }} />
-              </div>
-            </div>
-          );
-        })}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {byService.map(([svc, data]) => (
+          <ServiceBreakdownRow
+            key={svc}
+            svc={svc}
+            data={data}
+            maxSavings={maxSavings}
+            totalSavings={totalSavings}
+            currency={currency}
+            theme={theme}
+            isMobile={isMobile}
+            active={filterSvcs.has(svc)}
+            onToggleSvc={onToggleSvc}
+          />
+        ))}
       </div>
     </div>
   );
@@ -967,11 +1012,15 @@ export default function OverviewScreen({
   }, [resources.data, filterSvcs, dismissedSet]);
 
   function toggleService(svc) {
-    const next = new Set(filterSvcs);
-    next.has(svc) ? next.delete(svc) : next.add(svc);
-    setFilterSvcs(next);
-    // Sub-types only make sense when exactly one service is selected.
-    if (next.size !== 1) setFilterResourceTypes(new Set());
+    setFilterSvcs((prev) => {
+      const next = new Set(prev);
+      if (next.has(svc)) next.delete(svc); else next.add(svc);
+      // Sub-types only make sense when exactly one service is selected.
+      // Nested setter is fine — React batches state updates queued from inside
+      // an updater; the resource-type clear runs after filterSvcs commits.
+      if (next.size !== 1) setFilterResourceTypes(new Set());
+      return next;
+    });
   }
 
   function toggleResourceType(rt) {
@@ -1214,7 +1263,14 @@ export default function OverviewScreen({
       <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} onShowCosts={onShowCosts} theme={t} isMobile={isMobile} />
 
       {/* Service breakdown */}
-      <ServiceBreakdown byService={byService} currency={summary.data?.currency ?? '$'} theme={t} isMobile={isMobile} />
+      <ServiceBreakdown
+        byService={byService}
+        currency={summary.data?.currency ?? '$'}
+        theme={t}
+        isMobile={isMobile}
+        filterSvcs={filterSvcs}
+        onToggleSvc={toggleService}
+      />
 
       {/* Filter pills */}
       <div style={{ padding: '12px 16px 0' }}>
