@@ -185,6 +185,18 @@ func main() {
 		addr = ":8080"
 	}
 
+	// RATE_LIMIT_MAX overrides middleware.DefaultRateLimitMax. 0 / unset /
+	// malformed → fall back to the default. Composition root parses here so
+	// every binary (api / future api-saashosted) reads the same env name.
+	rateLimitMax := 0
+	if v := os.Getenv("RATE_LIMIT_MAX"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			rateLimitMax = n
+		} else {
+			slog.Warn("ratelimit: invalid RATE_LIMIT_MAX, using default", "value", v)
+		}
+	}
+
 	cfg := serverbuild.Config{
 		Addr:                 addr,
 		PublicHost:           os.Getenv("PUBLIC_HOST"),
@@ -193,6 +205,7 @@ func main() {
 		DevUserID:            devUserID,
 		DevUserEmail:         devUserEmail,
 		RedisConfigured:      redisConfigured,
+		RateLimitMax:         rateLimitMax,
 		StuckScanTimeout:     stuckScanTimeout,
 		MigrationDatabaseURL: migrationURL,
 	}

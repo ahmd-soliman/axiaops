@@ -161,6 +161,7 @@ Errors are logged to stdout with structured context (JSON format in production).
 | PASSWORD_RESET_TTL_HOURS | No | 4 | Admin-issued password-reset token lifetime. Short by design — admins are expected to share the URL OOB and the user redeems promptly. |
 | PUBLIC_HOST | No | — | Externally-reachable origin (`https://app.example.com`) used to build OOB redemption URLs for invitations and password resets. Empty produces relative URLs the frontend resolves against `window.location.origin`. |
 | INVITATION_TTL_DAYS | No | 14 | How long a `pending_memberships` row stays redeemable. |
+| RATE_LIMIT_MAX | No | 1000 | Per-minute request cap per (organization, user). Only active when `REDIS_URL` is set (the limiter needs durable counters). The HTTP middleware advertises the current state via `X-RateLimit-Limit/-Remaining/-Reset` headers on every authenticated response so well-behaved clients can self-pace before earning a 429. |
 | DEV_MODE | No | false | Skip auth, use fixed organization |
 | DEV_ORGANIZATION_ID | When `DEV_MODE=true` | — | Organization ID for dev bypass. No default — startup `die()`s if unset while `DEV_MODE=true`. |
 | DEV_USER_ID | No | dev-user-axiaops | User ID seeded in dev mode; `EnsureDevMembership` assigns it `owner` |
