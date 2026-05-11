@@ -290,6 +290,12 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 	// auth.MaybeGenerateInstallToken — explicit empty disables file
 	// management entirely. Best-effort: log + continue on failure.
 	removeInstallTokenFile()
+	// Also clear the env-var copy of the token. Operator-supplied tokens
+	// (BOOTSTRAP_INSTALL_TOKEN) sit in /proc/$pid/environ for any process
+	// in the PID namespace to read; unsetting post-consume shrinks that
+	// window. Process-local; orchestrator-side secret cleanup is still
+	// the operator's job (per CLAUDE.md).
+	clearInstallTokenEnv()
 
 	// Pre-warm the session cache so the first authenticated request after
 	// bootstrap doesn't take the cache-miss path. Uses the Manager's now
