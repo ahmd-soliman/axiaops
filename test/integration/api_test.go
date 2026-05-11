@@ -144,6 +144,47 @@ func TestScanQueue_JobEnqueuedInRedis(t *testing.T) {
 		}
 	})
 
+	// Opt this account out of the ingestion scheduler before triggering the
+	// manual scan. SCAN_INTERVAL=10s in the integration compose file (plus an
+	// immediate scheduler tick on ingestion startup) means a freshly-created
+	// account with last_scanned_at=nil is "overdue" by default, so the
+	// scheduler races us: it enqueues a scan, the worker marks the row
+	// status='scanning', and our subsequent POST /scan gets 409 from
+	// TryMarkAccountScanning. Setting scan_interval_hours=-1 makes the
+	// scheduler skip this account on every future tick (see
+	// scanScheduledAccounts in services/ingestion/cmd/main.go). We still
+	// poll-and-wait below to drain any scan the scheduler already enqueued
+	// before this PATCH landed.
+	patchReq, _ := http.NewRequest(http.MethodPatch, base+"/v1/accounts/"+id, strings.NewReader(`{"scan_interval_hours":-1}`)) //nolint:noctx
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchResp, err := http.DefaultClient.Do(patchReq)
+	if err != nil {
+		t.Fatalf("PATCH /v1/accounts/%s: %v", id, err)
+	}
+	_ = patchResp.Body.Close()
+	if patchResp.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH /v1/accounts/%s: want 200, got %d", id, patchResp.StatusCode)
+	}
+
+	// Drain any scheduler-triggered scan already in flight: the scheduler can
+	// fire between POST /v1/accounts (above) and the PATCH that disables it,
+	// so the worker may already hold the row in status='scanning'. Wait until
+	// the row is back to a non-scanning status before issuing our own POST
+	// /scan, otherwise we'd get 409 "scan already in progress". Bad fake AWS
+	// credentials cause the worker's runScan to fail fast and flip status to
+	// 'error', so this loop normally exits within a few hundred ms.
+	scanGateDeadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(scanGateDeadline) {
+		r := get(t, base+"/v1/accounts/"+id)
+		var acc map[string]any
+		_ = decodeJSON(r.Body, &acc)
+		r.Body.Close()
+		if status, _ := acc["status"].(string); status != "scanning" {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
 	// Flush the queue before triggering so we get a clean signal.
 	_ = rdb.Del(ctx, "axiaops:scan_queue")
 
