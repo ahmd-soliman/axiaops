@@ -279,10 +279,221 @@ function ServiceBreakdownRow({ svc, data, maxSavings, totalSavings, currency, th
   );
 }
 
+// Aggregate row for the "long tail" — services contributing tiny amounts.
+// Clickable to expand: when expanded, the parent (ServiceBreakdown) renders
+// each constituent service as an indented ServiceBreakdownRow below this
+// row. The aggregate bar is hidden in the expanded state — the constituents
+// below carry the visual weight.
+function OtherRow({ tail, totalSavings, maxSavings, currency, theme, isMobile, expanded, onToggle }) {
+  const savings = tail.reduce((s, [, d]) => s + d.savings, 0);
+  const zombies = tail.reduce((s, [, d]) => s + d.zombies, 0);
+  const pctOfTotal = (savings / Math.max(totalSavings, 0.01)) * 100;
+  const barWidth = (savings / maxSavings) * 100;
+  const [focused, setFocused] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      aria-expanded={expanded}
+      aria-controls="service-breakdown-other-list"
+      aria-label={`${expanded ? 'Collapse' : 'Expand'} other services — ${tail.length} services, ${currency}${savings.toFixed(2)} total (${pctOfTotal.toFixed(1)}% of waste)`}
+      style={{
+        background: 'transparent',
+        border: '1px solid transparent',
+        borderRadius: 6,
+        padding: '6px 8px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        font: 'inherit',
+        color: 'inherit',
+        width: '100%',
+        outline: focused ? `2px solid ${theme.accent}` : 'none',
+        outlineOffset: 1,
+      }}
+    >
+      <span style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'flex-start' : 'center',
+        justifyContent: 'space-between',
+        gap: isMobile ? 2 : 8,
+        marginBottom: expanded ? 0 : 4,
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
+          <span aria-hidden="true" style={{ display: 'inline-block', width: 10, fontSize: 9, color: theme.textMuted, lineHeight: 1, textAlign: 'center' }}>
+            {expanded ? '▾' : '▸'}
+          </span>
+          <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', backgroundColor: theme.textSub, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: theme.textMid }}>Other</span>
+          <span style={{ fontSize: 11, color: theme.textMuted }}>{tail.length} services · {zombies} resource{zombies !== 1 ? 's' : ''}</span>
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: theme.textMid, fontVariantNumeric: 'tabular-nums' }}>
+          {currency}{savings.toFixed(2)}
+          <span style={{ fontWeight: 500, color: theme.textMuted, marginLeft: 6 }}>· {pctOfTotal.toFixed(1)}%</span>
+        </span>
+      </span>
+      {/* Aggregate bar only when collapsed — when expanded the constituents
+          rendered below carry the visual weight and a redundant aggregate bar
+          here just doubles the height of the disclosure. */}
+      {!expanded && (
+        <span style={{ display: 'block', height: 6, backgroundColor: theme.track, borderRadius: 2, overflow: 'hidden' }}>
+          <span style={{
+            display: 'block',
+            height: '100%',
+            width: `${barWidth}%`,
+            backgroundColor: theme.textSub,
+            borderRadius: 2,
+          }} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+// Pareto divider — horizontal marker labelled with the cumulative percentage
+// of waste accumulated above it. Renders between rows. Standard FinOps trope:
+// "these N services are your problem; everything below is rounding error."
+function ParetoDivider({ cumulativePct, theme }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        margin: '4px 8px',
+        color: theme.textMuted,
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+      }}
+    >
+      <span style={{ flex: 1, borderTop: `1px dashed ${theme.border}` }} />
+      <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+        {cumulativePct.toFixed(0)}% of waste above
+      </span>
+      <span style={{ flex: 1, borderTop: `1px dashed ${theme.border}` }} />
+    </div>
+  );
+}
+
+// Split byService into (shown, tail). Services where savings < the threshold
+// max(1% of total, $5) collapse into a single "Other" row — kills the long-
+// tail clutter (a $0.40 service contributes nothing actionable). Guards:
+//   - Don't collapse if tail would be 0 or 1 entry (a single "Other" hiding
+//     one service is silly — show it directly).
+//   - Always keep at least the top 3 shown so very small totals don't render
+//     as an empty chart of just "Other".
+function splitTail(byService, totalSavings) {
+  const threshold = Math.max(totalSavings * 0.01, 5);
+  let shown = byService.filter(([, d]) => d.savings >= threshold);
+  let tail  = byService.filter(([, d]) => d.savings <  threshold);
+  if (tail.length <= 1) return { shown: byService, tail: [] };
+  if (shown.length < 3 && byService.length > 3) {
+    shown = byService.slice(0, 3);
+    tail  = byService.slice(3);
+  }
+  return { shown, tail };
+}
+
 function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, onToggleSvc }) {
+  const [otherExpanded, setOtherExpanded] = useState(false);
   if (byService.length === 0) return null;
   const maxSavings = Math.max(...byService.map(([, d]) => d.savings), 0.01);
   const totalSavings = byService.reduce((sum, [, d]) => sum + d.savings, 0);
+  const { shown, tail } = splitTail(byService, totalSavings);
+
+  // Walk the shown rows, inserting the Pareto divider as soon as cumulative
+  // crosses 80%. Done as a side-effecting loop because the divider position
+  // depends on running-sum state we can't get from a pure map.
+  const rows = [];
+  let cumulative = 0;
+  let paretoMarked = false;
+  for (const [svc, data] of shown) {
+    rows.push(
+      <ServiceBreakdownRow
+        key={svc}
+        svc={svc}
+        data={data}
+        maxSavings={maxSavings}
+        totalSavings={totalSavings}
+        currency={currency}
+        theme={theme}
+        isMobile={isMobile}
+        active={filterSvcs.has(svc)}
+        onToggleSvc={onToggleSvc}
+      />
+    );
+    cumulative += (data.savings / Math.max(totalSavings, 0.01)) * 100;
+    // Only show the divider if there's still something visually below it
+    // (more shown rows OR a tail) — a divider at the very bottom is noise.
+    const hasMoreBelow = rows.length < shown.length || tail.length > 0;
+    if (!paretoMarked && cumulative >= 80 && hasMoreBelow) {
+      paretoMarked = true;
+      rows.push(<ParetoDivider key="pareto" cumulativePct={cumulative} theme={theme} />);
+    }
+  }
+  if (tail.length > 0) {
+    rows.push(
+      <OtherRow
+        key="other"
+        tail={tail}
+        totalSavings={totalSavings}
+        maxSavings={maxSavings}
+        currency={currency}
+        theme={theme}
+        isMobile={isMobile}
+        expanded={otherExpanded}
+        onToggle={() => setOtherExpanded((v) => !v)}
+      />
+    );
+    if (otherExpanded) {
+      // Each constituent rendered as a normal ServiceBreakdownRow, indented
+      // by paddingLeft on the group wrapper (NOT marginLeft — margin would
+      // push the wrapper outside the flex parent's content box and risk a
+      // horizontal scrollbar on narrow viewports). The group wrapper carries
+      // the id that the OtherRow button's aria-controls points at, so AT can
+      // navigate from the disclosure trigger to the revealed list. Sub-rows
+      // share filterSvcs / onToggleSvc with the top-level chart, so clicking
+      // AWSGlue inside the expansion has the same effect as clicking a
+      // top-level row would.
+      rows.push(
+        <div
+          key="other-list"
+          id="service-breakdown-other-list"
+          role="group"
+          aria-label="Other services"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            paddingLeft: 22,
+            boxSizing: 'border-box',
+            borderLeft: `2px solid ${theme.border}`,
+            marginLeft: 8,
+          }}
+        >
+          {tail.map(([svc, data]) => (
+            <ServiceBreakdownRow
+              key={svc}
+              svc={svc}
+              data={data}
+              maxSavings={maxSavings}
+              totalSavings={totalSavings}
+              currency={currency}
+              theme={theme}
+              isMobile={isMobile}
+              active={filterSvcs.has(svc)}
+              onToggleSvc={onToggleSvc}
+            />
+          ))}
+        </div>
+      );
+    }
+  }
 
   return (
     <div style={{ padding: isMobile ? '16px' : '16px 20px', borderBottom: `1px solid ${theme.border}` }}>
@@ -290,20 +501,7 @@ function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, on
         Waste by Service
       </span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {byService.map(([svc, data]) => (
-          <ServiceBreakdownRow
-            key={svc}
-            svc={svc}
-            data={data}
-            maxSavings={maxSavings}
-            totalSavings={totalSavings}
-            currency={currency}
-            theme={theme}
-            isMobile={isMobile}
-            active={filterSvcs.has(svc)}
-            onToggleSvc={onToggleSvc}
-          />
-        ))}
+        {rows}
       </div>
     </div>
   );
