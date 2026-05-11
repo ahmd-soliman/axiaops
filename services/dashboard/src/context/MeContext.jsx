@@ -13,16 +13,28 @@ export function MeProvider({ children }) {
   const [error, setError] = useState(null);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       const data = await fetchMe();
       setMe(data);
       setError(null);
     } catch (err) {
-      // 403 on /v1/me itself means: authenticated, but no membership.
-      // The dashboard treats this as "removed user" — the consumer can
-      // redirect to /login or render a removed-user screen.
+      // /v1/me failure modes split three ways:
+      //   • 403 — authenticated but no membership ("removed user").
+      //     Set an empty-shaped me so consumers can render a removed-user
+      //     screen or redirect; not a transient error.
+      //   • 401 — definitive "not authenticated" answer (cookie missing,
+      //     expired, revoked). Clear me so AuthGuard redirects to /login.
+      //   • Anything else (429, 5xx, network) — transient. Keep the
+      //     previous me so a momentary rate-limit or backend hiccup
+      //     doesn't kick a still-authed user out of the app. Expose
+      //     the error so the route guard can render a recoverable
+      //     "couldn't reach API" fallback with a retry button.
       if (err.status === 403) {
         setMe({ user_id: '', organization_id: '', email: '', role: '', permissions: [] });
+        setError(null);
+      } else if (err.status === 401) {
+        setMe(null);
         setError(null);
       } else {
         setError(err);
