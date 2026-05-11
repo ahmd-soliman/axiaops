@@ -144,54 +144,54 @@ func TestScanQueue_JobEnqueuedInRedis(t *testing.T) {
 		}
 	})
 
-	// Opt this account out of the ingestion scheduler before triggering the
-	// manual scan. SCAN_INTERVAL=10s in the integration compose file (plus an
-	// immediate scheduler tick on ingestion startup) means a freshly-created
-	// account with last_scanned_at=nil is "overdue" by default, so the
-	// scheduler races us: it enqueues a scan, the worker marks the row
-	// status='scanning', and our subsequent POST /scan gets 409 from
-	// TryMarkAccountScanning. Setting scan_interval_hours=-1 makes the
-	// scheduler skip this account on every future tick (see
-	// scanScheduledAccounts in services/ingestion/cmd/main.go). We still
-	// poll-and-wait below to drain any scan the scheduler already enqueued
-	// before this PATCH landed.
-	patchReq, _ := http.NewRequest(http.MethodPatch, base+"/v1/accounts/"+id, strings.NewReader(`{"scan_interval_hours":-1}`)) //nolint:noctx
-	patchReq.Header.Set("Content-Type", "application/json")
-	patchResp, err := http.DefaultClient.Do(patchReq)
-	if err != nil {
-		t.Fatalf("PATCH /v1/accounts/%s: %v", id, err)
-	}
-	_ = patchResp.Body.Close()
-	if patchResp.StatusCode != http.StatusOK {
-		t.Fatalf("PATCH /v1/accounts/%s: want 200, got %d", id, patchResp.StatusCode)
-	}
-
-	// Drain any scheduler-triggered scan already in flight: the scheduler can
-	// fire between POST /v1/accounts (above) and the PATCH that disables it,
-	// so the worker may already hold the row in status='scanning'. Wait until
-	// the row is back to a non-scanning status before issuing our own POST
-	// /scan, otherwise we'd get 409 "scan already in progress". Bad fake AWS
-	// credentials cause the worker's runScan to fail fast and flip status to
-	// 'error', so this loop normally exits within a few hundred ms.
-	scanGateDeadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(scanGateDeadline) {
-		r := get(t, base+"/v1/accounts/"+id)
-		var acc map[string]any
-		_ = decodeJSON(r.Body, &acc)
-		r.Body.Close()
-		if status, _ := acc["status"].(string); status != "scanning" {
-			break
+	// Drain any scheduler-triggered scan before our manual POST. SCAN_INTERVAL=10s
+	// in the integration compose file plus an immediate scheduler tick on ingestion
+	// startup means a fresh account with last_scanned_at=nil is "overdue" the
+	// moment it's created (see scanScheduledAccounts in
+	// services/ingestion/cmd/main.go) — the scheduler enqueues a scan, the worker
+	// flips status='scanning' via TryMarkAccountScanning, and our subsequent
+	// POST /scan would 409. Wait until status leaves 'scanning' (bad fake AWS
+	// creds make runScan fail fast and flip to 'error' within a few hundred ms),
+	// then issue the test's POST. If the scheduler tick lands in the small
+	// millisecond window between our poll exiting and our POST landing, we
+	// retry once after a second poll-wait.
+	waitNotScanning := func(deadline time.Duration) string {
+		end := time.Now().Add(deadline)
+		var lastStatus string
+		for time.Now().Before(end) {
+			r := get(t, base+"/v1/accounts/"+id)
+			var acc map[string]any
+			_ = decodeJSON(r.Body, &acc)
+			r.Body.Close()
+			lastStatus, _ = acc["status"].(string)
+			if lastStatus != "scanning" {
+				return lastStatus
+			}
+			time.Sleep(200 * time.Millisecond)
 		}
-		time.Sleep(200 * time.Millisecond)
+		t.Logf("waitNotScanning: timed out after %s with status=%q for account %s", deadline, lastStatus, id)
+		return lastStatus
 	}
+	waitNotScanning(30 * time.Second)
 
 	// Flush the queue before triggering so we get a clean signal.
 	_ = rdb.Del(ctx, "axiaops:scan_queue")
 
-	// Trigger a scan.
-	scanResp, err := http.Post(base+"/v1/accounts/"+id+"/scan", "application/json", nil) //nolint:noctx
-	if err != nil {
-		t.Fatalf("POST /v1/accounts/%s/scan: %v", id, err)
+	// Trigger a scan. Retry once on 409 — the scheduler tick may have raced
+	// us into the lock between waitNotScanning and this POST.
+	postScan := func() *http.Response {
+		r, err := http.Post(base+"/v1/accounts/"+id+"/scan", "application/json", nil) //nolint:noctx
+		if err != nil {
+			t.Fatalf("POST /v1/accounts/%s/scan: %v", id, err)
+		}
+		return r
+	}
+	scanResp := postScan()
+	if scanResp.StatusCode == http.StatusConflict {
+		_ = scanResp.Body.Close()
+		t.Logf("POST scan: 409 conflict on first attempt — scheduler race; draining and retrying once")
+		waitNotScanning(30 * time.Second)
+		scanResp = postScan()
 	}
 	_ = scanResp.Body.Close()
 	if scanResp.StatusCode != http.StatusOK {
@@ -229,10 +229,11 @@ func TestScanQueue_JobEnqueuedInRedis(t *testing.T) {
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
 		r := get(t, base+"/v1/accounts/"+id)
-		defer r.Body.Close()
 		var acc map[string]any
-		if err := decodeJSON(r.Body, &acc); err != nil {
-			t.Fatalf("decode account: %v", err)
+		decodeErr := decodeJSON(r.Body, &acc)
+		r.Body.Close()
+		if decodeErr != nil {
+			t.Fatalf("decode account: %v", decodeErr)
 		}
 		if acc["last_scanned_at"] != nil {
 			return // worker consumed the job and scan completed
@@ -292,13 +293,15 @@ func TestScheduledAutoScan_ZeroInterval(t *testing.T) {
 		time.Sleep(2 * time.Second)
 
 		r := get(t, base+"/v1/accounts/"+id)
-		defer r.Body.Close()
-		if r.StatusCode != http.StatusOK {
-			t.Fatalf("GET /v1/accounts/%s: want 200, got %d", id, r.StatusCode)
-		}
+		status := r.StatusCode
 		var acc map[string]any
-		if err := decodeJSON(r.Body, &acc); err != nil {
-			t.Fatalf("GET /v1/accounts/%s: decode: %v", id, err)
+		decodeErr := decodeJSON(r.Body, &acc)
+		r.Body.Close()
+		if status != http.StatusOK {
+			t.Fatalf("GET /v1/accounts/%s: want 200, got %d", id, status)
+		}
+		if decodeErr != nil {
+			t.Fatalf("GET /v1/accounts/%s: decode: %v", id, decodeErr)
 		}
 		if acc["last_scanned_at"] != nil {
 			return // scan was triggered — pass
