@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"axiaops.io/api/internal/audit"
+	"axiaops.io/api/internal/httpjson"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/authz"
@@ -708,7 +709,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		SecretKey   string `json:"secret_key"`
 		Region      string `json:"region"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -790,7 +791,7 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		Region            *string `json:"region"`
 		ScanIntervalHours *int    `json:"scan_interval_hours"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -1083,7 +1084,7 @@ func (h *Handler) createDismissal(w http.ResponseWriter, r *http.Request) {
 		Note         string     `json:"note"`
 		SnoozedUntil *time.Time `json:"snooze_until"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
