@@ -1138,10 +1138,15 @@ if [[ "$DEMO_MODE" == "true" ]]; then
     target_org="${target#*:}"
     echo "Copying seed data → $prefix (org: $target_org)"
 
-    # Clean prior copies (idempotent re-run).
+    # Clean prior copies (idempotent re-run). zombie_records and resource_records
+    # have no unique constraint covering (organization_id, resource_id,
+    # period_start), so the downstream INSERT...SELECT ... ON CONFLICT DO NOTHING
+    # would otherwise accumulate duplicates on every re-run.
     psql_exec "DELETE FROM zombie_snapshots WHERE id LIKE 'snap-${prefix}-account-%';"
     psql_exec "DELETE FROM accounts WHERE id LIKE '${prefix}-account-%';"
     psql_exec "DELETE FROM cost_records WHERE internal_account_id LIKE '${prefix}-account-%';"
+    psql_exec "DELETE FROM zombie_records WHERE internal_account_id LIKE '${prefix}-account-%';"
+    psql_exec "DELETE FROM resource_records WHERE internal_account_id LIKE '${prefix}-account-%';"
 
     # Translate seed-account-* IDs → ${prefix}-account-* on every per-account
     # table. snapshot_id rewrite happens via the snap-seed-account- pattern.
@@ -1213,7 +1218,107 @@ ON CONFLICT DO NOTHING;
 EOF_DEMO
   done
 
-  echo "  Demo orgs populated."
+  # Per-org cost multipliers so each demo org tells a distinct story when the
+  # B1.5 switcher flips between them. Baseline (dev org) stays 1×; Acme ×10
+  # (enterprise persona), Globex ×3 (mid-size persona). Applied across every
+  # money-bearing table the demo INSERTs populated, narrowed by the demo
+  # prefix per table so any non-demo data co-residing in the same org row
+  # (real scans on a future preview/demo deployment, etc.) never gets
+  # accidentally scaled. Wrapped in BEGIN/COMMIT so a connection drop
+  # mid-block can't leave the org with some tables scaled and others not —
+  # that would break the #91 invariant until the next re-run. Idempotent:
+  # re-running rebuilds from the dev baseline (DELETE-first guards above)
+  # and re-applies the multiplier. CASE has an explicit ELSE 1 so adding a
+  # third demo org to the IN list without a matching WHEN can't produce a
+  # NULL factor (which would coerce monthly_cost to NULL and fail the NOT
+  # NULL constraint at UPDATE time).
+  psql_pipe <<EOF_DEMO_SCALE
+BEGIN;
+CREATE TEMP TABLE _demo_factors ON COMMIT DROP AS
+  SELECT id AS organization_id,
+         CASE org_code WHEN 'org_acme' THEN 'acme'::text WHEN 'org_globex' THEN 'globex'::text END AS prefix,
+         CASE org_code WHEN 'org_acme' THEN 10::numeric WHEN 'org_globex' THEN 3::numeric ELSE 1::numeric END AS factor
+  FROM organizations
+  WHERE org_code IN ('org_acme','org_globex');
+
+-- Both CASE expressions must enumerate every org_code in the IN clause above.
+-- The factor CASE has ELSE 1 (prevents NULL coercion → NOT NULL UPDATE failure),
+-- but the prefix CASE has no safe default — an unknown prefix becomes NULL, every
+-- LIKE f.prefix || '...' predicate evaluates to NULL (falsy), and the five UPDATEs
+-- silently match zero rows. Same vacuous-pass class of bug the demo-org invariant
+-- check below was added to prevent; assert here so the transaction rolls back
+-- with a loud diagnostic instead of leaving the maintainer hunting a no-op.
+DO \$\$ BEGIN
+  IF EXISTS (SELECT 1 FROM _demo_factors WHERE prefix IS NULL) THEN
+    RAISE EXCEPTION 'demo factors: org_code in IN clause has no matching prefix WHEN — extend the CASE before re-running';
+  END IF;
+END \$\$;
+
+UPDATE zombie_records           z SET monthly_cost       = z.monthly_cost       * f.factor FROM _demo_factors f WHERE z.organization_id = f.organization_id AND z.internal_account_id LIKE f.prefix || '-account-%';
+UPDATE resource_records         r SET monthly_cost       = r.monthly_cost       * f.factor FROM _demo_factors f WHERE r.organization_id = f.organization_id AND r.internal_account_id LIKE f.prefix || '-account-%';
+UPDATE zombie_snapshot_services s SET monthly_cost       = s.monthly_cost       * f.factor FROM _demo_factors f WHERE s.organization_id = f.organization_id AND s.snapshot_id LIKE 'snap-' || f.prefix || '-account-%';
+UPDATE zombie_snapshots         z SET total_monthly_cost = z.total_monthly_cost * f.factor FROM _demo_factors f WHERE z.organization_id = f.organization_id AND z.id LIKE 'snap-' || f.prefix || '-account-%';
+UPDATE cost_records             c SET amount             = c.amount             * f.factor FROM _demo_factors f WHERE c.organization_id = f.organization_id AND c.internal_account_id LIKE f.prefix || '-account-%';
+COMMIT;
+EOF_DEMO_SCALE
+
+  # Demo-org #91 invariant gap check. The dev-org check at the end of the
+  # script filters on `snap-seed-account-%` only — it doesn't cover the
+  # demo-translated rows, so without these per-org assertions the claim
+  # "every related row scales by the same factor → invariant preserved"
+  # would never be exercised at run time. Any future edit to the multiplier
+  # block that misses a table or introduces a rounding drift will fail
+  # loudly here instead of being discovered weeks later via /v1/summary
+  # vs /v1/trend reconciliation drift.
+  for demo_pair in "acme:${ACME_ORG_ID}" "globex:${GLOBEX_ORG_ID}"; do
+    inv_prefix="${demo_pair%%:*}"
+    inv_org="${demo_pair#*:}"
+    # Guard against the earlier psql_query for {ACME,GLOBEX}_ORG_ID returning
+    # empty stdout (transient connection drop that didn't trip set -e because
+    # psql exited 0). Without this, the SQL below would WHERE on '' and both
+    # gap queries would COALESCE to 0 → awk threshold passes → vacuous "✓"
+    # for an org the script never actually checked.
+    if [[ -z "$inv_org" ]]; then
+      echo "  ${inv_prefix} #91 invariants ✗  (${inv_prefix}_ORG_ID is empty — earlier org-creation step failed silently)" >&2
+      exit 1
+    fi
+    DEMO_CROSS_GAP=$(psql_query "
+      SELECT COALESCE(SUM(ABS(snap_total - rec_sum))::numeric(12,2), 0)
+      FROM (
+        SELECT latest.account_id, latest.total_monthly_cost AS snap_total, COALESCE(zr.rec_sum, 0) AS rec_sum
+        FROM (
+          SELECT DISTINCT ON (account_id) account_id, total_monthly_cost, snapshot_at
+          FROM zombie_snapshots
+          WHERE organization_id = '${inv_org}' AND id LIKE 'snap-${inv_prefix}-account-%'
+          ORDER BY account_id, snapshot_at DESC
+        ) latest
+        LEFT JOIN (
+          SELECT internal_account_id AS account_id, SUM(monthly_cost) AS rec_sum
+          FROM zombie_records
+          WHERE organization_id = '${inv_org}' AND internal_account_id LIKE '${inv_prefix}-account-%'
+          GROUP BY internal_account_id
+        ) zr ON zr.account_id = latest.account_id
+      ) joined;" | tr -d '[:space:]')
+    DEMO_WITHIN_GAP=$(psql_query "
+      SELECT COALESCE(SUM(ABS(s.total_monthly_cost - svc.cost_sum))::numeric(12,2), 0)
+      FROM zombie_snapshots s
+      JOIN (
+        SELECT snapshot_id, SUM(monthly_cost) AS cost_sum
+        FROM zombie_snapshot_services
+        WHERE organization_id = '${inv_org}' AND snapshot_id LIKE 'snap-${inv_prefix}-account-%'
+        GROUP BY snapshot_id
+      ) svc ON svc.snapshot_id = s.id
+      WHERE s.organization_id = '${inv_org}' AND s.id LIKE 'snap-${inv_prefix}-account-%';" | tr -d '[:space:]')
+    if awk -v c="$DEMO_CROSS_GAP" -v w="$DEMO_WITHIN_GAP" 'BEGIN { exit !((c+0 <= 0.01) && (w+0 <= 0.01)) }'; then
+      echo "  ${inv_prefix} #91 invariants ✓  (cross gap: \$${DEMO_CROSS_GAP}, within gap: \$${DEMO_WITHIN_GAP})"
+    else
+      echo "  ${inv_prefix} #91 invariants ✗  (cross gap: \$${DEMO_CROSS_GAP}, within gap: \$${DEMO_WITHIN_GAP})" >&2
+      echo "                    Multiplier block must scale every related row by the same factor — investigate." >&2
+      exit 1
+    fi
+  done
+
+  echo "  Demo orgs populated (Acme ×10, Globex ×3)."
   echo ""
 fi
 
