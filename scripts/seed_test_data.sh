@@ -884,10 +884,9 @@ echo ""
 DAYS=90
 echo "Inserting zombie snapshots derived from zombie_records (${DAYS} days × 3 accounts)..."
 
-# Clean old seed snapshot data first. Services have FK to snapshots (ON DELETE CASCADE),
-# so deleting snapshots cascades — but we delete services first defensively in case
-# the migration hasn't run on this DB yet.
-psql_exec "DELETE FROM zombie_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" 2>/dev/null || true
+# Clean old seed snapshot data first. The FK on zombie_snapshot_services.snapshot_id
+# is ON DELETE CASCADE (per migration 004_snapshot_services.up.sql), so deleting
+# zombie_snapshots clears the per-service rows for free.
 psql_exec "DELETE FROM zombie_snapshots WHERE id LIKE 'snap-seed-account-%';"
 
 psql_pipe <<EOF
@@ -918,9 +917,10 @@ WITH
   day_offsets AS (
     SELECT generate_series(1, (SELECT days FROM params))::int AS d
   ),
-  -- Per-(account, day, service) scaled row. MATERIALIZED pins one random() call
-  -- per row — inlining would re-evaluate random() each time the CTE is referenced,
-  -- which would break the within-row invariant downstream.
+  -- svc_rows below is consumed twice (in ins_snapshots' SUM and in the outer
+  -- INSERT). MATERIALIZED here pins one random() call per logical row so both
+  -- consumers see the same scale; without it, PG would inline svc_scaled into
+  -- each consumer and the snapshot total would diverge from SUM(its services).
   svc_scaled AS MATERIALIZED (
     SELECT
       zr.account_id,
@@ -1074,6 +1074,23 @@ echo "Dev organization zombie snapshots:    $SNAPSHOT_COUNT  (expected 270)"
 echo "Dev organization snapshot services:   $SVC_COUNT"
 echo "Dev organization cost records:        $COST_COUNT  (expected 21)"
 echo ""
+
+# Hard row-count gate before the gap-math invariants below. Without this, an
+# empty result set in either invariant query coalesces to gap=\$0.00 and the
+# awk gates pass vacuously. The invariants below assume there ARE snapshots
+# to compare; assert that here so a partial-state DB fails loud instead of
+# silent-passing through a gap-of-\$0.00 false positive.
+SEED_SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshots WHERE id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
+SEED_SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
+if [[ "$SEED_SNAPSHOT_COUNT" -ne 270 ]]; then
+  echo "  snapshot count: FAIL ($SEED_SNAPSHOT_COUNT seed rows, expected 270)" >&2
+  echo "                  Issue #91 invariant verification would silently pass with no rows; aborting." >&2
+  exit 1
+fi
+if [[ "$SEED_SVC_COUNT" -eq 0 ]]; then
+  echo "  service-row count: FAIL ($SEED_SVC_COUNT seed rows, expected >0)" >&2
+  exit 1
+fi
 
 # Invariant assertions — issue #91. The seed fixture must satisfy the same
 # invariants as the production scan path, otherwise dev debugging of /v1/summary
