@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/mail"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"axiaops.io/api/internal/httpip"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/observability"
 	"axiaops.io/shared/storage"
@@ -253,7 +253,7 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 		SessionTokenHash:     sessionTokenHash,
 		SessionExpiresAt:     h.sessions.now().Add(h.sessions.cfg.TTL),
 		SessionUserAgentHash: hashUserAgent(r.Header.Get("User-Agent")),
-		SessionIP:            requestIP(r).String(),
+		SessionIP:            httpip.Request(r).String(),
 	}
 
 	res, err := h.store.ConsumeBootstrapState(r.Context(), in)
@@ -372,7 +372,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	// cache outage degrades to "no rate limiting" rather than locking
 	// users out — matches the legacy middleware/RateLimiter.
 	if h.loginLimit != nil {
-		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), req.Email)
+		outcome := h.loginLimit.Allow(r.Context(), httpip.Request(r), req.Email)
 		if !outcome.Allowed {
 			retry := int(outcome.RetryAfter.Seconds())
 			if retry < 1 {
@@ -481,7 +481,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		UserID:         u.ID,
 		OrganizationID: mship.OrganizationID,
 		AuthMode:       model.AuthModePassword,
-		IP:             requestIP(r),
+		IP:             httpip.Request(r),
 		UserAgent:      r.Header.Get("User-Agent"),
 	})
 	if err != nil {
@@ -564,7 +564,7 @@ func (h *Handler) selectOrg(w http.ResponseWriter, r *http.Request) {
 	// alternate /login and /select-org to double their budget against
 	// one email.
 	if h.loginLimit != nil {
-		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), req.Email)
+		outcome := h.loginLimit.Allow(r.Context(), httpip.Request(r), req.Email)
 		if !outcome.Allowed {
 			retry := int(outcome.RetryAfter.Seconds())
 			if retry < 1 {
@@ -635,7 +635,7 @@ func (h *Handler) selectOrg(w http.ResponseWriter, r *http.Request) {
 		UserID:         u.ID,
 		OrganizationID: chosen.OrganizationID,
 		AuthMode:       model.AuthModePassword,
-		IP:             requestIP(r),
+		IP:             httpip.Request(r),
 		UserAgent:      r.Header.Get("User-Agent"),
 	})
 	if err != nil {
@@ -785,7 +785,7 @@ func (h *Handler) switchOrg(w http.ResponseWriter, r *http.Request) {
 		// tooling and any future SSO-enforcement gate would silently
 		// see a forged 'password' session.
 		AuthMode:  sess.AuthMode,
-		IP:        requestIP(r),
+		IP:        httpip.Request(r),
 		UserAgent: r.Header.Get("User-Agent"),
 	})
 	if err != nil {
@@ -854,7 +854,7 @@ func (h *Handler) previewInvitation(w http.ResponseWriter, r *http.Request) {
 	// only key. Email key passed empty — ratelimit.go treats that as
 	// "IP only" (no per-email amplification).
 	if h.loginLimit != nil {
-		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), "")
+		outcome := h.loginLimit.Allow(r.Context(), httpip.Request(r), "")
 		if !outcome.Allowed {
 			retry := int(outcome.RetryAfter.Seconds())
 			if retry < 1 {
@@ -946,7 +946,7 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			emailKey = peek.Email
 		}
-		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), emailKey)
+		outcome := h.loginLimit.Allow(r.Context(), httpip.Request(r), emailKey)
 		if !outcome.Allowed {
 			retry := int(outcome.RetryAfter.Seconds())
 			if retry < 1 {
@@ -1037,7 +1037,7 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 		UserID:         resolvedUser.ID,
 		OrganizationID: mship.OrganizationID,
 		AuthMode:       model.AuthModePassword,
-		IP:             requestIP(r),
+		IP:             httpip.Request(r),
 		UserAgent:      r.Header.Get("User-Agent"),
 	})
 	if mintErr != nil {
@@ -1181,50 +1181,6 @@ var placeholderHash = func() string {
 	h, _ := Hash("axiaops-login-timing-equaliser")
 	return h
 }()
-
-// requestIP extracts the client IP from common proxy headers, falling
-// back to RemoteAddr. Used for both forensics (sessions.ip) and the
-// rate-limiter key — the latter is security-critical, so the order
-// here is deliberately attacker-resistant.
-//
-// Threat: nginx and App Runner both *append* the connecting peer's IP
-// to whatever X-Forwarded-For header the client sent. So a request from
-// `attacker-ip` carrying `X-Forwarded-For: 1.2.3.4` becomes
-// `X-Forwarded-For: 1.2.3.4, attacker-ip` by the time it reaches us.
-// Taking the *leftmost* token (the previous version of this helper)
-// returned `1.2.3.4` — attacker-controlled — letting the attacker
-// rotate spoofed values to bypass the per-IP rate-limit cap entirely.
-//
-// We instead trust:
-//  1. X-Real-IP — set by nginx via `proxy_set_header X-Real-IP $remote_addr`,
-//     which unconditionally overwrites any client-supplied value. Reliable
-//     in the staging shape; not set by App Runner.
-//  2. The *rightmost* token of X-Forwarded-For — the one our trusted
-//     proxy added, i.e. the actual peer that connected to it. Reliable
-//     in both staging (single nginx hop) and production (single App
-//     Runner LB hop). If a future deployment introduces a second trusted
-//     proxy, this needs to take the rightmost-N-th token instead.
-//  3. RemoteAddr — for direct-to-API requests (tests, dev mode).
-func requestIP(r *http.Request) net.IP {
-	if v := r.Header.Get("X-Real-IP"); v != "" {
-		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
-			return ip
-		}
-	}
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		if i := strings.LastIndexByte(v, ','); i >= 0 {
-			v = v[i+1:]
-		}
-		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
-			return ip
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	return net.ParseIP(host)
-}
 
 // decodeJSON decodes the body, capping the size to 64 KiB to fence off
 // trivial DoS attempts. The endpoints have small payloads (~1 KiB).
