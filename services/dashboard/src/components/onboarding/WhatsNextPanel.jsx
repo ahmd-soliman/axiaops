@@ -198,7 +198,10 @@ function Tile({ label, done, onClick, theme }) {
         {label}
       </span>
       {!done && (
-        <span aria-hidden="true" style={{ color: theme.accent, fontSize: 13, marginLeft: 'auto', paddingLeft: 8 }}>
+        // Arrow is an affordance hint, not a CTA — keep brand orange reserved
+        // for the logo, primary buttons, and active nav (see UI color system
+        // review §7). The whole row is clickable; the arrow is decoration.
+        <span aria-hidden="true" style={{ color: theme.textMuted, fontSize: 13, marginLeft: 'auto', paddingLeft: 8 }}>
           →
         </span>
       )}
