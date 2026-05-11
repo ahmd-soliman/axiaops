@@ -14,7 +14,7 @@ import { useApp } from '../context/AppContext';
 // email span and renders just the avatar circle as the trigger; the
 // dropdown body is unchanged.
 export default function AvatarMenu({ compact = false }) {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const { me } = useMe();
   const { onLogout } = useApp();
   const navigate = useNavigate();
@@ -56,7 +56,7 @@ export default function AvatarMenu({ compact = false }) {
           width: 44,
           height: 44,
           borderRadius: 22,
-          border: `1px solid ${t.border}`,
+          border: '1px solid var(--color-border)',
           backgroundColor: 'transparent',
           cursor: 'pointer',
           padding: 0,
@@ -66,7 +66,7 @@ export default function AvatarMenu({ compact = false }) {
           gap: 8,
           padding: '4px 10px 4px 4px',
           borderRadius: 7,
-          border: `1px solid ${t.border}`,
+          border: '1px solid var(--color-border)',
           backgroundColor: 'transparent',
           cursor: 'pointer',
         }}
@@ -80,8 +80,8 @@ export default function AvatarMenu({ compact = false }) {
             width: compact ? 28 : 24,
             height: compact ? 28 : 24,
             borderRadius: '50%',
-            backgroundColor: t.accent,
-            color: t.textOnDark,
+            backgroundColor: 'var(--color-accent)',
+            color: 'var(--color-text-on-dark)',
             fontSize: compact ? 13 : 12,
             fontWeight: 700,
           }}
@@ -89,7 +89,7 @@ export default function AvatarMenu({ compact = false }) {
           {initial}
         </span>
         {!compact && (
-          <span style={{ fontSize: 12, fontWeight: 600, color: t.accentMuted, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-accent-muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {email || 'Account'}
           </span>
         )}
@@ -103,25 +103,25 @@ export default function AvatarMenu({ compact = false }) {
             top: 'calc(100% + 6px)',
             right: 0,
             minWidth: 200,
-            backgroundColor: t.surface,
-            border: `1px solid ${t.border}`,
+            backgroundColor: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
             borderRadius: 8,
             boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.12)',
             padding: 4,
             zIndex: 150,
           }}
         >
-          <MenuItem t={t} onClick={() => go('/settings/profile')}>My Profile</MenuItem>
-          <MenuItem t={t} onClick={() => go('/settings')}>Settings</MenuItem>
-          <div style={{ height: 1, backgroundColor: t.border, margin: '4px 0' }} />
-          <MenuItem t={t} onClick={signOut}>Sign Out</MenuItem>
+          <MenuItem onClick={() => go('/settings/profile')}>My Profile</MenuItem>
+          <MenuItem onClick={() => go('/settings')}>Settings</MenuItem>
+          <div style={{ height: 1, backgroundColor: 'var(--color-border)', margin: '4px 0' }} />
+          <MenuItem onClick={signOut}>Sign Out</MenuItem>
         </div>
       )}
     </div>
   );
 }
 
-function MenuItem({ t, onClick, children }) {
+function MenuItem({ onClick, children }) {
   return (
     <button
       type="button"
@@ -135,12 +135,12 @@ function MenuItem({ t, onClick, children }) {
         borderRadius: 6,
         border: 'none',
         backgroundColor: 'transparent',
-        color: t.text,
+        color: 'var(--color-text)',
         fontSize: 13,
         fontWeight: 500,
         cursor: 'pointer',
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = t.surfaceRaised; }}
+      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-surface-raised)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
     >
       {children}

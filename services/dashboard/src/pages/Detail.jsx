@@ -2,7 +2,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchResources, fetchDismissals } from '../api/client';
 import { queryClient } from '../main';
-import { useTheme } from '../theme/ThemeContext';
 import DetailScreen from '../screens/DetailScreen';
 import { Spinner } from '../components/primitives';
 import NotFound from './NotFound';
@@ -11,7 +10,6 @@ export default function Detail() {
   const navigate = useNavigate();
   const { id } = useParams();
   const [params] = useSearchParams();
-  const { theme } = useTheme();
   const account = params.get('account');
   const region  = params.get('region');
   const service = params.get('service');
@@ -51,7 +49,7 @@ export default function Detail() {
 
   if (isLoading) {
     return (
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: theme.bg, minHeight: '100vh' }}>
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: 'var(--color-bg)', minHeight: '100vh' }}>
         <Spinner />
       </div>
     );

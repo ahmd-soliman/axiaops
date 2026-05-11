@@ -1,8 +1,12 @@
 # AxiaOps Dashboard — Color Scheme
 
 This file is the **single source of truth** for the dashboard palette. If you
-change a value here, also change it in [`ThemeContext.jsx`](./ThemeContext.jsx)
-— the tokens there are the live values React reads at runtime.
+change a value here, also change it in [`../styles/tokens.css`](../styles/tokens.css)
+— the CSS custom properties there are the live values the cascade resolves at
+runtime. (Issue #88 moved tokens from a JS object distributed through
+`ThemeContext.jsx` to `:root` CSS variables; components now read
+`var(--color-X)` directly. The context still exposes `isDark` for non-colour
+branches.)
 
 Brand: **orange** on **Tailwind-slate** neutrals. Both themes target WCAG AA
 or better for every text-on-background pairing actually rendered in the app.
@@ -12,16 +16,18 @@ or better for every text-on-background pairing actually rendered in the app.
 ## Quick edit guide
 
 1. Edit a hex in the table below to design the new value.
-2. Mirror the change in `ThemeContext.jsx` (same token name).
-3. If you add a brand-new token, add it to **both** `lightTheme` and
-   `darkTheme` — token keys must match across themes, otherwise callers that
-   read `theme.fooBar` will crash under one mode.
+2. Mirror the change in `../styles/tokens.css` (same token name, kebab-cased
+   under the `--color-` prefix — `accentLight` → `--color-accent-light`).
+3. If you add a brand-new token, add it to **both** the `:root` and
+   `:root[data-theme="dark"]` blocks — every CSS variable must resolve in
+   both modes, otherwise consumers reading `var(--color-fooBar)` will get
+   the empty initial value under the missing-side mode.
 4. Re-run the contrast check in `Verification` below (AA minimum: 4.5:1 for
    body text, 3:1 for large text / UI controls).
 
 Local palettes in screens that render pre-ThemeProvider
 (`LoginScreen.jsx`, `ConnectScreen.jsx`, `AccountSettingsScreen.jsx`) mirror
-`darkTheme` by hand and must be updated alongside this file.
+the dark palette by hand and must be updated alongside this file.
 
 ## Brand accent
 

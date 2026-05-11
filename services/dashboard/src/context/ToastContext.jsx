@@ -10,7 +10,7 @@ const ICONS = {
 };
 
 // Toasts use a fixed dark-saturated palette in both modes — they are
-// notification flags, not surface colours. Pulling bg from theme.success/
+// notification flags, not surface colours. Pulling bg from 'var(--color-success)'/
 // error/warning failed AA contrast in dark mode (those tokens are tuned
 // as *colored text* on dark surfaces, so emerald-400 / red-400 / yellow-
 // 400 leave white toast text at <3:1, sometimes <2:1).

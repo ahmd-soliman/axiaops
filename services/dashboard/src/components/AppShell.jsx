@@ -51,13 +51,12 @@ function IconMoon({ color, size = 17 }) {
 // 5 nav links + OrgSwitcher (max 180px) + AvatarMenu (max 160px + chrome)
 // alongside the 48px logo. At md (768+) the desktop row fits with margin.
 export default function AppShell() {
-  const { theme, isDark, toggleTheme } = useTheme();
+  const { isDark, toggleTheme } = useTheme();
   const { orgName } = useApp();
   const { can } = useMe();
   const navigate  = useNavigate();
   const location  = useLocation();
   const { isAtMost } = useBreakpoint();
-  const t = theme;
 
   const isMobile = isAtMost('sm');
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.requires || can(item.requires));
@@ -80,7 +79,7 @@ export default function AppShell() {
     // to the viewport minus the sticky navbar (e.g. Settings sidebar's
     // full-height calc). Single source of truth — when this value changes,
     // every consumer using var(--navbar-height) tracks automatically.
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', backgroundColor: t.bg, '--navbar-height': '64px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', backgroundColor: 'var(--color-bg)', '--navbar-height': '64px' }}>
 
       {/* ── Sticky top navbar ── */}
       <header
@@ -88,8 +87,8 @@ export default function AppShell() {
           position: 'sticky',
           top: 0,
           zIndex: 100,
-          backgroundColor: t.bgSecondary,
-          borderBottom: `1px solid ${t.border}`,
+          backgroundColor: 'var(--color-bg-secondary)',
+          borderBottom: '1px solid var(--color-border)',
           height: 'var(--navbar-height)',
           display: 'flex',
           alignItems: 'center',
@@ -146,11 +145,11 @@ export default function AppShell() {
                       transition: 'background-color 120ms ease',
                     }}
                   >
-                    <Icon color={isActive ? t.accent : t.text} />
+                    <Icon color={isActive ? 'var(--color-accent)' : 'var(--color-text)'} />
                     <span style={{
                       fontSize: 13,
                       fontWeight: isActive ? 700 : 550,
-                      color: isActive ? t.accent : t.text,
+                      color: isActive ? 'var(--color-accent)' : 'var(--color-text)',
                     }}>
                       {label}
                     </span>
@@ -170,14 +169,14 @@ export default function AppShell() {
                 style={{
                   padding: '6px 7px',
                   borderRadius: 7,
-                  border: `1px solid ${t.border}`,
+                  border: '1px solid var(--color-border)',
                   backgroundColor: 'transparent',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                 }}
               >
-                {isDark ? <IconSun color={t.accentMuted} /> : <IconMoon color={t.accentMuted} />}
+                {isDark ? <IconSun color="var(--color-accent-muted)" /> : <IconMoon color="var(--color-accent-muted)" />}
               </button>
 
               {/* Org badge / switcher. OrgSwitcher renders the same static
@@ -225,7 +224,7 @@ export default function AppShell() {
           textAlign: 'right',
           fontSize: 10,
           fontFamily: '"Geist Mono Variable", monospace',
-          color: t.textMuted,
+          color: 'var(--color-text-muted)',
           opacity: 0.6,
           flexShrink: 0,
           letterSpacing: 0.3,
