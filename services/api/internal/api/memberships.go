@@ -104,7 +104,7 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 	if req.Role == string(authz.RoleAdmin) {
 		callerRole, _ := h.store.RoleOf(ctx, tid, uid)
 		if !authz.Allows(authz.Role(callerRole), authz.PermMembersManageAdmin) {
-			writeError(w, http.StatusForbidden, "forbidden", "forbidden")
+			writeError(w, http.StatusForbidden, "forbidden", "inviting at admin role requires owner permission")
 			return
 		}
 	}
