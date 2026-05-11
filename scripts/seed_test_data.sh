@@ -868,120 +868,135 @@ VALUES
 echo "  Inserted 33 resource records (22 zombies, 11 active) across 3 accounts."
 echo ""
 
-# ── Zombie snapshots — historical trend data per account ─────────────────────
-# Creates 90 days of snapshots per account simulating daily scans with realistic
-# variation (upward trend + weekly sine wave + noise).
-# Also creates per-service breakdown rows in zombie_snapshot_services.
-
-# Service cost distribution per account (fractions must sum to ~1.0):
-# Format: "service|resource_type:fraction" — pipe separates service from sub-type.
-# Plain "service:fraction" means resource_type is empty.
-#   ACCT1 (prod):    EC2|instance=0.16, RDS=0.42, ELB=0.04, VPC=0.01, EC2|volume=0.22, EC2|snapshot=0.15
-#   ACCT2 (staging): EC2|instance=0.46, Lambda=0.02, VPC=0.03, EC2|stopped_instance=0.33, EC2|ami=0.16
-#   ACCT3 (dev):     EC2|instance=0.22, RDS=0.30, Lambda=0.08, VPC=0.06, EC2|volume=0.20, EC2|ami=0.14
-
-generate_snapshots() {
-  local acct_id=$1        # e.g. "seed-account-001"
-  local base_zombies=$2   # baseline zombie count (e.g. 14)
-  local base_savings=$3   # baseline monthly savings in USD (e.g. 498.0)
-  local days=$4           # number of daily snapshots to generate
-  local services=$5       # service cost distribution: "Service|type:fraction ..."
-
-  # Uses a single awk invocation to build two INSERT statements (snapshots + services).
-  # This avoids spawning thousands of subshells for date math.
-  local sql
-  sql=$(awk -v acct="$acct_id" -v org="$ORGANIZATION_ID" \
-    -v base_z="$base_zombies" -v base_s="$base_savings" \
-    -v days="$days" -v svcs="$services" \
-    'BEGIN {
-      # Fixed seed makes the seeded data reproducible across runs and across
-      # machines (gawk/mawk/BSD awk all honour an integer arg the same way).
-      # Was bare srand() before — that reseeds from time-of-day, so every
-      # `make seed` produced different ±10% wobble on the same dashboard.
-      srand(42)
-      pi = 3.14159265
-
-      # Parse services — format: "service|resource_type:fraction" or "service:fraction"
-      n_svc = split(svcs, svc_arr, " ")
-      for (s = 1; s <= n_svc; s++) {
-        split(svc_arr[s], parts, ":")
-        svc_fracs[s] = parts[2] + 0
-        # Split service|resource_type on pipe
-        n_pipe = split(parts[1], pipe_parts, "|")
-        svc_names[s] = pipe_parts[1]
-        svc_rtypes[s] = (n_pipe > 1) ? pipe_parts[2] : ""
-      }
-
-      # Get current epoch (approximate — good enough for seed data)
-      "date -u +%s" | getline epoch; close("date -u +%s")
-
-      # Snapshot INSERT
-      printf "INSERT INTO zombie_snapshots (id, organization_id, account_id, snapshot_at, zombie_count, total_monthly_cost, currency) VALUES\n"
-      for (i = days; i >= 1; i--) {
-        snap_epoch = epoch - (i * 86400)
-        # Format as ISO date (use shell date for portability)
-        cmd = "date -u -r " snap_epoch " +\"%Y-%m-%dT12:00:00Z\" 2>/dev/null || TZ=UTC date -u -d @" snap_epoch " +\"%Y-%m-%dT12:00:00Z\""
-        cmd | getline snap_date; close(cmd)
-
-        # Realistic variation: upward trend + weekly sine wave + random noise
-        tf = 1.0 + ((days - i) / days) * 0.3
-        wf = 1.0 + 0.1 * sin((i / 7) * pi)
-        noise = 0.9 + rand() * 0.2
-        zombies = int(base_z * tf * wf * noise)
-        cost = base_s * tf * wf * noise
-        if (zombies < 0) zombies = 0
-
-        snap_id = "snap-" acct "-" i
-        comma = (i > 1) ? "," : ""
-        printf "  ('\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', %d, %.2f, '\''USD'\'')%s\n", snap_id, org, acct, snap_date, zombies, cost, comma
-
-        # Store for service rows
-        snap_ids[i] = snap_id
-        snap_zombies[i] = zombies
-        snap_costs[i] = cost
-      }
-      printf "ON CONFLICT DO NOTHING;\n\n"
-
-      # Service INSERT
-      printf "INSERT INTO zombie_snapshot_services (id, snapshot_id, organization_id, service, resource_type, zombie_count, monthly_cost, currency) VALUES\n"
-      first = 1
-      for (i = days; i >= 1; i--) {
-        for (s = 1; s <= n_svc; s++) {
-          svc_noise = 0.85 + rand() * 0.3
-          svc_cost = snap_costs[i] * svc_fracs[s] * svc_noise
-          svc_z = int(snap_zombies[i] * svc_fracs[s] * svc_noise)
-          if (svc_z < 1) svc_z = 1
-          row_id = "svc-" acct "-" i "-" s
-
-          if (!first) printf ",\n"
-          first = 0
-          printf "  ('\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', '\''%s'\'', %d, %.2f, '\''USD'\'')", row_id, snap_ids[i], org, svc_names[s], svc_rtypes[s], svc_z, svc_cost
-        }
-      }
-      printf "\nON CONFLICT DO NOTHING;\n"
-    }')
-
-  # Pipe both INSERT statements via stdin (psql_exec uses -c which only takes one statement).
-  echo "$sql" | psql_pipe || echo "  Warning: snapshot insert failed for $acct_id"
-
-  local svc_count=$((days * $(echo "$services" | wc -w | tr -d ' ')))
-  echo "  Inserted $days snapshots + $svc_count service rows for $acct_id."
-}
-
-# Clean old seed snapshot data (deterministic IDs).
-# zombie_snapshot_services may not exist on older schemas — ignore errors.
-psql_exec "DELETE FROM zombie_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" 2>/dev/null || true
-psql_exec "DELETE FROM zombie_snapshots WHERE id LIKE 'snap-seed-account-%';"
+# ── Zombie snapshots — derived from zombie_records ───────────────────────────
+# Each day's snapshot is a rollup of a scaled view of the zombie_records inserted above:
+#   - Day 1 (most recent) uses scale = 1.0, so SUM(svc.cost) on that day's services
+#     equals SUM(zombie_records.monthly_cost) per account — exactly.
+#   - Days 2..90 (older) scale per service by an upward trend × weekly sine wobble
+#     × per-service noise, so the time series looks plausible without inventing
+#     services that aren't in zombie_records.
+# Snapshot totals are computed as SUM of the inserted zombie_snapshot_services for
+# the same (account, day) — preserving the within-row invariant
+# (snapshot.total = SUM of its services) by construction. This mirrors the
+# production scan flow where both SaveZombies and SaveSnapshot run off one
+# analyzer.Summarize(zombies) call. See issue #91.
 
 DAYS=90
-echo "Inserting zombie snapshots with realistic trends (90 days × 3 accounts)..."
+echo "Inserting zombie snapshots derived from zombie_records (${DAYS} days × 3 accounts)..."
 
-generate_snapshots "$ACCT1" 14 498.0 $DAYS \
-  "AmazonEC2|instance:0.16 AmazonRDS|primary:0.42 AmazonElasticLoadBalancing|alb:0.04 AmazonVPC|nat_gateway:0.005 AmazonVPC|eip:0.005 AmazonEC2|volume:0.22 AmazonEC2|snapshot:0.15"
-generate_snapshots "$ACCT2" 10 330.4 $DAYS \
-  "AmazonEC2|instance:0.46 AWSLambda:0.02 AmazonRDS|read_replica:0.20 AmazonVPC|nat_gateway:0.015 AmazonVPC|eip:0.015 AmazonEC2|stopped_instance:0.33 AmazonEC2|ami:0.16"
-generate_snapshots "$ACCT3" 9  217.7 $DAYS \
-  "AmazonEC2|instance:0.22 AmazonRDS|primary:0.30 AWSLambda:0.08 AmazonElasticLoadBalancing|nlb:0.05 AmazonVPC|nat_gateway:0.03 AmazonVPC|eip:0.03 AmazonEC2|volume:0.20 AmazonEC2|ami:0.14"
+# Clean old seed snapshot data first. The FK on zombie_snapshot_services.snapshot_id
+# is ON DELETE CASCADE (per migration 004_snapshot_services.up.sql), so deleting
+# zombie_snapshots clears the per-service rows for free.
+psql_exec "DELETE FROM zombie_snapshots WHERE id LIKE 'snap-seed-account-%';"
+
+psql_pipe <<EOF
+-- Deterministic seed so make seed produces identical wobble every run.
+-- random() values stay session-local, so this only affects the statement below.
+-- Wrapped in DO so the void-return row doesn't print in --quiet mode.
+DO \$\$ BEGIN PERFORM setseed(0.42); END \$\$;
+
+WITH
+  params AS (
+    SELECT
+      '${ORGANIZATION_ID}'::text AS org_id,
+      ${DAYS}::int               AS days
+  ),
+  -- Per-(account, service, resource_type) aggregates from the just-inserted records.
+  zr_agg AS (
+    SELECT
+      zr.internal_account_id AS account_id,
+      zr.service,
+      zr.resource_type,
+      SUM(zr.monthly_cost)::numeric AS svc_cost,
+      COUNT(*)::int                 AS svc_count
+    FROM zombie_records zr, params
+    WHERE zr.organization_id = params.org_id
+      AND zr.internal_account_id IN ('${ACCT1}','${ACCT2}','${ACCT3}')
+    GROUP BY zr.internal_account_id, zr.service, zr.resource_type
+  ),
+  day_offsets AS (
+    SELECT generate_series(1, (SELECT days FROM params))::int AS d
+  ),
+  -- svc_rows below is consumed twice (in ins_snapshots' SUM and in the outer
+  -- INSERT). MATERIALIZED here pins one random() call per logical row so both
+  -- consumers see the same scale; without it, PG would inline svc_scaled into
+  -- each consumer and the snapshot total would diverge from SUM(its services).
+  svc_scaled AS MATERIALIZED (
+    SELECT
+      zr.account_id,
+      d.d,
+      zr.service,
+      zr.resource_type,
+      zr.svc_cost,
+      zr.svc_count,
+      CASE
+        WHEN d.d = 1 THEN 1.0::numeric
+        ELSE (
+          -- Upward trend: oldest day → 0.70, today → 1.00.
+          (0.70 + 0.30 * (1.0 - (d.d - 1)::numeric / GREATEST(1.0, (SELECT days::numeric - 1 FROM params))))
+          -- Weekly sine wobble (±10%).
+          * (1.0 + 0.10 * SIN(d.d::numeric / 7.0 * PI()))
+          -- Per-service uniform noise in [0.85, 1.15] (centered on 1.0).
+          * (0.85 + 0.30 * random())
+        )::numeric
+      END AS scale
+    FROM zr_agg zr CROSS JOIN day_offsets d
+  ),
+  -- Final per-service rows; floor counts (min 1 per service) and round cost to 2dp.
+  svc_rows AS (
+    SELECT
+      'svc-' || account_id || '-' || d || '-'
+        || ROW_NUMBER() OVER (PARTITION BY account_id, d ORDER BY service, resource_type) AS id,
+      'snap-' || account_id || '-' || d AS snapshot_id,
+      account_id,
+      d,
+      service,
+      resource_type,
+      GREATEST(1, FLOOR(svc_count * scale)::int) AS zombie_count,
+      ROUND((svc_cost * scale)::numeric, 2)      AS monthly_cost
+    FROM svc_scaled
+  ),
+  -- Snapshot rows are aggregates of the per-service rows. By construction:
+  --   snapshot.total_monthly_cost = SUM(svc.monthly_cost) for the same (account, day)
+  --   snapshot.zombie_count       = SUM(svc.zombie_count)
+  -- and for d=1, scale=1.0 across all services so SUM(svc.cost) = SUM(zr.svc_cost)
+  --   which equals SUM(zombie_records.monthly_cost) per account.
+  ins_snapshots AS (
+    INSERT INTO zombie_snapshots
+      (id, organization_id, account_id, snapshot_at, zombie_count, total_monthly_cost, currency)
+    SELECT
+      snapshot_id,
+      (SELECT org_id FROM params),
+      account_id,
+      -- d=1 is today at noon UTC; d=90 is today − 89 days. Keeping the latest
+      -- snapshot dated "today" so the dashboard's trend chart's most recent
+      -- point matches dev's wall-clock expectation when eyeballing fresh data.
+      date_trunc('day', NOW()) - ((d - 1)::text || ' days')::interval + INTERVAL '12 hours',
+      SUM(zombie_count)::int,
+      SUM(monthly_cost),
+      'USD'
+    FROM svc_rows
+    GROUP BY snapshot_id, account_id, d
+    ON CONFLICT DO NOTHING
+    RETURNING id
+  )
+INSERT INTO zombie_snapshot_services
+  (id, snapshot_id, organization_id, service, resource_type, zombie_count, monthly_cost, currency)
+SELECT
+  id,
+  snapshot_id,
+  (SELECT org_id FROM params),
+  service,
+  resource_type,
+  zombie_count,
+  monthly_cost,
+  'USD'
+FROM svc_rows
+WHERE snapshot_id IN (SELECT id FROM ins_snapshots)
+ON CONFLICT DO NOTHING;
+EOF
+
+echo "  Done."
 echo ""
 
 # ── Cost records ──────────────────────────────────────────────────────────────
@@ -1058,6 +1073,88 @@ echo "Dev organization resource records:    $RESOURCE_COUNT  (expected 33)"
 echo "Dev organization zombie snapshots:    $SNAPSHOT_COUNT  (expected 270)"
 echo "Dev organization snapshot services:   $SVC_COUNT"
 echo "Dev organization cost records:        $COST_COUNT  (expected 21)"
+echo ""
+
+# Hard row-count gate before the gap-math invariants below. Without this, an
+# empty result set in either invariant query coalesces to gap=\$0.00 and the
+# awk gates pass vacuously. The invariants below assume there ARE snapshots
+# to compare; assert that here so a partial-state DB fails loud instead of
+# silent-passing through a gap-of-\$0.00 false positive.
+SEED_SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshots WHERE id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
+SEED_SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
+if [[ "$SEED_SNAPSHOT_COUNT" -ne 270 ]]; then
+  echo "  snapshot count: FAIL ($SEED_SNAPSHOT_COUNT seed rows, expected 270)" >&2
+  echo "                  Issue #91 invariant verification would silently pass with no rows; aborting." >&2
+  exit 1
+fi
+if [[ "$SEED_SVC_COUNT" -eq 0 ]]; then
+  echo "  service-row count: FAIL ($SEED_SVC_COUNT seed rows, expected >0)" >&2
+  exit 1
+fi
+
+# Invariant assertions — issue #91. The seed fixture must satisfy the same
+# invariants as the production scan path, otherwise dev debugging of /v1/summary
+# vs /v1/trend reconciliation (issue #90) chases ghosts that don't exist in prod.
+#   (1) Cross-table: SUM(zombie_records.monthly_cost) per account
+#                  == latest zombie_snapshots.total_monthly_cost per account.
+#   (2) Within-row: SUM(zombie_snapshot_services.monthly_cost where snapshot_id=X)
+#                  == zombie_snapshots.total_monthly_cost where id=X, for every snapshot.
+# Tolerance is 0.01 USD per account / per snapshot to absorb any incidental
+# rounding (the SQL above is exact NUMERIC arithmetic, so this should report 0).
+
+echo "=== Invariant checks (issue #91) ==="
+CROSS_TABLE_GAP=$(psql_query "
+SELECT COALESCE(SUM(ABS(snap_total - rec_sum))::numeric(12,2), 0)
+FROM (
+  SELECT
+    latest.account_id,
+    latest.total_monthly_cost AS snap_total,
+    COALESCE(zr.rec_sum, 0)   AS rec_sum
+  FROM (
+    SELECT DISTINCT ON (account_id) account_id, total_monthly_cost, snapshot_at
+    FROM zombie_snapshots
+    WHERE organization_id = '${ORGANIZATION_ID}'
+      AND id LIKE 'snap-seed-account-%'
+    ORDER BY account_id, snapshot_at DESC
+  ) latest
+  LEFT JOIN (
+    SELECT internal_account_id AS account_id, SUM(monthly_cost) AS rec_sum
+    FROM zombie_records
+    WHERE organization_id = '${ORGANIZATION_ID}'
+      AND internal_account_id IN ('${ACCT1}','${ACCT2}','${ACCT3}')
+    GROUP BY internal_account_id
+  ) zr ON zr.account_id = latest.account_id
+) joined;" | tr -d '[:space:]')
+
+WITHIN_ROW_GAP=$(psql_query "
+SELECT COALESCE(SUM(ABS(s.total_monthly_cost - svc.cost_sum))::numeric(12,2), 0)
+FROM zombie_snapshots s
+JOIN (
+  SELECT snapshot_id, SUM(monthly_cost) AS cost_sum
+  FROM zombie_snapshot_services
+  WHERE organization_id = '${ORGANIZATION_ID}'
+    AND snapshot_id LIKE 'snap-seed-account-%'
+  GROUP BY snapshot_id
+) svc ON svc.snapshot_id = s.id
+WHERE s.organization_id = '${ORGANIZATION_ID}'
+  AND s.id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
+
+# awk arithmetic — bash's [[ -lt ]] doesn't do floats. Threshold 0.01 USD total
+# (i.e. across all accounts/snapshots) absorbs any incidental rounding noise.
+if awk -v g="$CROSS_TABLE_GAP" 'BEGIN { exit !(g+0 <= 0.01) }'; then
+  echo "  cross-table  ✓  SUM(zombie_records) == latest snapshot per account (gap: \$${CROSS_TABLE_GAP})"
+else
+  echo "  cross-table  ✗  SUM(zombie_records) != latest snapshot per account (gap: \$${CROSS_TABLE_GAP})" >&2
+  echo "                  Issue #91 invariant violated — investigate the snapshot SQL block above." >&2
+  exit 1
+fi
+if awk -v g="$WITHIN_ROW_GAP" 'BEGIN { exit !(g+0 <= 0.01) }'; then
+  echo "  within-row   ✓  SUM(services) == snapshot.total per snapshot (gap: \$${WITHIN_ROW_GAP})"
+else
+  echo "  within-row   ✗  SUM(services) != snapshot.total per snapshot (gap: \$${WITHIN_ROW_GAP})" >&2
+  echo "                  Issue #91 invariant violated — investigate the snapshot SQL block above." >&2
+  exit 1
+fi
 echo ""
 
 echo "=== Done ==="
