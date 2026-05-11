@@ -18,10 +18,16 @@ import ErrorPage from './ErrorPage';
 // a retry fallback). The previous all-failures-redirect behaviour silently
 // logged users out on any rate-limit hit because /v1/me is the first call
 // every page refresh fires and shares the org's request budget.
+//
+// The loading guard skips a render on the FIRST /v1/me call only —
+// otherwise clicking Retry would flash a blank between the ErrorPage and
+// the retry result, since refresh() flips loading=true. Once we've seen
+// either a successful me OR an error, keep showing whatever we have until
+// the new call resolves.
 export default function AuthGuard() {
   const { me, loading, error, refresh } = useMe();
   if (DEV_MODE) return <Outlet />;
-  if (loading) return null;
+  if (loading && !error && !me) return null;
   if (me?.user_id) return <Outlet />;
   if (error) {
     const code = error.status ? String(error.status) : undefined;
@@ -29,8 +35,14 @@ export default function AuthGuard() {
       <ErrorPage
         code={code}
         title="Couldn't reach the API"
-        description="Your session is still active — this is usually a brief connectivity blip or a rate limit. Try again in a moment."
-        actions={[{ label: 'Retry', onClick: refresh, primary: true }]}
+        description="This is usually a brief connectivity blip or a rate limit. Try again in a moment."
+        actions={[
+          {
+            label: loading ? 'Retrying…' : 'Retry',
+            onClick: loading ? () => {} : refresh,
+            primary: true,
+          },
+        ]}
       />
     );
   }

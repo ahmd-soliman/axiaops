@@ -96,7 +96,8 @@ func TestRateLimiter_Wrap_Returns429(t *testing.T) {
 	rl := newTestRateLimiter()
 	ctx := context.Background()
 
-	// Drain the bucket
+	// Drain the bucket — same subject Wrap composes for an org-only request
+	// (no userID on ctx).
 	for i := 0; i < testLimit; i++ {
 		rl.Allow(ctx, "alpha") //nolint:errcheck
 	}
@@ -113,8 +114,68 @@ func TestRateLimiter_Wrap_Returns429(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests {
 		t.Errorf("expected 429, got %d", w.Code)
 	}
-	if ra := w.Header().Get("Retry-After"); ra != "60" {
-		t.Errorf("expected Retry-After: 60, got %q", ra)
+	// Retry-After is now bucket-rollover-aware (RFC 7231 §7.1.3), not a
+	// hardcoded "60" — just assert it parses to a positive integer that
+	// stays within the bucket window (≤60). A hardcoded "60" check would
+	// fail every time the test runs at second != 0 of a bucket.
+	ra := w.Header().Get("Retry-After")
+	if ra == "" {
+		t.Error("Retry-After: expected non-empty value")
+	} else if n, err := strconv.Atoi(ra); err != nil || n < 1 || n > 60 {
+		t.Errorf("Retry-After: expected 1..60, got %q (parse err: %v)", ra, err)
+	}
+	// X-RateLimit-* headers must also be present on the 429 — clients
+	// honouring the trio need them to back off correctly. Easy to regress
+	// by moving the header writes inside the !Allowed branch.
+	if got := w.Header().Get("X-RateLimit-Limit"); got != strconv.Itoa(testLimit) {
+		t.Errorf("429 X-RateLimit-Limit: expected %d, got %q", testLimit, got)
+	}
+	if got := w.Header().Get("X-RateLimit-Remaining"); got != "0" {
+		t.Errorf("429 X-RateLimit-Remaining: expected 0, got %q", got)
+	}
+	if got := w.Header().Get("X-RateLimit-Reset"); got == "" {
+		t.Error("429 X-RateLimit-Reset: expected non-empty unix timestamp")
+	}
+}
+
+func TestRateLimiter_Wrap_OrgOnlySubjectIsolatedFromOrgUser(t *testing.T) {
+	// The Wrap fallback uses subject = orgID when userID is unset (pre-auth
+	// paths that already carry org). That subject MUST be a different
+	// bucket from the same-org-plus-user subject, otherwise an unauth'd
+	// request burning the budget would lock out the same org's authenticated
+	// users.
+	rl := newTestRateLimiter()
+	handler := rl.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Drain "org-only" bucket via the fallback path (no userID on context).
+	for i := 0; i < testLimit; i++ {
+		r := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
+		r = r.WithContext(middleware.ContextWithOrganizationID(r.Context(), "shared-org"))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("org-only req %d: expected 200, got %d", i+1, w.Code)
+		}
+	}
+	// One more org-only request → 429.
+	r := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
+	r = r.WithContext(middleware.ContextWithOrganizationID(r.Context(), "shared-org"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("org-only over limit: expected 429, got %d", w.Code)
+	}
+	// Same org but with a userID on ctx → composes a distinct subject and
+	// still has full capacity.
+	r2 := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
+	ctx := middleware.ContextWithOrganizationID(r2.Context(), "shared-org")
+	ctx = middleware.WithUserID(ctx, "user-X")
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, r2.WithContext(ctx))
+	if w2.Code != http.StatusOK {
+		t.Fatalf("org+user (same org, user set): expected 200, got %d", w2.Code)
 	}
 }
 
