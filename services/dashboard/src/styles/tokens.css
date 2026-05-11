@@ -91,12 +91,14 @@
      WCAG AA contrast on #FFFFFF surface (measured, not asserted):
        alertCritical  4.83:1  ✓ body + large
        alertWarning   3.19:1  ✓ large only — DO NOT use for body text (<24px,
-                              or <18.66px bold). Currently used only on the
-                              28px-bold Monthly Waste headline.
+                              or <18.66px bold). Used on the waste-ratio bar's
+                              middle band (10–20%) — never on headline numbers
+                              (those live in --color-accent orange, see §3 of
+                              docs/ui-color-system-review.md).
        statusOk       5.48:1  ✓ body + large (emerald-700 — green-600 #16A34A
                               fails body at 3.30:1, so we use the darker stop). */
-  --color-alert-critical: #DC2626;     /* red-600  — waste-ratio bar */
-  --color-alert-warning:  #D97706;     /* amber-600 — Monthly Waste headline (large only) */
+  --color-alert-critical: #DC2626;     /* red-600  — waste-ratio bar high band */
+  --color-alert-warning:  #D97706;     /* amber-600 — waste-ratio bar mid band (large only) */
   --color-status-ok:      #047857;     /* emerald-700 — onboarding ticks, +/- deltas */
 
   /* Data-viz sequential ramp (light theme). 5-bucket cyan/teal scale, dark
@@ -180,8 +182,8 @@
      the light theme's amber-600 #D97706 (hue ~32°). amber-500 #F59E0B (hue
      ~38°) sits between them — clearly amber, ~14° from brand orange
      (orange-400 #FB923C, hue ~24°), AAA contrast (7.58:1) on dark surface. */
-  --color-alert-critical: #F87171;     /* red-400, matches error — waste-ratio bar */
-  --color-alert-warning:  #F59E0B;     /* amber-500 — Monthly Waste headline */
+  --color-alert-critical: #F87171;     /* red-400, matches error — waste-ratio bar high band */
+  --color-alert-warning:  #F59E0B;     /* amber-500 — waste-ratio bar mid band */
   --color-status-ok:      #34D399;     /* emerald-400 — onboarding completion ticks */
 
   /* Data-viz sequential ramp (dark theme). Lighter end = biggest waste so the

@@ -154,7 +154,11 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, is
               }
             />
           </div>
-          <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--color-alert-warning)', letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
+          {/* Headline number uses --color-accent (orange) — part of the visual
+              identity: main numbers across the dashboard are in orange (matches
+              the Savings Trend headline on TrendScreen). See
+              docs/ui-color-system-review.md §3 "Main numbers in orange". */}
+          <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--color-accent)', letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
             {currency} {waste.toFixed(2)}
           </span>
           <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic', display: 'block', marginTop: 1 }}>
