@@ -1138,10 +1138,15 @@ if [[ "$DEMO_MODE" == "true" ]]; then
     target_org="${target#*:}"
     echo "Copying seed data → $prefix (org: $target_org)"
 
-    # Clean prior copies (idempotent re-run).
+    # Clean prior copies (idempotent re-run). zombie_records and resource_records
+    # have no unique constraint covering (organization_id, resource_id,
+    # period_start), so the downstream INSERT...SELECT ... ON CONFLICT DO NOTHING
+    # would otherwise accumulate duplicates on every re-run.
     psql_exec "DELETE FROM zombie_snapshots WHERE id LIKE 'snap-${prefix}-account-%';"
     psql_exec "DELETE FROM accounts WHERE id LIKE '${prefix}-account-%';"
     psql_exec "DELETE FROM cost_records WHERE internal_account_id LIKE '${prefix}-account-%';"
+    psql_exec "DELETE FROM zombie_records WHERE internal_account_id LIKE '${prefix}-account-%';"
+    psql_exec "DELETE FROM resource_records WHERE internal_account_id LIKE '${prefix}-account-%';"
 
     # Translate seed-account-* IDs → ${prefix}-account-* on every per-account
     # table. snapshot_id rewrite happens via the snap-seed-account- pattern.
@@ -1213,7 +1218,47 @@ ON CONFLICT DO NOTHING;
 EOF_DEMO
   done
 
-  echo "  Demo orgs populated."
+  # Per-org cost multipliers so each demo org tells a distinct story when the
+  # B1.5 switcher flips between them. Baseline (dev org) stays 1×; Acme ×10
+  # (enterprise persona), Globex ×3 (mid-size persona). Applied across every
+  # money-bearing table that the demo INSERTs populated. Keeps the #91 invariant
+  # (snapshot.total_monthly_cost == sum(services per snapshot)) because every
+  # related row scales by the same factor. Idempotent: re-running rebuilds from
+  # the dev baseline (DELETE-first guards above) and re-applies the multiplier.
+  psql_pipe <<EOF_DEMO_SCALE
+WITH f AS (
+  SELECT id AS organization_id,
+         CASE org_code WHEN 'org_acme' THEN 10 WHEN 'org_globex' THEN 3 END::numeric AS factor
+  FROM organizations WHERE org_code IN ('org_acme','org_globex')
+)
+UPDATE zombie_records           z SET monthly_cost       = z.monthly_cost       * f.factor FROM f WHERE z.organization_id = f.organization_id;
+WITH f AS (
+  SELECT id AS organization_id,
+         CASE org_code WHEN 'org_acme' THEN 10 WHEN 'org_globex' THEN 3 END::numeric AS factor
+  FROM organizations WHERE org_code IN ('org_acme','org_globex')
+)
+UPDATE resource_records         r SET monthly_cost       = r.monthly_cost       * f.factor FROM f WHERE r.organization_id = f.organization_id;
+WITH f AS (
+  SELECT id AS organization_id,
+         CASE org_code WHEN 'org_acme' THEN 10 WHEN 'org_globex' THEN 3 END::numeric AS factor
+  FROM organizations WHERE org_code IN ('org_acme','org_globex')
+)
+UPDATE zombie_snapshot_services s SET monthly_cost       = s.monthly_cost       * f.factor FROM f WHERE s.organization_id = f.organization_id;
+WITH f AS (
+  SELECT id AS organization_id,
+         CASE org_code WHEN 'org_acme' THEN 10 WHEN 'org_globex' THEN 3 END::numeric AS factor
+  FROM organizations WHERE org_code IN ('org_acme','org_globex')
+)
+UPDATE zombie_snapshots         z SET total_monthly_cost = z.total_monthly_cost * f.factor FROM f WHERE z.organization_id = f.organization_id;
+WITH f AS (
+  SELECT id AS organization_id,
+         CASE org_code WHEN 'org_acme' THEN 10 WHEN 'org_globex' THEN 3 END::numeric AS factor
+  FROM organizations WHERE org_code IN ('org_acme','org_globex')
+)
+UPDATE cost_records             c SET amount             = c.amount             * f.factor FROM f WHERE c.organization_id = f.organization_id;
+EOF_DEMO_SCALE
+
+  echo "  Demo orgs populated (Acme ×10, Globex ×3)."
   echo ""
 fi
 
