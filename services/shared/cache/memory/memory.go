@@ -69,6 +69,25 @@ func (c *Cache) Del(_ context.Context, key string) error {
 	return nil
 }
 
+// GetDel atomically retrieves and deletes a key. Returns ErrNotFound when
+// the key is absent or expired. Two concurrent GetDel calls on the same
+// key — only one returns the value, the other gets ErrNotFound. Mirrors
+// Redis 6.2+ GETDEL semantics (audit M-2).
+func (c *Cache) GetDel(_ context.Context, key string) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.items[key]
+	if !ok || time.Now().After(e.expiresAt) {
+		// Be tidy: drop the stale entry while we're holding the write lock.
+		if ok {
+			delete(c.items, key)
+		}
+		return nil, ErrNotFound
+	}
+	delete(c.items, key)
+	return e.value, nil
+}
+
 // Incr atomically increments a counter, resetting TTL on each call.
 func (c *Cache) Incr(_ context.Context, key string, ttl time.Duration) (int64, error) {
 	c.mu.Lock()

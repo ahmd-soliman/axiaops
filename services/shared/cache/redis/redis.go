@@ -73,6 +73,24 @@ func (c *Client) Del(ctx context.Context, key string) error {
 	return nil
 }
 
+// GetDel atomically retrieves and deletes a key via Redis GETDEL (6.2+).
+// Returns ErrNotFound on miss. Two concurrent GetDel calls on the same key
+// — only one returns the value, the other gets ErrNotFound (audit M-2).
+func (c *Client) GetDel(ctx context.Context, key string) ([]byte, error) {
+	obs := observability.NewDatabaseObserver("REDIS_GETDEL")
+	val, err := c.rdb.GetDel(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		obs.Observe()
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		obs.ObserveError()
+		return nil, err
+	}
+	obs.Observe()
+	return val, nil
+}
+
 // Incr atomically increments a counter. TTL is applied on every call
 // (Redis EXPIRE resets the TTL, which is correct for sliding-window counters).
 func (c *Client) Incr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
