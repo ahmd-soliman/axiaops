@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissZombie } from '../api/client';
+import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissZombie, revokeDismissal } from '../api/client';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
@@ -140,9 +140,15 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
                     Sum of monthly cost across detected zombie resources, based on net amortized cost.
                   </p>
                   <p style={{ margin: '8px 0 0', color: theme.textMid }}>
-                    <strong>Heads up</strong> — if a resource is covered by a Savings Plan or Reserved Instance,
-                    killing it may not reduce your bill until the commitment ends. AxiaOps does not yet detect
-                    SP/RI coverage, so this number can overstate savings for accounts with active commitments.
+                    <strong>Live, after dismissals.</strong> Computed from current resources minus anything
+                    you&rsquo;ve dismissed or snoozed. This is why it can differ from the latest point on the
+                    Trend chart, which is captured at scan time <em>before</em> dismissals are applied.
+                  </p>
+                  <p style={{ margin: '8px 0 0', color: theme.textMid }}>
+                    <strong>Savings Plans / RIs.</strong> If a resource is covered by a Savings Plan or
+                    Reserved Instance, killing it may not reduce your bill until the commitment ends.
+                    AxiaOps does not yet detect SP/RI coverage, so this number can overstate savings for
+                    accounts with active commitments.
                   </p>
                 </>
               }
@@ -150,6 +156,9 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
           </div>
           <span style={{ fontSize: 28, fontWeight: 800, color: theme.alertWarning, letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
             {currency} {waste.toFixed(2)}
+          </span>
+          <span style={{ fontSize: 11, color: theme.textMuted, fontStyle: 'italic', display: 'block', marginTop: 1 }}>
+            Live · after dismissals
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
             <span style={{ fontSize: 12, color: theme.textMuted }}>
@@ -868,7 +877,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
 
 // ─── Dismissed resource card ──────────────────────────────────────────────────
 
-function DismissedCard({ item, theme, isDark, onSelect }) {
+function DismissedCard({ item, theme, isDark, onSelect, isSelected, onToggleSelect }) {
   const cfg = serviceConfig(item.service);
   const reasonLabel = {
     intentional: 'Intentional', scheduled_deletion: 'Scheduled', false_positive: 'False positive',
@@ -886,77 +895,115 @@ function DismissedCard({ item, theme, isDark, onSelect }) {
     });
   };
 
+  // Same shape as ResourceCard — outer is a <div>, NOT a button, so the
+  // checkbox column can be clickable independently of the row body. The body
+  // (cost / metadata) is a <button> that opens the detail view.
   return (
-    <button
-      type="button"
-      onClick={handleSelect}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
+    <div
       style={{
         backgroundColor: theme.card,
         marginLeft: 16,
         marginRight: 16,
         marginBottom: 8,
         borderRadius: 10,
-        padding: '12px 14px',
-        border: `1px solid ${theme.border}`,
         opacity: 0.75,
-        cursor: onSelect ? 'pointer' : 'default',
-        textAlign: 'left',
-        width: 'calc(100% - 32px)',
-        font: 'inherit',
-        color: 'inherit',
-        outline: focused ? `2px solid ${theme.accent}` : 'none',
-        outlineOffset: 2,
+        display: 'flex',
+        alignItems: 'stretch',
+        overflow: 'hidden',
+        border: isSelected ? `1px solid ${theme.accent}` : `1px solid ${theme.border}`,
+        transition: 'border-color 0.15s',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-        <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-          <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: isSnoozed ? '#2563EB' : '#9CA3AF' }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: isSnoozed ? '#2563EB' : '#9CA3AF' }}>
-            {isSnoozed ? 'snoozed' : 'dismissed'}
-          </span>
-        </span>
-        <div style={{ flex: 1 }} />
-        {typeof item.monthly_cost === 'number' && (
-          <span style={{ fontSize: 14, fontWeight: 700, color: theme.accent, flexShrink: 0 }}>
-            {item.currency} {item.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted }}>/mo</span>
-          </span>
-        )}
+      {/* Checkbox column — stopPropagation on the input so its native
+          onChange isn't double-counted with the parent div's onClick. */}
+      <div
+        style={{ padding: '16px 0 16px 12px', display: 'flex', alignItems: 'flex-start', flexShrink: 0 }}
+        onClick={(e) => { e.stopPropagation(); onToggleSelect?.(item.id); }}
+      >
+        <input
+          type="checkbox"
+          checked={!!isSelected}
+          onChange={() => onToggleSelect?.(item.id)}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Select ${item.resource_id} for bulk restore`}
+          style={{ width: 16, height: 16, cursor: 'pointer', accentColor: theme.accent, marginTop: 1 }}
+        />
       </div>
-      <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
-        {item.resource_id}
-      </span>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 11, color: theme.textMuted, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4 }}>
-          {item.region}
-        </span>
-        <span style={{ fontSize: 11, color: theme.textMid, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>
-          {reasonLabel}
-        </span>
-        {isSnoozed && item.snoozed_until && (
-          <span style={{ fontSize: 11, color: theme.textMuted }}>
-            until {new Date(item.snoozed_until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+
+      {/* Main content — opens detail view on click. */}
+      <button
+        type="button"
+        onClick={handleSelect}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{
+          flex: 1,
+          padding: '12px 14px 12px 10px',
+          background: 'none',
+          border: 'none',
+          cursor: onSelect ? 'pointer' : 'default',
+          textAlign: 'left',
+          font: 'inherit',
+          color: 'inherit',
+          minWidth: 0,
+          outline: focused ? `2px solid ${theme.accent}` : 'none',
+          outlineOffset: -2,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: isSnoozed ? '#2563EB' : '#9CA3AF' }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: isSnoozed ? '#2563EB' : '#9CA3AF' }}>
+              {isSnoozed ? 'snoozed' : 'dismissed'}
+            </span>
           </span>
-        )}
-      </div>
-      {item.note ? (
-        <span style={{ fontSize: 12, color: theme.textMid, fontStyle: 'italic', display: 'block', marginTop: 4 }}>"{item.note}"</span>
-      ) : null}
-    </button>
+          <div style={{ flex: 1 }} />
+          {typeof item.monthly_cost === 'number' && (
+            <span style={{ fontSize: 14, fontWeight: 700, color: theme.accent, flexShrink: 0 }}>
+              {item.currency} {item.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted }}>/mo</span>
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
+          {item.resource_id}
+        </span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: theme.textMuted, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4 }}>
+            {item.region}
+          </span>
+          <span style={{ fontSize: 11, color: theme.textMid, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>
+            {reasonLabel}
+          </span>
+          {isSnoozed && item.snoozed_until && (
+            <span style={{ fontSize: 11, color: theme.textMuted }}>
+              until {new Date(item.snoozed_until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+            </span>
+          )}
+        </div>
+        {item.note ? (
+          <span style={{ fontSize: 12, color: theme.textMid, fontStyle: 'italic', display: 'block', marginTop: 4 }}>&ldquo;{item.note}&rdquo;</span>
+        ) : null}
+      </button>
+    </div>
   );
 }
 
 // ─── Bulk action bar ──────────────────────────────────────────────────────────
 
-function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, theme, isMobile }) {
+function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, onRestore, theme, isMobile }) {
   // Sum of pixel widths inside the toolbar (~417px including padding/gap)
   // overflows a 360px viewport. On mobile the bar spans the viewport with
   // 12px side margins instead of centring around `left: 50%`, drops the
   // divider, and reduces label/padding sizes to fit. The position stays
   // fixed-to-bottom so the bar is reachable while the resource list scrolls.
+  //
+  // Two action modes — zombie list (Dismiss/Snooze/Export) vs Hidden tab
+  // (Restore/Export). Picked by which of `onRestore` or `onDismiss` is wired
+  // by the caller; both modes share the same toolbar shape so the user gets
+  // consistent positioning + selection counts.
+  const restoreMode = !!onRestore;
   const buttonStyle = (color) => ({
     padding: isMobile ? '6px 8px' : '5px 12px',
     borderRadius: 6,
@@ -992,9 +1039,15 @@ function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, theme, i
         {count} {isMobile ? '' : 'selected'}
       </span>
       {!isMobile && <div style={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.2)' }} />}
-      <button onClick={onDismiss} style={buttonStyle('#fff')}>Dismiss</button>
-      <button onClick={onSnooze} style={buttonStyle('#60a5fa')}>{isMobile ? 'Snooze' : 'Snooze 7d'}</button>
-      <button onClick={onExport} style={buttonStyle('#34d399')}>Export</button>
+      {restoreMode ? (
+        <button onClick={onRestore} style={buttonStyle('#fbbf24')}>Restore</button>
+      ) : (
+        <>
+          <button onClick={onDismiss} style={buttonStyle('#fff')}>Dismiss</button>
+          <button onClick={onSnooze} style={buttonStyle('#60a5fa')}>{isMobile ? 'Snooze' : 'Snooze 7d'}</button>
+        </>
+      )}
+      {onExport && <button onClick={onExport} style={buttonStyle('#34d399')}>Export</button>}
       <div style={{ flex: 1 }} />
       <button
         onClick={onClear}
@@ -1321,6 +1374,30 @@ export default function OverviewScreen({
     );
   }
 
+  // Bulk restore — fans out DELETE /v1/dismissals/{id} per selected. The
+  // `selected` Set holds dismissal row ids (item.id) in the Hidden tab, so
+  // no extra lookup is needed. Per-row errors are swallowed (race with a
+  // separate revoke would 404, which is fine — the row is gone either way).
+  // Guarded against being called from the zombie tabs (`selected` would hold
+  // resource_id strings, every revoke would 404, toast would lie "Restored 0").
+  //
+  // Parallel via Promise.allSettled — sequential await would stall the UI
+  // for hundreds of ms on lists of 50+ rows. The API has no per-account
+  // mutex on revoke, so parallel is safe.
+  async function handleBulkRestore() {
+    if (!showDismissed) return;
+    const ids = [...selected];
+    const results = await Promise.allSettled(ids.map((id) => revokeDismissal(id)));
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    queryClient.invalidateQueries({ queryKey: ['resources'] });
+    queryClient.invalidateQueries({ queryKey: ['dismissals'] });
+    setSelected(new Set());
+    toast(
+      `Restored ${succeeded} resource${succeeded !== 1 ? 's' : ''}`,
+      'success',
+    );
+  }
+
   const activeFilters = [
     ...[...filterSvcs].map(svc => ({ key: `svc:${svc}`, label: serviceConfig(svc).label })),
     ...[...filterResourceTypes].map(rt => ({ key: `rt:${rt}`, label: resourceTypeConfig(rt).label })),
@@ -1409,9 +1486,20 @@ export default function OverviewScreen({
     return sortResources(list, sortBy);
   })();
 
-  const visibleIds = listData.filter(r => r.resource_id).map(r => r.resource_id);
+  // Visible IDs depend on the active tab: dismissal-row ids in Hidden, resource
+  // ids elsewhere. The `selected` Set always holds whichever shape matches the
+  // current tab (cleared on tab switch).
+  const visibleIds = showDismissed
+    ? listData.filter(d => d.id).map(d => d.id)
+    : listData.filter(r => r.resource_id).map(r => r.resource_id);
   const allSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
-  const selectedItems = (resources.data ?? []).filter(r => selected.has(r.resource_id));
+  // Zombie-tab selection only — in Hidden mode `selected` holds dismissal-row
+  // ids, which never match `resource_id`, so this filter would silently return
+  // []. Name makes the zombie-only assumption explicit so a future caller
+  // doesn't reuse it for a dismissal-export path.
+  const zombieSelectedItems = showDismissed
+    ? []
+    : (resources.data ?? []).filter(r => selected.has(r.resource_id));
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -1490,15 +1578,18 @@ export default function OverviewScreen({
         />
       </div>
 
-      {/* Tab row */}
+      {/* Tab row — switching tabs clears the selection because the `selected`
+          Set holds resource_ids in the zombie list and dismissal-row ids in
+          the Hidden tab. Mixing them would point bulk actions at the wrong
+          rows (e.g. a Restore on a resource_id, a Dismiss on a dismissal_id). */}
       <div style={{ display: 'flex', gap: 6, padding: '0 16px 0', marginTop: 4 }}>
         {[
-          { label: 'Zombies', active: zombieOnly && !showDismissed, onClick: () => { setZombieOnly(true); setShowDismissed(false); } },
-          { label: 'All', active: !zombieOnly && !showDismissed, onClick: () => { setZombieOnly(false); setShowDismissed(false); } },
+          { label: 'Zombies', active: zombieOnly && !showDismissed, onClick: () => { setZombieOnly(true); setShowDismissed(false); setSelected(new Set()); } },
+          { label: 'All', active: !zombieOnly && !showDismissed, onClick: () => { setZombieOnly(false); setShowDismissed(false); setSelected(new Set()); } },
           (dismissals.data?.length ?? 0) > 0 && {
             label: `Hidden (${dismissals.data?.length})`,
             active: showDismissed,
-            onClick: () => setShowDismissed(v => !v),
+            onClick: () => { setShowDismissed(v => !v); setSelected(new Set()); },
           },
         ].filter(Boolean).map(({ label, active, onClick }) => (
           <button
@@ -1573,12 +1664,12 @@ export default function OverviewScreen({
 
       {/* Section header */}
       <div style={{ display: 'flex', alignItems: 'center', padding: '4px 16px 8px' }}>
-        {!showDismissed && (
+        {visibleIds.length > 0 && (
           <input
             type="checkbox"
             checked={allSelected}
             onChange={() => toggleSelectAll(visibleIds)}
-            aria-label="Select all resources"
+            aria-label={showDismissed ? 'Select all hidden resources' : 'Select all resources'}
             style={{ width: 15, height: 15, accentColor: t.accent, marginRight: 10, cursor: 'pointer' }}
           />
         )}
@@ -1626,7 +1717,15 @@ export default function OverviewScreen({
       {/* Resource list */}
       {listData.map((item) => (
         showDismissed
-          ? <DismissedCard key={String(item.id)} item={item} theme={t} isDark={isDark} onSelect={onSelectZombie} />
+          ? <DismissedCard
+              key={String(item.id)}
+              item={item}
+              theme={t}
+              isDark={isDark}
+              onSelect={onSelectZombie}
+              isSelected={selected.has(item.id)}
+              onToggleSelect={toggleSelect}
+            />
           : <ResourceCard
               key={item.resource_id}
               item={item}
@@ -1638,13 +1737,18 @@ export default function OverviewScreen({
             />
       ))}
 
-      {/* Bulk action bar */}
+      {/* Bulk action bar — Hidden tab mode (Restore) is selected by passing
+          onRestore; zombie list mode wires onDismiss + onSnooze. Export is
+          only offered in zombie mode because the existing exportCSV expects
+          zombie/resource rows; dismissal rows have a different shape and
+          would need their own export path (TODO follow-up). */}
       {selected.size > 0 && (
         <BulkActionBar
           count={selected.size}
-          onDismiss={() => setBulkModal('dismiss')}
-          onSnooze={() => setBulkModal('snooze')}
-          onExport={() => exportCSV(selectedItems, { zombieOnly }, toast)}
+          onDismiss={showDismissed ? undefined : () => setBulkModal('dismiss')}
+          onSnooze={showDismissed ? undefined : () => setBulkModal('snooze')}
+          onRestore={showDismissed ? handleBulkRestore : undefined}
+          onExport={showDismissed ? undefined : () => exportCSV(zombieSelectedItems, { zombieOnly }, toast)}
           onClear={() => setSelected(new Set())}
           theme={t}
           isMobile={isMobile}
