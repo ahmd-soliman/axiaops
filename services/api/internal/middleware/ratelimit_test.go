@@ -43,6 +43,39 @@ func TestRateLimiter_Isolation(t *testing.T) {
 	}
 }
 
+func TestRateLimiter_Wrap_PerUserIsolation(t *testing.T) {
+	// Two users in the same organization must not share a bucket. Regression
+	// test for the org-only keying that previously logged co-workers out
+	// whenever one teammate refresh-stormed the dashboard.
+	rl := newTestRateLimiter()
+	handler := rl.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	makeReq := func(orgID, userID string) int {
+		r := httptest.NewRequest(http.MethodGet, "/v1/zombies", nil)
+		ctx := middleware.ContextWithOrganizationID(r.Context(), orgID)
+		ctx = middleware.WithUserID(ctx, userID)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r.WithContext(ctx))
+		return w.Code
+	}
+
+	// Drain user-A's bucket.
+	for i := 0; i < middleware.RateLimitMax; i++ {
+		if code := makeReq("org-shared", "user-A"); code != http.StatusOK {
+			t.Fatalf("user-A request %d: expected 200, got %d", i+1, code)
+		}
+	}
+	if code := makeReq("org-shared", "user-A"); code != http.StatusTooManyRequests {
+		t.Fatalf("user-A over limit: expected 429, got %d", code)
+	}
+	// user-B in the same org must still have full capacity.
+	if code := makeReq("org-shared", "user-B"); code != http.StatusOK {
+		t.Fatalf("user-B (same org): expected 200, got %d", code)
+	}
+}
+
 func TestRateLimiter_Wrap_Returns429(t *testing.T) {
 	rl := newTestRateLimiter()
 	ctx := context.Background()
