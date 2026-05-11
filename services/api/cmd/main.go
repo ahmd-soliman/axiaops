@@ -223,18 +223,18 @@ func main() {
 		slog.Warn("api: rate limiting disabled — REDIS_URL not set")
 	}
 
+	// ── HTTP server + graceful shutdown ──────────────────────────────────
+	sigCtx, sigCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer sigCancel()
+
 	// ── Tickers ──────────────────────────────────────────────────────────
-	tickerCtx, tickerCancel := context.WithCancel(context.Background())
-	defer tickerCancel()
-	serverbuild.StartTickers(tickerCtx, store, serverbuild.TickerOptions{
+	// Bound to sigCtx so SIGTERM/SIGINT stops them in the same beat as the
+	// HTTP server drain. Mirrors the ingestion-side wiring.
+	serverbuild.StartTickers(sigCtx, store, serverbuild.TickerOptions{
 		MigrationDatabaseURL: migrationURL,
 		StuckScanTimeout:     stuckScanTimeout,
 		NativeAuthActive:     nativeAuthActive,
 	})
-
-	// ── HTTP server + graceful shutdown ──────────────────────────────────
-	sigCtx, sigCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer sigCancel()
 
 	server := &http.Server{Addr: addr, Handler: handler}
 
