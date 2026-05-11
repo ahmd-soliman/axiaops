@@ -412,6 +412,17 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
         <span style={{ fontSize: 32, fontWeight: 800, color: t.accent, letterSpacing: -0.5, display: 'block' }}>
           {displaySnap?.currency ?? '$'} {displaySnap ? displaySnap.total_monthly_cost.toFixed(2) : '0.00'}
         </span>
+        {/* Honesty label — the number above is captured at scan time, BEFORE the
+            user's dismissals/snoozes are applied. The Overview's Monthly Waste
+            headline is the live current-state total AFTER dismissals; the two
+            can legitimately differ. Only show when looking at the most-recent
+            snapshot — if the user picked a past snapshot from the history list,
+            they already understand it's historical. */}
+        {displaySnap && !selectedSnap && (
+          <span style={{ fontSize: 11, color: t.textMuted, fontStyle: 'italic', display: 'block', marginTop: 1 }}>
+            At last scan · before dismissals
+          </span>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, color: t.textMid }}>
             {displaySnap
