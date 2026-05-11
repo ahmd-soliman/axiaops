@@ -132,6 +132,12 @@ export default function BootstrapScreen() {
           type="email"
           autoComplete="email"
           required
+          // type="email" alone accepts "alice@example" (no TLD) per HTML5.
+          // The pattern requires a "." somewhere in the domain to reject
+          // typos like "alice@test.com" → "alice@test". Backend enforces
+          // the same rule via model.ValidateInvitableEmail.
+          pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
+          title="Enter an email like alice@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           disabled={busy}

@@ -85,6 +85,10 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "email and role are required", http.StatusBadRequest)
 		return
 	}
+	if err := model.ValidateInvitableEmail(req.Email); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_email", err.Error())
+		return
+	}
 	if !validRole(req.Role) {
 		http.Error(w, "invalid role", http.StatusBadRequest)
 		return

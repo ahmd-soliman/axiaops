@@ -268,6 +268,35 @@ func TestCreateInvitation_InvalidEmail_400(t *testing.T) {
 	}
 }
 
+// TestCreateInvitation_MissingTLD_400 pins the strict-validation contract
+// from issue #85: emails that parse via net/mail (RFC 5322) but lack a
+// TLD on the domain — "alice@example", "alice@intranet" — are rejected.
+// The pre-#85 behaviour accepted these (common typo case for the real
+// intended address with a TLD), creating an invite that could never be
+// delivered.
+func TestCreateInvitation_MissingTLD_400(t *testing.T) {
+	cases := []string{
+		"alice@example",
+		"alice@intranet",
+		"alice@localhost",
+	}
+	for _, email := range cases {
+		t.Run(email, func(t *testing.T) {
+			store := NewMockStore()
+			mux := invHandler(store)
+			body := `{"email":"` + email + `","role":"member"}`
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, invReq(http.MethodPost, "/v1/invitations", body))
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for %q, got %d — body: %s", email, w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), "invalid_email") {
+				t.Errorf("expected invalid_email error code in body, got: %s", w.Body.String())
+			}
+		})
+	}
+}
+
 // ── GET /v1/invitations ─────────────────────────────────────────────────────
 
 func TestListInvitations_EmptyReturnsEmptyArray(t *testing.T) {
