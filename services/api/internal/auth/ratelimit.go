@@ -147,6 +147,67 @@ func loginEmailKey(email string, bucket int64) string {
 	return fmt.Sprintf("auth:login:email:%s:%d", hex.EncodeToString(sum[:8]), bucket)
 }
 
+// ── IPRateLimiter — generic per-IP cap, separate budget from /login ──────────
+//
+// Audit M-4 (GET /v1/auth/bootstrap/state) and M-5 (GET /v1/sso/discover):
+// both endpoints are unauthenticated reconnaissance surfaces. bootstrap-state
+// signals "this install is mid-bootstrap, race the token"; sso/discover
+// signals "this domain has SSO configured" and could be hammered to enumerate
+// verified domains. They must be rate-limited, but the budget MUST be
+// separate from /login — otherwise an attacker hammering /sso/discover
+// would consume the budget legitimate users need for /login.
+//
+// This is a per-IP-only limiter. No email key (these endpoints have no
+// email in the request anyway). The keyPrefix is parameterised so callers
+// can give different endpoints separate budgets when needed.
+const defaultPublicPerIPPerMinute = 30
+
+// IPRateLimiter caps requests per IP per minute for unauthenticated public
+// endpoints. Constructed once at startup; safe for concurrent use.
+type IPRateLimiter struct {
+	cache       cache.Cache
+	keyPrefix   string
+	perIPPerMin int
+}
+
+// NewIPRateLimiter constructs a per-IP limiter. keyPrefix MUST be unique
+// per logical endpoint group so budgets don't collide. perIPPerMin <= 0
+// applies the package default (30/min).
+func NewIPRateLimiter(c cache.Cache, keyPrefix string, perIPPerMin int) *IPRateLimiter {
+	if perIPPerMin <= 0 {
+		perIPPerMin = defaultPublicPerIPPerMinute
+	}
+	return &IPRateLimiter{cache: c, keyPrefix: keyPrefix, perIPPerMin: perIPPerMin}
+}
+
+// Allow reports whether the request is within the per-IP cap. Failing open
+// on cache errors mirrors LoginRateLimiter's posture.
+func (l *IPRateLimiter) Allow(ctx context.Context, ip net.IP) RateLimitOutcome {
+	if l == nil || l.cache == nil {
+		return RateLimitOutcome{Allowed: true}
+	}
+	bucket := time.Now().Unix() / 60
+	id := "unknown"
+	if ip != nil {
+		id = ip.String()
+	}
+	key := fmt.Sprintf("%s:ip:%s:%d", l.keyPrefix, id, bucket)
+	n, err := l.cache.Incr(ctx, key, loginCounterTTL)
+	if err != nil {
+		slog.Warn("auth: ip rate limiter cache error; failing open",
+			"err", err, "key_prefix", l.keyPrefix)
+		return RateLimitOutcome{Allowed: true}
+	}
+	if int(n) > l.perIPPerMin {
+		return RateLimitOutcome{
+			Allowed:    false,
+			Reason:     "ip",
+			RetryAfter: retryAfterForBucket(bucket),
+		}
+	}
+	return RateLimitOutcome{Allowed: true}
+}
+
 // retryAfterForBucket returns the seconds until the next minute
 // boundary, which is when the counter rolls over. Caps at 60 even
 // though the cache TTL is 2 min — Retry-After tells the client when

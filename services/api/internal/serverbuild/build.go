@@ -242,15 +242,22 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	ssoH := sso.New(deps.Store, deps.Connector, deps.Discoverer)
 	ssoH.Register(mux)
 	// Pre-auth /v1/sso/discover — mounted directly because publicPath
-	// bypasses it in middleware/auth.go.
-	mux.Handle("GET /v1/sso/discover", sso.NewDiscoverHandler(deps.Discoverer))
+	// bypasses it in middleware/auth.go. Per-IP rate limit (audit M-5)
+	// uses a separate key prefix so its budget doesn't share with /login.
+	discoverH := sso.NewDiscoverHandler(deps.Discoverer)
+	if deps.Cache != nil {
+		discoverH = discoverH.WithRateLimit(auth.NewIPRateLimiter(deps.Cache, "auth:sso_discover", 0))
+	}
+	mux.Handle("GET /v1/sso/discover", discoverH)
 
 	// ── Native-auth + OIDC ceremony ───────────────────────────────────────
 	// Wire when not in DevMode. DevBypass replaces the entire auth chain.
 	if !cfg.DevMode {
 		authH := auth.NewHandler(deps.Store, deps.SessionManager, deps.CookieConfig, auth.NewAuditWriter(deps.Store))
 		if deps.Cache != nil {
-			authH = authH.WithLoginRateLimit(auth.NewLoginRateLimiter(deps.Cache))
+			authH = authH.
+				WithLoginRateLimit(auth.NewLoginRateLimiter(deps.Cache)).
+				WithBootstrapProbeRateLimit(auth.NewIPRateLimiter(deps.Cache, "auth:bootstrap_probe", 0))
 		}
 		authH.Register(mux)
 
