@@ -58,8 +58,22 @@ func decodeJSON(r io.Reader, v any) error {
 	return json.NewDecoder(r).Decode(v)
 }
 
+// rateLimitKey returns the Redis cache key the api binary writes for the CI
+// stack's DEV_MODE identity. Mirrors middleware.RateLimiter.Wrap's subject
+// composition: per-user keying `{org_id}:{user_id}:{bucket}` when both are
+// set in context (DevBypass always populates both). DEV_USER_ID is unset
+// in the CI compose, so cmd/main.go falls back to the documented default
+// "dev-user-axiaops". Keep this helper in sync with both — drift here
+// silently hides a real rate-limit regression.
+func rateLimitKey(bucket int64) string {
+	return fmt.Sprintf("ratelimit:ci-tenant:dev-user-axiaops:%d", bucket)
+}
+
 // TestRateLimit_Redis verifies that the Redis-backed rate limiter returns 429
-// once the bucket counter reaches the limit.
+// once the bucket counter reaches the limit. The CI stack sets
+// RATE_LIMIT_MAX=60 so we can drain in 60 requests rather than the
+// production default of 1000 — keeps the test fast without losing the
+// "boundary hit returns 429" coverage.
 func TestRateLimit_Redis(t *testing.T) {
 	base := apiURL(t)
 	rdb := redisClient(t)
@@ -67,7 +81,7 @@ func TestRateLimit_Redis(t *testing.T) {
 
 	// Pre-seed the current minute bucket to one below the limit.
 	bucket := time.Now().Unix() / 60
-	key := fmt.Sprintf("ratelimit:ci-tenant:%d", bucket)
+	key := rateLimitKey(bucket)
 	rdb.Set(ctx, key, 59, 2*time.Minute)
 	t.Cleanup(func() { rdb.Del(ctx, key) })
 
@@ -101,7 +115,7 @@ func TestRateLimit_CounterInRedis(t *testing.T) {
 
 	// Verify a ratelimit key exists in Redis for the ci-tenant.
 	bucket := time.Now().Unix() / 60
-	key := fmt.Sprintf("ratelimit:ci-tenant:%d", bucket)
+	key := rateLimitKey(bucket)
 	val, err := rdb.Get(ctx, key).Int64()
 	if err != nil {
 		t.Fatalf("expected ratelimit key %q in Redis, got error: %v", key, err)
