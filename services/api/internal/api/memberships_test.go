@@ -183,18 +183,33 @@ func TestCreateMembership_InvalidJSON_400(t *testing.T) {
 }
 
 // TestCreateMembership_MissingFields_400 pins the bad_request shape on the
-// empty-email / empty-role early-exit. Part of #86's sweep.
+// empty-email / empty-role early-exit. The handler guard is an OR, so any
+// of the three combinations (both empty, only email empty, only role
+// empty) trip it — covering all three so a future refactor that splits
+// the guard doesn't silently regress two of them. Part of #86's sweep.
 func TestCreateMembership_MissingFields_400(t *testing.T) {
-	store := NewMockStore()
-	mux := memHandler(store)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, memReq(http.MethodPost, "/v1/memberships", `{"email":"","role":""}`))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"both empty", `{"email":"","role":""}`},
+		{"email empty", `{"email":"","role":"member"}`},
+		{"role empty", `{"email":"alice@x.com","role":""}`},
 	}
-	if !strings.Contains(w.Body.String(), `"bad_request"`) {
-		t.Errorf("expected bad_request error code in body, got: %s", w.Body.String())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewMockStore()
+			mux := memHandler(store)
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, memReq(http.MethodPost, "/v1/memberships", tc.body))
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), `"bad_request"`) {
+				t.Errorf("expected bad_request error code in body, got: %s", w.Body.String())
+			}
+		})
 	}
 }
 
