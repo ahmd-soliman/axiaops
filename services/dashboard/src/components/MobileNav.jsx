@@ -26,7 +26,7 @@ import { NAV_ITEMS, isNavActive } from './navItems';
 // just drop <MobileNav /> into the navbar — AppShell doesn't have to
 // hold the open/close state.
 export default function MobileNav() {
-  const { theme: t, isDark, toggleTheme } = useTheme();
+  const { isDark, toggleTheme } = useTheme();
   const { me, refresh } = useMe();
   const { orgName } = useApp();
   const { toast } = useToast();
@@ -101,18 +101,18 @@ export default function MobileNav() {
           width: 44,
           height: 44,
           borderRadius: 8,
-          border: `1px solid ${t.border}`,
+          border: '1px solid var(--color-border)',
           backgroundColor: 'transparent',
-          color: t.text,
+          color: 'var(--color-text)',
           cursor: 'pointer',
         }}
       >
-        <Hamburger color={t.text} />
+        <Hamburger color="var(--color-text)" />
       </button>
 
       <MobileSheet visible={open} onClose={close} ariaLabel="Main menu">
         <div style={{ padding: '8px 12px 24px' }}>
-          <SectionLabel t={t}>Navigate</SectionLabel>
+          <SectionLabel>Navigate</SectionLabel>
           <nav aria-label="Main navigation">
             {NAV_ITEMS.map(({ label, path, Icon }) => {
               const active = isNavActive(path, location.pathname);
@@ -122,13 +122,13 @@ export default function MobileNav() {
                   type="button"
                   onClick={() => goTo(path)}
                   aria-current={active ? 'page' : undefined}
-                  style={navRowStyle(t, isDark, active)}
+                  style={navRowStyle(isDark, active)}
                 >
-                  <Icon color={active ? t.accent : t.text} size={20} />
+                  <Icon color={active ? 'var(--color-accent)' : 'var(--color-text)'} size={20} />
                   <span style={{
                     fontSize: 15,
                     fontWeight: active ? 700 : 550,
-                    color: active ? t.accent : t.text,
+                    color: active ? 'var(--color-accent)' : 'var(--color-text)',
                   }}>
                     {label}
                   </span>
@@ -139,8 +139,8 @@ export default function MobileNav() {
 
           {memberships.length > 1 && (
             <>
-              <Divider color={t.border} />
-              <SectionLabel t={t}>Organisation</SectionLabel>
+              <Divider />
+              <SectionLabel>Organisation</SectionLabel>
               <div role="group" aria-label="Switch organisation">
                 {memberships.map((m) => {
                   const active = m.organization_id === activeOrgID;
@@ -150,14 +150,14 @@ export default function MobileNav() {
                       type="button"
                       onClick={() => handlePick(m.organization_id)}
                       disabled={busy || active}
-                      style={navRowStyle(t, isDark, active, busy)}
+                      style={navRowStyle(isDark, active, busy)}
                     >
                       <span style={{
                         flex: 1,
                         textAlign: 'left',
                         fontSize: 15,
                         fontWeight: active ? 700 : 500,
-                        color: active ? t.accent : t.text,
+                        color: active ? 'var(--color-accent)' : 'var(--color-text)',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
@@ -167,7 +167,7 @@ export default function MobileNav() {
                       <span style={{
                         fontSize: 12,
                         fontWeight: 500,
-                        color: t.textMuted,
+                        color: 'var(--color-text-muted)',
                         textTransform: 'capitalize',
                       }}>
                         {m.role}
@@ -181,30 +181,30 @@ export default function MobileNav() {
 
           {memberships.length === 1 && activeOrgName && (
             <>
-              <Divider color={t.border} />
-              <SectionLabel t={t}>Organisation</SectionLabel>
+              <Divider />
+              <SectionLabel>Organisation</SectionLabel>
               <div style={{
                 padding: '12px 14px',
                 borderRadius: 8,
-                border: `1px solid ${t.border}`,
-                backgroundColor: t.surfaceRaised,
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-surface-raised)',
                 fontSize: 14,
                 fontWeight: 600,
-                color: t.textMid,
+                color: 'var(--color-text-mid)',
               }}>
                 {activeOrgName}
               </div>
             </>
           )}
 
-          <Divider color={t.border} />
-          <SectionLabel t={t}>Theme</SectionLabel>
+          <Divider />
+          <SectionLabel>Theme</SectionLabel>
           <button
             type="button"
             onClick={() => { toggleTheme(); /* leave sheet open: small action */ }}
-            style={navRowStyle(t, isDark, false)}
+            style={navRowStyle(isDark, false)}
           >
-            <span style={{ fontSize: 15, fontWeight: 550, color: t.text }}>
+            <span style={{ fontSize: 15, fontWeight: 550, color: 'var(--color-text)' }}>
               {isDark ? 'Switch to light mode' : 'Switch to dark mode'}
             </span>
           </button>
@@ -214,7 +214,7 @@ export default function MobileNav() {
   );
 }
 
-function navRowStyle(t, isDark, active, disabled = false) {
+function navRowStyle(isDark, active, disabled = false) {
   return {
     display: 'flex',
     alignItems: 'center',
@@ -226,9 +226,9 @@ function navRowStyle(t, isDark, active, disabled = false) {
     borderRadius: 8,
     border: 'none',
     backgroundColor: active
-      ? (isDark ? 'rgba(255,255,255,0.04)' : t.accentLight)
+      ? (isDark ? 'rgba(255,255,255,0.04)' : 'var(--color-accent-light)')
       : 'transparent',
-    color: t.text,
+    color: 'var(--color-text)',
     cursor: disabled ? 'wait' : (active ? 'default' : 'pointer'),
     textAlign: 'left',
     fontFamily: 'inherit',
@@ -236,7 +236,7 @@ function navRowStyle(t, isDark, active, disabled = false) {
   };
 }
 
-function SectionLabel({ t, children }) {
+function SectionLabel({ children }) {
   return (
     <div style={{
       padding: '12px 14px 6px',
@@ -244,15 +244,15 @@ function SectionLabel({ t, children }) {
       fontWeight: 600,
       letterSpacing: 0.4,
       textTransform: 'uppercase',
-      color: t.textMuted,
+      color: 'var(--color-text-muted)',
     }}>
       {children}
     </div>
   );
 }
 
-function Divider({ color }) {
-  return <div style={{ height: 1, backgroundColor: color, margin: '12px 0' }} />;
+function Divider() {
+  return <div style={{ height: 1, backgroundColor: 'var(--color-border)', margin: '12px 0' }} />;
 }
 
 function Hamburger({ color }) {

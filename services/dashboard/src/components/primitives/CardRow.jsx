@@ -18,11 +18,11 @@ export function CardRow({
   selected = false,
   style,
 }) {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const interactive = typeof onClick === 'function';
 
   const hoverBg = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)';
-  const selectedBorder = selected ? t.accent : t.border;
+  const selectedBorder = selected ? 'var(--color-accent)' : 'var(--color-border)';
 
   return (
     <div
@@ -56,7 +56,7 @@ export function CardRow({
         </div>
       )}
       {body && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: t.textMid, minWidth: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--color-text-mid)', minWidth: 0 }}>
           {body}
         </div>
       )}

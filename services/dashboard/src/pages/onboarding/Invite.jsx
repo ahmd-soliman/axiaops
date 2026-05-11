@@ -14,7 +14,7 @@ const ROLES = [
 // POST /v1/invitations; failures are toasted but don't block advancement.
 // See docs/onboarding-wizard.md §8.3.
 export default function OnboardingInvite() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -71,10 +71,10 @@ export default function OnboardingInvite() {
 
   return (
     <div>
-      <h1 style={{ color: t.text, fontSize: 26, fontWeight: 700, margin: 0, marginBottom: 8 }}>
+      <h1 style={{ color: 'var(--color-text)', fontSize: 26, fontWeight: 700, margin: 0, marginBottom: 8 }}>
         Invite your members
       </h1>
-      <p style={{ color: t.textMid, fontSize: 14, marginTop: 0, marginBottom: 24 }}>
+      <p style={{ color: 'var(--color-text-mid)', fontSize: 14, marginTop: 0, marginBottom: 24 }}>
         Send email invitations now, or skip and do it later from Settings → Members.
       </p>
 
@@ -97,7 +97,7 @@ export default function OnboardingInvite() {
               border: `1px solid ${border}`,
               borderRadius: 6,
               backgroundColor: inputBg,
-              color: t.text,
+              color: 'var(--color-text)',
               fontSize: 13,
             }}
           />
@@ -110,7 +110,7 @@ export default function OnboardingInvite() {
               border: `1px solid ${border}`,
               borderRadius: 6,
               backgroundColor: inputBg,
-              color: t.text,
+              color: 'var(--color-text)',
               fontSize: 13,
             }}
           >
@@ -127,7 +127,7 @@ export default function OnboardingInvite() {
                 border: `1px solid ${border}`,
                 borderRadius: 6,
                 backgroundColor: 'transparent',
-                color: t.textMuted,
+                color: 'var(--color-text-muted)',
                 cursor: 'pointer',
                 fontSize: 16,
               }}
@@ -147,7 +147,7 @@ export default function OnboardingInvite() {
           border: `1px dashed ${border}`,
           borderRadius: 6,
           backgroundColor: 'transparent',
-          color: t.textMid,
+          color: 'var(--color-text-mid)',
           fontSize: 12,
           cursor: 'pointer',
           marginBottom: 24,
@@ -166,7 +166,7 @@ export default function OnboardingInvite() {
             border: 'none',
             borderRadius: 8,
             backgroundColor: 'transparent',
-            color: t.textMuted,
+            color: 'var(--color-text-muted)',
             fontSize: 14,
             cursor: 'pointer',
           }}
@@ -181,8 +181,8 @@ export default function OnboardingInvite() {
             padding: '10px 20px',
             border: 'none',
             borderRadius: 8,
-            backgroundColor: t.accent,
-            color: t.textOnDark,
+            backgroundColor: 'var(--color-accent)',
+            color: 'var(--color-text-on-dark)',
             fontWeight: 600,
             fontSize: 14,
             cursor: sending ? 'not-allowed' : 'pointer',

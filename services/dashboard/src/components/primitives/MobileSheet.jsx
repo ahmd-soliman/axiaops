@@ -22,7 +22,7 @@ import { useTheme } from '../../theme/ThemeContext';
 // translate-100% on the very first frame and switch to translate-0 the
 // next tick — that's what the requestAnimationFrame dance does.
 export function MobileSheet({ visible, onClose, ariaLabel, children }) {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const sheetRef = useRef(null);
   const previousActiveRef = useRef(null);
 
@@ -83,9 +83,9 @@ export function MobileSheet({ visible, onClose, ariaLabel, children }) {
           width: '100%',
           maxHeight: '85vh',
           overflowY: 'auto',
-          backgroundColor: t.bgSecondary,
-          color: t.text,
-          borderTop: `1px solid ${t.border}`,
+          backgroundColor: 'var(--color-bg-secondary)',
+          color: 'var(--color-text)',
+          borderTop: '1px solid var(--color-border)',
           borderTopLeftRadius: 14,
           borderTopRightRadius: 14,
           boxShadow: isDark
@@ -101,7 +101,7 @@ export function MobileSheet({ visible, onClose, ariaLabel, children }) {
             width: 36,
             height: 4,
             borderRadius: 2,
-            backgroundColor: t.border,
+            backgroundColor: 'var(--color-border)',
             margin: '8px auto 4px',
           }}
         />

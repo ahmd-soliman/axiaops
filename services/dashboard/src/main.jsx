@@ -10,6 +10,10 @@ import App from './App';
 // air-gapped environments.
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
+// Design tokens — :root CSS custom properties. Imported before any
+// component so the cascade is in place on the very first render
+// (issue #88).
+import './styles/tokens.css';
 import './index.css';
 
 export const queryClient = new QueryClient();
