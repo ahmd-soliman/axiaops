@@ -97,6 +97,15 @@ migrate:
 seed:
 	./scripts/seed_test_data.sh
 
+# Multi-org demo seed (Tier-1 slice of #93). On top of `seed`, populates the
+# Acme + Globex orgs with copies of the dev seed data and wires the dev user
+# as owner of all three so the B1.5 org switcher exercises end-to-end against
+# the local stack. For preview, run `./scripts/seed_test_data.sh --remote
+# preview --demo` directly (skipped here because the user needs to bootstrap
+# the first owner via the dashboard before remote seeding can resolve them).
+seed-demo:
+	./scripts/seed_test_data.sh --demo
+
 # Seed remote env databases. Each env runs on its own self-hosted container —
 # postgres listens on the standard 5432 since per-host means no port
 # collision. Hostnames resolve via mDNS (Avahi on the LAN).
