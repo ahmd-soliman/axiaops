@@ -57,20 +57,21 @@ func (rl *RateLimiter) Max() int { return rl.max }
 
 // Decision captures the limiter's verdict for one request. Allowed reflects
 // whether the request should pass; Remaining is how many requests the
-// subject has left in the current bucket (floor 0); ResetAt is the unix
-// timestamp the bucket rolls over (i.e. when Remaining returns to Max).
+// subject has left in the current bucket (floor 0); ResetAt is the wall
+// clock the bucket rolls over (i.e. when Remaining returns to Max).
 type Decision struct {
 	Allowed   bool
 	Remaining int
-	ResetAt   int64
+	ResetAt   time.Time
 }
 
 // Check increments the subject's bucket and returns the decision. Fails open
 // (Allowed=true, Remaining=Max) when the cache errors, matching the
 // availability-over-strictness posture documented above.
 func (rl *RateLimiter) Check(ctx context.Context, subject string) Decision {
-	bucket := time.Now().Unix() / 60
-	resetAt := (bucket + 1) * 60
+	now := time.Now()
+	bucket := now.Unix() / 60
+	resetAt := time.Unix((bucket+1)*60, 0)
 	key := fmt.Sprintf("ratelimit:%s:%d", subject, bucket)
 
 	n, err := rl.cache.Incr(ctx, key, rateLimitWindow)
@@ -115,11 +116,19 @@ func (rl *RateLimiter) Wrap(next http.Handler) http.Handler {
 		d := rl.Check(r.Context(), subject)
 		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(rl.max))
 		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(d.Remaining))
-		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(d.ResetAt, 10))
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(d.ResetAt.Unix(), 10))
 
 		if !d.Allowed {
 			slog.Warn("ratelimit: too many requests", "subject", subject, "limit", rl.max)
-			w.Header().Set("Retry-After", "60")
+			// Retry-After in seconds-until-bucket-rollover, not a hardcoded 60
+			// — a request denied at second 59 only needs to wait ~1s, not a
+			// full minute. Floor at 1 to guard against clock skew producing
+			// a non-positive value (RFC 7231 §7.1.3 forbids 0 for delta-seconds).
+			retry := int(time.Until(d.ResetAt).Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
 			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 			return
 		}
