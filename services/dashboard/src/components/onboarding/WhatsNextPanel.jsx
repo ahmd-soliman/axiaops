@@ -167,6 +167,10 @@ export default function WhatsNextPanel() {
 }
 
 function Tile({ label, done, onClick, theme }) {
+  // Per docs/ui-color-system-review.md §5: strikethrough reads as "removed",
+  // not "done" — use a muted-gray label + green check icon for done state.
+  // Pending items: neutral text + arrow in brand orange (the arrow is the
+  // only brand-accent surface, so the label doesn't read as a hot CTA).
   return (
     <button
       type="button"
@@ -188,11 +192,7 @@ function Tile({ label, done, onClick, theme }) {
         style={{
           fontSize: 13,
           fontWeight: 600,
-          color: done ? theme.success : theme.accent,
-          textDecoration: done ? 'line-through' : 'underline',
-          textUnderlineOffset: 3,
-          textDecorationThickness: 1,
-          opacity: done ? 0.75 : 1,
+          color: done ? theme.textMuted : theme.text,
         }}
       >
         {label}
@@ -214,7 +214,7 @@ function CheckCircle({ done, theme }) {
         height="18"
         viewBox="0 0 24 24"
         fill="none"
-        stroke={theme.success}
+        stroke={theme.statusOk}
         strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
