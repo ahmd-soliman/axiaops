@@ -7,10 +7,18 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script>window.__ENV__ = {};</script>
     <script>
-      // Prime `color-scheme` synchronously before React mounts so native UA
-      // chrome (scrollbars, form controls, focus rings) renders in the right
-      // theme on the very first paint. Mirrors the resolution logic in
-      // src/theme/ThemeContext.jsx — keep them in sync.
+      // Resolve the theme synchronously before React mounts so the very
+      // first paint is already in the right mode — both UA chrome
+      // (scrollbars, form controls, focus rings) AND app content reading
+      // CSS variables from src/styles/tokens.css. Issue #88: the old
+      // color-scheme-only boot script could not prime React-rendered
+      // colours because those came from a JS theme object, so cold-load
+      // briefly flashed the default theme before React hydrated.
+      //
+      // Mirrors the resolution logic in src/theme/ThemeContext.jsx
+      // (same 'theme' localStorage key, same OS fallback). Keep the two
+      // in sync — drift means the first paint disagrees with what React
+      // will render a moment later.
       (function () {
         try {
           var saved = localStorage.getItem('theme');
@@ -18,7 +26,9 @@
           var systemDark = window.matchMedia &&
             window.matchMedia('(prefers-color-scheme: dark)').matches;
           var isDark = explicit ? (saved === 'dark') : systemDark;
-          document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+          var root = document.documentElement;
+          root.dataset.theme = isDark ? 'dark' : 'light';
+          root.style.colorScheme = isDark ? 'dark' : 'light';
         } catch (e) { /* ignore */ }
       })();
     </script>

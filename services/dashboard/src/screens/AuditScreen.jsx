@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { fetchAuditEvents } from '../api/client';
-import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 
@@ -52,25 +51,25 @@ function actionDisplay(action) {
   }
 }
 
-function toneFg(tone, theme) {
+function toneFg(tone) {
   switch (tone) {
-    case 'success': return theme.success;
-    case 'danger':  return theme.error;
-    case 'warn':    return theme.warning;
+    case 'success': return 'var(--color-success)';
+    case 'danger':  return 'var(--color-error)';
+    case 'warn':    return 'var(--color-warning)';
     case 'info':    return '#3b82f6'; // blue — no semantic token in theme
-    case 'accent':  return theme.accent;
-    case 'muted':   return theme.textMuted;
-    default:        return theme.textMuted;
+    case 'accent':  return 'var(--color-accent)';
+    case 'muted':   return 'var(--color-text-muted)';
+    default:        return 'var(--color-text-muted)';
   }
 }
 
-function ActionChip({ action, theme }) {
+function ActionChip({ action }) {
   const { label, tone } = actionDisplay(action);
   return (
     <span style={{
       fontSize: 11,
       fontWeight: 600,
-      color: toneFg(tone, theme),
+      color: toneFg(tone),
       letterSpacing: 0.2,
       whiteSpace: 'nowrap',
     }}>
@@ -104,19 +103,19 @@ function fmtTime(iso) {
   return `${formatted} UTC`;
 }
 
-function MetadataPanel({ event, theme }) {
+function MetadataPanel({ event }) {
   const m = event.metadata;
   if (!m || Object.keys(m).length === 0) return null;
   return (
     <pre style={{
       marginTop: 8,
       padding: 10,
-      backgroundColor: theme.surfaceRaised,
-      border: `1px solid ${theme.border}`,
+      backgroundColor: 'var(--color-surface-raised)',
+      border: `1px solid var(--color-border)`,
       borderRadius: 6,
       fontSize: 11,
       lineHeight: '16px',
-      color: theme.textMid,
+      color: 'var(--color-text-mid)',
       overflow: 'auto',
       maxWidth: '100%',
     }}>
@@ -125,7 +124,7 @@ function MetadataPanel({ event, theme }) {
   );
 }
 
-function EventRow({ event, theme, isMobile }) {
+function EventRow({ event, isMobile }) {
   const [expanded, setExpanded] = useState(false);
   const hasMetadata = event.metadata && Object.keys(event.metadata).length > 0;
 
@@ -142,7 +141,7 @@ function EventRow({ event, theme, isMobile }) {
   const resourceText = event.resource_type
     ? `${event.resource_type}/${event.resource_id}`
     : event.resource_id || '—';
-  const actorNode = event.actor_email || event.user_id || <em style={{ color: theme.textMuted }}>system</em>;
+  const actorNode = event.actor_email || event.user_id || <em style={{ color: 'var(--color-text-muted)' }}>system</em>;
 
   // ARIA: role="row" with aria-expanded is the treegrid pattern for an
   // expandable row. Putting role="button" on the row itself would invalidate
@@ -164,7 +163,7 @@ function EventRow({ event, theme, isMobile }) {
         onKeyDown={handleKey}
         style={{
           padding: '12px 14px',
-          borderBottom: `1px solid ${theme.border}`,
+          borderBottom: `1px solid var(--color-border)`,
           cursor: hasMetadata ? 'pointer' : 'default',
           display: 'flex',
           flexDirection: 'column',
@@ -172,24 +171,24 @@ function EventRow({ event, theme, isMobile }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <ActionChip action={event.action} theme={theme} />
+          <ActionChip action={event.action} />
           <span style={{ flex: 1, minWidth: 0 }} />
-          <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace' }}>
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontFamily: '"Geist Mono Variable", monospace' }}>
             {fmtTime(event.created_at)}
           </span>
           {hasMetadata && (
-            <span aria-hidden="true" style={{ color: theme.textMuted, fontSize: 12 }}>
+            <span aria-hidden="true" style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
               {expanded ? '▾' : '▸'}
             </span>
           )}
         </div>
-        <div style={{ fontSize: 13, color: theme.text }}>
+        <div style={{ fontSize: 13, color: 'var(--color-text)' }}>
           {actorNode}
         </div>
-        <div style={{ fontSize: 12, color: theme.textMid, fontFamily: '"Geist Mono Variable", monospace', wordBreak: 'break-all' }}>
+        <div style={{ fontSize: 12, color: 'var(--color-text-mid)', fontFamily: '"Geist Mono Variable", monospace', wordBreak: 'break-all' }}>
           {resourceText}
         </div>
-        {expanded && <MetadataPanel event={event} theme={theme} />}
+        {expanded && <MetadataPanel event={event} />}
       </div>
     );
   }
@@ -201,42 +200,42 @@ function EventRow({ event, theme, isMobile }) {
       aria-expanded={hasMetadata ? expanded : undefined}
       style={{
         padding: '12px 16px',
-        borderBottom: `1px solid ${theme.border}`,
+        borderBottom: `1px solid var(--color-border)`,
         cursor: hasMetadata ? 'pointer' : 'default',
       }}
       onClick={hasMetadata ? () => setExpanded((v) => !v) : undefined}
       onKeyDown={handleKey}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div role="cell" style={{ flex: '0 0 200px', fontSize: 12, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace' }}>
+        <div role="cell" style={{ flex: '0 0 200px', fontSize: 12, color: 'var(--color-text-muted)', fontFamily: '"Geist Mono Variable", monospace' }}>
           {fmtTime(event.created_at)}
         </div>
         <div role="cell" style={{ flex: '0 0 140px' }}>
-          <ActionChip action={event.action} theme={theme} />
+          <ActionChip action={event.action} />
         </div>
-        <div role="cell" style={{ flex: '1 1 180px', fontSize: 13, color: theme.text, minWidth: 0 }}>
+        <div role="cell" style={{ flex: '1 1 180px', fontSize: 13, color: 'var(--color-text)', minWidth: 0 }}>
           {actorNode}
         </div>
-        <div role="cell" style={{ flex: '1 1 220px', fontSize: 12, color: theme.textMid, fontFamily: '"Geist Mono Variable", monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+        <div role="cell" style={{ flex: '1 1 220px', fontSize: 12, color: 'var(--color-text-mid)', fontFamily: '"Geist Mono Variable", monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
           {resourceText}
         </div>
         {hasMetadata && (
-          <div aria-hidden="true" style={{ flex: '0 0 auto', color: theme.textMuted, fontSize: 12 }}>
+          <div aria-hidden="true" style={{ flex: '0 0 auto', color: 'var(--color-text-muted)', fontSize: 12 }}>
             {expanded ? '▾' : '▸'}
           </div>
         )}
       </div>
-      {expanded && <MetadataPanel event={event} theme={theme} />}
+      {expanded && <MetadataPanel event={event} />}
     </div>
   );
 }
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
 
-function Select({ label, value, onChange, options, theme }) {
+function Select({ label, value, onChange, options }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
-      <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase' }}>
         {label}
       </span>
       <select
@@ -245,9 +244,9 @@ function Select({ label, value, onChange, options, theme }) {
         style={{
           padding: '6px 8px',
           borderRadius: 6,
-          border: `1px solid ${theme.border}`,
-          backgroundColor: theme.surface,
-          color: theme.text,
+          border: `1px solid var(--color-border)`,
+          backgroundColor: 'var(--color-surface)',
+          color: 'var(--color-text)',
           fontSize: 13,
         }}
       >
@@ -259,10 +258,10 @@ function Select({ label, value, onChange, options, theme }) {
   );
 }
 
-function DateInput({ label, value, onChange, theme }) {
+function DateInput({ label, value, onChange }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 160 }}>
-      <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase' }}>
         {label}
       </span>
       <input
@@ -272,9 +271,9 @@ function DateInput({ label, value, onChange, theme }) {
         style={{
           padding: '5px 8px',
           borderRadius: 6,
-          border: `1px solid ${theme.border}`,
-          backgroundColor: theme.surface,
-          color: theme.text,
+          border: `1px solid var(--color-border)`,
+          backgroundColor: 'var(--color-surface)',
+          color: 'var(--color-text)',
           fontSize: 13,
         }}
       />
@@ -285,7 +284,6 @@ function DateInput({ label, value, onChange, theme }) {
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function AuditScreen() {
-  const { theme } = useTheme();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
 
@@ -328,10 +326,10 @@ export default function AuditScreen() {
     <div style={{ padding: isMobile ? 16 : 24 }}>
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: theme.text }}>
+        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: 'var(--color-text)' }}>
           Audit Log
         </h1>
-        <p style={{ margin: '6px 0 0', fontSize: 13, color: theme.textMuted }}>
+        <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--color-text-muted)' }}>
           Every dismiss, scan, and account change across your organization. Click a row with metadata to expand.
         </p>
       </div>
@@ -342,21 +340,21 @@ export default function AuditScreen() {
         gap: 12,
         flexWrap: 'wrap',
         padding: 16,
-        backgroundColor: theme.surface,
-        border: `1px solid ${theme.border}`,
+        backgroundColor: 'var(--color-surface)',
+        border: `1px solid var(--color-border)`,
         borderRadius: 10,
         marginBottom: 16,
       }}>
-        <Select label="Action" value={action} onChange={setAction} options={ACTIONS} theme={theme} />
-        <Select label="Resource type" value={resourceType} onChange={setResourceType} options={RESOURCE_TYPES} theme={theme} />
-        <DateInput label="From" value={sinceDate} onChange={setSinceDate} theme={theme} />
-        <DateInput label="To"   value={untilDate} onChange={setUntilDate} theme={theme} />
+        <Select label="Action" value={action} onChange={setAction} options={ACTIONS} />
+        <Select label="Resource type" value={resourceType} onChange={setResourceType} options={RESOURCE_TYPES} />
+        <DateInput label="From" value={sinceDate} onChange={setSinceDate} />
+        <DateInput label="To"   value={untilDate} onChange={setUntilDate} />
       </div>
 
       {/* Results */}
       <div role="table" aria-label="Audit events" style={{
-        backgroundColor: theme.surface,
-        border: `1px solid ${theme.border}`,
+        backgroundColor: 'var(--color-surface)',
+        border: `1px solid var(--color-border)`,
         borderRadius: 10,
         overflow: 'hidden',
       }}>
@@ -370,11 +368,11 @@ export default function AuditScreen() {
             display: 'flex',
             gap: 12,
             padding: '10px 16px',
-            backgroundColor: theme.surfaceRaised,
-            borderBottom: `1px solid ${theme.border}`,
+            backgroundColor: 'var(--color-surface-raised)',
+            borderBottom: `1px solid var(--color-border)`,
             fontSize: 10,
             fontWeight: 700,
-            color: theme.textMuted,
+            color: 'var(--color-text-muted)',
             letterSpacing: 1.2,
             textTransform: 'uppercase',
           }}>
@@ -388,15 +386,15 @@ export default function AuditScreen() {
 
         {query.isLoading && (
           <div style={{ padding: 40, display: 'flex', justifyContent: 'center' }}>
-            <Spinner color={theme.accent} />
+            <Spinner color={'var(--color-accent)'} />
           </div>
         )}
 
         {query.isError && (
-          <div role="alert" style={{ padding: 40, textAlign: 'center', color: theme.textMuted, fontSize: 13 }}>
+          <div role="alert" style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 13 }}>
             Failed to load audit events.
             {query.error?.message && (
-              <div style={{ marginTop: 6, fontSize: 11, fontFamily: '"Geist Mono Variable", monospace', color: theme.textMuted, opacity: 0.7 }}>
+              <div style={{ marginTop: 6, fontSize: 11, fontFamily: '"Geist Mono Variable", monospace', color: 'var(--color-text-muted)', opacity: 0.7 }}>
                 {query.error.message}
               </div>
             )}
@@ -404,26 +402,26 @@ export default function AuditScreen() {
         )}
 
         {!query.isLoading && !query.isError && events.length === 0 && (
-          <div style={{ padding: 40, textAlign: 'center', color: theme.textMuted, fontSize: 13 }}>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 13 }}>
             No audit events match the current filter.
           </div>
         )}
 
         {events.map((e) => (
-          <EventRow key={e.id} event={e} theme={theme} isMobile={isMobile} />
+          <EventRow key={e.id} event={e} isMobile={isMobile} />
         ))}
 
         {hasNext && (
-          <div style={{ padding: 16, textAlign: 'center', borderTop: `1px solid ${theme.border}` }}>
+          <div style={{ padding: 16, textAlign: 'center', borderTop: `1px solid var(--color-border)` }}>
             <button
               onClick={() => query.fetchNextPage()}
               disabled={query.isFetchingNextPage}
               style={{
                 padding: '8px 16px',
                 borderRadius: 6,
-                border: `1px solid ${theme.border}`,
-                backgroundColor: theme.surface,
-                color: theme.text,
+                border: `1px solid var(--color-border)`,
+                backgroundColor: 'var(--color-surface)',
+                color: 'var(--color-text)',
                 fontSize: 13,
                 fontWeight: 600,
                 cursor: query.isFetchingNextPage ? 'wait' : 'pointer',

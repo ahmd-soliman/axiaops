@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // WCAG contrast ratio checker for AxiaOps theme tokens.
 //
-// Extracts the lightTheme and darkTheme objects from ../ThemeContext.jsx
-// and prints the contrast ratio for every text-on-background pairing that
-// is actually rendered by the app.
+// Parses the `:root` and `:root[data-theme="dark"]` blocks in
+// ../../styles/tokens.css and prints the contrast ratio for every
+// text-on-background pairing that is actually rendered by the app.
+//
+// Issue #88 moved the tokens out of `ThemeContext.jsx`'s JS objects into
+// CSS custom properties; this script tracked the rename.
 //
 // Usage:
 //   node services/dashboard/src/theme/scripts/check-contrast.mjs
@@ -15,17 +18,61 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const themeFile = path.resolve(here, '..', 'ThemeContext.jsx');
+const tokensFile = path.resolve(here, '..', '..', 'styles', 'tokens.css');
 
-function extractTheme(src, name) {
-  const m = src.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`));
-  if (!m) throw new Error(`Could not find const ${name} in ThemeContext.jsx`);
+// camelCase token name (the historical schema) ↔ kebab CSS var.
+// Keep this in sync with `tokens.css`. Tokens not listed here are
+// ignored (e.g. legacy `navy` aliases, the `--color-track` ramp helper,
+// and the indexed `--color-viz-ramp-N` ramp stops — none of which are
+// involved in a text-on-bg contrast pairing).
+const TOKEN_NAMES = [
+  'bg', 'bgSecondary',
+  'surface', 'surfaceAlt', 'surfaceRaised',
+  'accent', 'accentMuted', 'accentLight', 'accentBorder', 'accentText',
+  'text', 'textMid', 'textMuted', 'textSub', 'textOnDark', 'white',
+  'card', 'border',
+  'chipBg', 'chipText',
+  'chipProdBg', 'chipProdText',
+  'chipStagBg', 'chipStagText',
+  'zombieBadgeBg', 'zombieBadgeText',
+  'error', 'success', 'warning',
+  'alertCritical', 'alertWarning', 'statusOk',
+];
+
+function kebab(camel) {
+  return camel.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());
+}
+
+// Extract a `--color-X-kebab: #hex;` declaration from a single CSS block.
+// `block` is the body between `:root { … }` (or the dark override `{ … }`).
+function extractTheme(blockBody) {
   const out = {};
-  for (const line of m[1].split('\n')) {
-    const kv = line.match(/^\s*([a-zA-Z]+)\s*:\s*'(#[0-9A-Fa-f]{3,8})'\s*,?/);
-    if (kv) out[kv[1]] = kv[2];
+  for (const tok of TOKEN_NAMES) {
+    const varName = `--color-${kebab(tok)}`;
+    // Match `--color-X: #ABCDEF;` allowing trailing whitespace + comment.
+    const re = new RegExp(
+      varName.replace('-', '\\-') + '\\s*:\\s*(#[0-9A-Fa-f]{3,8})\\s*;',
+    );
+    const m = blockBody.match(re);
+    if (m) out[tok] = m[1];
   }
   return out;
+}
+
+// Pull the `:root { … }` body and the `:root[data-theme="dark"] { … }`
+// body out of the file. Brace-counting is naive (no nested rules in
+// tokens.css), so a flat regex is enough.
+function extractBlocks(src) {
+  const blocks = {};
+  const lightRe = /:root\s*\{([\s\S]*?)\n\}/;
+  const darkRe  = /:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/;
+  const lm = src.match(lightRe);
+  const dm = src.match(darkRe);
+  if (!lm) throw new Error('Could not find :root block in tokens.css');
+  if (!dm) throw new Error('Could not find :root[data-theme="dark"] block in tokens.css');
+  blocks.light = lm[1];
+  blocks.dark  = dm[1];
+  return blocks;
 }
 
 function rel(hex) {
@@ -77,15 +124,19 @@ const PAIRS = [
   { fg: 'warning',      bg: 'bg',          min: 3.0 },
 ];
 
-const src = fs.readFileSync(themeFile, 'utf8');
+const src = fs.readFileSync(tokensFile, 'utf8');
+const blocks = extractBlocks(src);
 const themes = {
-  light: extractTheme(src, 'lightTheme'),
-  dark:  extractTheme(src, 'darkTheme'),
+  light: extractTheme(blocks.light),
+  dark:  extractTheme(blocks.dark),
 };
 
 let failures = 0;
 
-// Token parity check — keys must match across themes.
+// Token parity check — every name in TOKEN_NAMES must resolve in both
+// themes. (We can't trivially detect tokens defined only in dark, since
+// the regex is keyed on the canonical list. Run a quick eyeball over
+// tokens.css when adding a new token.)
 const lightKeys = Object.keys(themes.light).sort();
 const darkKeys  = Object.keys(themes.dark).sort();
 const onlyL = lightKeys.filter(k => !darkKeys.includes(k));
@@ -100,7 +151,7 @@ if (onlyL.length || onlyD.length) {
 }
 
 for (const themeName of ['light', 'dark']) {
-  console.log(`\n── ${themeName.toUpperCase()} ── (${themeFile})`);
+  console.log(`\n── ${themeName.toUpperCase()} ── (${tokensFile})`);
   const t = themes[themeName];
   for (const { fg, bg, min } of PAIRS) {
     if (!t[fg] || !t[bg]) {

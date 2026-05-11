@@ -41,7 +41,7 @@ const SNOOZE_OPTIONS = [
 // <button>, and nested interactives are invalid HTML. div role="button"
 // needs explicit keyboard handling and a visible focus ring (browsers don't
 // apply :focus-visible to non-button elements consistently).
-function MonthlyWasteCard({ onShowTrend, theme, children }) {
+function MonthlyWasteCard({ onShowTrend, children }) {
   const [focused, setFocused] = useState(false);
   return (
     <div
@@ -65,7 +65,7 @@ function MonthlyWasteCard({ onShowTrend, theme, children }) {
         padding: 4,
         margin: -4,
         borderRadius: 6,
-        outline: focused ? `2px solid ${theme.accent}` : 'none',
+        outline: focused ? `2px solid var(--color-accent)` : 'none',
         outlineOffset: 2,
       }}
     >
@@ -74,7 +74,7 @@ function MonthlyWasteCard({ onShowTrend, theme, children }) {
   );
 }
 
-function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, theme, isMobile }) {
+function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, isMobile }) {
   const data = summary.data;
   const waste = data?.potential_monthly_savings ?? 0;
   const zombieCount = data?.total_zombies ?? 0;
@@ -101,7 +101,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
     : null;
 
   return (
-    <div style={{ backgroundColor: theme.surfaceAlt || theme.surface, borderBottom: `1px solid ${theme.border}`, padding: isMobile ? '16px' : '20px' }}>
+    <div style={{ backgroundColor: 'var(--color-surface-alt)', borderBottom: '1px solid var(--color-border)', padding: isMobile ? '16px' : '20px' }}>
       {/* Two-stat row — stacks vertically on phones; the 28px-bold spend value
           + 11px label cluster only fits side-by-side once the viewport has
           ~440px of inner width. */}
@@ -112,13 +112,13 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
           onClick={onShowCosts}
           style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
         >
-          <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
             Total Spend
           </span>
-          <span style={{ fontSize: 28, fontWeight: 800, color: theme.text, letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--color-text)', letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
             {currency} {totalSpend.toFixed(2)}
           </span>
-          <span style={{ fontSize: 12, color: theme.textMuted, marginTop: 2, display: 'block' }}>
+          <span style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2, display: 'block' }}>
             last 30 days
           </span>
         </button>
@@ -126,9 +126,9 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
         {/* Monthly Waste — clickable card; the InfoTooltip lives next to the
             label, so we can't use a <button> wrapper (no nested interactives).
             We use div role="button" with explicit Enter/Space + focus-ring. */}
-        <MonthlyWasteCard onShowTrend={onShowTrend} theme={theme}>
+        <MonthlyWasteCard onShowTrend={onShowTrend}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase' }}>
               Monthly Waste
             </span>
             <InfoTooltip
@@ -139,12 +139,12 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
                   <p style={{ margin: 0 }}>
                     Sum of monthly cost across detected zombie resources, based on net amortized cost.
                   </p>
-                  <p style={{ margin: '8px 0 0', color: theme.textMid }}>
+                  <p style={{ margin: '8px 0 0', color: 'var(--color-text-mid)' }}>
                     <strong>Live, after dismissals.</strong> Computed from current resources minus anything
                     you&rsquo;ve dismissed or snoozed. This is why it can differ from the latest point on the
                     Trend chart, which is captured at scan time <em>before</em> dismissals are applied.
                   </p>
-                  <p style={{ margin: '8px 0 0', color: theme.textMid }}>
+                  <p style={{ margin: '8px 0 0', color: 'var(--color-text-mid)' }}>
                     <strong>Savings Plans / RIs.</strong> If a resource is covered by a Savings Plan or
                     Reserved Instance, killing it may not reduce your bill until the commitment ends.
                     AxiaOps does not yet detect SP/RI coverage, so this number can overstate savings for
@@ -154,18 +154,18 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
               }
             />
           </div>
-          <span style={{ fontSize: 28, fontWeight: 800, color: theme.alertWarning, letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--color-alert-warning)', letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
             {currency} {waste.toFixed(2)}
           </span>
-          <span style={{ fontSize: 11, color: theme.textMuted, fontStyle: 'italic', display: 'block', marginTop: 1 }}>
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic', display: 'block', marginTop: 1 }}>
             Live · after dismissals
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
-            <span style={{ fontSize: 12, color: theme.textMuted }}>
+            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
               {zombieCount} zombie{zombieCount !== 1 ? 's' : ''}
             </span>
             {delta !== null && (
-              <span style={{ fontSize: 11, color: delta > 0 ? theme.alertCritical : theme.statusOk, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ fontSize: 11, color: delta > 0 ? 'var(--color-alert-critical)' : 'var(--color-status-ok)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                 {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
               </span>
             )}
@@ -179,19 +179,19 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
         // Below threshold, amber/green carry the warning/ok semantics. See
         // docs/ui-color-system-review.md §4 (red is overused).
         const ratioColor = wastePercent > 20
-          ? theme.alertCritical
+          ? 'var(--color-alert-critical)'
           : wastePercent > 10
-            ? theme.alertWarning
-            : theme.statusOk;
+            ? 'var(--color-alert-warning)'
+            : 'var(--color-status-ok)';
         return (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted }}>Waste ratio</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)' }}>Waste ratio</span>
               <span style={{ fontSize: 11, fontWeight: 700, color: ratioColor, fontVariantNumeric: 'tabular-nums' }}>
                 {wastePercent.toFixed(1)}%
               </span>
             </div>
-            <div style={{ height: 6, backgroundColor: theme.track, borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ height: 6, backgroundColor: 'var(--color-track)', borderRadius: 3, overflow: 'hidden' }}>
               <div style={{
                 height: '100%',
                 width: `${Math.min(wastePercent, 100)}%`,
@@ -215,7 +215,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
 // spec — block descendants inside a <button> aren't valid and trip up some
 // screen readers / validators. display:flex on a span behaves the same as on
 // a div visually.
-function ServiceBreakdownRow({ svc, data, maxSavings, totalSavings, currency, theme, isMobile, active, onToggleSvc }) {
+function ServiceBreakdownRow({ svc, data, maxSavings, totalSavings, currency, isMobile, active, onToggleSvc }) {
   const cfg = serviceConfig(svc);
   const barWidth = (data.savings / maxSavings) * 100;
   const pctOfTotal = (data.savings / Math.max(totalSavings, 0.01)) * 100;
@@ -238,8 +238,8 @@ function ServiceBreakdownRow({ svc, data, maxSavings, totalSavings, currency, th
       aria-pressed={active}
       aria-label={`Filter resources by ${cfg.label} — ${currency}${data.savings.toFixed(2)}, ${pctOfTotal.toFixed(1)}% of total waste`}
       style={{
-        background: active ? theme.accentLight : 'transparent',
-        border: `1px solid ${active ? theme.accentBorder : 'transparent'}`,
+        background: active ? 'var(--color-accent-light)' : 'transparent',
+        border: `1px solid ${active ? 'var(--color-accent-border)' : 'transparent'}`,
         borderRadius: 6,
         padding: '6px 8px',
         cursor: 'pointer',
@@ -248,7 +248,7 @@ function ServiceBreakdownRow({ svc, data, maxSavings, totalSavings, currency, th
         color: 'inherit',
         width: '100%',
         transition: 'background 0.15s, border-color 0.15s',
-        outline: focused ? `2px solid ${theme.accent}` : 'none',
+        outline: focused ? `2px solid var(--color-accent)` : 'none',
         outlineOffset: 1,
       }}
     >
@@ -266,15 +266,15 @@ function ServiceBreakdownRow({ svc, data, maxSavings, totalSavings, currency, th
       }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
-          <span style={{ fontSize: 11, color: theme.textMuted }}>{data.zombies} resource{data.zombies !== 1 ? 's' : ''}</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text)' }}>{cfg.label}</span>
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{data.zombies} resource{data.zombies !== 1 ? 's' : ''}</span>
         </span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: theme.text, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums' }}>
           {currency}{data.savings.toFixed(2)}
-          <span style={{ fontWeight: 500, color: theme.textMuted, marginLeft: 6 }}>· {pctOfTotal.toFixed(1)}%</span>
+          <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', marginLeft: 6 }}>· {pctOfTotal.toFixed(1)}%</span>
         </span>
       </span>
-      <span style={{ display: 'block', height: 6, backgroundColor: theme.track, borderRadius: 2, overflow: 'hidden' }}>
+      <span style={{ display: 'block', height: 6, backgroundColor: 'var(--color-track)', borderRadius: 2, overflow: 'hidden' }}>
         <span style={{
           display: 'block',
           height: '100%',
@@ -293,7 +293,7 @@ function ServiceBreakdownRow({ svc, data, maxSavings, totalSavings, currency, th
 // each constituent service as an indented ServiceBreakdownRow below this
 // row. The aggregate bar is hidden in the expanded state — the constituents
 // below carry the visual weight.
-function OtherRow({ tail, totalSavings, maxSavings, currency, theme, isMobile, expanded, onToggle }) {
+function OtherRow({ tail, totalSavings, maxSavings, currency, isMobile, expanded, onToggle }) {
   const savings = tail.reduce((s, [, d]) => s + d.savings, 0);
   const zombies = tail.reduce((s, [, d]) => s + d.zombies, 0);
   const pctOfTotal = (savings / Math.max(totalSavings, 0.01)) * 100;
@@ -318,7 +318,7 @@ function OtherRow({ tail, totalSavings, maxSavings, currency, theme, isMobile, e
         font: 'inherit',
         color: 'inherit',
         width: '100%',
-        outline: focused ? `2px solid ${theme.accent}` : 'none',
+        outline: focused ? `2px solid var(--color-accent)` : 'none',
         outlineOffset: 1,
       }}
     >
@@ -331,28 +331,28 @@ function OtherRow({ tail, totalSavings, maxSavings, currency, theme, isMobile, e
         marginBottom: expanded ? 0 : 4,
       }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
-          <span aria-hidden="true" style={{ display: 'inline-block', width: 10, fontSize: 9, color: theme.textMuted, lineHeight: 1, textAlign: 'center' }}>
+          <span aria-hidden="true" style={{ display: 'inline-block', width: 10, fontSize: 9, color: 'var(--color-text-muted)', lineHeight: 1, textAlign: 'center' }}>
             {expanded ? '▾' : '▸'}
           </span>
-          <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', backgroundColor: theme.textSub, flexShrink: 0 }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: theme.textMid }}>Other</span>
-          <span style={{ fontSize: 11, color: theme.textMuted }}>{tail.length} services · {zombies} resource{zombies !== 1 ? 's' : ''}</span>
+          <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--color-text-sub)', flexShrink: 0 }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-mid)' }}>Other</span>
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{tail.length} services · {zombies} resource{zombies !== 1 ? 's' : ''}</span>
         </span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: theme.textMid, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-mid)', fontVariantNumeric: 'tabular-nums' }}>
           {currency}{savings.toFixed(2)}
-          <span style={{ fontWeight: 500, color: theme.textMuted, marginLeft: 6 }}>· {pctOfTotal.toFixed(1)}%</span>
+          <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', marginLeft: 6 }}>· {pctOfTotal.toFixed(1)}%</span>
         </span>
       </span>
       {/* Aggregate bar only when collapsed — when expanded the constituents
           rendered below carry the visual weight and a redundant aggregate bar
           here just doubles the height of the disclosure. */}
       {!expanded && (
-        <span style={{ display: 'block', height: 6, backgroundColor: theme.track, borderRadius: 2, overflow: 'hidden' }}>
+        <span style={{ display: 'block', height: 6, backgroundColor: 'var(--color-track)', borderRadius: 2, overflow: 'hidden' }}>
           <span style={{
             display: 'block',
             height: '100%',
             width: `${barWidth}%`,
-            backgroundColor: theme.textSub,
+            backgroundColor: 'var(--color-text-sub)',
             borderRadius: 2,
           }} />
         </span>
@@ -364,7 +364,7 @@ function OtherRow({ tail, totalSavings, maxSavings, currency, theme, isMobile, e
 // Pareto divider — horizontal marker labelled with the cumulative percentage
 // of waste accumulated above it. Renders between rows. Standard FinOps trope:
 // "these N services are your problem; everything below is rounding error."
-function ParetoDivider({ cumulativePct, theme }) {
+function ParetoDivider({ cumulativePct }) {
   return (
     <div
       aria-hidden="true"
@@ -373,18 +373,18 @@ function ParetoDivider({ cumulativePct, theme }) {
         alignItems: 'center',
         gap: 8,
         margin: '4px 8px',
-        color: theme.textMuted,
+        color: 'var(--color-text-muted)',
         fontSize: 10,
         fontWeight: 700,
         letterSpacing: 1,
         textTransform: 'uppercase',
       }}
     >
-      <span style={{ flex: 1, borderTop: `1px dashed ${theme.border}` }} />
+      <span style={{ flex: 1, borderTop: `1px dashed var(--color-border)` }} />
       <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
         {cumulativePct.toFixed(0)}% of waste above
       </span>
-      <span style={{ flex: 1, borderTop: `1px dashed ${theme.border}` }} />
+      <span style={{ flex: 1, borderTop: `1px dashed var(--color-border)` }} />
     </div>
   );
 }
@@ -408,7 +408,7 @@ function splitTail(byService, totalSavings) {
   return { shown, tail };
 }
 
-function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, onToggleSvc }) {
+function ServiceBreakdown({ byService, currency, isMobile, filterSvcs, onToggleSvc }) {
   const [otherExpanded, setOtherExpanded] = useState(false);
   if (byService.length === 0) return null;
   const maxSavings = Math.max(...byService.map(([, d]) => d.savings), 0.01);
@@ -430,7 +430,6 @@ function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, on
         maxSavings={maxSavings}
         totalSavings={totalSavings}
         currency={currency}
-        theme={theme}
         isMobile={isMobile}
         active={filterSvcs.has(svc)}
         onToggleSvc={onToggleSvc}
@@ -442,7 +441,7 @@ function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, on
     const hasMoreBelow = rows.length < shown.length || tail.length > 0;
     if (!paretoMarked && cumulative >= 80 && hasMoreBelow) {
       paretoMarked = true;
-      rows.push(<ParetoDivider key="pareto" cumulativePct={cumulative} theme={theme} />);
+      rows.push(<ParetoDivider key="pareto" cumulativePct={cumulative} />);
     }
   }
   if (tail.length > 0) {
@@ -453,7 +452,6 @@ function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, on
         totalSavings={totalSavings}
         maxSavings={maxSavings}
         currency={currency}
-        theme={theme}
         isMobile={isMobile}
         expanded={otherExpanded}
         onToggle={() => setOtherExpanded((v) => !v)}
@@ -481,7 +479,7 @@ function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, on
             gap: 2,
             paddingLeft: 22,
             boxSizing: 'border-box',
-            borderLeft: `2px solid ${theme.border}`,
+            borderLeft: `2px solid var(--color-border)`,
             marginLeft: 8,
           }}
         >
@@ -493,7 +491,6 @@ function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, on
               maxSavings={maxSavings}
               totalSavings={totalSavings}
               currency={currency}
-              theme={theme}
               isMobile={isMobile}
               active={filterSvcs.has(svc)}
               onToggleSvc={onToggleSvc}
@@ -505,8 +502,8 @@ function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, on
   }
 
   return (
-    <div style={{ padding: isMobile ? '16px' : '16px 20px', borderBottom: `1px solid ${theme.border}` }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 12 }}>
+    <div style={{ padding: isMobile ? '16px' : '16px 20px', borderBottom: `1px solid var(--color-border)` }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 12 }}>
         Waste by Service
       </span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -518,7 +515,7 @@ function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, on
 
 // ─── Search + Sort bar ────────────────────────────────────────────────────────
 
-function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onClearFilter, isMobile }) {
+function FilterBar({ search, onSearch, sortBy, onSort, activeFilters, onClearFilter, isMobile }) {
   return (
     <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', gap: 8 }}>
@@ -526,7 +523,7 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
         <div style={{ flex: 1, position: 'relative' }}>
           <svg
             style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
-            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={theme.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={'var(--color-text-muted)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
           >
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.35-4.35" />
@@ -543,11 +540,11 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
               paddingRight: 12,
               paddingTop: 8,
               paddingBottom: 8,
-              backgroundColor: theme.surfaceRaised,
-              border: `1px solid ${theme.border}`,
+              backgroundColor: 'var(--color-surface-raised)',
+              border: `1px solid var(--color-border)`,
               borderRadius: 8,
               fontSize: 13,
-              color: theme.text,
+              color: 'var(--color-text)',
               boxSizing: 'border-box',
             }}
           />
@@ -560,11 +557,11 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
           aria-label="Sort resources"
           style={{
             padding: '8px 10px',
-            backgroundColor: theme.surfaceRaised,
-            border: `1px solid ${theme.border}`,
+            backgroundColor: 'var(--color-surface-raised)',
+            border: `1px solid var(--color-border)`,
             borderRadius: 8,
             fontSize: 13,
-            color: theme.textMid,
+            color: 'var(--color-text-mid)',
             cursor: 'pointer',
             flexShrink: 0,
           }}
@@ -591,12 +588,12 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
                 alignItems: 'center',
                 gap: 5,
                 padding: isMobile ? '7px 12px 7px 14px' : '3px 8px 3px 10px',
-                backgroundColor: theme.accentLight,
-                border: `1px solid ${theme.accentBorder}`,
+                backgroundColor: 'var(--color-accent-light)',
+                border: `1px solid var(--color-accent-border)`,
                 borderRadius: 20,
                 cursor: 'pointer',
                 fontSize: 12,
-                color: theme.accentText,
+                color: 'var(--color-accent-text)',
                 fontWeight: 600,
               }}
             >
@@ -606,7 +603,7 @@ function FilterBar({ search, onSearch, sortBy, onSort, theme, activeFilters, onC
           ))}
           <button
             onClick={() => activeFilters.forEach(f => onClearFilter(f.key))}
-            style={{ padding: isMobile ? '7px 10px' : '3px 8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: theme.textMuted }}
+            style={{ padding: isMobile ? '7px 10px' : '3px 8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--color-text-muted)' }}
           >
             Clear all
           </button>
@@ -622,7 +619,7 @@ function FilterPills({
   byService, owners, resourceTypes,
   filterSvcs, filterOwner, filterResourceTypes,
   onToggleSvc, onFilterOwner, onToggleResourceType, onClearResourceTypes,
-  currency, theme, isDark, isMobile,
+  currency, isMobile,
 }) {
   const showSubfilter = filterSvcs.size === 1 && resourceTypes.length > 0;
   const noneSelected = filterResourceTypes.size === 0;
@@ -647,17 +644,17 @@ function FilterPills({
                   display: 'flex',
                   alignItems: 'center',
                   gap: 5,
-                  backgroundColor: active ? theme.accent : theme.surfaceRaised,
+                  backgroundColor: active ? 'var(--color-accent)' : 'var(--color-surface-raised)',
                   borderRadius: 20,
                   padding: isMobile ? '8px 14px' : '5px 10px',
-                  border: `1px solid ${active ? theme.accent : theme.border}`,
+                  border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
                   cursor: 'pointer',
                   flexShrink: 0,
                 }}
               >
                 <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? '#ffffff' : cfg.color }} />
-                <span style={{ fontSize: 12, fontWeight: 700, color: active ? '#ffffff' : theme.text }}>{cfg.label}</span>
-                <span style={{ fontSize: 11, color: active ? 'rgba(255,255,255,0.8)' : theme.textMuted }}>{currency}{data.savings.toFixed(0)}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: active ? '#ffffff' : 'var(--color-text)' }}>{cfg.label}</span>
+                <span style={{ fontSize: 11, color: active ? 'rgba(255,255,255,0.8)' : 'var(--color-text-muted)' }}>{currency}{data.savings.toFixed(0)}</span>
               </button>
             );
           })}
@@ -676,10 +673,10 @@ function FilterPills({
             aria-pressed={noneSelected}
             style={{
               padding: isMobile ? '7px 12px' : '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
-              backgroundColor: noneSelected ? theme.textMid : theme.surfaceRaised,
-              border: `1px solid ${noneSelected ? theme.textMid : theme.border}`,
+              backgroundColor: noneSelected ? 'var(--color-text-mid)' : 'var(--color-surface-raised)',
+              border: `1px solid ${noneSelected ? 'var(--color-text-mid)' : 'var(--color-border)'}`,
               fontSize: 11, fontWeight: 600,
-              color: noneSelected ? '#fff' : theme.textMuted,
+              color: noneSelected ? '#fff' : 'var(--color-text-muted)',
             }}
           >
             All Types
@@ -695,12 +692,12 @@ function FilterPills({
                 style={{
                   display: 'flex', alignItems: 'center', gap: 4,
                   padding: isMobile ? '7px 12px' : '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
-                  backgroundColor: active ? theme.textMid : theme.surfaceRaised,
-                  border: `1px solid ${active ? theme.textMid : theme.border}`,
+                  backgroundColor: active ? 'var(--color-text-mid)' : 'var(--color-surface-raised)',
+                  border: `1px solid ${active ? 'var(--color-text-mid)' : 'var(--color-border)'}`,
                 }}
               >
                 <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color }} />
-                <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#fff' : theme.textMuted }}>{cfg.label}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#fff' : 'var(--color-text-muted)' }}>{cfg.label}</span>
               </button>
             );
           })}
@@ -722,15 +719,15 @@ function FilterPills({
                 onClick={() => onFilterOwner(active ? null : owner)}
                 aria-pressed={active}
                 style={{
-                  backgroundColor: active ? theme.navy : theme.surfaceRaised,
+                  backgroundColor: active ? 'var(--color-navy)' : 'var(--color-surface-raised)',
                   borderRadius: 20,
                   padding: isMobile ? '8px 12px' : '4px 10px',
-                  border: `1px solid ${active ? theme.navy : theme.border}`,
+                  border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
                   cursor: 'pointer',
                   flexShrink: 0,
                 }}
               >
-                <span style={{ fontSize: 12, fontWeight: 600, color: active ? '#fff' : theme.textMid }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: active ? '#fff' : 'var(--color-text-mid)' }}>
                   {owner}
                 </span>
               </button>
@@ -744,16 +741,16 @@ function FilterPills({
 
 // ─── Resource card ────────────────────────────────────────────────────────────
 
-function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDark }) {
+function ResourceCard({ item, onSelect, isSelected, onToggleSelect }) {
   const cfg  = serviceConfig(item.service);
   const env  = item.tags?.env ?? 'unknown';
   const envVariant = ['prod', 'production'].includes(env) ? 'prod' : ['staging', 'stg'].includes(env) ? 'stag' : null;
-  const envColor = envVariant === 'prod' ? theme.error : envVariant === 'stag' ? theme.warning : theme.textMuted;
+  const envColor = envVariant === 'prod' ? 'var(--color-error)' : envVariant === 'stag' ? 'var(--color-warning)' : 'var(--color-text-muted)';
 
   return (
     <div
       style={{
-        backgroundColor: theme.card,
+        backgroundColor: 'var(--color-card)',
         marginLeft: 16,
         marginRight: 16,
         marginBottom: 8,
@@ -762,7 +759,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
         display: 'flex',
         alignItems: 'stretch',
         overflow: 'hidden',
-        border: isSelected ? `1px solid ${theme.accent}` : `1px solid ${theme.border}`,
+        border: isSelected ? `1px solid var(--color-accent)` : `1px solid var(--color-border)`,
         transition: 'border-color 0.15s',
       }}
     >
@@ -780,7 +777,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
           onChange={() => onToggleSelect(item.resource_id)}
           onClick={e => e.stopPropagation()}
           aria-label={`Select ${item.resource_id}`}
-          style={{ width: 16, height: 16, cursor: 'pointer', accentColor: theme.accent, marginTop: 1 }}
+          style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--color-accent)', marginTop: 1 }}
         />
       </div>
 
@@ -800,12 +797,12 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
         {/* Row 1: service dot + label + cost */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
           <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>{cfg.label}</span>
 
           {item.is_zombie && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-              <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: theme.zombieBadgeText }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: theme.zombieBadgeText }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: 'var(--color-zombie-badge-text)' }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-zombie-badge-text)' }}>
                 zombie
               </span>
             </span>
@@ -813,15 +810,15 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
 
           <div style={{ flex: 1 }} />
 
-          <span style={{ fontSize: 15, fontWeight: 800, color: theme.accent, flexShrink: 0 }}>
-            {item.currency} {item.monthly_cost.toFixed(2)}<span style={{ fontSize: 11, fontWeight: 500, color: theme.textMuted }}>/mo</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-accent)', flexShrink: 0 }}>
+            {item.currency} {item.monthly_cost.toFixed(2)}<span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-muted)' }}>/mo</span>
           </span>
         </div>
 
         {/* Row 2: resource ID */}
         <span style={{
           fontSize: 11,
-          color: theme.textMuted,
+          color: 'var(--color-text-muted)',
           fontFamily: '"Geist Mono Variable", monospace',
           display: 'block',
           overflow: 'hidden',
@@ -836,9 +833,9 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{
             fontSize: 11,
-            color: theme.textMid,
-            backgroundColor: theme.surfaceRaised,
-            border: `1px solid ${theme.border}`,
+            color: 'var(--color-text-mid)',
+            backgroundColor: 'var(--color-surface-raised)',
+            border: `1px solid var(--color-border)`,
             padding: '2px 7px',
             borderRadius: 4,
           }}>
@@ -848,15 +845,15 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
             fontSize: 11,
             fontWeight: envVariant === 'prod' ? 700 : 500,
             color: envColor,
-            backgroundColor: envVariant === 'prod' ? `${theme.error}18` : theme.surfaceRaised,
-            border: `1px solid ${envVariant === 'prod' ? `${theme.error}33` : theme.border}`,
+            backgroundColor: envVariant === 'prod' ? `var(--color-error)18` : 'var(--color-surface-raised)',
+            border: `1px solid ${envVariant === 'prod' ? `var(--color-error)33` : 'var(--color-border)'}`,
             padding: '2px 7px',
             borderRadius: 4,
           }}>
             {env}
           </span>
           {item.owner && (
-            <span style={{ fontSize: 11, color: theme.textMuted, marginLeft: 'auto' }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)', marginLeft: 'auto' }}>
               {item.owner}
             </span>
           )}
@@ -865,7 +862,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
         {/* Row 4: detection reason / usage */}
         {(item.is_zombie || item.usage_metric) && (
           <div style={{ marginTop: 6 }}>
-            <span style={{ fontSize: 12, color: item.is_zombie ? theme.textMid : theme.textMuted, fontStyle: 'italic', lineHeight: '18px', display: 'block' }}>
+            <span style={{ fontSize: 12, color: item.is_zombie ? 'var(--color-text-mid)' : 'var(--color-text-muted)', fontStyle: 'italic', lineHeight: '18px', display: 'block' }}>
               {item.is_zombie ? item.reason : `${item.usage_metric}: ${item.usage_avg?.toFixed(2)} ${item.usage_unit}`}
             </span>
           </div>
@@ -877,7 +874,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
 
 // ─── Dismissed resource card ──────────────────────────────────────────────────
 
-function DismissedCard({ item, theme, isDark, onSelect, isSelected, onToggleSelect }) {
+function DismissedCard({ item, onSelect, isSelected, onToggleSelect }) {
   const cfg = serviceConfig(item.service);
   const reasonLabel = {
     intentional: 'Intentional', scheduled_deletion: 'Scheduled', false_positive: 'False positive',
@@ -901,7 +898,7 @@ function DismissedCard({ item, theme, isDark, onSelect, isSelected, onToggleSele
   return (
     <div
       style={{
-        backgroundColor: theme.card,
+        backgroundColor: 'var(--color-card)',
         marginLeft: 16,
         marginRight: 16,
         marginBottom: 8,
@@ -910,7 +907,7 @@ function DismissedCard({ item, theme, isDark, onSelect, isSelected, onToggleSele
         display: 'flex',
         alignItems: 'stretch',
         overflow: 'hidden',
-        border: isSelected ? `1px solid ${theme.accent}` : `1px solid ${theme.border}`,
+        border: isSelected ? `1px solid var(--color-accent)` : `1px solid var(--color-border)`,
         transition: 'border-color 0.15s',
       }}
     >
@@ -926,7 +923,7 @@ function DismissedCard({ item, theme, isDark, onSelect, isSelected, onToggleSele
           onChange={() => onToggleSelect?.(item.id)}
           onClick={(e) => e.stopPropagation()}
           aria-label={`Select ${item.resource_id} for bulk restore`}
-          style={{ width: 16, height: 16, cursor: 'pointer', accentColor: theme.accent, marginTop: 1 }}
+          style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--color-accent)', marginTop: 1 }}
         />
       </div>
 
@@ -946,13 +943,13 @@ function DismissedCard({ item, theme, isDark, onSelect, isSelected, onToggleSele
           font: 'inherit',
           color: 'inherit',
           minWidth: 0,
-          outline: focused ? `2px solid ${theme.accent}` : 'none',
+          outline: focused ? `2px solid var(--color-accent)` : 'none',
           outlineOffset: -2,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
           <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>{cfg.label}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: isSnoozed ? '#2563EB' : '#9CA3AF' }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: isSnoozed ? '#2563EB' : '#9CA3AF' }}>
@@ -961,29 +958,29 @@ function DismissedCard({ item, theme, isDark, onSelect, isSelected, onToggleSele
           </span>
           <div style={{ flex: 1 }} />
           {typeof item.monthly_cost === 'number' && (
-            <span style={{ fontSize: 14, fontWeight: 700, color: theme.accent, flexShrink: 0 }}>
-              {item.currency} {item.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted }}>/mo</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-accent)', flexShrink: 0 }}>
+              {item.currency} {item.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: 'var(--color-text-muted)' }}>/mo</span>
             </span>
           )}
         </div>
-        <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontFamily: '"Geist Mono Variable", monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
           {item.resource_id}
         </span>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: theme.textMuted, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4 }}>
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', backgroundColor: 'var(--color-surface-raised)', border: `1px solid var(--color-border)`, padding: '2px 7px', borderRadius: 4 }}>
             {item.region}
           </span>
-          <span style={{ fontSize: 11, color: theme.textMid, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>
+          <span style={{ fontSize: 11, color: 'var(--color-text-mid)', backgroundColor: 'var(--color-surface-raised)', border: `1px solid var(--color-border)`, padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>
             {reasonLabel}
           </span>
           {isSnoozed && item.snoozed_until && (
-            <span style={{ fontSize: 11, color: theme.textMuted }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
               until {new Date(item.snoozed_until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
             </span>
           )}
         </div>
         {item.note ? (
-          <span style={{ fontSize: 12, color: theme.textMid, fontStyle: 'italic', display: 'block', marginTop: 4 }}>&ldquo;{item.note}&rdquo;</span>
+          <span style={{ fontSize: 12, color: 'var(--color-text-mid)', fontStyle: 'italic', display: 'block', marginTop: 4 }}>&ldquo;{item.note}&rdquo;</span>
         ) : null}
       </button>
     </div>
@@ -992,7 +989,7 @@ function DismissedCard({ item, theme, isDark, onSelect, isSelected, onToggleSele
 
 // ─── Bulk action bar ──────────────────────────────────────────────────────────
 
-function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, onRestore, theme, isMobile }) {
+function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, onRestore, isMobile }) {
   // Sum of pixel widths inside the toolbar (~417px including padding/gap)
   // overflows a 360px viewport. On mobile the bar spans the viewport with
   // 12px side margins instead of centring around `left: 50%`, drops the
@@ -1024,7 +1021,7 @@ function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, onRestor
         ...(isMobile
           ? { left: 12, right: 12 }
           : { left: '50%', transform: 'translateX(-50%)' }),
-        backgroundColor: theme.navy,
+        backgroundColor: 'var(--color-navy)',
         borderRadius: 12,
         padding: isMobile ? '8px 10px' : '10px 16px',
         display: 'flex',
@@ -1035,7 +1032,7 @@ function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, onRestor
         whiteSpace: 'nowrap',
       }}
     >
-      <span style={{ fontSize: isMobile ? 12 : 13, fontWeight: 700, color: theme.textOnDark }}>
+      <span style={{ fontSize: isMobile ? 12 : 13, fontWeight: 700, color: 'var(--color-text-on-dark)' }}>
         {count} {isMobile ? '' : 'selected'}
       </span>
       {!isMobile && <div style={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.2)' }} />}
@@ -1062,7 +1059,7 @@ function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, onRestor
 
 // ─── Bulk dismiss modal ───────────────────────────────────────────────────────
 
-function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, theme, isDark }) {
+function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, isDark }) {
   const [reason, setReason]  = useState('intentional');
   const [note, setNote]      = useState('');
   const [loading, setLoading] = useState(false);
@@ -1090,16 +1087,16 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
         role="dialog"
         aria-modal="true"
         aria-label={`Bulk ${modalAction}`}
-        style={{ backgroundColor: theme.surface, borderRadius: 16, padding: 24, maxWidth: 420, width: '90vw', boxShadow: '0 16px 40px rgba(0,0,0,0.3)' }}
+        style={{ backgroundColor: 'var(--color-surface)', borderRadius: 16, padding: 24, maxWidth: 420, width: '90vw', boxShadow: '0 16px 40px rgba(0,0,0,0.3)' }}
       >
-        <span style={{ fontSize: 17, fontWeight: 800, color: theme.text, display: 'block', marginBottom: 4 }}>
+        <span style={{ fontSize: 17, fontWeight: 800, color: 'var(--color-text)', display: 'block', marginBottom: 4 }}>
           {modalAction === 'dismiss' ? `Dismiss ${count} resources` : `Snooze ${count} resources`}
         </span>
-        <span style={{ fontSize: 13, color: theme.textMuted, display: 'block', marginBottom: 16 }}>
+        <span style={{ fontSize: 13, color: 'var(--color-text-muted)', display: 'block', marginBottom: 16 }}>
           {modalAction === 'dismiss' ? 'These resources will be hidden from the zombie list.' : 'These resources will be hidden for 7 days.'}
         </span>
 
-        <span style={{ fontSize: 11, fontWeight: 700, color: theme.textMuted, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Reason</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Reason</span>
         {DISMISS_REASONS.map(r => (
           <button
             key={r.value}
@@ -1107,13 +1104,13 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '9px 12px', borderRadius: 8, marginBottom: 4,
-              border: `1px solid ${reason === r.value ? theme.accent : theme.border}`,
-              backgroundColor: reason === r.value ? theme.accentLight : 'transparent',
+              border: `1px solid ${reason === r.value ? 'var(--color-accent)' : 'var(--color-border)'}`,
+              backgroundColor: reason === r.value ? 'var(--color-accent-light)' : 'transparent',
               cursor: 'pointer', width: '100%', textAlign: 'left',
             }}
           >
-            <div style={{ width: 15, height: 15, borderRadius: '50%', border: `2px solid ${reason === r.value ? theme.accent : theme.textMuted}`, backgroundColor: reason === r.value ? theme.accent : 'transparent', flexShrink: 0 }} />
-            <span style={{ fontSize: 14, color: reason === r.value ? theme.accent : theme.textMid, fontWeight: reason === r.value ? 600 : 400 }}>{r.label}</span>
+            <div style={{ width: 15, height: 15, borderRadius: '50%', border: `2px solid ${reason === r.value ? 'var(--color-accent)' : 'var(--color-text-muted)'}`, backgroundColor: reason === r.value ? 'var(--color-accent)' : 'transparent', flexShrink: 0 }} />
+            <span style={{ fontSize: 14, color: reason === r.value ? 'var(--color-accent)' : 'var(--color-text-mid)', fontWeight: reason === r.value ? 600 : 400 }}>{r.label}</span>
           </button>
         ))}
 
@@ -1122,16 +1119,16 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
             value={note}
             onChange={e => setNote(e.target.value)}
             placeholder={reason === 'other' ? 'Note (required)…' : 'Add a note (optional)…'}
-            style={{ marginTop: 8, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, borderRadius: 8, padding: 12, color: theme.text, fontSize: 14, minHeight: 56, width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
+            style={{ marginTop: 8, backgroundColor: 'var(--color-surface-raised)', border: `1px solid var(--color-border)`, borderRadius: 8, padding: 12, color: 'var(--color-text)', fontSize: 14, minHeight: 56, width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
           />
         )}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-          <button onClick={onClose} style={{ flex: 1, padding: '12px', borderRadius: 10, border: `1px solid ${theme.border}`, backgroundColor: 'transparent', cursor: 'pointer' }}>
-            <span style={{ color: theme.textMid, fontWeight: 700, fontSize: 14 }}>Cancel</span>
+          <button onClick={onClose} style={{ flex: 1, padding: '12px', borderRadius: 10, border: `1px solid var(--color-border)`, backgroundColor: 'transparent', cursor: 'pointer' }}>
+            <span style={{ color: 'var(--color-text-mid)', fontWeight: 700, fontSize: 14 }}>Cancel</span>
           </button>
-          <button onClick={handleConfirm} disabled={loading} style={{ flex: 1, padding: '12px', borderRadius: 10, backgroundColor: theme.accent, border: 'none', cursor: 'pointer', opacity: loading ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {loading ? <Spinner size={18} color={theme.textOnDark} /> : <span style={{ color: theme.textOnDark, fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss All' : 'Snooze All'}</span>}
+          <button onClick={handleConfirm} disabled={loading} style={{ flex: 1, padding: '12px', borderRadius: 10, backgroundColor: 'var(--color-accent)', border: 'none', cursor: 'pointer', opacity: loading ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {loading ? <Spinner size={18} color={'var(--color-text-on-dark)'} /> : <span style={{ color: 'var(--color-text-on-dark)', fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss All' : 'Snooze All'}</span>}
           </button>
         </div>
       </div>
@@ -1186,13 +1183,12 @@ export default function OverviewScreen({
   onShowTrend, onShowCosts, onSelectZombie, accounts = [], onConnectAccount, onEditAccount,
   selectedAccount, onSelectAccount,
 }) {
-  const { theme, isDark } = useTheme();
+  const { isDark } = useTheme();
   const { toast }         = useToast();
   const { watch }         = useScanStatus();
   const queryClient       = useQueryClient();
   const { isAtMost }      = useBreakpoint();
   const isMobile          = isAtMost('xs');
-  const t = theme;
 
   const [filterSvcs, setFilterSvcs]                   = useState(() => new Set());
   const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
@@ -1426,26 +1422,26 @@ export default function OverviewScreen({
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div style={{ display: 'flex', flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: t.bg, minHeight: '60vh', flexDirection: 'column', gap: 14 }}>
-        <Spinner size={32} color={t.accent} />
-        <span style={{ color: t.textMuted, fontSize: 14 }}>Analysing resources…</span>
+      <div style={{ display: 'flex', flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'var(--color-bg)', minHeight: '60vh', flexDirection: 'column', gap: 14 }}>
+        <Spinner size={32} color={'var(--color-accent)'} />
+        <span style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>Analysing resources…</span>
       </div>
     );
   }
 
   if (isError) {
     return (
-      <div style={{ display: 'flex', flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: t.bg, minHeight: '60vh', flexDirection: 'column', gap: 12, padding: 32 }}>
-        <span style={{ fontSize: 28, color: t.textMuted }}>⚠</span>
-        <span style={{ fontSize: 17, fontWeight: 700, color: t.text }}>Service unavailable</span>
-        <span style={{ fontSize: 13, color: t.textMuted, textAlign: 'center', lineHeight: '20px' }}>
+      <div style={{ display: 'flex', flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'var(--color-bg)', minHeight: '60vh', flexDirection: 'column', gap: 12, padding: 32 }}>
+        <span style={{ fontSize: 28, color: 'var(--color-text-muted)' }}>⚠</span>
+        <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--color-text)' }}>Service unavailable</span>
+        <span style={{ fontSize: 13, color: 'var(--color-text-muted)', textAlign: 'center', lineHeight: '20px' }}>
           Make sure the API service is running
         </span>
         <button
           onClick={refresh}
-          style={{ marginTop: 12, backgroundColor: t.accent, padding: '10px 24px', borderRadius: 8, border: 'none', cursor: 'pointer' }}
+          style={{ marginTop: 12, backgroundColor: 'var(--color-accent)', padding: '10px 24px', borderRadius: 8, border: 'none', cursor: 'pointer' }}
         >
-          <span style={{ color: t.textOnDark, fontWeight: 700, fontSize: 14 }}>Retry</span>
+          <span style={{ color: 'var(--color-text-on-dark)', fontWeight: 700, fontSize: 14 }}>Retry</span>
         </button>
       </div>
     );
@@ -1503,12 +1499,12 @@ export default function OverviewScreen({
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ backgroundColor: t.bg, minHeight: '100%', paddingBottom: selected.size > 0 ? (isMobile ? 80 : 100) : 40 }}>
+    <div style={{ backgroundColor: 'var(--color-bg)', minHeight: '100%', paddingBottom: selected.size > 0 ? (isMobile ? 80 : 100) : 40 }}>
 
       {/* Account selector + refresh bar */}
       <div style={{
-        backgroundColor: t.surface,
-        borderBottom: `1px solid ${t.border}`,
+        backgroundColor: 'var(--color-surface)',
+        borderBottom: `1px solid var(--color-border)`,
         padding: '16px',
         display: 'flex',
         alignItems: 'center',
@@ -1526,19 +1522,19 @@ export default function OverviewScreen({
         ) : (
           <button
             onClick={onConnectAccount}
-            style={{ border: `1px dashed ${t.accent}`, borderRadius: 8, padding: '6px 14px', background: 'none', cursor: 'pointer' }}
+            style={{ border: `1px dashed var(--color-accent)`, borderRadius: 8, padding: '6px 14px', background: 'none', cursor: 'pointer' }}
           >
-            <span style={{ color: t.accent, fontSize: 13, fontWeight: 600 }}>+ Connect AWS Account</span>
+            <span style={{ color: 'var(--color-accent)', fontSize: 13, fontWeight: 600 }}>+ Connect AWS Account</span>
           </button>
         )}
         <div style={{ flex: 1 }} />
-        {isRefreshing && <Spinner size={14} color={t.accent} />}
+        {isRefreshing && <Spinner size={14} color={'var(--color-accent)'} />}
         <button
           onClick={refresh}
           aria-label="Refresh data"
           style={{ padding: '5px 8px', background: 'none', border: 'none', cursor: 'pointer' }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={'var(--color-text-muted)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
           </svg>
@@ -1546,13 +1542,12 @@ export default function OverviewScreen({
       </div>
 
       {/* Overview hero */}
-      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} onShowCosts={onShowCosts} theme={t} isMobile={isMobile} />
+      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} onShowCosts={onShowCosts} isMobile={isMobile} />
 
       {/* Service breakdown */}
       <ServiceBreakdown
         byService={byService}
         currency={summary.data?.currency ?? '$'}
-        theme={t}
         isMobile={isMobile}
         filterSvcs={filterSvcs}
         onToggleSvc={toggleService}
@@ -1572,8 +1567,6 @@ export default function OverviewScreen({
           onToggleResourceType={toggleResourceType}
           onClearResourceTypes={clearResourceTypes}
           currency={summary.data?.currency ?? '$'}
-          theme={t}
-          isDark={isDark}
           isMobile={isMobile}
         />
       </div>
@@ -1599,12 +1592,12 @@ export default function OverviewScreen({
             style={{
               padding: '7px 14px',
               borderRadius: 20,
-              backgroundColor: active ? t.navy : t.surfaceRaised,
-              border: `1px solid ${active ? t.navy : t.border}`,
+              backgroundColor: active ? 'var(--color-navy)' : 'var(--color-surface-raised)',
+              border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
               cursor: 'pointer',
               fontSize: 13,
               fontWeight: 600,
-              color: active ? '#fff' : t.textMid,
+              color: active ? '#fff' : 'var(--color-text-mid)',
             }}
           >
             {label}
@@ -1633,12 +1626,12 @@ export default function OverviewScreen({
                 style={{
                   padding: isMobile ? '7px 12px' : '4px 10px',
                   borderRadius: 14,
-                  backgroundColor: active ? t.textMid : t.surfaceRaised,
-                  border: `1px solid ${active ? t.textMid : t.border}`,
+                  backgroundColor: active ? 'var(--color-text-mid)' : 'var(--color-surface-raised)',
+                  border: `1px solid ${active ? 'var(--color-text-mid)' : 'var(--color-border)'}`,
                   cursor: 'pointer',
                   fontSize: 12,
                   fontWeight: 600,
-                  color: active ? '#fff' : t.textMid,
+                  color: active ? '#fff' : 'var(--color-text-mid)',
                 }}
               >
                 {p.label}
@@ -1655,7 +1648,6 @@ export default function OverviewScreen({
           onSearch={setSearch}
           sortBy={sortBy}
           onSort={setSortBy}
-          theme={t}
           activeFilters={activeFilters}
           onClearFilter={clearFilter}
           isMobile={isMobile}
@@ -1670,10 +1662,10 @@ export default function OverviewScreen({
             checked={allSelected}
             onChange={() => toggleSelectAll(visibleIds)}
             aria-label={showDismissed ? 'Select all hidden resources' : 'Select all resources'}
-            style={{ width: 15, height: 15, accentColor: t.accent, marginRight: 10, cursor: 'pointer' }}
+            style={{ width: 15, height: 15, accentColor: 'var(--color-accent)', marginRight: 10, cursor: 'pointer' }}
           />
         )}
-        <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
+        <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase' }}>
           {showDismissed
             ? (hiddenFilter === 'snoozed' ? 'Snoozed Resources' : hiddenFilter === 'dismissed' ? 'Dismissed Resources' : 'Hidden Resources')
             : zombieOnly ? `Zombie Resources` : 'All Resources'}
@@ -1688,13 +1680,13 @@ export default function OverviewScreen({
             style={{
               padding: '4px 10px',
               borderRadius: 6,
-              border: `1px solid ${t.border}`,
-              backgroundColor: t.surfaceRaised,
+              border: `1px solid var(--color-border)`,
+              backgroundColor: 'var(--color-surface-raised)',
               cursor: listData.length === 0 ? 'not-allowed' : 'pointer',
               opacity: listData.length === 0 ? 0.5 : 1,
             }}
           >
-            <span style={{ fontSize: 11, fontWeight: 700, color: t.textMid }}>↓ CSV</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-mid)' }}>↓ CSV</span>
           </button>
         )}
       </div>
@@ -1703,10 +1695,10 @@ export default function OverviewScreen({
       {listData.length === 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 32px', gap: 8 }}>
           <span style={{ fontSize: 32 }}>🎉</span>
-          <span style={{ fontSize: 16, fontWeight: 700, color: t.text }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-text)' }}>
             {zombieOnly && !showDismissed ? 'No zombie resources found!' : 'No resources match your filters'}
           </span>
-          <span style={{ fontSize: 13, color: t.textMuted, textAlign: 'center' }}>
+          <span style={{ fontSize: 13, color: 'var(--color-text-muted)', textAlign: 'center' }}>
             {zombieOnly && !showDismissed
               ? 'All your AWS resources appear to be actively used.'
               : 'Try adjusting the search or removing filters.'}
@@ -1720,8 +1712,6 @@ export default function OverviewScreen({
           ? <DismissedCard
               key={String(item.id)}
               item={item}
-              theme={t}
-              isDark={isDark}
               onSelect={onSelectZombie}
               isSelected={selected.has(item.id)}
               onToggleSelect={toggleSelect}
@@ -1732,8 +1722,6 @@ export default function OverviewScreen({
               onSelect={onSelectZombie}
               isSelected={selected.has(item.resource_id)}
               onToggleSelect={toggleSelect}
-              theme={t}
-              isDark={isDark}
             />
       ))}
 
@@ -1750,7 +1738,6 @@ export default function OverviewScreen({
           onRestore={showDismissed ? handleBulkRestore : undefined}
           onExport={showDismissed ? undefined : () => exportCSV(zombieSelectedItems, { zombieOnly }, toast)}
           onClear={() => setSelected(new Set())}
-          theme={t}
           isMobile={isMobile}
         />
       )}
@@ -1762,7 +1749,6 @@ export default function OverviewScreen({
         onConfirm={handleBulkAction}
         count={selected.size}
         modalAction={bulkModal}
-        theme={t}
         isDark={isDark}
       />
     </div>

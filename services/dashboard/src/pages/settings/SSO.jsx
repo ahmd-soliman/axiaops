@@ -18,15 +18,15 @@ const PANES = [
 ];
 
 export default function SSO() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const [active, setActive] = useState(PANES[0].id);
 
   const tabBorder = isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb';
 
   return (
-    <div style={{ padding: 24, color: t.textMid, maxWidth: 960 }}>
-      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Single Sign-On</h1>
-      <p style={{ marginTop: 4, marginBottom: 20, color: t.textMuted, fontSize: 13 }}>
+    <div style={{ padding: 24, color: 'var(--color-text-mid)', maxWidth: 960 }}>
+      <h1 style={{ margin: 0, color: 'var(--color-text)', fontSize: 22, fontWeight: 700 }}>Single Sign-On</h1>
+      <p style={{ marginTop: 4, marginBottom: 20, color: 'var(--color-text-muted)', fontSize: 13 }}>
         Configure OIDC connections, verify domains, map groups to roles, and set enforcement.
       </p>
       <div role="tablist" style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${tabBorder}`, marginBottom: 20 }}>
@@ -44,9 +44,9 @@ export default function SSO() {
               style={{
                 padding: '8px 14px',
                 border: 'none',
-                borderBottom: `2px solid ${isActive ? t.accent : 'transparent'}`,
+                borderBottom: `2px solid ${isActive ? 'var(--color-accent)' : 'transparent'}`,
                 backgroundColor: 'transparent',
-                color: isActive ? t.accent : t.textMid,
+                color: isActive ? 'var(--color-accent)' : 'var(--color-text-mid)',
                 fontSize: 13,
                 fontWeight: isActive ? 700 : 500,
                 cursor: 'pointer',

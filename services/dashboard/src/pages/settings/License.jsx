@@ -38,7 +38,7 @@ const INSTALL_URL = 'https://axiaops.io/install';
 const RENEWAL_EMAIL = 'sales@axiaops.io';
 
 export default function License() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['api-version'],
@@ -49,11 +49,11 @@ export default function License() {
   });
 
   return (
-    <div style={{ padding: 24, color: t.textMid, maxWidth: 760 }}>
+    <div style={{ padding: 24, color: 'var(--color-text-mid)', maxWidth: 760 }}>
       <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
-          <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>License</h1>
-          <p style={{ marginTop: 4, marginBottom: 0, color: t.textMuted, fontSize: 13 }}>
+          <h1 style={{ margin: 0, color: 'var(--color-text)', fontSize: 22, fontWeight: 700 }}>License</h1>
+          <p style={{ marginTop: 4, marginBottom: 0, color: 'var(--color-text-muted)', fontSize: 13 }}>
             Self-hosted license state. Read-only — license issuance is operator-side via the offline issuance CLI.
           </p>
         </div>
@@ -63,10 +63,10 @@ export default function License() {
           disabled={isFetching}
           style={{
             padding: '6px 12px',
-            border: `1px solid ${t.border}`,
+            border: `1px solid var(--color-border)`,
             borderRadius: 6,
             backgroundColor: 'transparent',
-            color: t.text,
+            color: 'var(--color-text)',
             fontSize: 12,
             cursor: isFetching ? 'wait' : 'pointer',
             opacity: isFetching ? 0.6 : 1,
@@ -76,18 +76,18 @@ export default function License() {
         </button>
       </header>
 
-      {isLoading && <p style={{ color: t.textMuted, fontSize: 13 }}>Loading…</p>}
+      {isLoading && <p style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>Loading…</p>}
       {isError && (
-        <p style={{ color: t.error, fontSize: 13 }}>
+        <p style={{ color: 'var(--color-error)', fontSize: 13 }}>
           Could not load license state. Check the API health and retry.
         </p>
       )}
-      {data?.license && <LicensePane lic={data.license} version={data} t={t} isDark={isDark} />}
+      {data?.license && <LicensePane lic={data.license} version={data} isDark={isDark} />}
     </div>
   );
 }
 
-function LicensePane({ lic, version, t, isDark }) {
+function LicensePane({ lic, version, isDark }) {
   const tone = toneFor(lic);
   const detail = detailFor(lic);
   const sectionBg = isDark ? 'rgba(255,255,255,0.03)' : '#fff';
@@ -107,13 +107,13 @@ function LicensePane({ lic, version, t, isDark }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: detail ? 8 : 0 }}>
-          <Chip tone={tone} label={chipLabel(lic)} t={t} />
-          <span style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>
+          <Chip tone={tone} label={chipLabel(lic)} />
+          <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 600 }}>
             {headlineFor(lic)}
           </span>
         </div>
         {detail && (
-          <p style={{ margin: 0, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-mid)', lineHeight: '18px' }}>
             {detail}
           </p>
         )}
@@ -129,10 +129,10 @@ function LicensePane({ lic, version, t, isDark }) {
             backgroundColor: sectionBg,
           }}
         >
-          <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>
+          <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
             License details
           </h2>
-          <ClaimsGrid lic={lic} t={t} />
+          <ClaimsGrid lic={lic} />
         </section>
       )}
 
@@ -144,13 +144,13 @@ function LicensePane({ lic, version, t, isDark }) {
           backgroundColor: sectionBg,
         }}
       >
-        <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: t.text }}>
+        <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
           Build
         </h2>
-        <ClaimRow t={t} k="Service" v={version.service || '—'} />
-        <ClaimRow t={t} k="Version" v={version.version || '—'} />
-        <ClaimRow t={t} k="Commit"  v={version.commit || '—'} />
-        <ClaimRow t={t} k="Env"     v={version.env || '—'} />
+        <ClaimRow k="Service" v={version.service || '—'} />
+        <ClaimRow k="Version" v={version.version || '—'} />
+        <ClaimRow k="Commit"  v={version.commit || '—'} />
+        <ClaimRow k="Env"     v={version.env || '—'} />
       </section>
     </>
   );
@@ -164,29 +164,29 @@ function hasClaims(lic) {
   return lic.state !== 'not_loaded';
 }
 
-function ClaimsGrid({ lic, t }) {
+function ClaimsGrid({ lic }) {
   // Two-column auto-fit grid handles tablet+ down to ~360px without a JS
   // breakpoint hook. Order: most-actionable first.
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-      <ClaimRow t={t} k="Days remaining"  v={formatDays(lic.days_remaining)} />
-      <ClaimRow t={t} k="Expires at"      v={formatDate(lic.expires_at)} mono />
-      <ClaimRow t={t} k="Max organizations" v={lic.max_organizations ?? '—'} />
-      <ClaimRow t={t} k="Customer ID"     v={lic.customer_id || '—'} mono />
+      <ClaimRow k="Days remaining"  v={formatDays(lic.days_remaining)} />
+      <ClaimRow k="Expires at"      v={formatDate(lic.expires_at)} mono />
+      <ClaimRow k="Max organizations" v={lic.max_organizations ?? '—'} />
+      <ClaimRow k="Customer ID"     v={lic.customer_id || '—'} mono />
     </div>
   );
 }
 
-function ClaimRow({ t, k, v, mono }) {
+function ClaimRow({ k, v, mono }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 8, minWidth: 0 }}>
-      <span style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+      <span style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
         {k}
       </span>
       <span
         style={{
           fontSize: 13,
-          color: t.text,
+          color: 'var(--color-text)',
           fontFamily: mono ? '"Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' : undefined,
           // Customer IDs are arbitrarily long; without break-all they
           // overflow the grid cell on phones.
@@ -199,12 +199,12 @@ function ClaimRow({ t, k, v, mono }) {
   );
 }
 
-function Chip({ tone, label, t }) {
+function Chip({ tone, label }) {
   // Filled pill — primary affirmation for the License page state. Different
   // design context from list-row status chips (which are stripped to inline
   // text): this one sits at the top of a focused page, paired with a single
   // headline, so the heavier visual treatment earns its space.
-  const palette = paletteFor(tone, t);
+  const palette = paletteFor(tone);
   return (
     <span
       style={{
@@ -215,7 +215,7 @@ function Chip({ tone, label, t }) {
         textTransform: 'uppercase',
         letterSpacing: 0.4,
         backgroundColor: palette.fg,
-        color: t.textOnDark,
+        color: 'var(--color-text-on-dark)',
       }}
     >
       {label}
@@ -237,11 +237,23 @@ function toneFor(lic) {
   return 'error';
 }
 
-function paletteFor(tone, t) {
-  if (tone === 'success') return { bg: `${t.success || '#10b981'}18`, border: `${t.success || '#10b981'}40`, fg: t.success || '#10b981' };
-  if (tone === 'warning') return { bg: `${t.warning}18`, border: `${t.warning}40`, fg: t.warning };
-  if (tone === 'error')   return { bg: `${t.error}18`,   border: `${t.error}40`,   fg: t.error };
-  return { bg: `${t.accent}14`, border: `${t.accent}40`, fg: t.accent };
+// paletteFor mirrors LicenseBanner.paletteFor: the pre-#88 shape produced
+// alpha-suffixed hex strings (`${t.error}18`); CSS vars can't be string-
+// concatenated like that, so color-mix interpolates against transparent
+// instead. 9% / 25% reproduce the previous 0x18 / 0x40 alpha levels (8% /
+// 25% rounded for the accent stop that used 0x14).
+function paletteFor(tone) {
+  const fg =
+    tone === 'success' ? 'var(--color-success)' :
+    tone === 'warning' ? 'var(--color-warning)' :
+    tone === 'error'   ? 'var(--color-error)'   :
+                         'var(--color-accent)';
+  const bgPct = tone === 'success' || tone === 'warning' || tone === 'error' ? '9%' : '8%';
+  return {
+    bg:     `color-mix(in srgb, ${fg} ${bgPct}, transparent)`,
+    border: `color-mix(in srgb, ${fg} 25%, transparent)`,
+    fg,
+  };
 }
 
 function chipLabel(lic) {
