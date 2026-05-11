@@ -194,6 +194,39 @@ func TestBootstrapStateUnavailableWhenNeverMinted(t *testing.T) {
 	}
 }
 
+// TestBootstrapStateRateLimit — audit M-4. After the per-IP cap is
+// exceeded, the probe returns 429 with a Retry-After header. Reads
+// after the cap don't reveal the available/sealed posture — important
+// because the probe leaks "this install is mid-bootstrap" to Shodan
+// scanners racing for the install token.
+func TestBootstrapStateRateLimit(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	_ = seedInstallToken(t, store)
+
+	// Tight cap so the test doesn't hammer 30 requests.
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+	h = h.WithBootstrapProbeRateLimit(auth.NewIPRateLimiter(mem, "test:bootstrap_probe", 2))
+	m := mux(h)
+
+	// First two hits succeed (cap=2).
+	for i := 0; i < 2; i++ {
+		w := getJSON(t, m, "/v1/auth/bootstrap/state")
+		if w.Code != http.StatusOK {
+			t.Fatalf("hit %d: status = %d; want 200; body = %s", i+1, w.Code, w.Body.String())
+		}
+	}
+	// Third hit trips the cap.
+	w := getJSON(t, m, "/v1/auth/bootstrap/state")
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("post-cap status = %d; want 429; body = %s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("Retry-After") == "" {
+		t.Errorf("Retry-After header missing on 429")
+	}
+}
+
 // ── /v1/auth/bootstrap ──────────────────────────────────────────────────────
 
 // seedInstallToken plants a bootstrap_state row. Returns the plaintext
