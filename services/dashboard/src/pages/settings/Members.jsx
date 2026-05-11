@@ -191,7 +191,7 @@ export default function Members() {
       </p>
 
       {error && (
-        <Banner color={isDark ? '#fca5a5' : '#b91c1c'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
+        <Banner color={'var(--color-error)'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
           {error}
         </Banner>
       )}
