@@ -1,24 +1,23 @@
 import { useState } from 'react';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { updateAccount, deleteAccount, scanAccount } from '../api/client';
-import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner } from '../components/primitives';
 import { useDestructiveConfirm, DestructiveConfirmModal } from '../components/DestructiveConfirm';
 
-function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, theme }) {
+function Field({ label, value, onChange, placeholder, mono, type = 'text', hint }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <label style={{ fontSize: 13, fontWeight: 600, color: theme.textMid }}>{label}</label>
+      <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-mid)' }}>{label}</label>
       <input
         style={{
-          backgroundColor: theme.surfaceAlt,
-          border: `1px solid ${theme.border}`,
+          backgroundColor: 'var(--color-surface-alt)',
+          border: `1px solid var(--color-border)`,
           borderRadius: 8,
           padding: '10px 12px',
           fontSize: 14,
-          color: theme.text,
+          color: 'var(--color-text)',
           fontFamily: mono ? '"Geist Mono Variable", monospace' : undefined,
         }}
         value={value}
@@ -28,22 +27,22 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint,
         autoCorrect="off"
         type={type}
       />
-      {hint && <span style={{ fontSize: 12, color: theme.textMuted, fontStyle: 'italic' }}>{hint}</span>}
+      {hint && <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>{hint}</span>}
     </div>
   );
 }
 
-function StatusBadge({ status, theme }) {
+function StatusBadge({ status }) {
   // Inline dot + label — no pill chrome. The colored dot is the at-a-glance
   // indicator; the headline beside it carries the operational message.
   const config = {
-    connected:            { color: theme.success, label: 'Connected' },
-    error:                { color: theme.error,   label: 'Disconnected' },
-    scan_timeout:         { color: theme.warning, label: 'Timed Out' },
-    circuit_breaker_open: { color: theme.warning, label: 'Paused' },
-    scanning:             { color: theme.accent,  label: 'Scanning…' },
+    connected:            { color: 'var(--color-success)', label: 'Connected' },
+    error:                { color: 'var(--color-error)',   label: 'Disconnected' },
+    scan_timeout:         { color: 'var(--color-warning)', label: 'Timed Out' },
+    circuit_breaker_open: { color: 'var(--color-warning)', label: 'Paused' },
+    scanning:             { color: 'var(--color-accent)',  label: 'Scanning…' },
   };
-  const c = config[status] ?? { color: theme.textMuted, label: 'Unknown' };
+  const c = config[status] ?? { color: 'var(--color-text-muted)', label: 'Unknown' };
 
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
@@ -68,7 +67,6 @@ function statusHeadline(status) {
 }
 
 export default function AccountSettingsScreen({ account, onBack, onAccountUpdated, onAccountDeleted }) {
-  const { theme }   = useTheme();
   const { toast }   = useToast();
   const { watch }   = useScanStatus();
   const queryClient = useQueryClient();
@@ -156,26 +154,25 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
 
   const handleScan = () => scanMutation.mutate(account.id);
 
-  const t = theme;
 
   return (
-    <div style={{ minHeight: '100%', backgroundColor: t.bg }}>
+    <div style={{ minHeight: '100%', backgroundColor: 'var(--color-bg)' }}>
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 0 64px' }}>
 
         {/* Header */}
-        <div style={{ padding: '20px 20px 16px', borderBottom: `1px solid ${t.border}` }}>
+        <div style={{ padding: '20px 20px 16px', borderBottom: `1px solid var(--color-border)` }}>
           <button onClick={onBack} style={{ padding: '4px 0', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 12 }}>
-            <span style={{ color: t.accent, fontSize: 14, fontWeight: 600 }}>← Back</span>
+            <span style={{ color: 'var(--color-accent)', fontSize: 14, fontWeight: 600 }}>← Back</span>
           </button>
-          <h1 style={{ fontSize: 20, fontWeight: 800, color: t.text, margin: '0 0 4px' }}>{accountName}</h1>
-          <p style={{ fontSize: 13, color: t.textMuted, margin: 0 }}>{account.region}</p>
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: 'var(--color-text)', margin: '0 0 4px' }}>{accountName}</h1>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: 0 }}>{account.region}</p>
         </div>
 
         <div style={{ padding: '20px' }}>
           {/* Status + quick actions */}
           <div style={{
-            backgroundColor: t.surface,
-            border: `1px solid ${t.border}`,
+            backgroundColor: 'var(--color-surface)',
+            border: `1px solid var(--color-border)`,
             borderRadius: 12,
             padding: 20,
             marginBottom: 16,
@@ -185,21 +182,21 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
           }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-                <StatusBadge status={account.status} theme={t} />
-                <span style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>
+                <StatusBadge status={account.status} />
+                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 600 }}>
                   {statusHeadline(account.status)}
                 </span>
               </div>
               {account.last_scanned_at && (
-                <span style={{ fontSize: 12, color: t.textMuted }}>
+                <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
                   Last scan: {new Date(account.last_scanned_at).toLocaleString()}
                 </span>
               )}
             </div>
 
             {account.status === 'circuit_breaker_open' && (
-              <div style={{ backgroundColor: `${t.warning}18`, border: `1px solid ${t.warning}40`, borderRadius: 8, padding: '10px 12px' }}>
-                <span style={{ fontSize: 13, color: t.warning, lineHeight: '20px', display: 'block' }}>
+              <div style={{ backgroundColor: `var(--color-warning)18`, border: `1px solid var(--color-warning)40`, borderRadius: 8, padding: '10px 12px' }}>
+                <span style={{ fontSize: 13, color: 'var(--color-warning)', lineHeight: '20px', display: 'block' }}>
                   Too many consecutive scan failures. Wait a few minutes before retrying, or check your IAM credentials.
                 </span>
               </div>
@@ -215,7 +212,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                   flex: 1,
                   padding: '11px',
                   borderRadius: 8,
-                  backgroundColor: t.accent,
+                  backgroundColor: 'var(--color-accent)',
                   border: 'none',
                   cursor: scanning || account.status === 'circuit_breaker_open' ? 'not-allowed' : 'pointer',
                   opacity: scanning || account.status === 'circuit_breaker_open' ? 0.6 : 1,
@@ -225,13 +222,13 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                   gap: 6,
                 }}
               >
-                {scanning ? <Spinner size={16} color={t.textOnDark} /> : (
+                {scanning ? <Spinner size={16} color={'var(--color-text-on-dark)'} /> : (
                   <>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
                       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                     </svg>
-                    <span style={{ color: t.textOnDark, fontSize: 14, fontWeight: 700 }}>Scan Now</span>
+                    <span style={{ color: 'var(--color-text-on-dark)', fontSize: 14, fontWeight: 700 }}>Scan Now</span>
                   </>
                 )}
               </button>
@@ -246,7 +243,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                 style={{
                   padding: '11px 16px',
                   borderRadius: 8,
-                  backgroundColor: t.error,
+                  backgroundColor: 'var(--color-error)',
                   border: 'none',
                   cursor: deleteCtrl.isPending ? 'not-allowed' : 'pointer',
                   opacity: deleteCtrl.isPending ? 0.6 : 1,
@@ -256,8 +253,8 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                   gap: 6,
                 }}
               >
-                {deleteCtrl.isPending ? <Spinner size={16} color={t.textOnDark} /> : (
-                  <span style={{ color: t.textOnDark, fontSize: 14, fontWeight: 700 }}>Delete</span>
+                {deleteCtrl.isPending ? <Spinner size={16} color={'var(--color-text-on-dark)'} /> : (
+                  <span style={{ color: 'var(--color-text-on-dark)', fontSize: 14, fontWeight: 700 }}>Delete</span>
                 )}
               </button>
             </div>
@@ -265,20 +262,20 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
 
           {/* Edit form */}
           <div style={{
-            backgroundColor: t.surface,
-            border: `1px solid ${t.border}`,
+            backgroundColor: 'var(--color-surface)',
+            border: `1px solid var(--color-border)`,
             borderRadius: 12,
             padding: 20,
             display: 'flex',
             flexDirection: 'column',
             gap: 18,
           }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>Account Details</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>Account Details</span>
 
-            <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production AWS" theme={t} />
-            <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono theme={t} />
-            <Field label="AWS Secret Access Key" value={secretKey} onChange={setSecretKey} placeholder="Leave blank to keep existing" mono type="password" theme={t} />
-            <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono theme={t} />
+            <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production AWS" />
+            <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
+            <Field label="AWS Secret Access Key" value={secretKey} onChange={setSecretKey} placeholder="Leave blank to keep existing" mono type="password" />
+            <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
             <Field
               label="Auto-scan interval (hours)"
               value={scanIntervalHours}
@@ -286,12 +283,11 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
               placeholder="24"
               type="number"
               hint="0 = on-demand only, or enter hours between automatic scans"
-              theme={t}
             />
 
             {error && (
-              <div style={{ backgroundColor: `${t.error}18`, border: `1px solid ${t.error}40`, borderRadius: 8, padding: '10px 12px' }}>
-                <span style={{ fontSize: 13, color: t.error, fontWeight: 500 }}>{error}</span>
+              <div style={{ backgroundColor: `var(--color-error)18`, border: `1px solid var(--color-error)40`, borderRadius: 8, padding: '10px 12px' }}>
+                <span style={{ fontSize: 13, color: 'var(--color-error)', fontWeight: 500 }}>{error}</span>
               </div>
             )}
 
@@ -299,7 +295,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
               onClick={handleSave}
               disabled={loading}
               style={{
-                backgroundColor: t.accent,
+                backgroundColor: 'var(--color-accent)',
                 borderRadius: 10,
                 padding: '14px',
                 border: 'none',
@@ -310,7 +306,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                 justifyContent: 'center',
               }}
             >
-              {loading ? <Spinner size={20} color={t.textOnDark} /> : <span style={{ color: t.textOnDark, fontSize: 15, fontWeight: 700 }}>Save Changes</span>}
+              {loading ? <Spinner size={20} color={'var(--color-text-on-dark)'} /> : <span style={{ color: 'var(--color-text-on-dark)', fontSize: 15, fontWeight: 700 }}>Save Changes</span>}
             </button>
           </div>
         </div>

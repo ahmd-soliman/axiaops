@@ -34,7 +34,7 @@ const LEVELS = [
 ];
 
 export default function Enforcement() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const qc = useQueryClient();
 
   const conns = useQuery({ queryKey: ['sso-connections'], queryFn: listSSOConnections });
@@ -70,12 +70,12 @@ export default function Enforcement() {
 
   return (
     <div>
-      <p style={{ margin: 0, marginBottom: 16, fontSize: 13, color: t.textMid }}>
+      <p style={{ margin: 0, marginBottom: 16, fontSize: 13, color: 'var(--color-text-mid)' }}>
         Enforcement controls how SSO and native passwords coexist on a per-connection basis. Move from optional → preferred → required as your rollout matures.
       </p>
 
       {topError && (
-        <Banner color={isDark ? '#fca5a5' : '#b91c1c'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
+        <Banner color={'var(--color-error)'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
           {topError}
         </Banner>
       )}
@@ -83,9 +83,9 @@ export default function Enforcement() {
       {conns.isPending ? (
         <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
       ) : conns.isError ? (
-        <div style={{ padding: 24, color: t.error }}>Failed to load connections.</div>
+        <div style={{ padding: 24, color: 'var(--color-error)' }}>Failed to load connections.</div>
       ) : (conns.data || []).length === 0 ? (
-        <div style={{ padding: 32, textAlign: 'center', color: t.textMuted, fontSize: 13 }}>
+        <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 13 }}>
           No connections yet. Create one in the Connections tab to set its enforcement stance.
         </div>
       ) : (
@@ -94,7 +94,6 @@ export default function Enforcement() {
             <ConnectionCard
               key={c.id}
               connection={c}
-              t={t}
               isDark={isDark}
               disabled={pendingId === c.id}
               savedTick={savedTickFor === c.id}
@@ -116,7 +115,6 @@ export default function Enforcement() {
             });
             setPendingRequired(null);
           }}
-          t={t}
           isDark={isDark}
         />
       )}
@@ -124,7 +122,7 @@ export default function Enforcement() {
   );
 }
 
-function ConnectionCard({ connection, t, isDark, disabled, savedTick, onChange }) {
+function ConnectionCard({ connection, isDark, disabled, savedTick, onChange }) {
   const border = isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb';
   const surface = isDark ? 'rgba(255,255,255,0.03)' : '#fff';
   const current = connection.enforcement || 'optional';
@@ -138,8 +136,8 @@ function ConnectionCard({ connection, t, isDark, disabled, savedTick, onChange }
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: t.text }}>
-          {connection.label} <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 500 }}>({connection.protocol}, {connection.status})</span>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+          {connection.label} <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 500 }}>({connection.protocol}, {connection.status})</span>
         </h3>
         {savedTick && <span style={{ fontSize: 12, color: '#10b981' }}>Saved</span>}
       </div>
@@ -153,7 +151,7 @@ function ConnectionCard({ connection, t, isDark, disabled, savedTick, onChange }
                 display: 'flex',
                 gap: 10,
                 padding: 10,
-                border: `1px solid ${checked ? t.accent : border}`,
+                border: `1px solid ${checked ? 'var(--color-accent)' : border}`,
                 borderRadius: 6,
                 backgroundColor: checked ? (isDark ? 'rgba(255,255,255,0.04)' : '#f9fafb') : 'transparent',
                 cursor: disabled ? 'not-allowed' : 'pointer',
@@ -170,8 +168,8 @@ function ConnectionCard({ connection, t, isDark, disabled, savedTick, onChange }
                 style={{ marginTop: 3 }}
               />
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{lvl.title}</div>
-                <div style={{ fontSize: 12, color: t.textMid, marginTop: 2 }}>{lvl.desc}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>{lvl.title}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-mid)', marginTop: 2 }}>{lvl.desc}</div>
               </div>
             </label>
           );
@@ -181,7 +179,7 @@ function ConnectionCard({ connection, t, isDark, disabled, savedTick, onChange }
   );
 }
 
-function RequiredGuardModal({ connection, onCancel, onConfirm, t, isDark }) {
+function RequiredGuardModal({ connection, onCancel, onConfirm, isDark }) {
   const [acknowledged, setAcknowledged] = useState(false);
   return (
     <div
@@ -195,17 +193,17 @@ function RequiredGuardModal({ connection, onCancel, onConfirm, t, isDark }) {
         onClick={(e) => e.stopPropagation()}
         style={{
           width: 480, maxWidth: '90vw', backgroundColor: isDark ? '#1f2937' : '#fff',
-          color: t.text, borderRadius: 8, padding: 20,
+          color: 'var(--color-text)', borderRadius: 8, padding: 20,
           boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
         }}
       >
         <h2 style={{ margin: 0, marginBottom: 12, fontSize: 16, fontWeight: 700 }}>
           Require SSO for {connection.label}?
         </h2>
-        <p style={{ margin: 0, marginBottom: 12, fontSize: 13, color: t.textMid, lineHeight: '20px' }}>
+        <p style={{ margin: 0, marginBottom: 12, fontSize: 13, color: 'var(--color-text-mid)', lineHeight: '20px' }}>
           Once enforcement is <strong>required</strong>, users on this connection's domains can no longer sign in with passwords. If SSO is misconfigured, those users will be locked out and only an owner with a non-SSO email can rescue them.
         </p>
-        <label style={{ display: 'flex', gap: 8, padding: 10, border: `1px solid ${t.border}`, borderRadius: 6, marginBottom: 16, fontSize: 13, color: t.text, alignItems: 'flex-start' }}>
+        <label style={{ display: 'flex', gap: 8, padding: 10, border: `1px solid var(--color-border)`, borderRadius: 6, marginBottom: 16, fontSize: 13, color: 'var(--color-text)', alignItems: 'flex-start' }}>
           <input
             type="checkbox"
             checked={acknowledged}
@@ -215,14 +213,14 @@ function RequiredGuardModal({ connection, onCancel, onConfirm, t, isDark }) {
           <span>I have tested SSO recently and verified that a real user on this connection can log in successfully.</span>
         </label>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button type="button" onClick={onCancel} style={ghostButton(t)}>Cancel</button>
+          <button type="button" onClick={onCancel} style={ghostButton()}>Cancel</button>
           <button
             type="button"
             disabled={!acknowledged}
             onClick={onConfirm}
             style={{
-              ...primaryButton(t),
-              backgroundColor: t.error,
+              ...primaryButton(),
+              backgroundColor: 'var(--color-error)',
               opacity: acknowledged ? 1 : 0.5,
               cursor: acknowledged ? 'pointer' : 'not-allowed',
             }}
@@ -243,26 +241,26 @@ function Banner({ children, color, bg }) {
   );
 }
 
-function primaryButton(t) {
+function primaryButton() {
   return {
     padding: '7px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: t.accent,
-    color: t.textOnDark,
+    backgroundColor: 'var(--color-accent)',
+    color: 'var(--color-text-on-dark)',
     fontWeight: 600,
     fontSize: 13,
     cursor: 'pointer',
   };
 }
 
-function ghostButton(t) {
+function ghostButton() {
   return {
     padding: '5px 10px',
-    border: `1px solid ${t.border}`,
+    border: `1px solid var(--color-border)`,
     borderRadius: 6,
     backgroundColor: 'transparent',
-    color: t.text,
+    color: 'var(--color-text)',
     fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',

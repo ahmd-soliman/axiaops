@@ -61,7 +61,7 @@ const TAB_GROUPS = [
 const TABS = TAB_GROUPS.flatMap((g) => g.items);
 
 export default function Settings() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const { can, loading } = useMe();
   const location = useLocation();
   const navigate = useNavigate();
@@ -97,16 +97,16 @@ export default function Settings() {
       // declared on AppShell's root and tracks the navbar's actual height
       // — single source of truth.
       minHeight: 'calc(100vh - var(--navbar-height))',
-      backgroundColor: t.bg,
+      backgroundColor: 'var(--color-bg)',
     }}>
       {isMobile ? (
-        <MobileTabs visible={visible} location={location} navigate={navigate} t={t} isDark={isDark} />
+        <MobileTabs visible={visible} location={location} navigate={navigate} isDark={isDark} />
       ) : (
-        <DesktopAside can={can} location={location} navigate={navigate} t={t} isDark={isDark} />
+        <DesktopAside can={can} location={location} navigate={navigate} isDark={isDark} />
       )}
       <main style={{ flex: 1, minWidth: 0 }}>
         {visible.length === 0 ? (
-          <div style={{ padding: 24, color: t.textMuted, fontSize: 13 }}>
+          <div style={{ padding: 24, color: 'var(--color-text-muted)', fontSize: 13 }}>
             No settings available for your role.
           </div>
         ) : (
@@ -117,7 +117,7 @@ export default function Settings() {
   );
 }
 
-function DesktopAside({ can, location, navigate, t, isDark }) {
+function DesktopAside({ can, location, navigate, isDark }) {
   // Filter each group's items by permission and drop empty groups so a
   // viewer (no admin tabs) doesn't see a "Workspace" header with nothing
   // beneath it. Same group order, item order within a group is preserved.
@@ -132,8 +132,8 @@ function DesktopAside({ can, location, navigate, t, isDark }) {
       style={{
         width: 220,
         flexShrink: 0,
-        borderRight: `1px solid ${t.border}`,
-        backgroundColor: t.surface,
+        borderRight: `1px solid var(--color-border)`,
+        backgroundColor: 'var(--color-surface)',
         padding: '24px 12px',
       }}
     >
@@ -148,7 +148,7 @@ function DesktopAside({ can, location, navigate, t, isDark }) {
               fontWeight: 700,
               letterSpacing: 0.5,
               textTransform: 'uppercase',
-              color: t.textMuted,
+              color: 'var(--color-text-muted)',
             }}
           >
             {group.label}
@@ -173,7 +173,7 @@ function DesktopAside({ can, location, navigate, t, isDark }) {
                     borderRadius: 6,
                     border: 'none',
                     backgroundColor: 'transparent',
-                    color: active ? t.accent : t.text,
+                    color: active ? 'var(--color-accent)' : 'var(--color-text)',
                     fontSize: 13,
                     fontWeight: active ? 700 : 550,
                     cursor: 'pointer',
@@ -195,15 +195,15 @@ function DesktopAside({ can, location, navigate, t, isDark }) {
 // Each tab is a pill with an underline-on-active visual. The strip
 // `overflow-x: auto`s when the tab labels exceed viewport width so an org
 // with every permission can still reach all 5 tabs on a 375px screen.
-function MobileTabs({ visible, location, navigate, t, isDark }) {
+function MobileTabs({ visible, location, navigate, isDark }) {
   return (
     <div
       style={{
         position: 'sticky',
         top: 'var(--navbar-height)', // pinned just below the AppShell navbar
         zIndex: 50, // below navbar (100) and modals (1000)
-        backgroundColor: t.surface,
-        borderBottom: `1px solid ${t.border}`,
+        backgroundColor: 'var(--color-surface)',
+        borderBottom: `1px solid var(--color-border)`,
       }}
     >
       <nav
@@ -232,9 +232,9 @@ function MobileTabs({ visible, location, navigate, t, isDark }) {
                 padding: '10px 14px',
                 minHeight: 44, // 44px HIG touch-target floor
                 border: 'none',
-                borderBottom: active ? `2px solid ${t.accent}` : '2px solid transparent',
+                borderBottom: active ? `2px solid var(--color-accent)` : '2px solid transparent',
                 backgroundColor: 'transparent',
-                color: active ? t.accent : t.text,
+                color: active ? 'var(--color-accent)' : 'var(--color-text)',
                 fontSize: 14,
                 fontWeight: active ? 700 : 550,
                 cursor: 'pointer',

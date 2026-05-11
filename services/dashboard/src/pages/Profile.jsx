@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
@@ -18,29 +17,27 @@ import { DangerSection } from '../components/DangerSection';
 // organization, transfer ownership) live under /settings/organization —
 // they're org admin, not personal.
 export default function Profile() {
-  const { theme: t } = useTheme();
   const { me, can } = useMe();
   const { orgName, onLogout } = useApp();
   const { toast } = useToast();
 
   return (
-    <div style={{ padding: 24, color: t.textMid, maxWidth: 760 }}>
-      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>My Profile</h1>
-      <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
+    <div style={{ padding: 24, color: 'var(--color-text-mid)', maxWidth: 760 }}>
+      <h1 style={{ margin: 0, color: 'var(--color-text)', fontSize: 22, fontWeight: 700 }}>My Profile</h1>
+      <p style={{ marginTop: 4, marginBottom: 24, color: 'var(--color-text-muted)', fontSize: 13 }}>
         Your AxiaOps account, data export, and self-erasure controls.
       </p>
 
-      <Section t={t} title="Profile">
-        <Field t={t} label="Display name" value={me?.name || '—'} />
-        <Field t={t} label="Email" value={me?.email || '—'} />
-        <Field t={t} label="Role" value={me?.role || '—'} />
-        <Field t={t} label="Organization" value={me?.organization?.name || orgName || me?.organization_id || '—'} />
+      <Section title="Profile">
+        <Field label="Display name" value={me?.name || '—'} />
+        <Field label="Email" value={me?.email || '—'} />
+        <Field label="Role" value={me?.role || '—'} />
+        <Field label="Organization" value={me?.organization?.name || orgName || me?.organization_id || '—'} />
       </Section>
 
-      {can(PERM.DATA_EXPORT) && <ExportSection t={t} toast={toast} />}
+      {can(PERM.DATA_EXPORT) && <ExportSection toast={toast} />}
 
       <DeleteUserSection
-        t={t}
         email={me?.email}
         toast={toast}
         onLogout={onLogout}
@@ -49,7 +46,7 @@ export default function Profile() {
   );
 }
 
-function ExportSection({ t, toast }) {
+function ExportSection({ toast }) {
   const [error, setError] = useState('');
 
   const mutation = useMutation({
@@ -62,8 +59,8 @@ function ExportSection({ t, toast }) {
   });
 
   return (
-    <Section t={t} title="Download My Data">
-      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
+    <Section title="Download My Data">
+      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--color-text-mid)', lineHeight: '18px' }}>
         Generates a JSON file containing every record AxiaOps holds for your organization — members,
         cloud accounts (without secrets), audit log, scan history, and detected resources. Satisfies
         GDPR Art. 15 (access) and Art. 20 (portability).
@@ -72,16 +69,16 @@ function ExportSection({ t, toast }) {
         type="button"
         onClick={() => { setError(''); mutation.mutate(); }}
         disabled={mutation.isPending}
-        style={primaryButton(t, mutation.isPending)}
+        style={primaryButton(mutation.isPending)}
       >
         {mutation.isPending ? 'Preparing…' : 'Download My Data'}
       </button>
-      {error && <InlineBanner color="#fca5a5" bg="rgba(239,68,68,0.15)">{error}</InlineBanner>}
+      {error && <InlineBanner color={'var(--color-error)'} bg="rgba(239,68,68,0.15)">{error}</InlineBanner>}
     </Section>
   );
 }
 
-function DeleteUserSection({ t, email, toast, onLogout }) {
+function DeleteUserSection({ email, toast, onLogout }) {
   const ctrl = useDestructiveConfirm({
     target: email || '',
     mutationFn: deleteCurrentUser,
@@ -95,7 +92,6 @@ function DeleteUserSection({ t, email, toast, onLogout }) {
 
   return (
     <DangerSection
-      t={t}
       title="Delete My Account"
       blurb="Permanently deletes your AxiaOps user. Your audit-log entries are anonymised across your organizations. This cannot be undone."
       buttonLabel="Delete My Account"
@@ -114,28 +110,28 @@ function DeleteUserSection({ t, email, toast, onLogout }) {
   );
 }
 
-function Section({ t, title, children }) {
+function Section({ title, children }) {
   return (
     <section
       style={{
-        border: `1px solid ${t.border}`,
+        border: `1px solid var(--color-border)`,
         borderRadius: 8,
         padding: 16,
         marginBottom: 16,
-        backgroundColor: t.surface,
+        backgroundColor: 'var(--color-surface)',
       }}
     >
-      <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>{title}</h2>
+      <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>{title}</h2>
       {children}
     </section>
   );
 }
 
-function Field({ t, label, value }) {
+function Field({ label, value }) {
   return (
     <div style={{ display: 'flex', gap: 12, padding: '6px 0', fontSize: 13 }}>
-      <div style={{ width: 96, color: t.textMuted }}>{label}</div>
-      <div style={{ color: t.text, fontWeight: 500, wordBreak: 'break-all' }}>{value}</div>
+      <div style={{ width: 96, color: 'var(--color-text-muted)' }}>{label}</div>
+      <div style={{ color: 'var(--color-text)', fontWeight: 500, wordBreak: 'break-all' }}>{value}</div>
     </div>
   );
 }
@@ -148,13 +144,13 @@ function InlineBanner({ children, color, bg }) {
   );
 }
 
-function primaryButton(t, disabled) {
+function primaryButton(disabled) {
   return {
     padding: '7px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: t.accent,
-    color: t.textOnDark,
+    backgroundColor: 'var(--color-accent)',
+    color: 'var(--color-text-on-dark)',
     fontWeight: 600,
     fontSize: 13,
     cursor: disabled ? 'not-allowed' : 'pointer',

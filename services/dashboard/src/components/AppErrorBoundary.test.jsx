@@ -37,10 +37,12 @@ describe('AppErrorBoundary', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  // ThemeProvider sets isLoading=true on first render and resolves it via an
-  // effect that awaits an async storage.getItem('theme'). The initial paint
-  // therefore renders nothing — getBy* queries fail synchronously. Use the
-  // async findBy* variants throughout so RTL waits for the second render.
+  // findBy* (rather than getBy*) is used defensively, not because rendering
+  // is actually async — the post-#88 ThemeContext is fully synchronous
+  // (readSavedDark runs in the useState initialiser, no isLoading gate).
+  // Using sync getBy* would couple these tests to that implementation
+  // detail; if a future change reintroduces an async preference fetch,
+  // findBy* keeps working.
 
   it('renders children when no error is thrown', async () => {
     render(

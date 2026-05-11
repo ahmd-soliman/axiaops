@@ -36,17 +36,23 @@ Estimated effort: ~half a day of design-token changes plus a sweep over the char
 
 **What we landed on instead:** the rank-based ramp was tried and reverted. Reason: it put the same service under different colors in different surfaces — EC2's chart bar was a cyan ramp stop, but EC2's row dot and filter pill were AWS-orange. That cross-surface inconsistency was a bigger usability problem than the original "rainbow on ordered data" concern. Decision: per-service color (`cfg.color`) is used on the chart bars too, so service identity is consistent everywhere. **Bar length** already encodes magnitude — the color isn't doing the magnitude job, so the "ramps for ordered data" rule doesn't apply once length is doing it. Rainbow on the chart is the cost of cross-surface identity consistency.
 
-## 3. Semantic overload of orange
+## 3. Main numbers in orange (visual identity)
 
-Orange is currently doing five jobs:
+**Revised 2026-05-11.** Orange (`--color-accent`, `#EA580C` light / `#FB923C` dark) is the dashboard's identity color for **main numbers** — the large headline figures that anchor each screen:
 
-- The headline "Monthly Waste" number (alert).
-- The EC2 service bar.
-- The Lambda service bar.
-- The Secrets service bar.
-- The "What's Next" panel links / CTAs.
+- Overview's **Monthly Waste** headline (`OverviewScreen.jsx` MonthlyWasteCard).
+- Trend's **Savings Trend** / latest-snapshot headline (`TrendScreen.jsx` line ~408).
+- Any future top-of-screen "the number that matters" figure.
 
-Because orange is also the alert color, every non-alert use dilutes its meaning. A user glancing at the screen cannot tell whether an orange element means "this is bad" or "this is EC2." Pick one job for orange (alert) and remove it from every other surface.
+This is a deliberate visual-identity choice: glancing across the product, the eye should land on the same orange every time the screen says "this is the headline cost figure." Treating orange as an *alert* color (the earlier framing in this doc) made every main number compete with the brand-orange logo, CTAs, and active-nav state — visually noisy and semantically muddled, since the user has to decode "is this orange because it's bad, or because it's a CTA, or because it's a brand mark?"
+
+Pulling main numbers under the same orange resolves that: orange = "the number" everywhere. Alert intensity is carried by the **waste-ratio bar** band thresholds (green / amber / red), not by the headline figure.
+
+Service-identity colors (`SERVICE_CONFIG.color`, e.g. EC2 = AWS orange) remain on service-specific surfaces (chart bars, row dots, filter pills) — those live on a different surface from the headline numbers and don't collide.
+
+### Earlier framing (kept for history)
+
+The previous version of this section argued that orange should be reserved exclusively for alert semantics, with the Monthly Waste headline using amber instead. That decision was reversed: amber on a 28-px-bold headline still read as "alert" to most viewers, the cross-screen inconsistency (orange on Trend, amber on Overview for the same kind of figure) was a worse usability problem than the alert-identity overlap, and "main numbers in orange" is a clearer mental model for users than "orange means alert."
 
 ## 4. Red is overused
 
@@ -95,7 +101,7 @@ const lightTheme = {
   // Dashboard alert / status tokens — distinct from generic error/warning so
   // callers signal "this is a FinOps alert" rather than "form validation".
   alertCritical: '#DC2626',     // red — waste ratio, anomalies
-  alertWarning:  '#D97706',     // amber — monthly waste headline (large only)
+  alertWarning:  '#D97706',     // amber — waste-ratio bar mid band (large only)
   statusOk:      '#047857',     // emerald-700 — completed onboarding / +/- deltas
 
   // Data-viz sequential ramp, applied by rank. Light theme: dark teal end =
@@ -131,7 +137,7 @@ This way EC2 at #1 is always the most prominent stop, CloudWatch at #11 is alway
 - [x] **Collapse the long tail into "Other".** Threshold: `savings < max(1% of total, $5)`. Guards: don't collapse if tail would be 0/1 services; always keep at least top 3 shown. The "Other" row is clickable: it expands inline (chevron flips ▸ → ▾) and renders each constituent service as a normal `ServiceBreakdownRow` indented beneath, with a left border to indicate nesting. Constituents share the same `filterSvcs` / `onToggleSvc` plumbing — clicking AWSGlue inside the expansion filters exactly the same as clicking a top-level row would. (Vantage uses the same expand-inline pattern; Cloudability uses click-toggles-all which has ambiguous semantics when the user has already individually selected one of the tail services.)
 - [x] **Pareto 80% divider.** Walk the shown rows, accumulate `savings / totalSavings`, drop a dashed horizontal marker after the row where cumulative first crosses 80%. Label: "N% of waste above". Suppressed when the threshold would land at the very bottom of the chart (degenerate case).
 - [ ] **Per-service ▲/▼ vs. last scan.** Deferred — needs backend changes. `/v1/trend` today returns either org-wide aggregates or single-service rollups; no batch shape that gives per-service savings per snapshot in one call. Frontend fan-out (N parallel `?service=` calls) is wasteful and racy. Tracked in [#89](https://gitlab.com/axiaops/axiaops/-/work_items/89).
-- [x] Change the "Monthly Waste" headline color from `theme.accent` to `theme.alertWarning`.
+- [~] ~~Change the "Monthly Waste" headline color from `theme.accent` to `theme.alertWarning`.~~ **Reverted 2026-05-11** (see §3). Main numbers across the dashboard are in orange (`var(--color-accent)`) as a visual-identity rule — Monthly Waste headline now matches the Trend / Savings Trend headline on `TrendScreen.jsx`. The amber-alert framing was the wrong call; "alert intensity" lives on the waste-ratio bar bands instead.
 - [x] Change the waste-ratio bar bands to `theme.alertCritical` / `theme.alertWarning` / `theme.statusOk`.
 - [x] Recolor the "What's Next" panel: pending items → neutral text, decorative arrow in `theme.textMuted` (not brand accent — the row itself is the CTA, the arrow is just an affordance hint); completed items → `theme.statusOk` check + `theme.textMuted` body, no strikethrough.
 - [x] Bump "Waste by Service" bar height to 6px, 2px radius, apply `theme.track` to the unfilled portion.
