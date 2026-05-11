@@ -12,7 +12,7 @@ import OrgSwitcher from './OrgSwitcher';
 import LicenseBanner from './LicenseBanner';
 import MobileNav from './MobileNav';
 
-function IconSun({ color, size = 15 }) {
+function IconSun({ color, size = 17 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="4" />
@@ -28,68 +28,11 @@ function IconSun({ color, size = 15 }) {
   );
 }
 
-function IconMoon({ color, size = 15 }) {
+function IconMoon({ color, size = 17 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
     </svg>
-  );
-}
-
-function IconMonitor({ color, size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-      <line x1="8" y1="21" x2="16" y2="21" />
-      <line x1="12" y1="17" x2="12" y2="21" />
-    </svg>
-  );
-}
-
-const THEME_OPTIONS = [
-  { key: 'light',  Icon: IconSun,     label: 'Light theme' },
-  { key: 'system', Icon: IconMonitor, label: 'Match system theme' },
-  { key: 'dark',   Icon: IconMoon,    label: 'Dark theme' },
-];
-
-function ThemePicker({ preference, setPreference, t }) {
-  return (
-    <div
-      role="group"
-      aria-label="Theme"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        border: `1px solid ${t.border}`,
-        borderRadius: 7,
-        overflow: 'hidden',
-      }}
-    >
-      {THEME_OPTIONS.map(({ key, Icon, label }, i) => {
-        const active = preference === key;
-        return (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setPreference(key)}
-            aria-label={label}
-            aria-pressed={active}
-            title={label}
-            style={{
-              padding: '5px 7px',
-              backgroundColor: active ? t.surfaceRaised : 'transparent',
-              border: 'none',
-              borderLeft: i === 0 ? 'none' : `1px solid ${t.border}`,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            <Icon color={active ? t.accent : t.accentMuted} />
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -108,7 +51,7 @@ function ThemePicker({ preference, setPreference, t }) {
 // 5 nav links + OrgSwitcher (max 180px) + AvatarMenu (max 160px + chrome)
 // alongside the 48px logo. At md (768+) the desktop row fits with margin.
 export default function AppShell() {
-  const { theme, isDark, preference, setPreference } = useTheme();
+  const { theme, isDark, toggleTheme } = useTheme();
   const { orgName } = useApp();
   const { can } = useMe();
   const navigate  = useNavigate();
@@ -218,12 +161,24 @@ export default function AppShell() {
 
             {/* Right-side actions */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {/* Three-state theme picker — light / system / dark. The pressed
-                  state shows which preference is active; visual icon-state
-                  always reflects the user's *preference*, not the resolved
-                  isDark — so 'system' stays selected even when matchMedia
-                  flips. */}
-              <ThemePicker preference={preference} setPreference={setPreference} t={t} />
+              {/* Theme toggle — single sun/moon button that flips light↔dark.
+                  Cold-load default follows the OS preference (see ThemeContext);
+                  once the user clicks the button their choice is persisted. */}
+              <button
+                onClick={toggleTheme}
+                aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+                style={{
+                  padding: '6px 7px',
+                  borderRadius: 7,
+                  border: `1px solid ${t.border}`,
+                  backgroundColor: 'transparent',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                {isDark ? <IconSun color={t.accentMuted} /> : <IconMoon color={t.accentMuted} />}
+              </button>
 
               {/* Org badge / switcher. OrgSwitcher renders the same static
                   badge shape for single-membership users (no UI change vs

@@ -26,7 +26,7 @@ import { NAV_ITEMS, isNavActive } from './navItems';
 // just drop <MobileNav /> into the navbar — AppShell doesn't have to
 // hold the open/close state.
 export default function MobileNav() {
-  const { theme: t, isDark, preference, setPreference } = useTheme();
+  const { theme: t, isDark, toggleTheme } = useTheme();
   const { me, refresh } = useMe();
   const { orgName } = useApp();
   const { toast } = useToast();
@@ -199,26 +199,15 @@ export default function MobileNav() {
 
           <Divider color={t.border} />
           <SectionLabel t={t}>Theme</SectionLabel>
-          {[
-            { key: 'light',  label: 'Light' },
-            { key: 'system', label: 'Match system' },
-            { key: 'dark',   label: 'Dark' },
-          ].map(({ key, label }) => {
-            const active = preference === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setPreference(key) /* leave sheet open: small action */}
-                aria-pressed={active}
-                style={navRowStyle(t, isDark, active)}
-              >
-                <span style={{ fontSize: 15, fontWeight: active ? 700 : 550, color: active ? t.accent : t.text }}>
-                  {label}
-                </span>
-              </button>
-            );
-          })}
+          <button
+            type="button"
+            onClick={() => { toggleTheme(); /* leave sheet open: small action */ }}
+            style={navRowStyle(t, isDark, false)}
+          >
+            <span style={{ fontSize: 15, fontWeight: 550, color: t.text }}>
+              {isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            </span>
+          </button>
         </div>
       </MobileSheet>
     </>

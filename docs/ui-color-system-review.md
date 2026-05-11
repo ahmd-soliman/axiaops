@@ -28,11 +28,13 @@ Estimated effort: ~half a day of design-token changes plus a sweep over the char
 
 ## 2. The core problem: categorical rainbow on ordered data
 
-"Waste by Service" uses ~11 distinct hues (orange / blue / teal / cyan / pink / purple / green / orange / red / orange / gray). That palette belongs to consumer dashboards where categories are unordered (Notion DB views, Linear project tags). Here the bars are **ordered by spend**, so the encoding should be sequential, not categorical.
+"Waste by Service" uses ~11 distinct hues (orange / blue / teal / cyan / pink / purple / green / orange / red / orange / gray). That palette belongs to consumer dashboards where categories are unordered (Notion DB views, Linear project tags). Here the bars are **ordered by spend**, so the encoding should be sequential, not categorical — at least in theory.
 
 **Why this matters:** rainbow palettes (a) have no perceptual ordering, so the eye can't read magnitude from color, (b) are not colorblind-safe, and (c) signal "playful product" rather than "audit-grade tool." Vantage, CloudHealth, Cloudability, and Apptio all use a small palette (one brand accent + neutrals + 2–3 semantic colors) for exactly this reason.
 
-**Proposal:** one sequential blue or teal ramp where darker = bigger waste. Reserve red/orange entirely for alert semantics.
+**Original proposal:** one sequential blue or teal ramp on the chart where darker = bigger waste. Reserve red/orange entirely for alert semantics.
+
+**What we landed on instead:** the rank-based ramp was tried and reverted. Reason: it put the same service under different colors in different surfaces — EC2's chart bar was a cyan ramp stop, but EC2's row dot and filter pill were AWS-orange. That cross-surface inconsistency was a bigger usability problem than the original "rainbow on ordered data" concern. Decision: per-service color (`cfg.color`) is used on the chart bars too, so service identity is consistent everywhere. **Bar length** already encodes magnitude — the color isn't doing the magnitude job, so the "ramps for ordered data" rule doesn't apply once length is doing it. Rainbow on the chart is the cost of cross-surface identity consistency.
 
 ## 3. Semantic overload of orange
 
@@ -93,8 +95,8 @@ const lightTheme = {
   // Dashboard alert / status tokens — distinct from generic error/warning so
   // callers signal "this is a FinOps alert" rather than "form validation".
   alertCritical: '#DC2626',     // red — waste ratio, anomalies
-  alertWarning:  '#D97706',     // amber — monthly waste headline
-  statusOk:      '#16A34A',     // green — completed onboarding
+  alertWarning:  '#D97706',     // amber — monthly waste headline (large only)
+  statusOk:      '#047857',     // emerald-700 — completed onboarding / +/- deltas
 
   // Data-viz sequential ramp, applied by rank. Light theme: dark teal end =
   // biggest waste; light cyan end = smallest. Dark theme has a complementary
@@ -123,14 +125,42 @@ This way EC2 at #1 is always the most prominent stop, CloudWatch at #11 is alway
 ## Change checklist
 
 - [x] Define design tokens on both `lightTheme` and `darkTheme` in `ThemeContext.jsx`.
-- [x] Migrate "Waste by Service" bars + dots to `rampColorByRank()`.
-- [x] Per-service legend chips removed in favour of the rank-based encoding (the dot color now comes from rank, not service identity).
+- [~] ~~Migrate "Waste by Service" bars + dots to `rampColorByRank()`.~~ Reverted — see §2. Chart bars + dots stay on `cfg.color` for cross-surface identity consistency. Bar length carries magnitude.
+- [x] Make "Waste by Service" rows clickable to toggle the service filter (`aria-pressed`, active state highlights with `accentLight` bg + `accentBorder`). The chart and the FilterPills row stay in sync via the shared `filterSvcs` state — same multi-select, two visual surfaces.
+- [x] Add percentage-of-total-waste next to each row's cost (`$245.30 · 24.7%`) — tabular nums on both numbers so they align column-wise.
 - [x] Change the "Monthly Waste" headline color from `theme.accent` to `theme.alertWarning`.
 - [x] Change the waste-ratio bar bands to `theme.alertCritical` / `theme.alertWarning` / `theme.statusOk`.
-- [x] Recolor the "What's Next" panel: pending items → neutral text + `theme.accent` only on the arrow; completed items → `theme.statusOk` check + `theme.textMuted` body, no strikethrough.
+- [x] Recolor the "What's Next" panel: pending items → neutral text, decorative arrow in `theme.textMuted` (not brand accent — the row itself is the CTA, the arrow is just an affordance hint); completed items → `theme.statusOk` check + `theme.textMuted` body, no strikethrough.
 - [x] Bump "Waste by Service" bar height to 6px, 2px radius, apply `theme.track` to the unfilled portion.
 - [x] Apply `font-variant-numeric: tabular-nums` to all currency and percentage values in the Overview hero + ServiceBreakdown.
-- [ ] Verify all proposed colors pass WCAG AA contrast against `theme.surface` (4.5:1 for body text, 3:1 for graphics) in **both** themes — partly done by inspection (existing tokens carry AA/AAA notes); a tool-assisted audit pass is still owed.
+- [~] Mute `SERVICE_CONFIG.color` to a calmer palette — **tried and reverted**. A muted palette (S~35%, L~45%) compressed 21 hues into a narrower space and made services in the same hue family (the cool-blue cluster: EC2 / ELB / EKS / S3 / Glacier / CloudWatch) indistinguishable. The original saturated palette wins on the functional concern (telling services apart at a glance) even though it loses on the aesthetic concern (visual noise). AWS Console has shipped this pattern for 15 years; users navigate it fine. Decision: keep the original `SERVICE_CONFIG.color` values. The brand-orange / alert-amber discipline is achieved by ensuring **no surface outside `SERVICE_CONFIG` uses orange or amber** — so the EC2-orange dot next to the brand-orange button isn't a collision, it's a service ID next to a CTA.
+- [x] Verify all dashboard alert / status / viz-ramp tokens pass WCAG AA contrast against `theme.surface` — see the audit table below. (`SERVICE_CONFIG` colors are not audited here — they're decorative non-text dots inherited from the prior design; if any specific service dot fails 3:1 visibility on either surface, log it as a follow-up.)
+
+### WCAG contrast audit
+
+Computed with the relative-luminance formula on the actual hex values, not by inspection. Targets: **4.5:1** body text, **3:1** large text (≥24px or ≥18.66px bold) and non-text content (bar fills, dots).
+
+**Light theme — surface `#FFFFFF`, track `#F1F5F9`:**
+
+| Token | Hex | Ratio | Verdict |
+|---|---|---|---|
+| `alertCritical` | `#DC2626` | 4.83:1 | ✓ AA body |
+| `alertWarning` | `#D97706` | 3.19:1 | ✓ AA large only — restrict to ≥18.66px bold |
+| `statusOk` | `#047857` | 5.48:1 | ✓ AA body (replaces green-600 `#16A34A` which was 3.30:1, large only) |
+| `accent` (brand) | `#EA580C` | 3.56:1 | ✓ AA large / graphics |
+| `vizRamp[0..4]` | (unused on chart — see §2) | — | retained as a token for future surfaces |
+
+**Dark theme — surface `#182031`, track `#263042`:**
+
+| Token | Hex | Ratio | Verdict |
+|---|---|---|---|
+| `alertCritical` | `#F87171` | 5.89:1 | ✓ AA body |
+| `alertWarning` | `#F59E0B` | 7.58:1 | ✓ AAA — amber-500 (not amber-400; -400 hue drifts to yellow) |
+| `statusOk` | `#34D399` | 8.47:1 | ✓ AAA |
+| `accent` (brand) | `#FB923C` | 7.19:1 | ✓ AAA |
+| `vizRamp[0..4]` | (unused on chart — see §2) | — | retained as a token for future surfaces |
+
+**On `SERVICE_CONFIG.color`:** kept at the original (pre-review) saturated values — a muted palette was tried and rolled back; see the change checklist above for the reasoning. The dots are non-text decoration; per-service WCAG audit is not done here. If any specific service color reads as invisible on either surface in practice, log it as a follow-up and adjust that one entry — don't try to mute the whole palette again.
 
 ## Out of scope (track separately)
 
@@ -143,10 +173,9 @@ This way EC2 at #1 is always the most prominent stop, CloudWatch at #11 is alway
 
 Dark mode is a fully-built, deliberately-maintained surface — the toggle stays. This pass also brought the surrounding plumbing up to current best practice:
 
-- [x] **OS-preference default** — replaces the hard-coded `useState(true)`. Cold load with no stored choice resolves via `window.matchMedia('(prefers-color-scheme: dark)')`; a `matchMedia` listener keeps `isDark` in sync if the OS flips while the user is on `system`.
-- [x] **Three-state preference** — `light` / `dark` / `system` stored under the `theme` localStorage key. AppShell (desktop) shows a three-icon segmented control; MobileNav (drawer) shows three labelled rows. Picking `system` re-delegates to the OS.
-- [x] **FOUC fix** — provider is now synchronous (no `isLoading` blank-screen gate). An inline `<script>` in `index.html` primes `document.documentElement.style.colorScheme` before React mounts so native UA chrome (scrollbars, form controls, focus rings) renders in the right theme on the first paint. The inline script's resolution logic mirrors `ThemeContext.readPreference` + `getSystemDark` — keep them in sync.
-- [ ] **CSS custom properties on `:root[data-theme=...]`** — deferred. Tokens are still JS objects distributed via React context. Moving to CSS variables would let descendants inherit theme values without re-rendering on toggle and let the inline boot script eliminate FOUC for React-rendered content too (currently it only handles UA chrome). Bigger refactor; track separately.
+- [x] **Smart default, simple control.** Cold load with no stored preference resolves via `window.matchMedia('(prefers-color-scheme: dark)')` so the very first paint matches the user's OS. Once the user clicks the toggle their choice is persisted under the `theme` localStorage key (`light` or `dark`) and OS changes no longer flip it. AppShell + MobileNav both expose a single sun/moon toggle button — same control shape as before, smarter default. (A three-state `light` / `dark` / `system` picker was tried but felt heavier than the product needs; tracked in [#88](https://gitlab.com/axiaops/axiaops/-/work_items/88) if anyone wants to revisit alongside the CSS-vars migration.)
+- [x] **FOUC fix** — provider is now synchronous (no `isLoading` blank-screen gate). An inline `<script>` in `index.html` primes `document.documentElement.style.colorScheme` before React mounts so native UA chrome (scrollbars, form controls, focus rings) renders in the right theme on the first paint. The inline script's resolution logic mirrors `ThemeContext.readSavedDark` — keep them in sync.
+- [ ] **CSS custom properties on `:root[data-theme=...]`** — deferred. Tokens are still JS objects distributed via React context. Moving to CSS variables would let descendants inherit theme values without re-rendering on toggle and let the inline boot script eliminate FOUC for React-rendered content too (currently it only handles UA chrome). Bigger refactor; tracked in [#88](https://gitlab.com/axiaops/axiaops/-/work_items/88).
 
 ## Open questions
 
