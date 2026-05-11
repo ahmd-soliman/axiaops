@@ -1241,6 +1241,19 @@ CREATE TEMP TABLE _demo_factors ON COMMIT DROP AS
   FROM organizations
   WHERE org_code IN ('org_acme','org_globex');
 
+-- Both CASE expressions must enumerate every org_code in the IN clause above.
+-- The factor CASE has ELSE 1 (prevents NULL coercion → NOT NULL UPDATE failure),
+-- but the prefix CASE has no safe default — an unknown prefix becomes NULL, every
+-- LIKE f.prefix || '...' predicate evaluates to NULL (falsy), and the five UPDATEs
+-- silently match zero rows. Same vacuous-pass class of bug the demo-org invariant
+-- check below was added to prevent; assert here so the transaction rolls back
+-- with a loud diagnostic instead of leaving the maintainer hunting a no-op.
+DO \$\$ BEGIN
+  IF EXISTS (SELECT 1 FROM _demo_factors WHERE prefix IS NULL) THEN
+    RAISE EXCEPTION 'demo factors: org_code in IN clause has no matching prefix WHEN — extend the CASE before re-running';
+  END IF;
+END \$\$;
+
 UPDATE zombie_records           z SET monthly_cost       = z.monthly_cost       * f.factor FROM _demo_factors f WHERE z.organization_id = f.organization_id AND z.internal_account_id LIKE f.prefix || '-account-%';
 UPDATE resource_records         r SET monthly_cost       = r.monthly_cost       * f.factor FROM _demo_factors f WHERE r.organization_id = f.organization_id AND r.internal_account_id LIKE f.prefix || '-account-%';
 UPDATE zombie_snapshot_services s SET monthly_cost       = s.monthly_cost       * f.factor FROM _demo_factors f WHERE s.organization_id = f.organization_id AND s.snapshot_id LIKE 'snap-' || f.prefix || '-account-%';
@@ -1260,6 +1273,15 @@ EOF_DEMO_SCALE
   for demo_pair in "acme:${ACME_ORG_ID}" "globex:${GLOBEX_ORG_ID}"; do
     inv_prefix="${demo_pair%%:*}"
     inv_org="${demo_pair#*:}"
+    # Guard against the earlier psql_query for {ACME,GLOBEX}_ORG_ID returning
+    # empty stdout (transient connection drop that didn't trip set -e because
+    # psql exited 0). Without this, the SQL below would WHERE on '' and both
+    # gap queries would COALESCE to 0 → awk threshold passes → vacuous "✓"
+    # for an org the script never actually checked.
+    if [[ -z "$inv_org" ]]; then
+      echo "  ${inv_prefix} #91 invariants ✗  (${inv_prefix}_ORG_ID is empty — earlier org-creation step failed silently)" >&2
+      exit 1
+    fi
     DEMO_CROSS_GAP=$(psql_query "
       SELECT COALESCE(SUM(ABS(snap_total - rec_sum))::numeric(12,2), 0)
       FROM (
