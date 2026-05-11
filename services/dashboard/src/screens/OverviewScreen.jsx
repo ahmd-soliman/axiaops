@@ -1366,6 +1366,7 @@ export default function OverviewScreen({
 
     queryClient.invalidateQueries({ queryKey: ['resources'] });
     queryClient.invalidateQueries({ queryKey: ['dismissals'] });
+    queryClient.invalidateQueries({ queryKey: ['summary'] });
     setSelected(new Set());
     setBulkModal(null);
     toast(
@@ -1391,6 +1392,7 @@ export default function OverviewScreen({
     const succeeded = results.filter((r) => r.status === 'fulfilled').length;
     queryClient.invalidateQueries({ queryKey: ['resources'] });
     queryClient.invalidateQueries({ queryKey: ['dismissals'] });
+    queryClient.invalidateQueries({ queryKey: ['summary'] });
     setSelected(new Set());
     toast(
       `Restored ${succeeded} resource${succeeded !== 1 ? 's' : ''}`,
