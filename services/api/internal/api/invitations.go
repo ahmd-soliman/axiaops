@@ -8,7 +8,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/mail"
 	"strings"
 	"time"
 
@@ -106,8 +105,8 @@ func (h *Handler) createInvitation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "email and role are required")
 		return
 	}
-	if _, err := mail.ParseAddress(req.Email); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_email", "invalid email")
+	if err := model.ValidateInvitableEmail(req.Email); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_email", err.Error())
 		return
 	}
 	if !model.ValidInvitationRoles[req.Role] {
@@ -333,11 +332,12 @@ func (h *Handler) revokeInvitation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// writeError writes a JSON error envelope. Used by invitation handlers to give
-// the dashboard a structured code for the user_exists_use_memberships /
-// already_a_member cases. Routes through writeJSONStatus so the Content-Type
-// header ordering, encode-error logging, and any future writeJSON(Status)
-// instrumentation apply uniformly.
+// writeError writes a JSON error envelope. Used by handlers in the api package
+// that need to give the dashboard a structured `error` code (invitations,
+// member-add validation, future handlers). Routes through writeJSONStatus so
+// the Content-Type header ordering, encode-error logging, and any future
+// writeJSON(Status) instrumentation apply uniformly. Lives in invitations.go
+// for historical reasons; not invitation-specific.
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSONStatus(w, status, map[string]any{
 		"error":   code,

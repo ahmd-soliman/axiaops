@@ -209,6 +209,10 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "token, email, password, name required")
 		return
 	}
+	if err := model.ValidateInvitableEmail(req.Email); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "invalid_email", err.Error())
+		return
+	}
 	if !validUserName(req.Name) {
 		writeAuthError(w, http.StatusBadRequest, "invalid_name",
 			"name must be 1–100 characters with no control characters and not look like an email address")

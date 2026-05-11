@@ -89,6 +89,9 @@ func TestCreateMembership_UserNeverLoggedIn_404(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
 	}
+	if !strings.Contains(w.Body.String(), `"user_not_found"`) {
+		t.Errorf("expected user_not_found error code in body, got: %s", w.Body.String())
+	}
 }
 
 func TestCreateMembership_DuplicateReturns409(t *testing.T) {
@@ -107,6 +110,9 @@ func TestCreateMembership_DuplicateReturns409(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", w.Code)
 	}
+	if !strings.Contains(w.Body.String(), `"already_a_member"`) {
+		t.Errorf("expected already_a_member error code in body, got: %s", w.Body.String())
+	}
 }
 
 func TestCreateMembership_OwnerRoleRejected(t *testing.T) {
@@ -120,6 +126,9 @@ func TestCreateMembership_OwnerRoleRejected(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 (owner not assignable), got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"invalid_role"`) {
+		t.Errorf("expected invalid_role error code in body, got: %s", w.Body.String())
 	}
 }
 
@@ -135,6 +144,9 @@ func TestCreateMembership_AdminInviteByNonOwnerForbidden(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 (admin cannot promote to admin), got %d", w.Code)
 	}
+	if !strings.Contains(w.Body.String(), `"forbidden"`) {
+		t.Errorf("expected forbidden error code in body, got: %s", w.Body.String())
+	}
 }
 
 func TestCreateMembership_InvalidRole(t *testing.T) {
@@ -148,6 +160,76 @@ func TestCreateMembership_InvalidRole(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"invalid_role"`) {
+		t.Errorf("expected invalid_role error code in body, got: %s", w.Body.String())
+	}
+}
+
+// TestCreateMembership_InvalidJSON_400 pins the bad_request shape on the
+// JSON-decode early-exit. Part of #86's full handler error-shape sweep.
+func TestCreateMembership_InvalidJSON_400(t *testing.T) {
+	store := NewMockStore()
+	mux := memHandler(store)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, memReq(http.MethodPost, "/v1/memberships", `{not json`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"bad_request"`) {
+		t.Errorf("expected bad_request error code in body, got: %s", w.Body.String())
+	}
+}
+
+// TestCreateMembership_MissingFields_400 pins the bad_request shape on the
+// empty-email / empty-role early-exit. The handler guard is an OR, so any
+// of the three combinations (both empty, only email empty, only role
+// empty) trip it — covering all three so a future refactor that splits
+// the guard doesn't silently regress two of them. Part of #86's sweep.
+func TestCreateMembership_MissingFields_400(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"both empty", `{"email":"","role":""}`},
+		{"email empty", `{"email":"","role":"member"}`},
+		{"role empty", `{"email":"alice@x.com","role":""}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewMockStore()
+			mux := memHandler(store)
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, memReq(http.MethodPost, "/v1/memberships", tc.body))
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), `"bad_request"`) {
+				t.Errorf("expected bad_request error code in body, got: %s", w.Body.String())
+			}
+		})
+	}
+}
+
+// TestCreateMembership_MissingTLD_400 pins issue #85's strict-email
+// contract on the add-existing-user fallback path: emails like
+// "alice@intranet" are rejected even though net/mail.ParseAddress
+// accepts them. Catches typos before a membership row is created
+// against an unreachable address.
+func TestCreateMembership_MissingTLD_400(t *testing.T) {
+	store := NewMockStore()
+	mux := memHandler(store)
+	body := `{"email":"alice@intranet","role":"member"}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, memReq(http.MethodPost, "/v1/memberships", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid_email") {
+		t.Errorf("expected invalid_email error code in body, got: %s", w.Body.String())
 	}
 }
 
