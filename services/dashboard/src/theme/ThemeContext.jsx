@@ -1,29 +1,27 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-// Theme preference is one of three values:
-//   - 'light'  : user explicitly picked light
-//   - 'dark'   : user explicitly picked dark
-//   - 'system' : follow the OS via prefers-color-scheme (default for new users)
-// Stored as-is in localStorage under the 'theme' key. The resolved isDark flag
-// is derived: explicit prefs win, 'system' delegates to matchMedia.
+// Theme is a simple two-state preference (light or dark) stored under the
+// 'theme' localStorage key. On cold load with no saved value we fall back to
+// the OS preference (`prefers-color-scheme: dark`) — but only as the initial
+// default; once the user clicks the toggle their choice is persisted and OS
+// changes no longer flip the theme. This is the common shape (GitHub, Vercel,
+// Linear, etc.) — explicit when the user has expressed a preference, smart
+// when they haven't.
 const STORAGE_KEY = 'theme';
-const PREFERENCES = ['light', 'dark', 'system'];
 
-function readPreference() {
+function readSavedDark() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (PREFERENCES.includes(saved)) return saved;
+    if (saved === 'light') return false;
+    if (saved === 'dark')  return true;
   } catch { /* ignore */ }
-  return 'system';
-}
-
-function writePreference(value) {
-  try { localStorage.setItem(STORAGE_KEY, value); } catch { /* ignore */ }
-}
-
-function getSystemDark() {
+  // No saved choice — follow OS preference.
   if (typeof window === 'undefined') return false;
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+}
+
+function writeSavedDark(isDark) {
+  try { localStorage.setItem(STORAGE_KEY, isDark ? 'dark' : 'light'); } catch { /* ignore */ }
 }
 
 // ─── Light Theme ──────────────────────────────────────────────────────────────
@@ -86,13 +84,18 @@ const lightTheme = {
 
   // Dashboard alert / status tokens (UI color system review, 2026-05-11).
   // Distinct from the generic error/warning above so callers signal "this is
-  // a FinOps alert" rather than "this is a form-validation error". Values
-  // are picked to pass WCAG AA on white at large-text size (3:1) and body
-  // size where used (4.5:1). Orange is reserved as brand-only — the
-  // Monthly Waste headline uses amber, not the brand accent.
-  alertCritical: '#DC2626',     // red-600, 4.8:1 on white — waste-ratio bar
-  alertWarning:  '#D97706',     // amber-600, 4.5:1 on white — monthly waste
-  statusOk:      '#16A34A',     // green-600 — onboarding completion ticks
+  // a FinOps alert" rather than "this is a form-validation error".
+  //
+  // WCAG AA contrast on #FFFFFF surface (measured, not asserted):
+  //   alertCritical  4.83:1  ✓ body + large
+  //   alertWarning   3.19:1  ✓ large only — DO NOT use for body text (<24px,
+  //                          or <18.66px bold). Currently used only on the
+  //                          28px-bold Monthly Waste headline.
+  //   statusOk       5.48:1  ✓ body + large (emerald-700 — green-600 #16A34A
+  //                          fails body at 3.30:1, so we use the darker stop).
+  alertCritical: '#DC2626',     // red-600  — waste-ratio bar
+  alertWarning:  '#D97706',     // amber-600 — Monthly Waste headline (large only)
+  statusOk:      '#047857',     // emerald-700 — onboarding ticks, +/- deltas
 
   // Data-viz sequential ramp (light theme). 5-bucket cyan/teal scale, dark
   // end = biggest waste. Bar fills are non-text content so the 3:1 AA bar
@@ -157,10 +160,18 @@ const darkTheme = {
   warning: '#FACC15',           // yellow-400, distinct hue from orange brand
 
   // Dashboard alert / status tokens (UI color system review, 2026-05-11).
-  // Mirror the light-theme additions; the FinOps-alert semantics are the
-  // same on dark — they just need readability against the deep-navy bg.
+  // Mirror the light-theme additions; FinOps-alert semantics are the same on
+  // dark — readable against the deep-navy bg AND a hue distinct from brand
+  // orange.
+  //
+  // alertWarning is amber-500, not amber-400. Walking up Tailwind's amber
+  // scale drifts the hue toward yellow; amber-400 #FBBF24 (hue ~43°) reads
+  // as "yellow warning" rather than amber and breaks visual continuity with
+  // the light theme's amber-600 #D97706 (hue ~32°). amber-500 #F59E0B (hue
+  // ~38°) sits between them — clearly amber, ~14° from brand orange
+  // (orange-400 #FB923C, hue ~24°), AAA contrast (7.58:1) on dark surface.
   alertCritical: '#F87171',     // red-400, matches error — waste-ratio bar
-  alertWarning:  '#FBBF24',     // amber-400 — monthly waste headline
+  alertWarning:  '#F59E0B',     // amber-500 — Monthly Waste headline
   statusOk:      '#34D399',     // emerald-400 — onboarding completion ticks
 
   // Data-viz sequential ramp (dark theme). Lighter end = biggest waste so the
@@ -172,25 +183,10 @@ const darkTheme = {
 const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
-  // Sync init — both reads are synchronous so the very first render already
-  // has the right theme. The previous async storage read was guarded by an
-  // `if (isLoading) return null` gate that produced a blank-screen flicker
-  // on cold load; killing that gate is the main FOUC win here.
-  const [preference, setPreferenceState] = useState(readPreference);
-  const [systemDark, setSystemDark] = useState(getSystemDark);
-
-  // Listen for OS theme changes. Always-on (cheap) so a switch from 'system'
-  // → explicit → back to 'system' picks up the current OS state without
-  // re-subscribing.
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
-    const update = () => setSystemDark(mql.matches);
-    mql.addEventListener?.('change', update);
-    return () => mql.removeEventListener?.('change', update);
-  }, []);
-
-  const isDark = preference === 'system' ? systemDark : preference === 'dark';
+  // Sync init — `readSavedDark` is synchronous (localStorage + matchMedia
+  // both are) so the very first render already has the right theme. No
+  // `isLoading` blank-screen gate, no cold-load flicker.
+  const [isDark, setIsDark] = useState(readSavedDark);
 
   // Project the theme onto the root `color-scheme` so native UA controls
   // (date pickers, scrollbars, autofill chrome, focus rings) follow the app's
@@ -203,14 +199,16 @@ export function ThemeProvider({ children }) {
     document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
   }, [isDark]);
 
-  const setPreference = (next) => {
-    if (!PREFERENCES.includes(next)) return;
-    setPreferenceState(next);
-    writePreference(next);
+  const toggleTheme = () => {
+    setIsDark((prev) => {
+      const next = !prev;
+      writeSavedDark(next);
+      return next;
+    });
   };
 
   return (
-    <ThemeContext.Provider value={{ theme: isDark ? darkTheme : lightTheme, isDark, preference, setPreference }}>
+    <ThemeContext.Provider value={{ theme: isDark ? darkTheme : lightTheme, isDark, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );
