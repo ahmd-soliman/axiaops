@@ -295,6 +295,28 @@ func TestBootstrapMissingFieldsReturns400(t *testing.T) {
 	}
 }
 
+// TestBootstrapRejectsTLDLessEmail pins issue #85 strict-email contract
+// at the first-owner install path. An email like "owner@example" parses
+// per RFC 5322 but lacks a public TLD; bootstrap must reject it before
+// the install token is consumed, so a typo at first install doesn't
+// silently seal the env against an unreachable address.
+func TestBootstrapRejectsTLDLessEmail(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedInstallToken(t, store)
+
+	w := postJSON(t, mux(h), "/v1/auth/bootstrap", map[string]string{
+		"token": token, "email": "owner@example", "name": "Owner",
+		"password": "correct horse battery staple",
+	}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d; want 400; body = %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid_email") {
+		t.Errorf("expected invalid_email error code, body = %s", w.Body.String())
+	}
+}
+
 // TestBootstrapTokenNeverInURL nails plan §4.6 acceptance AC7: the
 // install token must NEVER appear in any URL — no Location header,
 // no Set-Cookie value, no Referer (the request URL itself is just

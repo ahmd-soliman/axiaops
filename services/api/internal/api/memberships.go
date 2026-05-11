@@ -76,42 +76,46 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 		Role  string `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
 	req.Email = strings.TrimSpace(req.Email)
 	req.Role = strings.TrimSpace(req.Role)
 	if req.Email == "" || req.Role == "" {
-		http.Error(w, "email and role are required", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "bad_request", "email and role are required")
+		return
+	}
+	if err := model.ValidateInvitableEmail(req.Email); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_email", err.Error())
 		return
 	}
 	if !validRole(req.Role) {
-		http.Error(w, "invalid role", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "invalid_role", "invalid role")
 		return
 	}
 	// Owner is reserved for transfer-ownership — never created via invite.
 	// Reject before the permission check so /v1/memberships {role:owner}
 	// always 400s, even when the caller has manage_admin.
 	if req.Role == string(authz.RoleOwner) {
-		http.Error(w, "owner role can only be assigned via transfer-ownership", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "invalid_role", "owner role can only be assigned via transfer-ownership")
 		return
 	}
 	// Promoting to admin requires owner.
 	if req.Role == string(authz.RoleAdmin) {
 		callerRole, _ := h.store.RoleOf(ctx, tid, uid)
 		if !authz.Allows(authz.Role(callerRole), authz.PermMembersManageAdmin) {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			writeError(w, http.StatusForbidden, "forbidden", "inviting at admin role requires owner permission")
 			return
 		}
 	}
 
 	target, err := h.store.GetUserByEmail(ctx, req.Email)
 	if errors.Is(err, storage.ErrUserNotFound) {
-		http.Error(w, "user has not logged in to AxiaOps yet", http.StatusNotFound)
+		writeError(w, http.StatusNotFound, "user_not_found", "user has not logged in to AxiaOps yet")
 		return
 	}
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
 	}
 
@@ -123,10 +127,10 @@ func (h *Handler) createMembership(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.store.SaveMembership(ctx, m); err != nil {
 		if errors.Is(err, storage.ErrMembershipExists) {
-			http.Error(w, "user is already a member of this organization", http.StatusConflict)
+			writeError(w, http.StatusConflict, "already_a_member", "user is already a member of this organization")
 			return
 		}
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
 		return
 	}
 
