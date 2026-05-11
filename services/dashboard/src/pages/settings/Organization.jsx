@@ -17,21 +17,20 @@ import { DangerSection } from '../../components/DangerSection';
 // Future home for transfer-ownership UI, notification preferences,
 // billing controls, and the org display-name editor.
 export default function Organization() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const { orgName, onLogout } = useApp();
   const { toast } = useToast();
   const { me, refresh } = useMe();
   const currentName = me?.organization?.name || orgName || '';
 
   return (
-    <div style={{ padding: 24, color: t.textMid, maxWidth: 760 }}>
-      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Organization</h1>
-      <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
+    <div style={{ padding: 24, color: 'var(--color-text-mid)', maxWidth: 760 }}>
+      <h1 style={{ margin: 0, color: 'var(--color-text)', fontSize: 22, fontWeight: 700 }}>Organization</h1>
+      <p style={{ marginTop: 4, marginBottom: 24, color: 'var(--color-text-muted)', fontSize: 13 }}>
         Organization-level controls.
       </p>
-      <RenameOrganizationSection t={t} isDark={isDark} currentName={currentName} toast={toast} refresh={refresh} />
+      <RenameOrganizationSection isDark={isDark} currentName={currentName} toast={toast} refresh={refresh} />
       <DeleteOrganizationSection
-        t={t}
         orgName={currentName}
         toast={toast}
         onLogout={onLogout}
@@ -40,7 +39,7 @@ export default function Organization() {
   );
 }
 
-function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
+function RenameOrganizationSection({ isDark, currentName, toast, refresh }) {
   const [name, setName] = useState(currentName);
   const [saving, setSaving] = useState(false);
   const trimmed = name.trim();
@@ -65,15 +64,15 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
   return (
     <section
       style={{
-        border: `1px solid ${t.border}`,
+        border: `1px solid var(--color-border)`,
         borderRadius: 8,
         padding: 16,
         marginBottom: 16,
-        backgroundColor: t.surface,
+        backgroundColor: 'var(--color-surface)',
       }}
     >
-      <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: t.text }}>Organization Name</h2>
-      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMid, lineHeight: '18px' }}>
+      <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>Organization Name</h2>
+      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--color-text-mid)', lineHeight: '18px' }}>
         Shown across the app and in invitation emails.
       </p>
       <form onSubmit={onSubmit} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -85,10 +84,10 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
           style={{
             flex: 1,
             padding: '7px 10px',
-            border: `1px solid ${t.border}`,
+            border: `1px solid var(--color-border)`,
             borderRadius: 6,
             backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#fafafa',
-            color: t.text,
+            color: 'var(--color-text)',
             fontSize: 13,
           }}
         />
@@ -99,8 +98,8 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
             padding: '7px 14px',
             border: 'none',
             borderRadius: 6,
-            backgroundColor: t.accent,
-            color: t.textOnDark,
+            backgroundColor: 'var(--color-accent)',
+            color: 'var(--color-text-on-dark)',
             fontWeight: 600,
             fontSize: 13,
             cursor: !dirty || saving ? 'not-allowed' : 'pointer',
@@ -114,7 +113,7 @@ function RenameOrganizationSection({ t, isDark, currentName, toast, refresh }) {
   );
 }
 
-function DeleteOrganizationSection({ t, orgName, toast, onLogout }) {
+function DeleteOrganizationSection({ orgName, toast, onLogout }) {
   const ctrl = useDestructiveConfirm({
     target: orgName || '',
     mutationFn: deleteCurrentOrganization,
@@ -125,7 +124,6 @@ function DeleteOrganizationSection({ t, orgName, toast, onLogout }) {
 
   return (
     <DangerSection
-      t={t}
       title="Delete This Organization"
       blurb="Permanently deletes the entire organization and every record it owns: cloud accounts, scan history, dismissals, audit log, and member memberships. Members lose access immediately. This cannot be undone."
       buttonLabel="Delete Organization"

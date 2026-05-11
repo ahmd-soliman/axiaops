@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAccounts, listMemberships, listInvitations } from '../../api/client';
-import { useTheme } from '../../theme/ThemeContext';
 import { useMe } from '../../context/MeContext';
 import { PERM } from '../../api/permissions';
 
@@ -28,7 +27,6 @@ function writeFlag(key, userID) {
 // §8.3.
 export default function WhatsNextPanel() {
   const navigate = useNavigate();
-  const { theme: t, isDark } = useTheme();
   const { me, can } = useMe();
   const userID = me?.user_id ?? '';
 
@@ -106,8 +104,8 @@ export default function WhatsNextPanel() {
         right: 20,
         width: 320,
         maxWidth: 'calc(100vw - 32px)',
-        backgroundColor: t.surface,
-        border: `1px solid ${t.border}`,
+        backgroundColor: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
         borderRadius: 12,
         padding: '14px 16px',
         boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
@@ -119,7 +117,7 @@ export default function WhatsNextPanel() {
           style={{
             fontSize: 11,
             fontWeight: 700,
-            color: t.textMuted,
+            color: 'var(--color-text-muted)',
             letterSpacing: 1.2,
             textTransform: 'uppercase',
           }}
@@ -135,7 +133,7 @@ export default function WhatsNextPanel() {
             background: 'none',
             border: 'none',
             cursor: 'pointer',
-            color: t.textMuted,
+            color: 'var(--color-text-muted)',
             fontSize: 18,
             lineHeight: 1,
             padding: '2px 6px',
@@ -158,7 +156,6 @@ export default function WhatsNextPanel() {
             label={tile.label}
             done={tile.done}
             onClick={tile.onClick}
-            theme={t}
           />
         ))}
       </div>
@@ -166,7 +163,7 @@ export default function WhatsNextPanel() {
   );
 }
 
-function Tile({ label, done, onClick, theme }) {
+function Tile({ label, done, onClick }) {
   // Per docs/ui-color-system-review.md §5: strikethrough reads as "removed",
   // not "done" — use a muted-gray label + green check icon for done state.
   // Pending items: neutral text + arrow in brand orange (the arrow is the
@@ -187,12 +184,12 @@ function Tile({ label, done, onClick, theme }) {
         textAlign: 'left',
       }}
     >
-      <CheckCircle done={done} theme={theme} />
+      <CheckCircle done={done} />
       <span
         style={{
           fontSize: 13,
           fontWeight: 600,
-          color: done ? theme.textMuted : theme.text,
+          color: done ? 'var(--color-text-muted)' : 'var(--color-text)',
         }}
       >
         {label}
@@ -201,7 +198,7 @@ function Tile({ label, done, onClick, theme }) {
         // Arrow is an affordance hint, not a CTA — keep brand orange reserved
         // for the logo, primary buttons, and active nav (see UI color system
         // review §7). The whole row is clickable; the arrow is decoration.
-        <span aria-hidden="true" style={{ color: theme.textMuted, fontSize: 13, marginLeft: 'auto', paddingLeft: 8 }}>
+        <span aria-hidden="true" style={{ color: 'var(--color-text-muted)', fontSize: 13, marginLeft: 'auto', paddingLeft: 8 }}>
           →
         </span>
       )}
@@ -209,7 +206,7 @@ function Tile({ label, done, onClick, theme }) {
   );
 }
 
-function CheckCircle({ done, theme }) {
+function CheckCircle({ done }) {
   if (done) {
     return (
       <svg
@@ -217,7 +214,7 @@ function CheckCircle({ done, theme }) {
         height="18"
         viewBox="0 0 24 24"
         fill="none"
-        stroke={theme.statusOk}
+        stroke="var(--color-status-ok)"
         strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -234,7 +231,7 @@ function CheckCircle({ done, theme }) {
       height="18"
       viewBox="0 0 24 24"
       fill="none"
-      stroke={theme.textMuted}
+      stroke="var(--color-text-muted)"
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"

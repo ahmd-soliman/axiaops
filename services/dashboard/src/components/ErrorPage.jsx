@@ -22,7 +22,7 @@ import { useTheme } from '../theme/ThemeContext';
 //                 use from the error boundary (which fires before
 //                 AppShell mounts) and from full-screen contexts.
 export default function ErrorPage({ code, title, description, actions = [], reference, embedded = false }) {
-  const { theme, isDark } = useTheme();
+  const { isDark } = useTheme();
   const headingRef = useRef(null);
 
   // Focus the heading on mount so screen readers announce the error state
@@ -42,7 +42,7 @@ export default function ErrorPage({ code, title, description, actions = [], refe
     <Wrapper
       style={{
         minHeight: embedded ? '60vh' : '100vh',
-        backgroundColor: theme.bg,
+        backgroundColor: 'var(--color-bg)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'stretch',
@@ -74,7 +74,7 @@ export default function ErrorPage({ code, title, description, actions = [], refe
                 display: 'block',
                 fontSize: 12,
                 fontWeight: 700,
-                color: theme.textMuted,
+                color: 'var(--color-text-muted)',
                 letterSpacing: 1.5,
                 textTransform: 'uppercase',
                 marginBottom: 16,
@@ -90,7 +90,7 @@ export default function ErrorPage({ code, title, description, actions = [], refe
             style={{
               fontSize: 28,
               fontWeight: 800,
-              color: theme.text,
+              color: 'var(--color-text)',
               letterSpacing: -0.5,
               margin: '0 0 12px',
               outline: 'none',
@@ -104,7 +104,7 @@ export default function ErrorPage({ code, title, description, actions = [], refe
               style={{
                 fontSize: 15,
                 lineHeight: '24px',
-                color: theme.textMid,
+                color: 'var(--color-text-mid)',
                 margin: '0 0 28px',
               }}
             >
@@ -132,8 +132,8 @@ export default function ErrorPage({ code, title, description, actions = [], refe
                       ? {
                           padding: '11px 22px',
                           borderRadius: 10,
-                          backgroundColor: theme.accent,
-                          color: theme.textOnDark,
+                          backgroundColor: 'var(--color-accent)',
+                          color: 'var(--color-text-on-dark)',
                           border: 'none',
                           cursor: 'pointer',
                           fontWeight: 700,
@@ -143,8 +143,8 @@ export default function ErrorPage({ code, title, description, actions = [], refe
                           padding: '11px 22px',
                           borderRadius: 10,
                           backgroundColor: 'transparent',
-                          color: theme.textMid,
-                          border: `1px solid ${theme.border}`,
+                          color: 'var(--color-text-mid)',
+                          border: '1px solid var(--color-border)',
                           cursor: 'pointer',
                           fontWeight: 600,
                           fontSize: 14,
@@ -162,12 +162,12 @@ export default function ErrorPage({ code, title, description, actions = [], refe
               style={{
                 display: 'inline-block',
                 fontSize: 11,
-                color: theme.textMuted,
+                color: 'var(--color-text-muted)',
                 fontFamily: '"Geist Mono Variable", monospace',
                 padding: '4px 10px',
                 borderRadius: 6,
-                backgroundColor: theme.surfaceRaised,
-                border: `1px solid ${theme.border}`,
+                backgroundColor: 'var(--color-surface-raised)',
+                border: '1px solid var(--color-border)',
               }}
             >
               Ref: {reference}

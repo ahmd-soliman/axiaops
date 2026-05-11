@@ -25,7 +25,7 @@ const STATUSES      = ['draft', 'active', 'disabled'];
 const ENFORCEMENTS  = ['optional', 'preferred', 'required'];
 
 export default function Connections() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const qc = useQueryClient();
 
   const [adding, setAdding]     = useState(false);
@@ -46,16 +46,16 @@ export default function Connections() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <p style={{ margin: 0, fontSize: 13, color: t.textMid }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-mid)' }}>
           OIDC connections. Each one binds an IdP (e.g. Entra, Okta, Google) to your org.
         </p>
-        <button type="button" onClick={() => setAdding(true)} style={primaryButton(t)}>
+        <button type="button" onClick={() => setAdding(true)} style={primaryButton()}>
           Add connection
         </button>
       </div>
 
       {topError && (
-        <Banner color={isDark ? '#fca5a5' : '#b91c1c'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
+        <Banner color={'var(--color-error)'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
           {topError}
         </Banner>
       )}
@@ -63,31 +63,31 @@ export default function Connections() {
       {conns.isPending ? (
         <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
       ) : conns.isError ? (
-        <div style={{ padding: 24, color: t.error }}>Failed to load connections.</div>
+        <div style={{ padding: 24, color: 'var(--color-error)' }}>Failed to load connections.</div>
       ) : (conns.data || []).length === 0 ? (
-        <EmptyState t={t} />
+        <EmptyState />
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${t.border}` }}>
-              <Th t={t}>Label</Th>
-              <Th t={t}>Protocol</Th>
-              <Th t={t}>Status</Th>
-              <Th t={t}>Enforcement</Th>
-              <Th t={t}>Default role</Th>
-              <Th t={t}></Th>
+            <tr style={{ borderBottom: `1px solid var(--color-border)` }}>
+              <Th>Label</Th>
+              <Th>Protocol</Th>
+              <Th>Status</Th>
+              <Th>Enforcement</Th>
+              <Th>Default role</Th>
+              <Th></Th>
             </tr>
           </thead>
           <tbody>
             {(conns.data || []).map((c) => (
-              <tr key={c.id} style={{ borderBottom: `1px solid ${t.border}` }}>
-                <Td t={t}>{c.label || '—'}</Td>
-                <Td t={t}><code style={{ fontSize: 12 }}>{c.protocol}</code></Td>
-                <Td t={t}><StatusBadge status={c.status} t={t} /></Td>
-                <Td t={t}>{c.enforcement || 'optional'}</Td>
-                <Td t={t}>{c.default_role || 'viewer'}</Td>
-                <Td t={t}>
-                  <button type="button" onClick={() => setEditing(c)} style={ghostButton(t)}>Edit</button>
+              <tr key={c.id} style={{ borderBottom: `1px solid var(--color-border)` }}>
+                <Td>{c.label || '—'}</Td>
+                <Td><code style={{ fontSize: 12 }}>{c.protocol}</code></Td>
+                <Td><StatusBadge status={c.status} /></Td>
+                <Td>{c.enforcement || 'optional'}</Td>
+                <Td>{c.default_role || 'viewer'}</Td>
+                <Td>
+                  <button type="button" onClick={() => setEditing(c)} style={ghostButton()}>Edit</button>
                   <button
                     type="button"
                     onClick={() => {
@@ -98,7 +98,7 @@ export default function Connections() {
                       }
                     }}
                     disabled={deletingId === c.id}
-                    style={{ ...ghostButton(t), color: t.error, marginLeft: 6 }}
+                    style={{ ...ghostButton(), color: 'var(--color-error)', marginLeft: 6 }}
                   >
                     {deletingId === c.id ? 'Deleting…' : 'Delete'}
                   </button>
@@ -114,7 +114,6 @@ export default function Connections() {
           mode="create"
           onClose={() => setAdding(false)}
           onSaved={() => { setAdding(false); invalidate(); }}
-          t={t}
           isDark={isDark}
         />
       )}
@@ -124,7 +123,6 @@ export default function Connections() {
           existing={editing}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); invalidate(); }}
-          t={t}
           isDark={isDark}
         />
       )}
@@ -132,7 +130,7 @@ export default function Connections() {
   );
 }
 
-function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
+function ConnectionModal({ mode, existing, onClose, onSaved, isDark }) {
   const isEdit = mode === 'edit';
   const [form, setForm] = useState(() => ({
     protocol:           existing?.protocol           || 'oidc',
@@ -194,7 +192,6 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
     <ModalShell
       onClose={onClose}
       lockClose={saveMutation.isPending}
-      t={t}
       isDark={isDark}
       title={isEdit ? `Edit ${existing.label}` : 'Add SSO connection'}
     >
@@ -203,32 +200,32 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
         style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
       >
         <Field label="Protocol" hint="SAML lands in Phase C — only OIDC is wired up today.">
-          <select value={form.protocol} onChange={set('protocol')} style={inputStyle(t)} disabled={isEdit}>
+          <select value={form.protocol} onChange={set('protocol')} style={inputStyle()} disabled={isEdit}>
             <option value="oidc">OIDC</option>
             <option value="saml" disabled>SAML (Phase C)</option>
           </select>
         </Field>
 
         <Field label="Label" hint="Shown to admins in this list and in audit logs.">
-          <input type="text" value={form.label} onChange={set('label')} required maxLength={120} style={inputStyle(t)} />
+          <input type="text" value={form.label} onChange={set('label')} required maxLength={120} style={inputStyle()} />
         </Field>
 
         {isEdit && (
           <Field label="Status">
-            <select value={form.status} onChange={set('status')} style={inputStyle(t)}>
+            <select value={form.status} onChange={set('status')} style={inputStyle()}>
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Field>
         )}
 
         <Field label="Enforcement" hint="optional = users can choose; preferred = SSO offered first; required = native passwords blocked.">
-          <select value={form.enforcement} onChange={set('enforcement')} style={inputStyle(t)}>
+          <select value={form.enforcement} onChange={set('enforcement')} style={inputStyle()}>
             {ENFORCEMENTS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
 
         <Field label="Default role" hint="Role assigned to JIT-provisioned users when no group mapping matches.">
-          <select value={form.default_role} onChange={set('default_role')} style={inputStyle(t)}>
+          <select value={form.default_role} onChange={set('default_role')} style={inputStyle()}>
             {DEFAULT_ROLES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
@@ -243,13 +240,13 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
               checked={!!form.force_reauth}
               onChange={(e) => setForm((f) => ({ ...f, force_reauth: e.target.checked }))}
             />
-            <span style={{ fontSize: 13, color: t.text }}>
+            <span style={{ fontSize: 13, color: 'var(--color-text)' }}>
               Send <code style={{ fontFamily: '"Geist Mono Variable", ui-monospace, monospace' }}>prompt=login</code> on the OIDC authorize URL
             </span>
           </label>
         </Field>
 
-        <Divider t={t} label="OIDC settings" />
+        <Divider label="OIDC settings" />
 
         <Field label="Discovery URL" hint="https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration">
           <input
@@ -258,12 +255,12 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
             onChange={set('oidc_discovery_url')}
             required={!isEdit}
             placeholder="https://…/.well-known/openid-configuration"
-            style={inputStyle(t)}
+            style={inputStyle()}
           />
         </Field>
 
         <Field label="Client ID">
-          <input type="text" value={form.oidc_client_id} onChange={set('oidc_client_id')} required={!isEdit} style={inputStyle(t)} />
+          <input type="text" value={form.oidc_client_id} onChange={set('oidc_client_id')} required={!isEdit} style={inputStyle()} />
         </Field>
 
         <Field
@@ -276,19 +273,19 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
             onChange={set('oidc_client_secret')}
             required={!isEdit}
             autoComplete="new-password"
-            style={inputStyle(t)}
+            style={inputStyle()}
           />
         </Field>
 
         <Field label="Tenant ID" hint="Entra/Azure AD only. Leave blank for generic OIDC.">
-          <input type="text" value={form.oidc_tenant_id} onChange={set('oidc_tenant_id')} style={inputStyle(t)} />
+          <input type="text" value={form.oidc_tenant_id} onChange={set('oidc_tenant_id')} style={inputStyle()} />
         </Field>
 
-        {error && <Banner color={t.error} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>{error}</Banner>}
+        {error && <Banner color={'var(--color-error)'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>{error}</Banner>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-          <button type="button" onClick={onClose} style={ghostButton(t)}>Cancel</button>
-          <button type="submit" disabled={submitDisabled} style={{ ...primaryButton(t), opacity: submitDisabled ? 0.5 : 1, cursor: submitDisabled ? 'not-allowed' : 'pointer' }}>
+          <button type="button" onClick={onClose} style={ghostButton()}>Cancel</button>
+          <button type="submit" disabled={submitDisabled} style={{ ...primaryButton(), opacity: submitDisabled ? 0.5 : 1, cursor: submitDisabled ? 'not-allowed' : 'pointer' }}>
             {saveMutation.isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Save as draft'}
           </button>
         </div>
@@ -297,7 +294,7 @@ function ConnectionModal({ mode, existing, onClose, onSaved, t, isDark }) {
   );
 }
 
-function ModalShell({ children, onClose, lockClose, t, isDark, title }) {
+function ModalShell({ children, onClose, lockClose, isDark, title }) {
   // Backdrop click dismisses by default. While `lockClose` is true (e.g.
   // a save mutation is in flight) the click is swallowed — otherwise the
   // user can dismiss mid-save and the mutation's onError fires setError
@@ -316,7 +313,7 @@ function ModalShell({ children, onClose, lockClose, t, isDark, title }) {
         style={{
           width: 520, maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto',
           backgroundColor: isDark ? '#1f2937' : '#fff',
-          color: t.text,
+          color: 'var(--color-text)',
           borderRadius: 8, padding: 20,
           boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
         }}
@@ -338,31 +335,31 @@ function Field({ label, hint, children }) {
   );
 }
 
-function Divider({ t, label }) {
+function Divider({ label }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-      <span style={{ flex: 1, height: 1, backgroundColor: t.border }} />
-      <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>{label}</span>
-      <span style={{ flex: 1, height: 1, backgroundColor: t.border }} />
+      <span style={{ flex: 1, height: 1, backgroundColor: 'var(--color-border)' }} />
+      <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>{label}</span>
+      <span style={{ flex: 1, height: 1, backgroundColor: 'var(--color-border)' }} />
     </div>
   );
 }
 
-function EmptyState({ t }) {
+function EmptyState() {
   return (
-    <div style={{ padding: 32, textAlign: 'center', color: t.textMuted, fontSize: 13 }}>
+    <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 13 }}>
       No SSO connections yet. Click <strong>Add connection</strong> to wire up your IdP.
     </div>
   );
 }
 
-function StatusBadge({ status, t }) {
+function StatusBadge({ status }) {
   // Inline colored label — no pill chrome. Color carries the state cue.
   const fg = {
     active:   '#10b981',
-    draft:    t.textMuted,
+    draft:    'var(--color-text-muted)',
     disabled: '#ef4444',
-  }[status] || t.textMuted;
+  }[status] || 'var(--color-text-muted)';
   return (
     <span style={{ fontSize: 11, fontWeight: 600, color: fg, letterSpacing: 0.2 }}>
       {status}
@@ -370,16 +367,16 @@ function StatusBadge({ status, t }) {
   );
 }
 
-function Th({ t, children }) {
+function Th({ children }) {
   return (
-    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: t.textMuted, letterSpacing: 0.3 }}>
+    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: 'var(--color-text-muted)', letterSpacing: 0.3 }}>
       {children}
     </th>
   );
 }
 
-function Td({ t, children }) {
-  return <td style={{ padding: '10px 12px', color: t.text }}>{children}</td>;
+function Td({ children }) {
+  return <td style={{ padding: '10px 12px', color: 'var(--color-text)' }}>{children}</td>;
 }
 
 function Banner({ children, color, bg }) {
@@ -390,39 +387,39 @@ function Banner({ children, color, bg }) {
   );
 }
 
-function inputStyle(t) {
+function inputStyle() {
   return {
     padding: '6px 10px',
-    border: `1px solid ${t.border}`,
+    border: `1px solid var(--color-border)`,
     borderRadius: 6,
     fontSize: 13,
-    backgroundColor: t.bg,
-    color: t.text,
+    backgroundColor: 'var(--color-bg)',
+    color: 'var(--color-text)',
     width: '100%',
     boxSizing: 'border-box',
   };
 }
 
-function primaryButton(t) {
+function primaryButton() {
   return {
     padding: '7px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: t.accent,
-    color: t.textOnDark,
+    backgroundColor: 'var(--color-accent)',
+    color: 'var(--color-text-on-dark)',
     fontWeight: 600,
     fontSize: 13,
     cursor: 'pointer',
   };
 }
 
-function ghostButton(t) {
+function ghostButton() {
   return {
     padding: '5px 10px',
-    border: `1px solid ${t.border}`,
+    border: `1px solid var(--color-border)`,
     borderRadius: 6,
     backgroundColor: 'transparent',
-    color: t.text,
+    color: 'var(--color-text)',
     fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',

@@ -4,20 +4,20 @@ import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
 import { FEATURE_ROLE_AUTH, AXIAOPS_AWS_ACCOUNT_ID } from '../config';
 
-function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, theme, readOnly }) {
+function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, readOnly }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <label style={{ fontSize: 13, fontWeight: 600, color: theme.textMid }}>
+      <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-mid)' }}>
         {label}
       </label>
       <input
         style={{
-          backgroundColor: theme.surfaceAlt,
-          border: `1px solid ${theme.border}`,
+          backgroundColor: 'var(--color-surface-alt)',
+          border: `1px solid var(--color-border)`,
           borderRadius: 8,
           padding: '10px 12px',
           fontSize: 14,
-          color: theme.text,
+          color: 'var(--color-text)',
           fontFamily: mono ? '"Geist Mono Variable", monospace' : undefined,
         }}
         value={value}
@@ -28,12 +28,12 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint,
         type={type}
         readOnly={readOnly}
       />
-      {hint && <span style={{ fontSize: 12, color: theme.textMuted, fontStyle: 'italic' }}>{hint}</span>}
+      {hint && <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>{hint}</span>}
     </div>
   );
 }
 
-function CopyableBlock({ label, value, theme }) {
+function CopyableBlock({ label, value }) {
   const [copied, setCopied] = useState(false);
   async function handleCopy() {
     try {
@@ -45,23 +45,23 @@ function CopyableBlock({ label, value, theme }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <label style={{ fontSize: 13, fontWeight: 600, color: theme.textMid }}>{label}</label>
+        <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-mid)' }}>{label}</label>
         <button
           onClick={handleCopy}
-          style={{ background: 'none', border: `1px solid ${theme.border}`, color: theme.textMid, fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}
+          style={{ background: 'none', border: `1px solid var(--color-border)`, color: 'var(--color-text-mid)', fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}
         >
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
       <code style={{
         display: 'block',
-        backgroundColor: theme.surfaceAlt,
-        border: `1px solid ${theme.border}`,
+        backgroundColor: 'var(--color-surface-alt)',
+        border: `1px solid var(--color-border)`,
         borderRadius: 8,
         padding: '10px 12px',
         fontSize: 13,
         fontFamily: '"Geist Mono Variable", monospace',
-        color: theme.text,
+        color: 'var(--color-text)',
         wordBreak: 'break-all',
       }}>{value}</code>
     </div>
@@ -86,7 +86,7 @@ function trustPolicyJSON(externalId) {
 // Role tab: two-step flow. Step 1 collects label + region and POSTs /draft.
 // Step 2 reveals ExternalId + the trust policy, lets the customer paste back
 // their freshly-created role ARN, and runs the verify round-trip.
-function RoleAuthTab({ onConnected, theme }) {
+function RoleAuthTab({ onConnected }) {
   const [step, setStep] = useState('draft'); // 'draft' | 'verify'
   const [draft, setDraft] = useState(null);
   const [label, setLabel] = useState('');
@@ -144,7 +144,6 @@ function RoleAuthTab({ onConnected, theme }) {
       <ErrorBox
         message="Role-based onboarding is not available in this environment."
         hint="The dashboard was built without VITE_AXIAOPS_AWS_ACCOUNT_ID set. Use Access Keys instead, or contact your administrator."
-        theme={theme}
       />
     );
   }
@@ -152,10 +151,10 @@ function RoleAuthTab({ onConnected, theme }) {
   if (step === 'draft') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" theme={theme} />
-        <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono theme={theme} />
-        {error && <ErrorBox message={error} theme={theme} />}
-        <PrimaryButton onClick={handleGenerate} loading={loading} label="Generate connection" theme={theme} />
+        <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" />
+        <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
+        {error && <ErrorBox message={error} />}
+        <PrimaryButton onClick={handleGenerate} loading={loading} label="Generate connection" />
       </div>
     );
   }
@@ -163,26 +162,25 @@ function RoleAuthTab({ onConnected, theme }) {
   // step === 'verify'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <CopyableBlock label="External ID (used in your trust policy)" value={draft.external_id} theme={theme} />
+      <CopyableBlock label="External ID (used in your trust policy)" value={draft.external_id} />
       <CopyableBlock label="AxiaOps principal (allowed to assume your role)"
-        value={`arn:aws:iam::${AXIAOPS_AWS_ACCOUNT_ID || '<AxiaOpsAccountId>'}:role/AxiaOpsScanner`}
-        theme={theme} />
+        value={`arn:aws:iam::${AXIAOPS_AWS_ACCOUNT_ID || '<AxiaOpsAccountId>'}:role/AxiaOpsScanner`} />
 
       <button
         onClick={() => setShowJson(s => !s)}
-        style={{ background: 'none', border: 'none', color: theme.textMid, fontSize: 13, textDecoration: 'underline', cursor: 'pointer', alignSelf: 'flex-start', padding: 0 }}
+        style={{ background: 'none', border: 'none', color: 'var(--color-text-mid)', fontSize: 13, textDecoration: 'underline', cursor: 'pointer', alignSelf: 'flex-start', padding: 0 }}
       >
         {showJson ? 'Hide trust policy JSON' : 'Show trust policy JSON'}
       </button>
-      {showJson && <CopyableBlock label="Trust policy JSON" value={trustPolicyJSON(draft.external_id)} theme={theme} />}
+      {showJson && <CopyableBlock label="Trust policy JSON" value={trustPolicyJSON(draft.external_id)} />}
 
-      <p style={{ fontSize: 13, color: theme.textMid, margin: 0 }}>
+      <p style={{ fontSize: 13, color: 'var(--color-text-mid)', margin: 0 }}>
         Once the role exists in your AWS account, paste its ARN below.
       </p>
-      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::123456789012:role/AxiaOpsIntegrationRole" mono theme={theme} />
+      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::123456789012:role/AxiaOpsIntegrationRole" mono />
 
-      {error && <ErrorBox message={error} hint={verifyHint} theme={theme} />}
-      <PrimaryButton onClick={handleVerify} loading={loading} label="Verify and connect" theme={theme} />
+      {error && <ErrorBox message={error} hint={verifyHint} />}
+      <PrimaryButton onClick={handleVerify} loading={loading} label="Verify and connect" />
     </div>
   );
 }
@@ -204,7 +202,7 @@ function reasonToHint(reason) {
   }
 }
 
-function AccessKeyTab({ onConnected, isEdit, account, theme, isDark }) {
+function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
   const [label, setLabel]             = useState(account?.label ?? '');
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
   const [secretKey, setSecretKey]     = useState('');
@@ -261,26 +259,26 @@ function AccessKeyTab({ onConnected, isEdit, account, theme, isDark }) {
     <>
       {!isEdit && (
         <div style={{
-          backgroundColor: isDark ? theme.surfaceRaised : '#EFF6FF',
-          border: `1px solid ${isDark ? theme.border : '#BFDBFE'}`,
+          backgroundColor: isDark ? 'var(--color-surface-raised)' : '#EFF6FF',
+          border: `1px solid ${isDark ? 'var(--color-border)' : '#BFDBFE'}`,
           borderRadius: 10,
           padding: '14px 16px',
           marginBottom: 18,
         }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? theme.textMid : '#1D4ED8', display: 'block', marginBottom: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? 'var(--color-text-mid)' : '#1D4ED8', display: 'block', marginBottom: 6 }}>
             Required IAM permissions
           </span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {['ReadOnlyAccess (or below)', 'ce:GetCostAndUsage', 'cloudwatch:GetMetricStatistics', 'ec2:DescribeAddresses'].map(p => (
-              <code key={p} style={{ fontSize: 12, color: theme.textMid, fontFamily: '"Geist Mono Variable", monospace', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', padding: '2px 6px', borderRadius: 4, display: 'inline-block', width: 'fit-content' }}>
+              <code key={p} style={{ fontSize: 12, color: 'var(--color-text-mid)', fontFamily: '"Geist Mono Variable", monospace', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', padding: '2px 6px', borderRadius: 4, display: 'inline-block', width: 'fit-content' }}>
                 {p}
               </code>
             ))}
           </div>
         </div>
       )}
-      <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" theme={theme} />
-      <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono theme={theme} />
+      <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" />
+      <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
       <Field
         label="AWS Secret Access Key"
         value={secretKey}
@@ -288,9 +286,8 @@ function AccessKeyTab({ onConnected, isEdit, account, theme, isDark }) {
         placeholder={isEdit ? 'Leave blank to keep existing' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'}
         mono
         type="password"
-        theme={theme}
       />
-      <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono theme={theme} />
+      <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
       {isEdit && (
         <Field
           label="Auto-scan interval (hours)"
@@ -299,11 +296,10 @@ function AccessKeyTab({ onConnected, isEdit, account, theme, isDark }) {
           placeholder="24"
           type="number"
           hint="0 = on-demand only, or enter hours between automatic scans"
-          theme={theme}
         />
       )}
-      {error && <ErrorBox message={error} theme={theme} />}
-      <PrimaryButton onClick={handleSubmit} loading={loading} label={isEdit ? 'Save Changes' : 'Connect Account'} theme={theme} />
+      {error && <ErrorBox message={error} />}
+      <PrimaryButton onClick={handleSubmit} loading={loading} label={isEdit ? 'Save Changes' : 'Connect Account'} />
     </>
   );
 }
@@ -311,7 +307,7 @@ function AccessKeyTab({ onConnected, isEdit, account, theme, isDark }) {
 // RoleEditTab covers re-verification of a role-based account that already
 // exists. The customer can edit label, region, and scan interval; if the role
 // ARN itself needs to change, they paste a new one and we re-verify.
-function RoleEditTab({ account, onConnected, theme }) {
+function RoleEditTab({ account, onConnected }) {
   const [label, setLabel] = useState(account.label ?? '');
   const [region, setRegion] = useState(account.region ?? 'eu-central-1');
   const [scanIntervalHours, setScanIntervalHours] = useState(account.scan_interval_hours?.toString() ?? '24');
@@ -357,10 +353,10 @@ function RoleEditTab({ account, onConnected, theme }) {
 
   return (
     <>
-      <CopyableBlock label="External ID (read-only)" value={account.external_id ?? ''} theme={theme} />
-      <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production" theme={theme} />
-      <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono theme={theme} />
-      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::..." mono theme={theme}
+      <CopyableBlock label="External ID (read-only)" value={account.external_id ?? ''} />
+      <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production" />
+      <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
+      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::..." mono
         hint={roleArnChanged ? 'Save will re-verify this role with AWS STS.' : 'Paste a new ARN to re-verify.'} />
       <Field
         label="Auto-scan interval (hours)"
@@ -369,30 +365,29 @@ function RoleEditTab({ account, onConnected, theme }) {
         placeholder="24"
         type="number"
         hint="0 = on-demand only, or enter hours between automatic scans"
-        theme={theme}
       />
-      {error && <ErrorBox message={error} hint={verifyHint} theme={theme} />}
-      <PrimaryButton onClick={handleSubmit} loading={loading} label="Save Changes" theme={theme} />
+      {error && <ErrorBox message={error} hint={verifyHint} />}
+      <PrimaryButton onClick={handleSubmit} loading={loading} label="Save Changes" />
     </>
   );
 }
 
-function ErrorBox({ message, hint, theme }) {
+function ErrorBox({ message, hint }) {
   return (
-    <div style={{ backgroundColor: `${theme.error}18`, border: `1px solid ${theme.error}40`, borderRadius: 8, padding: '10px 12px' }}>
-      <span style={{ fontSize: 13, color: theme.error, fontWeight: 500 }}>{message}</span>
-      {hint && <div style={{ fontSize: 12, color: theme.textMid, marginTop: 4 }}>{hint}</div>}
+    <div style={{ backgroundColor: `var(--color-error)18`, border: `1px solid var(--color-error)40`, borderRadius: 8, padding: '10px 12px' }}>
+      <span style={{ fontSize: 13, color: 'var(--color-error)', fontWeight: 500 }}>{message}</span>
+      {hint && <div style={{ fontSize: 12, color: 'var(--color-text-mid)', marginTop: 4 }}>{hint}</div>}
     </div>
   );
 }
 
-function PrimaryButton({ onClick, loading, label, theme }) {
+function PrimaryButton({ onClick, loading, label }) {
   return (
     <button
       onClick={onClick}
       disabled={loading}
       style={{
-        backgroundColor: theme.accent,
+        backgroundColor: 'var(--color-accent)',
         borderRadius: 10,
         padding: '14px',
         border: 'none',
@@ -406,25 +401,25 @@ function PrimaryButton({ onClick, loading, label, theme }) {
       }}
     >
       {loading
-        ? <Spinner size={20} color={theme.textOnDark} />
-        : <span style={{ color: theme.textOnDark, fontSize: 15, fontWeight: 700 }}>{label}</span>
+        ? <Spinner size={20} color={'var(--color-text-on-dark)'} />
+        : <span style={{ color: 'var(--color-text-on-dark)', fontSize: 15, fontWeight: 700 }}>{label}</span>
       }
     </button>
   );
 }
 
-function TabButton({ active, label, sublabel, onClick, theme }) {
+function TabButton({ active, label, sublabel, onClick }) {
   return (
     <button
       onClick={onClick}
       style={{
         flex: 1,
-        background: active ? theme.surfaceRaised : 'transparent',
-        border: `1px solid ${active ? theme.accent : theme.border}`,
+        background: active ? 'var(--color-surface-raised)' : 'transparent',
+        border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
         borderRadius: 8,
         padding: '10px 12px',
         cursor: 'pointer',
-        color: active ? theme.text : theme.textMid,
+        color: active ? 'var(--color-text)' : 'var(--color-text-mid)',
         fontSize: 13,
         fontWeight: active ? 700 : 500,
         minHeight: 44, // HIG touch-target floor — also helps the two
@@ -439,7 +434,7 @@ function TabButton({ active, label, sublabel, onClick, theme }) {
     >
       <span>{label}</span>
       {sublabel && (
-        <span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
           {sublabel}
         </span>
       )}
@@ -448,7 +443,7 @@ function TabButton({ active, label, sublabel, onClick, theme }) {
 }
 
 export default function ConnectScreen({ onConnected, onSkip, onCancel, account }) {
-  const { theme, isDark } = useTheme();
+  const { isDark } = useTheme();
   const isEdit = !!account;
   const isRoleEdit = isEdit && account.auth_method === 'role';
 
@@ -459,14 +454,14 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
   );
 
   return (
-    <div style={{ minHeight: '100%', backgroundColor: theme.bg }}>
+    <div style={{ minHeight: '100%', backgroundColor: 'var(--color-bg)' }}>
       <div style={{ maxWidth: 520, margin: '0 auto', padding: '32px 20px 64px' }}>
 
         <div style={{ marginBottom: 28 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: theme.text, margin: '0 0 6px' }}>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--color-text)', margin: '0 0 6px' }}>
             {isEdit ? 'Edit AWS Account' : 'Connect AWS Account'}
           </h1>
-          <p style={{ fontSize: 14, color: theme.textMid, lineHeight: '21px', margin: 0 }}>
+          <p style={{ fontSize: 14, color: 'var(--color-text-mid)', lineHeight: '21px', margin: 0 }}>
             {isEdit
               ? (isRoleEdit
                   ? 'Update settings or paste a new role ARN to re-verify the connection.'
@@ -482,20 +477,18 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
               label="Role ARN"
               sublabel="recommended"
               onClick={() => setActiveTab('role')}
-              theme={theme}
             />
             <TabButton
               active={activeTab === 'access_key'}
               label="Access Keys"
               onClick={() => setActiveTab('access_key')}
-              theme={theme}
             />
           </div>
         )}
 
         <div style={{
-          backgroundColor: theme.surface,
-          border: `1px solid ${theme.border}`,
+          backgroundColor: 'var(--color-surface)',
+          border: `1px solid var(--color-border)`,
           borderRadius: 16,
           padding: '24px',
           display: 'flex',
@@ -503,21 +496,21 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
           gap: 18,
         }}>
           {isRoleEdit ? (
-            <RoleEditTab account={account} onConnected={onConnected} theme={theme} />
+            <RoleEditTab account={account} onConnected={onConnected} />
           ) : activeTab === 'role' ? (
-            <RoleAuthTab onConnected={onConnected} theme={theme} />
+            <RoleAuthTab onConnected={onConnected} />
           ) : (
-            <AccessKeyTab onConnected={onConnected} isEdit={isEdit} account={account} theme={theme} isDark={isDark} />
+            <AccessKeyTab onConnected={onConnected} isEdit={isEdit} account={account} isDark={isDark} />
           )}
 
           {onSkip && (
             <button onClick={onSkip} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', textAlign: 'center', width: '100%' }}>
-              <span style={{ fontSize: 14, color: theme.textMuted }}>Skip for now</span>
+              <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>Skip for now</span>
             </button>
           )}
           {onCancel && (
             <button onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', textAlign: 'center', width: '100%' }}>
-              <span style={{ fontSize: 14, color: theme.textMuted }}>Cancel</span>
+              <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>Cancel</span>
             </button>
           )}
         </div>
