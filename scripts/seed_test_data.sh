@@ -56,6 +56,7 @@ resolve_psql() {
 
 REMOTE_ENV=""
 AUTO_YES=false
+DEMO_MODE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -71,10 +72,30 @@ while [[ $# -gt 0 ]]; do
       esac
       ;;
     --yes|-y) AUTO_YES=true ;;
+    --demo)
+      # Tier-1 slice of #93. Populates Acme + Globex orgs with copies of the
+      # dev seed data under acme-*/globex-* account IDs so the dashboard can
+      # demonstrate cross-org RLS isolation + the B1.5 org switcher. The
+      # currently-logged-in user (dev user locally, bootstrap user on preview)
+      # gets owner memberships in Acme + Globex so they can actually see the
+      # new data via /v1/auth/switch-org. Full multi-user + persona
+      # differentiation + auth-on staging/demo env support is tracked in #93.
+      DEMO_MODE=true
+      ;;
     *) echo "Error: Unknown flag '$1'"; exit 1 ;;
   esac
   shift
 done
+
+# --demo is allowed for local docker and --remote preview. Staging + demo
+# envs are intentionally blocked: they're the stable / stakeholder-facing
+# envs (per "preview vs staging" convention in CLAUDE.md), and overwriting
+# their org list with demo fixtures would pollute reference data.
+if [[ "$DEMO_MODE" == "true" && -n "$REMOTE_ENV" && "$REMOTE_ENV" != "preview" ]]; then
+  echo "Error: --demo only supports local docker or --remote preview." >&2
+  echo "       For --remote $REMOTE_ENV, the full multi-org demo posture is tracked in #93." >&2
+  exit 1
+fi
 
 # ── Remote connection setup ───────────────────────────────────────────────────
 # When --remote is passed, build a MIGRATION_DATABASE_URL pointing to the remote host.
@@ -278,20 +299,28 @@ else
     ON CONFLICT (organization_id, user_id) DO NOTHING;"
 fi
 
-# ── Additional organizations for RLS isolation testing (local only) ─────────────────
+# ── Additional organizations for RLS isolation testing + demo seeding ─────────
+# Always create Acme + Globex rows (id = org_code so re-runs are deterministic
+# and downstream SQL can reference them without a lookup). On local docker mode
+# this exercises RLS isolation; with --demo it gets populated with seed data.
+# ON CONFLICT (org_code) DO NOTHING preserves the row's id across re-runs even
+# if a prior run wrote a gen_random_uuid()-based id (historical seed shape).
 
-if [ "$MODE" = "docker" ]; then
-  echo "Creating organization: Acme Corp..."
-  psql_exec "INSERT INTO organizations (id, org_code, name, created_at)
-    VALUES (gen_random_uuid()::text, 'org_acme', 'Acme Corp', '$NOW')
-    ON CONFLICT (org_code) DO NOTHING;"
+echo "Creating organization: Acme Corp..."
+psql_exec "INSERT INTO organizations (id, org_code, name, created_at)
+  VALUES ('org_acme', 'org_acme', 'Acme Corp', '$NOW')
+  ON CONFLICT (org_code) DO NOTHING;"
 
-  echo "Creating organization: Globex Inc..."
-  psql_exec "INSERT INTO organizations (id, org_code, name, created_at)
-    VALUES (gen_random_uuid()::text, 'org_globex', 'Globex Inc', '$NOW')
-    ON CONFLICT (org_code) DO NOTHING;"
-  echo ""
-fi
+echo "Creating organization: Globex Inc..."
+psql_exec "INSERT INTO organizations (id, org_code, name, created_at)
+  VALUES ('org_globex', 'org_globex', 'Globex Inc', '$NOW')
+  ON CONFLICT (org_code) DO NOTHING;"
+echo ""
+
+# Resolve the actual ids — for fresh rows this is 'org_acme'/'org_globex', for
+# rows from older seed runs (gen_random_uuid()) it's whatever UUID is there.
+ACME_ORG_ID=$(psql_query "SELECT id FROM organizations WHERE org_code='org_acme' LIMIT 1;" | tr -d '[:space:]')
+GLOBEX_ORG_ID=$(psql_query "SELECT id FROM organizations WHERE org_code='org_globex' LIMIT 1;" | tr -d '[:space:]')
 
 # ── Seed AWS accounts ────────────────────────────────────────────────────────
 # Three dummy accounts (prod/staging/dev) with empty credentials.
@@ -1058,6 +1087,135 @@ EOF
 
 echo "  Inserted cost records (EC2, RDS, S3, CloudFront, Lambda, ELB, VPC, Data Transfer, Tax)"
 echo ""
+
+# ── Demo-mode: populate Acme + Globex with copies of the dev seed data ────────
+# Tier-1 slice of #93. After the regular seed has populated the dev/bootstrap
+# org, copy its accounts + zombie_records + resource_records + snapshots +
+# services + cost_records into Acme + Globex with translated IDs (seed-* →
+# acme-* and globex-*). The currently-logged-in user — dev user locally, or
+# the bootstrap user on --remote preview — gets owner memberships in both
+# demo orgs so they can switch via the B1.5 picker.
+
+if [[ "$DEMO_MODE" == "true" ]]; then
+  echo "=== Demo mode: populating Acme + Globex ==="
+
+  # Resolve which user to attach memberships to. For local docker that's the
+  # dev user already created above. For --remote preview it's whichever user
+  # was first added to the bootstrap org (typically the first-owner from the
+  # bootstrap ceremony).
+  if [[ -n "$REMOTE_ENV" ]]; then
+    TARGET_USER_ID=$(psql_query "
+      SELECT u.id FROM users u
+      JOIN memberships m ON m.user_id = u.id
+      WHERE m.organization_id = '${ORGANIZATION_ID}'
+      ORDER BY u.created_at ASC LIMIT 1;" | tr -d '[:space:]')
+    if [[ -z "$TARGET_USER_ID" ]]; then
+      echo "Error: --demo --remote preview requires at least one user in the bootstrap org;" >&2
+      echo "       complete the dashboard bootstrap flow at https://axiaops-${REMOTE_ENV}.example.com first." >&2
+      exit 1
+    fi
+    echo "Bootstrap user resolved: $TARGET_USER_ID"
+  else
+    TARGET_USER_ID="$DEV_USER_ID_VAL"
+    echo "Target user: $TARGET_USER_ID (dev user)"
+  fi
+
+  # Owner membership for the target user in each demo org. Idempotent via the
+  # (organization_id, user_id) unique constraint.
+  for demo_org in "$ACME_ORG_ID" "$GLOBEX_ORG_ID"; do
+    psql_exec "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at)
+      VALUES (gen_random_uuid()::text, '${demo_org}', '${TARGET_USER_ID}', 'owner', NOW(), NOW())
+      ON CONFLICT (organization_id, user_id) DO NOTHING;"
+  done
+  echo "Memberships wired for $TARGET_USER_ID in Acme + Globex (owner each)."
+
+  # Copy the dev seed data into Acme + Globex. INSERT...SELECT with
+  # REPLACE() on the seed-account-* prefix gives us acme-account-001 /
+  # globex-account-001 etc. We DELETE first by the translated prefix so
+  # re-running is idempotent.
+  for target in "acme:${ACME_ORG_ID}" "globex:${GLOBEX_ORG_ID}"; do
+    prefix="${target%%:*}"
+    target_org="${target#*:}"
+    echo "Copying seed data → $prefix (org: $target_org)"
+
+    # Clean prior copies (idempotent re-run).
+    psql_exec "DELETE FROM zombie_snapshots WHERE id LIKE 'snap-${prefix}-account-%';"
+    psql_exec "DELETE FROM accounts WHERE id LIKE '${prefix}-account-%';"
+    psql_exec "DELETE FROM cost_records WHERE internal_account_id LIKE '${prefix}-account-%';"
+
+    # Translate seed-account-* IDs → ${prefix}-account-* on every per-account
+    # table. snapshot_id rewrite happens via the snap-seed-account- pattern.
+    psql_pipe <<EOF_DEMO
+INSERT INTO accounts (id, organization_id, provider, label, account_id, access_key_id, secret_encrypted, region, status, created_at)
+SELECT
+  REPLACE(id, 'seed-', '${prefix}-'),
+  '${target_org}',
+  provider,
+  REPLACE(label, 'Seed ', INITCAP('${prefix}') || ' '),
+  account_id, access_key_id, secret_encrypted, region, status, created_at
+FROM accounts
+WHERE id LIKE 'seed-account-%' AND organization_id = '${ORGANIZATION_ID}'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO zombie_records (organization_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
+   period_start, period_end, usage_metric, usage_avg, usage_unit, reason, owner, detected_at)
+SELECT
+  '${target_org}',
+  provider, account_id,
+  REPLACE(internal_account_id, 'seed-', '${prefix}-'),
+  service, resource_type, region, resource_id, tags, monthly_cost, currency,
+  period_start, period_end, usage_metric, usage_avg, usage_unit, reason, owner, detected_at
+FROM zombie_records
+WHERE internal_account_id LIKE 'seed-account-%' AND organization_id = '${ORGANIZATION_ID}'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO resource_records (organization_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
+   period_start, period_end, usage_metric, usage_avg, usage_unit, is_zombie, reason, owner, detected_at)
+SELECT
+  '${target_org}',
+  provider, account_id,
+  REPLACE(internal_account_id, 'seed-', '${prefix}-'),
+  service, resource_type, region, resource_id, tags, monthly_cost, currency,
+  period_start, period_end, usage_metric, usage_avg, usage_unit, is_zombie, reason, owner, detected_at
+FROM resource_records
+WHERE internal_account_id LIKE 'seed-account-%' AND organization_id = '${ORGANIZATION_ID}'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO zombie_snapshots (id, organization_id, account_id, snapshot_at, zombie_count, total_monthly_cost, currency)
+SELECT
+  REPLACE(id, 'snap-seed-', 'snap-${prefix}-'),
+  '${target_org}',
+  REPLACE(account_id, 'seed-', '${prefix}-'),
+  snapshot_at, zombie_count, total_monthly_cost, currency
+FROM zombie_snapshots
+WHERE id LIKE 'snap-seed-account-%' AND organization_id = '${ORGANIZATION_ID}'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO zombie_snapshot_services (id, snapshot_id, organization_id, service, resource_type, zombie_count, monthly_cost, currency)
+SELECT
+  REPLACE(id, 'svc-seed-', 'svc-${prefix}-'),
+  REPLACE(snapshot_id, 'snap-seed-', 'snap-${prefix}-'),
+  '${target_org}',
+  service, resource_type, zombie_count, monthly_cost, currency
+FROM zombie_snapshot_services
+WHERE snapshot_id LIKE 'snap-seed-account-%' AND organization_id = '${ORGANIZATION_ID}'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO cost_records (organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency, period_start, period_end, tags, fetched_at)
+SELECT
+  '${target_org}',
+  provider, account_id,
+  REPLACE(internal_account_id, 'seed-', '${prefix}-'),
+  service, region, resource_id, amount, currency, period_start, period_end, tags, fetched_at
+FROM cost_records
+WHERE internal_account_id LIKE 'seed-account-%' AND organization_id = '${ORGANIZATION_ID}'
+ON CONFLICT DO NOTHING;
+EOF_DEMO
+  done
+
+  echo "  Demo orgs populated."
+  echo ""
+fi
 
 # ── Verify seeded data ────────────────────────────────────────────────────────
 # Quick sanity check: count rows per table for the dev organization.
