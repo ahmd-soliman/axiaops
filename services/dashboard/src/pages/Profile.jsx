@@ -73,7 +73,7 @@ function ExportSection({ toast }) {
       >
         {mutation.isPending ? 'Preparing…' : 'Download My Data'}
       </button>
-      {error && <InlineBanner color="#fca5a5" bg="rgba(239,68,68,0.15)">{error}</InlineBanner>}
+      {error && <InlineBanner color={'var(--color-error)'} bg="rgba(239,68,68,0.15)">{error}</InlineBanner>}
     </Section>
   );
 }
