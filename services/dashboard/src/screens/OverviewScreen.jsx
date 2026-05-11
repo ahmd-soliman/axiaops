@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissZombie } from '../api/client';
+import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissZombie, revokeDismissal } from '../api/client';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
@@ -115,7 +115,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
           <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
             Total Spend
           </span>
-          <span style={{ fontSize: 28, fontWeight: 800, color: theme.text, letterSpacing: -0.5, display: 'block' }}>
+          <span style={{ fontSize: 28, fontWeight: 800, color: theme.text, letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
             {currency} {totalSpend.toFixed(2)}
           </span>
           <span style={{ fontSize: 12, color: theme.textMuted, marginTop: 2, display: 'block' }}>
@@ -140,23 +140,32 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
                     Sum of monthly cost across detected zombie resources, based on net amortized cost.
                   </p>
                   <p style={{ margin: '8px 0 0', color: theme.textMid }}>
-                    <strong>Heads up</strong> — if a resource is covered by a Savings Plan or Reserved Instance,
-                    killing it may not reduce your bill until the commitment ends. AxiaOps does not yet detect
-                    SP/RI coverage, so this number can overstate savings for accounts with active commitments.
+                    <strong>Live, after dismissals.</strong> Computed from current resources minus anything
+                    you&rsquo;ve dismissed or snoozed. This is why it can differ from the latest point on the
+                    Trend chart, which is captured at scan time <em>before</em> dismissals are applied.
+                  </p>
+                  <p style={{ margin: '8px 0 0', color: theme.textMid }}>
+                    <strong>Savings Plans / RIs.</strong> If a resource is covered by a Savings Plan or
+                    Reserved Instance, killing it may not reduce your bill until the commitment ends.
+                    AxiaOps does not yet detect SP/RI coverage, so this number can overstate savings for
+                    accounts with active commitments.
                   </p>
                 </>
               }
             />
           </div>
-          <span style={{ fontSize: 28, fontWeight: 800, color: theme.accent, letterSpacing: -0.5, display: 'block' }}>
+          <span style={{ fontSize: 28, fontWeight: 800, color: theme.alertWarning, letterSpacing: -0.5, display: 'block', fontVariantNumeric: 'tabular-nums' }}>
             {currency} {waste.toFixed(2)}
+          </span>
+          <span style={{ fontSize: 11, color: theme.textMuted, fontStyle: 'italic', display: 'block', marginTop: 1 }}>
+            Live · after dismissals
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
             <span style={{ fontSize: 12, color: theme.textMuted }}>
               {zombieCount} zombie{zombieCount !== 1 ? 's' : ''}
             </span>
             {delta !== null && (
-              <span style={{ fontSize: 11, color: delta > 0 ? theme.error : theme.success, fontWeight: 700 }}>
+              <span style={{ fontSize: 11, color: delta > 0 ? theme.alertCritical : theme.statusOk, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                 {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
               </span>
             )}
@@ -165,71 +174,343 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, th
       </div>
 
       {/* Waste bar */}
-      {totalSpend > 0 && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted }}>Waste ratio</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: wastePercent > 20 ? theme.error : wastePercent > 10 ? theme.warning : theme.success }}>
-              {wastePercent.toFixed(1)}%
-            </span>
+      {totalSpend > 0 && (() => {
+        // Red is reserved for the headline pain — waste ratio over the threshold.
+        // Below threshold, amber/green carry the warning/ok semantics. See
+        // docs/ui-color-system-review.md §4 (red is overused).
+        const ratioColor = wastePercent > 20
+          ? theme.alertCritical
+          : wastePercent > 10
+            ? theme.alertWarning
+            : theme.statusOk;
+        return (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted }}>Waste ratio</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: ratioColor, fontVariantNumeric: 'tabular-nums' }}>
+                {wastePercent.toFixed(1)}%
+              </span>
+            </div>
+            <div style={{ height: 6, backgroundColor: theme.track, borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${Math.min(wastePercent, 100)}%`,
+                backgroundColor: ratioColor,
+                borderRadius: 3,
+                transition: 'width 0.3s',
+              }} />
+            </div>
           </div>
-          <div style={{ height: 6, backgroundColor: theme.border, borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{
-              height: '100%',
-              width: `${Math.min(wastePercent, 100)}%`,
-              backgroundColor: wastePercent > 20 ? theme.error : wastePercent > 10 ? theme.warning : theme.success,
-              borderRadius: 3,
-              transition: 'width 0.3s',
-            }} />
-          </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
 
 // ─── Service breakdown ───────────────────────────────────────────────────────
 
-function ServiceBreakdown({ byService, currency, theme, isMobile }) {
+// Single chart row. Lives outside ServiceBreakdown so it can hold the
+// `focused` state used for the keyboard focus ring. Children are all <span>s
+// (not <div>s) because <button> only accepts phrasing content per the HTML
+// spec — block descendants inside a <button> aren't valid and trip up some
+// screen readers / validators. display:flex on a span behaves the same as on
+// a div visually.
+function ServiceBreakdownRow({ svc, data, maxSavings, totalSavings, currency, theme, isMobile, active, onToggleSvc }) {
+  const cfg = serviceConfig(svc);
+  const barWidth = (data.savings / maxSavings) * 100;
+  const pctOfTotal = (data.savings / Math.max(totalSavings, 0.01)) * 100;
+  const [focused, setFocused] = useState(false);
+  // Active = the resource list below is filtered to this service. Multi-select:
+  // same shape as the FilterPills row, so the chart and the pills stay in sync
+  // without either being the source of truth.
+  //
+  // Per-service color (cfg.color) is used on both the dot AND the bar so
+  // service identity is consistent with the FilterPills + resource rows. Bar
+  // length already encodes magnitude; a separate rank-ramp would put the same
+  // service under different colors in different surfaces and break visual
+  // continuity.
+  return (
+    <button
+      type="button"
+      onClick={() => onToggleSvc(svc)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      aria-pressed={active}
+      aria-label={`Filter resources by ${cfg.label} — ${currency}${data.savings.toFixed(2)}, ${pctOfTotal.toFixed(1)}% of total waste`}
+      style={{
+        background: active ? theme.accentLight : 'transparent',
+        border: `1px solid ${active ? theme.accentBorder : 'transparent'}`,
+        borderRadius: 6,
+        padding: '6px 8px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        font: 'inherit',
+        color: 'inherit',
+        width: '100%',
+        transition: 'background 0.15s, border-color 0.15s',
+        outline: focused ? `2px solid ${theme.accent}` : 'none',
+        outlineOffset: 1,
+      }}
+    >
+      {/* Header — at xs the label cluster (dot + name + count) and the
+          right-aligned cost share too little width once names like
+          "AmazonOpenSearchService" appear. Drop the row to a column with
+          the cost on its own line. */}
+      <span style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'flex-start' : 'center',
+        justifyContent: 'space-between',
+        gap: isMobile ? 2 : 8,
+        marginBottom: 4,
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
+          <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
+          <span style={{ fontSize: 11, color: theme.textMuted }}>{data.zombies} resource{data.zombies !== 1 ? 's' : ''}</span>
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: theme.text, fontVariantNumeric: 'tabular-nums' }}>
+          {currency}{data.savings.toFixed(2)}
+          <span style={{ fontWeight: 500, color: theme.textMuted, marginLeft: 6 }}>· {pctOfTotal.toFixed(1)}%</span>
+        </span>
+      </span>
+      <span style={{ display: 'block', height: 6, backgroundColor: theme.track, borderRadius: 2, overflow: 'hidden' }}>
+        <span style={{
+          display: 'block',
+          height: '100%',
+          width: `${barWidth}%`,
+          backgroundColor: cfg.color,
+          borderRadius: 2,
+          transition: 'width 0.3s',
+        }} />
+      </span>
+    </button>
+  );
+}
+
+// Aggregate row for the "long tail" — services contributing tiny amounts.
+// Clickable to expand: when expanded, the parent (ServiceBreakdown) renders
+// each constituent service as an indented ServiceBreakdownRow below this
+// row. The aggregate bar is hidden in the expanded state — the constituents
+// below carry the visual weight.
+function OtherRow({ tail, totalSavings, maxSavings, currency, theme, isMobile, expanded, onToggle }) {
+  const savings = tail.reduce((s, [, d]) => s + d.savings, 0);
+  const zombies = tail.reduce((s, [, d]) => s + d.zombies, 0);
+  const pctOfTotal = (savings / Math.max(totalSavings, 0.01)) * 100;
+  const barWidth = (savings / maxSavings) * 100;
+  const [focused, setFocused] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      aria-expanded={expanded}
+      aria-controls="service-breakdown-other-list"
+      aria-label={`${expanded ? 'Collapse' : 'Expand'} other services — ${tail.length} services, ${currency}${savings.toFixed(2)} total (${pctOfTotal.toFixed(1)}% of waste)`}
+      style={{
+        background: 'transparent',
+        border: '1px solid transparent',
+        borderRadius: 6,
+        padding: '6px 8px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        font: 'inherit',
+        color: 'inherit',
+        width: '100%',
+        outline: focused ? `2px solid ${theme.accent}` : 'none',
+        outlineOffset: 1,
+      }}
+    >
+      <span style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'flex-start' : 'center',
+        justifyContent: 'space-between',
+        gap: isMobile ? 2 : 8,
+        marginBottom: expanded ? 0 : 4,
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
+          <span aria-hidden="true" style={{ display: 'inline-block', width: 10, fontSize: 9, color: theme.textMuted, lineHeight: 1, textAlign: 'center' }}>
+            {expanded ? '▾' : '▸'}
+          </span>
+          <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', backgroundColor: theme.textSub, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: theme.textMid }}>Other</span>
+          <span style={{ fontSize: 11, color: theme.textMuted }}>{tail.length} services · {zombies} resource{zombies !== 1 ? 's' : ''}</span>
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: theme.textMid, fontVariantNumeric: 'tabular-nums' }}>
+          {currency}{savings.toFixed(2)}
+          <span style={{ fontWeight: 500, color: theme.textMuted, marginLeft: 6 }}>· {pctOfTotal.toFixed(1)}%</span>
+        </span>
+      </span>
+      {/* Aggregate bar only when collapsed — when expanded the constituents
+          rendered below carry the visual weight and a redundant aggregate bar
+          here just doubles the height of the disclosure. */}
+      {!expanded && (
+        <span style={{ display: 'block', height: 6, backgroundColor: theme.track, borderRadius: 2, overflow: 'hidden' }}>
+          <span style={{
+            display: 'block',
+            height: '100%',
+            width: `${barWidth}%`,
+            backgroundColor: theme.textSub,
+            borderRadius: 2,
+          }} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+// Pareto divider — horizontal marker labelled with the cumulative percentage
+// of waste accumulated above it. Renders between rows. Standard FinOps trope:
+// "these N services are your problem; everything below is rounding error."
+function ParetoDivider({ cumulativePct, theme }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        margin: '4px 8px',
+        color: theme.textMuted,
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+      }}
+    >
+      <span style={{ flex: 1, borderTop: `1px dashed ${theme.border}` }} />
+      <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+        {cumulativePct.toFixed(0)}% of waste above
+      </span>
+      <span style={{ flex: 1, borderTop: `1px dashed ${theme.border}` }} />
+    </div>
+  );
+}
+
+// Split byService into (shown, tail). Services where savings < the threshold
+// max(1% of total, $5) collapse into a single "Other" row — kills the long-
+// tail clutter (a $0.40 service contributes nothing actionable). Guards:
+//   - Don't collapse if tail would be 0 or 1 entry (a single "Other" hiding
+//     one service is silly — show it directly).
+//   - Always keep at least the top 3 shown so very small totals don't render
+//     as an empty chart of just "Other".
+function splitTail(byService, totalSavings) {
+  const threshold = Math.max(totalSavings * 0.01, 5);
+  let shown = byService.filter(([, d]) => d.savings >= threshold);
+  let tail  = byService.filter(([, d]) => d.savings <  threshold);
+  if (tail.length <= 1) return { shown: byService, tail: [] };
+  if (shown.length < 3 && byService.length > 3) {
+    shown = byService.slice(0, 3);
+    tail  = byService.slice(3);
+  }
+  return { shown, tail };
+}
+
+function ServiceBreakdown({ byService, currency, theme, isMobile, filterSvcs, onToggleSvc }) {
+  const [otherExpanded, setOtherExpanded] = useState(false);
   if (byService.length === 0) return null;
   const maxSavings = Math.max(...byService.map(([, d]) => d.savings), 0.01);
+  const totalSavings = byService.reduce((sum, [, d]) => sum + d.savings, 0);
+  const { shown, tail } = splitTail(byService, totalSavings);
+
+  // Walk the shown rows, inserting the Pareto divider as soon as cumulative
+  // crosses 80%. Done as a side-effecting loop because the divider position
+  // depends on running-sum state we can't get from a pure map.
+  const rows = [];
+  let cumulative = 0;
+  let paretoMarked = false;
+  for (const [svc, data] of shown) {
+    rows.push(
+      <ServiceBreakdownRow
+        key={svc}
+        svc={svc}
+        data={data}
+        maxSavings={maxSavings}
+        totalSavings={totalSavings}
+        currency={currency}
+        theme={theme}
+        isMobile={isMobile}
+        active={filterSvcs.has(svc)}
+        onToggleSvc={onToggleSvc}
+      />
+    );
+    cumulative += (data.savings / Math.max(totalSavings, 0.01)) * 100;
+    // Only show the divider if there's still something visually below it
+    // (more shown rows OR a tail) — a divider at the very bottom is noise.
+    const hasMoreBelow = rows.length < shown.length || tail.length > 0;
+    if (!paretoMarked && cumulative >= 80 && hasMoreBelow) {
+      paretoMarked = true;
+      rows.push(<ParetoDivider key="pareto" cumulativePct={cumulative} theme={theme} />);
+    }
+  }
+  if (tail.length > 0) {
+    rows.push(
+      <OtherRow
+        key="other"
+        tail={tail}
+        totalSavings={totalSavings}
+        maxSavings={maxSavings}
+        currency={currency}
+        theme={theme}
+        isMobile={isMobile}
+        expanded={otherExpanded}
+        onToggle={() => setOtherExpanded((v) => !v)}
+      />
+    );
+    if (otherExpanded) {
+      // Each constituent rendered as a normal ServiceBreakdownRow, indented
+      // by paddingLeft on the group wrapper (NOT marginLeft — margin would
+      // push the wrapper outside the flex parent's content box and risk a
+      // horizontal scrollbar on narrow viewports). The group wrapper carries
+      // the id that the OtherRow button's aria-controls points at, so AT can
+      // navigate from the disclosure trigger to the revealed list. Sub-rows
+      // share filterSvcs / onToggleSvc with the top-level chart, so clicking
+      // AWSGlue inside the expansion has the same effect as clicking a
+      // top-level row would.
+      rows.push(
+        <div
+          key="other-list"
+          id="service-breakdown-other-list"
+          role="group"
+          aria-label="Other services"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            paddingLeft: 22,
+            boxSizing: 'border-box',
+            borderLeft: `2px solid ${theme.border}`,
+            marginLeft: 8,
+          }}
+        >
+          {tail.map(([svc, data]) => (
+            <ServiceBreakdownRow
+              key={svc}
+              svc={svc}
+              data={data}
+              maxSavings={maxSavings}
+              totalSavings={totalSavings}
+              currency={currency}
+              theme={theme}
+              isMobile={isMobile}
+              active={filterSvcs.has(svc)}
+              onToggleSvc={onToggleSvc}
+            />
+          ))}
+        </div>
+      );
+    }
+  }
 
   return (
     <div style={{ padding: isMobile ? '16px' : '16px 20px', borderBottom: `1px solid ${theme.border}` }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 12 }}>
         Waste by Service
       </span>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {byService.map(([svc, data]) => {
-          const cfg = serviceConfig(svc);
-          const barWidth = (data.savings / maxSavings) * 100;
-          return (
-            <div key={svc}>
-              {/* Header — at xs the label cluster (dot + name + count) and
-                  the right-aligned cost share too little width once names
-                  like "AmazonOpenSearchService" appear. Drop the row to a
-                  column with the cost on its own line. */}
-              <div style={{
-                display: 'flex',
-                flexDirection: isMobile ? 'column' : 'row',
-                alignItems: isMobile ? 'flex-start' : 'center',
-                justifyContent: 'space-between',
-                gap: isMobile ? 2 : 8,
-                marginBottom: 4,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
-                  <span style={{ fontSize: 11, color: theme.textMuted }}>{data.zombies} resource{data.zombies !== 1 ? 's' : ''}</span>
-                </div>
-                <span style={{ fontSize: 12, fontWeight: 700, color: theme.accent }}>{currency}{data.savings.toFixed(2)}</span>
-              </div>
-              <div style={{ height: 4, backgroundColor: theme.border, borderRadius: 2, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${barWidth}%`, backgroundColor: cfg.color, borderRadius: 2, transition: 'width 0.3s' }} />
-              </div>
-            </div>
-          );
-        })}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {rows}
       </div>
     </div>
   );
@@ -596,7 +877,7 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
 
 // ─── Dismissed resource card ──────────────────────────────────────────────────
 
-function DismissedCard({ item, theme, isDark, onSelect }) {
+function DismissedCard({ item, theme, isDark, onSelect, isSelected, onToggleSelect }) {
   const cfg = serviceConfig(item.service);
   const reasonLabel = {
     intentional: 'Intentional', scheduled_deletion: 'Scheduled', false_positive: 'False positive',
@@ -614,77 +895,115 @@ function DismissedCard({ item, theme, isDark, onSelect }) {
     });
   };
 
+  // Same shape as ResourceCard — outer is a <div>, NOT a button, so the
+  // checkbox column can be clickable independently of the row body. The body
+  // (cost / metadata) is a <button> that opens the detail view.
   return (
-    <button
-      type="button"
-      onClick={handleSelect}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
+    <div
       style={{
         backgroundColor: theme.card,
         marginLeft: 16,
         marginRight: 16,
         marginBottom: 8,
         borderRadius: 10,
-        padding: '12px 14px',
-        border: `1px solid ${theme.border}`,
         opacity: 0.75,
-        cursor: onSelect ? 'pointer' : 'default',
-        textAlign: 'left',
-        width: 'calc(100% - 32px)',
-        font: 'inherit',
-        color: 'inherit',
-        outline: focused ? `2px solid ${theme.accent}` : 'none',
-        outlineOffset: 2,
+        display: 'flex',
+        alignItems: 'stretch',
+        overflow: 'hidden',
+        border: isSelected ? `1px solid ${theme.accent}` : `1px solid ${theme.border}`,
+        transition: 'border-color 0.15s',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-        <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-          <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: isSnoozed ? '#2563EB' : '#9CA3AF' }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: isSnoozed ? '#2563EB' : '#9CA3AF' }}>
-            {isSnoozed ? 'snoozed' : 'dismissed'}
-          </span>
-        </span>
-        <div style={{ flex: 1 }} />
-        {typeof item.monthly_cost === 'number' && (
-          <span style={{ fontSize: 14, fontWeight: 700, color: theme.accent, flexShrink: 0 }}>
-            {item.currency} {item.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted }}>/mo</span>
-          </span>
-        )}
+      {/* Checkbox column — stopPropagation on the input so its native
+          onChange isn't double-counted with the parent div's onClick. */}
+      <div
+        style={{ padding: '16px 0 16px 12px', display: 'flex', alignItems: 'flex-start', flexShrink: 0 }}
+        onClick={(e) => { e.stopPropagation(); onToggleSelect?.(item.id); }}
+      >
+        <input
+          type="checkbox"
+          checked={!!isSelected}
+          onChange={() => onToggleSelect?.(item.id)}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Select ${item.resource_id} for bulk restore`}
+          style={{ width: 16, height: 16, cursor: 'pointer', accentColor: theme.accent, marginTop: 1 }}
+        />
       </div>
-      <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
-        {item.resource_id}
-      </span>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 11, color: theme.textMuted, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4 }}>
-          {item.region}
-        </span>
-        <span style={{ fontSize: 11, color: theme.textMid, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>
-          {reasonLabel}
-        </span>
-        {isSnoozed && item.snoozed_until && (
-          <span style={{ fontSize: 11, color: theme.textMuted }}>
-            until {new Date(item.snoozed_until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+
+      {/* Main content — opens detail view on click. */}
+      <button
+        type="button"
+        onClick={handleSelect}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{
+          flex: 1,
+          padding: '12px 14px 12px 10px',
+          background: 'none',
+          border: 'none',
+          cursor: onSelect ? 'pointer' : 'default',
+          textAlign: 'left',
+          font: 'inherit',
+          color: 'inherit',
+          minWidth: 0,
+          outline: focused ? `2px solid ${theme.accent}` : 'none',
+          outlineOffset: -2,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: isSnoozed ? '#2563EB' : '#9CA3AF' }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: isSnoozed ? '#2563EB' : '#9CA3AF' }}>
+              {isSnoozed ? 'snoozed' : 'dismissed'}
+            </span>
           </span>
-        )}
-      </div>
-      {item.note ? (
-        <span style={{ fontSize: 12, color: theme.textMid, fontStyle: 'italic', display: 'block', marginTop: 4 }}>"{item.note}"</span>
-      ) : null}
-    </button>
+          <div style={{ flex: 1 }} />
+          {typeof item.monthly_cost === 'number' && (
+            <span style={{ fontSize: 14, fontWeight: 700, color: theme.accent, flexShrink: 0 }}>
+              {item.currency} {item.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted }}>/mo</span>
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: 11, color: theme.textMuted, fontFamily: '"Geist Mono Variable", monospace', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
+          {item.resource_id}
+        </span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: theme.textMuted, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4 }}>
+            {item.region}
+          </span>
+          <span style={{ fontSize: 11, color: theme.textMid, backgroundColor: theme.surfaceRaised, border: `1px solid ${theme.border}`, padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>
+            {reasonLabel}
+          </span>
+          {isSnoozed && item.snoozed_until && (
+            <span style={{ fontSize: 11, color: theme.textMuted }}>
+              until {new Date(item.snoozed_until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+            </span>
+          )}
+        </div>
+        {item.note ? (
+          <span style={{ fontSize: 12, color: theme.textMid, fontStyle: 'italic', display: 'block', marginTop: 4 }}>&ldquo;{item.note}&rdquo;</span>
+        ) : null}
+      </button>
+    </div>
   );
 }
 
 // ─── Bulk action bar ──────────────────────────────────────────────────────────
 
-function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, theme, isMobile }) {
+function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, onRestore, theme, isMobile }) {
   // Sum of pixel widths inside the toolbar (~417px including padding/gap)
   // overflows a 360px viewport. On mobile the bar spans the viewport with
   // 12px side margins instead of centring around `left: 50%`, drops the
   // divider, and reduces label/padding sizes to fit. The position stays
   // fixed-to-bottom so the bar is reachable while the resource list scrolls.
+  //
+  // Two action modes — zombie list (Dismiss/Snooze/Export) vs Hidden tab
+  // (Restore/Export). Picked by which of `onRestore` or `onDismiss` is wired
+  // by the caller; both modes share the same toolbar shape so the user gets
+  // consistent positioning + selection counts.
+  const restoreMode = !!onRestore;
   const buttonStyle = (color) => ({
     padding: isMobile ? '6px 8px' : '5px 12px',
     borderRadius: 6,
@@ -720,9 +1039,15 @@ function BulkActionBar({ count, onDismiss, onSnooze, onExport, onClear, theme, i
         {count} {isMobile ? '' : 'selected'}
       </span>
       {!isMobile && <div style={{ width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.2)' }} />}
-      <button onClick={onDismiss} style={buttonStyle('#fff')}>Dismiss</button>
-      <button onClick={onSnooze} style={buttonStyle('#60a5fa')}>{isMobile ? 'Snooze' : 'Snooze 7d'}</button>
-      <button onClick={onExport} style={buttonStyle('#34d399')}>Export</button>
+      {restoreMode ? (
+        <button onClick={onRestore} style={buttonStyle('#fbbf24')}>Restore</button>
+      ) : (
+        <>
+          <button onClick={onDismiss} style={buttonStyle('#fff')}>Dismiss</button>
+          <button onClick={onSnooze} style={buttonStyle('#60a5fa')}>{isMobile ? 'Snooze' : 'Snooze 7d'}</button>
+        </>
+      )}
+      {onExport && <button onClick={onExport} style={buttonStyle('#34d399')}>Export</button>}
       <div style={{ flex: 1 }} />
       <button
         onClick={onClear}
@@ -938,11 +1263,15 @@ export default function OverviewScreen({
   }, [resources.data, filterSvcs, dismissedSet]);
 
   function toggleService(svc) {
-    const next = new Set(filterSvcs);
-    next.has(svc) ? next.delete(svc) : next.add(svc);
-    setFilterSvcs(next);
-    // Sub-types only make sense when exactly one service is selected.
-    if (next.size !== 1) setFilterResourceTypes(new Set());
+    setFilterSvcs((prev) => {
+      const next = new Set(prev);
+      if (next.has(svc)) next.delete(svc); else next.add(svc);
+      // Sub-types only make sense when exactly one service is selected.
+      // Nested setter is fine — React batches state updates queued from inside
+      // an updater; the resource-type clear runs after filterSvcs commits.
+      if (next.size !== 1) setFilterResourceTypes(new Set());
+      return next;
+    });
   }
 
   function toggleResourceType(rt) {
@@ -1045,6 +1374,30 @@ export default function OverviewScreen({
     );
   }
 
+  // Bulk restore — fans out DELETE /v1/dismissals/{id} per selected. The
+  // `selected` Set holds dismissal row ids (item.id) in the Hidden tab, so
+  // no extra lookup is needed. Per-row errors are swallowed (race with a
+  // separate revoke would 404, which is fine — the row is gone either way).
+  // Guarded against being called from the zombie tabs (`selected` would hold
+  // resource_id strings, every revoke would 404, toast would lie "Restored 0").
+  //
+  // Parallel via Promise.allSettled — sequential await would stall the UI
+  // for hundreds of ms on lists of 50+ rows. The API has no per-account
+  // mutex on revoke, so parallel is safe.
+  async function handleBulkRestore() {
+    if (!showDismissed) return;
+    const ids = [...selected];
+    const results = await Promise.allSettled(ids.map((id) => revokeDismissal(id)));
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    queryClient.invalidateQueries({ queryKey: ['resources'] });
+    queryClient.invalidateQueries({ queryKey: ['dismissals'] });
+    setSelected(new Set());
+    toast(
+      `Restored ${succeeded} resource${succeeded !== 1 ? 's' : ''}`,
+      'success',
+    );
+  }
+
   const activeFilters = [
     ...[...filterSvcs].map(svc => ({ key: `svc:${svc}`, label: serviceConfig(svc).label })),
     ...[...filterResourceTypes].map(rt => ({ key: `rt:${rt}`, label: resourceTypeConfig(rt).label })),
@@ -1133,9 +1486,20 @@ export default function OverviewScreen({
     return sortResources(list, sortBy);
   })();
 
-  const visibleIds = listData.filter(r => r.resource_id).map(r => r.resource_id);
+  // Visible IDs depend on the active tab: dismissal-row ids in Hidden, resource
+  // ids elsewhere. The `selected` Set always holds whichever shape matches the
+  // current tab (cleared on tab switch).
+  const visibleIds = showDismissed
+    ? listData.filter(d => d.id).map(d => d.id)
+    : listData.filter(r => r.resource_id).map(r => r.resource_id);
   const allSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
-  const selectedItems = (resources.data ?? []).filter(r => selected.has(r.resource_id));
+  // Zombie-tab selection only — in Hidden mode `selected` holds dismissal-row
+  // ids, which never match `resource_id`, so this filter would silently return
+  // []. Name makes the zombie-only assumption explicit so a future caller
+  // doesn't reuse it for a dismissal-export path.
+  const zombieSelectedItems = showDismissed
+    ? []
+    : (resources.data ?? []).filter(r => selected.has(r.resource_id));
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -1185,7 +1549,14 @@ export default function OverviewScreen({
       <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} onShowCosts={onShowCosts} theme={t} isMobile={isMobile} />
 
       {/* Service breakdown */}
-      <ServiceBreakdown byService={byService} currency={summary.data?.currency ?? '$'} theme={t} isMobile={isMobile} />
+      <ServiceBreakdown
+        byService={byService}
+        currency={summary.data?.currency ?? '$'}
+        theme={t}
+        isMobile={isMobile}
+        filterSvcs={filterSvcs}
+        onToggleSvc={toggleService}
+      />
 
       {/* Filter pills */}
       <div style={{ padding: '12px 16px 0' }}>
@@ -1207,15 +1578,18 @@ export default function OverviewScreen({
         />
       </div>
 
-      {/* Tab row */}
+      {/* Tab row — switching tabs clears the selection because the `selected`
+          Set holds resource_ids in the zombie list and dismissal-row ids in
+          the Hidden tab. Mixing them would point bulk actions at the wrong
+          rows (e.g. a Restore on a resource_id, a Dismiss on a dismissal_id). */}
       <div style={{ display: 'flex', gap: 6, padding: '0 16px 0', marginTop: 4 }}>
         {[
-          { label: 'Zombies', active: zombieOnly && !showDismissed, onClick: () => { setZombieOnly(true); setShowDismissed(false); } },
-          { label: 'All', active: !zombieOnly && !showDismissed, onClick: () => { setZombieOnly(false); setShowDismissed(false); } },
+          { label: 'Zombies', active: zombieOnly && !showDismissed, onClick: () => { setZombieOnly(true); setShowDismissed(false); setSelected(new Set()); } },
+          { label: 'All', active: !zombieOnly && !showDismissed, onClick: () => { setZombieOnly(false); setShowDismissed(false); setSelected(new Set()); } },
           (dismissals.data?.length ?? 0) > 0 && {
             label: `Hidden (${dismissals.data?.length})`,
             active: showDismissed,
-            onClick: () => setShowDismissed(v => !v),
+            onClick: () => { setShowDismissed(v => !v); setSelected(new Set()); },
           },
         ].filter(Boolean).map(({ label, active, onClick }) => (
           <button
@@ -1290,12 +1664,12 @@ export default function OverviewScreen({
 
       {/* Section header */}
       <div style={{ display: 'flex', alignItems: 'center', padding: '4px 16px 8px' }}>
-        {!showDismissed && (
+        {visibleIds.length > 0 && (
           <input
             type="checkbox"
             checked={allSelected}
             onChange={() => toggleSelectAll(visibleIds)}
-            aria-label="Select all resources"
+            aria-label={showDismissed ? 'Select all hidden resources' : 'Select all resources'}
             style={{ width: 15, height: 15, accentColor: t.accent, marginRight: 10, cursor: 'pointer' }}
           />
         )}
@@ -1343,7 +1717,15 @@ export default function OverviewScreen({
       {/* Resource list */}
       {listData.map((item) => (
         showDismissed
-          ? <DismissedCard key={String(item.id)} item={item} theme={t} isDark={isDark} onSelect={onSelectZombie} />
+          ? <DismissedCard
+              key={String(item.id)}
+              item={item}
+              theme={t}
+              isDark={isDark}
+              onSelect={onSelectZombie}
+              isSelected={selected.has(item.id)}
+              onToggleSelect={toggleSelect}
+            />
           : <ResourceCard
               key={item.resource_id}
               item={item}
@@ -1355,13 +1737,18 @@ export default function OverviewScreen({
             />
       ))}
 
-      {/* Bulk action bar */}
+      {/* Bulk action bar — Hidden tab mode (Restore) is selected by passing
+          onRestore; zombie list mode wires onDismiss + onSnooze. Export is
+          only offered in zombie mode because the existing exportCSV expects
+          zombie/resource rows; dismissal rows have a different shape and
+          would need their own export path (TODO follow-up). */}
       {selected.size > 0 && (
         <BulkActionBar
           count={selected.size}
-          onDismiss={() => setBulkModal('dismiss')}
-          onSnooze={() => setBulkModal('snooze')}
-          onExport={() => exportCSV(selectedItems, { zombieOnly }, toast)}
+          onDismiss={showDismissed ? undefined : () => setBulkModal('dismiss')}
+          onSnooze={showDismissed ? undefined : () => setBulkModal('snooze')}
+          onRestore={showDismissed ? handleBulkRestore : undefined}
+          onExport={showDismissed ? undefined : () => exportCSV(zombieSelectedItems, { zombieOnly }, toast)}
           onClear={() => setSelected(new Set())}
           theme={t}
           isMobile={isMobile}

@@ -161,7 +161,9 @@ export default function AppShell() {
 
             {/* Right-side actions */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {/* Theme toggle */}
+              {/* Theme toggle — single sun/moon button that flips light↔dark.
+                  Cold-load default follows the OS preference (see ThemeContext);
+                  once the user clicks the button their choice is persisted. */}
               <button
                 onClick={toggleTheme}
                 aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
