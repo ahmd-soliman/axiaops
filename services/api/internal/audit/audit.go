@@ -9,11 +9,10 @@ package audit
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
-	"strings"
 	"time"
 
+	"axiaops.io/api/internal/httpip"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/observability"
@@ -67,7 +66,7 @@ func Record(r *http.Request, w Writer, e model.AuditEvent) {
 		e.RequestID = middleware.RequestIDFromCtx(ctx)
 	}
 	if len(e.IPAddress) == 0 {
-		e.IPAddress = clientIP(r)
+		e.IPAddress = httpip.Request(r)
 	}
 	if e.UserAgent == "" {
 		e.UserAgent = r.UserAgent()
@@ -94,31 +93,3 @@ func Record(r *http.Request, w Writer, e model.AuditEvent) {
 	observability.Global.AuditWritesTotal.WithLabelValues(e.Action, "ok").Inc()
 }
 
-// clientIP returns the best-effort client address. Honours X-Forwarded-For
-// (nginx/App Runner set this) and falls back to RemoteAddr. Returns nil if
-// neither yields a parseable IP so the audit row stores NULL rather than a
-// bogus value.
-//
-// XFF is trusted as-is — in production the service sits behind nginx/App Runner
-// which overwrites the header, so only the leftmost (true client) entry is
-// user-supplied. In `start-dev` there is no proxy and XFF is forgeable, so IPs
-// in dev/staging audit rows are advisory only and must not be used for incident
-// attribution without cross-referencing the ingress logs.
-func clientIP(r *http.Request) net.IP {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		// XFF is a comma-separated list; the leftmost entry is the original client.
-		if first, _, ok := strings.Cut(fwd, ","); ok {
-			if ip := net.ParseIP(strings.TrimSpace(first)); ip != nil {
-				return ip
-			}
-		}
-		if ip := net.ParseIP(strings.TrimSpace(fwd)); ip != nil {
-			return ip
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	return net.ParseIP(host)
-}
