@@ -68,6 +68,20 @@ func (m *mockCache) Del(_ context.Context, key string) error {
 	return nil
 }
 
+func (m *mockCache) GetDel(_ context.Context, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	v, ok := m.data[key]
+	if !ok {
+		return nil, cache.ErrNotFound
+	}
+	delete(m.data, key)
+	return v, nil
+}
+
 func (m *mockCache) Incr(_ context.Context, _ string, _ time.Duration) (int64, error) {
 	return 0, nil
 }

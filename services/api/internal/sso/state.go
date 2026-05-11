@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"axiaops.io/shared/cache"
@@ -115,45 +114,39 @@ func (s *StateStore) Persist(ctx context.Context, state string, data StateData) 
 	return nil
 }
 
-// Consume reads + deletes the state in one logical step. Returns
-// ErrStateNotFound on miss; that includes already-consumed and expired.
+// Consume atomically reads + deletes the state. Returns ErrStateNotFound on
+// miss, already-consumed, or expired. Audit M-2: two concurrent Consume
+// calls on the same state token race to a single winner — the loser gets
+// ErrStateNotFound, NOT a stale copy of the state.
 //
-// Race note: cache.Cache has no atomic Get+Del primitive, so two concurrent
-// Consume calls on the same state could both Get before either Del'd. For
-// honest IdPs this does NOT escalate beyond what the single-use
-// authorization-code constraint already permits — only one of two racing
-// callbacks successfully exchanges the code (the IdP returns invalid_grant
-// on the second). For a compromised IdP that issues reusable auth codes,
-// the state non-atomicity becomes a real replay window. Acceptable at this
-// stage; revisit when the auto-refresh + token-exchange path lands under
-// load.
-// TODO: wrap Consume with golang.org/x/sync/singleflight keyed on the state
-// token to collapse races to a single Get+Del. Symmetric with the
-// jwks.CacheKey thundering-herd TODO at oidc.go's eviction site.
+// Why atomic matters: without it, a compromised IdP that issued reusable
+// authorization codes could replay a callback against the same state token
+// (two parallel callbacks both Get the state, both validate, both mint a
+// session). Single-use of the auth code is the IdP's responsibility; we
+// don't get to depend on it.
+//
+// Backed by cache.Cache.GetDel — Redis 6.2+ GETDEL on the redis backend,
+// mutex-protected delete-after-read on the memory backend.
 func (s *StateStore) Consume(ctx context.Context, state string) (StateData, error) {
 	if state == "" {
 		return StateData{}, ErrStateNotFound
 	}
 	key := stateKeyPrefix + state
-	body, err := s.cache.Get(ctx, key)
+	body, err := s.cache.GetDel(ctx, key)
 	if errors.Is(err, cache.ErrNotFound) {
 		return StateData{}, ErrStateNotFound
 	}
 	if err != nil {
 		return StateData{}, fmt.Errorf("sso: read state: %w", err)
 	}
-	// Delete before returning. A delete failure isn't fatal — the cache TTL
-	// is the safety net — but it's worth a warn so a degraded backing store
-	// shows up in logs before it becomes a security issue.
-	if delErr := s.cache.Del(ctx, key); delErr != nil {
-		slog.Warn("sso: state delete after consume failed", "err", delErr)
-	}
 	var data StateData
 	if err := json.Unmarshal(body, &data); err != nil {
 		return StateData{}, fmt.Errorf("sso: unmarshal state: %w", err)
 	}
 	// Defense in depth against cache-TTL drift and in-memory caches that
-	// don't honour Set TTLs precisely.
+	// don't honour Set TTLs precisely. Under GETDEL the entry is already
+	// gone, so an expired hit is effectively just a costly miss — no
+	// remediation needed beyond returning ErrStateNotFound.
 	if time.Now().After(data.ExpiresAt) {
 		return StateData{}, ErrStateNotFound
 	}
