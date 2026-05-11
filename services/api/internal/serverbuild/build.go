@@ -27,7 +27,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -254,6 +256,17 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 
 		if cfg.PublicHost == "" {
 			slog.Error("sso: ceremony: PUBLIC_HOST is empty — IdP-registered redirect_uri will not match the URL the callback receives")
+		}
+		// CORS_ORIGIN=* + native-auth is a misconfiguration: the wildcard
+		// posture deliberately omits Access-Control-Allow-Credentials so
+		// the session cookie won't round-trip from a different origin,
+		// but it also widens read surface for any future endpoint that
+		// returns sensitive data over an Origin header check alone. In
+		// production set CORS_ORIGIN to the concrete dashboard origin
+		// (or leave the dashboard same-origin behind nginx). Audit M-3.
+		if v := strings.TrimSpace(os.Getenv("CORS_ORIGIN")); v == "" || v == "*" {
+			slog.Warn("api: CORS_ORIGIN is wildcard (or unset) outside DEV_MODE — set to the concrete dashboard origin in production",
+				"cors_origin", v)
 		}
 		mux.Handle("GET /v1/sso/oidc/{cid}/initiate",
 			sso.NewInitiateHandler(deps.Store, deps.SSOValidator, deps.SSOStateStore, cfg.PublicHost))
