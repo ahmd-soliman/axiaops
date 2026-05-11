@@ -82,6 +82,12 @@ export default function OnboardingInvite() {
         <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <input
             type="email"
+            // type="email" alone accepts "alice@example" (no TLD) per HTML5.
+            // The pattern requires a "." in the domain to reject typos like
+            // "alice@test.com" → "alice@test". Backend enforces the same
+            // rule via model.ValidateInvitableEmail.
+            pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
+            title="Enter an email like alice@example.com"
             value={row.email}
             onChange={(e) => updateRow(i, { email: e.target.value })}
             placeholder="name@example.com"
