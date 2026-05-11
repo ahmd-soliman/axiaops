@@ -55,6 +55,17 @@ func (m *mockCache) Del(_ context.Context, key string) error {
 	return nil
 }
 
+func (m *mockCache) GetDel(_ context.Context, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	v, ok := m.data[key]
+	if !ok {
+		return nil, cache.ErrNotFound
+	}
+	delete(m.data, key)
+	return v, nil
+}
+
 func (m *mockCache) Incr(_ context.Context, _ string, _ time.Duration) (int64, error) {
 	return 0, nil
 }
@@ -342,6 +353,77 @@ func TestValidator_ValidateIDToken_RejectsNonceMismatch(t *testing.T) {
 	_, err := v.ValidateIDToken(context.Background(), f.connection("conn-1"), f.SignToken(c), "expected-nonce")
 	if !errors.Is(err, sso.ErrIDTokenInvalid) {
 		t.Fatalf("expected ErrIDTokenInvalid for nonce mismatch, got %v", err)
+	}
+}
+
+// ─── audit M-6: multi-aud azp enforcement (OIDC §3.1.3.7 step 5) ────────────
+
+// TestValidator_ValidateIDToken_AcceptsMultiAudWithMatchingAzp — when aud
+// carries multiple values, OIDC requires the RP to also verify azp == its
+// own client_id. Matching azp is the happy path.
+func TestValidator_ValidateIDToken_AcceptsMultiAudWithMatchingAzp(t *testing.T) {
+	f := newIDPFixture(t)
+	v := sso.NewValidator(newMockCache())
+	v.SetHTTPClient(f.server.Client())
+
+	conn := f.connection("conn-1")
+	c := validClaims(f)
+	c["aud"] = []any{conn.OIDCClientID, "another-rp"}
+	c["azp"] = conn.OIDCClientID
+	if _, err := v.ValidateIDToken(context.Background(), conn, f.SignToken(c), ""); err != nil {
+		t.Fatalf("multi-aud with matching azp rejected: %v", err)
+	}
+}
+
+// TestValidator_ValidateIDToken_RejectsMultiAudWithWrongAzp — audit M-6 core:
+// an IdP issues a token to client-A (aud=[A,B], azp=A). client-B receives it
+// somehow (replay across RPs registered with the same IdP). audienceMatches
+// alone returns true because B is in the aud set. The azp check catches it.
+func TestValidator_ValidateIDToken_RejectsMultiAudWithWrongAzp(t *testing.T) {
+	f := newIDPFixture(t)
+	v := sso.NewValidator(newMockCache())
+	v.SetHTTPClient(f.server.Client())
+
+	conn := f.connection("conn-1") // we are this RP
+	c := validClaims(f)
+	c["aud"] = []any{conn.OIDCClientID, "another-rp"}
+	c["azp"] = "another-rp" // token issued FOR another-rp
+	_, err := v.ValidateIDToken(context.Background(), conn, f.SignToken(c), "")
+	if !errors.Is(err, sso.ErrIDTokenInvalid) {
+		t.Fatalf("expected ErrIDTokenInvalid for multi-aud token with wrong azp, got %v", err)
+	}
+}
+
+// TestValidator_ValidateIDToken_RejectsMultiAudMissingAzp — OIDC spec says
+// multi-aud REQUIRES azp. A token with multi-aud and no azp is malformed.
+func TestValidator_ValidateIDToken_RejectsMultiAudMissingAzp(t *testing.T) {
+	f := newIDPFixture(t)
+	v := sso.NewValidator(newMockCache())
+	v.SetHTTPClient(f.server.Client())
+
+	conn := f.connection("conn-1")
+	c := validClaims(f)
+	c["aud"] = []any{conn.OIDCClientID, "another-rp"}
+	// azp deliberately not set
+	_, err := v.ValidateIDToken(context.Background(), conn, f.SignToken(c), "")
+	if !errors.Is(err, sso.ErrIDTokenInvalid) {
+		t.Fatalf("expected ErrIDTokenInvalid for multi-aud token without azp, got %v", err)
+	}
+}
+
+// TestValidator_ValidateIDToken_SingleAudIgnoresAzp — for the common
+// single-aud case, azp is OPTIONAL. A token with one aud and no azp must
+// still pass (otherwise we'd break every well-behaved IdP).
+func TestValidator_ValidateIDToken_SingleAudIgnoresAzp(t *testing.T) {
+	f := newIDPFixture(t)
+	v := sso.NewValidator(newMockCache())
+	v.SetHTTPClient(f.server.Client())
+
+	conn := f.connection("conn-1")
+	c := validClaims(f)
+	// aud is a single string by default; azp absent
+	if _, err := v.ValidateIDToken(context.Background(), conn, f.SignToken(c), ""); err != nil {
+		t.Fatalf("single-aud token without azp rejected: %v", err)
 	}
 }
 

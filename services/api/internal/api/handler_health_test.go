@@ -22,6 +22,7 @@ type pingableCache struct {
 func (p *pingableCache) Get(context.Context, string) ([]byte, error)              { return nil, nil }
 func (p *pingableCache) Set(context.Context, string, []byte, time.Duration) error { return nil }
 func (p *pingableCache) Del(context.Context, string) error                        { return nil }
+func (p *pingableCache) GetDel(context.Context, string) ([]byte, error)           { return nil, nil }
 func (p *pingableCache) Incr(context.Context, string, time.Duration) (int64, error) {
 	return 0, nil
 }
