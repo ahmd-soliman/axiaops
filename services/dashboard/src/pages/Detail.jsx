@@ -65,6 +65,7 @@ export default function Detail() {
         queryClient.invalidateQueries({ queryKey: ['resources'] });
         queryClient.invalidateQueries({ queryKey: ['zombies'] });
         queryClient.invalidateQueries({ queryKey: ['dismissals'] });
+        queryClient.invalidateQueries({ queryKey: ['summary'] });
       }}
     />
   );
