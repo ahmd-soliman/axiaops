@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { serviceConfig } from '../components/serviceConfig';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
-import { dismissZombie, revokeDismissal } from '../api/client';
+import { dismissZombie, fetchDismissals, revokeDismissal } from '../api/client';
 import { Overlay, Spinner } from '../components/primitives';
 
 const DISMISS_REASONS = [
@@ -110,6 +110,8 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
   const [note, setNote]       = useState('');
   const [snoozeDays, setSnoozeDays] = useState(7);
   const [submitting, setSubmitting] = useState(false);
+  const [restoreConfirmVisible, setRestoreConfirmVisible] = useState(false);
+  const [restoring, setRestoring] = useState(false);
 
   const isDismissed = !!zombie.dismissal_id && zombie.dismiss_action === 'dismiss';
   const isSnoozed   = !!zombie.dismissal_id && zombie.dismiss_action === 'snooze';
@@ -124,7 +126,7 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
 
   async function handleSubmit() {
     if (selectedReason === 'other' && !note.trim()) {
-      alert('Please add a note when selecting "Other".');
+      toast('Please add a note when selecting "Other".', 'error');
       return;
     }
     setSubmitting(true);
@@ -145,10 +147,14 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
       if (onDismissed) onDismissed();
       onBack();
     } catch (err) {
-      const msg = err.message === 'already_dismissed'
-        ? 'This resource is already dismissed. Restore it first.'
-        : 'Something went wrong. Please try again.';
-      alert(msg);
+      if (err.message === 'already_dismissed') {
+        // Server says a dismissal already exists for this fingerprint but the
+        // local resource list doesn't carry its id (stale or race). Open the
+        // restore confirm modal which fetches the dismissal id and revokes.
+        setRestoreConfirmVisible(true);
+      } else {
+        toast('Something went wrong. Please try again.', 'error');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -162,7 +168,48 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
       if (onDismissed) onDismissed();
       onBack();
     } catch {
-      alert('Could not restore this resource. Please try again.');
+      toast('Could not restore this resource. Please try again.', 'error');
+    }
+  }
+
+  // Resolves the dismissal id for the current resource by fingerprint, then
+  // revokes it. Used by the restore-confirm modal when the local zombie row
+  // didn't carry dismissal_id (the "already_dismissed" 409 path on dismiss).
+  async function handleRestoreFromConflict() {
+    setRestoring(true);
+    try {
+      const dismissals = await fetchDismissals(zombie.internal_account_id);
+      const match = dismissals.find(d =>
+        d.provider === zombie.provider &&
+        d.service === zombie.service &&
+        d.region === zombie.region &&
+        d.resource_id === zombie.resource_id,
+      );
+      if (!match) {
+        // Dismissal already revoked elsewhere (concurrent operator action).
+        // Refresh parent state and close the modal but DO NOT navigate back —
+        // the user's intent was "restore"; we want them to see the page
+        // re-render with Restore replaced by Dismiss/Snooze so they understand
+        // the dismissal is already gone.
+        toast('Dismissal already restored elsewhere — refreshed.', 'info');
+        setRestoreConfirmVisible(false);
+        setRestoring(false);
+        if (onDismissed) onDismissed();
+        return;
+      }
+      await revokeDismissal(match.id);
+      toast('Resource restored to zombie list', 'success');
+      // Clear local state before triggering navigation — once onBack() runs the
+      // component unmounts and any subsequent setState would be a no-op (or a
+      // React 18 unmount warning if logic changes).
+      setRestoreConfirmVisible(false);
+      setRestoring(false);
+      if (onDismissed) onDismissed();
+      onBack();
+      return;
+    } catch {
+      toast('Could not restore this resource. Please try again.', 'error');
+      setRestoring(false);
     }
   }
 
@@ -256,8 +303,12 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
             )}
           </div>
 
-          {/* Action buttons */}
-          {zombie.is_zombie && (
+          {/* Action buttons — show whenever the resource is actionable: an
+              active zombie (offer Dismiss/Snooze) or a dismissed/snoozed
+              resource (offer Restore). A dismissed resource may have dropped
+              off the latest scan and not carry is_zombie=true; the dismissal
+              state alone still warrants the Restore action. */}
+          {(zombie.is_zombie || zombie.dismissal_id) && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {zombie.dismissal_id ? (
                 <button
@@ -465,6 +516,53 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
               {submitting
                 ? <Spinner size={20} color={t.textOnDark} />
                 : <span style={{ color: t.textOnDark, fontWeight: 800, fontSize: 14 }}>{modalAction === 'dismiss' ? 'Dismiss' : 'Snooze'}</span>
+              }
+            </button>
+          </div>
+        </div>
+      </Overlay>
+
+      {/* Restore-from-conflict Modal — opens when a dismiss attempt 409s because
+          a dismissal already exists server-side. Offers a one-click restore
+          (resolves the dismissal id by fingerprint, then revokes). */}
+      <Overlay visible={restoreConfirmVisible} onClose={() => !restoring && setRestoreConfirmVisible(false)}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Already dismissed"
+          onClick={e => e.stopPropagation()}
+          style={{
+            backgroundColor: t.surface,
+            borderRadius: 20,
+            padding: 24,
+            paddingBottom: 32,
+            maxWidth: 420,
+            width: '90vw',
+            boxShadow: '0 16px 40px rgba(0,0,0,0.3)',
+          }}
+        >
+          <span style={{ fontSize: 18, fontWeight: 800, color: t.text, display: 'block', marginBottom: 8 }}>
+            Already dismissed
+          </span>
+          <span style={{ fontSize: 13, color: t.textMid, display: 'block', marginBottom: 22, lineHeight: 1.5 }}>
+            This resource already has an active dismissal. Restore it to make changes — it will return to the zombie list.
+          </span>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={() => setRestoreConfirmVisible(false)}
+              disabled={restoring}
+              style={{ flex: 1, padding: '13px', borderRadius: 10, border: `1px solid ${t.border}`, backgroundColor: 'transparent', cursor: restoring ? 'not-allowed' : 'pointer', opacity: restoring ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <span style={{ color: t.textMid, fontWeight: 700, fontSize: 14 }}>Cancel</span>
+            </button>
+            <button
+              onClick={handleRestoreFromConflict}
+              disabled={restoring}
+              style={{ flex: 1, padding: '13px', borderRadius: 10, backgroundColor: t.success, border: 'none', cursor: restoring ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              {restoring
+                ? <Spinner size={20} color={t.textOnDark} />
+                : <span style={{ color: t.textOnDark, fontWeight: 800, fontSize: 14 }}>↩ Restore</span>
               }
             </button>
           </div>

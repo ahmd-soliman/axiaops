@@ -596,25 +596,48 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect, theme, isDar
 
 // ─── Dismissed resource card ──────────────────────────────────────────────────
 
-function DismissedCard({ item, theme, isDark, cost }) {
+function DismissedCard({ item, theme, isDark, onSelect }) {
   const cfg = serviceConfig(item.service);
   const reasonLabel = {
     intentional: 'Intentional', scheduled_deletion: 'Scheduled', false_positive: 'False positive',
     cost_accepted: 'Cost accepted', other: 'Other',
   }[item.reason] ?? item.reason;
   const isSnoozed = item.action === 'snooze';
+  const [focused, setFocused] = useState(false);
+
+  const handleSelect = () => {
+    onSelect?.({
+      resource_id: item.resource_id,
+      internal_account_id: item.account_id,
+      region: item.region,
+      service: item.service,
+    });
+  };
 
   return (
-    <div style={{
-      backgroundColor: theme.card,
-      marginLeft: 16,
-      marginRight: 16,
-      marginBottom: 8,
-      borderRadius: 10,
-      padding: '12px 14px',
-      border: `1px solid ${theme.border}`,
-      opacity: 0.75,
-    }}>
+    <button
+      type="button"
+      onClick={handleSelect}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={{
+        backgroundColor: theme.card,
+        marginLeft: 16,
+        marginRight: 16,
+        marginBottom: 8,
+        borderRadius: 10,
+        padding: '12px 14px',
+        border: `1px solid ${theme.border}`,
+        opacity: 0.75,
+        cursor: onSelect ? 'pointer' : 'default',
+        textAlign: 'left',
+        width: 'calc(100% - 32px)',
+        font: 'inherit',
+        color: 'inherit',
+        outline: focused ? `2px solid ${theme.accent}` : 'none',
+        outlineOffset: 2,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
         <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{cfg.label}</span>
@@ -625,9 +648,9 @@ function DismissedCard({ item, theme, isDark, cost }) {
           </span>
         </span>
         <div style={{ flex: 1 }} />
-        {cost && (
+        {typeof item.monthly_cost === 'number' && (
           <span style={{ fontSize: 14, fontWeight: 700, color: theme.accent, flexShrink: 0 }}>
-            {cost.currency} {cost.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted }}>/mo</span>
+            {item.currency} {item.monthly_cost.toFixed(2)}<span style={{ fontSize: 10, fontWeight: 500, color: theme.textMuted }}>/mo</span>
           </span>
         )}
       </div>
@@ -650,7 +673,7 @@ function DismissedCard({ item, theme, isDark, cost }) {
       {item.note ? (
         <span style={{ fontSize: 12, color: theme.textMid, fontStyle: 'italic', display: 'block', marginTop: 4 }}>"{item.note}"</span>
       ) : null}
-    </div>
+    </button>
   );
 }
 
@@ -718,12 +741,13 @@ function BulkDismissModal({ visible, onClose, onConfirm, count, modalAction, the
   const [reason, setReason]  = useState('intentional');
   const [note, setNote]      = useState('');
   const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
 
   if (!visible) return null;
 
   async function handleConfirm() {
     if (reason === 'other' && !note.trim()) {
-      alert('Please add a note when selecting "Other".');
+      toast('Please add a note when selecting "Other".', 'error');
       return;
     }
     setLoading(true);
@@ -886,19 +910,6 @@ export default function OverviewScreen({
     () => Object.entries(summary.data?.by_service ?? {}).sort((a, b) => b[1].savings - a[1].savings),
     [summary.data],
   );
-
-  // Last-known monthly cost per resource_id, sourced from the current scan.
-  // Dismissed/snoozed cards look this up to render cost on the hidden view.
-  // Orphaned dismissals (resource no longer in the latest scan) get undefined
-  // and render no cost — see GitLab issue for backend enrichment that closes
-  // that edge case.
-  const costsById = useMemo(() => {
-    const m = new Map();
-    for (const r of resources.data ?? []) {
-      if (r.resource_id) m.set(r.resource_id, { monthly_cost: r.monthly_cost, currency: r.currency });
-    }
-    return m;
-  }, [resources.data]);
 
   // Hidden-view sub-pill counts. Lifted above the isLoading/isError early
   // returns so the hook order stays stable across renders.
@@ -1332,7 +1343,7 @@ export default function OverviewScreen({
       {/* Resource list */}
       {listData.map((item) => (
         showDismissed
-          ? <DismissedCard key={String(item.id)} item={item} theme={t} isDark={isDark} cost={costsById.get(item.resource_id)} />
+          ? <DismissedCard key={String(item.id)} item={item} theme={t} isDark={isDark} onSelect={onSelectZombie} />
           : <ResourceCard
               key={item.resource_id}
               item={item}
