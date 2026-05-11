@@ -243,6 +243,38 @@ func TestListDismissals_ReturnsDismissals(t *testing.T) {
 	}
 }
 
+func TestListDismissals_RoundTripsLastKnownCost(t *testing.T) {
+	cost := 42.50
+	store := NewMockStore().WithDismissals([]model.DismissAction{
+		{ID: 1, AccountID: "acc-1", Action: "dismiss", Reason: "intentional", MonthlyCost: &cost, Currency: "USD"},
+		{ID: 2, AccountID: "acc-1", Action: "dismiss", Reason: "intentional"}, // orphaned — nil/empty
+	})
+	h := newHandlerWith(store)
+	mux := newMux(h)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/dismissals"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	// Inspect raw JSON: orphan row must omit monthly_cost / currency entirely
+	// (omitempty), priced row must include both.
+	body := w.Body.String()
+	if !strings.Contains(body, `"monthly_cost":42.5`) {
+		t.Errorf("expected monthly_cost in priced row, body: %s", body)
+	}
+	if !strings.Contains(body, `"currency":"USD"`) {
+		t.Errorf("expected currency in priced row, body: %s", body)
+	}
+	if strings.Count(body, `"monthly_cost"`) != 1 {
+		t.Errorf("expected monthly_cost only on the priced row (orphan must omit), body: %s", body)
+	}
+	if strings.Count(body, `"currency"`) != 1 {
+		t.Errorf("expected currency only on the priced row (orphan must omit), body: %s", body)
+	}
+}
+
 func TestListDismissals_StoreError_Returns500(t *testing.T) {
 	store := NewMockStore().WithListActiveDismissalsError(errors.New("db down"))
 	h := newHandlerWith(store)
