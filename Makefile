@@ -265,7 +265,7 @@ test-integration:
 # API integration tests only
 test-integration-api:
 	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
-	cd test-infra/integration && docker-compose build migrate init-organization api ingestion
+	cd test-infra/integration && docker-compose build migrate init-organization api ingestion api-tests
 	cd test-infra/integration && docker-compose up -d postgres redis && \
 		docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
 		(for i in {1..30}; do docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)

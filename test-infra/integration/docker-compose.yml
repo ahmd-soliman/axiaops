@@ -82,6 +82,10 @@ services:
       API_ADDR: ":8080"
       DEV_MODE: "true"
       DEV_ORGANIZATION_ID: "ci-tenant"
+      # Keep the integration-test cap at the legacy value so the rate-limit
+      # tests can drain a bucket in 60 requests rather than 1000 (default).
+      # Production envs leave RATE_LIMIT_MAX unset → middleware.DefaultRateLimitMax.
+      RATE_LIMIT_MAX: "60"
       ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
     depends_on:
       migrate:

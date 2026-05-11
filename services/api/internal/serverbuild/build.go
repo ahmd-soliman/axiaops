@@ -68,6 +68,10 @@ type Config struct {
 	// RedisConfigured is true when REDIS_URL was set. Drives whether
 	// rate-limiting and the readyz Redis check are wired in.
 	RedisConfigured bool
+	// RateLimitMax is the per-minute request cap per (organization, user).
+	// 0 (or negative) → middleware.DefaultRateLimitMax. Composition roots
+	// parse RATE_LIMIT_MAX from the environment.
+	RateLimitMax int
 
 	// StuckScanTimeout is the cutoff the stuck-scan recovery ticker uses.
 	StuckScanTimeout time.Duration
@@ -289,7 +293,7 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	// counters; the in-memory cache fallback would be per-replica which
 	// is meaningless under autoscaling).
 	if cfg.RedisConfigured && deps.Cache != nil {
-		limiter := middleware.NewRateLimiter(deps.Cache)
+		limiter := middleware.NewRateLimiter(deps.Cache, cfg.RateLimitMax)
 		root = limiter.Wrap(root)
 	}
 
