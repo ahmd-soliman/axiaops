@@ -8,7 +8,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/mail"
 	"strings"
 	"time"
 
@@ -106,8 +105,8 @@ func (h *Handler) createInvitation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "email and role are required")
 		return
 	}
-	if _, err := mail.ParseAddress(req.Email); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_email", "invalid email")
+	if err := model.ValidateInvitableEmail(req.Email); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_email", err.Error())
 		return
 	}
 	if !model.ValidInvitationRoles[req.Role] {
