@@ -20,7 +20,7 @@ import { Spinner } from '../../../components/primitives';
 // and forces a delete + re-add.
 
 export default function Domains() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const qc = useQueryClient();
 
   const [adding, setAdding] = useState(false);
@@ -71,7 +71,7 @@ export default function Domains() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <p style={{ margin: 0, fontSize: 13, color: t.textMid }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-mid)' }}>
           Verified domains route logins to a connection. Add a domain, publish the TXT record we hand you, then click Verify.
         </p>
         <button
@@ -79,14 +79,14 @@ export default function Domains() {
           onClick={() => setAdding(true)}
           disabled={addDisabled}
           title={addTitle}
-          style={{ ...primaryButton(t), opacity: addDisabled ? 0.5 : 1, cursor: addDisabled ? 'not-allowed' : 'pointer' }}
+          style={{ ...primaryButton(), opacity: addDisabled ? 0.5 : 1, cursor: addDisabled ? 'not-allowed' : 'pointer' }}
         >
           Add domain
         </button>
       </div>
 
       {topError && (
-        <Banner color={isDark ? '#fca5a5' : '#b91c1c'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
+        <Banner color={'var(--color-error)'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
           {topError}
         </Banner>
       )}
@@ -94,30 +94,30 @@ export default function Domains() {
       {domains.isPending ? (
         <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
       ) : domains.isError ? (
-        <div style={{ padding: 24, color: t.error }}>Failed to load domains.</div>
+        <div style={{ padding: 24, color: 'var(--color-error)' }}>Failed to load domains.</div>
       ) : (domains.data || []).length === 0 ? (
-        <EmptyState t={t} />
+        <EmptyState />
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${t.border}` }}>
-              <Th t={t}>Domain</Th>
-              <Th t={t}>Connection</Th>
-              <Th t={t}>Status</Th>
-              <Th t={t}>Verified</Th>
-              <Th t={t}>Expires</Th>
-              <Th t={t}></Th>
+            <tr style={{ borderBottom: `1px solid var(--color-border)` }}>
+              <Th>Domain</Th>
+              <Th>Connection</Th>
+              <Th>Status</Th>
+              <Th>Verified</Th>
+              <Th>Expires</Th>
+              <Th></Th>
             </tr>
           </thead>
           <tbody>
             {(domains.data || []).map((d) => (
-              <tr key={d.id} style={{ borderBottom: `1px solid ${t.border}` }}>
-                <Td t={t}><code style={{ fontSize: 13 }}>{d.domain}</code></Td>
-                <Td t={t}>{connLabel(d.sso_connection_id)}</Td>
-                <Td t={t}><StatusBadge status={d.status} t={t} /></Td>
-                <Td t={t}>{formatDate(d.verified_at)}</Td>
-                <Td t={t}>{formatDate(d.expires_at)}</Td>
-                <Td t={t}>
+              <tr key={d.id} style={{ borderBottom: `1px solid var(--color-border)` }}>
+                <Td><code style={{ fontSize: 13 }}>{d.domain}</code></Td>
+                <Td>{connLabel(d.sso_connection_id)}</Td>
+                <Td><StatusBadge status={d.status} /></Td>
+                <Td>{formatDate(d.verified_at)}</Td>
+                <Td>{formatDate(d.expires_at)}</Td>
+                <Td>
                   <button
                     type="button"
                     onClick={() => {
@@ -125,7 +125,7 @@ export default function Domains() {
                       verifyMutation.mutate({ id: d.id, domain: d.domain });
                     }}
                     disabled={verifyingId === d.id}
-                    style={ghostButton(t)}
+                    style={ghostButton()}
                   >
                     {verifyingId === d.id ? 'Verifying…' : d.status === 'verified' ? 'Re-verify' : 'Verify'}
                   </button>
@@ -140,7 +140,7 @@ export default function Domains() {
                       }
                     }}
                     disabled={deletingId === d.id}
-                    style={{ ...ghostButton(t), color: t.error, marginLeft: 6 }}
+                    style={{ ...ghostButton(), color: 'var(--color-error)', marginLeft: 6 }}
                   >
                     {deletingId === d.id ? 'Deleting…' : 'Delete'}
                   </button>
@@ -156,7 +156,6 @@ export default function Domains() {
           connections={conns.data || []}
           onClose={() => setAdding(false)}
           onCreated={invalidate}
-          t={t}
           isDark={isDark}
         />
       )}
@@ -164,7 +163,7 @@ export default function Domains() {
   );
 }
 
-function AddDomainModal({ connections, onClose, onCreated, t, isDark }) {
+function AddDomainModal({ connections, onClose, onCreated, isDark }) {
   const [connectionId, setConnectionId] = useState(connections[0]?.id || '');
   const [domain, setDomain] = useState('');
   const [created, setCreated] = useState(null); // server response with verification_token
@@ -181,23 +180,22 @@ function AddDomainModal({ connections, onClose, onCreated, t, isDark }) {
 
   if (created) {
     return (
-      <ModalShell title="Domain added — publish this TXT record" onClose={onClose} t={t} isDark={isDark}>
-        <p style={{ margin: 0, marginBottom: 12, fontSize: 13, color: t.textMid }}>
+      <ModalShell title="Domain added — publish this TXT record" onClose={onClose} isDark={isDark}>
+        <p style={{ margin: 0, marginBottom: 12, fontSize: 13, color: 'var(--color-text-mid)' }}>
           Add this TXT record at the apex of <strong>{created.domain}</strong>. Then come back and click <strong>Verify</strong>.
         </p>
-        <RecordDisplay label="Host"  value="@" t={t} isDark={isDark} />
-        <RecordDisplay label="Type"  value="TXT" t={t} isDark={isDark} />
+        <RecordDisplay label="Host"  value="@" isDark={isDark} />
+        <RecordDisplay label="Type"  value="TXT" isDark={isDark} />
         <RecordDisplay
           label="Value"
           value={`axiaops-domain-verification=${created.verification_token}`}
-          t={t}
           isDark={isDark}
         />
         <Banner color={isDark ? '#fbbf24' : '#92400e'} bg={isDark ? 'rgba(251,191,36,0.12)' : '#fef3c7'}>
           This token is only shown <strong>once</strong>. Copy it before closing — once dismissed, you'll have to delete and re-add the domain to see it again.
         </Banner>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-          <button type="button" onClick={onClose} style={primaryButton(t)}>Done</button>
+          <button type="button" onClick={onClose} style={primaryButton()}>Done</button>
         </div>
       </ModalShell>
     );
@@ -210,7 +208,6 @@ function AddDomainModal({ connections, onClose, onCreated, t, isDark }) {
       title="Add domain"
       onClose={onClose}
       lockClose={createMutation.isPending}
-      t={t}
       isDark={isDark}
     >
       <form
@@ -218,7 +215,7 @@ function AddDomainModal({ connections, onClose, onCreated, t, isDark }) {
         style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
       >
         <Field label="Connection" hint="Logins from this domain redirect to this IdP.">
-          <select value={connectionId} onChange={(e) => setConnectionId(e.target.value)} style={inputStyle(t)}>
+          <select value={connectionId} onChange={(e) => setConnectionId(e.target.value)} style={inputStyle()}>
             {connections.map((c) => (
               <option key={c.id} value={c.id}>{c.label} ({c.protocol})</option>
             ))}
@@ -232,16 +229,16 @@ function AddDomainModal({ connections, onClose, onCreated, t, isDark }) {
             placeholder="acme.com"
             required
             autoFocus
-            style={inputStyle(t)}
+            style={inputStyle()}
           />
         </Field>
-        {error && <Banner color={t.error} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>{error}</Banner>}
+        {error && <Banner color={'var(--color-error)'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>{error}</Banner>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-          <button type="button" onClick={onClose} style={ghostButton(t)}>Cancel</button>
+          <button type="button" onClick={onClose} style={ghostButton()}>Cancel</button>
           <button
             type="submit"
             disabled={submitDisabled}
-            style={{ ...primaryButton(t), opacity: submitDisabled ? 0.5 : 1, cursor: submitDisabled ? 'not-allowed' : 'pointer' }}
+            style={{ ...primaryButton(), opacity: submitDisabled ? 0.5 : 1, cursor: submitDisabled ? 'not-allowed' : 'pointer' }}
           >
             {createMutation.isPending ? 'Creating…' : 'Create + show TXT record'}
           </button>
@@ -251,11 +248,11 @@ function AddDomainModal({ connections, onClose, onCreated, t, isDark }) {
   );
 }
 
-function RecordDisplay({ label, value, t, isDark }) {
+function RecordDisplay({ label, value, isDark }) {
   const [copied, setCopied] = useState(false);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-      <span style={{ width: 60, fontSize: 11, color: t.textMuted, fontWeight: 600 }}>{label}</span>
+      <span style={{ width: 60, fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600 }}>{label}</span>
       <code
         style={{
           flex: 1,
@@ -263,7 +260,7 @@ function RecordDisplay({ label, value, t, isDark }) {
           backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f3f4f6',
           borderRadius: 4,
           fontSize: 12,
-          color: t.text,
+          color: 'var(--color-text)',
           overflowX: 'auto',
           whiteSpace: 'nowrap',
         }}
@@ -281,7 +278,7 @@ function RecordDisplay({ label, value, t, isDark }) {
             /* clipboard blocked — leave button label unchanged */
           }
         }}
-        style={ghostButton(t)}
+        style={ghostButton()}
       >
         {copied ? 'Copied' : 'Copy'}
       </button>
@@ -289,7 +286,7 @@ function RecordDisplay({ label, value, t, isDark }) {
   );
 }
 
-function ModalShell({ children, onClose, lockClose, t, isDark, title }) {
+function ModalShell({ children, onClose, lockClose, isDark, title }) {
   // Backdrop dismissal is blocked while lockClose is true — keeps the
   // create-then-show-TXT-token flow stable through the in-flight mutation
   // and prevents setError on an unmounted modal swallowing failures.
@@ -307,7 +304,7 @@ function ModalShell({ children, onClose, lockClose, t, isDark, title }) {
         style={{
           width: 560, maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto',
           backgroundColor: isDark ? '#1f2937' : '#fff',
-          color: t.text,
+          color: 'var(--color-text)',
           borderRadius: 8, padding: 20,
           boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
         }}
@@ -329,22 +326,22 @@ function Field({ label, hint, children }) {
   );
 }
 
-function EmptyState({ t }) {
+function EmptyState() {
   return (
-    <div style={{ padding: 32, textAlign: 'center', color: t.textMuted, fontSize: 13 }}>
+    <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 13 }}>
       No domains verified yet. Add one to start routing logins from your corporate email domain.
     </div>
   );
 }
 
-function StatusBadge({ status, t }) {
+function StatusBadge({ status }) {
   // Inline colored label — no pill chrome. Color carries the state cue.
   const fg = {
     verified: '#10b981',
     pending:  '#f59e0b',
     stale:    '#ef4444',
-    revoked:  t.textMuted,
-  }[status] || t.textMuted;
+    revoked:  'var(--color-text-muted)',
+  }[status] || 'var(--color-text-muted)';
   return (
     <span style={{ fontSize: 11, fontWeight: 600, color: fg, letterSpacing: 0.2 }}>
       {status}
@@ -352,16 +349,16 @@ function StatusBadge({ status, t }) {
   );
 }
 
-function Th({ t, children }) {
+function Th({ children }) {
   return (
-    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: t.textMuted, letterSpacing: 0.3 }}>
+    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: 'var(--color-text-muted)', letterSpacing: 0.3 }}>
       {children}
     </th>
   );
 }
 
-function Td({ t, children }) {
-  return <td style={{ padding: '10px 12px', color: t.text }}>{children}</td>;
+function Td({ children }) {
+  return <td style={{ padding: '10px 12px', color: 'var(--color-text)' }}>{children}</td>;
 }
 
 function Banner({ children, color, bg }) {
@@ -372,39 +369,39 @@ function Banner({ children, color, bg }) {
   );
 }
 
-function inputStyle(t) {
+function inputStyle() {
   return {
     padding: '6px 10px',
-    border: `1px solid ${t.border}`,
+    border: `1px solid var(--color-border)`,
     borderRadius: 6,
     fontSize: 13,
-    backgroundColor: t.bg,
-    color: t.text,
+    backgroundColor: 'var(--color-bg)',
+    color: 'var(--color-text)',
     width: '100%',
     boxSizing: 'border-box',
   };
 }
 
-function primaryButton(t) {
+function primaryButton() {
   return {
     padding: '7px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: t.accent,
-    color: t.textOnDark,
+    backgroundColor: 'var(--color-accent)',
+    color: 'var(--color-text-on-dark)',
     fontWeight: 600,
     fontSize: 13,
     cursor: 'pointer',
   };
 }
 
-function ghostButton(t) {
+function ghostButton() {
   return {
     padding: '5px 10px',
-    border: `1px solid ${t.border}`,
+    border: `1px solid var(--color-border)`,
     borderRadius: 6,
     backgroundColor: 'transparent',
-    color: t.text,
+    color: 'var(--color-text)',
     fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',

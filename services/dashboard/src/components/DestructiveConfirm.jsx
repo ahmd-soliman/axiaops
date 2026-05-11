@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { useTheme } from '../theme/ThemeContext';
 import { Overlay } from './primitives';
 
 // Type-to-confirm hook + modal, shared by every page that calls a
@@ -45,7 +44,6 @@ export function useDestructiveConfirm({ target, mutationFn, successMessage, onSu
 }
 
 export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, confirmLabel }) {
-  const { theme: t } = useTheme();
   const targetMissing = ctrl.target === '';
 
   return (
@@ -55,7 +53,7 @@ export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, con
         aria-modal="true"
         aria-label={title}
         style={{
-          backgroundColor: t.surface,
+          backgroundColor: 'var(--color-surface)',
           borderRadius: 10,
           padding: 20,
           maxWidth: 480,
@@ -63,16 +61,16 @@ export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, con
           boxShadow: '0 12px 32px rgba(0,0,0,0.3)',
         }}
       >
-        <h3 style={{ margin: 0, marginBottom: 12, fontSize: 16, fontWeight: 700, color: t.error }}>{title}</h3>
-        <p style={pText(t)}>{warning}</p>
+        <h3 style={{ margin: 0, marginBottom: 12, fontSize: 16, fontWeight: 700, color: 'var(--color-error)' }}>{title}</h3>
+        <p style={pText}>{warning}</p>
         {targetMissing ? (
           <Banner color="#fbbf24" bg="rgba(251,191,36,0.15)">
             {targetLabel} is unavailable; cannot proceed safely. Reload and try again.
           </Banner>
         ) : (
           <>
-            <p style={pText(t)}>
-              Type the {targetLabel} <strong style={{ color: t.text }}>{ctrl.target}</strong> to confirm:
+            <p style={pText}>
+              Type the {targetLabel} <strong style={{ color: 'var(--color-text)' }}>{ctrl.target}</strong> to confirm:
             </p>
             <input
               type="text"
@@ -82,25 +80,25 @@ export function DestructiveConfirmModal({ ctrl, title, warning, targetLabel, con
               placeholder={ctrl.target}
               style={{
                 padding: '8px 10px',
-                border: `1px solid ${t.border}`,
+                border: '1px solid var(--color-border)',
                 borderRadius: 6,
                 fontSize: 13,
-                backgroundColor: t.bg,
-                color: t.text,
+                backgroundColor: 'var(--color-bg)',
+                color: 'var(--color-text)',
                 width: '100%',
                 boxSizing: 'border-box',
               }}
             />
           </>
         )}
-        {ctrl.error && <Banner color="#fca5a5" bg="rgba(239,68,68,0.15)">{ctrl.error}</Banner>}
+        {ctrl.error && <Banner color={'var(--color-error)'} bg="rgba(239,68,68,0.15)">{ctrl.error}</Banner>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-          <button type="button" onClick={ctrl.close} style={ghostBtn(t)}>Cancel</button>
+          <button type="button" onClick={ctrl.close} style={ghostBtn}>Cancel</button>
           <button
             type="button"
             onClick={ctrl.confirm}
             disabled={!ctrl.matches || ctrl.isPending}
-            style={dangerBtn(t, !ctrl.matches || ctrl.isPending)}
+            style={dangerBtn(!ctrl.matches || ctrl.isPending)}
           >
             {ctrl.isPending ? 'Working…' : confirmLabel}
           </button>
@@ -118,30 +116,26 @@ function Banner({ children, color, bg }) {
   );
 }
 
-function pText(t) {
-  return { margin: '0 0 10px 0', fontSize: 13, color: t.textMid, lineHeight: '20px' };
-}
+const pText = { margin: '0 0 10px 0', fontSize: 13, color: 'var(--color-text-mid)', lineHeight: '20px' };
 
-function ghostBtn(t) {
-  return {
-    padding: '7px 14px',
-    border: `1px solid ${t.border}`,
-    borderRadius: 6,
-    backgroundColor: 'transparent',
-    color: t.text,
-    fontWeight: 600,
-    fontSize: 13,
-    cursor: 'pointer',
-  };
-}
+const ghostBtn = {
+  padding: '7px 14px',
+  border: '1px solid var(--color-border)',
+  borderRadius: 6,
+  backgroundColor: 'transparent',
+  color: 'var(--color-text)',
+  fontWeight: 600,
+  fontSize: 13,
+  cursor: 'pointer',
+};
 
-function dangerBtn(t, disabled) {
+function dangerBtn(disabled) {
   return {
     padding: '7px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: t.error,
-    color: t.textOnDark,
+    backgroundColor: 'var(--color-error)',
+    color: 'var(--color-text-on-dark)',
     fontWeight: 600,
     fontSize: 13,
     cursor: disabled ? 'not-allowed' : 'pointer',

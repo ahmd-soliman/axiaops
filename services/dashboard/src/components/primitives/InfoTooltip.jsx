@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useId } from 'react';
-import { useTheme } from '../../theme/ThemeContext';
 
 // InfoTooltip — small "i" icon that toggles a popover with explanatory copy.
 //
@@ -16,7 +15,6 @@ import { useTheme } from '../../theme/ThemeContext';
 //     when the icon sits in the RIGHT half of the viewport.
 //   In both cases the popover is clamped to the viewport with maxWidth.
 export function InfoTooltip({ label, body, width = 280, size = 14, placement = 'right' }) {
-  const { theme } = useTheme();
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef(null);
   const pinnedRef = useRef(false);
@@ -77,10 +75,10 @@ export function InfoTooltip({ label, body, width = 280, size = 14, placement = '
           height: size,
           padding: 0,
           margin: 0,
-          border: `1px solid ${theme.textMuted}`,
+          border: '1px solid var(--color-text-muted)',
           borderRadius: '50%',
           background: 'transparent',
-          color: theme.textMuted,
+          color: 'var(--color-text-muted)',
           fontSize: Math.round(size * 0.7),
           fontWeight: 700,
           fontFamily: 'serif',
@@ -104,11 +102,11 @@ export function InfoTooltip({ label, body, width = 280, size = 14, placement = '
             width,
             maxWidth: 'calc(100vw - 32px)',
             padding: 12,
-            backgroundColor: theme.surfaceRaised || theme.surface,
-            border: `1px solid ${theme.border}`,
+            backgroundColor: 'var(--color-surface-raised)',
+            border: '1px solid var(--color-border)',
             borderRadius: 8,
             boxShadow: '0 6px 18px rgba(0,0,0,0.18)',
-            color: theme.text,
+            color: 'var(--color-text)',
             fontSize: 12,
             lineHeight: 1.5,
             zIndex: 50,

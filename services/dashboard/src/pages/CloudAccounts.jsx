@@ -1,6 +1,5 @@
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
 import { useToast } from '../context/ToastContext';
 import { fetchAccounts, scanAccount } from '../api/client';
@@ -17,7 +16,6 @@ import { formatRelative } from '../utils/relativeTime';
 // columns later, primary path for connect/edit/delete.
 
 export default function CloudAccounts() {
-  const { theme: t, isDark } = useTheme();
   const { can } = useMe();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -51,7 +49,7 @@ export default function CloudAccounts() {
   const canScan = can(PERM.ACCOUNTS_SCAN);
 
   return (
-    <div style={{ padding: isMobile ? 16 : 24, color: t.textMid }}>
+    <div style={{ padding: isMobile ? 16 : 24, color: 'var(--color-text-mid)' }}>
       <div style={{
         display: 'flex',
         flexDirection: isMobile ? 'column' : 'row',
@@ -60,8 +58,8 @@ export default function CloudAccounts() {
         gap: 12,
       }}>
         <div style={{ flex: 1 }}>
-          <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Cloud Accounts</h1>
-          <p style={{ marginTop: 4, marginBottom: 0, color: t.textMuted, fontSize: 13 }}>
+          <h1 style={{ margin: 0, color: 'var(--color-text)', fontSize: 22, fontWeight: 700 }}>Cloud Accounts</h1>
+          <p style={{ marginTop: 4, marginBottom: 0, color: 'var(--color-text-muted)', fontSize: 13 }}>
             AWS accounts AxiaOps is monitoring.
           </p>
         </div>
@@ -69,7 +67,7 @@ export default function CloudAccounts() {
           <button
             type="button"
             onClick={() => navigate('/connect')}
-            style={{ ...primaryButton(t), width: isMobile ? '100%' : undefined, minHeight: isMobile ? 44 : undefined }}
+            style={{ ...primaryButton(), width: isMobile ? '100%' : undefined, minHeight: isMobile ? 44 : undefined }}
           >
             + Connect Account
           </button>
@@ -78,18 +76,18 @@ export default function CloudAccounts() {
 
       <section
         style={{
-          border: `1px solid ${t.border}`,
+          border: `1px solid var(--color-border)`,
           borderRadius: 8,
-          backgroundColor: t.surface,
+          backgroundColor: 'var(--color-surface)',
           overflow: 'hidden',
         }}
       >
         {accounts.isPending ? (
           <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
         ) : accounts.isError ? (
-          <div style={{ padding: 24, color: t.error, fontSize: 13 }}>Failed to load accounts.</div>
+          <div style={{ padding: 24, color: 'var(--color-error)', fontSize: 13 }}>Failed to load accounts.</div>
         ) : accounts.data?.length === 0 ? (
-          <EmptyState t={t} canConnect={canConnect} onConnect={() => navigate('/connect')} />
+          <EmptyState canConnect={canConnect} onConnect={() => navigate('/connect')} />
         ) : isMobile ? (
           // Phone layout — six-column <table> doesn't reflow (Label, AWS
           // Account, Region, Status, Last Scan, Actions). Cards keep every
@@ -106,20 +104,20 @@ export default function CloudAccounts() {
                   onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
                   header={
                     <>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
                         {a.label || '—'}
                       </span>
-                      <StatusBadge t={t} status={a.status} />
+                      <StatusBadge status={a.status} />
                     </>
                   }
                   body={
                     <>
                       {a.account_id && (
-                        <span style={{ fontFamily: '"Geist Mono Variable", monospace', fontSize: 12, color: t.textMid, wordBreak: 'break-all' }}>
+                        <span style={{ fontFamily: '"Geist Mono Variable", monospace', fontSize: 12, color: 'var(--color-text-mid)', wordBreak: 'break-all' }}>
                           {a.account_id}
                         </span>
                       )}
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: t.textMuted }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: 'var(--color-text-muted)' }}>
                         <span>{a.region}</span>
                         {a.last_scanned_at && (
                           <>
@@ -142,7 +140,7 @@ export default function CloudAccounts() {
                           type="button"
                           onClick={() => scanMutation.mutate(a.id)}
                           disabled={isScanning}
-                          style={{ ...ghostButton(t, isScanning), flex: 1, minHeight: 40 }}
+                          style={{ ...ghostButton(isScanning), flex: 1, minHeight: 40 }}
                         >
                           {isScanning ? 'Scanning…' : 'Scan'}
                         </button>
@@ -151,7 +149,7 @@ export default function CloudAccounts() {
                         type="button"
                         onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
                         aria-label="Manage account"
-                        style={{ ...ghostButton(t), flex: 1, minHeight: 40 }}
+                        style={{ ...ghostButton(), flex: 1, minHeight: 40 }}
                       >
                         Manage
                       </button>
@@ -164,35 +162,35 @@ export default function CloudAccounts() {
         ) : (
           <table aria-label="Connected cloud accounts" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.surfaceRaised }}>
-                <Th t={t}>Label</Th>
-                <Th t={t}>AWS Account</Th>
-                <Th t={t}>Region</Th>
-                <Th t={t}>Status</Th>
-                <Th t={t}>Last Scan</Th>
-                <Th t={t} align="right">Actions</Th>
+              <tr style={{ borderBottom: `1px solid var(--color-border)`, backgroundColor: 'var(--color-surface-raised)' }}>
+                <Th>Label</Th>
+                <Th>AWS Account</Th>
+                <Th>Region</Th>
+                <Th>Status</Th>
+                <Th>Last Scan</Th>
+                <Th align="right">Actions</Th>
               </tr>
             </thead>
             <tbody>
               {(accounts.data || []).map((a) => (
                 <tr
                   key={a.id}
-                  style={{ borderBottom: `1px solid ${t.border}`, cursor: 'pointer' }}
+                  style={{ borderBottom: `1px solid var(--color-border)`, cursor: 'pointer' }}
                   onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
                 >
-                  <Td t={t}><span style={{ color: t.text, fontWeight: 600 }}>{a.label || '—'}</span></Td>
-                  <Td t={t} mono>{a.account_id || '—'}</Td>
-                  <Td t={t}>{a.region}</Td>
-                  <Td t={t}><StatusBadge t={t} status={a.status} /></Td>
-                  <Td t={t}>{formatRelative(a.last_scanned_at)}</Td>
-                  <Td t={t} align="right">
+                  <Td><span style={{ color: 'var(--color-text)', fontWeight: 600 }}>{a.label || '—'}</span></Td>
+                  <Td mono>{a.account_id || '—'}</Td>
+                  <Td>{a.region}</Td>
+                  <Td><StatusBadge status={a.status} /></Td>
+                  <Td>{formatRelative(a.last_scanned_at)}</Td>
+                  <Td align="right">
                     <div style={{ display: 'inline-flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
                       {canScan && (
                         <button
                           type="button"
                           onClick={() => scanMutation.mutate(a.id)}
                           disabled={a.status === 'scanning'}
-                          style={ghostButton(t, a.status === 'scanning')}
+                          style={ghostButton(a.status === 'scanning')}
                         >
                           {a.status === 'scanning' ? 'Scanning…' : 'Scan'}
                         </button>
@@ -202,7 +200,7 @@ export default function CloudAccounts() {
                         onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
                         aria-label="Manage account"
                         title="Manage"
-                        style={ghostButton(t)}
+                        style={ghostButton()}
                       >
                         ⚙
                       </button>
@@ -218,14 +216,14 @@ export default function CloudAccounts() {
   );
 }
 
-function EmptyState({ t, canConnect, onConnect }) {
+function EmptyState({ canConnect, onConnect }) {
   return (
     <div style={{ padding: 48, textAlign: 'center' }}>
-      <p style={{ marginTop: 0, marginBottom: 16, fontSize: 14, color: t.textMid }}>
+      <p style={{ marginTop: 0, marginBottom: 16, fontSize: 14, color: 'var(--color-text-mid)' }}>
         No cloud accounts connected yet.
       </p>
       {canConnect && (
-        <button type="button" onClick={onConnect} style={primaryButton(t)}>
+        <button type="button" onClick={onConnect} style={primaryButton()}>
           + Connect Your First Account
         </button>
       )}
@@ -233,7 +231,7 @@ function EmptyState({ t, canConnect, onConnect }) {
   );
 }
 
-function StatusBadge({ t, status }) {
+function StatusBadge({ status }) {
   // Inline colored label — no pill chrome. Color carries the state cue.
   const fg = {
     connected:            '#10b981',
@@ -241,7 +239,7 @@ function StatusBadge({ t, status }) {
     error:                '#ef4444',
     scan_timeout:         '#f59e0b',
     circuit_breaker_open: '#f59e0b',
-  }[status] || t.textMuted;
+  }[status] || 'var(--color-text-muted)';
   return (
     <span style={{
       fontSize: 11,
@@ -254,24 +252,24 @@ function StatusBadge({ t, status }) {
   );
 }
 
-function Th({ t, children, align }) {
+function Th({ children, align }) {
   return (
     <th style={{
       padding: '10px 12px',
       textAlign: align || 'left',
       fontWeight: 600,
       fontSize: 12,
-      color: t.textMuted,
+      color: 'var(--color-text-muted)',
       letterSpacing: 0.3,
     }}>{children}</th>
   );
 }
 
-function Td({ t, children, align, mono }) {
+function Td({ children, align, mono }) {
   return (
     <td style={{
       padding: '10px 12px',
-      color: t.text,
+      color: 'var(--color-text)',
       textAlign: align || 'left',
       fontFamily: mono ? '"Geist Mono Variable", monospace' : undefined,
       fontSize: mono ? 12 : 13,
@@ -279,13 +277,13 @@ function Td({ t, children, align, mono }) {
   );
 }
 
-function primaryButton(t) {
+function primaryButton() {
   return {
     padding: '8px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: t.accent,
-    color: t.textOnDark,
+    backgroundColor: 'var(--color-accent)',
+    color: 'var(--color-text-on-dark)',
     fontWeight: 600,
     fontSize: 13,
     cursor: 'pointer',
@@ -293,13 +291,13 @@ function primaryButton(t) {
   };
 }
 
-function ghostButton(t, disabled) {
+function ghostButton(disabled) {
   return {
     padding: '5px 10px',
-    border: `1px solid ${t.border}`,
+    border: `1px solid var(--color-border)`,
     borderRadius: 6,
     backgroundColor: 'transparent',
-    color: t.text,
+    color: 'var(--color-text)',
     fontSize: 12,
     fontWeight: 600,
     cursor: disabled ? 'not-allowed' : 'pointer',

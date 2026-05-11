@@ -4,7 +4,6 @@ import { fetchTrend, fetchTrendServices, fetchTrendResourceTypes } from '../api/
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
-import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
@@ -168,9 +167,8 @@ function exportCSV(seriesByBucket, { periodDays }, toast) {
 }
 
 // ─── Scan history list row ────────────────────────────────────────────────────
-function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
+function HistoryRow({ item, prevItem, isSelected, onClick }) {
   const costDelta = prevItem ? item.total_monthly_cost - prevItem.total_monthly_cost : null;
-  const t = theme;
   return (
     <div
       data-snap=""
@@ -180,26 +178,26 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
         alignItems: 'center',
         gap: 12,
         padding: '12px 14px',
-        backgroundColor: isSelected ? t.surfaceRaised : t.surface,
-        border: `1px solid ${isSelected ? t.accent : t.border}`,
+        backgroundColor: isSelected ? 'var(--color-surface-raised)' : 'var(--color-surface)',
+        border: `1px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
         borderRadius: 8,
         cursor: 'pointer',
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>
           {formatDateTime(item.snapshot_at)}
         </div>
-        <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
           {item.zombie_count === 0 ? 'No zombies found' : `${item.zombie_count} zombie${item.zombie_count !== 1 ? 's' : ''}`}
           {costDelta !== null && Math.abs(costDelta) >= 0.01 && (
-            <span style={{ marginLeft: 8, color: costDelta > 0 ? t.error : t.success, fontWeight: 600 }}>
+            <span style={{ marginLeft: 8, color: costDelta > 0 ? 'var(--color-error)' : 'var(--color-success)', fontWeight: 600 }}>
               {costDelta > 0 ? '+' : ''}{costDelta.toFixed(2)}
             </span>
           )}
         </div>
       </div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: t.accent, textAlign: 'right', flexShrink: 0 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-accent)', textAlign: 'right', flexShrink: 0 }}>
         {item.currency} {item.total_monthly_cost.toFixed(2)}
       </div>
     </div>
@@ -208,7 +206,6 @@ function HistoryRow({ item, prevItem, isSelected, theme, onClick }) {
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
-  const { theme, isDark } = useTheme();
   const { toast } = useToast();
   const screenWidth = useWindowWidth();
   const { isAtMost } = useBreakpoint();
@@ -263,7 +260,6 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const listRef      = useRef(null);
   const topRef       = useRef(null);
   const loadMoreRef  = useRef(null);
-  const t = theme;
 
   // Show "scroll to top" button when page is scrolled past the chart
   useEffect(() => {
@@ -351,17 +347,17 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
 
   if (trendIsLoading && !trendHasData) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', backgroundColor: t.bg, flexDirection: 'column', gap: 14 }}>
-        <Spinner size={32} color={t.accent} />
-        <span style={{ color: t.textMuted, fontSize: 14 }}>Loading trend data…</span>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', backgroundColor: 'var(--color-bg)', flexDirection: 'column', gap: 14 }}>
+        <Spinner size={32} color={'var(--color-accent)'} />
+        <span style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>Loading trend data…</span>
       </div>
     );
   }
 
   if (trendIsError || !trendHasData) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', backgroundColor: t.bg, flexDirection: 'column', gap: 16 }}>
-        <span style={{ color: t.textMid, fontSize: 16 }}>Failed to load trend data.</span>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', backgroundColor: 'var(--color-bg)', flexDirection: 'column', gap: 16 }}>
+        <span style={{ color: 'var(--color-text-mid)', fontSize: 16 }}>Failed to load trend data.</span>
       </div>
     );
   }
@@ -378,10 +374,10 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const hasMoreRows = visibleRows.length < reversedSnaps.length;
 
   return (
-    <div ref={topRef} style={{ backgroundColor: t.bg, minHeight: '100%' }}>
+    <div ref={topRef} style={{ backgroundColor: 'var(--color-bg)', minHeight: '100%' }}>
 
       {/* Account selector header */}
-      <div style={{ backgroundColor: t.surface, borderBottom: `1px solid ${t.border}`, padding: '16px' }}>
+      <div style={{ backgroundColor: 'var(--color-surface)', borderBottom: `1px solid var(--color-border)`, padding: '16px' }}>
         <AccountSelector
           accounts={accounts}
           selectedAccount={selectedAccount}
@@ -392,8 +388,8 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
       </div>
 
       {/* Page header */}
-      <div style={{ backgroundColor: t.surfaceAlt, borderBottom: `1px solid ${t.border}`, padding: '20px 20px 16px' }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+      <div style={{ backgroundColor: 'var(--color-surface-alt)', borderBottom: `1px solid var(--color-border)`, padding: '20px 20px 16px' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
           {(() => {
             if (selectedSnap) {
               return `Snapshot · ${new Date(selectedSnap.snapshot_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
@@ -409,7 +405,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
             return 'Savings Trend';
           })()}
         </span>
-        <span style={{ fontSize: 32, fontWeight: 800, color: t.accent, letterSpacing: -0.5, display: 'block' }}>
+        <span style={{ fontSize: 32, fontWeight: 800, color: 'var(--color-accent)', letterSpacing: -0.5, display: 'block' }}>
           {displaySnap?.currency ?? '$'} {displaySnap ? displaySnap.total_monthly_cost.toFixed(2) : '0.00'}
         </span>
         {/* Honesty label — the number above is captured at scan time, BEFORE the
@@ -419,18 +415,18 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
             snapshot — if the user picked a past snapshot from the history list,
             they already understand it's historical. */}
         {displaySnap && !selectedSnap && (
-          <span style={{ fontSize: 11, color: t.textMuted, fontStyle: 'italic', display: 'block', marginTop: 1 }}>
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic', display: 'block', marginTop: 1 }}>
             At last scan · before dismissals
           </span>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, color: t.textMid }}>
+          <span style={{ fontSize: 13, color: 'var(--color-text-mid)' }}>
             {displaySnap
               ? `${displaySnap.zombie_count} zombie resource${displaySnap.zombie_count !== 1 ? 's' : ''}`
               : 'No data'}
           </span>
           {delta !== null && (
-            <span style={{ fontSize: 12, fontWeight: 700, color: delta > 0 ? t.error : t.success }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: delta > 0 ? 'var(--color-error)' : 'var(--color-success)' }}>
               {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}% over period
             </span>
           )}
@@ -438,14 +434,14 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
       </div>
 
       {/* Chart section */}
-      <div style={{ backgroundColor: t.bg, borderBottom: `1px solid ${t.border}`, paddingTop: 16, paddingBottom: 16 }}>
+      <div style={{ backgroundColor: 'var(--color-bg)', borderBottom: `1px solid var(--color-border)`, paddingTop: 16, paddingBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 12px', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Waste Over Time
             </span>
             {showGranularityToggle && (
-              <div style={{ display: 'flex', gap: 2, backgroundColor: t.surfaceRaised, borderRadius: 6, padding: 2 }}>
+              <div style={{ display: 'flex', gap: 2, backgroundColor: 'var(--color-surface-raised)', borderRadius: 6, padding: 2 }}>
                 {['daily', 'monthly'].map(g => (
                   <button
                     key={g}
@@ -455,8 +451,8 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                       // a finger-pad on touch input. The visual size grows by
                       // ~6px each — fine on desktop, important on phones.
                       padding: '6px 12px', borderRadius: 4, border: 'none', cursor: 'pointer',
-                      backgroundColor: effectiveGranularity === g ? t.accent : 'transparent',
-                      color: effectiveGranularity === g ? '#fff' : t.textMuted,
+                      backgroundColor: effectiveGranularity === g ? 'var(--color-accent)' : 'transparent',
+                      color: effectiveGranularity === g ? '#fff' : 'var(--color-text-muted)',
                       fontSize: 12, fontWeight: 600, textTransform: 'capitalize',
                     }}
                   >
@@ -482,10 +478,10 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                     // pill height stays consistent with the granularity
                     // toggle next to it.
                     padding: '7px 14px', borderRadius: 6, cursor: 'pointer',
-                    backgroundColor: active ? t.accent : t.surfaceRaised,
-                    border: `1px solid ${active ? t.accent : t.border}`,
+                    backgroundColor: active ? 'var(--color-accent)' : 'var(--color-surface-raised)',
+                    border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
                     fontSize: 12, fontWeight: 700,
-                    color: active ? '#fff' : t.textMid,
+                    color: active ? '#fff' : 'var(--color-text-mid)',
                   }}
                 >
                   {p.label}
@@ -507,10 +503,10 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               aria-pressed={filterServices.size === 0}
               style={{
                 padding: isMobile ? '8px 14px' : '4px 10px', borderRadius: 20, cursor: 'pointer', flexShrink: 0,
-                backgroundColor: filterServices.size === 0 ? t.accent : t.surfaceRaised,
-                border: `1px solid ${filterServices.size === 0 ? t.accent : t.border}`,
+                backgroundColor: filterServices.size === 0 ? 'var(--color-accent)' : 'var(--color-surface-raised)',
+                border: `1px solid ${filterServices.size === 0 ? 'var(--color-accent)' : 'var(--color-border)'}`,
                 fontSize: 12, fontWeight: 700,
-                color: filterServices.size === 0 ? '#fff' : t.textMid,
+                color: filterServices.size === 0 ? '#fff' : 'var(--color-text-mid)',
               }}
             >
               All Services
@@ -526,12 +522,12 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                   style={{
                     display: 'flex', alignItems: 'center', gap: 5,
                     padding: isMobile ? '8px 14px' : '4px 10px', borderRadius: 20, cursor: 'pointer', flexShrink: 0,
-                    backgroundColor: active ? t.accent : t.surfaceRaised,
-                    border: `1px solid ${active ? t.accent : t.border}`,
+                    backgroundColor: active ? 'var(--color-accent)' : 'var(--color-surface-raised)',
+                    border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
                   }}
                 >
                   <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color }} />
-                  <span style={{ fontSize: 12, fontWeight: 700, color: active ? '#fff' : t.textMid }}>{cfg.label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: active ? '#fff' : 'var(--color-text-mid)' }}>{cfg.label}</span>
                 </button>
               );
             })}
@@ -550,10 +546,10 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               aria-pressed={filterResourceTypes.size === 0}
               style={{
                 padding: isMobile ? '7px 12px' : '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
-                backgroundColor: filterResourceTypes.size === 0 ? t.textMid : t.surfaceRaised,
-                border: `1px solid ${filterResourceTypes.size === 0 ? t.textMid : t.border}`,
+                backgroundColor: filterResourceTypes.size === 0 ? 'var(--color-text-mid)' : 'var(--color-surface-raised)',
+                border: `1px solid ${filterResourceTypes.size === 0 ? 'var(--color-text-mid)' : 'var(--color-border)'}`,
                 fontSize: 11, fontWeight: 600,
-                color: filterResourceTypes.size === 0 ? '#fff' : t.textMuted,
+                color: filterResourceTypes.size === 0 ? '#fff' : 'var(--color-text-muted)',
               }}
             >
               All Types
@@ -569,12 +565,12 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                   style={{
                     display: 'flex', alignItems: 'center', gap: 4,
                     padding: isMobile ? '7px 12px' : '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
-                    backgroundColor: active ? t.textMid : t.surfaceRaised,
-                    border: `1px solid ${active ? t.textMid : t.border}`,
+                    backgroundColor: active ? 'var(--color-text-mid)' : 'var(--color-surface-raised)',
+                    border: `1px solid ${active ? 'var(--color-text-mid)' : 'var(--color-border)'}`,
                   }}
                 >
                   <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color }} />
-                  <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#fff' : t.textMuted }}>{cfg.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#fff' : 'var(--color-text-muted)' }}>{cfg.label}</span>
                 </button>
               );
             })}
@@ -583,7 +579,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
 
         {chartSnaps.length < 2 ? (
           <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-            <span style={{ fontSize: 13, color: t.textMuted }}>
+            <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
               Not enough data for this period. Try a longer range or run more scans.
             </span>
           </div>
@@ -593,12 +589,11 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               data={chartSnaps}
               selectedId={selectedSnap?.snapshot_at}
               onSelect={handleSelect}
-              theme={t}
               screenWidth={screenWidth}
             />
 
             <div style={{ padding: '8px 16px 0', textAlign: 'center' }}>
-              <span style={{ fontSize: 11, color: t.textMuted }}>
+              <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
                 {filteredSnaps.length} scan{filteredSnaps.length !== 1 ? 's' : ''}
                 {chartSnaps.length < filteredSnaps.length && ` · ${chartSnaps.length} points (averaged)`}
               </span>
@@ -610,7 +605,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
       {/* Scan history list */}
       <div ref={listRef}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '16px 16px 0' }}>
-          <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' }}>
+          <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase' }}>
             Scan History · {filteredSnaps.length}
           </span>
           <button
@@ -627,13 +622,13 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
             style={{
               padding: isMobile ? '8px 12px' : '4px 10px',
               borderRadius: 6,
-              border: `1px solid ${t.border}`,
-              backgroundColor: t.surfaceRaised,
+              border: `1px solid var(--color-border)`,
+              backgroundColor: 'var(--color-surface-raised)',
               cursor: exportRowCount === 0 ? 'not-allowed' : 'pointer',
               opacity: exportRowCount === 0 ? 0.5 : 1,
             }}
           >
-            <span style={{ fontSize: 11, fontWeight: 700, color: t.textMid }}>↓ CSV</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-mid)' }}>↓ CSV</span>
           </button>
         </div>
 
@@ -644,7 +639,6 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               item={item}
               prevItem={reversedSnaps[idx + 1]}
               isSelected={selectedSnap?.snapshot_at === item.snapshot_at}
-              theme={t}
               onClick={() => handleSelect(item)}
             />
           ))}
@@ -667,11 +661,11 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                 display: 'block',
                 width: '100%',
                 padding: '12px 14px',
-                backgroundColor: t.surface,
-                border: `1px solid ${t.border}`,
+                backgroundColor: 'var(--color-surface)',
+                border: `1px solid var(--color-border)`,
                 borderRadius: 8,
                 cursor: 'pointer',
-                color: t.accent,
+                color: 'var(--color-accent)',
                 fontSize: 13,
                 fontWeight: 600,
                 textAlign: 'center',
@@ -695,8 +689,8 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
             width: 40,
             height: 40,
             borderRadius: 20,
-            backgroundColor: t.surface,
-            border: `1px solid ${t.border}`,
+            backgroundColor: 'var(--color-surface)',
+            border: `1px solid var(--color-border)`,
             boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
             cursor: 'pointer',
             display: 'flex',
@@ -706,7 +700,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
           }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke={t.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            stroke={'var(--color-accent)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="18 15 12 9 6 15" />
           </svg>
         </button>

@@ -11,7 +11,7 @@ const STEPS = [
 // below. The Skip button is rendered per-step (each step decides whether it
 // is skippable). See docs/onboarding-wizard.md §8.
 export default function OnboardingLayout() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const location = useLocation();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
@@ -24,7 +24,7 @@ export default function OnboardingLayout() {
     <div
       style={{
         minHeight: '100vh',
-        backgroundColor: t.bg,
+        backgroundColor: 'var(--color-bg)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -43,14 +43,14 @@ export default function OnboardingLayout() {
                 width: 10,
                 height: 10,
                 borderRadius: '50%',
-                backgroundColor: i <= currentIdx ? t.accent : dotMuted,
+                backgroundColor: i <= currentIdx ? 'var(--color-accent)' : dotMuted,
                 transition: 'background-color 200ms',
               }}
               aria-label={`Step ${i + 1}${i === currentIdx ? ' (current)' : ''}`}
             />
           ))}
         </div>
-        <p style={{ textAlign: 'center', color: t.textMuted, fontSize: 12, marginBottom: 28, marginTop: 0 }}>
+        <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 12, marginBottom: 28, marginTop: 0 }}>
           Step {currentIdx + 1} of {STEPS.length} — {STEPS[currentIdx].label}
         </p>
         <Outlet />

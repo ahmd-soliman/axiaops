@@ -21,7 +21,7 @@ import { Spinner } from '../../../components/primitives';
 const ASSIGNABLE_ROLES = ['viewer', 'member', 'admin'];
 
 export default function GroupMappings() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const qc = useQueryClient();
 
   const conns = useQuery({ queryKey: ['sso-connections'], queryFn: listSSOConnections });
@@ -37,13 +37,13 @@ export default function GroupMappings() {
   return (
     <div>
       <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: t.textMid }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--color-text-mid)' }}>
           Connection:
           <select
             value={connectionId}
             onChange={(e) => setConnectionId(e.target.value)}
             disabled={conns.isPending || (conns.data || []).length === 0}
-            style={{ ...inputStyle(t), width: 'auto', minWidth: 220 }}
+            style={{ ...inputStyle(), width: 'auto', minWidth: 220 }}
           >
             {(conns.data || []).map((c) => (
               <option key={c.id} value={c.id}>{c.label} ({c.protocol})</option>
@@ -55,12 +55,11 @@ export default function GroupMappings() {
       {conns.isPending ? (
         <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
       ) : (conns.data || []).length === 0 ? (
-        <EmptyState t={t} message="Create a connection first — group mappings are scoped per connection." />
+        <EmptyState message="Create a connection first — group mappings are scoped per connection." />
       ) : connectionId ? (
         <Editor
           key={connectionId}
           connectionId={connectionId}
-          t={t}
           isDark={isDark}
           onSaved={() => qc.invalidateQueries({ queryKey: ['sso-group-mappings', connectionId] })}
         />
@@ -69,7 +68,7 @@ export default function GroupMappings() {
   );
 }
 
-function Editor({ connectionId, t, isDark, onSaved }) {
+function Editor({ connectionId, isDark, onSaved }) {
   const mappings = useQuery({
     queryKey: ['sso-group-mappings', connectionId],
     queryFn: () => listSSOGroupMappings(connectionId),
@@ -158,17 +157,17 @@ function Editor({ connectionId, t, isDark, onSaved }) {
     return <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>;
   }
   if (mappings.isError) {
-    return <div style={{ padding: 24, color: t.error }}>Failed to load mappings.</div>;
+    return <div style={{ padding: 24, color: 'var(--color-error)' }}>Failed to load mappings.</div>;
   }
 
   return (
     <div>
-      <p style={{ margin: 0, marginBottom: 12, fontSize: 13, color: t.textMid }}>
+      <p style={{ margin: 0, marginBottom: 12, fontSize: 13, color: 'var(--color-text-mid)' }}>
         Map IdP groups to AxiaOps roles. Highest matching role wins; users in no mapped group fall through to the connection's default role.
       </p>
 
       {error && (
-        <Banner color={isDark ? '#fca5a5' : '#b91c1c'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
+        <Banner color={'var(--color-error)'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
           {error}
         </Banner>
       )}
@@ -179,51 +178,51 @@ function Editor({ connectionId, t, isDark, onSaved }) {
       )}
 
       {rows.length === 0 ? (
-        <EmptyState t={t} message="No mappings yet. Click Add row to start mapping groups to roles." />
+        <EmptyState message="No mappings yet. Click Add row to start mapping groups to roles." />
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${t.border}` }}>
-              <Th t={t}>Group identifier</Th>
-              <Th t={t}>Display name</Th>
-              <Th t={t}>Role</Th>
-              <Th t={t}></Th>
+            <tr style={{ borderBottom: `1px solid var(--color-border)` }}>
+              <Th>Group identifier</Th>
+              <Th>Display name</Th>
+              <Th>Role</Th>
+              <Th></Th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r, idx) => (
-              <tr key={r._key} style={{ borderBottom: `1px solid ${t.border}` }}>
-                <Td t={t}>
+              <tr key={r._key} style={{ borderBottom: `1px solid var(--color-border)` }}>
+                <Td>
                   <input
                     type="text"
                     value={r.group_external_id}
                     onChange={(e) => updateRow(idx, 'group_external_id', e.target.value)}
                     placeholder="objectId, group name, etc."
-                    style={inputStyle(t)}
+                    style={inputStyle()}
                   />
                 </Td>
-                <Td t={t}>
+                <Td>
                   <input
                     type="text"
                     value={r.group_display_name}
                     onChange={(e) => updateRow(idx, 'group_display_name', e.target.value)}
                     placeholder="optional"
-                    style={inputStyle(t)}
+                    style={inputStyle()}
                   />
                 </Td>
-                <Td t={t}>
+                <Td>
                   <select
                     value={r.role}
                     onChange={(e) => updateRow(idx, 'role', e.target.value)}
-                    style={inputStyle(t)}
+                    style={inputStyle()}
                   >
                     {ASSIGNABLE_ROLES.map((role) => (
                       <option key={role} value={role}>{role}</option>
                     ))}
                   </select>
                 </Td>
-                <Td t={t}>
-                  <button type="button" onClick={() => removeRow(idx)} style={{ ...ghostButton(t), color: t.error }}>
+                <Td>
+                  <button type="button" onClick={() => removeRow(idx)} style={{ ...ghostButton(), color: 'var(--color-error)' }}>
                     Remove
                   </button>
                 </Td>
@@ -234,13 +233,13 @@ function Editor({ connectionId, t, isDark, onSaved }) {
       )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-        <button type="button" onClick={addRow} style={ghostButton(t)}>+ Add row</button>
+        <button type="button" onClick={addRow} style={ghostButton()}>+ Add row</button>
         <button
           type="button"
           onClick={() => replaceMutation.mutate()}
           disabled={!dirty || replaceMutation.isPending}
           style={{
-            ...primaryButton(t),
+            ...primaryButton(),
             opacity: !dirty || replaceMutation.isPending ? 0.5 : 1,
             cursor: !dirty || replaceMutation.isPending ? 'not-allowed' : 'pointer',
           }}
@@ -252,24 +251,24 @@ function Editor({ connectionId, t, isDark, onSaved }) {
   );
 }
 
-function EmptyState({ t, message }) {
+function EmptyState({ message }) {
   return (
-    <div style={{ padding: 32, textAlign: 'center', color: t.textMuted, fontSize: 13 }}>
+    <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 13 }}>
       {message}
     </div>
   );
 }
 
-function Th({ t, children }) {
+function Th({ children }) {
   return (
-    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: t.textMuted, letterSpacing: 0.3 }}>
+    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: 'var(--color-text-muted)', letterSpacing: 0.3 }}>
       {children}
     </th>
   );
 }
 
-function Td({ t, children }) {
-  return <td style={{ padding: '8px 12px', color: t.text, verticalAlign: 'middle' }}>{children}</td>;
+function Td({ children }) {
+  return <td style={{ padding: '8px 12px', color: 'var(--color-text)', verticalAlign: 'middle' }}>{children}</td>;
 }
 
 function Banner({ children, color, bg }) {
@@ -280,39 +279,39 @@ function Banner({ children, color, bg }) {
   );
 }
 
-function inputStyle(t) {
+function inputStyle() {
   return {
     padding: '6px 10px',
-    border: `1px solid ${t.border}`,
+    border: `1px solid var(--color-border)`,
     borderRadius: 6,
     fontSize: 13,
-    backgroundColor: t.bg,
-    color: t.text,
+    backgroundColor: 'var(--color-bg)',
+    color: 'var(--color-text)',
     width: '100%',
     boxSizing: 'border-box',
   };
 }
 
-function primaryButton(t) {
+function primaryButton() {
   return {
     padding: '7px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: t.accent,
-    color: t.textOnDark,
+    backgroundColor: 'var(--color-accent)',
+    color: 'var(--color-text-on-dark)',
     fontWeight: 600,
     fontSize: 13,
     cursor: 'pointer',
   };
 }
 
-function ghostButton(t) {
+function ghostButton() {
   return {
     padding: '5px 10px',
-    border: `1px solid ${t.border}`,
+    border: `1px solid var(--color-border)`,
     borderRadius: 6,
     backgroundColor: 'transparent',
-    color: t.text,
+    color: 'var(--color-text)',
     fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
