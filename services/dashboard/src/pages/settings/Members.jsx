@@ -24,7 +24,7 @@ import { useToast } from '../../context/ToastContext';
 // transfer-ownership flow.
 const ASSIGNABLE_ROLES = ['admin', 'member', 'viewer'];
 
-export default function Team() {
+export default function Members() {
   const { theme: t, isDark } = useTheme();
   const { me, can, refresh } = useMe();
   const { toast } = useToast();
@@ -225,6 +225,12 @@ export default function Team() {
             <input
               type="email"
               required
+              // type="email" alone accepts "alice@example" (no TLD) per HTML5.
+              // The pattern requires a "." in the domain to reject typos like
+              // "alice@test.com" → "alice@test". Backend enforces the same
+              // rule via model.ValidateInvitableEmail.
+              pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
+              title="Enter an email like alice@example.com"
               value={addEmail}
               onChange={(e) => setAddEmail(e.target.value)}
               placeholder="user@example.com"
