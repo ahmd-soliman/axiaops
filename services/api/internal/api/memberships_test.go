@@ -151,6 +151,26 @@ func TestCreateMembership_InvalidRole(t *testing.T) {
 	}
 }
 
+// TestCreateMembership_MissingTLD_400 pins issue #85's strict-email
+// contract on the add-existing-user fallback path: emails like
+// "alice@intranet" are rejected even though net/mail.ParseAddress
+// accepts them. Catches typos before a membership row is created
+// against an unreachable address.
+func TestCreateMembership_MissingTLD_400(t *testing.T) {
+	store := NewMockStore()
+	mux := memHandler(store)
+	body := `{"email":"alice@intranet","role":"member"}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, memReq(http.MethodPost, "/v1/memberships", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid_email") {
+		t.Errorf("expected invalid_email error code in body, got: %s", w.Body.String())
+	}
+}
+
 // ── Update role ─────────────────────────────────────────────────────────────
 
 func TestUpdateMembershipRole_BasicChange(t *testing.T) {
