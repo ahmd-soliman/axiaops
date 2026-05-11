@@ -2,12 +2,6 @@ package middleware
 
 import "context"
 
-// RateLimitMax exposes the unexported package constant rateLimitMax so
-// black-box rate-limit tests can iterate up to the cap without hardcoding
-// the value (which would silently drift if the production constant
-// changes).
-const RateLimitMax = rateLimitMax
-
 // ContextWithOrganizationID returns a context with the package's
 // organization-ID key populated. Black-box tests need this to construct
 // the context shape Allow expects to read; the key itself is (correctly)
