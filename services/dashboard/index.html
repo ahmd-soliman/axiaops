@@ -6,6 +6,22 @@
     <title>AxiaOps</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script>window.__ENV__ = {};</script>
+    <script>
+      // Prime `color-scheme` synchronously before React mounts so native UA
+      // chrome (scrollbars, form controls, focus rings) renders in the right
+      // theme on the very first paint. Mirrors the resolution logic in
+      // src/theme/ThemeContext.jsx — keep them in sync.
+      (function () {
+        try {
+          var saved = localStorage.getItem('theme');
+          var explicit = saved === 'light' || saved === 'dark';
+          var systemDark = window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark = explicit ? (saved === 'dark') : systemDark;
+          document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
