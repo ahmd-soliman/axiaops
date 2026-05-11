@@ -40,7 +40,7 @@ import { queryClient } from '../main';
 //     fire of refresh, which would 401 again).
 //   - other: generic toast, log to console.
 export default function OrgSwitcher({ fallbackName = '' }) {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const { me, refresh } = useMe();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -79,10 +79,10 @@ export default function OrgSwitcher({ fallbackName = '' }) {
       <div style={{
         padding: '4px 10px',
         borderRadius: 7,
-        border: `1px solid ${t.border}`,
-        backgroundColor: t.surfaceRaised,
+        border: '1px solid var(--color-border)',
+        backgroundColor: 'var(--color-surface-raised)',
       }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: t.textMid }}>{activeOrgName}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-mid)' }}>{activeOrgName}</span>
       </div>
     );
   }
@@ -163,15 +163,15 @@ export default function OrgSwitcher({ fallbackName = '' }) {
           gap: 6,
           padding: '4px 8px 4px 10px',
           borderRadius: 7,
-          border: `1px solid ${t.border}`,
-          backgroundColor: t.surfaceRaised,
+          border: '1px solid var(--color-border)',
+          backgroundColor: 'var(--color-surface-raised)',
           cursor: busy ? 'wait' : 'pointer',
         }}
       >
-        <span style={{ fontSize: 12, fontWeight: 600, color: t.textMid, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-mid)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {activeOrgName || 'Pick organisation'}
         </span>
-        <Caret color={t.accentMuted} />
+        <Caret color="var(--color-accent-muted)" />
       </button>
 
       {open && (
@@ -182,8 +182,8 @@ export default function OrgSwitcher({ fallbackName = '' }) {
             top: 'calc(100% + 6px)',
             right: 0,
             minWidth: 240,
-            backgroundColor: t.surface,
-            border: `1px solid ${t.border}`,
+            backgroundColor: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
             borderRadius: 8,
             boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.12)',
             padding: 4,
@@ -196,7 +196,7 @@ export default function OrgSwitcher({ fallbackName = '' }) {
             fontWeight: 600,
             letterSpacing: 0.4,
             textTransform: 'uppercase',
-            color: t.textMuted,
+            color: 'var(--color-text-muted)',
           }}>
             Switch organisation
           </div>
@@ -218,8 +218,8 @@ export default function OrgSwitcher({ fallbackName = '' }) {
                   padding: '7px 10px',
                   borderRadius: 6,
                   border: 'none',
-                  backgroundColor: isActive ? (isDark ? 'rgba(255,255,255,0.04)' : t.accentLight) : 'transparent',
-                  color: t.text,
+                  backgroundColor: isActive ? (isDark ? 'rgba(255,255,255,0.04)' : 'var(--color-accent-light)') : 'transparent',
+                  color: 'var(--color-text)',
                   fontSize: 13,
                   fontWeight: isActive ? 700 : 500,
                   cursor: isActive ? 'default' : (busy ? 'wait' : 'pointer'),
@@ -227,7 +227,7 @@ export default function OrgSwitcher({ fallbackName = '' }) {
                   fontFamily: 'inherit',
                 }}
                 onMouseEnter={(e) => {
-                  if (!isActive && !busy) e.currentTarget.style.backgroundColor = t.surfaceRaised;
+                  if (!isActive && !busy) e.currentTarget.style.backgroundColor = 'var(--color-surface-raised)';
                 }}
                 onMouseLeave={(e) => {
                   if (!isActive) e.currentTarget.style.backgroundColor = 'transparent';
@@ -236,10 +236,10 @@ export default function OrgSwitcher({ fallbackName = '' }) {
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {m.organization_name || m.organization_id}
                 </span>
-                <span style={{ fontSize: 11, fontWeight: 500, color: t.textMuted, textTransform: 'capitalize' }}>
+                <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-muted)', textTransform: 'capitalize' }}>
                   {m.role}
                 </span>
-                {isActive && <Check color={t.accent} />}
+                {isActive && <Check color="var(--color-accent)" />}
               </button>
             );
           })}

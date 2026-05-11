@@ -4,12 +4,9 @@ import { fetchAccounts } from '../api/client';
 import { queryClient } from '../main';
 import AccountSettingsScreen from '../screens/AccountSettingsScreen';
 import { Spinner } from '../components/primitives';
-import { useTheme } from '../theme/ThemeContext';
-
 export default function CloudAccountSettings() {
   const navigate = useNavigate();
   const { accountId } = useParams();
-  const { theme } = useTheme();
 
   const { data: accounts, isLoading } = useQuery({
     queryKey: ['accounts'],
@@ -20,7 +17,7 @@ export default function CloudAccountSettings() {
 
   if (isLoading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: theme.bg }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: 'var(--color-bg)' }}>
         <Spinner />
       </div>
     );

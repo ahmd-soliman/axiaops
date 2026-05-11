@@ -13,7 +13,7 @@ import { completeOnboarding } from '../../api/client';
 // we link to the existing /connect screen rather than embedding the form.
 // A future cleanup can extract a shared <ConnectAccountForm> component.
 export default function OnboardingAwsAccount() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const navigate = useNavigate();
   const { toast } = useToast();
   const { refresh } = useMe();
@@ -47,10 +47,10 @@ export default function OnboardingAwsAccount() {
 
   return (
     <div>
-      <h1 style={{ color: t.text, fontSize: 26, fontWeight: 700, margin: 0, marginBottom: 8 }}>
+      <h1 style={{ color: 'var(--color-text)', fontSize: 26, fontWeight: 700, margin: 0, marginBottom: 8 }}>
         Connect your first AWS account
       </h1>
-      <p style={{ color: t.textMid, fontSize: 14, marginTop: 0, marginBottom: 24 }}>
+      <p style={{ color: 'var(--color-text-mid)', fontSize: 14, marginTop: 0, marginBottom: 24 }}>
         AxiaOps reads CloudWatch and Cost Explorer with read-only credentials
         to detect idle resources. You can do this now or later from
         the dashboard.
@@ -65,10 +65,10 @@ export default function OnboardingAwsAccount() {
           marginBottom: 24,
         }}
       >
-        <h2 style={{ margin: 0, marginBottom: 8, fontSize: 14, fontWeight: 700, color: t.text }}>
+        <h2 style={{ margin: 0, marginBottom: 8, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
           What we&apos;ll need
         </h2>
-        <ul style={{ margin: 0, paddingLeft: 20, color: t.textMid, fontSize: 13, lineHeight: '20px' }}>
+        <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--color-text-mid)', fontSize: 13, lineHeight: '20px' }}>
           <li>An AWS access key + secret with the AxiaOps IAM policy attached</li>
           <li>The AWS account ID and a region (we recommend the one with most activity)</li>
         </ul>
@@ -84,7 +84,7 @@ export default function OnboardingAwsAccount() {
             border: 'none',
             borderRadius: 8,
             backgroundColor: 'transparent',
-            color: t.textMuted,
+            color: 'var(--color-text-muted)',
             fontSize: 14,
             cursor: 'pointer',
           }}
@@ -99,8 +99,8 @@ export default function OnboardingAwsAccount() {
             padding: '10px 20px',
             border: 'none',
             borderRadius: 8,
-            backgroundColor: t.accent,
-            color: t.textOnDark,
+            backgroundColor: 'var(--color-accent)',
+            color: 'var(--color-text-on-dark)',
             fontWeight: 600,
             fontSize: 14,
             cursor: finishing ? 'not-allowed' : 'pointer',

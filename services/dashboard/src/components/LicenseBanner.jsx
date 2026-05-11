@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
 import { fetchVersion } from '../api/client';
 import { shouldNagRenewal } from '../utils/license';
@@ -46,9 +45,7 @@ const INSTALL_URL = 'https://axiaops.io/install';
 const IS_DEV_MODE = (import.meta.env?.VITE_DEV_MODE ?? 'false') === 'true';
 
 export default function LicenseBanner() {
-  const { theme } = useTheme();
   const { role } = useMe();
-  const t = theme;
 
   // Same key + same staleTime as AppShell — React Query dedupes, so this is
   // a cache read, not a network call.
@@ -68,7 +65,7 @@ export default function LicenseBanner() {
   const tone = severity(lic);
   if (!tone) return null;
 
-  const palette = paletteFor(tone, t);
+  const palette = paletteFor(tone);
   const message = messageFor(lic);
 
   const cta = ctaFor(lic);
@@ -129,11 +126,20 @@ function severity(lic) {
   return null;
 }
 
-function paletteFor(tone, t) {
-  if (tone === 'error') {
-    return { bg: `${t.error}18`, border: `${t.error}40`, fg: t.error };
-  }
-  return { bg: `${t.warning}18`, border: `${t.warning}40`, fg: t.warning };
+// color-mix is the CSS-variable-friendly substitute for the old
+// "hex + 8-bit alpha suffix" pattern. The pre-#88 shape concatenated
+// strings (e.g. `${t.error}18` → "#DC262618" → 9%-opaque red); CSS vars
+// can't be string-concatenated like that, but color-mix(...) interpolates
+// the resolved value against a transparent stop and gets the same result.
+// Percentages 9% / 25% reproduce the previous 0x18 (24/255 ≈ 9%) and
+// 0x40 (64/255 ≈ 25%) alpha levels.
+function paletteFor(tone) {
+  const fg = tone === 'error' ? 'var(--color-error)' : 'var(--color-warning)';
+  return {
+    bg:     `color-mix(in srgb, ${fg} 9%, transparent)`,
+    border: `color-mix(in srgb, ${fg} 25%, transparent)`,
+    fg,
+  };
 }
 
 function messageFor(lic) {

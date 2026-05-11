@@ -28,7 +28,7 @@ function formatDate(iso) {
  * @param {Object} theme - Theme object
  * @param {Number} screenWidth - Screen width for responsive sizing
  */
-export default function AreaChart({ data, selectedId, onSelect, theme, screenWidth }) {
+export default function AreaChart({ data, selectedId, onSelect, screenWidth }) {
   const [hoverIdx, setHoverIdx] = useState(null);
   const svgRef = useRef(null);
   const reactId = useId();
@@ -36,7 +36,6 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
 
   if (!data || data.length < 2) return null;
 
-  const t = theme;
   const width = Math.max(320, screenWidth - 32);
   const marginLeft = screenWidth < 480 ? MARGIN_LEFT_NARROW : MARGIN.left;
   const plotW = width - marginLeft - MARGIN.right;
@@ -119,28 +118,28 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={t.accent} stopOpacity="0.25" />
-            <stop offset="100%" stopColor={t.accent} stopOpacity="0.02" />
+            <stop offset="0%" stopColor={'var(--color-accent)'} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={'var(--color-accent)'} stopOpacity="0.02" />
           </linearGradient>
         </defs>
 
         {/* Horizontal grid lines */}
         {yTicks.map((tick, i) => (
           <line key={i} x1={marginLeft} y1={tick.y} x2={width - MARGIN.right} y2={tick.y}
-            stroke={t.border} strokeWidth="1" opacity="0.4" />
+            stroke={'var(--color-border)'} strokeWidth="1" opacity="0.4" />
         ))}
 
         {/* Area fill */}
         <path d={areaPath} fill={`url(#${gradientId})`} />
 
         {/* Line */}
-        <path d={linePath} fill="none" stroke={t.accent} strokeWidth="2"
+        <path d={linePath} fill="none" stroke={'var(--color-accent)'} strokeWidth="2"
           strokeLinecap="round" strokeLinejoin="round" />
 
         {/* Y-axis labels */}
         {yTicks.map((tick, i) => (
           <text key={i} x={marginLeft - 10} y={tick.y + 4} textAnchor="end"
-            fontSize="10" fontFamily="system-ui, sans-serif" fill={t.textMuted}>
+            fontSize="10" fontFamily="system-ui, sans-serif" fill={'var(--color-text-muted)'}>
             ${formatCost(tick.val)}
           </text>
         ))}
@@ -148,7 +147,7 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
         {/* X-axis labels */}
         {xLabels.map((l, i) => (
           <text key={i} x={l.x} y={CHART_HEIGHT - 8} textAnchor="middle"
-            fontSize="10" fontFamily="system-ui, sans-serif" fill={t.textMuted}>
+            fontSize="10" fontFamily="system-ui, sans-serif" fill={'var(--color-text-muted)'}>
             {l.label}
           </text>
         ))}
@@ -157,9 +156,9 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
         {selectedPoint && (
           <>
             <line x1={selectedPoint.x} y1={MARGIN.top} x2={selectedPoint.x} y2={MARGIN.top + plotH}
-              stroke={t.accent} strokeWidth="1" strokeDasharray="4 3" opacity="0.6" />
+              stroke={'var(--color-accent)'} strokeWidth="1" strokeDasharray="4 3" opacity="0.6" />
             <circle cx={selectedPoint.x} cy={selectedPoint.y} r="5"
-              fill={t.accent} stroke={t.surface} strokeWidth="2" />
+              fill={'var(--color-accent)'} stroke={'var(--color-surface)'} strokeWidth="2" />
           </>
         )}
 
@@ -167,9 +166,9 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
         {hoverPoint && hoverIdx !== selectedPointIdx && (
           <>
             <line x1={hoverPoint.x} y1={MARGIN.top} x2={hoverPoint.x} y2={MARGIN.top + plotH}
-              stroke={t.textMuted} strokeWidth="1" opacity="0.3" />
+              stroke={'var(--color-text-muted)'} strokeWidth="1" opacity="0.3" />
             <circle cx={hoverPoint.x} cy={hoverPoint.y} r="4"
-              fill={t.accent} stroke={t.surface} strokeWidth="2" />
+              fill={'var(--color-accent)'} stroke={'var(--color-surface)'} strokeWidth="2" />
           </>
         )}
       </svg>
@@ -181,22 +180,22 @@ export default function AreaChart({ data, selectedId, onSelect, theme, screenWid
           top: 4,
           left: tooltipLeft,
           width: tooltipW,
-          backgroundColor: t.surface,
-          border: `1px solid ${t.border}`,
+          backgroundColor: 'var(--color-surface)',
+          border: `1px solid var(--color-border)`,
           borderRadius: 8,
           padding: '8px 10px',
           pointerEvents: 'none',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           zIndex: 10,
         }}>
-          <span style={{ fontSize: 11, color: t.textMuted, display: 'block', marginBottom: 2 }}>
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginBottom: 2 }}>
             {formatDate(hoverSnap.snapshot_at)}
           </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: t.accent, display: 'block' }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-accent)', display: 'block' }}>
             ${hoverSnap.total_monthly_cost.toFixed(2)}
           </span>
           {hoverSnap.zombie_count !== undefined && (
-            <span style={{ fontSize: 11, color: t.textMuted, display: 'block', marginTop: 1 }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginTop: 1 }}>
               {hoverSnap.zombie_count} zombie{hoverSnap.zombie_count !== 1 ? 's' : ''}
             </span>
           )}

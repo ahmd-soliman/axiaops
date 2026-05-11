@@ -25,7 +25,7 @@ import { useToast } from '../../context/ToastContext';
 const ASSIGNABLE_ROLES = ['admin', 'member', 'viewer'];
 
 export default function Members() {
-  const { theme: t, isDark } = useTheme();
+  const { isDark } = useTheme();
   const { me, can, refresh } = useMe();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -184,14 +184,14 @@ export default function Members() {
   const canTransfer = can(PERM.ORGANIZATION_TRANSFER);
 
   return (
-    <div style={{ padding: 24, color: t.textMid }}>
-      <h1 style={{ margin: 0, color: t.text, fontSize: 22, fontWeight: 700 }}>Members</h1>
-      <p style={{ marginTop: 4, marginBottom: 24, color: t.textMuted, fontSize: 13 }}>
+    <div style={{ padding: 24, color: 'var(--color-text-mid)' }}>
+      <h1 style={{ margin: 0, color: 'var(--color-text)', fontSize: 22, fontWeight: 700 }}>Members</h1>
+      <p style={{ marginTop: 4, marginBottom: 24, color: 'var(--color-text-muted)', fontSize: 13 }}>
         Manage the people in your organization.
       </p>
 
       {error && (
-        <Banner color={isDark ? '#fca5a5' : '#b91c1c'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
+        <Banner color={'var(--color-error)'} bg={isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2'}>
           {error}
         </Banner>
       )}
@@ -199,17 +199,17 @@ export default function Members() {
       {canInvite && (
         <section
           style={{
-            border: `1px solid ${t.border}`,
+            border: `1px solid var(--color-border)`,
             borderRadius: 8,
             padding: 16,
             marginBottom: 24,
-            backgroundColor: t.surface,
+            backgroundColor: 'var(--color-surface)',
           }}
         >
-          <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: t.text }}>
+          <h2 style={{ margin: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
             Invite a member
           </h2>
-          <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMuted }}>
+          <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--color-text-muted)' }}>
             Generates an invitation link. Copy it and share with the user out of
             band (Slack, email, etc). They join with the role you pick on first
             sign-in.
@@ -234,19 +234,19 @@ export default function Members() {
               value={addEmail}
               onChange={(e) => setAddEmail(e.target.value)}
               placeholder="user@example.com"
-              style={inputStyle(t)}
+              style={inputStyle()}
             />
-            <select value={addRole} onChange={(e) => setAddRole(e.target.value)} style={inputStyle(t)}>
+            <select value={addRole} onChange={(e) => setAddRole(e.target.value)} style={inputStyle()}>
               {ASSIGNABLE_ROLES.filter((r) => r !== 'admin' || canManageAdmin).map((r) => (
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
-            <button type="submit" disabled={addMutation.isPending} style={primaryButton(t)}>
+            <button type="submit" disabled={addMutation.isPending} style={primaryButton()}>
               {addMutation.isPending ? 'Sending…' : 'Create invite link'}
             </button>
           </form>
           {addError && (
-            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: t.error }}>{addError}</p>
+            <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: 'var(--color-error)' }}>{addError}</p>
           )}
 
           {lastInvite && (
@@ -260,7 +260,7 @@ export default function Members() {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text)' }}>
                   Invitation created for <strong>{lastInvite.email}</strong> ({lastInvite.role})
                 </span>
                 <button
@@ -270,7 +270,7 @@ export default function Members() {
                   style={{
                     background: 'none',
                     border: 'none',
-                    color: t.textMuted,
+                    color: 'var(--color-text-muted)',
                     fontSize: 16,
                     cursor: 'pointer',
                     padding: 0,
@@ -308,7 +308,7 @@ export default function Members() {
                   value={lastInvite.url}
                   onFocus={(e) => e.target.select()}
                   style={{
-                    ...inputStyle(t),
+                    ...inputStyle(),
                     width: '100%',
                     paddingRight: 36,
                     fontFamily: '"Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace',
@@ -339,13 +339,13 @@ export default function Members() {
                     border: 'none',
                     cursor: 'pointer',
                     fontSize: 14,
-                    color: copied ? '#34d399' : t.textMuted,
+                    color: copied ? '#34d399' : 'var(--color-text-muted)',
                   }}
                 >
                   {copied ? '✓' : '⧉'}
                 </button>
               </div>
-              <p style={{ marginTop: 8, marginBottom: 0, fontSize: 11, color: t.textMuted }}>
+              <p style={{ marginTop: 8, marginBottom: 0, fontSize: 11, color: 'var(--color-text-muted)' }}>
                 Anyone with this link can redeem the invitation, so share over
                 a private channel. Revoke it from the Pending invitations table
                 below if needed.
@@ -359,15 +359,15 @@ export default function Members() {
       {(invitations.data?.length || 0) > 0 && (
         <section
           style={{
-            border: `1px solid ${t.border}`,
+            border: `1px solid var(--color-border)`,
             borderRadius: 8,
-            backgroundColor: t.surface,
+            backgroundColor: 'var(--color-surface)',
             marginBottom: 24,
             overflow: 'hidden',
           }}
         >
-          <div style={{ padding: '12px 16px', borderBottom: `1px solid ${t.border}`, backgroundColor: t.surfaceRaised }}>
-            <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: t.text }}>Pending invitations</h2>
+          <div style={{ padding: '12px 16px', borderBottom: `1px solid var(--color-border)`, backgroundColor: 'var(--color-surface-raised)' }}>
+            <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>Pending invitations</h2>
           </div>
           {isMobile ? (
             // Phone layout — drop the <table> for a stacked card list.
@@ -382,14 +382,14 @@ export default function Members() {
                     key={inv.id}
                     header={
                       <>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {inv.email}
                         </span>
-                        <span style={roleBadge(t)}>{inv.role}</span>
+                        <span style={roleBadge()}>{inv.role}</span>
                       </>
                     }
                     body={
-                      <span style={{ fontSize: 12, color: t.textMuted }}>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
                         Invited {new Date(inv.created_at).toLocaleDateString()}
                       </span>
                     }
@@ -398,7 +398,7 @@ export default function Members() {
                         type="button"
                         onClick={() => revokeInvitationMutation.mutate(inv.id)}
                         disabled={revokeInvitationMutation.isPending}
-                        style={{ ...dangerButton(t), minHeight: 36 }}
+                        style={{ ...dangerButton(), minHeight: 36 }}
                       >
                         Revoke
                       </button>
@@ -410,20 +410,20 @@ export default function Members() {
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.surface }}>
-                  <Th t={t}>Email</Th>
-                  <Th t={t}>Role</Th>
-                  <Th t={t}>Invited</Th>
-                  <Th t={t}></Th>
+                <tr style={{ borderBottom: `1px solid var(--color-border)`, backgroundColor: 'var(--color-surface)' }}>
+                  <Th>Email</Th>
+                  <Th>Role</Th>
+                  <Th>Invited</Th>
+                  <Th></Th>
                 </tr>
               </thead>
               <tbody>
                 {(invitations.data || []).map((inv) => (
-                  <tr key={inv.id} style={{ borderBottom: `1px solid ${t.border}` }}>
-                    <Td t={t}>{inv.email}</Td>
-                    <Td t={t}>{inv.role}</Td>
-                    <Td t={t}>{new Date(inv.created_at).toLocaleDateString()}</Td>
-                    <Td t={t}>
+                  <tr key={inv.id} style={{ borderBottom: `1px solid var(--color-border)` }}>
+                    <Td>{inv.email}</Td>
+                    <Td>{inv.role}</Td>
+                    <Td>{new Date(inv.created_at).toLocaleDateString()}</Td>
+                    <Td>
                       {canInvite && (inv.role !== 'admin' || canManageAdmin) && (
                         <button
                           type="button"
@@ -431,10 +431,10 @@ export default function Members() {
                           disabled={revokeInvitationMutation.isPending}
                           style={{
                             padding: '4px 10px',
-                            border: `1px solid ${t.border}`,
+                            border: `1px solid var(--color-border)`,
                             borderRadius: 4,
                             backgroundColor: 'transparent',
-                            color: t.error,
+                            color: 'var(--color-error)',
                             fontSize: 12,
                             cursor: 'pointer',
                           }}
@@ -453,16 +453,16 @@ export default function Members() {
 
       <section
         style={{
-          border: `1px solid ${t.border}`,
+          border: `1px solid var(--color-border)`,
           borderRadius: 8,
-          backgroundColor: t.surface,
+          backgroundColor: 'var(--color-surface)',
           overflow: 'hidden',
         }}
       >
         {memberships.isPending ? (
           <div style={{ padding: 32, textAlign: 'center' }}><Spinner /></div>
         ) : memberships.isError ? (
-          <div style={{ padding: 24, color: t.error }}>Failed to load members.</div>
+          <div style={{ padding: 24, color: 'var(--color-error)' }}>Failed to load members.</div>
         ) : isMobile ? (
           // Mobile card stack — six-column membership table doesn't reflow
           // on phones (Email + Name + Role + Joined-via + Joined + Action).
@@ -485,34 +485,34 @@ export default function Members() {
                   key={m.id}
                   header={
                     <>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
                         {m.email || '—'}
                       </span>
                       {!allowEdit && (
-                        <span style={roleBadge(t)}>{m.role}</span>
+                        <span style={roleBadge()}>{m.role}</span>
                       )}
                     </>
                   }
                   body={
                     <>
-                      {m.name && <span style={{ color: t.text }}>{m.name}</span>}
+                      {m.name && <span style={{ color: 'var(--color-text)' }}>{m.name}</span>}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span style={provenanceBadge(t)}>
+                        <span style={provenanceBadge()}>
                           {provenanceLabel(m.provisioned_via)}
                         </span>
-                        <span style={{ color: t.textMuted }}>
+                        <span style={{ color: 'var(--color-text-muted)' }}>
                           Joined {formatDate(m.created_at)}
                         </span>
                       </div>
                       {allowEdit && (
                         <div style={{ marginTop: 4 }}>
-                          <span style={{ display: 'block', fontSize: 11, color: t.textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                          <span style={{ display: 'block', fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 }}>
                             Role
                           </span>
                           <select
                             value={m.role}
                             onChange={(e) => updateMutation.mutate({ id: m.id, role: e.target.value })}
-                            style={{ ...inputStyle(t), width: '100%', minHeight: 40 }}
+                            style={{ ...inputStyle(), width: '100%', minHeight: 40 }}
                           >
                             {ASSIGNABLE_ROLES.filter((r) => r !== 'admin' || canManageAdmin).map((r) => (
                               <option key={r} value={r}>{r}</option>
@@ -529,7 +529,7 @@ export default function Members() {
                         setRemoveTarget({ id: m.id, email: m.email || '', isSelf });
                         removeCtrl.openModal();
                       }}
-                      style={{ ...dangerButton(t), minHeight: 36 }}
+                      style={{ ...dangerButton(), minHeight: 36 }}
                     >
                       {isSelf ? 'Leave' : 'Remove'}
                     </button>
@@ -541,13 +541,13 @@ export default function Members() {
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.surfaceRaised }}>
-                <Th t={t}>Email</Th>
-                <Th t={t}>Name</Th>
-                <Th t={t}>Role</Th>
-                <Th t={t}>Joined via</Th>
-                <Th t={t}>Joined</Th>
-                <Th t={t}></Th>
+              <tr style={{ borderBottom: `1px solid var(--color-border)`, backgroundColor: 'var(--color-surface-raised)' }}>
+                <Th>Email</Th>
+                <Th>Name</Th>
+                <Th>Role</Th>
+                <Th>Joined via</Th>
+                <Th>Joined</Th>
+                <Th></Th>
               </tr>
             </thead>
             <tbody>
@@ -563,31 +563,31 @@ export default function Members() {
                     ? m.role !== 'owner' // self-leave; owners must transfer first
                     : m.role !== 'owner' && (targetIsElevated ? canManageAdmin : canManageBasic);
                 return (
-                  <tr key={m.id} style={{ borderBottom: `1px solid ${t.border}` }}>
-                    <Td t={t}>{m.email || '—'}</Td>
-                    <Td t={t}>{m.name || '—'}</Td>
-                    <Td t={t}>
+                  <tr key={m.id} style={{ borderBottom: `1px solid var(--color-border)` }}>
+                    <Td>{m.email || '—'}</Td>
+                    <Td>{m.name || '—'}</Td>
+                    <Td>
                       {allowEdit ? (
                         <select
                           value={m.role}
                           onChange={(e) => updateMutation.mutate({ id: m.id, role: e.target.value })}
-                          style={inputStyle(t)}
+                          style={inputStyle()}
                         >
                           {ASSIGNABLE_ROLES.filter((r) => r !== 'admin' || canManageAdmin).map((r) => (
                             <option key={r} value={r}>{r}</option>
                           ))}
                         </select>
                       ) : (
-                        <span style={roleBadge(t)}>{m.role}</span>
+                        <span style={roleBadge()}>{m.role}</span>
                       )}
                     </Td>
-                    <Td t={t}>
-                      <span style={provenanceBadge(t)}>
+                    <Td>
+                      <span style={provenanceBadge()}>
                         {provenanceLabel(m.provisioned_via)}
                       </span>
                     </Td>
-                    <Td t={t}>{formatDate(m.created_at)}</Td>
-                    <Td t={t}>
+                    <Td>{formatDate(m.created_at)}</Td>
+                    <Td>
                       {allowRemove && (
                         <button
                           type="button"
@@ -595,7 +595,7 @@ export default function Members() {
                             setRemoveTarget({ id: m.id, email: m.email || '', isSelf });
                             removeCtrl.openModal();
                           }}
-                          style={dangerButton(t)}
+                          style={dangerButton()}
                         >
                           {isSelf ? 'Leave' : 'Remove'}
                         </button>
@@ -613,23 +613,23 @@ export default function Members() {
         <section
           style={{
             marginTop: 24,
-            border: `1px solid ${t.border}`,
+            border: `1px solid var(--color-border)`,
             borderRadius: 8,
             padding: 16,
-            backgroundColor: t.surface,
+            backgroundColor: 'var(--color-surface)',
           }}
         >
-          <h2 style={{ margin: 0, marginBottom: 8, fontSize: 14, fontWeight: 700, color: t.text }}>
+          <h2 style={{ margin: 0, marginBottom: 8, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
             Transfer ownership
           </h2>
-          <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: t.textMuted }}>
+          <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--color-text-muted)' }}>
             Promote another member to owner. You'll be demoted to admin in the same operation.
           </p>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <select
               value={transferTo}
               onChange={(e) => setTransferTo(e.target.value)}
-              style={inputStyle(t)}
+              style={inputStyle()}
             >
               <option value="">Select user…</option>
               {(memberships.data || [])
@@ -644,7 +644,7 @@ export default function Members() {
               type="button"
               disabled={!transferTo || transferCtrl.isPending}
               onClick={() => transferCtrl.openModal()}
-              style={primaryButton(t)}
+              style={primaryButton()}
             >
               {transferCtrl.isPending ? 'Transferring…' : 'Transfer'}
             </button>
@@ -686,61 +686,61 @@ function Banner({ children, color, bg }) {
   );
 }
 
-function Th({ t, children }) {
+function Th({ children }) {
   return (
     <th style={{
       padding: '10px 12px',
       textAlign: 'left',
       fontWeight: 600,
       fontSize: 12,
-      color: t.textMuted,
+      color: 'var(--color-text-muted)',
       letterSpacing: 0.3,
     }}>{children}</th>
   );
 }
 
-function Td({ t, children }) {
-  return <td style={{ padding: '10px 12px', color: t.text }}>{children}</td>;
+function Td({ children }) {
+  return <td style={{ padding: '10px 12px', color: 'var(--color-text)' }}>{children}</td>;
 }
 
-function inputStyle(t) {
+function inputStyle() {
   return {
     padding: '6px 10px',
-    border: `1px solid ${t.border}`,
+    border: `1px solid var(--color-border)`,
     borderRadius: 6,
     fontSize: 13,
-    backgroundColor: t.bg,
-    color: t.text,
+    backgroundColor: 'var(--color-bg)',
+    color: 'var(--color-text)',
   };
 }
 
-function primaryButton(t) {
+function primaryButton() {
   return {
     padding: '7px 14px',
     border: 'none',
     borderRadius: 6,
-    backgroundColor: t.accent,
-    color: t.textOnDark,
+    backgroundColor: 'var(--color-accent)',
+    color: 'var(--color-text-on-dark)',
     fontWeight: 600,
     fontSize: 13,
     cursor: 'pointer',
   };
 }
 
-function dangerButton(t) {
+function dangerButton() {
   return {
     padding: '5px 10px',
-    border: `1px solid ${t.border}`,
+    border: `1px solid var(--color-border)`,
     borderRadius: 6,
     backgroundColor: 'transparent',
-    color: t.error,
+    color: 'var(--color-error)',
     fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
   };
 }
 
-function roleBadge(t) {
+function roleBadge() {
   // Inline muted uppercase — same color for every role. Roles are
   // categorical identity, not state; per-role color coding (purple owner,
   // blue admin, etc.) was decorative. The label discriminates; sort the
@@ -749,7 +749,7 @@ function roleBadge(t) {
   return {
     fontSize: 11,
     fontWeight: 600,
-    color: t.textMid,
+    color: 'var(--color-text-mid)',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
   };
@@ -770,7 +770,7 @@ function provenanceLabel(via) {
   }
 }
 
-function provenanceBadge(t) {
+function provenanceBadge() {
   // Inline muted text — same color for every provenance. Like roleBadge,
   // these are categorical labels (how someone joined the org), not state;
   // the colored pill recipe was decorative. Mixed-case kept (some labels
@@ -778,7 +778,7 @@ function provenanceBadge(t) {
   return {
     fontSize: 11,
     fontWeight: 600,
-    color: t.textMid,
+    color: 'var(--color-text-mid)',
     letterSpacing: 0.2,
   };
 }
