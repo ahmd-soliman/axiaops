@@ -1,14 +1,16 @@
-package sso
+package sso_test
 
 import (
 	"strings"
 	"testing"
+
+	"axiaops.io/api/internal/sso"
 )
 
 // TestRequireHTTPS_AcceptsHTTPS — the happy path.
 func TestRequireHTTPS_AcceptsHTTPS(t *testing.T) {
 	t.Parallel()
-	if err := requireHTTPS("https://idp.example.com/.well-known/openid-configuration", "oidc_discovery_url"); err != nil {
+	if err := sso.RequireHTTPS("https://idp.example.com/.well-known/openid-configuration", "oidc_discovery_url"); err != nil {
 		t.Errorf("https URL rejected: %v", err)
 	}
 }
@@ -16,10 +18,10 @@ func TestRequireHTTPS_AcceptsHTTPS(t *testing.T) {
 // TestRequireHTTPS_AcceptsEmpty — the field is optional; empty must pass.
 func TestRequireHTTPS_AcceptsEmpty(t *testing.T) {
 	t.Parallel()
-	if err := requireHTTPS("", "oidc_discovery_url"); err != nil {
+	if err := sso.RequireHTTPS("", "oidc_discovery_url"); err != nil {
 		t.Errorf("empty URL rejected: %v", err)
 	}
-	if err := requireHTTPS("   ", "oidc_discovery_url"); err != nil {
+	if err := sso.RequireHTTPS("   ", "oidc_discovery_url"); err != nil {
 		t.Errorf("whitespace-only URL rejected: %v", err)
 	}
 }
@@ -28,7 +30,7 @@ func TestRequireHTTPS_AcceptsEmpty(t *testing.T) {
 // http:// URL leaks client_secret on the token POST.
 func TestRequireHTTPS_RejectsPlainHTTP(t *testing.T) {
 	t.Parallel()
-	err := requireHTTPS("http://idp.example.com/.well-known/openid-configuration", "oidc_discovery_url")
+	err := sso.RequireHTTPS("http://idp.example.com/.well-known/openid-configuration", "oidc_discovery_url")
 	if err == nil {
 		t.Fatal("plain http URL accepted; want rejection")
 	}
@@ -52,7 +54,7 @@ func TestRequireHTTPS_AllowsLoopback(t *testing.T) {
 	}
 	for _, raw := range cases {
 		t.Run(raw, func(t *testing.T) {
-			if err := requireHTTPS(raw, "oidc_discovery_url"); err != nil {
+			if err := sso.RequireHTTPS(raw, "oidc_discovery_url"); err != nil {
 				t.Errorf("loopback URL %q rejected: %v", raw, err)
 			}
 		})
@@ -68,13 +70,13 @@ func TestRequireHTTPS_RejectsExoticSchemes(t *testing.T) {
 		"file:///etc/passwd",
 		"ftp://idp.example.com/discovery",
 		"javascript:alert(1)",
-		"//idp.example.com/discovery",       // protocol-relative
-		"idp.example.com/discovery",         // no scheme
+		"//idp.example.com/discovery",        // protocol-relative
+		"idp.example.com/discovery",          // no scheme
 		"http://attacker.evil/localhost.txt", // not loopback — substring trick
 	}
 	for _, raw := range cases {
 		t.Run(raw, func(t *testing.T) {
-			if err := requireHTTPS(raw, "oidc_discovery_url"); err == nil {
+			if err := sso.RequireHTTPS(raw, "oidc_discovery_url"); err == nil {
 				t.Errorf("exotic scheme %q accepted; want rejection", raw)
 			}
 		})

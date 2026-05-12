@@ -75,10 +75,10 @@ func (n *NativeConnector) Save(ctx context.Context, c model.SSOConnection) (mode
 	if strings.TrimSpace(c.KindeConnectionID) != "" {
 		return model.SSOConnection{}, fmt.Errorf("sso: kinde_connection_id must be empty under self-hosted deployment (Option B per design §4.2)")
 	}
-	if err := requireHTTPS(c.OIDCDiscoveryURL, "oidc_discovery_url"); err != nil {
+	if err := RequireHTTPS(c.OIDCDiscoveryURL, "oidc_discovery_url"); err != nil {
 		return model.SSOConnection{}, err
 	}
-	if err := requireHTTPS(c.IdPMetadataURL, "idp_metadata_url"); err != nil {
+	if err := RequireHTTPS(c.IdPMetadataURL, "idp_metadata_url"); err != nil {
 		return model.SSOConnection{}, err
 	}
 	if c.ID == "" {
@@ -118,11 +118,13 @@ func (n *NativeConnector) Test(_ context.Context, _ string) (TestResult, error) 
 
 var _ Connector = (*NativeConnector)(nil)
 
-// requireHTTPS enforces https:// on the IdP-facing URL fields persisted on a
+// RequireHTTPS enforces https:// on the IdP-facing URL fields persisted on a
 // connection. Empty is allowed (the field is optional for non-OIDC flows or
 // when discovery is disabled). Loopback http://localhost / 127.0.0.1 is
 // permitted so the local fake-IdP test fixture keeps working without TLS.
-func requireHTTPS(raw, field string) error {
+// Exported so the connector test (package sso_test, black-box per the
+// project convention) can exercise the validator directly.
+func RequireHTTPS(raw, field string) error {
 	v := strings.TrimSpace(raw)
 	if v == "" {
 		return nil
