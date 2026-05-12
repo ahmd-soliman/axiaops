@@ -16,6 +16,44 @@ This audit re-evaluates the codebase against its own stated security posture (CL
 
 ---
 
+## Resolution status — 2026-05-12
+
+Branch `security/hardening-2026-05` (13 commits on top of `origin/develop` at `dba1b68`) closes 12 of the 27 findings. The rest are tracked in [issue #94](https://gitlab.com/axiaops/axiaops/-/work_items/94).
+
+| Finding | Severity | Status | Commit |
+|---|---|---|---|
+| C-1 | Critical | Open — needs HMAC plumbing across api/ingestion/queue | — |
+| **C-2** | Critical | ✅ Resolved | `541d7c1` |
+| **C-3** | Critical | ✅ Resolved | `c5d6467` |
+| H-1 | High | Open — needs prerequisite app-pool refactor | — |
+| H-2 | High | Open — pending decision on bearer-token vs separate listener | — |
+| **H-3** | High | ✅ Resolved | `e7337d8` (+ `01ad35d` test refactor) |
+| **H-4** | High | ✅ Resolved | `579f103` |
+| **H-5** | High | ✅ Resolved | `884c711` |
+| **M-1** | Medium | ✅ Resolved | `8148019` |
+| **M-2** | Medium | ✅ Resolved | `0c088d7` (+ `01ad35d` failure-mode docstring) |
+| **M-3** | Medium | ✅ Resolved | `0bef472` + `d7492b6` (deploy plumbing) |
+| **M-4** | Medium | ✅ Resolved | `3b907e0` |
+| **M-5** | Medium | ✅ Resolved | `3b907e0` |
+| **M-6** | Medium | ✅ Resolved | `badea60` |
+| M-7 | Medium | Open | — |
+| M-8 | Medium | Open | — |
+| **M-9** | Medium | ✅ Resolved | `3ae83e4` (+ `01ad35d` regression test) |
+| M-10 | Medium | Deferred per audit (SOC2/ISO trigger) | — |
+| L-1..L-9 | Low | Open — most pair with H-2 or are informational | — |
+
+Findings carried over without code changes:
+- L-2 (IPv6 zone-id stripping) was implicitly addressed by C-3's `httpip` extraction — verify before closing.
+- I-1 (CLAUDE.md drift about ingestion `/scan` auth) tracked under C-1 — fix the doc when fixing the code.
+
+Operator follow-ups still owed:
+- **C-2 rotation runbook** (rotate dev-1/dev-2 keys, re-encrypt or wipe `accounts.secret_encrypted`, date the exposure window via `git log -S '5f67e3ef'`).
+- **CORS_ORIGIN for production** — set via GitLab CI variable scoped to `production` (preview/staging already set on 2026-05-12).
+
+Additional concerns surfaced during the hardening work (not in the original audit) are listed in issue #94: H-3 IPv6 loopback gap, missing `Permissions-Policy` header, 413-vs-400 detection in body-size errors, SSRF surface on `oidc_discovery_url` private IPs, dashboard wire-compat audit for `DisallowUnknownFields`.
+
+---
+
 ## Critical
 
 ### C-1. Ingestion `/scan` and `/v1/credentials/verify` accept unauthenticated requests on the LAN
