@@ -127,6 +127,14 @@ func (s *StateStore) Persist(ctx context.Context, state string, data StateData) 
 //
 // Backed by cache.Cache.GetDel — Redis 6.2+ GETDEL on the redis backend,
 // mutex-protected delete-after-read on the memory backend.
+//
+// Failure-mode posture: GETDEL is server-atomic. If Redis processed the
+// command, the key is deleted regardless of whether the client got the
+// response. A partial network failure (TCP timeout after Redis processed
+// but before the reply landed) returns a wrapped error to the caller AND
+// has consumed the key — the next Consume gets ErrStateNotFound, NOT the
+// state body. This is fail-safe (deny rather than replay) and is the
+// correct posture for a single-use token.
 func (s *StateStore) Consume(ctx context.Context, state string) (StateData, error) {
 	if state == "" {
 		return StateData{}, ErrStateNotFound
