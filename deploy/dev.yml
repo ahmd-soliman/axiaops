@@ -53,6 +53,12 @@ services:
       LOG_OUTPUT: ${LOG_OUTPUT:-text}
       REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
       PUBLIC_HOST: ${PUBLIC_HOST}
+      # Concrete dashboard origin per env — silences the M-3 startup warn
+      # when DEV_MODE is flipped off for SSO testing. Wildcard is fine
+      # under the default DEV_MODE=true (warn check is gated on !DevMode),
+      # but plumbing the variable here means operators don't have to edit
+      # the manifest when they flip DEV_MODE.
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
     # The api writes the first-owner install token to /var/run/axiaops/
     # on first boot (BOOTSTRAP_TOKEN_FILE_PATH default). Without a named
     # volume the file lives on the container's writable layer and dies
