@@ -40,6 +40,11 @@ services:
       REDIS_URL: ${REDIS_URL}
       INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-14}
       PUBLIC_HOST: ${PUBLIC_HOST}
+      # Concrete dashboard origin per env — silences the M-3 startup warn
+      # and tightens read surface for any future unauth endpoint. Set as
+      # a per-env GitLab CI variable. Empty falls through to the wildcard
+      # default and re-emits the warn.
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
     # Pin DNS to the LAN resolver so split-horizon rewrites for self-hosted
     # IdPs (e.g. *.example.com) take effect inside the container.
     # Otherwise Docker's embedded DNS forwards to a public resolver, returning
