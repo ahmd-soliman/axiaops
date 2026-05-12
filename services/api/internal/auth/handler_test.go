@@ -1233,6 +1233,13 @@ func TestPreviewInvitationExistingUser(t *testing.T) {
 	if body["existing_user"] != true {
 		t.Errorf("existing_user = %v; want true", body["existing_user"])
 	}
+	// Audit M-9: the existing user's display name MUST NOT be returned.
+	// Pre-fix the field was `existing_user_name`; assert absence by key
+	// so a future regression that reintroduces it (under any spelling
+	// that JSON-encodes to the same key) is caught here.
+	if _, present := body["existing_user_name"]; present {
+		t.Errorf("existing_user_name leaked in preview response: %v", body["existing_user_name"])
+	}
 }
 
 // TestPreviewInvitationDoesNotLeakPasswordHash: defence-in-depth — the
