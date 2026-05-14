@@ -3,7 +3,8 @@
 **Audit finding:** [`docs/security-audit-2026-05-09.md` §C-1](../docs/security-audit-2026-05-09.md)
 **Tracking issue:** [#96](https://gitlab.com/axiaops/axiaops/-/issues/96)
 **Branch:** `security/c1-ingestion-hmac` off `develop` at `dba1b68`
-**Status:** design (this doc) → implementation pending
+**Status:** design (this doc, post-review revision) → implementation pending
+**Revision history:** v1 architect pass; v2 review pass — 5 substantive fixes + 6 smaller corrections + operator runbook section. See §13 for the change-log.
 
 ## Context
 
@@ -140,9 +141,11 @@ if err != nil { return ErrMalformedSignature }
 if !hmac.Equal(computed, provided) { return ErrSignatureMismatch }
 ```
 
-The base64 decode happens before the compare so a malformed base64 string surfaces as a distinct error (`ErrMalformedSignature`) without leaking compare timing. The compare itself runs only on byte slices of the same expected length — `hmac.Equal` returns false for length mismatch without short-circuiting (it does the full constant-time compare even when lengths differ in practice; documented in the stdlib godoc).
+The base64 decode happens before the compare so a malformed base64 string surfaces as a distinct error (`ErrMalformedSignature`) without leaking compare timing.
 
-Tests in §7 verify the compare is reached with length-mismatched inputs and still returns false — see §7.6 for the approach.
+**Note on length mismatch:** `hmac.Equal` delegates to `subtle.ConstantTimeCompare`, which returns 0 *immediately* when input lengths differ — the constant-time guarantee is **within equal-length slices**, not across length mismatches. This is correct behaviour (a length difference is not a "guessed N of M bytes right" oracle), but means an attacker who probes with shorter/longer signature blobs gets a fast reject. Acceptable: the base64-decode step already returns a distinct `ErrMalformedSignature` for unparseable input, and a parseable-but-wrong-length sig falls into the same fast-reject path without leaking the correct length (always 32 bytes for SHA-256, publicly known).
+
+Tests in §7 verify the function returns the expected sentinel error on length-mismatched inputs — see §7.6 for the rationale.
 
 ### Why no nonce
 
@@ -214,7 +217,24 @@ func Middleware(secret []byte, maxSkew time.Duration, allowed map[string]struct{
 - `Middleware` is the wire layer: reads headers off `*http.Request`, calls `Verify`, reads the body and re-presents it via `io.NopCloser(bytes.NewReader(body))` so the inner handler can still `json.NewDecoder(r.Body).Decode`.
 - `allowed map[string]struct{}` for O(1) public-path lookup. Set in §4.2.
 
-**Body-read seam.** `Middleware` reads the entire body with `io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))` (matches the H-4 64 KiB cap and prevents an attacker from sending a multi-GB request to OOM the verifier before the signature check). Body > 64 KiB → 413 (not 401) so the operator's monitoring catches it as a distinct condition.
+**Body-read seam.** `Middleware` reads the entire body with `io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))` (matches the H-4 64 KiB cap and prevents an attacker from sending a multi-GB request to OOM the verifier before the signature check).
+
+**Body-oversize detection.** `http.MaxBytesReader` does **not** automatically emit 413 — it surfaces a `*http.MaxBytesError` from the `Read` call. The middleware must detect this explicitly:
+
+```go
+body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
+if err != nil {
+    var mbe *http.MaxBytesError
+    if errors.As(err, &mbe) {
+        http.Error(w, `{"error":"request_body_too_large"}`, http.StatusRequestEntityTooLarge)
+        return
+    }
+    http.Error(w, `{"error":"bad_request"}`, http.StatusBadRequest)
+    return
+}
+```
+
+This 413-vs-400 detection is exactly the open follow-up tracked in issue #94 (surfaced during the H-4 hardening work). The C-1 MR should solve it once for both H-4 callers and C-1 by promoting this detection block into a tiny helper `httpauth.ReadCappedBody(w, r, max) ([]byte, error)` and cross-linking the helper from `services/api/internal/httpjson` so audit H-4 callers can adopt the same seam. **The implementer MUST close out the #94 sub-item in the same MR or file an explicit follow-up — leaving the helper uncalled by httpjson silently re-opens the 413-detection gap.**
 
 **Public types only.** No exposed structs (`Verifier{}`, `Signer{}`, …). The functional shape forces callers to thread the secret through composition rather than caching it in package-level state — matches the codebase's "composition root holds secrets, handlers don't reach into env" posture.
 
@@ -405,6 +425,13 @@ Reasoning, weighing both options:
 
 The DEV_MODE bypass MUST go through `devModeEnabled()` per `services/{api,ingestion}/CLAUDE.md` "Build tags" — direct `os.Getenv("DEV_MODE")` reads are caught by the `test:lint:no-direct-devmode` CI job (`.gitlab-ci.yml:222-245`). `loadIngestionSharedSecret(devMode bool)` takes a bool so the seam check stays at the composition root.
 
+**Mismatched-mode detection.** A real operational failure mode: api ships in production-mode (signing requests) while ingestion ships in DEV_MODE (HMAC bypassed). The system works, but defence-in-depth has silently regressed. To surface this:
+
+- When ingestion is in DEV_MODE (passthrough) AND receives a request carrying an `X-AxiaOps-Ingestion-Signature` header, emit a one-time `slog.Warn("hmac: DEV_MODE bypassed signed request — production api talking to dev ingestion?", "remote", r.RemoteAddr)`. Use a `sync.Once` so the warning is loud-but-not-spammy.
+- The passthrough wrap function (`protect := func(h http.Handler) http.Handler { return h }`) needs a tiny variant that performs the header-presence check; the warning lives there, not in the inner handler.
+
+Without this seam, a misconfig is completely silent and only surfaces on the next audit pass.
+
 ## Error shapes and observability
 
 ### 401 body
@@ -529,6 +556,19 @@ The first deploy with HMAC on must be:
 
 **Env-var name:** `INGESTION_HMAC_SOFT_ENFORCE` (default `false`). Documented as a transition flag, expected to be removed in a follow-up MR after every env has been on hard-enforce for one full release cycle. The audit doc resolution-status block calls this out so it's not forgotten.
 
+**Log volume in soft-enforce mode.** During the gap between ingestion-shipped-with-soft-enforce and api-shipped-with-signing, **every** api → ingestion call lands as unsigned. At scheduled-scan cadence (one job per account per N hours) × per-env account count, this is hundreds of `slog.Warn` lines per env. To avoid the operator runbook being drowned in expected-during-rollout noise:
+
+- In soft-enforce mode the middleware emits per-request output at `slog.Debug`, not `slog.Warn`.
+- A separate sampled `slog.Info("hmac: soft-enforce active", "missing_header_count_60s", N)` summary every 60s aggregates the count, via an `atomic.Int64` + a single goroutine ticker.
+- Hard-enforce mode keeps per-request `slog.Warn` — those are real failures, not expected transitions.
+
+**Detection that soft-enforce is stuck on.** If an operator forgets to flip `INGESTION_HMAC_SOFT_ENFORCE=false` after the rollout, C-1 silently re-opens (soft-enforce logs but never rejects). Two seams catch this:
+
+1. New gauge `axiaops_ingestion_hmac_enforce_mode{mode="soft|hard"}` set once at boot. Prometheus alert: `axiaops_ingestion_hmac_enforce_mode{mode="soft"} == 1 AND env != "dev"` for > 24h.
+2. The `axiaops_ingestion_hmac_failures_total{reason="missing_header"}` counter should drift to zero after api is shipped. If it stays > 0 / minute in a non-dev env, the rollout is incomplete (either soft-enforce-is-on or api is still unsigned in some calls — either way: not done).
+
+Both signals belong in the operator runbook (§7).
+
 Memory `feedback_deploys_always_manual.md` applies: every deploy is a manual click. The operator runbook for the rollout (added in §11) lists the exact button sequence per env.
 
 ### Per-env rollout order
@@ -541,6 +581,28 @@ Working from least-risk to most-risk (matches the C-2 rotation playbook):
 4. `production` (App Runner) — final.
 
 Each env follows the three-step `SOFT_ENFORCE: true → false` sequence above. Total rollout calendar: ~1 week if observing one scan cycle (60 min) between steps in each env.
+
+## Operator failure-mode guide
+
+For the on-call who sees an alarm at 3am. Each row is "symptom → diagnostic → resolution."
+
+| Symptom | api log signature | ingestion log signature | Likely cause | Resolution |
+|---|---|---|---|---|
+| Scans stuck in `scanning` status; user-clicked-Scan returns 200 but nothing happens | `scan: ingestion returned 401` or `queue: sync enqueue: ingestion returned 401` | `hmac: request rejected reason=signature_mismatch` | One side has rotated the secret; the other hasn't picked up. | Confirm both api and ingestion containers carry the same `INGESTION_SHARED_SECRET`. Redeploy the lagging side. If using two-secret rotation, verify `INGESTION_SHARED_SECRET_NEXT` on ingestion matches the new value on api. |
+| Same symptom | Same | `hmac: request rejected reason=missing_header` | The api side hasn't been redeployed with HMAC code yet, OR `INGESTION_SHARED_SECRET` is empty on api (api silently shipped without signing). | Check `INGESTION_SHARED_SECRET` is set on the api container's env. Verify api binary was built from a commit that includes the C-1 HMAC code. |
+| Same symptom | Same | `hmac: request rejected reason=timestamp_skew` | Clock drift between api host and ingestion host > `INGESTION_HMAC_MAX_SKEW_SECONDS` (default 300). | Check NTP sync on both hosts. Temporarily widen `INGESTION_HMAC_MAX_SKEW_SECONDS` only if NTP fix is in flight; never permanently. |
+| Same symptom | `scan: ingestion returned 413` | (no ingestion log — request rejected before middleware) | Request body > 64 KiB. Not expected for `/scan` or `/verify`; suggests a malformed body. | Inspect the api-side log for the request body shape. Body cap is intentional (audit H-4). |
+| Ingestion startup fails: `die: hmac: INGESTION_SHARED_SECRET is required when DEV_MODE=false` | n/a (container restart-loop) | n/a | `INGESTION_SHARED_SECRET` env var unset on ingestion in production / staging / preview. | Mint the secret in GitLab CI variables for the affected env scope; redeploy. |
+| Soft-enforce period: massive log volume from ingestion at `slog.Info` (the summary counter) | api logs normal | `hmac: soft-enforce active missing_header_count_60s=N` (where N is large) | Expected during the ingestion-shipped-before-api window. Rollout step 1 → step 2 incomplete. | Complete step 2 (ship api with signing). Counter should drop to ~0 within one scan-cycle. |
+| Hard-enforce period: `axiaops_ingestion_hmac_enforce_mode{mode="soft"} == 1` in production | n/a | n/a | Soft-enforce was never flipped off after rollout — C-1 is **silently re-opened**. | Set `INGESTION_HMAC_SOFT_ENFORCE=false` (or unset) and redeploy ingestion. File a runbook bug if this happens — the rollout cleanup MR for the env was missed. |
+| `axiaops_ingestion_hmac_enforce_mode{mode="hard"} == 1` AND `axiaops_ingestion_hmac_failures_total > 0` per minute steady-state | Periodic `scan: ingestion returned 401` from one specific account | `hmac: request rejected reason=signature_mismatch` from one source | Single mis-configured caller (rare: an integration test pointing at a real ingestion, an unrotated CI variable on a specific scoped env). | Identify the caller via `remote` field in the ingestion log. Fix the misconfigured caller. |
+| DEV_MODE ingestion receiving signed requests | api logs normal | `hmac: DEV_MODE bypassed signed request — production api talking to dev ingestion?` (once, via sync.Once) | api was deployed in production mode but `INGESTION_URL` points at a DEV_MODE-mode ingestion (e.g. local dev pointed at a remote test box). | Verify `INGESTION_URL` and DEV_MODE flags are aligned on both sides. |
+
+**Standing dashboards to wire** (in addition to existing observability):
+
+- `axiaops_ingestion_hmac_failures_total` — grouped by `reason`. Alert: > 1/min for > 5min in a hard-enforce env.
+- `axiaops_ingestion_hmac_enforce_mode` — gauge {soft, hard}. Alert: `mode="soft"` in non-dev env for > 24h.
+- `axiaops_ingestion_envelope_rejections_total` — Redis-path equivalent. Alert: > 1/min for > 5min.
 
 ## Test plan
 
@@ -563,7 +625,7 @@ Each env follows the three-step `SOFT_ENFORCE: true → false` sequence above. T
 | 1.11 body-mutation-after-signing | Sign(body), then Verify(body+1 byte) | ErrSignatureMismatch |
 | 1.12 method-mismatch | Sign for POST, Verify for PUT | ErrSignatureMismatch |
 | 1.13 path-mismatch | Sign for /scan, Verify for /scan/extra | ErrSignatureMismatch |
-| 1.14 empty-body | both signed and verified with body=nil | nil (canonical encoding tolerates) |
+| 1.14 empty-body | both signed and verified with body=nil | nil at the library layer (canonical encoding tolerates). **Note:** neither `/scan` nor `/v1/credentials/verify` accepts an empty body at the application layer — the inner handlers (via `httpjson.Decode`) 400 on empty input. This test pins library-level "supports empty body" so a future GET endpoint can sign successfully; it does not imply endpoint-level acceptance. |
 
 **`middleware_test.go`** (covers `Middleware`):
 
@@ -687,7 +749,7 @@ func VerifyEnvelope(secret []byte, maxSkew time.Duration, now func() time.Time,
 ### Where it lives
 
 - `services/shared/queue/redis/redis.go:45` — `Enqueue` signs the payload before LPUSH.
-- `services/ingestion/cmd/worker.go:36-45` — `Dequeue`'s result is verified before the `TryMarkAccountScanning` call. Failure → log + Prometheus counter, continue the loop.
+- `services/ingestion/cmd/worker.go` — verification happens **between `Dequeue` returning a job and any logging or DB write that echoes job fields.** Concretely: after the `if err != nil` block (lines 27–34) that handles the dequeue-error path, but **before** the existing `slog.Info("worker: scan.dequeued", ...)` block (lines 38–44) which today logs `account_id` / `organization_id` / `request_id` straight from the (still untrusted) envelope. Failure path on bad signature: emit a distinct log line that does NOT echo the attacker-claimed fields (`slog.Warn("worker: scan.rejected_invalid_envelope", "reason", ...)`), increment `axiaops_ingestion_envelope_rejections_total{reason}`, **do not count the failure toward the circuit breaker** (envelope failures are a categorically different class from scan-execution failures — a brief secret-mismatch during rotation must not open the breaker for legitimate scans afterwards), and `continue` the loop. This ordering matches the audit C-3 lesson: don't pollute logs with untrusted fields before verification.
 - `services/shared/queue/queue.go` — `New(redisURL, ingestionURL string, secret []byte) Queue` threads the secret to both adapters.
 
 ### Effort impact
@@ -707,9 +769,9 @@ With envelope signing: +3 hours. Two new public functions in `httpauth`, one new
 - [ ] `services/shared/httpauth/httpauth_test.go` (new) — §7.1 unit tests.
 - [ ] `services/shared/httpauth/middleware_test.go` (new) — §7.2 middleware tests.
 - [ ] `services/shared/observability/hmac.go` (new) — `Global.HMACFailures` Prometheus counter declaration + registration.
-- [ ] `services/shared/queue/queue.go` — `ScanJob` gains `Timestamp int64` + `Signature string` fields; `New` signature gains `secret []byte`; adapters thread it through. Lines 16-21, 57-68.
-- [ ] `services/shared/queue/sync/sync.go` — `New(ingestionURL, secret []byte)`; `Enqueue` signs the HTTP request when secret is non-nil. Lines 24-35, 37-60.
-- [ ] `services/shared/queue/redis/redis.go` — `New(redisURL, secret []byte)`; `Enqueue` envelope-signs before LPUSH; `Dequeue` returns the payload as-is (verification happens worker-side). Lines 24-42, 44-51.
+- [ ] `services/shared/queue/queue.go` — `ScanJob` gains `Timestamp int64` + `Signature string` fields; `New` signature gains `secret []byte`; adapters thread it through. Lines 16-21, 57-68. **⚠ Lockstep constraint:** the `queue.ScanJob` ↔ `redisqueue.ScanJob` ↔ `syncqueue.ScanJob` conversion at lines 34, 37–38, 46, 49–50 is **unkeyed type conversion** (`redisqueue.ScanJob(job)`), which requires all three structs to have **identical fields in identical order**. Adding `Timestamp` + `Signature` to only one or two will produce confusing compile errors at the conversion sites. As a defensive cleanup in the same MR, switch the conversions to keyed form (`redisqueue.ScanJob{OrganizationID: job.OrganizationID, ...}`) so future field additions surface as named-field errors instead of position errors.
+- [ ] `services/shared/queue/sync/sync.go` — `New(ingestionURL, secret []byte)`; `Enqueue` signs the HTTP request when secret is non-nil. Lines 24-35, 37-60. **`ScanJob` struct must mirror `queue.ScanJob` and `redisqueue.ScanJob` exactly** — see lockstep note above.
+- [ ] `services/shared/queue/redis/redis.go` — `New(redisURL, secret []byte)`; `Enqueue` envelope-signs before LPUSH; `Dequeue` returns the payload as-is (verification happens worker-side). Lines 24-42, 44-51. **`ScanJob` struct must mirror `queue.ScanJob` and `syncqueue.ScanJob` exactly** — see lockstep note above.
 - [ ] `services/shared/queue/queue_test.go` — test fixture `testJob` gets `Timestamp`/`Signature` populated by signing in the suite helper.
 - [ ] `services/shared/queue/sync/sync_test.go` (new) — §7.4 tests.
 - [ ] `services/shared/queue/redis/redis_test.go` — extend with §7.5 cases (file already exists if `test:redis` CI job has artifacts; if not, new file).
@@ -768,7 +830,9 @@ With envelope signing: +3 hours. Two new public functions in `httpauth`, one new
 | Integration test (`test-infra/integration/`) | 1 modified, 1 new override | 2.5 |
 | MR review pass + fixup commits | — | 2 |
 | Rollout — three-step soft-enforce → hard-enforce per env (×5 envs) including the 60-min observation window | — | 4 (calendar wall-time wins; engineer-attention ~2h) |
-| **Total** | **~22 file changes** | **~30 engineer-hours, ~1 week calendar with rollout** |
+| **Total** | **~22 file changes** | **~35–40 engineer-hours, ~1 week calendar with rollout** |
+
+**Estimate rationale (post-review):** raised from v1's ~30 hours to ~35–40 after factoring (a) the lockstep-`ScanJob`-conversion cleanup including switching to keyed conversion across all three packages, (b) the `httpauth.ReadCappedBody` helper and its retro-fit into `httpjson` per §4.1 / issue #94, (c) soft-enforce log-volume infra (atomic counter + ticker), (d) the mismatched-mode `sync.Once` warning, and (e) the operator runbook section (§7). Numbers below are unchanged where the section was already correctly estimated; deltas are highlighted in parentheses.
 
 **Risk of balloon:**
 - Envelope-signing for the Redis path (§4.4) is the biggest single risk if scope creeps — adding nonces or rejecting-on-Redis-outage would push it to 8+ hours. Stay disciplined: timestamp + base64 sig, no nonce, fail-open on Redis errors (matches the existing rate-limiter posture per audit I-4).
@@ -788,6 +852,10 @@ With envelope signing: +3 hours. Two new public functions in `httpauth`, one new
 5. **Secret rotation cadence.** The two-secret design supports zero-downtime rotation; the team should decide the cadence — annual minimum per the issue #96 threat-model note. The audit doc's "Cost-of-keys" section (if added later) can codify the cadence; for this MR, document the playbook in the operator runbook section of `docs/c1-hmac-plan.md` but don't pin a calendar.
 
 6. **mTLS migration timeline.** Out of scope for this MR. Worth tagging an issue ("C-1 followup: replace shared-secret HMAC with mTLS when in-cluster cert-mgr lands") so the trade-off is recorded. The HMAC scheme designed here is the right cost/benefit point for the current single-host-per-env compose shape; mTLS is the right answer when ingestion moves off the same host as api.
+
+7. **Redis `requirepass` follow-up.** The §4.4 / §8 envelope-signing recommendation rests on "Redis isn't password-authenticated, so any container on the docker network can LPUSH a forged job." A complementary defense-in-depth measure is to add `requirepass` (or ACL users) to Redis, requiring auth at the Redis-protocol level. This is **cheap** (a few lines in `deploy/*.yml`'s Redis service block + `REDIS_URL` carries the password via `redis://:<password>@host:6379`), **complementary** (HMAC stays load-bearing; Redis auth adds belt to the suspenders), and **independent** of this MR. File a follow-up issue ("harden: enable Redis requirepass across envs") and reference it from issue #94. Not in scope here.
+
+8. **`X-AxiaOps-Ingestion-Timestamp` format.** Decision pinned: **Unix seconds**, big-endian integer, base-10 string. NOT milliseconds, NOT RFC 3339. Rationale: shortest wire form, no parsing ambiguity, matches AWS SigV4. A caller who sends milliseconds (e.g. `1715740000000`) will land far enough in the future to trip `ErrTimestampSkew` — that's a desirable failure mode (a buggy client cannot accidentally produce a valid signature). Worth pinning explicitly in the MR description so future SDK additions don't drift.
 
 ---
 
@@ -812,3 +880,37 @@ With envelope signing: +3 hours. Two new public functions in `httpauth`, one new
 - `/Users/ahmed/Developer/repo/axiaops/deploy/dev.yml`, `preview.yml`, `staging.yml`, `demo.yml` — per-env compose files.
 - `/Users/ahmed/Developer/repo/axiaops/.gitlab-ci.yml` — deploy templates at lines 544-633 (`.deploy-dev`) and 738-841 (`deploy:staging`); env-var propagation block at line 596 + 799.
 - Issue text from `glab issue view 96` — canonical acceptance criteria (read at design time).
+
+---
+
+## §13 — Revision change-log
+
+### v2 (review pass)
+
+Five substantive fixes + six smaller corrections + three additions, all driven by an independent review of v1.
+
+**Substantive fixes:**
+
+1. **§9 (punch list) — `ScanJob` lockstep constraint flagged.** v1's punch list called for adding `Timestamp` + `Signature` fields to all three `ScanJob` structs (`queue`, `redis`, `sync`) but didn't note that they're related by unkeyed type conversion (`redisqueue.ScanJob(job)` at `services/shared/queue/queue.go:34`). A naive implementer adding fields to two of three would hit confusing compile errors at the conversion sites. v2 calls out the constraint and recommends switching to keyed conversion as a defensive cleanup in the same MR.
+2. **§3.5 (constant-time compare) — `hmac.Equal` rationale corrected.** v1 claimed `hmac.Equal` "does the full constant-time compare even when lengths differ." Actually it short-circuits on length difference (via `subtle.ConstantTimeCompare`), which is correct behavior (length is not an oracle for "guessed N of M bytes") but means v1's stated justification was wrong. v2 explains the real semantics and reframes test 7.6's value as catching `bytes.Equal` regressions, not verifying constant-time-on-length-mismatch.
+3. **§4.1 (body-read seam) — explicit 413 detection.** v1 said "Body > 64 KiB → 413" but `http.MaxBytesReader` doesn't auto-emit 413 — it surfaces `*http.MaxBytesError` on `Read`. The middleware needs explicit `errors.As(&http.MaxBytesError{})` detection. v2 pins this with code, promotes it into a `httpauth.ReadCappedBody` helper, and ties closure to issue #94's open 413-vs-400 sub-item so the same fix lands across H-4 callers in the same MR.
+4. **§4.4 (worker integration) — log-ordering fix.** v1 said envelope-verify lives "between line 35 and 37" of worker.go. The actual `slog.Info("worker: scan.dequeued", ...)` at lines 38-44 already logs `account_id` / `organization_id` from the still-untrusted envelope before that point — matching the audit C-3 forensic-pollution shape. v2 reorders: verify first, log after, and on failure emit a distinct log line that does NOT echo attacker-claimed fields. Also explicit on circuit-breaker interaction (envelope failures do NOT count toward the breaker).
+5. **§5 (rollout) — soft-enforce log volume + stuck-on detection.** v1 didn't address that soft-enforce mode produces hundreds of `slog.Warn` lines during the ingestion-before-api gap. v2 specifies: soft-enforce per-request output downgraded to `slog.Debug`, with a 60s `slog.Info` summary counter. v2 also adds an enforcement-mode gauge (`axiaops_ingestion_hmac_enforce_mode{mode}`) and Prometheus alert rule so a stuck-on `INGESTION_HMAC_SOFT_ENFORCE=true` doesn't silently re-open C-1.
+
+**Smaller corrections:**
+
+6. **§4.4 — worker.go line-number anchoring.** v1 referenced `line 35` and `line 37`; actual file has dequeue at line 26, the relevant gap is around 35-36. v2 replaces specific line numbers with structural anchors (`after the dequeue-error block, before the existing scan.dequeued log`) to survive minor refactors.
+7. **§7 — test 1.14 empty-body clarification.** v1's "empty-body → nil (library tolerates)" test could be misread as endorsing empty bodies at the application layer. v2 clarifies: the inner handlers `400` on empty input via `httpjson.Decode`; the library-level pass exists so future GET endpoints can sign successfully.
+8. **§4.5 — DEV_MODE / hard-enforce mismatch detection.** v1's DEV_MODE bypass is silent when api ships signed requests at a DEV_MODE ingestion. v2 adds a `sync.Once`-gated `slog.Warn("hmac: DEV_MODE bypassed signed request ...")` so the misconfig is loud-once, not silent-forever.
+9. **§11 — effort estimate raised from ~30h to ~35–40h** after factoring the lockstep cleanup, the `ReadCappedBody` retrofit into httpjson, soft-enforce infra, mismatched-mode warning, and the operator runbook section.
+10. **§3.5 — note on `hmac.Equal` length-mismatch fast-reject** explains why this is acceptable (length is public, not an oracle).
+11. **§4.4 — explicit circuit-breaker non-interaction** for envelope-verify failures.
+
+**Additions:**
+
+- **§7 (Operator failure-mode guide) — new section.** Eleven symptom → diagnostic → resolution rows for the on-call. Covers steady-state failures, rotation drift, NTP drift, soft-enforce stuck-on, DEV_MODE misalignment. Three standing dashboard + alert specs.
+- **§12 (open questions) — two new entries.** Q7: Redis `requirepass` follow-up (complementary defense-in-depth to envelope signing). Q8: Pin the timestamp wire format as Unix seconds (not milliseconds, not RFC 3339).
+
+### v1 (architect pass)
+
+Initial design produced via the architect agent, covering protocol, code seams, rotation strategy, rollout, test plan, files-to-modify, and six open questions.
