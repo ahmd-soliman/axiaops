@@ -206,6 +206,18 @@ func removeInstallTokenFile() {
 	}
 }
 
+// clearInstallTokenEnv unsets BOOTSTRAP_INSTALL_TOKEN in the running
+// process post-consume. When an operator supplies the token via env var
+// (unattended k8s installs), the plaintext sits in /proc/$pid/environ
+// for the lifetime of the container — readable by any process in the
+// same PID namespace. Unsetting after bootstrap shrinks that window to
+// "until first successful POST /v1/auth/bootstrap." Process-local only;
+// no effect on the orchestrator's secret store — the operator still
+// owns clearing that.
+func clearInstallTokenEnv() {
+	_ = os.Unsetenv(envInstallToken)
+}
+
 func printInstallBanner(token, filePath string) {
 	pathLine := "(file write disabled)"
 	if filePath != "" {

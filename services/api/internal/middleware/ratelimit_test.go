@@ -284,6 +284,9 @@ func (e *errorCache) Set(_ context.Context, _ string, _ []byte, _ time.Duration)
 	return errors.New("cache down")
 }
 func (e *errorCache) Del(_ context.Context, _ string) error { return errors.New("cache down") }
+func (e *errorCache) GetDel(_ context.Context, _ string) ([]byte, error) {
+	return nil, errors.New("cache down")
+}
 func (e *errorCache) Incr(_ context.Context, _ string, _ time.Duration) (int64, error) {
 	return 0, errors.New("cache down")
 }

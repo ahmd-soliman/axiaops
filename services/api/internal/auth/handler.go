@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/mail"
 	"strconv"
@@ -15,6 +14,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"axiaops.io/api/internal/httpip"
+	"axiaops.io/api/internal/httpjson"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/observability"
 	"axiaops.io/shared/storage"
@@ -72,11 +73,12 @@ func validUserName(s string) bool {
 // publicPath() in middleware/auth.go matches the /v1/auth/ prefix to
 // keep them out of the WrapNative chain.
 type Handler struct {
-	store      storage.NativeAuthStore
-	sessions   *Manager
-	cookieCfg  CookieConfig
-	auditFn    AuditWriter
-	loginLimit *LoginRateLimiter // nil → no rate limiting (dev fallback)
+	store       storage.NativeAuthStore
+	sessions    *Manager
+	cookieCfg   CookieConfig
+	auditFn     AuditWriter
+	loginLimit  *LoginRateLimiter // nil → no rate limiting (dev fallback)
+	probeLimit  *IPRateLimiter    // gates the bootstrap-state probe (audit M-4)
 }
 
 // AuditWriter is the seam for hooking audit_log writes from this
@@ -103,6 +105,15 @@ func NewHandler(store storage.NativeAuthStore, sessions *Manager, cookieCfg Cook
 // receiver for fluent setup so cmd/main.go can chain.
 func (h *Handler) WithLoginRateLimit(rl *LoginRateLimiter) *Handler {
 	h.loginLimit = rl
+	return h
+}
+
+// WithBootstrapProbeRateLimit attaches the per-IP rate limiter that gates
+// GET /v1/auth/bootstrap/state. Pass nil to disable. Separate budget from
+// /v1/auth/login so an attacker hammering the public probe cannot consume
+// the login limiter's budget. Audit M-4.
+func (h *Handler) WithBootstrapProbeRateLimit(rl *IPRateLimiter) *Handler {
+	h.probeLimit = rl
 	return h
 }
 
@@ -153,6 +164,26 @@ func (h *Handler) bootstrapState(w http.ResponseWriter, r *http.Request) {
 	// back to /login (flash-of-wrong-screen). The probe is cheap enough
 	// to never want a cached read.
 	w.Header().Set("Cache-Control", "no-store")
+
+	// Per-IP rate limit (audit M-4). The probe leaks "this install is
+	// mid-bootstrap" — Shodan-scanning attackers can use that to race
+	// the install token. The cap stops trivial enumeration; an attacker
+	// behind a botnet can still spread the load, but that's beyond what
+	// any single-IP cap addresses.
+	if h.probeLimit != nil {
+		outcome := h.probeLimit.Allow(r.Context(), httpip.Request(r))
+		if !outcome.Allowed {
+			retry := int(outcome.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			writeAuthError(w, http.StatusTooManyRequests, "rate_limited",
+				"too many bootstrap-state probes; please retry shortly")
+			return
+		}
+	}
+
 	_, _, err := h.store.GetBootstrapState(r.Context())
 	switch {
 	case err == nil:
@@ -196,7 +227,7 @@ type orgRecord struct {
 
 func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 	var req bootstrapRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
@@ -253,7 +284,7 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 		SessionTokenHash:     sessionTokenHash,
 		SessionExpiresAt:     h.sessions.now().Add(h.sessions.cfg.TTL),
 		SessionUserAgentHash: hashUserAgent(r.Header.Get("User-Agent")),
-		SessionIP:            requestIP(r).String(),
+		SessionIP:            httpip.Request(r).String(),
 	}
 
 	res, err := h.store.ConsumeBootstrapState(r.Context(), in)
@@ -290,6 +321,12 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 	// auth.MaybeGenerateInstallToken — explicit empty disables file
 	// management entirely. Best-effort: log + continue on failure.
 	removeInstallTokenFile()
+	// Also clear the env-var copy of the token. Operator-supplied tokens
+	// (BOOTSTRAP_INSTALL_TOKEN) sit in /proc/$pid/environ for any process
+	// in the PID namespace to read; unsetting post-consume shrinks that
+	// window. Process-local; orchestrator-side secret cleanup is still
+	// the operator's job (per CLAUDE.md).
+	clearInstallTokenEnv()
 
 	// Pre-warm the session cache so the first authenticated request after
 	// bootstrap doesn't take the cache-miss path. Uses the Manager's now
@@ -354,7 +391,7 @@ type orgPickerEntry struct {
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
@@ -372,7 +409,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	// cache outage degrades to "no rate limiting" rather than locking
 	// users out — matches the legacy middleware/RateLimiter.
 	if h.loginLimit != nil {
-		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), req.Email)
+		outcome := h.loginLimit.Allow(r.Context(), httpip.Request(r), req.Email)
 		if !outcome.Allowed {
 			retry := int(outcome.RetryAfter.Seconds())
 			if retry < 1 {
@@ -481,7 +518,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		UserID:         u.ID,
 		OrganizationID: mship.OrganizationID,
 		AuthMode:       model.AuthModePassword,
-		IP:             requestIP(r),
+		IP:             httpip.Request(r),
 		UserAgent:      r.Header.Get("User-Agent"),
 	})
 	if err != nil {
@@ -548,7 +585,7 @@ type selectOrgResponse = loginResponse
 // /v1/auth/login. The defence is for the no-creds case only.)
 func (h *Handler) selectOrg(w http.ResponseWriter, r *http.Request) {
 	var req selectOrgRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
@@ -564,7 +601,7 @@ func (h *Handler) selectOrg(w http.ResponseWriter, r *http.Request) {
 	// alternate /login and /select-org to double their budget against
 	// one email.
 	if h.loginLimit != nil {
-		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), req.Email)
+		outcome := h.loginLimit.Allow(r.Context(), httpip.Request(r), req.Email)
 		if !outcome.Allowed {
 			retry := int(outcome.RetryAfter.Seconds())
 			if retry < 1 {
@@ -635,7 +672,7 @@ func (h *Handler) selectOrg(w http.ResponseWriter, r *http.Request) {
 		UserID:         u.ID,
 		OrganizationID: chosen.OrganizationID,
 		AuthMode:       model.AuthModePassword,
-		IP:             requestIP(r),
+		IP:             httpip.Request(r),
 		UserAgent:      r.Header.Get("User-Agent"),
 	})
 	if err != nil {
@@ -725,7 +762,7 @@ func (h *Handler) switchOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req switchOrgRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
@@ -785,7 +822,7 @@ func (h *Handler) switchOrg(w http.ResponseWriter, r *http.Request) {
 		// tooling and any future SSO-enforcement gate would silently
 		// see a forged 'password' session.
 		AuthMode:  sess.AuthMode,
-		IP:        requestIP(r),
+		IP:        httpip.Request(r),
 		UserAgent: r.Header.Get("User-Agent"),
 	})
 	if err != nil {
@@ -821,21 +858,21 @@ type previewInvitationRequest struct {
 //
 // The user's password_hash is intentionally NOT exposed — only the boolean.
 // The actual hash stays inside the storage layer for redeem-time verification.
+// The user's display name is also NOT exposed: audit M-9 — a token holder
+// shouldn't learn cross-org display names just by holding a token that
+// happens to invite an existing AxiaOps user. The dashboard renders a plain
+// "Welcome back" when ExistingUser is true.
 type previewInvitationResponse struct {
 	Email            string `json:"email"`
 	OrganizationName string `json:"organization_name"`
 	Role             string `json:"role"`
 	ExistingUser     bool   `json:"existing_user"`
-	// ExistingUserName is the existing user's display name (if any),
-	// shown by the UI as "Welcome back, <name>" so the picker step
-	// doesn't feel anonymous. Empty when ExistingUser is false or the
-	// user's name was never set.
-	ExistingUserName string `json:"existing_user_name,omitempty"`
+	// Note: existing_user_name deliberately NOT included — see audit M-9 comment above.
 }
 
 func (h *Handler) previewInvitation(w http.ResponseWriter, r *http.Request) {
 	var req previewInvitationRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
@@ -854,7 +891,7 @@ func (h *Handler) previewInvitation(w http.ResponseWriter, r *http.Request) {
 	// only key. Email key passed empty — ratelimit.go treats that as
 	// "IP only" (no per-email amplification).
 	if h.loginLimit != nil {
-		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), "")
+		outcome := h.loginLimit.Allow(r.Context(), httpip.Request(r), "")
 		if !outcome.Allowed {
 			retry := int(outcome.RetryAfter.Seconds())
 			if retry < 1 {
@@ -884,9 +921,6 @@ func (h *Handler) previewInvitation(w http.ResponseWriter, r *http.Request) {
 		Role:             peek.Role,
 		ExistingUser:     peek.ExistingUser != nil,
 	}
-	if peek.ExistingUser != nil {
-		resp.ExistingUserName = peek.ExistingUser.Name
-	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -908,7 +942,7 @@ type redeemInvitationResponse struct {
 
 func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 	var req redeemInvitationRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
@@ -946,7 +980,7 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			emailKey = peek.Email
 		}
-		outcome := h.loginLimit.Allow(r.Context(), requestIP(r), emailKey)
+		outcome := h.loginLimit.Allow(r.Context(), httpip.Request(r), emailKey)
 		if !outcome.Allowed {
 			retry := int(outcome.RetryAfter.Seconds())
 			if retry < 1 {
@@ -1037,7 +1071,7 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 		UserID:         resolvedUser.ID,
 		OrganizationID: mship.OrganizationID,
 		AuthMode:       model.AuthModePassword,
-		IP:             requestIP(r),
+		IP:             httpip.Request(r),
 		UserAgent:      r.Header.Get("User-Agent"),
 	})
 	if mintErr != nil {
@@ -1077,7 +1111,7 @@ type redeemPasswordResetRequest struct {
 
 func (h *Handler) redeemPasswordReset(w http.ResponseWriter, r *http.Request) {
 	var req redeemPasswordResetRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
@@ -1181,61 +1215,6 @@ var placeholderHash = func() string {
 	h, _ := Hash("axiaops-login-timing-equaliser")
 	return h
 }()
-
-// requestIP extracts the client IP from common proxy headers, falling
-// back to RemoteAddr. Used for both forensics (sessions.ip) and the
-// rate-limiter key — the latter is security-critical, so the order
-// here is deliberately attacker-resistant.
-//
-// Threat: nginx and App Runner both *append* the connecting peer's IP
-// to whatever X-Forwarded-For header the client sent. So a request from
-// `attacker-ip` carrying `X-Forwarded-For: 1.2.3.4` becomes
-// `X-Forwarded-For: 1.2.3.4, attacker-ip` by the time it reaches us.
-// Taking the *leftmost* token (the previous version of this helper)
-// returned `1.2.3.4` — attacker-controlled — letting the attacker
-// rotate spoofed values to bypass the per-IP rate-limit cap entirely.
-//
-// We instead trust:
-//  1. X-Real-IP — set by nginx via `proxy_set_header X-Real-IP $remote_addr`,
-//     which unconditionally overwrites any client-supplied value. Reliable
-//     in the staging shape; not set by App Runner.
-//  2. The *rightmost* token of X-Forwarded-For — the one our trusted
-//     proxy added, i.e. the actual peer that connected to it. Reliable
-//     in both staging (single nginx hop) and production (single App
-//     Runner LB hop). If a future deployment introduces a second trusted
-//     proxy, this needs to take the rightmost-N-th token instead.
-//  3. RemoteAddr — for direct-to-API requests (tests, dev mode).
-func requestIP(r *http.Request) net.IP {
-	if v := r.Header.Get("X-Real-IP"); v != "" {
-		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
-			return ip
-		}
-	}
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		if i := strings.LastIndexByte(v, ','); i >= 0 {
-			v = v[i+1:]
-		}
-		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
-			return ip
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	return net.ParseIP(host)
-}
-
-// decodeJSON decodes the body, capping the size to 64 KiB to fence off
-// trivial DoS attempts. The endpoints have small payloads (~1 KiB).
-// `w` is passed to MaxBytesReader so the connection-close hint is sent
-// when the limit is hit (stdlib uses it only for that signal).
-func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	return dec.Decode(dst)
-}
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")

@@ -24,6 +24,11 @@ type Cache interface {
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	// Del removes a key.
 	Del(ctx context.Context, key string) error
+	// GetDel atomically retrieves and deletes a key (Redis 6.2+ GETDEL).
+	// Returns ErrNotFound when the key is absent. Used by single-use
+	// caches (e.g. OIDC state tokens) where two concurrent reads must
+	// not both succeed — see services/api/internal/sso/state.go.
+	GetDel(ctx context.Context, key string) ([]byte, error)
 	// Incr atomically increments a counter, resetting TTL on each call.
 	Incr(ctx context.Context, key string, ttl time.Duration) (int64, error)
 	// Ping verifies the cache backend is reachable. Memory implementations
@@ -52,6 +57,13 @@ func (w *wrappedCache) Set(ctx context.Context, key string, value []byte, ttl ti
 }
 func (w *wrappedCache) Del(ctx context.Context, key string) error {
 	return w.inner.Del(ctx, key)
+}
+func (w *wrappedCache) GetDel(ctx context.Context, key string) ([]byte, error) {
+	v, err := w.inner.GetDel(ctx, key)
+	if errors.Is(err, w.notFoundE) {
+		return nil, ErrNotFound
+	}
+	return v, err
 }
 func (w *wrappedCache) Incr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
 	return w.inner.Incr(ctx, key, ttl)
