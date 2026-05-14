@@ -24,7 +24,7 @@ export default function AcceptInviteScreen() {
   const tokenFromUrl = params.get('token') || '';
 
   const [token, setToken] = useState(tokenFromUrl);
-  const [preview, setPreview] = useState(null); // { email, organization_name, role, existing_user, existing_user_name? }
+  const [preview, setPreview] = useState(null); // { email, organization_name, role, existing_user }
   const [previewState, setPreviewState] = useState('idle'); // 'idle' | 'loading' | 'ready' | 'error'
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -119,9 +119,7 @@ export default function AcceptInviteScreen() {
       <form style={S.card} onSubmit={onSubmit} noValidate>
         <img src="/axiaops-logo-dark.svg" alt="AxiaOps" style={S.logoImg} />
         <span style={S.title}>
-          {isExisting
-            ? `Welcome back${preview?.existing_user_name ? `, ${preview.existing_user_name}` : ''}`
-            : 'Accept your invitation'}
+          {isExisting ? 'Welcome back' : 'Accept your invitation'}
         </span>
         <span style={S.tagline}>
           {isExisting

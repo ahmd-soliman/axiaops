@@ -27,7 +27,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -240,20 +242,38 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	ssoH := sso.New(deps.Store, deps.Connector, deps.Discoverer)
 	ssoH.Register(mux)
 	// Pre-auth /v1/sso/discover — mounted directly because publicPath
-	// bypasses it in middleware/auth.go.
-	mux.Handle("GET /v1/sso/discover", sso.NewDiscoverHandler(deps.Discoverer))
+	// bypasses it in middleware/auth.go. Per-IP rate limit (audit M-5)
+	// uses a separate key prefix so its budget doesn't share with /login.
+	discoverH := sso.NewDiscoverHandler(deps.Discoverer)
+	if deps.Cache != nil {
+		discoverH = discoverH.WithRateLimit(auth.NewIPRateLimiter(deps.Cache, "auth:sso_discover", 0))
+	}
+	mux.Handle("GET /v1/sso/discover", discoverH)
 
 	// ── Native-auth + OIDC ceremony ───────────────────────────────────────
 	// Wire when not in DevMode. DevBypass replaces the entire auth chain.
 	if !cfg.DevMode {
 		authH := auth.NewHandler(deps.Store, deps.SessionManager, deps.CookieConfig, auth.NewAuditWriter(deps.Store))
 		if deps.Cache != nil {
-			authH = authH.WithLoginRateLimit(auth.NewLoginRateLimiter(deps.Cache))
+			authH = authH.
+				WithLoginRateLimit(auth.NewLoginRateLimiter(deps.Cache)).
+				WithBootstrapProbeRateLimit(auth.NewIPRateLimiter(deps.Cache, "auth:bootstrap_probe", 0))
 		}
 		authH.Register(mux)
 
 		if cfg.PublicHost == "" {
 			slog.Error("sso: ceremony: PUBLIC_HOST is empty — IdP-registered redirect_uri will not match the URL the callback receives")
+		}
+		// CORS_ORIGIN=* + native-auth is a misconfiguration: the wildcard
+		// posture deliberately omits Access-Control-Allow-Credentials so
+		// the session cookie won't round-trip from a different origin,
+		// but it also widens read surface for any future endpoint that
+		// returns sensitive data over an Origin header check alone. In
+		// production set CORS_ORIGIN to the concrete dashboard origin
+		// (or leave the dashboard same-origin behind nginx). Audit M-3.
+		if v := strings.TrimSpace(os.Getenv("CORS_ORIGIN")); v == "" || v == "*" {
+			slog.Warn("api: CORS_ORIGIN is wildcard (or unset) outside DEV_MODE — set to the concrete dashboard origin in production",
+				"cors_origin", v)
 		}
 		mux.Handle("GET /v1/sso/oidc/{cid}/initiate",
 			sso.NewInitiateHandler(deps.Store, deps.SSOValidator, deps.SSOStateStore, cfg.PublicHost))
