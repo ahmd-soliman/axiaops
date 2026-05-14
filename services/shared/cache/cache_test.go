@@ -84,6 +84,72 @@ func suite(t *testing.T, c cache.Cache) {
 			t.Fatalf("expected counter reset to 1, got %d", n)
 		}
 	})
+
+	t.Run("GetDel returns value and removes key", func(t *testing.T) {
+		_ = c.Set(ctx, "getdel1", []byte("once"), time.Minute)
+		val, err := c.GetDel(ctx, "getdel1")
+		if err != nil {
+			t.Fatalf("GetDel: %v", err)
+		}
+		if string(val) != "once" {
+			t.Fatalf("GetDel value: got %q, want %q", val, "once")
+		}
+		// Second call must miss.
+		_, err = c.GetDel(ctx, "getdel1")
+		if !errors.Is(err, cache.ErrNotFound) {
+			t.Fatalf("second GetDel: expected ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("GetDel miss returns ErrNotFound", func(t *testing.T) {
+		_, err := c.GetDel(ctx, "getdel-missing")
+		if !errors.Is(err, cache.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("GetDel atomic under concurrency", func(t *testing.T) {
+		// Audit M-2: two concurrent GetDel on the same key — exactly one
+		// must return the value, the other must miss. Otherwise the OIDC
+		// state-token replay window is not closed.
+		_ = c.Set(ctx, "getdel-race", []byte("only-once"), time.Minute)
+
+		const goroutines = 20
+		type result struct {
+			val []byte
+			err error
+		}
+		results := make(chan result, goroutines)
+		start := make(chan struct{})
+		for i := 0; i < goroutines; i++ {
+			go func() {
+				<-start
+				v, err := c.GetDel(ctx, "getdel-race")
+				results <- result{val: v, err: err}
+			}()
+		}
+		close(start) // release the herd
+
+		winners := 0
+		misses := 0
+		for i := 0; i < goroutines; i++ {
+			r := <-results
+			switch {
+			case r.err == nil && string(r.val) == "only-once":
+				winners++
+			case errors.Is(r.err, cache.ErrNotFound):
+				misses++
+			default:
+				t.Errorf("unexpected (val=%q, err=%v)", r.val, r.err)
+			}
+		}
+		if winners != 1 {
+			t.Fatalf("winners=%d (want exactly 1); misses=%d", winners, misses)
+		}
+		if misses != goroutines-1 {
+			t.Fatalf("misses=%d (want %d); winners=%d", misses, goroutines-1, winners)
+		}
+	})
 }
 
 func TestMemoryCache(t *testing.T) {
@@ -118,6 +184,14 @@ type wrappedMemory struct{ *memorycache.Cache }
 
 func (w *wrappedMemory) Get(ctx context.Context, key string) ([]byte, error) {
 	v, err := w.Cache.Get(ctx, key)
+	if errors.Is(err, memorycache.ErrNotFound) {
+		return nil, cache.ErrNotFound
+	}
+	return v, err
+}
+
+func (w *wrappedMemory) GetDel(ctx context.Context, key string) ([]byte, error) {
+	v, err := w.Cache.GetDel(ctx, key)
 	if errors.Is(err, memorycache.ErrNotFound) {
 		return nil, cache.ErrNotFound
 	}

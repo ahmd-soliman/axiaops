@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"axiaops.io/api/internal/httpjson"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/authz"
 	"axiaops.io/shared/crypto"
@@ -140,7 +141,7 @@ type connectionRequest struct {
 func (h *Handler) createConnection(w http.ResponseWriter, r *http.Request) {
 	ctx := withOrg(r)
 	var req connectionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -214,7 +215,7 @@ func (h *Handler) updateConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req connectionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -324,7 +325,7 @@ type domainCreateRequest struct {
 func (h *Handler) createDomain(w http.ResponseWriter, r *http.Request) {
 	ctx := withOrg(r)
 	var req domainCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -461,7 +462,7 @@ func (h *Handler) replaceGroupMappings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req replaceGroupMappingsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpjson.Decode(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
