@@ -33,7 +33,9 @@ import (
 	"testing"
 	"time"
 
+	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/sso"
+	"axiaops.io/shared/cache"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 )
@@ -199,6 +201,42 @@ func TestDiscoverHandler_LatencyFloor(t *testing.T) {
 	// slow CI hosts. If this flakes consistently, the pad isn't holding.
 	if elapsed < 4*time.Millisecond {
 		t.Errorf("handler returned in %v; want >= 4ms (5ms minDiscoverLatency floor)", elapsed)
+	}
+}
+
+// TestDiscoverHandler_RateLimit — audit M-5. After the per-IP cap is
+// exceeded, the handler returns 429. The latency-floor pad still applies
+// so a successful hit and a rate-limited hit are indistinguishable by
+// wall-clock timing (preserves the constant-shape guarantee even on the
+// 429 path — otherwise the rate-limit response itself becomes a timing
+// side-channel for "this domain was queried frequently").
+func TestDiscoverHandler_RateLimit(t *testing.T) {
+	t.Parallel()
+	mem := cache.New("")
+	t.Cleanup(func() { _ = mem.Close() })
+
+	h := sso.NewDiscoverHandler(&fakeDiscoverer{res: sso.DiscoverResult{HasSSO: false}}).
+		WithRateLimit(auth.NewIPRateLimiter(mem, "test:sso_discover", 2))
+
+	hit := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/v1/sso/discover?email=user@acme.com", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	for i := 0; i < 2; i++ {
+		w := hit()
+		if w.Code != http.StatusOK {
+			t.Fatalf("hit %d: status = %d; want 200", i+1, w.Code)
+		}
+	}
+	w := hit()
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("post-cap status = %d; want 429", w.Code)
+	}
+	if w.Header().Get("Retry-After") == "" {
+		t.Errorf("Retry-After header missing on 429")
 	}
 }
 

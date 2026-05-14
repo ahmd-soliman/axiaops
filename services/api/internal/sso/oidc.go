@@ -215,6 +215,23 @@ func (v *Validator) validateClaims(claims jwt.MapClaims, conn model.SSOConnectio
 	if !audienceMatches(claims["aud"], conn.OIDCClientID) {
 		return nil, fmt.Errorf("%w: audience mismatch", ErrIDTokenInvalid)
 	}
+	// OIDC §3.1.3.7 step 5: when aud is multi-valued, the ID token MUST
+	// also carry azp (authorized party) identifying the party the token
+	// was issued for; the RP must verify azp == its own client_id.
+	// Audit M-6: without this check, an IdP issuing a token with
+	// aud=["client-A","client-B"] and azp="client-A" — intended only
+	// for client-A's verification context — would be accepted by us
+	// as client-B. Real-world impact is low (few IdPs issue multi-aud
+	// ID tokens), but the check is a one-liner and worth closing.
+	if isMultiAudience(claims["aud"]) {
+		azp, _ := claims["azp"].(string)
+		if azp == "" {
+			return nil, fmt.Errorf("%w: multi-aud token missing azp", ErrIDTokenInvalid)
+		}
+		if azp != conn.OIDCClientID {
+			return nil, fmt.Errorf("%w: azp mismatch on multi-aud token", ErrIDTokenInvalid)
+		}
+	}
 
 	// nonce binds the token to the auth request the RP originated. Skipping
 	// is a footgun: a caller that forgets to pass the nonce gets no
@@ -329,6 +346,26 @@ func audienceMatches(claim any, want string) bool {
 	case []any:
 		for _, v := range a {
 			if s, ok := v.(string); ok && s == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isMultiAudience reports whether the aud claim carries more than one value.
+// Single-valued aud is the OIDC ID-token common case; multi-valued triggers
+// the azp check per OIDC §3.1.3.7 step 5.
+func isMultiAudience(claim any) bool {
+	a, ok := claim.([]any)
+	if !ok {
+		return false
+	}
+	n := 0
+	for _, v := range a {
+		if s, ok := v.(string); ok && s != "" {
+			n++
+			if n > 1 {
 				return true
 			}
 		}
