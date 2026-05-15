@@ -62,7 +62,7 @@ const TABS = TAB_GROUPS.flatMap((g) => g.items);
 
 export default function Settings() {
   const { isDark } = useTheme();
-  const { can, loading } = useMe();
+  const { can, loading, me } = useMe();
   const location = useLocation();
   const navigate = useNavigate();
   const { isAtMost } = useBreakpoint();
@@ -71,7 +71,15 @@ export default function Settings() {
   // Wait for /v1/me before deciding what to render. On first paint
   // `loading` is true and every `can()` returns false — without this gate
   // the user sees the empty-state flash before the redirect can fire.
-  if (loading) return null;
+  //
+  // Gated on `!me`: MeContext.refresh() flips loading=true on every
+  // refresh (incl. the one mutations fire via invalidate()), not just
+  // the initial /v1/me. A naked `if (loading)` would unmount the entire
+  // Settings tree on every mutation, taking sub-page local state with it
+  // (e.g. the just-set lastInvite state on the Members tab, which makes
+  // the post-invite success card never render). Mirrors AuthGuard and
+  // OnboardingGate.
+  if (loading && !me) return null;
 
   const visible = TABS.filter((tab) => !tab.requires || can(tab.requires));
 
