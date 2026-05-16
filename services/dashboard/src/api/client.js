@@ -758,11 +758,21 @@ export async function authSwitchOrg(organizationId) {
   return res.json();
 }
 
-// authLogout clears the server-side session and the cookie. Returns 204
-// regardless of cookie state — see handler.go logout for the tolerance
-// rationale. Always treat as success on the client.
+// authLogout clears the server-side session and the cookie. Tolerant —
+// 204 (native sessions, no cookie, double-logout) or 200 with body
+// `{logout_url: "..."}` (SSO sessions where the API resolved an OIDC
+// end_session_endpoint for the IdP). Returns the parsed body (or null)
+// so the caller can navigate to the IdP logout URL when present —
+// without that step, the IdP session outlives our session and the next
+// sign-in on this browser inherits the previous user's identity.
 export async function authLogout() {
-  await ifetch(`${BASE_URL}/v1/auth/logout`, { method: 'POST' });
+  const res = await ifetch(`${BASE_URL}/v1/auth/logout`, { method: 'POST' });
+  if (res.status === 204) return null;
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 // authBootstrapState probes whether the install is still in its

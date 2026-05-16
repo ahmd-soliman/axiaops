@@ -357,6 +357,15 @@ type Store interface {
 	// currently bound to.
 	GetUserByID(ctx context.Context, id string) (model.User, error)
 
+	// GetUserSSOConnectionID returns the users.sso_connection_id value for
+	// the given user (empty string when the column is NULL — a native-only
+	// user, or an SSO user whose connection has been deleted with
+	// ON DELETE SET NULL). Returns ErrUserNotFound when no row matches.
+	// Single-purpose lookup so the SSO RP-Initiated Logout resolver doesn't
+	// need to drag the whole User struct (and the 25 SELECT sites that read
+	// it) through a column-add migration.
+	GetUserSSOConnectionID(ctx context.Context, userID string) (string, error)
+
 	// ── Pending invitations (see docs/invitation-flow.md) ────────────────────
 
 	// CreatePendingInvitation inserts a pending_memberships row, or upserts an
