@@ -9,6 +9,7 @@ import (
 	"net/mail"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -79,6 +80,30 @@ type Handler struct {
 	auditFn     AuditWriter
 	loginLimit  *LoginRateLimiter // nil → no rate limiting (dev fallback)
 	probeLimit  *IPRateLimiter    // gates the bootstrap-state probe (audit M-4)
+	ssoLogout   SSOLogoutResolver // nil → /v1/auth/logout always 204 (no SSO RP-Initiated Logout)
+}
+
+// ssoLogoutResolveTimeout caps how long the logout handler waits for
+// SSOLogoutResolver to build an end_session_endpoint URL. Resolver work
+// includes a potential live discovery-doc fetch from the IdP, so a slow
+// or unreachable OP could otherwise hold the response writer for the
+// full request-context lifetime. 3s is generous — the fallback (204) is
+// fine, so we'd rather log out quickly than wait for IdP cleanup.
+const ssoLogoutResolveTimeout = 3 * time.Second
+
+// SSOLogoutResolver is the seam the logout handler uses to build an OIDC
+// end_session_endpoint URL for SSO-minted sessions. Declared here (not in
+// the sso package) because auth → sso would close an import cycle — sso
+// already imports auth for MintRequest. The composition root wires the
+// concrete impl from the sso package.
+//
+// Returns ("", nil) — NOT an error — when the session is not SSO-minted,
+// the IdP doesn't advertise end_session_endpoint, the id_token can't be
+// decrypted, or the connection has been deleted. Logout falls back to the
+// legacy 204 shape in all of those cases rather than 500-ing — losing the
+// silent-logout polish degrades UX, but failing logout outright is worse.
+type SSOLogoutResolver interface {
+	ResolveLogoutURL(ctx context.Context, sess model.Session) (string, error)
 }
 
 // AuditWriter is the seam for hooking audit_log writes from this
@@ -105,6 +130,16 @@ func NewHandler(store storage.NativeAuthStore, sessions *Manager, cookieCfg Cook
 // receiver for fluent setup so cmd/main.go can chain.
 func (h *Handler) WithLoginRateLimit(rl *LoginRateLimiter) *Handler {
 	h.loginLimit = rl
+	return h
+}
+
+// WithSSOLogout wires the resolver that turns an SSO-minted session into an
+// IdP end_session_endpoint URL with id_token_hint, exposed to the dashboard
+// in the /v1/auth/logout response so the browser can finish the OIDC
+// RP-Initiated Logout ceremony. Pass nil (or never call this) to keep
+// /v1/auth/logout in its legacy 204 shape — the SSO branch silently no-ops.
+func (h *Handler) WithSSOLogout(r SSOLogoutResolver) *Handler {
+	h.ssoLogout = r
 	return h
 }
 
@@ -1181,6 +1216,16 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	// we have a recognisable session, but never gate the response on
 	// it. This also makes "double-logout" idempotent under the
 	// browser's auto-retry flows.
+	//
+	// SSO branch: when the session was SSO-minted and we can build an
+	// IdP end_session_endpoint URL, return it in a 200 JSON body so the
+	// dashboard can finish the OIDC RP-Initiated Logout ceremony in the
+	// browser. Without this step the IdP keeps Bob's session cookie
+	// alive and the next sign-in attempt on the same browser inherits
+	// Bob's identity even with prompt=login + login_hint=alice. The
+	// resolver is tolerant — any failure path returns ("", nil) so we
+	// fall back to the legacy 204 shape rather than blocking logout.
+	var logoutURL string
 	token := ReadSession(r)
 	if token != "" {
 		hash := HashToken(token)
@@ -1189,12 +1234,38 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		// fails (already revoked, expired, never existed) we still
 		// clear the cookie — defence-in-depth.
 		if sess, err := h.store.GetSessionByTokenHash(r.Context(), hash); err == nil {
+			// Resolve BEFORE revoke: the resolver doesn't need a live
+			// session, but cache invalidation in RevokeSession could
+			// race with downstream reads if we ever extend the resolver
+			// to re-read the session row. Cheap to keep the order
+			// correct now rather than chasing it later.
+			if h.ssoLogout != nil {
+				// Bound the resolver call. Without this, a slow IdP
+				// discovery fetch (or one that hangs entirely) would
+				// pin the goroutine for the full request lifetime —
+				// the request context only fires when the client
+				// disconnects. 3s is generous; the fallback is 204
+				// anyway, so erring on the side of "logout proceeds
+				// quickly" is correct.
+				rctx, cancel := context.WithTimeout(r.Context(), ssoLogoutResolveTimeout)
+				if u, lerr := h.ssoLogout.ResolveLogoutURL(rctx, sess); lerr != nil {
+					slog.Warn("auth: logout: sso resolve failed (falling back to 204)",
+						"err", lerr, "session_id", sess.ID)
+				} else {
+					logoutURL = u
+				}
+				cancel()
+			}
 			if revErr := h.sessions.RevokeSession(r.Context(), sess.ID, sess.SessionTokenHash, RevokeReasonLogout); revErr != nil {
 				slog.Warn("auth: logout revoke failed", "err", revErr, "session_id", sess.ID)
 			}
 		}
 	}
 	ClearSession(w, r, h.cookieCfg)
+	if logoutURL != "" {
+		writeJSON(w, http.StatusOK, map[string]string{"logout_url": logoutURL})
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

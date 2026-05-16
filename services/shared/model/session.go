@@ -37,6 +37,11 @@ type Session struct {
 	LastSeenAt       time.Time
 	IP               net.IP // nil when unknown / DEV_MODE
 	UserAgentHash    string // SHA-256 of the User-Agent header; empty when absent
+	// IDTokenEncrypted is the AES-256-GCM-encrypted (hex-encoded) OIDC id_token
+	// captured at SSO callback time, used as id_token_hint for RP-Initiated
+	// Logout (migration 027). Empty for AuthModePassword / AuthModeBootstrap
+	// sessions — they have no IdP session to invalidate.
+	IDTokenEncrypted string
 }
 
 // Live returns true if the session is presently usable: not revoked, not
