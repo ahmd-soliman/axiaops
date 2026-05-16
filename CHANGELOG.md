@@ -63,6 +63,9 @@ pipeline itself.
   `DELETE /v1/organizations/me`, plus audit-log anonymisation across orgs.
 - Admin-issued password-reset tokens (`POST /v1/users/{id}/password-reset`);
   redemption revokes every live session for that user.
+- RBAC Phase 1: role tiers (`owner` / `admin` / `member` / `viewer`),
+  permission gates on every protected route, and the dashboard memberships
+  UI.
 
 #### Detection & analyzer
 
@@ -76,6 +79,8 @@ pipeline itself.
 - Tier 2 CloudWatch-based detections for CloudFront, Kinesis, and S3 with
   request metrics; additional services tracked in
   `docs/tier2_detections_status.md`.
+- Scheduled auto-scan: per-account `scan_interval_hours`, background ticker
+  that fires due scans, and stuck-scan recovery.
 
 #### Dashboard
 
@@ -98,6 +103,18 @@ pipeline itself.
   default gatherer with the package-private registry).
 - Structured `log/slog` JSON logging with `service`, `env`, `version`, and
   `commit` auto-attached.
+
+#### Platform
+
+- `cache.Cache` interface with Redis and in-memory implementations;
+  backend selected by `REDIS_URL`.
+- `queue.Queue` interface with Redis (LPUSH / BRPOP) and synchronous-HTTP
+  fallback; backs the scan worker loop in ingestion.
+- JWKS caching for OIDC discovery and per-(org, user) request rate
+  limiting (advertised via `X-RateLimit-Limit` / `-Remaining` / `-Reset`
+  response headers), both built on `cache.Cache`.
+- Cache hit / miss / latency metrics exposed via the `observability`
+  package.
 
 #### Release pipeline
 
@@ -171,4 +188,4 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.1...develop
-[0.1.0-alpha.1]: https://gitlab.com/axiaops/axiaops/-/releases/0.1.0-alpha.1
+[0.1.0-alpha.1]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.1
