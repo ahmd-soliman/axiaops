@@ -10,8 +10,12 @@
 # plumbing. The default file shipped in the bundle (`public/runtime-env.js`)
 # sets `window.__ENV__ = {}`; this script overwrites it with real values.
 #
-# Values are read via awk's ENVIRON and JS-escaped (\, ', <) before being
-# embedded in the single-quoted JS string literals.
+# Values are read via awk's ENVIRON and JS-escaped (\, ', <, >) before
+# being embedded in the single-quoted JS string literals. < / > are
+# defence-in-depth: nginx serves this file as application/javascript
+# (sniffed from the .js extension) so HTML interpretation shouldn't
+# happen, but escaping them keeps the file safe even if someone ever
+# misconfigures the Content-Type.
 set -e
 
 ENV_JS=/usr/share/nginx/html/runtime-env.js
@@ -24,6 +28,7 @@ awk 'BEGIN {
     gsub(/\\/, "\\\\", v)
     gsub(/'\''/, "\\'\''", v)
     gsub(/</, "\\u003c", v)
+    gsub(/>/, "\\u003e", v)
     if (i > 1) printf ","
     printf "%s:%c%s%c", keys[i], 39, v, 39
   }
