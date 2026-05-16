@@ -102,7 +102,7 @@ The convention is already implicit in the dashboard code: **state goes in the ba
 ## How to cut a release
 
 1. **Decide the version.** Check the latest release tag (`git tag --sort=-v:refname -l '[0-9]*.[0-9]*.[0-9]*' | head -1`) and pick the next per the rules above. The semver glob is a guard against ever-reintroducing freeform tag names — anything that doesn't match is filtered out.
-2. **Update the CHANGELOG on `develop`.** Move entries from `## [Unreleased]` in [`CHANGELOG.md`](../CHANGELOG.md) into a new section headed `## [X.Y.Z] — YYYY-MM-DD`, rotate the compare links at the bottom of the file, and commit on `develop` with `chore(release): X.Y.Z`. Format is [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) — see the "How to update" section at the top of the file for subheading order.
+2. **Update the CHANGELOG on `develop`.** In [`CHANGELOG.md`](../CHANGELOG.md), move entries from `## [Unreleased]` into a new section headed `## [X.Y.Z] — YYYY-MM-DD`. At the bottom of the file, update the `[Unreleased]` link to compare against the new tag (`X.Y.Z...develop` instead of the previous tag) and add a `[X.Y.Z]: https://gitlab.com/axiaops/axiaops/-/tags/X.Y.Z` line. Commit on `develop` with `chore(release): X.Y.Z`. Format is [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) — see the "How to update" section at the top of the file for subheading order.
 3. **Promote `develop` → `main`** via the flow in [§Release promotion](#release-promotion-develop--main). Wait for the MR to merge.
 4. **Tag `main`** at the merge commit:
    ```bash
