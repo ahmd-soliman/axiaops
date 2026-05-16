@@ -44,6 +44,7 @@ type CallbackStore interface {
 	GetSSOConnectionByID(ctx context.Context, id string) (model.SSOConnection, error)
 	GetVerifiedSSODomainByName(ctx context.Context, domain string) (model.SSODomain, error)
 	UpsertUser(ctx context.Context, organizationID, externalID, email, name string) (model.User, error)
+	SetUserSSOConnection(ctx context.Context, userID, connectionID string) error
 	RedeemPendingInvitation(ctx context.Context, organizationID, userID, email string) (bool, error)
 	ListSSOGroupMappings(ctx context.Context, connID string) ([]model.SSOGroupMapping, error)
 	SaveMembership(ctx context.Context, m model.Membership) error
@@ -256,6 +257,16 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 			recordLoginFailed(r, opts.Store, conn, "upsert_user_failed")
 			http.Redirect(w, r, callbackErrorRedirect, http.StatusFound)
 			return
+		}
+
+		// Stamp the connection on the user row so the SSO RP-Initiated Logout
+		// resolver can later answer "which IdP issued this session?". Tolerant
+		// — a failure here loses silent-logout polish (logout falls back to
+		// the 204 shape, IdP shows its confirm prompt) but must not block the
+		// login itself; the user is already authenticated by this point.
+		if setErr := opts.Store.SetUserSSOConnection(ctx, user.ID, conn.ID); setErr != nil {
+			slog.Warn("sso: callback: set user sso_connection_id (RP-Initiated Logout will fall back for this user)",
+				"cid", cid, "user_id", user.ID, "err", setErr)
 		}
 
 		// Pending-invitation precedence (design §10.4): if the email matches

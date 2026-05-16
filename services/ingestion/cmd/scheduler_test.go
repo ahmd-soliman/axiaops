@@ -158,6 +158,9 @@ func (m *mockStoreForScheduler) GetUserByID(context.Context, string) (model.User
 func (m *mockStoreForScheduler) GetUserSSOConnectionID(context.Context, string) (string, error) {
 	panic("mockStoreForScheduler: GetUserSSOConnectionID called — ingestion doesn't exercise SSO logout; add real fake if a new path depends on this")
 }
+func (m *mockStoreForScheduler) SetUserSSOConnection(context.Context, string, string) error {
+	panic("mockStoreForScheduler: SetUserSSOConnection called — ingestion doesn't mint SSO sessions; add real fake if a new path depends on this")
+}
 func (m *mockStoreForScheduler) DeleteUser(context.Context, string) error                { return nil }
 func (m *mockStoreForScheduler) DeleteOrganizationCascade(context.Context, string) error { return nil }
 func (m *mockStoreForScheduler) CreatePendingInvitation(context.Context, model.PendingInvitation) (model.PendingInvitation, bool, error) {
