@@ -43,6 +43,14 @@ type DiscoveryDoc struct {
 // discoveryDocTTL caches the OIDC discovery doc for 24h per design §8.2.
 // Refresh-on-config-change paths land in the connector's Test() flow; this
 // validator just reads from cache and falls back to a live fetch on miss.
+//
+// Coverage: every field on DiscoveryDoc shares this TTL — including
+// EndSessionEndpoint, used by the SSO RP-Initiated Logout resolver. A
+// customer who rotates their IdP (Keycloak realm move, Okta tenant
+// migration, etc.) can see up-to-24h staleness in their logout flow:
+// either silent-logout fails over to the IdP's confirm prompt, or to the
+// 204 fallback. Failure mode is graceful (logout still works locally),
+// matching the existing AuthorizationEndpoint / TokenEndpoint behaviour.
 const discoveryDocTTL = 24 * time.Hour
 
 // discoveryFetchTimeout caps a single discovery-doc HTTP fetch.

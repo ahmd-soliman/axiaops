@@ -114,7 +114,19 @@ func (r *LogoutResolver) ResolveLogoutURL(ctx context.Context, sess model.Sessio
 		return "", fmt.Errorf("decrypt id_token: %w", err)
 	}
 
-	q := url.Values{}
+	// Parse the endpoint properly rather than appending with a sep char.
+	// String-concat works for the "no query, no fragment" common case but
+	// silently breaks if the IdP advertises an endpoint with a fragment
+	// (`https://idp/logout#section`) — appending `?...` after a fragment
+	// places the query in the fragment portion, which the browser strips
+	// from the wire request, and the IdP then sees an unauthenticated
+	// logout call (rejected, or shows a confirm prompt as if no
+	// id_token_hint). Merging via url.Values avoids both cases.
+	endURL, err := url.Parse(doc.EndSessionEndpoint)
+	if err != nil {
+		return "", fmt.Errorf("parse end_session_endpoint: %w", err)
+	}
+	q := endURL.Query()
 	q.Set("id_token_hint", idToken)
 	if conn.OIDCClientID != "" {
 		q.Set("client_id", conn.OIDCClientID)
@@ -122,12 +134,6 @@ func (r *LogoutResolver) ResolveLogoutURL(ctx context.Context, sess model.Sessio
 	if r.publicHost != "" {
 		q.Set("post_logout_redirect_uri", r.publicHost+"/login")
 	}
-
-	// Discovery URL may already carry a query string (rare, but legal —
-	// some IdPs append a tenant param). Use the right separator.
-	sep := "?"
-	if strings.Contains(doc.EndSessionEndpoint, "?") {
-		sep = "&"
-	}
-	return doc.EndSessionEndpoint + sep + q.Encode(), nil
+	endURL.RawQuery = q.Encode()
+	return endURL.String(), nil
 }
