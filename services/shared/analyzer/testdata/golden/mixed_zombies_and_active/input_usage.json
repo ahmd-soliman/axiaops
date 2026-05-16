@@ -1,0 +1,23 @@
+[
+  {
+    "resource_id": "db-old",
+    "metric": "DatabaseConnections",
+    "unit": "Count",
+    "avg": 0,
+    "period_days": 30
+  },
+  {
+    "resource_id": "fn-deprecated",
+    "metric": "Invocations",
+    "unit": "Count",
+    "avg": 0,
+    "period_days": 30
+  },
+  {
+    "resource_id": "i-active",
+    "metric": "CPUUtilization",
+    "unit": "Percent",
+    "avg": 62.4,
+    "period_days": 30
+  }
+]

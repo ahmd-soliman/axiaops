@@ -1,0 +1,115 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useTheme } from '../../theme/ThemeContext';
+import { useToast } from '../../context/ToastContext';
+import { useMe } from '../../context/MeContext';
+import { completeOnboarding } from '../../api/client';
+
+// Step 3 of 3 — connect first AWS account. Skippable. Whether the user
+// connects or skips, completeOnboarding marks the wizard done so it never
+// re-triggers. See docs/onboarding-wizard.md §8.3.
+//
+// To keep this PR shippable without depending on a refactor of pages/Connect.jsx,
+// we link to the existing /connect screen rather than embedding the form.
+// A future cleanup can extract a shared <ConnectAccountForm> component.
+export default function OnboardingAwsAccount() {
+  const { isDark } = useTheme();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const { refresh } = useMe();
+  const [finishing, setFinishing] = useState(false);
+
+  const border = isDark ? 'rgba(255,255,255,0.12)' : '#e5e7eb';
+
+  // finish marks onboarding complete and pulls the fresh me payload before
+  // navigating. The refresh is load-bearing: without it MeContext still
+  // holds onboarding_completed_at=null when navigate runs, OnboardingGate
+  // re-fires, and the user bounces back to step 1.
+  async function finish(stepsSkipped, dest) {
+    if (finishing) return;
+    setFinishing(true);
+    try {
+      await completeOnboarding(stepsSkipped);
+    } catch (err) {
+      toast('Could not save onboarding state. You may see the wizard again.', 'error');
+    }
+    await refresh();
+    navigate(dest);
+  }
+
+  function goConnect() {
+    finish([], '/connect');
+  }
+
+  function skip() {
+    finish(['aws-account'], '/');
+  }
+
+  return (
+    <div>
+      <h1 style={{ color: 'var(--color-text)', fontSize: 26, fontWeight: 700, margin: 0, marginBottom: 8 }}>
+        Connect your first AWS account
+      </h1>
+      <p style={{ color: 'var(--color-text-mid)', fontSize: 14, marginTop: 0, marginBottom: 24 }}>
+        AxiaOps reads CloudWatch and Cost Explorer with read-only credentials
+        to detect idle resources. You can do this now or later from
+        the dashboard.
+      </p>
+
+      <section
+        style={{
+          border: `1px solid ${border}`,
+          borderRadius: 8,
+          padding: 16,
+          backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#fff',
+          marginBottom: 24,
+        }}
+      >
+        <h2 style={{ margin: 0, marginBottom: 8, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+          What we&apos;ll need
+        </h2>
+        <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--color-text-mid)', fontSize: 13, lineHeight: '20px' }}>
+          <li>An AWS access key + secret with the AxiaOps IAM policy attached</li>
+          <li>The AWS account ID and a region (we recommend the one with most activity)</li>
+        </ul>
+      </section>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button
+          type="button"
+          onClick={skip}
+          disabled={finishing}
+          style={{
+            padding: '10px 16px',
+            border: 'none',
+            borderRadius: 8,
+            backgroundColor: 'transparent',
+            color: 'var(--color-text-muted)',
+            fontSize: 14,
+            cursor: 'pointer',
+          }}
+        >
+          Skip and finish
+        </button>
+        <button
+          type="button"
+          onClick={goConnect}
+          disabled={finishing}
+          style={{
+            padding: '10px 20px',
+            border: 'none',
+            borderRadius: 8,
+            backgroundColor: 'var(--color-accent)',
+            color: 'var(--color-text-on-dark)',
+            fontWeight: 600,
+            fontSize: 14,
+            cursor: finishing ? 'not-allowed' : 'pointer',
+            opacity: finishing ? 0.5 : 1,
+          }}
+        >
+          {finishing ? 'Finishing…' : 'Connect AWS account'}
+        </button>
+      </div>
+    </div>
+  );
+}

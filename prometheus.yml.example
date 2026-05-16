@@ -1,0 +1,53 @@
+# Prometheus configuration for AxiaOps
+# This example scrapes metrics from API and ingestion services.
+#
+# Usage:
+#   prometheus --config.file=prometheus.yml
+#
+# Access: http://localhost:9090
+#
+# Grafana integration:
+#   - Add Prometheus data source: http://localhost:9090
+#   - Create dashboards with queries like: rate(axiaops_http_requests_total[5m])
+
+global:
+  scrape_interval: 15s      # Default scrape interval
+  evaluation_interval: 15s   # How often to evaluate rules
+  external_labels:
+    monitor: 'axiaops-monitor'
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['localhost:9093']
+
+# Rule files (optional)
+# rule_files:
+#   - 'alerts.yml'
+
+scrape_configs:
+  # API Service
+  - job_name: 'axiaops-api'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['localhost:8080']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'api'
+
+  # Ingestion Service
+  - job_name: 'axiaops-ingestion'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['localhost:8081']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ingestion'
+
+  # Prometheus itself (optional)
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

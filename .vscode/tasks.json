@@ -1,0 +1,166 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "stop",
+      "type": "shell",
+      "command": "make stop",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "start-debug",
+      "type": "shell",
+      "command": "make start-debug",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent", "panel": "shared", "close": true }
+    },
+    {
+      "label": "vite-dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/services/dashboard",
+        "env": {
+          "VITE_DEV_MODE": "true",
+          "VITE_NO_OPEN": "true",
+          "VITE_KINDE_ISSUER": "https://axiaops.kinde.com",
+          "VITE_KINDE_CLIENT_ID": "9fc9d3b7d0024947bd3c9fa253dfd28c",
+          "VITE_DEV_ORG_NAME": "AxiaOps Dev"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": [{ "regexp": ".", "file": 1, "location": 2, "message": 3 }],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "ready in|Local:"
+        }
+      },
+      "presentation": { "reveal": "silent", "panel": "dedicated" }
+    },
+    {
+      "label": "vite-dev-auth",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/services/dashboard",
+        "env": {
+          "VITE_DEV_MODE": "false",
+          "VITE_NO_OPEN": "true",
+          "VITE_KINDE_ISSUER": "https://axiaops.kinde.com",
+          "VITE_KINDE_CLIENT_ID": "9fc9d3b7d0024947bd3c9fa253dfd28c"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": [{ "regexp": ".", "file": 1, "location": 2, "message": 3 }],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "ready in|Local:"
+        }
+      },
+      "presentation": { "reveal": "silent", "panel": "dedicated" }
+    },
+    {
+      "label": "seed",
+      "type": "shell",
+      "command": "make seed",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "clean-db",
+      "type": "shell",
+      "command": "make clean-db",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "clean-docker",
+      "type": "shell",
+      "command": "make clean-docker",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "clean-remote-dev-1",
+      "type": "shell",
+      "command": "make clean-remote-dev-1",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "clean-remote-dev-2",
+      "type": "shell",
+      "command": "make clean-remote-dev-2",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "clean-remote-staging",
+      "type": "shell",
+      "command": "make clean-remote-staging",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "make test",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "test-integration",
+      "type": "shell",
+      "command": "make test-integration",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "start-dev",
+      "type": "shell",
+      "command": "make start-dev",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": [{ "regexp": ".", "file": 1, "location": 2, "message": 3 }],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "listening|Listening",
+          "endsPattern": "listening|Listening"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "start-staging",
+      "type": "shell",
+      "command": "make start-staging",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": [{ "regexp": ".", "file": 1, "location": 2, "message": 3 }],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "listening|Listening",
+          "endsPattern": "listening|Listening"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "shared" }
+    }
+  ]
+}
