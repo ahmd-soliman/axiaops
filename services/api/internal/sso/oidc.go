@@ -28,6 +28,16 @@ type DiscoveryDoc struct {
 	AuthorizationEndpoint string   `json:"authorization_endpoint"`
 	TokenEndpoint         string   `json:"token_endpoint"`
 	IDTokenSigningAlgs    []string `json:"id_token_signing_alg_values_supported"`
+	// EndSessionEndpoint is the OIDC RP-Initiated Logout 1.0 endpoint
+	// (https://openid.net/specs/openid-connect-rpinitiated-1_0.html). The
+	// logout handler builds an id_token_hint + post_logout_redirect_uri URL
+	// against this so the IdP session dies in lockstep with our session;
+	// without it the IdP keeps Bob's session and the next sign-in attempt
+	// inherits Bob's identity regardless of login_hint. Empty when the IdP
+	// does not advertise the endpoint — older OIDC OPs and some
+	// minimally-conformant federations omit it. Logout falls back to the
+	// 204 native shape when this is empty rather than 500-ing.
+	EndSessionEndpoint string `json:"end_session_endpoint"`
 }
 
 // discoveryDocTTL caches the OIDC discovery doc for 24h per design §8.2.
