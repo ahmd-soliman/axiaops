@@ -150,8 +150,13 @@ func (m *mockStoreForScheduler) GetUserByEmail(context.Context, string) (model.U
 func (m *mockStoreForScheduler) GetUserByID(context.Context, string) (model.User, error) {
 	return model.User{}, nil
 }
+// GetUserSSOConnectionID is on the Store interface for the API service's
+// SSO RP-Initiated Logout resolver. No ingestion code path uses it today;
+// if a future ingestion-side feature ever wires this method, the panic
+// surfaces the new dependency loudly rather than letting tests silently
+// pass on a stub that always reports "no SSO connection".
 func (m *mockStoreForScheduler) GetUserSSOConnectionID(context.Context, string) (string, error) {
-	return "", nil
+	panic("mockStoreForScheduler: GetUserSSOConnectionID called — ingestion doesn't exercise SSO logout; add real fake if a new path depends on this")
 }
 func (m *mockStoreForScheduler) DeleteUser(context.Context, string) error                { return nil }
 func (m *mockStoreForScheduler) DeleteOrganizationCascade(context.Context, string) error { return nil }
