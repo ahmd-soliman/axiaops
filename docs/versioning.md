@@ -71,9 +71,9 @@ Rough correlation (not a contract):
 
 **Tags are cut from `main`, never from `develop` or feature branches.** The CI is built around this:
 
-- `.gitlab-ci.yml:510` / `:850` — `deploy:staging` fires automatically on pushes to `main` (and to `develop`, for staging soak — but the release-line is `main`).
-- `.gitlab-ci.yml:738` — `deploy:production` rule gates on `$CI_COMMIT_BRANCH == "main"` only.
-- Tagging from `develop` would build registry images that the deploy pipeline can't promote to production. Tagging from a feature branch is worse — see [§What NOT to do](#what-not-to-do).
+- `deploy:staging` (`.gitlab-ci.yml`) auto-fires on three triggers: pushes to `main`, pushes to `develop` (manual button), and **tag pipelines** (auto). The tag-pipeline path re-deploys staging with a properly-labelled release image so `/v1/version` matches the tag string.
+- `deploy:production` is **tag-only** — its rule matches `$CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$/` with a manual click. A raw `main` commit cannot promote to production; every production deploy must be a named release.
+- Tagging from `develop` or a feature branch still builds and publishes a registry image (workflow allows the pipeline), but every release should pass through the `develop → main` merge audit trail before becoming a candidate. See [§What NOT to do](#what-not-to-do).
 
 **Promotion flow** for every release cut:
 
@@ -83,10 +83,6 @@ Rough correlation (not a contract):
 4. Tag `main` at the merge commit — see [§How to cut a release](#how-to-cut-a-release).
 
 `develop` stays the integration trunk; `main` is "what's been released" + the CI release-line. The two should be very close to each other at any moment — `main` lags `develop` only by the time between merge and the next release MR.
-
-### One-time bootstrap
-
-`main` currently contains only the initial commit (`bf85ed7`); every real change has accumulated on `develop`. Before the first semver tag (`0.1.0-alpha.1`) can be cut, one bootstrap MR `develop → main` must fast-forward `main` to `develop`'s tip. After that, the steady-state promotion flow above takes over. This note can be deleted once the bootstrap MR merges.
 
 ---
 
@@ -105,7 +101,7 @@ The convention is already implicit in the dashboard code: **state goes in the ba
 
 ## How to cut a release
 
-1. **Decide the version.** Check the latest release tag (`git tag --sort=-v:refname -l '[0-9]*.[0-9]*.[0-9]*' | head -1`) and pick the next per the rules above. The filter excludes the legacy snapshot tags (`_backup_pre_split_*`, `before-removing-kinde`, `dind`, `docker-socket`) that predate this convention.
+1. **Decide the version.** Check the latest release tag (`git tag --sort=-v:refname -l '[0-9]*.[0-9]*.[0-9]*' | head -1`) and pick the next per the rules above. The semver glob is a guard against ever-reintroducing freeform tag names — anything that doesn't match is filtered out.
 2. **Update the CHANGELOG on `develop`.** Move entries from `## [Unreleased]` into a new section headed `## [X.Y.Z] — YYYY-MM-DD`. Commit on `develop` with `chore(release): X.Y.Z`. (CHANGELOG bootstrapping is a follow-up — see [§Open follow-ups](#open-follow-ups).)
 3. **Promote `develop` → `main`** via the flow in [§Release promotion](#release-promotion-develop--main). Wait for the MR to merge.
 4. **Tag `main`** at the merge commit:
@@ -115,7 +111,7 @@ The convention is already implicit in the dashboard code: **state goes in the ba
    git push origin 0.1.0-alpha.1
    ```
    Annotated tags only (`-a`) — lightweight tags lose author + message metadata.
-5. **CI does the rest.** A tag pipeline is gated to always run (`.gitlab-ci.yml:34`); `APP_VERSION=$CI_COMMIT_TAG` flows into all four service images and surfaces per [§Where the version surfaces](#where-the-version-surfaces). `deploy:staging` auto-fires from the `main`-branch pipeline that just landed; `deploy:production` waits for a manual click.
+5. **CI does the rest.** The tag pipeline runs the full test + build suite, then `build:images` publishes registry images with `APP_VERSION=$CI_COMMIT_TAG` so `/v1/version` and the footer match the tag string. `deploy:staging` then **auto-fires from the tag pipeline** (re-deploying staging with the release-labelled image). `deploy:production` becomes available as a manual click on the same tag pipeline. The `main`-branch pipeline that produced the merge commit *also* deployed staging earlier, with `APP_VERSION=main`; the tag-pipeline deploy overwrites that with the better-labelled image.
 6. **Verify** post-pipeline:
    ```bash
    curl -s https://axiaops-<env>.example.com/v1/version | jq .version
@@ -129,7 +125,7 @@ For a fix on an already-released line: branch off the tag, fix, tag `0.Y.(Z+1)` 
 ### What NOT to do
 
 - **Don't retag.** Tags are immutable contracts with CI and the LicenseBanner. If a tag is wrong, cut the next one (`0.1.0-alpha.2`) and note the skip in the CHANGELOG.
-- **Don't tag from `develop` or feature branches.** Only `main` (see [§Release promotion](#release-promotion-develop--main)). The CI rule `.gitlab-ci.yml:34` (`- if: '$CI_COMMIT_TAG'`) has no branch constraint, so a tag on `develop` or a feature branch *will* still build and publish images to the registry — but `deploy:production` gates on `$CI_COMMIT_BRANCH == "main"` (`:738`), so the resulting images sit in the registry with a release-shaped tag while being unpromotable. That's a confusing artefact, not a working release.
+- **Don't tag from `develop` or feature branches.** Only `main` (see [§Release promotion](#release-promotion-develop--main)). The CI rule `.gitlab-ci.yml:34` (`- if: '$CI_COMMIT_TAG'`) has no branch constraint, so a tag on `develop` would still build images and *could* even reach `deploy:production` (the production rule is tag-only, not branch-gated). The reason to still require `main` is the **audit trail**: every release passes through a `develop → main` MR so reviewers see exactly what's in scope. Skipping that hides scope from anyone other than the tagger.
 - **Don't tag with `v` prefix.** The CI substitution doesn't strip it; you'd get `APP_VERSION=v0.1.0-alpha.1` instead of `0.1.0-alpha.1`.
 - **Don't skip the suffix on pre-release cuts.** A bare `0.1.0` carries an implicit promise — "we'd ship this." Use `-alpha.N` until that's true.
 
@@ -139,4 +135,4 @@ For a fix on an already-released line: branch off the tag, fix, tag `0.Y.(Z+1)` 
 
 - **CHANGELOG.md** — not yet bootstrapped. Convention will be [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) (Added / Changed / Fixed / Removed / Security under each version). First entry should retroactively reference Phase 1 MVP (April 2026) as the `0.0.x` history-before-tagging baseline.
 - **`docs/USER_STORIES_STATUS.md` cross-link** — when a version ships, mark the relevant user stories with the tag they landed in.
-- **Production deploy + tag pipeline interaction** — `deploy:production` is a manual gate (per memory: all `deploy:*` jobs are operator-clicked). Confirm tag pipelines surface the manual gate without auto-promoting to prod.
+- **Consider tag-only staging deploys.** Today `deploy:staging` fires on both `main` pushes (auto) and tag pushes (auto). That gives you a continuous "merge → staging" verification loop at the cost of (a) one wasted deploy per release cut and (b) a window where `/v1/version` on staging reports `APP_VERSION=main` instead of a labelled release. Flip to tag-only when any of these become true: (1) design partners hit staging and shouldn't see untagged builds, (2) compliance requires every change on a prod-like environment to be a named release, (3) staging starts being treated like production (long-running sessions you don't want disrupted by main pushes). The change is a single-line edit — remove the `- if: '$CI_COMMIT_BRANCH == "main"'` rule from `deploy:staging`.
