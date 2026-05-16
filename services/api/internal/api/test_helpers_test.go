@@ -919,6 +919,20 @@ func (m *MockStore) GetUserSSOConnectionID(_ context.Context, userID string) (st
 	return "", storage.ErrUserNotFound
 }
 
+// SetUserSSOConnection is the write counterpart called by the OIDC callback.
+// Tests in this package don't drive the SSO callback so the mock is a
+// minimal "verify user exists, swallow the write" stub.
+func (m *MockStore) SetUserSSOConnection(_ context.Context, userID, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == userID {
+			return nil
+		}
+	}
+	return storage.ErrUserNotFound
+}
+
 func (m *MockStore) DeleteUser(_ context.Context, userID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
