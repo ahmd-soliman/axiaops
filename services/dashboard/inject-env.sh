@@ -18,6 +18,11 @@
 # misconfigures the Content-Type.
 set -e
 
+# NOTE for operators: /usr/share/nginx/html/ must be writable at container
+# startup. If the container is run with a read-only root filesystem (e.g.
+# `docker run --read-only`), the `mv` below will fail and nginx will serve
+# the default `window.__ENV__ = {}` from the baked-in runtime-env.js.
+# Mount a tmpfs/volume at /usr/share/nginx/html/ if hardening with --read-only.
 ENV_JS=/usr/share/nginx/html/runtime-env.js
 
 awk 'BEGIN {
@@ -30,7 +35,7 @@ awk 'BEGIN {
     gsub(/</, "\\u003c", v)
     gsub(/>/, "\\u003e", v)
     if (i > 1) printf ","
-    printf "%s:%c%s%c", keys[i], 39, v, 39
+    printf "%c%s%c:%c%s%c", 34, keys[i], 34, 39, v, 39
   }
   printf "};\n"
 }' > "$ENV_JS.tmp" && mv "$ENV_JS.tmp" "$ENV_JS"
