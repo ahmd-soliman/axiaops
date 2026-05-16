@@ -259,6 +259,13 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 				WithLoginRateLimit(auth.NewLoginRateLimiter(deps.Cache)).
 				WithBootstrapProbeRateLimit(auth.NewIPRateLimiter(deps.Cache, "auth:bootstrap_probe", 0))
 		}
+		// SSO RP-Initiated Logout: when a session was minted via SSO, the
+		// /v1/auth/logout response carries an end_session_endpoint URL the
+		// dashboard navigates to so the IdP session dies in lockstep with
+		// our session. Without this, the browser still has a Keycloak/Okta
+		// session cookie for the previous user and the next sign-in
+		// inherits their identity even with prompt=login + login_hint.
+		authH = authH.WithSSOLogout(sso.NewLogoutResolver(deps.Store, deps.SSOValidator, cfg.PublicHost))
 		authH.Register(mux)
 
 		if cfg.PublicHost == "" {
