@@ -1150,6 +1150,134 @@ func TestLogoutRevokesSessionAndClearsCookie(t *testing.T) {
 	}
 }
 
+// TestLogoutSSOSessionReturnsLogoutURL pins the OIDC RP-Initiated Logout
+// path (issue: SSO users sign out, IdP keeps Bob's session, next sign-in
+// inherits Bob's identity even with prompt=login + login_hint=alice). When
+// the wired resolver builds a logout_url for an SSO-minted session, the
+// handler returns 200 with that URL in the body so the dashboard can
+// navigate the browser to the IdP's end_session_endpoint. Cookie still
+// cleared, session row still revoked.
+func TestLogoutSSOSessionReturnsLogoutURL(t *testing.T) {
+	t.Parallel()
+	h, store, mgr := newHandlerTest(t)
+	seedAccount(t, store, "alice@example.com", "correct horse battery staple", 1)
+
+	const want = "https://idp.example.com/logout?id_token_hint=tok&client_id=c&post_logout_redirect_uri=https%3A%2F%2Fapp.example.com%2Flogin"
+	h = h.WithSSOLogout(fakeSSOLogoutResolver{url: want})
+
+	mint, err := mgr.MintSession(context.Background(), auth.MintRequest{
+		UserID:         "u-alice@example.com",
+		OrganizationID: "org-alice@example.com-a",
+		AuthMode:       model.AuthModeSSO,
+	})
+	if err != nil {
+		t.Fatalf("MintSession: %v", err)
+	}
+
+	w := postJSON(t, mux(h), "/v1/auth/logout", nil, &http.Cookie{
+		Name: auth.SessionCookieName, Value: mint.PlaintextToken,
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (sso logout); body = %s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["logout_url"] != want {
+		t.Errorf("logout_url: got %q want %q", body["logout_url"], want)
+	}
+	cleared := false
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("expected logout to clear the session cookie even on the SSO branch")
+	}
+	got, err := store.GetSessionByTokenHash(context.Background(), mint.Session.SessionTokenHash)
+	if err != nil {
+		t.Fatalf("GetSessionByTokenHash after logout: %v", err)
+	}
+	if got.RevokedAt == nil {
+		t.Error("logout did not revoke the SSO session row")
+	}
+}
+
+// TestLogoutResolverEmptyFallsBackTo204 pins the tolerant fallback: when
+// the resolver returns "" (older OP, missing id_token, decryption-disabled
+// session), the handler stays on the legacy 204 shape rather than emitting
+// a 200 with empty body — preserves the dashboard's existing handling for
+// any caller that only inspects status code.
+func TestLogoutResolverEmptyFallsBackTo204(t *testing.T) {
+	t.Parallel()
+	h, store, mgr := newHandlerTest(t)
+	seedAccount(t, store, "bob@example.com", "correct horse battery staple", 1)
+	h = h.WithSSOLogout(fakeSSOLogoutResolver{url: ""})
+
+	mint, err := mgr.MintSession(context.Background(), auth.MintRequest{
+		UserID:         "u-bob@example.com",
+		OrganizationID: "org-bob@example.com-a",
+		AuthMode:       model.AuthModeSSO,
+	})
+	if err != nil {
+		t.Fatalf("MintSession: %v", err)
+	}
+
+	w := postJSON(t, mux(h), "/v1/auth/logout", nil, &http.Cookie{
+		Name: auth.SessionCookieName, Value: mint.PlaintextToken,
+	})
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d; want 204 (resolver returned empty); body = %s", w.Code, w.Body.String())
+	}
+}
+
+// TestLogoutResolverErrorFallsBackTo204 pins that an unrecoverable resolve
+// error (decrypt failure, network blip on discovery) does NOT block sign-
+// out — the handler logs and falls back to the legacy 204 so the user
+// session ends regardless of the IdP-side cleanup outcome.
+func TestLogoutResolverErrorFallsBackTo204(t *testing.T) {
+	t.Parallel()
+	h, store, mgr := newHandlerTest(t)
+	seedAccount(t, store, "carol@example.com", "correct horse battery staple", 1)
+	h = h.WithSSOLogout(fakeSSOLogoutResolver{err: errors.New("discovery blew up")})
+
+	mint, err := mgr.MintSession(context.Background(), auth.MintRequest{
+		UserID:         "u-carol@example.com",
+		OrganizationID: "org-carol@example.com-a",
+		AuthMode:       model.AuthModeSSO,
+	})
+	if err != nil {
+		t.Fatalf("MintSession: %v", err)
+	}
+
+	w := postJSON(t, mux(h), "/v1/auth/logout", nil, &http.Cookie{
+		Name: auth.SessionCookieName, Value: mint.PlaintextToken,
+	})
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d; want 204 (resolve error must not block logout); body = %s", w.Code, w.Body.String())
+	}
+	got, err := store.GetSessionByTokenHash(context.Background(), mint.Session.SessionTokenHash)
+	if err != nil {
+		t.Fatalf("GetSessionByTokenHash after logout: %v", err)
+	}
+	if got.RevokedAt == nil {
+		t.Error("logout did not revoke the session row even on resolve error")
+	}
+}
+
+// fakeSSOLogoutResolver is a tiny stand-in for the wired sso.LogoutResolver
+// — tests for the resolver itself live in the sso package.
+type fakeSSOLogoutResolver struct {
+	url string
+	err error
+}
+
+func (f fakeSSOLogoutResolver) ResolveLogoutURL(_ context.Context, _ model.Session) (string, error) {
+	return f.url, f.err
+}
+
 func TestLogoutToleratesNoCookie(t *testing.T) {
 	t.Parallel()
 	h, _, _ := newHandlerTest(t)

@@ -2009,6 +2009,58 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (model.User, error) 
 	return u, nil
 }
 
+// SetUserSSOConnection writes users.sso_connection_id. Empty connectionID
+// clears the column to NULL. Returns ErrUserNotFound when no row matches.
+// See the Store interface comment for why this is a separate setter rather
+// than a field on UpsertUser.
+func (s *Store) SetUserSSOConnection(ctx context.Context, userID, connectionID string) error {
+	if userID == "" {
+		return storage.ErrUserNotFound
+	}
+	// NULLIF($, '') maps the empty-string sentinel to a SQL NULL so the
+	// `ON DELETE SET NULL` foreign-key invariant on users.sso_connection_id
+	// stays uniform: every "no connection" row holds NULL, never ''.
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE users
+		SET sso_connection_id = NULLIF($2, '')
+		WHERE id = $1`,
+		userID, connectionID,
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: set user sso connection id: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return storage.ErrUserNotFound
+	}
+	return nil
+}
+
+// GetUserSSOConnectionID returns users.sso_connection_id (empty when NULL).
+// Single-purpose lookup for the SSO RP-Initiated Logout resolver — see the
+// Store interface comment for why we don't fold this into GetUserByID.
+func (s *Store) GetUserSSOConnectionID(ctx context.Context, userID string) (string, error) {
+	if userID == "" {
+		return "", storage.ErrUserNotFound
+	}
+	var connID *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT sso_connection_id
+		FROM users
+		WHERE id = $1`,
+		userID,
+	).Scan(&connID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", storage.ErrUserNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("postgres: get user sso connection id: %w", err)
+	}
+	if connID == nil {
+		return "", nil
+	}
+	return *connID, nil
+}
+
 // GetUserByEmail looks up a user by email within the organization in ctx. Used by
 // the invite-by-email flow.
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, error) {
