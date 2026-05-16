@@ -209,10 +209,11 @@ export default function AppShell() {
           build so support tickets carry both. user-select:all lets a click
           highlight the whole identifier — paste straight into a bug report.
 
-          Version values are rendered verbatim — no "v" prefix wrapper. Tagged
-          builds set them to e.g. "v2.6.0" already; branch builds set them to
-          the branch slug ("develop", "feature/foo"); local dev shows "dev".
-          A hard-coded "v" prefix here would double up to "vv2.6.0" on tags.
+          Version values are rendered verbatim — no "v" prefix wrapper. Per
+          docs/versioning.md, release tags are bare semver (e.g. "0.1.0-alpha.1",
+          no "v" prefix); branch builds set them to the branch slug ("develop",
+          "feature/foo"); local dev shows "dev". Keeping this footer free of a
+          hard-coded "v" prevents a future tag-format flip from doubling up.
 
           API line is shown only after a successful fetch — a momentarily
           unreachable backend just hides that line rather than yelling. */}
