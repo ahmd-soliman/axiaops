@@ -9,6 +9,7 @@ import (
 	"net/mail"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -81,6 +82,14 @@ type Handler struct {
 	probeLimit  *IPRateLimiter    // gates the bootstrap-state probe (audit M-4)
 	ssoLogout   SSOLogoutResolver // nil → /v1/auth/logout always 204 (no SSO RP-Initiated Logout)
 }
+
+// ssoLogoutResolveTimeout caps how long the logout handler waits for
+// SSOLogoutResolver to build an end_session_endpoint URL. Resolver work
+// includes a potential live discovery-doc fetch from the IdP, so a slow
+// or unreachable OP could otherwise hold the response writer for the
+// full request-context lifetime. 3s is generous — the fallback (204) is
+// fine, so we'd rather log out quickly than wait for IdP cleanup.
+const ssoLogoutResolveTimeout = 3 * time.Second
 
 // SSOLogoutResolver is the seam the logout handler uses to build an OIDC
 // end_session_endpoint URL for SSO-minted sessions. Declared here (not in
@@ -1231,12 +1240,21 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 			// to re-read the session row. Cheap to keep the order
 			// correct now rather than chasing it later.
 			if h.ssoLogout != nil {
-				if u, lerr := h.ssoLogout.ResolveLogoutURL(r.Context(), sess); lerr != nil {
+				// Bound the resolver call. Without this, a slow IdP
+				// discovery fetch (or one that hangs entirely) would
+				// pin the goroutine for the full request lifetime —
+				// the request context only fires when the client
+				// disconnects. 3s is generous; the fallback is 204
+				// anyway, so erring on the side of "logout proceeds
+				// quickly" is correct.
+				rctx, cancel := context.WithTimeout(r.Context(), ssoLogoutResolveTimeout)
+				if u, lerr := h.ssoLogout.ResolveLogoutURL(rctx, sess); lerr != nil {
 					slog.Warn("auth: logout: sso resolve failed (falling back to 204)",
 						"err", lerr, "session_id", sess.ID)
 				} else {
 					logoutURL = u
 				}
+				cancel()
 			}
 			if revErr := h.sessions.RevokeSession(r.Context(), sess.ID, sess.SessionTokenHash, RevokeReasonLogout); revErr != nil {
 				slog.Warn("auth: logout revoke failed", "err", revErr, "session_id", sess.ID)

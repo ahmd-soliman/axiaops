@@ -3,7 +3,6 @@ package sso_test
 import (
 	"context"
 	"net/url"
-	"strings"
 	"testing"
 
 	"axiaops.io/api/internal/sso"
@@ -193,8 +192,16 @@ func TestLogoutResolver_PreservesExistingQueryString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveLogoutURL: query-string passthrough: unexpected error: %v", err)
 	}
-	if !strings.Contains(got, "?tenant=acme&") {
-		t.Errorf("ResolveLogoutURL: expected '?tenant=acme&' in URL (existing query string preserved); got %q", got)
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("ResolveLogoutURL: query-string passthrough: returned URL is unparseable: %v", err)
+	}
+	q := parsed.Query()
+	if got := q.Get("tenant"); got != "acme" {
+		t.Errorf("ResolveLogoutURL: existing query param 'tenant' lost; got %q want %q (query string %q)", got, "acme", parsed.RawQuery)
+	}
+	if got := q.Get("id_token_hint"); got != "tok" {
+		t.Errorf("ResolveLogoutURL: id_token_hint missing in query; query string %q", parsed.RawQuery)
 	}
 }
 
