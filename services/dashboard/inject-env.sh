@@ -1,42 +1,44 @@
 #!/bin/sh
-# Injects runtime env vars into index.html as window.__ENV__ before nginx starts.
-# Also substitutes API_HOST in nginx config for per-environment API routing.
-# Runs automatically as part of the nginx docker-entrypoint.d/ chain.
+# Writes runtime env vars into /usr/share/nginx/html/runtime-env.js as
+# `window.__ENV__ = {...}` before nginx starts. Also substitutes API_HOST
+# in nginx config for per-environment API routing. Runs automatically as
+# part of the nginx docker-entrypoint.d/ chain.
 #
-# Values are read via awk's ENVIRON and JS-escaped (\, ', <) before being
-# embedded in the single-quoted JS string literals, and the snippet is
-# inserted with awk rather than sed so that & \ | in any value can never
-# mangle the substitution.
+# Why an external file (not an inline <script> in index.html): the strict
+# `script-src 'self'` CSP in nginx.conf forbids inline scripts. Serving
+# the env as a same-origin .js file keeps CSP strict with no nonce/hash
+# plumbing. The default file shipped in the bundle (`public/runtime-env.js`)
+# sets `window.__ENV__ = {}`; this script overwrites it with real values.
+#
+# Values are read via awk's ENVIRON and JS-escaped (\, ', <, >) before
+# being embedded in the single-quoted JS string literals. < / > are
+# defence-in-depth: nginx serves this file as application/javascript
+# (sniffed from the .js extension) so HTML interpretation shouldn't
+# happen, but escaping them keeps the file safe even if someone ever
+# misconfigures the Content-Type.
 set -e
 
-INDEX=/usr/share/nginx/html/index.html
+# NOTE for operators: /usr/share/nginx/html/ must be writable at container
+# startup. If the container is run with a read-only root filesystem (e.g.
+# `docker run --read-only`), the `mv` below will fail and nginx will serve
+# the default `window.__ENV__ = {}` from the baked-in runtime-env.js.
+# Mount a tmpfs/volume at /usr/share/nginx/html/ if hardening with --read-only.
+ENV_JS=/usr/share/nginx/html/runtime-env.js
 
-SNIPPET=$(awk 'BEGIN {
+awk 'BEGIN {
   n = split("DEV_MODE DEV_ORG_NAME FEATURE_ROLE_AUTH AXIAOPS_AWS_ACCOUNT_ID", keys, " ")
-  printf "<script>window.__ENV__={"
+  printf "window.__ENV__ = {"
   for (i = 1; i <= n; i++) {
     v = ENVIRON[keys[i]]
     gsub(/\\/, "\\\\", v)
     gsub(/'\''/, "\\'\''", v)
     gsub(/</, "\\u003c", v)
+    gsub(/>/, "\\u003e", v)
     if (i > 1) printf ","
-    printf "%s:%c%s%c", keys[i], 39, v, 39
+    printf "%c%s%c:%c%s%c", 34, keys[i], 34, 39, v, 39
   }
-  printf "};</script>"
-}')
-
-# Insert snippet just before </head>. awk avoids sed's special handling of
-# & and \ in the replacement expression.
-SNIPPET="$SNIPPET" awk '
-  {
-    idx = index($0, "</head>")
-    if (idx > 0) {
-      print substr($0, 1, idx - 1) ENVIRON["SNIPPET"] substr($0, idx)
-    } else {
-      print
-    }
-  }
-' "$INDEX" > "$INDEX.tmp" && mv "$INDEX.tmp" "$INDEX"
+  printf "};\n"
+}' > "$ENV_JS.tmp" && mv "$ENV_JS.tmp" "$ENV_JS"
 
 # Substitute API_HOST in nginx config (defaults to "api" for local docker-compose)
 API_HOST="${API_HOST:-api}" envsubst '${API_HOST}' < /etc/nginx/conf.d/default.conf > /tmp/default.conf
