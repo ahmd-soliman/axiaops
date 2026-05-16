@@ -44,6 +44,7 @@ type CallbackStore interface {
 	GetSSOConnectionByID(ctx context.Context, id string) (model.SSOConnection, error)
 	GetVerifiedSSODomainByName(ctx context.Context, domain string) (model.SSODomain, error)
 	UpsertUser(ctx context.Context, organizationID, externalID, email, name string) (model.User, error)
+	SetUserSSOConnection(ctx context.Context, userID, connectionID string) error
 	RedeemPendingInvitation(ctx context.Context, organizationID, userID, email string) (bool, error)
 	ListSSOGroupMappings(ctx context.Context, connID string) ([]model.SSOGroupMapping, error)
 	SaveMembership(ctx context.Context, m model.Membership) error
@@ -258,6 +259,16 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 			return
 		}
 
+		// Stamp the connection on the user row so the SSO RP-Initiated Logout
+		// resolver can later answer "which IdP issued this session?". Tolerant
+		// — a failure here loses silent-logout polish (logout falls back to
+		// the 204 shape, IdP shows its confirm prompt) but must not block the
+		// login itself; the user is already authenticated by this point.
+		if setErr := opts.Store.SetUserSSOConnection(ctx, user.ID, conn.ID); setErr != nil {
+			slog.Warn("sso: callback: set user sso_connection_id (RP-Initiated Logout will fall back for this user)",
+				"cid", cid, "user_id", user.ID, "err", setErr)
+		}
+
 		// Pending-invitation precedence (design §10.4): if the email matches
 		// a pending_memberships row for this org, redeem it instead of JIT.
 		// The invite carries an explicit role choice from the admin and
@@ -314,12 +325,26 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 			}
 		}
 
+		// Capture id_token for RP-Initiated Logout (id_token_hint). Tolerant
+		// on encryption failure: if ENCRYPTION_KEY is misconfigured we'd
+		// rather mint a working SSO session that loses silent-logout polish
+		// (logout falls back to the legacy 204 shape, IdP shows its confirm
+		// prompt) than fail the entire login flow. Surface the failure via
+		// slog so misconfig is debuggable.
+		idTokenEnc, encErr := crypto.Encrypt(idToken)
+		if encErr != nil {
+			slog.Warn("sso: callback: encrypt id_token (RP-Initiated Logout disabled for this session)",
+				"cid", cid, "err", encErr)
+			idTokenEnc = ""
+		}
+
 		mint, err := opts.Sessions.MintSession(ctx, auth.MintRequest{
-			UserID:         user.ID,
-			OrganizationID: conn.OrganizationID,
-			AuthMode:       model.AuthModeSSO,
-			IP:             httpip.Request(r),
-			UserAgent:      r.Header.Get("User-Agent"),
+			UserID:           user.ID,
+			OrganizationID:   conn.OrganizationID,
+			AuthMode:         model.AuthModeSSO,
+			IP:               httpip.Request(r),
+			UserAgent:        r.Header.Get("User-Agent"),
+			IDTokenEncrypted: idTokenEnc,
 		})
 		if err != nil {
 			slog.Error("sso: callback: mint session", "cid", cid, "err", err)

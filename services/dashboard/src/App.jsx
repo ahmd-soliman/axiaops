@@ -70,7 +70,20 @@ function AuthenticatedApp() {
   // the cookie dies, so no in-flight request ever sees a 401.
   function handleLogout() {
     navigate('/login', { replace: true });
-    authLogout().catch(() => { /* tolerant — server returns 204 anyway */ });
+    // Navigate-first protects against the 401-cascade described in the
+    // comment above. If logout returns an SSO logout_url (server has an
+    // OIDC end_session_endpoint for this session), do a SECOND navigation
+    // to the IdP so the IdP session dies too — without it, the next
+    // sign-in on this browser inherits the previous user's identity.
+    // window.location.assign supersedes the prior react-router navigate
+    // and is safe to fire even when we're already at /login.
+    authLogout()
+      .then((body) => {
+        if (body?.logout_url) {
+          window.location.assign(body.logout_url);
+        }
+      })
+      .catch(() => { /* tolerant — server returns 204 on the native path anyway */ });
     clearToken();
     setAuthToken(null);
   }

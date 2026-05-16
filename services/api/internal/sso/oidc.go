@@ -28,11 +28,29 @@ type DiscoveryDoc struct {
 	AuthorizationEndpoint string   `json:"authorization_endpoint"`
 	TokenEndpoint         string   `json:"token_endpoint"`
 	IDTokenSigningAlgs    []string `json:"id_token_signing_alg_values_supported"`
+	// EndSessionEndpoint is the OIDC RP-Initiated Logout 1.0 endpoint
+	// (https://openid.net/specs/openid-connect-rpinitiated-1_0.html). The
+	// logout handler builds an id_token_hint + post_logout_redirect_uri URL
+	// against this so the IdP session dies in lockstep with our session;
+	// without it the IdP keeps Bob's session and the next sign-in attempt
+	// inherits Bob's identity regardless of login_hint. Empty when the IdP
+	// does not advertise the endpoint — older OIDC OPs and some
+	// minimally-conformant federations omit it. Logout falls back to the
+	// 204 native shape when this is empty rather than 500-ing.
+	EndSessionEndpoint string `json:"end_session_endpoint"`
 }
 
 // discoveryDocTTL caches the OIDC discovery doc for 24h per design §8.2.
 // Refresh-on-config-change paths land in the connector's Test() flow; this
 // validator just reads from cache and falls back to a live fetch on miss.
+//
+// Coverage: every field on DiscoveryDoc shares this TTL — including
+// EndSessionEndpoint, used by the SSO RP-Initiated Logout resolver. A
+// customer who rotates their IdP (Keycloak realm move, Okta tenant
+// migration, etc.) can see up-to-24h staleness in their logout flow:
+// either silent-logout fails over to the IdP's confirm prompt, or to the
+// 204 fallback. Failure mode is graceful (logout still works locally),
+// matching the existing AuthorizationEndpoint / TokenEndpoint behaviour.
 const discoveryDocTTL = 24 * time.Hour
 
 // discoveryFetchTimeout caps a single discovery-doc HTTP fetch.

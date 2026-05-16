@@ -230,30 +230,43 @@ func (s *Store) CreateSession(ctx context.Context, in model.Session) (model.Sess
 		ipArg = in.IP.String()
 	}
 
+	// id_token_encrypted is empty for native sessions; pass NULL via *string
+	// rather than an empty TEXT so the column matches the "no IdP session to
+	// invalidate" intent rather than an empty string sentinel.
+	var idTokenArg any
+	if in.IDTokenEncrypted != "" {
+		idTokenArg = in.IDTokenEncrypted
+	}
+
 	var out model.Session
 	var ipStr *string
+	var idTokenEnc *string
 	err := s.adminPool.QueryRow(ctx, `
 		INSERT INTO sessions (
 			id, user_id, organization_id, auth_mode, session_token_hash,
-			created_at, expires_at, last_seen_at, ip, user_agent_hash
+			created_at, expires_at, last_seen_at, ip, user_agent_hash,
+			id_token_encrypted
 		) VALUES (
-			$1, $2, $3, $4, $5, NOW(), $6, NOW(), $7, $8
+			$1, $2, $3, $4, $5, NOW(), $6, NOW(), $7, $8, $9
 		)
 		RETURNING id, user_id, organization_id, auth_mode, session_token_hash,
 		          created_at, expires_at, revoked_at, last_seen_at,
-		          host(ip), user_agent_hash`,
+		          host(ip), user_agent_hash, id_token_encrypted`,
 		in.ID, in.UserID, in.OrganizationID, string(in.AuthMode), in.SessionTokenHash,
-		in.ExpiresAt, ipArg, in.UserAgentHash,
+		in.ExpiresAt, ipArg, in.UserAgentHash, idTokenArg,
 	).Scan(
 		&out.ID, &out.UserID, &out.OrganizationID, (*string)(&out.AuthMode), &out.SessionTokenHash,
 		&out.CreatedAt, &out.ExpiresAt, &out.RevokedAt, &out.LastSeenAt,
-		&ipStr, &out.UserAgentHash,
+		&ipStr, &out.UserAgentHash, &idTokenEnc,
 	)
 	if err != nil {
 		return model.Session{}, fmt.Errorf("postgres: create session: %w", err)
 	}
 	if ipStr != nil {
 		out.IP = net.ParseIP(*ipStr)
+	}
+	if idTokenEnc != nil {
+		out.IDTokenEncrypted = *idTokenEnc
 	}
 	return out, nil
 }
@@ -267,17 +280,18 @@ func (s *Store) GetSessionByTokenHash(ctx context.Context, tokenHash string) (mo
 	}
 	var out model.Session
 	var ipStr *string
+	var idTokenEnc *string
 	err := s.adminPool.QueryRow(ctx, `
 		SELECT id, user_id, organization_id, auth_mode, session_token_hash,
 		       created_at, expires_at, revoked_at, last_seen_at,
-		       host(ip), user_agent_hash
+		       host(ip), user_agent_hash, id_token_encrypted
 		FROM sessions
 		WHERE session_token_hash = $1`,
 		tokenHash,
 	).Scan(
 		&out.ID, &out.UserID, &out.OrganizationID, (*string)(&out.AuthMode), &out.SessionTokenHash,
 		&out.CreatedAt, &out.ExpiresAt, &out.RevokedAt, &out.LastSeenAt,
-		&ipStr, &out.UserAgentHash,
+		&ipStr, &out.UserAgentHash, &idTokenEnc,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Session{}, storage.ErrSessionNotFound
@@ -287,6 +301,9 @@ func (s *Store) GetSessionByTokenHash(ctx context.Context, tokenHash string) (mo
 	}
 	if ipStr != nil {
 		out.IP = net.ParseIP(*ipStr)
+	}
+	if idTokenEnc != nil {
+		out.IDTokenEncrypted = *idTokenEnc
 	}
 	return out, nil
 }
