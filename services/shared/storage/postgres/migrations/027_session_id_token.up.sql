@@ -38,5 +38,7 @@
 --     impact is identity disclosure for sessions still live at the leak
 --     instant; expired sessions' id_tokens are useless. Encryption-at-rest
 --     bounds the blast radius further.
+SET search_path TO axiaops;
+
 ALTER TABLE sessions
     ADD COLUMN IF NOT EXISTS id_token_encrypted TEXT;
