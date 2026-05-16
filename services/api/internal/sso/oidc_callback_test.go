@@ -40,6 +40,15 @@ type mockCallbackStore struct {
 	upsertedUser       model.User
 	saved              []model.Membership
 	audit              []model.AuditEvent
+	// ssoConnectionWrites records every SetUserSSOConnection call so tests
+	// can assert the callback stamped (user, connection) — RP-Initiated
+	// Logout resolution depends on this row being populated.
+	ssoConnectionWrites []ssoConnectionWrite
+}
+
+type ssoConnectionWrite struct {
+	UserID       string
+	ConnectionID string
 }
 
 func (m *mockCallbackStore) GetSSOConnectionByID(_ context.Context, _ string) (model.SSOConnection, error) {
@@ -60,6 +69,11 @@ func (m *mockCallbackStore) UpsertUser(_ context.Context, organizationID, sub, e
 		Name:  name,
 	}
 	return m.upsertedUser, nil
+}
+
+func (m *mockCallbackStore) SetUserSSOConnection(_ context.Context, userID, connectionID string) error {
+	m.ssoConnectionWrites = append(m.ssoConnectionWrites, ssoConnectionWrite{UserID: userID, ConnectionID: connectionID})
+	return nil
 }
 
 func (m *mockCallbackStore) RedeemPendingInvitation(_ context.Context, _, _, _ string) (bool, error) {
@@ -317,6 +331,18 @@ func TestCallback_HappyPath_JITDefaultRole(t *testing.T) {
 	}
 	if !ct.store.hasAudit(model.AuditActionSSOLoginSucceeded) {
 		t.Error("AuditActionSSOLoginSucceeded not written")
+	}
+	// users.sso_connection_id must be stamped — the SSO RP-Initiated Logout
+	// resolver short-circuits to 204 when the column is NULL, leaving the
+	// IdP session cookie alive across logout (the exact bug this MR fixes).
+	if len(ct.store.ssoConnectionWrites) != 1 {
+		t.Fatalf("SetUserSSOConnection calls: got %d want 1", len(ct.store.ssoConnectionWrites))
+	}
+	if got := ct.store.ssoConnectionWrites[0].ConnectionID; got != "conn-1" {
+		t.Errorf("SetUserSSOConnection: connection_id got %q want %q", got, "conn-1")
+	}
+	if got := ct.store.ssoConnectionWrites[0].UserID; got != "user-idp-sub-123" {
+		t.Errorf("SetUserSSOConnection: user_id got %q want %q", got, "user-idp-sub-123")
 	}
 }
 
