@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AxiaOps</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Both scripts are external so the strict `script-src 'self'` CSP in
+         nginx.conf has no inline-script exemption. Loaded synchronously
+         in <head> so they execute before the deferred React module bundle:
+         runtime-env.js sets window.__ENV__ for src/config.js to read,
+         theme-boot.js primes data-theme + color-scheme to avoid first-
+         paint flash. inject-env.sh rewrites runtime-env.js with real
+         values at container startup. -->
+    <script src="/runtime-env.js"></script>
+    <script src="/theme-boot.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

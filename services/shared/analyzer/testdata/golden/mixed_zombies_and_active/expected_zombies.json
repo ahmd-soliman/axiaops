@@ -1,0 +1,22 @@
+[
+  {
+    "service": "AmazonRDS",
+    "region": "eu-central-1",
+    "resource_id": "db-old",
+    "monthly_cost": 210,
+    "usage_metric": "DatabaseConnections",
+    "usage_avg": 0,
+    "reason": "RDS instance has zero database connections — likely abandoned",
+    "owner": "data"
+  },
+  {
+    "service": "AWSLambda",
+    "region": "eu-central-1",
+    "resource_id": "fn-deprecated",
+    "monthly_cost": 12.8,
+    "usage_metric": "Invocations",
+    "usage_avg": 0,
+    "reason": "Lambda function has zero invocations — likely unused",
+    "owner": "platform"
+  }
+]

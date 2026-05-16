@@ -1,0 +1,126 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"axiaops.io/shared/circuitbreaker"
+	"axiaops.io/shared/errors"
+	"axiaops.io/shared/license"
+	"axiaops.io/shared/queue"
+	"axiaops.io/shared/storage"
+)
+
+// startWorker starts a goroutine that dequeues scan jobs and executes them.
+// It returns immediately. The goroutine stops when ctx is cancelled.
+// When REDIS_URL is unset the queue's Dequeue blocks on ctx — so the worker
+// exits cleanly on shutdown without processing any jobs (sync mode uses HTTP).
+func startWorker(ctx context.Context, q queue.Queue, store storage.Store) {
+	// Create circuit breaker for scan operations
+	cb := circuitbreaker.New(circuitbreaker.DefaultConfig())
+
+	go func() {
+		slog.Info("worker: started")
+		for {
+			job, err := q.Dequeue(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					slog.Info("worker: stopped")
+					return
+				}
+				slog.Error("worker: dequeue error", "err", err)
+				time.Sleep(time.Second) // back-off before retry
+				continue
+			}
+
+			wait := time.Since(job.EnqueuedAt)
+			slog.Info("worker: scan.dequeued",
+				"account_id", job.AccountID,
+				"organization_id", job.OrganizationID,
+				"wait_ms", wait.Milliseconds(),
+				"request_id", job.RequestID,
+				"circuit_breaker_state", cb.State().String(),
+			)
+
+			// License scan-gate (plan §4.9.2b, post-amendment). The api-side
+			// gate catches most jobs at trigger time, but a job enqueued
+			// before a state transition (valid → expired or, post-amendment,
+			// not_loaded after a license-removal restart) and dequeued after
+			// would otherwise sneak past — the scan-gate must be evaluated
+			// at execution time, not just trigger time. Dropping the job is
+			// safe: scheduled scans get re-evaluated on the next ticker
+			// pass; user-triggered scans are infrequent enough that a
+			// delayed retry is preferable to an unauthorized scan running.
+			if !license.IsScanAllowed() {
+				slog.Info("worker: scan.skipped_license_inactive",
+					"account_id", job.AccountID,
+					"organization_id", job.OrganizationID,
+					"state", license.SnapshotState().String(),
+				)
+				continue
+			}
+
+			scanCtx := storage.WithOrganizationID(ctx, job.OrganizationID)
+			statusCtx := storage.WithOrganizationID(context.Background(), job.OrganizationID)
+
+			// Mark the account as scanning the moment the worker picks up
+			// the job — same pattern the api-side POST /v1/accounts/{id}/scan
+			// handler uses. Sets status='scanning' AND last_scanned_at=NOW()
+			// in one update via TryMarkAccountScanning. Without this, a slow
+			// scan (AWS SDK retries on bad creds, network throttling, the
+			// 10-minute scanTimeout below) starves any caller polling
+			// last_scanned_at — including the integration test
+			// `TestScheduledAutoScan_ZeroInterval` which expected the column
+			// to advance within 30s. statusCtx (context.Background based) is
+			// used here so a parent-ctx cancel during shutdown doesn't roll
+			// back the scanning marker.
+			if _, err := store.TryMarkAccountScanning(statusCtx, job.AccountID); err != nil {
+				slog.Warn("worker: try mark scanning failed",
+					"account_id", job.AccountID,
+					"err", err,
+				)
+			}
+
+			// Execute scan with circuit breaker protection and timeout
+			scanTimeout := 10 * time.Minute // Configurable timeout for scan operations
+			scanCtxWithTimeout, cancel := context.WithTimeout(scanCtx, scanTimeout)
+			defer cancel()
+
+			err = cb.Execute(scanCtxWithTimeout, func() error {
+				return runScan(scanCtxWithTimeout, store, job.AccountID)
+			})
+
+			if err != nil {
+				catErr := errors.Categorize(err, "worker_scan")
+
+				// Check for timeout specifically
+				isTimeout := scanCtxWithTimeout.Err() == context.DeadlineExceeded
+
+				slog.Error("worker: scan.failed",
+					"account_id", job.AccountID,
+					"err", err,
+					"category", catErr.Category,
+					"timeout", isTimeout,
+					"circuit_breaker_state", cb.State().String(),
+				)
+
+				// Update account status based on error type
+				status := "error"
+				if cb.State() == circuitbreaker.StateOpen {
+					status = "circuit_breaker_open"
+				} else if isTimeout {
+					status = "scan_timeout"
+				}
+				_ = store.UpdateAccountStatus(statusCtx, job.AccountID, status)
+				continue
+			}
+
+			_ = store.UpdateAccountStatus(statusCtx, job.AccountID, "connected")
+			slog.Info("worker: scan.completed",
+				"account_id", job.AccountID,
+				"circuit_breaker_state", cb.State().String(),
+			)
+		}
+	}()
+}

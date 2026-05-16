@@ -1,0 +1,144 @@
+{
+  "version": "0.2.0",
+
+  // All Go service debug configs run on the host under Delve.
+  //
+  //   Debug Full Stack         → DEV_MODE=true,  pairs with `make start-dev`
+  //                              (Postgres container only; auth bypassed).
+  //   Debug Full Stack (auth)  → DEV_MODE=false, pairs with `make start-staging`
+  //                              after `docker stop axiaops-api axiaops-ingestion`
+  //                              to free host ports. Docker deps (Postgres + Redis)
+  //                              stay up; you debug host binaries against real Kinde.
+  //
+  // The per-service entries (Debug API, Debug Ingestion, and their auth twins)
+  // back the compounds and are hidden from the F5 picker. Unhide by flipping
+  // `presentation.hidden` to false if you ever need to debug one service alone.
+  //
+  // Prereqs for F5:
+  //   - Dependencies running (at minimum Postgres; Redis + Ingestion too for the auth variants)
+  //   - Env vars populated in services/api/.env and services/ingestion/.env
+  //     (DATABASE_URL, ENCRYPTION_KEY, AWS creds; plus KINDE_* for the auth variants)
+  "configurations": [
+    {
+      "name": "Debug API",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/services/api/cmd/main.go",
+      "cwd": "${workspaceFolder}/services/api",
+      "envFile": "${workspaceFolder}/services/api/.env",
+      "env": {
+        "DEV_MODE": "true",
+        "DEV_ORGANIZATION_ID": "dev-organization-axiaops",
+        "DEV_USER_ID": "dev-user-axiaops",
+        "DEV_USER_EMAIL": "dev@axiaops.local",
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
+        "MIGRATION_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
+      },
+      "showLog": true,
+      "preLaunchTask": "start-debug",
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "Debug API (auth)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/services/api/cmd/main.go",
+      "cwd": "${workspaceFolder}/services/api",
+      "envFile": "${workspaceFolder}/services/api/.env",
+      "env": {
+        "DEV_MODE": "false",
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
+        "MIGRATION_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
+      },
+      "showLog": true,
+      "preLaunchTask": "start-debug",
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "Debug Ingestion",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/services/ingestion/cmd/main.go",
+      "cwd": "${workspaceFolder}/services/ingestion",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DEV_MODE": "true",
+        "DEV_ORGANIZATION_ID": "dev-organization-axiaops",
+        "DEV_USER_ID": "dev-user-axiaops",
+        "DEV_USER_EMAIL": "dev@axiaops.local",
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
+        "MIGRATION_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
+      },
+      "showLog": true,
+      "preLaunchTask": "start-debug",
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "Debug Ingestion (auth)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/services/ingestion/cmd/main.go",
+      "cwd": "${workspaceFolder}/services/ingestion",
+      "envFile": "${workspaceFolder}/services/ingestion/.env",
+      "env": {
+        "DEV_MODE": "false",
+        "DATABASE_URL": "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable",
+        "MIGRATION_DATABASE_URL": "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
+      },
+      "showLog": true,
+      "preLaunchTask": "start-debug",
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "Debug Migrate CLI",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/services/shared/cmd/migrate/main.go",
+      "cwd": "${workspaceFolder}/services/shared",
+      "envFile": "${workspaceFolder}/services/api/.env"
+    },
+    {
+      "name": "Debug Tests",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}"
+    },
+    {
+      "name": "Debug Dashboard",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/services/dashboard",
+      "preLaunchTask": "vite-dev",
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "Debug Dashboard (auth)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/services/dashboard",
+      "preLaunchTask": "vite-dev-auth",
+      "presentation": { "hidden": true }
+    },
+  ],
+
+  "compounds": [
+    {
+      "name": "Debug Full Stack",
+      "configurations": ["Debug API", "Debug Ingestion", "Debug Dashboard"],
+      "stopAll": true
+    },
+    {
+      "name": "Debug Full Stack (auth)",
+      "configurations": ["Debug API (auth)", "Debug Ingestion (auth)", "Debug Dashboard (auth)"],
+      "stopAll": true
+    }
+  ]
+}

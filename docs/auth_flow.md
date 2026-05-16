@@ -1,0 +1,157 @@
+# Auth Flow — Dashboard & API
+
+> ⚠️ **HISTORICAL.** This document describes the legacy Kinde OAuth 2.0 + PKCE
+> flow. Kinde was removed in MR `chore/remove-kinde-auth` (2026-05-06). Production
+> auth is now native cookie sessions: dashboard `POST /v1/auth/login` →
+> `axiaops_session` HttpOnly cookie → API resolves via `auth.NativeProvider`.
+> SSO logins use the OIDC ceremony in `services/api/internal/sso/` and mint the
+> same session cookie with `auth_mode='sso'`. See `docs/native-auth-bootstrap.md`
+> for the first-run install flow. Sections below referring to JWTs, Kinde
+> issuer, or the `Authorization: Bearer` header are pre-removal artefacts.
+
+## Overview (historical)
+
+AxiaOps uses Kinde OAuth 2.0 with PKCE. The dashboard handles the browser-side
+flow; the API validates JWTs on every request and auto-provisions organizations.
+
+Two modes exist, controlled by `DEV_MODE`:
+
+| Mode | Dashboard | API |
+|------|-----------|-----|
+| `DEV_MODE=true` | Fake token, no Kinde | `DevBypass` — fixed organization injected |
+| `DEV_MODE=false` | Full PKCE flow via Kinde | JWT validation + organization upsert |
+
+---
+
+## Dev Mode (local, no auth)
+
+**Dashboard (`App.js`):**
+- Skips Kinde entirely
+- Mints a fake token: `dev.<base64 {org_name}>.dev`
+- Calls `setAuthToken(devToken)` and renders the app immediately
+
+**API (`main.go`):**
+- `DevBypass` middleware injects `DEV_ORGANIZATION_ID` from env into every request context
+- No token parsing, no DB lookup
+
+---
+
+## Staging / Production Flow
+
+### 1. Dashboard — Login
+
+1. User sees `LoginScreen` → taps "Sign in"
+2. `useKindeAuth()` (`src/auth/kinde.js`) calls `AuthSession.useAuthRequest` with:
+   - `clientId` from `KINDE_CLIENT_ID`
+   - `scopes: ['openid', 'profile', 'email']`
+   - `usePKCE: true` — generates `code_verifier` / `code_challenge` locally
+3. `promptAsync()` opens the Kinde hosted login page in the browser
+
+### 2. Dashboard — Code Exchange
+
+4. Kinde redirects back with `?code=...`
+5. `App.js` calls `AuthSession.exchangeCodeAsync` with the `code` + `code_verifier`
+6. Kinde returns an **access token** (RS256 JWT)
+7. Token is saved to storage (`saveToken`) and set on the API client (`setAuthToken`)
+8. On subsequent loads, `getToken()` restores the token — no re-login required
+
+### 3. API — Request Authentication
+
+Every API request (except `/health` and `OPTIONS`) goes through `auth.Wrap`:
+
+1. Extracts `Bearer <token>` from the `Authorization` header → 401 if missing
+2. Validates JWT signature using JWKS fetched from `<KINDE_ISSUER>/.well-known/jwks.json` at startup (keys cached and auto-refreshed)
+3. Validates `iss` claim matches `KINDE_ISSUER` → 401 if wrong
+4. Extracts `org_code` claim (Kinde's org identifier) → 401 if missing
+5. Calls `store.UpsertOrganization(org_code, org_name)` — creates organization row on first login, idempotent thereafter
+6. Calls `store.UpsertUser(organization.ID, sub, email, name)` — same idempotent pattern
+7. Injects `organization_id`, `organization_name`, `user_id` into the request context
+
+Downstream handlers call `middleware.OrganizationID(ctx)` to get the organization UUID, which
+PostgreSQL RLS uses to isolate data between organizations.
+
+---
+
+## Config
+
+| Variable | Where set | Purpose |
+|----------|-----------|---------|
+| `KINDE_ISSUER` | `services/api/.env` | JWT issuer + JWKS base URL (API) and OAuth discovery (dashboard) |
+| `KINDE_CLIENT_ID` | `services/api/.env` | OAuth client ID — dashboard only, API does not read it |
+| `DEV_MODE` | Makefile / env | Switches between dev bypass and real auth |
+| `DEV_ORGANIZATION_ID` | Makefile (`start-dev`) | Fixed organization for dev bypass |
+
+The API only needs `KINDE_ISSUER` — it never reads `KINDE_CLIENT_ID` or any client
+secret. The JWKS endpoint (`<issuer>/.well-known/jwks.json`) is public; no
+credentials are required to fetch it.
+
+`KINDE_CLIENT_ID` lives in `services/api/.env` purely as a convenience so `start.sh`
+can source one file and pass it to the dashboard. The dashboard reads both vars via
+`src/config.js`, which checks `window.__ENV__` first (nginx envsubst at runtime)
+then falls back to `VITE_*` build-time vars.
+
+### Staging deployment
+
+Static values (`KINDE_ISSUER`, `KINDE_CLIENT_ID`) are hardcoded as defaults in
+`deploy/staging.yml` — no CI variable needed for them.
+
+Only these must be set as CI/CD secrets (GitLab → Settings → CI/CD → Variables):
+
+| Variable | Why secret |
+|----------|-----------|
+| `ENCRYPTION_KEY` | AES-256 key for AWS secrets at rest |
+| `DATABASE_URL` | Contains DB password |
+| `MIGRATION_DATABASE_URL` | Contains DB owner password |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | AWS credentials for ingestion |
+
+---
+
+## Middleware Chain (API)
+
+Outermost → innermost on every request:
+
+```
+CORS → RequestID → Metrics/Logger → RateLimit → Auth (or DevBypass) → Handler
+```
+
+Auth is applied after rate limiting so unauthenticated requests still count against
+the IP-based rate limit.
+
+---
+
+## Organization Auto-Provisioning
+
+There is no manual organization setup. The first authenticated request from a new Kinde
+org automatically:
+
+1. Creates a row in `organizations` (keyed on `org_code`)
+2. Creates a row in `users` (keyed on Kinde `sub`)
+3. Auto-promotes the first authenticator to `owner` via `EnsureFirstMembership` (`auth.go:187`)
+4. Redeems any matching `pending_memberships` row for the user's email (see below)
+5. Sets the organization context for the rest of the request
+
+All subsequent requests for the same org hit the existing rows (upsert is a no-op).
+
+### Email-based invitation redemption
+
+After `EnsureFirstMembership` runs, the middleware also calls
+`store.RedeemPendingInvitation(ctx, organization.ID, user.ID, email)`. This handles the
+"invited teammate" path:
+
+- An admin posted `POST /v1/invitations {email, role}`. AxiaOps wrote a `pending_memberships`
+  row and asked Kinde's Management API to send the org-scoped invitation email.
+- The invitee clicks the link → Kinde signup → JWT carries the inviting org's `org_code`.
+- On their first authenticated request, `EnsureFirstMembership` is a no-op (the org already
+  has owners), and `RedeemPendingInvitation` atomically inserts a `memberships` row with the
+  recorded role and deletes the pending row in one transaction.
+
+If no pending row matches (the user signed up self-serve without an invite, or their email
+doesn't match), redemption is a silent no-op. See `docs/invitation-flow.md` for the full
+design.
+
+---
+
+## Migration Away from Kinde
+
+See [`docs/auth.md`](auth.md#migration-path-away-from-kinde) — the organization model is
+provider-agnostic. Only the JWT middleware and the dashboard SDK need to change.

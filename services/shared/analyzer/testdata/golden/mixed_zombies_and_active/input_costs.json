@@ -1,0 +1,44 @@
+[
+  {
+    "provider": "aws",
+    "account_id": "000000000000",
+    "internal_account_id": null,
+    "service": "AmazonRDS",
+    "region": "eu-central-1",
+    "resource_id": "db-old",
+    "amount": 210.00,
+    "currency": "USD",
+    "period_start": "2026-04-01T00:00:00Z",
+    "period_end": "2026-04-30T00:00:00Z",
+    "tags": { "team": "data" },
+    "fetched_at": "2026-05-01T00:00:00Z"
+  },
+  {
+    "provider": "aws",
+    "account_id": "000000000000",
+    "internal_account_id": null,
+    "service": "AWSLambda",
+    "region": "eu-central-1",
+    "resource_id": "fn-deprecated",
+    "amount": 12.80,
+    "currency": "USD",
+    "period_start": "2026-04-01T00:00:00Z",
+    "period_end": "2026-04-30T00:00:00Z",
+    "tags": { "team": "platform" },
+    "fetched_at": "2026-05-01T00:00:00Z"
+  },
+  {
+    "provider": "aws",
+    "account_id": "000000000000",
+    "internal_account_id": null,
+    "service": "AmazonEC2",
+    "region": "eu-central-1",
+    "resource_id": "i-active",
+    "amount": 1243.87,
+    "currency": "USD",
+    "period_start": "2026-04-01T00:00:00Z",
+    "period_end": "2026-04-30T00:00:00Z",
+    "tags": { "team": "platform" },
+    "fetched_at": "2026-05-01T00:00:00Z"
+  }
+]

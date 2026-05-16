@@ -1,0 +1,9 @@
+[
+  {
+    "resource_id": "i-0boundary",
+    "metric": "CPUUtilization",
+    "unit": "Percent",
+    "avg": 5.0001,
+    "period_days": 30
+  }
+]

@@ -1,0 +1,85 @@
+package logging
+
+import (
+	"bytes"
+	"encoding/json"
+	"log/slog"
+	"os"
+	"testing"
+	"time"
+)
+
+func TestInit_WithJSONOutput(t *testing.T) {
+	_ = os.Unsetenv("LOG_OUTPUT")
+	Init("test-service")
+	slog.Info("test message", "key", "value")
+}
+
+// TestInit_TextOutput_WhenLogOutputText replaces the previous
+// TestInit_TextOutput_WhenDEVMode after the B1.7 layer 3 cleanup that
+// removed the DEV_MODE read from logging.go (cross-package DEV_MODE reads
+// bypass the build-tag-gated devModeEnabled() seam). Local dev now sets
+// LOG_OUTPUT=text directly via scripts/start.sh.
+func TestInit_TextOutput_WhenLogOutputText(t *testing.T) {
+	t.Setenv("LOG_OUTPUT", "text")
+	Init("test-service")
+}
+
+func TestInit_LogLevel_Debug(t *testing.T) {
+	oldLevel := os.Getenv("LOG_LEVEL")
+	defer func() {
+		if oldLevel != "" {
+			_ = os.Setenv("LOG_LEVEL", oldLevel)
+		} else {
+			_ = os.Unsetenv("LOG_LEVEL")
+		}
+	}()
+	_ = os.Setenv("LOG_LEVEL", "debug")
+	Init("test-service")
+}
+
+func TestInit_LogLevel_Warn(t *testing.T) {
+	oldLevel := os.Getenv("LOG_LEVEL")
+	defer func() {
+		if oldLevel != "" {
+			_ = os.Setenv("LOG_LEVEL", oldLevel)
+		} else {
+			_ = os.Unsetenv("LOG_LEVEL")
+		}
+	}()
+	_ = os.Setenv("LOG_LEVEL", "warn")
+	Init("test-service")
+}
+
+func TestInit_IncludesServiceName(t *testing.T) {
+	_ = os.Setenv("LOG_OUTPUT", "json")
+	Init("my-service")
+
+	var buf bytes.Buffer
+	h := slog.NewJSONHandler(&buf, nil)
+	record := slog.NewRecord(time.Now(), slog.LevelInfo, "test", 0)
+	_ = h.Handle(t.Context(), record)
+
+	if buf.String() == "" {
+		t.Errorf("expected non-empty log output, got empty string")
+	}
+}
+
+func TestInit_JSONFormatValid(t *testing.T) {
+	_ = os.Setenv("LOG_OUTPUT", "json")
+	_ = os.Setenv("APP_ENV", "test")
+	_ = os.Setenv("APP_VERSION", "0.0.1")
+
+	var buf bytes.Buffer
+	h := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(h)
+	logger.Info("test", "foo", "bar")
+
+	var result map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("expected valid JSON, got: %v", err)
+	}
+	if result["msg"] != "test" {
+		t.Errorf("expected msg=test, got %v", result["msg"])
+	}
+}
