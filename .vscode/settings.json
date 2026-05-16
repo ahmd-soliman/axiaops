@@ -1,0 +1,36 @@
+{
+  "go.toolsManagement.autoUpdate": true,
+  "go.alternateTools": {
+    "dlv": "/Users/ahmed/go/bin/dlv"
+  },
+  "go.testFlags": ["-count=1"],
+  "go.lintTool": "golangci-lint",
+  "go.lintOnSave": "package",
+  "[go]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+  "files.associations": {
+    "launch.json": "jsonc"
+  },
+  "makefile.configureOnOpen": true,
+  "kiroAgent.configureMCP": "Disabled",
+  "[javascript]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+  "[javascriptreact]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+  "eslint.workingDirectories": [{ "pattern": "services/dashboard" }],
+  "prettier.requireConfig": true
+}

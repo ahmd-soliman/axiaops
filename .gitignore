@@ -1,0 +1,105 @@
+# ─── Environment & Secrets ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+secrets/
+.gitlab-token
+scripts/__pycache__/
+
+# ─── Go ───────────────────────────────────────────────────────────────────────
+bin/
+dist/
+*.exe
+*.test
+*.out
+vendor/
+coverage.out
+coverage.html
+
+# ─── Node / React / Next.js ───────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.nuxt/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+docker-compose.override.yml
+pg_data/
+
+# ─── Billing / Test Data ──────────────────────────────────────────────────────
+data/
+*.csv
+*.json.bak
+mock-data/
+
+# ─── JetBrains IDE ────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# ─── VSCode ───────────────────────────────────────────────────────────────────
+.vscode/*
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+
+# ─── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+.AppleDouble
+.AppleDB
+.AppleDesktop
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Terraform (if used for infra) ───────────────────────────────────────────
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+.dev-pids
+.aider*
+
+# ─── Claude Code (local-only overrides) ──────────────────────────────────────
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Go compiled binaries (service-specific)
+services/api/api
+services/api/main
+services/ingestion/ingestion
+services/ingestion/main
+services/migrate/migrate
+services/*/test-*
+services/*/*-test
+
+# Excel
+~$*.xl*
+services/api/cmd/__debug*
+services/ingestion/cmd/__debug*
+services/migrate/cmd/__debug*
+/services/api/__debug*
+/services/ingestion/__debug*
+/services/migrate/__debug*

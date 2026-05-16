@@ -1,0 +1,29 @@
+-- 026_rename_and_harden_migration_state.up.sql
+--
+-- Companion to the rename of axiaops.schema_migrations → axiaops.migration_state.
+-- The actual table rename happens in postgres.Bootstrap (atomic guard, runs
+-- before migratepg.WithInstance so golang-migrate sees the new name from the
+-- start). This migration owns the privilege state on the renamed table.
+--
+-- Ordering dependency: this REVOKE targets `axiaops.migration_state`, which
+-- exists by the time golang-migrate runs migration 026 because Bootstrap
+-- (which renames OR pre-creates the table via WithInstance) always runs
+-- before Migrate. If you ever bypass Bootstrap and call Migrate directly,
+-- this migration will fail with `relation does not exist`.
+--
+-- Original posture (replaced 026_schema_migrations_revoke_dml.up.sql which
+-- never deployed): close the gap left by 000_init's blanket
+--
+--     GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA axiaops TO axiaops;
+--
+-- That blanket grant catches every table existing in the schema at 000_init
+-- time, including the metadata table golang-migrate created lazily via
+-- WithInstance. Bootstrap's REVOKE in the migration_history DDL block doesn't
+-- help because it runs before 000_init. This migration runs after 000_init
+-- and restores the SELECT-only posture the design intended.
+--
+-- Idempotent: REVOKE on an unheld privilege is a no-op + NOTICE.
+--
+-- See docs/migration-history-table-design.md §Schema for the design intent.
+
+REVOKE INSERT, UPDATE, DELETE ON axiaops.migration_state FROM axiaops;
