@@ -102,7 +102,7 @@ The convention is already implicit in the dashboard code: **state goes in the ba
 ## How to cut a release
 
 1. **Decide the version.** Check the latest release tag (`git tag --sort=-v:refname -l '[0-9]*.[0-9]*.[0-9]*' | head -1`) and pick the next per the rules above. The semver glob is a guard against ever-reintroducing freeform tag names — anything that doesn't match is filtered out.
-2. **Update the CHANGELOG on `develop`.** Move entries from `## [Unreleased]` into a new section headed `## [X.Y.Z] — YYYY-MM-DD`. Commit on `develop` with `chore(release): X.Y.Z`. (CHANGELOG bootstrapping is a follow-up — see [§Open follow-ups](#open-follow-ups).)
+2. **Update the CHANGELOG on `develop`.** Move entries from `## [Unreleased]` in [`CHANGELOG.md`](../CHANGELOG.md) into a new section headed `## [X.Y.Z] — YYYY-MM-DD`, rotate the compare links at the bottom of the file, and commit on `develop` with `chore(release): X.Y.Z`. Format is [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) — see the "How to update" section at the top of the file for subheading order.
 3. **Promote `develop` → `main`** via the flow in [§Release promotion](#release-promotion-develop--main). Wait for the MR to merge.
 4. **Tag `main`** at the merge commit:
    ```bash
@@ -133,6 +133,5 @@ For a fix on an already-released line: branch off the tag, fix, tag `0.Y.(Z+1)` 
 
 ## Open follow-ups
 
-- **CHANGELOG.md** — not yet bootstrapped. Convention will be [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) (Added / Changed / Fixed / Removed / Security under each version). First entry should retroactively reference Phase 1 MVP (April 2026) as the `0.0.x` history-before-tagging baseline.
 - **`docs/USER_STORIES_STATUS.md` cross-link** — when a version ships, mark the relevant user stories with the tag they landed in.
 - **Consider tag-only staging deploys.** Today `deploy:staging` fires on both `main` pushes (auto) and tag pushes (auto). That gives you a continuous "merge → staging" verification loop at the cost of (a) one wasted deploy per release cut and (b) a window where `/v1/version` on staging reports `APP_VERSION=main` instead of a labelled release. Flip to tag-only when any of these become true: (1) design partners hit staging and shouldn't see untagged builds, (2) compliance requires every change on a prod-like environment to be a named release, (3) staging starts being treated like production (long-running sessions you don't want disrupted by main pushes). The change is a single-line edit — remove the `- if: '$CI_COMMIT_BRANCH == "main"'` rule from `deploy:staging`.
