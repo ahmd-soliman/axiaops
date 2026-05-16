@@ -1,0 +1,265 @@
+package api_test
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"axiaops.io/api/internal/api"
+	"axiaops.io/shared/model"
+)
+
+var testCostRecords = []model.CostRecord{
+	{
+		Provider:    "aws",
+		AccountID:   "123456789012",
+		Service:     "AmazonEC2",
+		Region:      "eu-central-1",
+		ResourceID:  "i-0abc123",
+		Amount:      42.50,
+		Currency:    "USD",
+		PeriodStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+	},
+	{
+		Provider:    "aws",
+		AccountID:   "123456789012",
+		Service:     "AmazonRDS",
+		Region:      "eu-central-1",
+		ResourceID:  "db-prod-01",
+		Amount:      120.00,
+		Currency:    "USD",
+		PeriodStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+	},
+}
+
+// ── GET /v1/costs ────────────────────────────────────────────────────────────
+
+func TestListCosts_Returns200(t *testing.T) {
+	store := NewMockStore().WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestListCosts_ContentType(t *testing.T) {
+	store := NewMockStore().WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
+
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json, got %s", ct)
+	}
+}
+
+func TestListCosts_ReturnsCostRecords(t *testing.T) {
+	store := NewMockStore().WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
+
+	var costs []model.CostRecord
+	if err := json.NewDecoder(w.Body).Decode(&costs); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(costs) != 2 {
+		t.Fatalf("expected 2 cost records, got %d", len(costs))
+	}
+	if costs[0].Service != "AmazonEC2" {
+		t.Errorf("expected AmazonEC2, got %s", costs[0].Service)
+	}
+	if costs[1].Amount != 120.00 {
+		t.Errorf("expected 120.00, got %f", costs[1].Amount)
+	}
+}
+
+func TestListCosts_EmptyStoreReturnsEmptyArray(t *testing.T) {
+	store := NewMockStore()
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
+
+	var costs []model.CostRecord
+	if err := json.NewDecoder(w.Body).Decode(&costs); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if costs == nil {
+		t.Error("expected non-nil empty array, got JSON null")
+	}
+	if len(costs) != 0 {
+		t.Errorf("expected 0 records, got %d", len(costs))
+	}
+}
+
+func TestListCosts_StoreError_Returns500(t *testing.T) {
+	store := NewMockStore().WithListCostRecordsError(errors.New("db connection lost"))
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestListCosts_ServiceFilter(t *testing.T) {
+	store := NewMockStore().WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?service=AmazonEC2"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	filter := store.GetLastCostFilter()
+	if filter.Service != "AmazonEC2" {
+		t.Errorf("expected service filter AmazonEC2, got %q", filter.Service)
+	}
+}
+
+func TestListCosts_DaysFilter(t *testing.T) {
+	store := NewMockStore().WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?days=90"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	filter := store.GetLastCostFilter()
+	if filter.Days != 90 {
+		t.Errorf("expected days filter 90, got %d", filter.Days)
+	}
+}
+
+func TestListCosts_AccountIDFilter_InternalUUID(t *testing.T) {
+	// When account_id matches an existing account, both internal and AWS IDs are set.
+	store := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-uuid-1", AccountID: "123456789012", Provider: "aws"},
+		}).
+		WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?account_id=acc-uuid-1"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	filter := store.GetLastCostFilter()
+	if filter.InternalAccountID != "acc-uuid-1" {
+		t.Errorf("expected InternalAccountID acc-uuid-1, got %q", filter.InternalAccountID)
+	}
+	if filter.AWSAccountID != "123456789012" {
+		t.Errorf("expected AWSAccountID 123456789012, got %q", filter.AWSAccountID)
+	}
+}
+
+func TestListCosts_AccountIDFilter_NotFound_SetsBoth(t *testing.T) {
+	// When account_id doesn't match any existing account, both fields are set
+	// to the raw parameter (could be internal UUID or AWS ID).
+	store := NewMockStore().WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?account_id=unknown-id"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	filter := store.GetLastCostFilter()
+	if filter.InternalAccountID != "unknown-id" {
+		t.Errorf("expected InternalAccountID unknown-id, got %q", filter.InternalAccountID)
+	}
+	if filter.AWSAccountID != "unknown-id" {
+		t.Errorf("expected AWSAccountID unknown-id, got %q", filter.AWSAccountID)
+	}
+}
+
+func TestListCosts_NoAccountID_LeavesFilterEmpty(t *testing.T) {
+	store := NewMockStore().WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	filter := store.GetLastCostFilter()
+	if filter.InternalAccountID != "" {
+		t.Errorf("expected empty InternalAccountID, got %q", filter.InternalAccountID)
+	}
+	if filter.AWSAccountID != "" {
+		t.Errorf("expected empty AWSAccountID, got %q", filter.AWSAccountID)
+	}
+}
+
+func TestListCosts_AccountWithoutAWSID_OnlySetsInternal(t *testing.T) {
+	// When account exists but has no AWS AccountID populated yet.
+	store := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-new", AccountID: "", Provider: "aws"},
+		}).
+		WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?account_id=acc-new"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	filter := store.GetLastCostFilter()
+	if filter.InternalAccountID != "acc-new" {
+		t.Errorf("expected InternalAccountID acc-new, got %q", filter.InternalAccountID)
+	}
+	if filter.AWSAccountID != "" {
+		t.Errorf("expected empty AWSAccountID (not populated), got %q", filter.AWSAccountID)
+	}
+}
