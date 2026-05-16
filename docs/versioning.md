@@ -131,6 +131,44 @@ For a fix on an already-released line: branch off the tag, fix, tag `0.Y.(Z+1)` 
 
 ---
 
+## Release cadence & support
+
+Cadence is **pre-1.0 latitude** today: we cut a release when there's something meaningful to ship, not on a calendar. The policy below is what we commit to **once `1.0.0` ships**.
+
+### Cadence (post-1.0)
+
+| Release type                          | Cadence                              | Trigger                                                                                                                                                                                          |
+| ------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Minor** (`X.(Y+1).0`)               | Quarterly (max)                      | Substantive feature work, schema migrations, customer-visible changes. If `develop` accumulates meaningful work mid-quarter, cut earlier — quarterly is a ceiling, not a target.                  |
+| **Patch** (`X.Y.(Z+1)`)               | As needed, typically every 4–6 weeks | Bug fixes, additive non-schema changes, security fixes batched into the next patch on the supported lines.                                                                                       |
+| **Hotfix** (`X.Y.(Z+1)` off-cycle)    | As needed                            | Security CVE, customer-blocking regression. Bypasses normal cadence.                                                                                                                             |
+
+### Supported-versions window (post-1.0)
+
+| Line                                  | State       | Backports                                              |
+| ------------------------------------- | ----------- | ------------------------------------------------------ |
+| Current minor (`X.Y.x`)               | Supported   | All patches (bugs, security, additive non-schema)      |
+| Previous minor (`X.(Y-1).x`)          | Maintenance | Security patches only                                  |
+| Earlier (`X.(Y-2).x` and below)       | EOL         | None — customer must upgrade to consume any fix        |
+
+Pre-1.0 (current): only the latest `0.Y.x` line is supported. Customers on `0.(Y-1).x` upgrade to consume fixes.
+
+### Migration backwards-compatibility
+
+We use `golang-migrate` (`services/shared/storage/postgres/migrations/`). Every release embeds the cumulative migration set and applies whatever's missing at startup. **Skip-a-minor is supported in principle** — a customer on `0.3.0` upgrading directly to `0.5.0` replays every migration from `0.3.0+1` through `0.5.0`'s tip.
+
+The contract that makes that work:
+
+1. **Never delete a released migration.** Once a `.up.sql` is in a tagged release, it's immutable. Fix forward with a new migration — don't edit the old file.
+2. **Never reuse a migration number.** Numbers are sequential; gaps are fine, reuse breaks `golang-migrate`'s version tracking.
+3. **Down migrations are for local dev only.** We don't promise downgrade via `.down.sql`. Production downgrade is "restore from backup" — the `.down.sql` files exist so engineers can iterate locally.
+4. **Renames and drops are a two-release dance.** Release N adds the new column + dual-writes; release N+1 removes the old column. Never drop-in-one if there's any prod data on the column.
+5. **Migrations should be fast.** Single-digit seconds on a 100k-row table. Anything potentially long-running needs a runbook entry, not just a `.up.sql` file.
+
+The five rules bind the engineer cutting the release more than they bind the customer. The customer runs the new binary; we do the work that makes "run the new binary" safe regardless of what version they were on.
+
+---
+
 ## Open follow-ups
 
 - **`docs/USER_STORIES_STATUS.md` cross-link** — when a version ships, mark the relevant user stories with the tag they landed in.
