@@ -1,0 +1,42 @@
+-- 027_session_id_token.up.sql
+--
+-- Adds id_token_encrypted to sessions so the OIDC RP-Initiated Logout flow
+-- can pass id_token_hint to the IdP's end_session_endpoint.
+--
+-- Why we need it: when a user signs out, we currently revoke our session
+-- and clear our cookie but do nothing to the IdP. The IdP session cookie
+-- (Keycloak / Okta / Auth0 / etc.) outlives our session, so the next user
+-- on the same browser who hits /v1/sso/oidc/<cid>/initiate gets the IdP's
+-- "you're already signed in as <previous-user>, please re-authenticate"
+-- screen — login_hint is ignored when an existing IdP session is present
+-- and prompt=login forces re-auth of the SAME user, not a different one.
+--
+-- Storing the id_token lets logout pass id_token_hint to the IdP's
+-- end_session_endpoint, which the OIDC RP-Initiated Logout 1.0 spec marks
+-- as RECOMMENDED — with it, the OP "SHOULD NOT need to interact with the
+-- End-User to confirm the request" (silent logout). Without it, mature OPs
+-- either show a confirm-logout prompt or 400 the request entirely (Okta
+-- with a strict admin policy).
+--
+-- Storage shape:
+--   • Column type TEXT — crypto.Encrypt returns a hex-encoded string
+--     (nonce+ciphertext) so the column is human-debuggable in psql and
+--     matches the storage shape we already use for accounts.secret_key.
+--   • NULL for native (password / bootstrap) sessions — they have no
+--     IdP session to invalidate, so there is no id_token to store.
+--   • No index — read on the single-row session-lookup path only, never
+--     filtered or joined on.
+--   • RLS posture unchanged — sessions has no RLS by design (capability-
+--     based access via the random session token; see migration 021's
+--     header comment for the reasoning).
+--
+-- Encryption posture:
+--   • AES-256-GCM via shared/crypto, same primitive + key (ENCRYPTION_KEY)
+--     used for accounts.secret_key. No new key material, no new key-rotation
+--     surface.
+--   • The id_token is a signed JWT identity assertion. Worst-case DB-leak
+--     impact is identity disclosure for sessions still live at the leak
+--     instant; expired sessions' id_tokens are useless. Encryption-at-rest
+--     bounds the blast radius further.
+ALTER TABLE sessions
+    ADD COLUMN IF NOT EXISTS id_token_encrypted TEXT;

@@ -904,6 +904,21 @@ func (m *MockStore) GetUserByID(_ context.Context, id string) (model.User, error
 	return model.User{}, storage.ErrUserNotFound
 }
 
+// GetUserSSOConnectionID is the single-purpose lookup the SSO RP-Initiated
+// Logout resolver uses. Tests in this package don't exercise SSO logout, so
+// the mock returns "" (no SSO connection) for any matched user — same as a
+// native-only user with NULL sso_connection_id in the real schema.
+func (m *MockStore) GetUserSSOConnectionID(_ context.Context, userID string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == userID {
+			return "", nil
+		}
+	}
+	return "", storage.ErrUserNotFound
+}
+
 func (m *MockStore) DeleteUser(_ context.Context, userID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

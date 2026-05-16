@@ -101,6 +101,12 @@ type MintRequest struct {
 	AuthMode       model.AuthMode
 	IP             net.IP
 	UserAgent      string // raw header; Manager hashes it
+	// IDTokenEncrypted is the AES-256-GCM ciphertext (hex-encoded) of the
+	// raw OIDC id_token captured at SSO callback time. Used downstream as
+	// id_token_hint for RP-Initiated Logout. Empty for native sessions and
+	// for SSO sessions where encryption fell through (logout falls back to
+	// the 204 shape rather than 500-ing).
+	IDTokenEncrypted string
 }
 
 // MintResult is what MintSession returns to the handler. The handler drops
@@ -148,6 +154,7 @@ func (m *Manager) MintSession(ctx context.Context, in MintRequest) (MintResult, 
 		ExpiresAt:        expires,
 		IP:               in.IP,
 		UserAgentHash:    hashUserAgent(in.UserAgent),
+		IDTokenEncrypted: in.IDTokenEncrypted,
 	}
 	saved, err := m.store.CreateSession(ctx, s)
 	if err != nil {

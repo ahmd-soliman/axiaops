@@ -314,12 +314,26 @@ func NewCallbackHandler(opts CallbackOptions) http.Handler {
 			}
 		}
 
+		// Capture id_token for RP-Initiated Logout (id_token_hint). Tolerant
+		// on encryption failure: if ENCRYPTION_KEY is misconfigured we'd
+		// rather mint a working SSO session that loses silent-logout polish
+		// (logout falls back to the legacy 204 shape, IdP shows its confirm
+		// prompt) than fail the entire login flow. Surface the failure via
+		// slog so misconfig is debuggable.
+		idTokenEnc, encErr := crypto.Encrypt(idToken)
+		if encErr != nil {
+			slog.Warn("sso: callback: encrypt id_token (RP-Initiated Logout disabled for this session)",
+				"cid", cid, "err", encErr)
+			idTokenEnc = ""
+		}
+
 		mint, err := opts.Sessions.MintSession(ctx, auth.MintRequest{
-			UserID:         user.ID,
-			OrganizationID: conn.OrganizationID,
-			AuthMode:       model.AuthModeSSO,
-			IP:             httpip.Request(r),
-			UserAgent:      r.Header.Get("User-Agent"),
+			UserID:           user.ID,
+			OrganizationID:   conn.OrganizationID,
+			AuthMode:         model.AuthModeSSO,
+			IP:               httpip.Request(r),
+			UserAgent:        r.Header.Get("User-Agent"),
+			IDTokenEncrypted: idTokenEnc,
 		})
 		if err != nil {
 			slog.Error("sso: callback: mint session", "cid", cid, "err", err)
