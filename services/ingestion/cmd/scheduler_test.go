@@ -204,6 +204,9 @@ func (m *mockStoreForScheduler) LookupUserByEmail(context.Context, string) (mode
 func (m *mockStoreForScheduler) CreateSession(context.Context, model.Session) (model.Session, error) {
 	return model.Session{}, errors.New("CreateSession not implemented")
 }
+func (m *mockStoreForScheduler) CreateSessionEnforcingCap(context.Context, model.Session, int) (model.Session, []string, error) {
+	return model.Session{}, nil, errors.New("CreateSessionEnforcingCap not implemented")
+}
 func (m *mockStoreForScheduler) GetSessionByTokenHash(context.Context, string) (model.Session, error) {
 	return model.Session{}, storage.ErrSessionNotFound
 }
