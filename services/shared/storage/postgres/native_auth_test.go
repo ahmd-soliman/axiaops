@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -280,6 +281,243 @@ func TestSessionsTable_NoRLS(t *testing.T) {
 	}
 	if got.ID != sess.ID {
 		t.Errorf("got session id %q; want %q", got.ID, sess.ID)
+	}
+}
+
+// ── CreateSessionEnforcingCap (M-7 audit, 2026-05-09) ─────────────────────
+
+// TestCreateSessionEnforcingCap_NoOpUnderCap covers the trivial branch:
+// when the user has fewer than `perUserCap` live sessions, the new row is
+// inserted, nothing is revoked, the returned hash slice is empty.
+func TestCreateSessionEnforcingCap_NoOpUnderCap(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+	user := seedUser(t, s, org.ID, "undercap@example.com")
+	if err := s.SaveMembership(ctx, model.Membership{
+		ID: uuid.NewString(), OrganizationID: org.ID, UserID: user.ID, Role: "owner",
+	}); err != nil {
+		t.Fatalf("SaveMembership: %v", err)
+	}
+
+	got, revoked, err := s.CreateSessionEnforcingCap(context.Background(), model.Session{
+		ID:               uuid.NewString(),
+		UserID:           user.ID,
+		OrganizationID:   org.ID,
+		AuthMode:         model.AuthModePassword,
+		SessionTokenHash: "undercap-hash-1",
+		ExpiresAt:        time.Now().Add(24 * time.Hour),
+	}, 5)
+	if err != nil {
+		t.Fatalf("CreateSessionEnforcingCap: %v", err)
+	}
+	if got.ID == "" {
+		t.Error("returned session has empty ID")
+	}
+	if len(revoked) != 0 {
+		t.Errorf("revoked = %v; want empty under cap", revoked)
+	}
+}
+
+// TestCreateSessionEnforcingCap_DisabledCapIsNoop covers `perUserCap = 0`:
+// the cap is disabled, the user can stack arbitrarily many sessions.
+func TestCreateSessionEnforcingCap_DisabledCapIsNoop(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+	user := seedUser(t, s, org.ID, "nocap@example.com")
+	if err := s.SaveMembership(ctx, model.Membership{
+		ID: uuid.NewString(), OrganizationID: org.ID, UserID: user.ID, Role: "owner",
+	}); err != nil {
+		t.Fatalf("SaveMembership: %v", err)
+	}
+
+	for i := 0; i < 6; i++ {
+		_, revoked, err := s.CreateSessionEnforcingCap(context.Background(), model.Session{
+			ID:               uuid.NewString(),
+			UserID:           user.ID,
+			OrganizationID:   org.ID,
+			AuthMode:         model.AuthModePassword,
+			SessionTokenHash: fmt.Sprintf("nocap-hash-%d", i),
+			ExpiresAt:        time.Now().Add(24 * time.Hour),
+		}, 0)
+		if err != nil {
+			t.Fatalf("CreateSessionEnforcingCap #%d: %v", i, err)
+		}
+		if len(revoked) != 0 {
+			t.Errorf("mint #%d revoked = %v; want empty (cap disabled)", i, revoked)
+		}
+	}
+	count, err := s.CountSessionsForUser(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("CountSessionsForUser: %v", err)
+	}
+	if count != 6 {
+		t.Errorf("count = %d; want 6 (cap=0 disables enforcement)", count)
+	}
+}
+
+// TestCreateSessionEnforcingCap_AtomicCommit_ExactlyCapVisible is the
+// audit M-7 integration test: when the cap is hit and the insert + revoke
+// both succeed in one transaction, the post-commit count is exactly the
+// cap — never cap+1 transiently visible to any reader. We drive this by
+// pre-seeding `cap` live sessions, then minting one more via the new
+// transactional method, and asserting the count is `cap` and the new
+// session is the survivor while the OLDEST pre-seed is the revoked row.
+func TestCreateSessionEnforcingCap_AtomicCommit_ExactlyCapVisible(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+	user := seedUser(t, s, org.ID, "atcap@example.com")
+	if err := s.SaveMembership(ctx, model.Membership{
+		ID: uuid.NewString(), OrganizationID: org.ID, UserID: user.ID, Role: "owner",
+	}); err != nil {
+		t.Fatalf("SaveMembership: %v", err)
+	}
+
+	const cap = 3
+	// Seed exactly `cap` live sessions, each with a deliberately-different
+	// created_at so the oldest-first ordering is unambiguous. We push
+	// created_at backwards via direct SQL because CreateSession stamps
+	// NOW() and three same-tick rows could tie on created_at.
+	preIDs := []string{}
+	preHashes := []string{}
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	now := time.Now().UTC()
+	for i := 0; i < cap; i++ {
+		id := uuid.NewString()
+		hash := fmt.Sprintf("atcap-pre-hash-%d", i)
+		sess, err := s.CreateSession(context.Background(), model.Session{
+			ID:               id,
+			UserID:           user.ID,
+			OrganizationID:   org.ID,
+			AuthMode:         model.AuthModePassword,
+			SessionTokenHash: hash,
+			ExpiresAt:        now.Add(24 * time.Hour),
+		})
+		if err != nil {
+			t.Fatalf("seed CreateSession #%d: %v", i, err)
+		}
+		// Push the created_at backwards by (cap - i) minutes so the
+		// first-seeded row is the oldest, second is in the middle, etc.
+		if _, err := conn.Exec(context.Background(),
+			`UPDATE axiaops.sessions SET created_at = $1 WHERE id = $2`,
+			now.Add(-time.Duration(cap-i)*time.Minute), sess.ID,
+		); err != nil {
+			t.Fatalf("backdate seed #%d: %v", i, err)
+		}
+		preIDs = append(preIDs, sess.ID)
+		preHashes = append(preHashes, sess.SessionTokenHash)
+	}
+
+	// Mint one more — the cap-revoke path must kick in.
+	newID := uuid.NewString()
+	newHash := "atcap-new-hash"
+	saved, revoked, err := s.CreateSessionEnforcingCap(context.Background(), model.Session{
+		ID:               newID,
+		UserID:           user.ID,
+		OrganizationID:   org.ID,
+		AuthMode:         model.AuthModePassword,
+		SessionTokenHash: newHash,
+		ExpiresAt:        now.Add(24 * time.Hour),
+	}, cap)
+	if err != nil {
+		t.Fatalf("CreateSessionEnforcingCap over cap: %v", err)
+	}
+	if saved.ID != newID {
+		t.Errorf("returned session ID = %q; want %q", saved.ID, newID)
+	}
+	if len(revoked) != 1 {
+		t.Fatalf("revoked count = %d; want 1 (exactly the oldest peer)", len(revoked))
+	}
+	if revoked[0] != preHashes[0] {
+		t.Errorf("revoked[0] = %q; want oldest peer hash %q", revoked[0], preHashes[0])
+	}
+
+	// Atomicity assertion: post-commit count is exactly `cap`. If the
+	// previous best-effort shape had failed the revoke step (silent
+	// log+continue), the count would be cap+1 here.
+	count, err := s.CountSessionsForUser(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("CountSessionsForUser: %v", err)
+	}
+	if count != cap {
+		t.Errorf("post-commit count = %d; want exactly %d (no over-cap window)", count, cap)
+	}
+
+	// The newest session must be among the survivors.
+	live, err := s.ListUserSessionTokenHashes(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("ListUserSessionTokenHashes: %v", err)
+	}
+	survived := map[string]bool{}
+	for _, h := range live {
+		survived[h] = true
+	}
+	if !survived[newHash] {
+		t.Error("brand-new session was revoked; the newest must always win the seat")
+	}
+	if survived[preHashes[0]] {
+		t.Error("oldest pre-seed survived; it should be the one revoked")
+	}
+}
+
+// TestCreateSessionEnforcingCap_RevokeColumnSet asserts the revoked-row's
+// `revoked_at` column is stamped (not NULL). Defends against a regression
+// where the UPDATE filter (`AND revoked_at IS NULL`) accidentally drops
+// the row from the UPDATE result set but `revoked_at` stays NULL — the
+// `axiaops_session_revocations_total` counter would over-count and the
+// next ValidateSession of that token would still pass Live().
+func TestCreateSessionEnforcingCap_RevokeColumnSet(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+	user := seedUser(t, s, org.ID, "revokedat@example.com")
+	if err := s.SaveMembership(ctx, model.Membership{
+		ID: uuid.NewString(), OrganizationID: org.ID, UserID: user.ID, Role: "owner",
+	}); err != nil {
+		t.Fatalf("SaveMembership: %v", err)
+	}
+
+	// One peer + a backdate so we know which row gets evicted.
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	peerHash := "revokedat-peer-hash"
+	peer, err := s.CreateSession(context.Background(), model.Session{
+		ID:               uuid.NewString(),
+		UserID:           user.ID,
+		OrganizationID:   org.ID,
+		AuthMode:         model.AuthModePassword,
+		SessionTokenHash: peerHash,
+		ExpiresAt:        time.Now().Add(24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("seed CreateSession: %v", err)
+	}
+	if _, err := conn.Exec(context.Background(),
+		`UPDATE axiaops.sessions SET created_at = NOW() - INTERVAL '1 hour' WHERE id = $1`,
+		peer.ID,
+	); err != nil {
+		t.Fatalf("backdate peer: %v", err)
+	}
+
+	if _, _, err := s.CreateSessionEnforcingCap(context.Background(), model.Session{
+		ID:               uuid.NewString(),
+		UserID:           user.ID,
+		OrganizationID:   org.ID,
+		AuthMode:         model.AuthModePassword,
+		SessionTokenHash: "revokedat-new-hash",
+		ExpiresAt:        time.Now().Add(24 * time.Hour),
+	}, 1); err != nil {
+		t.Fatalf("CreateSessionEnforcingCap: %v", err)
+	}
+
+	// Read the peer row back — revoked_at must now be non-null.
+	var revokedAt *time.Time
+	if err := conn.QueryRow(context.Background(),
+		`SELECT revoked_at FROM axiaops.sessions WHERE id = $1`, peer.ID,
+	).Scan(&revokedAt); err != nil {
+		t.Fatalf("SELECT revoked_at: %v", err)
+	}
+	if revokedAt == nil {
+		t.Error("peer row revoked_at is NULL; UPDATE didn't stamp it (regression — Live() would still pass)")
 	}
 }
 

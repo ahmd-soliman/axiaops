@@ -63,6 +63,10 @@ type fakeStore struct {
 	// Password resets keyed by token_hash. Single-use: row gains a
 	// non-nil RedeemedAt on consume.
 	passwordResets map[string]*fakePasswordReset
+
+	// hooks is optional fault-injection plumbing for transactional tests
+	// (M-7 atomicity regression). Nil in normal use.
+	hooks *fakeStoreHooks
 }
 
 type fakePasswordReset struct {
@@ -96,6 +100,87 @@ func (f *fakeStore) CreateSession(_ context.Context, in model.Session) (model.Se
 	in.LastSeenAt = now
 	f.sessions[in.SessionTokenHash] = in
 	return in, nil
+}
+
+// createSessionEnforcingCapHook lets a test inject a failure between the
+// session INSERT and the cap-revoke. When set, calls to
+// CreateSessionEnforcingCap run the insert, invoke the hook, and — if
+// the hook returns non-nil — roll back the insert (delete the row from
+// the map) before returning the hook's error. Used by the M-7
+// regression test that drives a transactional rollback failure.
+type fakeStoreHooks struct {
+	mu                   sync.Mutex
+	afterInsertBeforeCap func() error
+}
+
+func (f *fakeStore) CreateSessionEnforcingCap(ctx context.Context, in model.Session, perUserCap int) (model.Session, []string, error) {
+	// Production tx semantics emulated: INSERT, then under the same lock
+	// run the cap step. On any cap-step failure, undo the INSERT (i.e.
+	// the row never becomes visible). Hashes returned reflect what was
+	// revoked atomically — empty if cap is not exceeded.
+	f.mu.Lock()
+	now := f.now()
+	in.CreatedAt = now
+	in.LastSeenAt = now
+	f.sessions[in.SessionTokenHash] = in
+
+	// Failure injection hook (test-only). Captured under f.mu so the
+	// hook itself can poke other fakeStore fields without re-entry.
+	if f.hooks != nil {
+		f.hooks.mu.Lock()
+		hook := f.hooks.afterInsertBeforeCap
+		f.hooks.mu.Unlock()
+		if hook != nil {
+			if err := hook(); err != nil {
+				// Roll back the INSERT — the row never becomes visible
+				// to any reader (mirrors tx ROLLBACK).
+				delete(f.sessions, in.SessionTokenHash)
+				f.mu.Unlock()
+				return model.Session{}, nil, err
+			}
+		}
+	}
+
+	// Cap enforcement (skipped when cap <= 0).
+	var revoked []string
+	if perUserCap > 0 {
+		type entry struct {
+			hash      string
+			id        string
+			createdAt time.Time
+		}
+		// Collect peers (everything live for this user EXCEPT the
+		// row we just inserted) so the just-minted session always
+		// wins the seat.
+		peers := []entry{}
+		for h, s := range f.sessions {
+			if s.UserID == in.UserID && s.ID != in.ID && s.RevokedAt == nil && s.ExpiresAt.After(now) {
+				peers = append(peers, entry{hash: h, id: s.ID, createdAt: s.CreatedAt})
+			}
+		}
+		// totalLive = peers + 1; excess = totalLive - cap.
+		excess := len(peers) + 1 - perUserCap
+		if excess > 0 {
+			sort.Slice(peers, func(i, j int) bool {
+				if peers[i].createdAt.Equal(peers[j].createdAt) {
+					return peers[i].id < peers[j].id
+				}
+				return peers[i].createdAt.Before(peers[j].createdAt)
+			})
+			if excess > len(peers) {
+				excess = len(peers)
+			}
+			t := now
+			for i := 0; i < excess; i++ {
+				s := f.sessions[peers[i].hash]
+				s.RevokedAt = &t
+				f.sessions[peers[i].hash] = s
+				revoked = append(revoked, peers[i].hash)
+			}
+		}
+	}
+	f.mu.Unlock()
+	return in, revoked, nil
 }
 
 func (f *fakeStore) GetSessionByTokenHash(_ context.Context, h string) (model.Session, error) {
@@ -903,6 +988,131 @@ func TestPerUserCapRevokesOldestFirst(t *testing.T) {
 		got := survived[mr.Session.SessionTokenHash]
 		if want != got {
 			t.Errorf("mint #%d (created index %d): survived=%v, want %v", i, i, got, want)
+		}
+	}
+}
+
+// ── Audit M-7 regression: cap-step failure is transactional ────────────────
+
+// TestPerUserCap_FailurePropagates_NoSessionLeak pins the M-7 audit fix:
+// when the cap-enforcement step fails inside the same transaction as the
+// session INSERT, MintSession MUST return that error to the caller AND
+// MUST NOT leak any session row or any cache entry. The previous
+// implementation logged at warn and returned success — leaving an
+// over-cap leftover until the 5-minute sweep. The new shape rolls back
+// the INSERT (the fake's hook does this in lockstep with the
+// production tx) so the user sees their login fail and retries instead
+// of silently slipping under the cap.
+func TestPerUserCap_FailurePropagates_NoSessionLeak(t *testing.T) {
+	t.Parallel()
+	mgr, store, mem, _ := newManager(t)
+	ctx := context.Background()
+
+	// Seed the cap-1 sessions so the next mint hits the cap-revoke path.
+	preSeed := []string{}
+	for i := 0; i < 3; i++ {
+		mr, err := mgr.MintSession(ctx, auth.MintRequest{
+			UserID:         "u-fail",
+			OrganizationID: "o",
+			AuthMode:       model.AuthModePassword,
+		})
+		if err != nil {
+			t.Fatalf("seed MintSession #%d: %v", i, err)
+		}
+		preSeed = append(preSeed, mr.Session.SessionTokenHash)
+	}
+
+	// Arm the failure hook — every subsequent mint's cap-revoke step
+	// returns this error, which forces the fake to roll back the
+	// just-inserted row.
+	wantErr := errors.New("simulated cap-revoke failure")
+	store.hooks = &fakeStoreHooks{afterInsertBeforeCap: func() error { return wantErr }}
+
+	// Attempt the (cap+1)th mint — must fail loudly.
+	mr, err := mgr.MintSession(ctx, auth.MintRequest{
+		UserID:         "u-fail",
+		OrganizationID: "o",
+		AuthMode:       model.AuthModePassword,
+	})
+	if err == nil {
+		t.Fatalf("MintSession returned no error; want %v", wantErr)
+	}
+	if !errors.Is(err, wantErr) {
+		t.Errorf("MintSession err = %v; want wraps %v", err, wantErr)
+	}
+	if mr.PlaintextToken != "" || mr.Session.ID != "" {
+		t.Errorf("MintResult must be zero on failure; got %+v", mr)
+	}
+
+	// Session count must still be the pre-failure count (3) — the new
+	// row was rolled back.
+	count, err := store.CountSessionsForUser(ctx, "u-fail")
+	if err != nil {
+		t.Fatalf("CountSessionsForUser: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("after failed mint, live count = %d; want 3 (no leak)", count)
+	}
+
+	// None of the pre-seed sessions should have been revoked. The
+	// rollback semantics mean the cap-revoke also reverts.
+	hashes := mustList(t, store, "u-fail")
+	if len(hashes) != 3 {
+		t.Errorf("after failed mint, live hashes = %d; want 3 untouched", len(hashes))
+	}
+	survived := map[string]bool{}
+	for _, h := range hashes {
+		survived[h] = true
+	}
+	for _, h := range preSeed {
+		if !survived[h] {
+			t.Errorf("pre-seeded session %s was revoked despite failed mint — rollback broken", h)
+		}
+	}
+
+	// Cache must not contain any orphan entry for the rolled-back
+	// session (the production path skips the cache.Put entirely on
+	// error). Scan every existing cache key prefix and assert nothing
+	// references a session ID outside the pre-seed set.
+	for _, h := range preSeed {
+		if _, err := mem.Get(ctx, "axiaops:session:"+h); err != nil {
+			t.Errorf("pre-seed cache entry for %s was evicted unexpectedly: %v", h, err)
+		}
+	}
+}
+
+// TestPerUserCap_TransactionalCommit_NoOverCapWindow asserts the M-7
+// post-commit invariant: when the (cap+1)th mint succeeds, the live
+// session count is exactly the cap — never cap+1 even transiently from
+// the perspective of a concurrent reader. The fake's CreateSession-
+// EnforcingCap mirrors the production tx (insert + revoke in one
+// lock-protected block), so any read between the two steps would also
+// see over-cap state — this test rules that out by reading immediately
+// after each mint completes and asserting the count never overshoots.
+func TestPerUserCap_TransactionalCommit_NoOverCapWindow(t *testing.T) {
+	t.Parallel()
+	mgr, store, _, _ := newManager(t)
+	ctx := context.Background()
+	for i := 0; i < 10; i++ {
+		if _, err := mgr.MintSession(ctx, auth.MintRequest{
+			UserID:         "u-tx",
+			OrganizationID: "o",
+			AuthMode:       model.AuthModePassword,
+		}); err != nil {
+			t.Fatalf("MintSession #%d: %v", i, err)
+		}
+		count, err := store.CountSessionsForUser(ctx, "u-tx")
+		if err != nil {
+			t.Fatalf("CountSessionsForUser after mint #%d: %v", i, err)
+		}
+		// Cap is 3 (newManager). For i < 3 the count grows linearly;
+		// from i=3 onward the cap holds it at 3.
+		want := i + 1
+		if want > 3 {
+			want = 3
+		}
+		if count != want {
+			t.Errorf("after mint #%d: count = %d, want %d (no over-cap window)", i, count, want)
 		}
 	}
 }

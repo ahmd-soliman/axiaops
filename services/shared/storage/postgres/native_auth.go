@@ -271,6 +271,166 @@ func (s *Store) CreateSession(ctx context.Context, in model.Session) (model.Sess
 	return out, nil
 }
 
+// CreateSessionEnforcingCap inserts a session row and, in the same
+// transaction, revokes any oldest-first excess live sessions for the user
+// so the post-commit count is exactly perUserCap. Closes the M-7 audit
+// window from the 2026-05-09 audit: the previous implementation ran the
+// cap-enforcement in a separate post-INSERT call, so a transient revoke
+// failure (PG blip / cache error) left an over-cap leftover until the
+// 5-minute sweep. Folding both into one tx makes the cap an atomic
+// invariant — any reader sees either "no new session" (tx aborted) or
+// "exactly cap sessions, newest survived" (tx committed).
+//
+// Returns the persisted session and the list of session_token_hashes
+// that were revoked so the caller can evict cache entries post-commit
+// (architect C4 — no scan/wildcard delete on the cache).
+//
+// When perUserCap <= 0 the cap step is skipped and this method is
+// equivalent to CreateSession plus a transaction wrapper.
+func (s *Store) CreateSessionEnforcingCap(ctx context.Context, in model.Session, perUserCap int) (model.Session, []string, error) {
+	if in.ID == "" {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap: id required")
+	}
+	if in.UserID == "" || in.OrganizationID == "" {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap: user_id and organization_id required")
+	}
+	if in.SessionTokenHash == "" {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap: session_token_hash required")
+	}
+	if in.ExpiresAt.IsZero() {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap: expires_at required")
+	}
+	if in.AuthMode == "" {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap: auth_mode required")
+	}
+
+	var ipArg any
+	if in.IP != nil {
+		ipArg = in.IP.String()
+	}
+	var idTokenArg any
+	if in.IDTokenEncrypted != "" {
+		idTokenArg = in.IDTokenEncrypted
+	}
+
+	tx, err := s.adminPool.Begin(ctx)
+	if err != nil {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// INSERT the new row first. The cap-enforcement queries below
+	// exclude it via `id <> out.ID` so the just-inserted row is never
+	// itself a revoke candidate — the newest session always wins the
+	// seat per architect C2 / plan §4.6. The exclusion is by ID rather
+	// than created_at because two mints within the same NOW() tick
+	// would otherwise tie on timestamp.
+	var out model.Session
+	var ipStr *string
+	var idTokenEnc *string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO sessions (
+			id, user_id, organization_id, auth_mode, session_token_hash,
+			created_at, expires_at, last_seen_at, ip, user_agent_hash,
+			id_token_encrypted
+		) VALUES (
+			$1, $2, $3, $4, $5, NOW(), $6, NOW(), $7, $8, $9
+		)
+		RETURNING id, user_id, organization_id, auth_mode, session_token_hash,
+		          created_at, expires_at, revoked_at, last_seen_at,
+		          host(ip), user_agent_hash, id_token_encrypted`,
+		in.ID, in.UserID, in.OrganizationID, string(in.AuthMode), in.SessionTokenHash,
+		in.ExpiresAt, ipArg, in.UserAgentHash, idTokenArg,
+	).Scan(
+		&out.ID, &out.UserID, &out.OrganizationID, (*string)(&out.AuthMode), &out.SessionTokenHash,
+		&out.CreatedAt, &out.ExpiresAt, &out.RevokedAt, &out.LastSeenAt,
+		&ipStr, &out.UserAgentHash, &idTokenEnc,
+	); err != nil {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap insert: %w", err)
+	}
+	if ipStr != nil {
+		out.IP = net.ParseIP(*ipStr)
+	}
+	if idTokenEnc != nil {
+		out.IDTokenEncrypted = *idTokenEnc
+	}
+
+	var revokedHashes []string
+	if perUserCap > 0 {
+		// Count live sessions for the user OTHER than the one we just
+		// inserted. If that count is >= cap the user is now over the cap
+		// (count + 1 > cap → revoke `count + 1 - cap` oldest peers).
+		// The id-exclusion guarantees we never revoke the brand-new row
+		// even in the pathological "cap = 0 after insert" case.
+		var liveOthers int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM sessions
+			WHERE user_id = $1
+			  AND revoked_at IS NULL
+			  AND expires_at > NOW()
+			  AND id <> $2`,
+			in.UserID, out.ID,
+		).Scan(&liveOthers); err != nil {
+			return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap count: %w", err)
+		}
+		// totalLive = liveOthers + 1 (the new row). Excess to revoke =
+		// totalLive - cap, clamped to >= 0.
+		excess := liveOthers + 1 - perUserCap
+		if excess > 0 {
+			// SELECT FOR UPDATE the oldest `excess` peer sessions (mirror
+			// ListUserSessionTokenHashes ordering — oldest-first by
+			// created_at, then id for stable ties). The lock prevents a
+			// concurrent revoke from racing the UPDATE below.
+			rows, err := tx.Query(ctx, `
+				SELECT id, session_token_hash FROM sessions
+				WHERE user_id = $1
+				  AND revoked_at IS NULL
+				  AND expires_at > NOW()
+				  AND id <> $2
+				ORDER BY created_at ASC, id ASC
+				LIMIT $3
+				FOR UPDATE`,
+				in.UserID, out.ID, excess,
+			)
+			if err != nil {
+				return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap select oldest: %w", err)
+			}
+			ids := make([]string, 0, excess)
+			revokedHashes = make([]string, 0, excess)
+			for rows.Next() {
+				var id, h string
+				if err := rows.Scan(&id, &h); err != nil {
+					rows.Close()
+					return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap scan oldest: %w", err)
+				}
+				ids = append(ids, id)
+				revokedHashes = append(revokedHashes, h)
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap rows oldest: %w", err)
+			}
+
+			if len(ids) > 0 {
+				if _, err := tx.Exec(ctx, `
+					UPDATE sessions
+					   SET revoked_at = NOW()
+					 WHERE id = ANY($1::text[])
+					   AND revoked_at IS NULL`,
+					ids,
+				); err != nil {
+					return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap revoke: %w", err)
+				}
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap commit: %w", err)
+	}
+	return out, revokedHashes, nil
+}
+
 // GetSessionByTokenHash returns the session row whose session_token_hash
 // matches. Does NOT filter by revoked/expired — the caller must call
 // Session.Live() after read (architect C4).
