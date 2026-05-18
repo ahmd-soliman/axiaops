@@ -65,7 +65,7 @@ func startWorker(
 			// transition window during which legitimate jobs may arrive
 			// unsigned. Hard-enforce drops them.
 			redisJob := toRedisJob(job)
-			if vErr := redisqueue.VerifyEnvelope(workerVerifySecret(secrets), maxSkew, time.Now, redisJob); vErr != nil {
+			if vErr := verifyEnvelopeMultiSecret(secrets, maxSkew, redisJob); vErr != nil {
 				reason := envelopeReason(vErr)
 				observability.RecordEnvelopeRejection(reason)
 				if softEnforce {
@@ -182,19 +182,36 @@ func toRedisJob(j queue.ScanJob) redisqueue.ScanJob {
 	}
 }
 
-// workerVerifySecret returns the first non-nil secret slot — the envelope
-// is signed by the api's current secret, and the ingestion verifier accepts
-// either the current or the staged `_NEXT` value via that slot list's
-// rotation playbook. Multi-slot envelope verification can be added when a
-// real rotation surfaces the need; today the bounded count (≤ 2) and the
-// HTTP-path's multi-secret coverage make a single-slot verify acceptable.
-func workerVerifySecret(secrets [][]byte) []byte {
+// verifyEnvelopeMultiSecret walks all configured secret slots and returns nil
+// on the first match. Mirrors the HTTP-side MultiSecretMiddleware so the
+// rotation playbook works the same way on both surfaces — during a rotation
+// the api may sign with current OR next, and the worker must accept either.
+//
+// Iterates the full slot list on success AND failure so timing cannot leak
+// which slot matched (same reasoning as the HTTP middleware).
+//
+// When secrets is empty (DEV_MODE) the underlying VerifyEnvelope returns nil
+// for any input; we short-circuit early to keep the iteration count zero.
+func verifyEnvelopeMultiSecret(secrets [][]byte, maxSkew time.Duration, job redisqueue.ScanJob) error {
+	if len(secrets) == 0 {
+		return redisqueue.VerifyEnvelope(nil, maxSkew, time.Now, job)
+	}
+	var matched bool
+	var lastErr error
 	for _, s := range secrets {
-		if len(s) > 0 {
-			return s
+		if len(s) == 0 {
+			continue
+		}
+		if err := redisqueue.VerifyEnvelope(s, maxSkew, time.Now, job); err == nil {
+			matched = true
+		} else {
+			lastErr = err
 		}
 	}
-	return nil
+	if matched {
+		return nil
+	}
+	return lastErr
 }
 
 // envelopeReason maps the httpauth sentinel into a low-cardinality metric

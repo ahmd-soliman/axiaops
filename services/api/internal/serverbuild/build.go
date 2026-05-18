@@ -12,9 +12,9 @@
 // Four SaaS-extension seams cross Deps:
 //   - storage.Store    — already an interface; concrete impl is postgres
 //   - auth.Provider    — pluggable auth (today: native cookie sessions only;
-//                        the interface stays so a SaaS reactivation can
-//                        swap in a remote-IdP impl without touching the
-//                        rest of the chain)
+//     the interface stays so a SaaS reactivation can
+//     swap in a remote-IdP impl without touching the
+//     rest of the chain)
 //   - sso.Discoverer   — pre-auth domain → connection lookup (B2)
 //   - sso.Connector    — connection CRUD with discovery-doc validation (B2)
 //
@@ -156,8 +156,8 @@ type Deps struct {
 // (avoiding "duplicate metrics collector registration" errors) and the
 // smoke test can supply its own isolated registry.
 type Metrics struct {
-	RequestsTotal           *prometheus.CounterVec
-	RequestDurationSeconds  *prometheus.HistogramVec
+	RequestsTotal          *prometheus.CounterVec
+	RequestDurationSeconds *prometheus.HistogramVec
 }
 
 // NewDefaultMetrics constructs the standard request metrics. Callers MUST
@@ -202,12 +202,13 @@ func (sw *statusWriter) WriteHeader(code int) {
 // 500ing later.
 //
 // The returned handler is the full middleware chain, outermost-first:
-//   request-logging + metrics
-//     → request-id
-//       → auth (DevBypass | WrapNative + EnforceSSO)
-//         → rate-limiter
-//           → CORS
-//             → mux (handlers)
+//
+//	request-logging + metrics
+//	  → request-id
+//	    → auth (DevBypass | WrapNative + EnforceSSO)
+//	      → rate-limiter
+//	        → CORS
+//	          → mux (handlers)
 //
 // Tickers (stuck-scan, license, session-sweep, sso-sweep) are NOT started
 // here — composition roots own goroutine lifecycle so a test can build
