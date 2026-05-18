@@ -126,6 +126,24 @@ type NativeAuthStore interface {
 	// Returns the persisted Session (with timestamps populated).
 	CreateSession(ctx context.Context, s model.Session) (model.Session, error)
 
+	// CreateSessionEnforcingCap inserts a session row AND atomically enforces
+	// the per-user concurrent-session cap in the same transaction. When
+	// `perUserCap > 0` and inserting the new row would push the user above
+	// the cap, the oldest excess sessions are revoked (`revoked_at = NOW()`)
+	// in the same transaction — so no transient over-cap state is visible
+	// to any concurrent reader. When `perUserCap <= 0` the cap step is a
+	// no-op and the call is equivalent to CreateSession.
+	//
+	// Returns the persisted Session and the list of session_token_hashes
+	// that were revoked so the caller can evict the matching cache entries
+	// after the transaction commits (architect C4: no scan/wildcard).
+	//
+	// Audit (M-7): folds the cap-enforcement into the same transaction as
+	// the INSERT, closing the "11th login briefly visible" window from the
+	// previous best-effort post-insert revoke. Failures propagate to the
+	// caller — partial state is impossible because the whole tx rolls back.
+	CreateSessionEnforcingCap(ctx context.Context, s model.Session, perUserCap int) (saved model.Session, revokedHashes []string, err error)
+
 	// GetSessionByTokenHash looks up by SHA-256 hash. Returns ErrSessionNotFound
 	// when no row matches. Does NOT filter by revoked/expired — callers must
 	// re-check Live() after read (architect C4: cached value must gate liveness).
