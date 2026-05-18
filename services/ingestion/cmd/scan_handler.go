@@ -136,10 +136,9 @@ func composeHMACProtect(secrets [][]byte, maxSkew time.Duration, softEnforce boo
 }
 
 // secretsFingerprint returns a short diagnostic of the loaded secret slots
-// (lengths only — never the bytes). Used in the worker start log so an
+// (lengths only — never the bytes). Emitted at boot in main.go so an
 // operator inspecting a running container can confirm rotation is staged
-// correctly without exposing the secret to log scrapers. Unused today but
-// kept as a documentation/operator helper.
+// correctly without exposing the secret to log scrapers (plan §4.5).
 func secretsFingerprint(secrets [][]byte) string {
 	parts := make([]string, 0, len(secrets))
 	for i, s := range secrets {
