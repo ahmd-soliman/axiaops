@@ -68,15 +68,10 @@ type Options struct {
 // secret for an explicit DEV_MODE passthrough — callers should prefer to
 // skip the wrap entirely (see PassthroughWithWarning) so a one-shot
 // startup log makes the posture obvious.
+//
+// Thin wrapper over MultiSecretMiddleware so the default-injection logic
+// for opts.MaxSkew / opts.Now lives in exactly one place.
 func Middleware(secret []byte, opts Options, next http.Handler) http.Handler {
-	maxSkew := opts.MaxSkew
-	if maxSkew <= 0 {
-		maxSkew = DefaultMaxSkew
-	}
-	now := opts.Now
-	if now == nil {
-		now = time.Now
-	}
 	return MultiSecretMiddleware([][]byte{secret}, opts, next)
 }
 
