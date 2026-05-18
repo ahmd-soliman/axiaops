@@ -3,6 +3,19 @@ services:
     image: redis:7-alpine
     container_name: axiaops-redis-staging
     restart: unless-stopped
+    # requirepass — see docs/c1-hmac-plan.md §12 Q7. REDIS_PASSWORD MUST
+    # be set as a CI variable scoped to the `staging` environment.
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - default-network
 
@@ -21,6 +34,11 @@ services:
       AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
       REDIS_URL: ${REDIS_URL}
       AWS_REGION: ${AWS_REGION:-us-east-1}
+      # C-1: ingestion-side HMAC verifier. Required on staging (pre-release
+      # smoke). Optional `_NEXT` slot stages new value during rotation.
+      INGESTION_SHARED_SECRET: ${INGESTION_SHARED_SECRET}
+      INGESTION_SHARED_SECRET_NEXT: ${INGESTION_SHARED_SECRET_NEXT:-}
+      INGESTION_HMAC_SOFT_ENFORCE: ${INGESTION_HMAC_SOFT_ENFORCE:-false}
     networks:
       - default-network
 
@@ -38,6 +56,8 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
       REDIS_URL: ${REDIS_URL}
+      # C-1: api-side HMAC signer. Same value as ingestion's current slot.
+      INGESTION_SHARED_SECRET: ${INGESTION_SHARED_SECRET}
       INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-14}
       PUBLIC_HOST: ${PUBLIC_HOST}
       # Concrete dashboard origin per env — silences the M-3 startup warn
