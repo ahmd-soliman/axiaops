@@ -33,6 +33,12 @@ type Handler struct {
 	queue        queue.Queue
 	ingestionURL string // used only by sync queue fallback
 
+	// ingestionSecret signs outbound calls to ingestion (POST
+	// /v1/credentials/verify is the api-side hop; the sync queue path also
+	// signs via syncqueue.New). nil ⇒ DEV_MODE; both ends fall back to
+	// no-sign. See docs/c1-hmac-plan.md §3.3.
+	ingestionSecret []byte
+
 	// redisCache is the cache backend the readyz check pings. nil means
 	// "Redis was not configured for this deployment" — readyz reports
 	// "skipped" rather than treating it as a fault. Callers wire this only
@@ -77,6 +83,14 @@ func (h *Handler) WithPublicHost(publicHost string) *Handler {
 // to point the role-verify call at an httptest.Server.
 func (h *Handler) WithIngestionURL(url string) *Handler {
 	h.ingestionURL = url
+	return h
+}
+
+// WithIngestionSecret installs the shared HMAC secret used to sign outbound
+// api → ingestion calls. nil ⇒ DEV_MODE; both ends fall back to no-sign.
+// See docs/c1-hmac-plan.md §3.3.
+func (h *Handler) WithIngestionSecret(secret []byte) *Handler {
+	h.ingestionSecret = secret
 	return h
 }
 
