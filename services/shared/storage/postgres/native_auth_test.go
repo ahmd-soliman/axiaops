@@ -377,7 +377,6 @@ func TestCreateSessionEnforcingCap_AtomicCommit_ExactlyCapVisible(t *testing.T) 
 	// created_at so the oldest-first ordering is unambiguous. We push
 	// created_at backwards via direct SQL because CreateSession stamps
 	// NOW() and three same-tick rows could tie on created_at.
-	preIDs := []string{}
 	preHashes := []string{}
 	conn := connectTestDB(t)
 	defer func() { _ = conn.Close(context.Background()) }()
@@ -404,7 +403,6 @@ func TestCreateSessionEnforcingCap_AtomicCommit_ExactlyCapVisible(t *testing.T) 
 		); err != nil {
 			t.Fatalf("backdate seed #%d: %v", i, err)
 		}
-		preIDs = append(preIDs, sess.ID)
 		preHashes = append(preHashes, sess.SessionTokenHash)
 	}
 
