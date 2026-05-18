@@ -179,8 +179,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 //
 // CORS_ORIGIN sets the allowed origin. Two shapes are supported:
 //   - "*"  — wildcard, fine for unauthenticated APIs but INCOMPATIBLE
-//            with credentialed requests (the browser drops responses
-//            that combine `Allow-Origin: *` with `Allow-Credentials: true`).
+//     with credentialed requests (the browser drops responses
+//     that combine `Allow-Origin: *` with `Allow-Credentials: true`).
 //   - "<origin>" or "<origin>,<origin>,…" — comma-separated allowlist;
 //     the request's Origin header is reflected back when it matches,
 //     and `Access-Control-Allow-Credentials: true` is emitted so the
