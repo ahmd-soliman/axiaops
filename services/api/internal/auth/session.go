@@ -169,6 +169,17 @@ func (m *Manager) MintSession(ctx context.Context, in MintRequest) (MintResult, 
 	}
 	saved, revokedHashes, err := m.store.CreateSessionEnforcingCap(ctx, s, m.cfg.SessionsPerUser)
 	if err != nil {
+		// Post-M-7: cap-enforcement failures propagate as login 5xx instead
+		// of slog.Warn-and-return-success. Structured-log with the context
+		// an operator needs to debug a sudden login-5xx spike — without
+		// this, the caller stack only sees "auth: mint session: <pg error>".
+		observability.LogError(ctx, err,
+			"operation", "mint_session",
+			"user_id", in.UserID,
+			"organization_id", in.OrganizationID,
+			"auth_mode", string(in.AuthMode),
+			"sessions_per_user_cap", m.cfg.SessionsPerUser,
+		)
 		return MintResult{}, fmt.Errorf("auth: mint session: %w", err)
 	}
 	// LastSeenAt is only present after the DB stamps it; copy back for cache.
