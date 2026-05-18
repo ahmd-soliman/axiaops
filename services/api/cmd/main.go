@@ -31,6 +31,7 @@ import (
 	"axiaops.io/api/internal/serverbuild"
 	"axiaops.io/api/internal/sso"
 	"axiaops.io/shared/cache"
+	"axiaops.io/shared/httpauth"
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
@@ -100,7 +101,15 @@ func main() {
 	if ingestionURL == "" {
 		ingestionURL = "http://localhost:8081"
 	}
-	q := queue.New(os.Getenv("REDIS_URL"), ingestionURL)
+	// Shared-secret HMAC for outbound api → ingestion calls (C-1, plan §3.3).
+	// DEV_MODE allows empty; the receiving ingestion middleware is in
+	// passthrough mode under the same posture. Single secret on the signer
+	// side — rotation is verifier-only (ingestion holds current+next).
+	ingestionSecret, hmacErr := httpauth.LoadFromEnv("INGESTION_SHARED_SECRET", devModeEnabled())
+	if hmacErr != nil {
+		die("hmac: " + hmacErr.Error())
+	}
+	q := queue.New(os.Getenv("REDIS_URL"), ingestionURL, ingestionSecret)
 	defer func() { _ = q.Close() }()
 
 	// ── Resolve modes from env ───────────────────────────────────────────
@@ -214,6 +223,7 @@ func main() {
 		Store:               store,
 		Cache:               c,
 		Queue:               q,
+		IngestionSecret:     ingestionSecret,
 		AuthProvider:        authProvider,
 		Discoverer:          ssoDiscoverer,
 		Connector:           ssoConnector,
