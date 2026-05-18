@@ -297,16 +297,16 @@ type NativeAuthStore interface {
 // struct (not positional args) so the inevitable additions (initial org name,
 // invite quota, license tier hint) don't churn the interface.
 type BootstrapConsume struct {
-	TokenHash         string // hex(SHA-256(plaintext token))
-	OrganizationID    string // pre-generated UUID
-	OrganizationName  string
-	UserID            string // pre-generated UUID
-	UserEmail         string
-	UserName          string
-	UserPasswordHash  string // pre-hashed (argon2id) by caller
-	SessionID         string
-	SessionTokenHash  string
-	SessionExpiresAt  time.Time
+	TokenHash            string // hex(SHA-256(plaintext token))
+	OrganizationID       string // pre-generated UUID
+	OrganizationName     string
+	UserID               string // pre-generated UUID
+	UserEmail            string
+	UserName             string
+	UserPasswordHash     string // pre-hashed (argon2id) by caller
+	SessionID            string
+	SessionTokenHash     string
+	SessionExpiresAt     time.Time
 	SessionUserAgentHash string
 	// SessionIP is captured as a string here to avoid pulling net into this
 	// package's interface; the postgres impl converts to net.IP.
