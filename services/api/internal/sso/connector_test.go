@@ -60,7 +60,7 @@ func TestRequireHTTPS_AllowsLoopback(t *testing.T) {
 		// IPv6 loopback variants — bracketed per RFC 3986 §3.2.2.
 		"http://[::1]/.well-known/openid-configuration",
 		"http://[::1]:8080/.well-known/openid-configuration",
-		"http://[::1]",                                              // no path, no port
+		"http://[::1]", // no path, no port
 		"http://[::0001]/.well-known/openid-configuration",          // leading-zero compressed form
 		"http://[0:0:0:0:0:0:0:1]/.well-known/openid-configuration", // uncompressed RFC 4291
 		"HTTP://[::1]/.well-known/openid-configuration",             // case-insensitive scheme + IPv6
