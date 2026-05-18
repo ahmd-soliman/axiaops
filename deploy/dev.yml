@@ -3,8 +3,20 @@ services:
     image: redis:7-alpine
     container_name: axiaops-redis-${DEPLOY_ENV}
     restart: unless-stopped
+    # requirepass closes the intra-LAN trust gap flagged in §12 Q7 of
+    # docs/c1-hmac-plan.md: any process on the docker network could
+    # otherwise LPUSH a forged scan job. REDIS_PASSWORD must be set as a
+    # per-env CI variable. Empty falls back to no password (dev hosts are
+    # DEV_MODE=true so this is acceptable here; deployed-with-auth envs
+    # like preview/staging/demo set it).
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:-}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -30,7 +42,17 @@ services:
       # After 8cbf35a logging.go no longer infers text from DEV_MODE — set
       # LOG_OUTPUT explicitly here. Override to `json` if needed.
       LOG_OUTPUT: ${LOG_OUTPUT:-text}
-      REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
+      # REDIS_URL carries the password via userinfo when REDIS_PASSWORD is
+      # set: redis://:<pw>@host:port. Empty REDIS_PASSWORD falls back to
+      # unauthenticated — fine on dev-1/dev-2 (DEV_MODE=true).
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@axiaops-redis-${DEPLOY_ENV}:6379}
+      # C-1: ingestion-side HMAC verifier. DEV_MODE allows empty — same
+      # default as ENCRYPTION_KEY's posture here. Production envs (preview/
+      # staging/demo) set this via CI variables. Optional `_NEXT` slot
+      # stages the new value during a zero-downtime rotation.
+      INGESTION_SHARED_SECRET: ${INGESTION_SHARED_SECRET:-}
+      INGESTION_SHARED_SECRET_NEXT: ${INGESTION_SHARED_SECRET_NEXT:-}
+      INGESTION_HMAC_SOFT_ENFORCE: ${INGESTION_HMAC_SOFT_ENFORCE:-false}
     networks:
       - default-network
 
@@ -51,7 +73,10 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       # See ingestion service above for rationale.
       LOG_OUTPUT: ${LOG_OUTPUT:-text}
-      REDIS_URL: ${REDIS_URL:-redis://axiaops-redis-${DEPLOY_ENV}:6379}
+      # See ingestion service above — same REDIS_URL shape.
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@axiaops-redis-${DEPLOY_ENV}:6379}
+      # C-1: api-side HMAC signer. Same value as the ingestion side.
+      INGESTION_SHARED_SECRET: ${INGESTION_SHARED_SECRET:-}
       PUBLIC_HOST: ${PUBLIC_HOST}
       # Concrete dashboard origin per env — silences the M-3 startup warn
       # when DEV_MODE is flipped off for SSO testing. Wildcard is fine
