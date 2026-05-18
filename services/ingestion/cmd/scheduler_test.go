@@ -150,6 +150,7 @@ func (m *mockStoreForScheduler) GetUserByEmail(context.Context, string) (model.U
 func (m *mockStoreForScheduler) GetUserByID(context.Context, string) (model.User, error) {
 	return model.User{}, nil
 }
+
 // GetUserSSOConnectionID is on the Store interface for the API service's
 // SSO RP-Initiated Logout resolver. No ingestion code path uses it today;
 // if a future ingestion-side feature ever wires this method, the panic

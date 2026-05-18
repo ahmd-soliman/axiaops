@@ -723,8 +723,8 @@ func (s *Store) RedeemPasswordReset(ctx context.Context, tokenHash, newPasswordH
 // Returns:
 //   - (true, nil)                       — this caller wrote the row
 //   - (false, nil)                      — another replica won the race; the
-//                                         row already exists with a different
-//                                         token hash
+//     row already exists with a different
+//     token hash
 //   - (false, ErrBootstrapAlreadyDone)  — organizations already exists
 func (s *Store) CreateBootstrapState(ctx context.Context, tokenHash, mintedByPod string) (bool, error) {
 	if tokenHash == "" {
