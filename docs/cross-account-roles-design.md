@@ -811,8 +811,10 @@ but for completeness the React-side change is:
 - New API client functions in `services/dashboard/src/api/client.js`:
   `draftAccount({label, region})` and `verifyAccount(id, {role_arn})`.
 
-The dashboard work fits behind a feature flag (`VITE_FEATURE_ROLE_AUTH`) so it can ship
-behind the backend without exposing partial UX.
+The dashboard work originally shipped behind a `VITE_FEATURE_ROLE_AUTH` feature flag so it
+could land ahead of the backend without exposing partial UX. The flag has since been removed
+(issue #81) — role-based onboarding is now the default Connect-screen tab and Access Keys
+remain reachable as a secondary tab.
 
 ### 6.10 Testing
 

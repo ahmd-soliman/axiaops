@@ -126,7 +126,6 @@ services:
       args:
         VITE_API_URL: /api
         VITE_DEV_MODE: ${DEV_MODE:-true}
-        VITE_FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
         VITE_AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     # Runtime env consumed by inject-env.sh (writes window.__ENV__ on
     # container start) so the dashboard's runtime config can be tweaked
@@ -134,7 +133,6 @@ services:
     environment:
       DEV_MODE: ${DEV_MODE:-true}
       DEV_ORG_NAME: ${DEV_ORG_NAME:-AxiaOps Dev}
-      FEATURE_ROLE_AUTH: ${FEATURE_ROLE_AUTH:-false}
       AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
     container_name: axiaops-dashboard
     ports:

@@ -55,8 +55,7 @@ policy still uses ExternalId. Two accounts mirror production more closely.
   `verifyRoleViaIngestion`, `generateExternalID`.
 - `services/api/internal/api/handler.go` — route registration for
   `POST /v1/accounts/draft` and `PATCH /v1/accounts/{id}`.
-- `services/dashboard/src/config.js` — `FEATURE_ROLE_AUTH`, `AXIAOPS_AWS_ACCOUNT_ID`
-  flags.
+- `services/dashboard/src/config.js` — `AXIAOPS_AWS_ACCOUNT_ID` flag.
 - `services/dashboard/src/screens/ConnectScreen.jsx` — `trustPolicyJSON()` builds
   the trust-policy template; principal is hardcoded to
   `arn:aws:iam::${AXIAOPS_AWS_ACCOUNT_ID}:role/AxiaOpsScanner`.
@@ -102,18 +101,17 @@ Or rely on `~/.aws/credentials` with `AWS_PROFILE=…` exported in your shell be
 `make start-dev`. The SDK chain in `NewWithAssumedRole` uses
 `config.LoadDefaultConfig` and accepts either.
 
-### 2b. Dashboard feature flag + principal account ID
+### 2b. Dashboard principal account ID
 
 Vite reads `VITE_*` at dev time. Add to `services/dashboard/.env` (or `.env.local`):
 
 ```
-VITE_FEATURE_ROLE_AUTH=true
 VITE_AXIAOPS_AWS_ACCOUNT_ID=<ACCOUNT_A_ID>
 ```
 
-`VITE_FEATURE_ROLE_AUTH=true` exposes the "Role ARN (recommended)" tab on the
-Connect screen. `VITE_AXIAOPS_AWS_ACCOUNT_ID` populates the principal ARN that the
-trust-policy template renders.
+`VITE_AXIAOPS_AWS_ACCOUNT_ID` populates the principal ARN that the trust-policy
+template renders. The Role ARN tab is the default Connect-screen tab — no feature
+flag is required (issue #81). Access Keys remain reachable as a secondary tab.
 
 ### 2c. Encryption key
 
@@ -271,8 +269,8 @@ Postgres.
 | Verify returns `trust_policy_mismatch` | Principal in Account B trust policy doesn't match your local AWS identity | Run `aws sts get-caller-identity`, paste that ARN exactly into trust policy |
 | Verify returns `role_not_found` | Wrong role ARN, or role not yet propagated (IAM is eventually consistent ~10 s) | Wait 30 s, retry |
 | `start-dev` ingestion logs `failed to get caller identity` | No AWS creds reached the ingestion process | Check `services/ingestion/.env` has `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` |
-| Dashboard shows access-key form only, no Role ARN tab | `VITE_FEATURE_ROLE_AUTH` not set | Add to `services/dashboard/.env`, restart Vite |
 | Dashboard renders `<AxiaOpsAccountId>` as literal text | `VITE_AXIAOPS_AWS_ACCOUNT_ID` missing — `ConnectScreen.jsx` falls back to placeholder | Set the var to Account A's 12-digit account ID |
+| Role tab shows "Role-based onboarding is not available in this environment" | `VITE_AXIAOPS_AWS_ACCOUNT_ID` unset — the trust-policy template would render `<AxiaOpsAccountId>` literally so the tab blocks instead | Set the var to Account A's 12-digit account ID, restart Vite |
 
 ## Out of scope
 

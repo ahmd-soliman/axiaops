@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { connectAccount, updateAccount, draftAccount, verifyAccount } from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
-import { FEATURE_ROLE_AUTH, AXIAOPS_AWS_ACCOUNT_ID } from '../config';
+import { AXIAOPS_AWS_ACCOUNT_ID } from '../config';
 
 function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, readOnly }) {
   return (
@@ -447,11 +447,10 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
   const isEdit = !!account;
   const isRoleEdit = isEdit && account.auth_method === 'role';
 
-  // Default to role tab when the feature flag is on and we are not editing an
-  // existing access-key account (where forcing a tab swap would be confusing).
-  const [activeTab, setActiveTab] = useState(
-    FEATURE_ROLE_AUTH && !isEdit ? 'role' : 'access_key',
-  );
+  // Default to the Role ARN tab on a fresh connect (recommended posture); when
+  // editing an existing access-key account, stay on Access Keys to avoid a
+  // confusing tab swap.
+  const [activeTab, setActiveTab] = useState(isEdit ? 'access_key' : 'role');
 
   return (
     <div style={{ minHeight: '100%', backgroundColor: 'var(--color-bg)' }}>
@@ -470,7 +469,7 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
           </p>
         </div>
 
-        {!isEdit && FEATURE_ROLE_AUTH && (
+        {!isEdit && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
             <TabButton
               active={activeTab === 'role'}
