@@ -509,7 +509,7 @@ func TestWorker_SkipsJobWhenLicenseExpired(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startWorker(ctx, q, store)
+	startWorker(ctx, q, store, nil, 5*time.Minute, false)
 
 	// Worker dequeues the seeded job, hits the gate, continues. With no
 	// further pending jobs the next Dequeue blocks on ctx — short sleep is
@@ -560,7 +560,7 @@ func TestWorker_ProcessesJobWhenLicenseValid(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startWorker(ctx, q, store)
+	startWorker(ctx, q, store, nil, 5*time.Minute, false)
 
 	// runScan path is best-effort here — it'll fail somewhere downstream
 	// (mock store returns empty accounts for various lookups) but that's
