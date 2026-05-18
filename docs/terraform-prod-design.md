@@ -1034,6 +1034,21 @@ resource "random_id" "ingestion_shared_secret" {
 # value: random_id.ingestion_shared_secret.hex
 ```
 
+**Wiring to the three §8.3 input variables.** At initial provisioning (and at every steady state) the single `random_id.ingestion_shared_secret.hex` value is passed as **all three** of the `secrets` module's input variables:
+
+```hcl
+module "secrets" {
+  source = "../../modules/secrets"
+
+  api_ingestion_secret     = random_id.ingestion_shared_secret.hex
+  ingestion_primary_secret = random_id.ingestion_shared_secret.hex
+  ingestion_next_secret    = random_id.ingestion_shared_secret.hex
+  # ... other secrets
+}
+```
+
+This is what makes the §8.3 "all three carry the same value" steady state literal in the code. During a C-1 rotation the operator hand-edits these three lines per the §13.2 playbook (introducing a second `random_id.ingestion_shared_secret_v2` or simply pasting a new hex string), so the `random_id` only generates the **initial** value — subsequent rotations are operator-driven.
+
 The value lands in TF state. The state is encrypted at rest in S3, access-restricted via IAM. This is the standard pattern — TF state is the source of truth for TF-generated secrets. Rotation is `terraform apply -replace=random_id.ingestion_shared_secret` followed by the C-1 two-secret dance (§13.2).
 
 ---
@@ -1402,7 +1417,7 @@ Two instance roles, one per service. The instance role is what each container's 
 
 That's it. The api binary doesn't make AWS API calls — it only consumes secrets. No CloudWatch Logs perm needed because App Runner writes to CloudWatch via the **access role** (`apprunner_ecr_access`), not the instance role.
 
-**`axiaops-apprunner-ingestion-instance`:** the same SSM/KMS block (scoped to `/axiaops/prod/ingestion/*`), plus the `AxiaOpsReadOnly` policy from `docs/production.md:41-60`:
+**`axiaops-apprunner-ingestion-instance`:** the same SSM/KMS block (scoped to `/axiaops/prod/ingestion/*`), plus the `AxiaOpsReadOnly` policy from `docs/production.md:41-60` **extended** with the additional Describe APIs needed for the API-only detection rules listed in `CLAUDE.md` ("API-only rules" table — EBS, snapshots, AMIs, log groups, Secrets Manager, ECR) and the Tier-2 services (`docs/tier2_detections_status.md` — ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, EKS):
 
 ```json
 {
@@ -1558,7 +1573,7 @@ All prices in EUR, eu-central-1, post-tax-exclusive, 2025 pricing. "Idle" = no o
 |---|---:|---|
 | RDS db.t4g.micro Single-AZ, 20 GB gp3 | €11.80 | €0.018/hr × 730 + €0.115/GB × 20 |
 | RDS backup storage (7-day) | €0.10 | 20 GB × free-tier-equivalent retention; sub-€1 |
-| App Runner api — provisioned (0.25 vCPU, 0.5 GB) | €4.50 | Assumes ~30% active (operator hours) — 220 hrs × €0.0064 + provisioned-but-idle €0.0006 × 510 hrs |
+| App Runner api — provisioned (0.25 vCPU, 0.5 GB) | €4.50 | `min_size = 1` posture: 0.5 GB × €0.007/GB-hr × 730 hrs = €2.55 provisioned-memory baseline (always-on), plus 0.25 vCPU × €0.064/vCPU-hr × ~120 active hrs (operator dashboard use) ≈ €1.92 active-vCPU. Rounded to €4.50. |
 | App Runner ingestion — scale-to-zero | €0.50 | One daily scan × ~5 min × small footprint; effectively rounding error |
 | ECR storage (3 repos × 30 images × 250 MB avg) | €2.25 | €0.10/GB × ~22.5 GB |
 | S3 dashboard bucket (50 MB) | €0.01 | Cents |
