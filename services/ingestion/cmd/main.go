@@ -119,6 +119,10 @@ func main() {
 	ingestionSecrets, hmacSoftEnforce := loadIngestionSecrets(devModeEnabled())
 	hmacMaxSkew := httpauth.LoadMaxSkew("INGESTION_HMAC_MAX_SKEW_SECONDS", httpauth.DefaultMaxSkew)
 	observability.SetHMACEnforceMode(hmacSoftEnforce)
+	// Emit the secret-slot fingerprint (lengths only, never bytes) so an
+	// operator inspecting a running container can confirm rotation is staged
+	// correctly without exposing the secret to log scrapers. See plan §4.5.
+	slog.Info("hmac: secret slots loaded", "fingerprint", secretsFingerprint(ingestionSecrets))
 	if hmacSoftEnforce && !devModeEnabled() {
 		slog.Warn("hmac: SOFT_ENFORCE active — failures are logged but NOT rejected. " +
 			"Transition flag only; flip INGESTION_HMAC_SOFT_ENFORCE=false after one stable cycle.")
