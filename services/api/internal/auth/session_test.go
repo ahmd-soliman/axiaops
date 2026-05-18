@@ -439,6 +439,7 @@ func (f *fakeStore) RedeemPasswordReset(_ context.Context, tokenHash, newHash st
 	}
 	return row.userID, row.organizationID, nil
 }
+
 // Invitations are stored keyed by (organization_id, lower(email)) —
 // matches the partial unique index on pending_memberships in production.
 // A separate index by token_hash is maintained for the redeem-path lookup.
