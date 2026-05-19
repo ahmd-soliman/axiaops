@@ -19,7 +19,19 @@ import (
 
 func seedUser(t *testing.T, s *postgres.Store, organizationID, email string) model.User {
 	t.Helper()
-	u, err := s.UpsertUser(context.Background(), organizationID, "kinde-"+uuid.NewString(), email, email)
+	u, err := s.UpsertUser(context.Background(), organizationID, "dev:"+uuid.NewString(), email, email)
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+	return u
+}
+
+// seedUserWithName is the email-and-name-distinct variant — use it in tests
+// that assert the name column separately from the email column, so a future
+// regression that swaps the two in a SELECT projection actually fails.
+func seedUserWithName(t *testing.T, s *postgres.Store, organizationID, email, name string) model.User {
+	t.Helper()
+	u, err := s.UpsertUser(context.Background(), organizationID, "dev:"+uuid.NewString(), email, name)
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
