@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 
 	"axiaops.io/shared/model"
@@ -120,10 +122,17 @@ var _ Connector = (*NativeConnector)(nil)
 
 // RequireHTTPS enforces https:// on the IdP-facing URL fields persisted on a
 // connection. Empty is allowed (the field is optional for non-OIDC flows or
-// when discovery is disabled). Loopback http://localhost / 127.0.0.1 is
-// permitted so the local fake-IdP test fixture keeps working without TLS.
-// Exported so the connector test (package sso_test, black-box per the
-// project convention) can exercise the validator directly.
+// when discovery is disabled). Loopback http://localhost / 127.0.0.1 / [::1]
+// is permitted so the local fake-IdP test fixture keeps working without TLS.
+//
+// The loopback check parses the URL and inspects the hostname via net.ParseIP
+// (which normalises IPv6 variants like ::1, ::0001, 0:0:0:0:0:0:0:1 — RFC 4291
+// — to the same address) rather than string-matching on prefixes. A naive
+// prefix match on "http://[::1]" would miss legitimate equivalent forms and
+// would also be vulnerable to substring tricks like
+// "http://attacker.evil/[::1].txt"; parsing isolates the hostname so the path
+// can never spoof loopback. Exported so the connector test (package sso_test,
+// black-box per the project convention) can exercise the validator directly.
 func RequireHTTPS(raw, field string) error {
 	v := strings.TrimSpace(raw)
 	if v == "" {
@@ -133,8 +142,34 @@ func RequireHTTPS(raw, field string) error {
 	if strings.HasPrefix(lower, "https://") {
 		return nil
 	}
-	if strings.HasPrefix(lower, "http://localhost") || strings.HasPrefix(lower, "http://127.0.0.1") {
+	if strings.HasPrefix(lower, "http://") && isLoopbackHTTP(v) {
 		return nil
 	}
 	return fmt.Errorf("sso: %s must use https:// (got %q) — plain HTTP leaks client_secret on the token POST", field, raw)
+}
+
+// isLoopbackHTTP reports whether raw is an http:// URL whose host is a
+// loopback address — "localhost" (case-insensitive), IPv4 127.0.0.0/8, or
+// any IPv6 loopback form (::1, [::0001], [0:0:0:0:0:0:0:1]). The URL must
+// parse and have an http (not https) scheme; callers that need https
+// already short-circuited.
+func isLoopbackHTTP(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if !strings.EqualFold(u.Scheme, "http") {
+		return false
+	}
+	host := u.Hostname() // strips brackets for IPv6, strips :port for both families
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
 }
