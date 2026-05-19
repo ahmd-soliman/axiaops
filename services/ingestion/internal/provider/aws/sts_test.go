@@ -73,7 +73,7 @@ func TestVerifyAssumeRole_Success(t *testing.T) {
 		context.Background(),
 		mock,
 		"arn:aws:iam::123456789012:role/AxiaOpsIntegrationRole",
-		"axops-ext-secret-value",
+		"axiaops-ext-secret-value",
 		"org-1",
 	)
 
@@ -88,8 +88,8 @@ func TestVerifyAssumeRole_Success(t *testing.T) {
 	if in == nil {
 		t.Fatal("AssumeRole was not called")
 	}
-	if awssdk.ToString(in.ExternalId) != "axops-ext-secret-value" {
-		t.Errorf("ExternalId = %q, want %q", awssdk.ToString(in.ExternalId), "axops-ext-secret-value")
+	if awssdk.ToString(in.ExternalId) != "axiaops-ext-secret-value" {
+		t.Errorf("ExternalId = %q, want %q", awssdk.ToString(in.ExternalId), "axiaops-ext-secret-value")
 	}
 	// Session tag is the entire reason we eat this complexity in v1: adding
 	// it later requires every customer to edit their trust policy to allow
