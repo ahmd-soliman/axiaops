@@ -191,27 +191,27 @@ func (s *Store) LookupUserByEmail(ctx context.Context, email string) (model.User
 // Returns ("", "", nil) when no membership row matches — the caller
 // treats that as authentication failure (defence in depth: a session
 // that points at a now-deleted membership must not authenticate).
-func (s *Store) LookupMembership(ctx context.Context, organizationID, userID string) (string, string, error) {
+func (s *Store) LookupMembership(ctx context.Context, organizationID, userID string) (string, string, string, error) {
 	if organizationID == "" || userID == "" {
-		return "", "", nil
+		return "", "", "", nil
 	}
-	// users.email is NOT NULL DEFAULT '' (migration 001), so no COALESCE
-	// is needed — empty-string emails round-trip as empty strings.
-	var role, email string
+	// users.email and users.name are both NOT NULL DEFAULT '' (migration 001),
+	// so no COALESCE is needed — empty strings round-trip as empty strings.
+	var role, email, name string
 	err := s.adminPool.QueryRow(ctx, `
-		SELECT m.role, u.email
+		SELECT m.role, u.email, u.name
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1 AND m.user_id = $2`,
 		organizationID, userID,
-	).Scan(&role, &email)
+	).Scan(&role, &email, &name)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", nil
+		return "", "", "", nil
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("postgres: lookup membership: %w", err)
+		return "", "", "", fmt.Errorf("postgres: lookup membership: %w", err)
 	}
-	return role, email, nil
+	return role, email, name, nil
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────

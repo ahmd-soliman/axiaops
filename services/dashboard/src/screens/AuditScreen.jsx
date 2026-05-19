@@ -103,6 +103,34 @@ function fmtTime(iso) {
   return `${formatted} UTC`;
 }
 
+// ActorCell renders the human attribution column. Three cases the row layout
+// has to handle gracefully:
+//   1) named user:    "Alice Engineer"  +  "alice@acme.com" (muted)
+//   2) emailed-only:  "alice@acme.com"  (single line, name absent)
+//   3) system:        italicised "system"  (no actor_email)
+// The collapse from 2 → 1 line is deliberate: a row with no name shouldn't
+// reserve vertical space that would look like a layout bug.
+//
+// actor_email is denormalised on write (see services/shared/model/audit.go),
+// so any user-initiated row carries it; a missing actor_email genuinely
+// indicates a system action. We do NOT fall back to user_id — that's a UUID
+// and surfacing it as the human label would be a UX regression.
+function ActorCell({ event }) {
+  if (!event.actor_email) {
+    return <em style={{ color: 'var(--color-text-muted)' }}>system</em>;
+  }
+  const name = event.actor_name || '';
+  if (!name) {
+    return <span>{event.actor_email}</span>;
+  }
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', minWidth: 0 }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+      <span style={{ fontSize: 11, color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.actor_email}</span>
+    </span>
+  );
+}
+
 function MetadataPanel({ event }) {
   const m = event.metadata;
   if (!m || Object.keys(m).length === 0) return null;
@@ -141,7 +169,12 @@ function EventRow({ event, isMobile }) {
   const resourceText = event.resource_type
     ? `${event.resource_type}/${event.resource_id}`
     : event.resource_id || '—';
-  const actorNode = event.actor_email || event.user_id || <em style={{ color: 'var(--color-text-muted)' }}>system</em>;
+
+  // Two-line attribution: actor_name (primary) over actor_email (muted), with
+  // a graceful collapse when name is empty (GDPR-anonymised user, system
+  // action, or just no display name set). System actions — no actor at all —
+  // keep the italicised "system" treatment so they read as not-a-person.
+  const actorNode = <ActorCell event={event} />;
 
   // ARIA: role="row" with aria-expanded is the treegrid pattern for an
   // expandable row. Putting role="button" on the row itself would invalidate

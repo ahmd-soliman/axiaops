@@ -60,12 +60,13 @@ type Config struct {
 	// native-auth handlers (login/bootstrap/OIDC ceremony) and the session-
 	// sweep ticker are NOT wired — DevBypass takes over the auth chain.
 	DevMode bool
-	// DevOrganizationID, DevUserID, DevUserEmail are read by DevBypass when
-	// DevMode is set. Required when DevMode=true; the composition root die()s
-	// on missing DevOrganizationID.
+	// DevOrganizationID, DevUserID, DevUserEmail, DevUserName are read by
+	// DevBypass when DevMode is set. Required when DevMode=true; the
+	// composition root die()s on missing DevOrganizationID.
 	DevOrganizationID string
 	DevUserID         string
 	DevUserEmail      string
+	DevUserName       string
 
 	// RedisConfigured is true when REDIS_URL was set. Drives whether
 	// rate-limiting and the readyz Redis check are wired in.
@@ -337,7 +338,7 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	// Auth: DevBypass overrides everything else. Otherwise the auth →
 	// enforcement chain wraps the rest.
 	if cfg.DevMode {
-		root = middleware.DevBypass(cfg.DevOrganizationID, cfg.DevUserID, cfg.DevUserEmail, root)
+		root = middleware.DevBypass(cfg.DevOrganizationID, cfg.DevUserID, cfg.DevUserEmail, cfg.DevUserName, root)
 	} else {
 		// EnforceSSO runs AFTER auth resolves the identity (enforcement
 		// reads organization_id + auth_mode from context). /v1/auth/logout

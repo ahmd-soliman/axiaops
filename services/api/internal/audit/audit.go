@@ -62,6 +62,9 @@ func Record(r *http.Request, w Writer, e model.AuditEvent) {
 	if e.ActorEmail == "" {
 		e.ActorEmail = middleware.UserEmail(ctx)
 	}
+	if e.ActorName == "" {
+		e.ActorName = middleware.UserName(ctx)
+	}
 	if e.RequestID == "" {
 		e.RequestID = middleware.RequestIDFromCtx(ctx)
 	}
