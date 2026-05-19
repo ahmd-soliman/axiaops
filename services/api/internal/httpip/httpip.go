@@ -14,13 +14,21 @@
 //     which unconditionally overwrites any client-supplied value. Reliable
 //     in the staging shape; not set by App Runner.
 //  2. The rightmost token of X-Forwarded-For — the one our trusted proxy
-//     added, i.e. the actual peer that connected to it. Reliable in both
-//     staging (single nginx hop) and production (single App Runner LB hop).
-//     Multi-hop self-hosted chains (e.g. NAS → an edge proxy → dashboard nginx)
-//     are handled at the dashboard-nginx layer via the real_ip module
-//     (set_real_ip_from + real_ip_recursive in services/dashboard/nginx.conf)
-//     which rewrites $remote_addr and the propagated X-Real-IP to the true
-//     client before this code ever runs.
+//     added, i.e. the actual peer that connected to it.
+//
+//     Every shipped topology funnels HTTP through the dashboard nginx
+//     before reaching this code: self-hosted is `[edge proxy(es)] → an edge proxy →
+//     dashboard nginx → api`; App Runner production is `App Runner LB →
+//     dashboard nginx (apprunner svc axiaops-dashboard) → api (apprunner
+//     svc axiaops-api)` — i.e. always at least one nginx hop, often more.
+//
+//     Multi-hop chains are normalised at the dashboard-nginx layer via the
+//     real_ip module (`set_real_ip_from` + `real_ip_recursive` in
+//     services/dashboard/nginx.conf), which rewrites `$remote_addr` and
+//     the propagated `X-Real-IP` to the first non-trusted XFF token — the
+//     true client — before this code ever runs. So the rightmost-token
+//     fallback here only fires on the rare direct-to-api path (tests,
+//     `make start-dev`'s Vite proxy hitting :8080).
 //  3. RemoteAddr — for direct-to-API requests (tests, dev mode).
 //
 // This is the single seam every package uses (auth rate-limiter, audit log,
