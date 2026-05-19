@@ -102,7 +102,7 @@ export default function AvatarMenu({ compact = false }) {
             position: 'absolute',
             top: 'calc(100% + 6px)',
             right: 0,
-            minWidth: 200,
+            minWidth: 160,
             backgroundColor: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
             borderRadius: 8,
@@ -111,7 +111,6 @@ export default function AvatarMenu({ compact = false }) {
             zIndex: 150,
           }}
         >
-          <MenuItem onClick={() => go('/settings/profile')}>My Profile</MenuItem>
           <MenuItem onClick={() => go('/settings')}>Settings</MenuItem>
           <div style={{ height: 1, backgroundColor: 'var(--color-border)', margin: '4px 0' }} />
           <MenuItem onClick={signOut}>Sign Out</MenuItem>

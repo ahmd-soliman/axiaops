@@ -114,7 +114,7 @@ export default function MobileNav() {
         <div style={{ padding: '8px 12px 24px' }}>
           <SectionLabel>Navigate</SectionLabel>
           <nav aria-label="Main navigation">
-            {NAV_ITEMS.map(({ label, path, Icon }) => {
+            {NAV_ITEMS.map(({ label, path }) => {
               const active = isNavActive(path, location.pathname);
               return (
                 <button
@@ -124,7 +124,6 @@ export default function MobileNav() {
                   aria-current={active ? 'page' : undefined}
                   style={navRowStyle(isDark, active)}
                 >
-                  <Icon color={active ? 'var(--color-accent)' : 'var(--color-text)'} size={20} />
                   <span style={{
                     fontSize: 15,
                     fontWeight: active ? 700 : 550,
