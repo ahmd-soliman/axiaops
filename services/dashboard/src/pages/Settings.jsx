@@ -83,13 +83,24 @@ export default function Settings() {
 
   const visible = TABS.filter((tab) => !tab.requires || can(tab.requires));
 
-  // Land on first visible tab. <Navigate> is the declarative form;
-  // imperative navigate() during render fights React's render cycle.
+  // Prefer the first Workspace tab. Top-nav Settings is the workspace-admin
+  // entry point; "My Profile" in the avatar menu already covers personal
+  // account settings, so landing /settings on /settings/profile would just
+  // duplicate that route. Under the current authz table viewers carry
+  // ACCOUNTS_READ (services/shared/authz/roles.go), so every role today
+  // resolves to a Workspace tab; the fallback to `visible[0]` (Profile) is
+  // kept as forward-compat for any future role with no Workspace perms.
+  // <Navigate> is the declarative form; imperative navigate() during render
+  // fights React's render cycle.
+  const workspaceVisible = TAB_GROUPS
+    .find((g) => g.label === 'Workspace')
+    ?.items.filter((tab) => !tab.requires || can(tab.requires)) ?? [];
+  const landing = workspaceVisible[0] ?? visible[0];
   if (
     (location.pathname === '/settings' || location.pathname === '/settings/') &&
-    visible.length > 0
+    landing
   ) {
-    return <Navigate to={visible[0].path} replace />;
+    return <Navigate to={landing.path} replace />;
   }
 
   return (
