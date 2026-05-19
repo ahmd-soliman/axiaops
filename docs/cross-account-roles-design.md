@@ -318,7 +318,7 @@ The Connect screen grows a **two-tab selector at the top** ("Role ARN (recommend
                               [ Generate connection ]    ← POST /v1/accounts/draft
 
 ──── Step 2 (revealed after draft is created) ────
-External ID:  axops-ext-9f2a4d1e8b73…    [Copy]
+External ID:  axiaops-ext-9f2a4d1e8b73…    [Copy]
 AxiaOps Role: arn:aws:iam::905…:role/…    (informational)
 
 [ Launch CloudFormation (recommended) ]   ← deep-link

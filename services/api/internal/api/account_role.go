@@ -172,5 +172,5 @@ func generateExternalID() (string, error) {
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	return "axops-ext-" + base64.RawURLEncoding.EncodeToString(buf), nil
+	return "axiaops-ext-" + base64.RawURLEncoding.EncodeToString(buf), nil
 }
