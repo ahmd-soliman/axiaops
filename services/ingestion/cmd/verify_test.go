@@ -58,7 +58,7 @@ func TestHandleVerifyCredentials_Success(t *testing.T) {
 
 	body := []byte(`{
 		"role_arn": "arn:aws:iam::123456789012:role/AxiaOpsIntegrationRole",
-		"external_id": "axops-ext-9f2a4d1e8b73",
+		"external_id": "axiaops-ext-9f2a4d1e8b73",
 		"region": "eu-central-1",
 		"organization_id": "org-1"
 	}`)
