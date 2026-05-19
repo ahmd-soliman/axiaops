@@ -166,7 +166,7 @@ Take the trust-policy JSON the dashboard rendered. It looks like:
     "Effect": "Allow",
     "Principal": { "AWS": "arn:aws:iam::<ACCOUNT_A_ID>:role/AxiaOpsScanner" },
     "Action": "sts:AssumeRole",
-    "Condition": { "StringEquals": { "sts:ExternalId": "axops-ext-…" } }
+    "Condition": { "StringEquals": { "sts:ExternalId": "axiaops-ext-…" } }
   }]
 }
 ```

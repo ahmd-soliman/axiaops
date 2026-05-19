@@ -62,6 +62,7 @@ function CopyableBlock({ label, value }) {
         fontSize: 13,
         fontFamily: '"Geist Mono Variable", monospace',
         color: 'var(--color-text)',
+        whiteSpace: 'pre-wrap',
         wordBreak: 'break-all',
       }}>{value}</code>
     </div>
@@ -179,7 +180,10 @@ function RoleAuthTab({ onConnected }) {
       <p style={{ fontSize: 13, color: 'var(--color-text-mid)', margin: 0 }}>
         Once the role exists in your AWS account, paste its ARN below.
       </p>
-      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::123456789012:role/AxiaOpsIntegrationRole" mono />
+      <Field label="Role ARN" value={roleArn} onChange={setRoleArn}
+        placeholder="arn:aws:iam::…:role/…"
+        hint="e.g. arn:aws:iam::123456789012:role/AxiaOpsIntegration"
+        mono />
 
       {error && <ErrorBox message={error} hint={verifyHint} />}
       <PrimaryButton onClick={handleVerify} loading={loading} label="Verify and connect" />
@@ -358,7 +362,7 @@ function RoleEditTab({ account, onConnected }) {
       <CopyableBlock label="External ID (read-only)" value={account.external_id ?? ''} />
       <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production" />
       <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
-      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::..." mono
+      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::…:role/…" mono
         hint={roleArnChanged ? 'Save will re-verify this role with AWS STS.' : 'Paste a new ARN to re-verify.'} />
       <Field
         label="Auto-scan interval (hours)"
