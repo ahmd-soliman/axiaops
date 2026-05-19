@@ -12,6 +12,8 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint,
       </label>
       <input
         style={{
+          width: '100%',
+          boxSizing: 'border-box',
           backgroundColor: 'var(--color-surface-alt)',
           border: `1px solid var(--color-border)`,
           borderRadius: 8,
@@ -181,7 +183,7 @@ function RoleAuthTab({ onConnected }) {
         Once the role exists in your AWS account, paste its ARN below.
       </p>
       <Field label="Role ARN" value={roleArn} onChange={setRoleArn}
-        placeholder="arn:aws:iam::…:role/…"
+        placeholder="arn:aws:iam::...:role/AxiaOpsIntegration"
         hint="e.g. arn:aws:iam::123456789012:role/AxiaOpsIntegration"
         mono />
 
@@ -362,7 +364,7 @@ function RoleEditTab({ account, onConnected }) {
       <CopyableBlock label="External ID (read-only)" value={account.external_id ?? ''} />
       <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production" />
       <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
-      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::…:role/…" mono
+      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::...:role/AxiaOpsIntegration" mono
         hint={roleArnChanged ? 'Save will re-verify this role with AWS STS.' : 'Paste a new ARN to re-verify.'} />
       <Field
         label="Auto-scan interval (hours)"
@@ -466,7 +468,7 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
 
   return (
     <div style={{ minHeight: '100%', backgroundColor: 'var(--color-bg)' }}>
-      <div style={{ maxWidth: 520, margin: '0 auto', padding: '32px 20px 64px' }}>
+      <div style={{ maxWidth: 560, margin: '0 auto', padding: '32px 20px 64px' }}>
 
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--color-text)', margin: '0 0 6px' }}>
