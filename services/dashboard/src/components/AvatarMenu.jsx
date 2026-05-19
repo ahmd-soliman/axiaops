@@ -111,25 +111,23 @@ export default function AvatarMenu({ compact = false }) {
             zIndex: 150,
           }}
         >
-          <MenuItem onClick={() => go('/settings')} icon={<IconSettings />}>Settings</MenuItem>
+          <MenuItem onClick={() => go('/settings')}>Settings</MenuItem>
           <div style={{ height: 1, backgroundColor: 'var(--color-border)', margin: '4px 0' }} />
-          <MenuItem onClick={signOut} icon={<IconSignOut />}>Sign Out</MenuItem>
+          <MenuItem onClick={signOut}>Sign Out</MenuItem>
         </div>
       )}
     </div>
   );
 }
 
-function MenuItem({ onClick, icon, children }) {
+function MenuItem({ onClick, children }) {
   return (
     <button
       type="button"
       role="menuitem"
       onClick={onClick}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
+        display: 'block',
         width: '100%',
         textAlign: 'left',
         padding: '7px 10px',
@@ -144,29 +142,7 @@ function MenuItem({ onClick, icon, children }) {
       onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-surface-raised)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
     >
-      {icon && <span aria-hidden="true" style={{ display: 'inline-flex', color: 'var(--color-text-muted)' }}>{icon}</span>}
-      <span>{children}</span>
+      {children}
     </button>
-  );
-}
-
-// Avatar-menu-local icons. Sized + stroked to read as secondary chrome
-// (muted color, no hover recolor) so the label stays the primary anchor.
-function IconSettings({ size = 14 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  );
-}
-
-function IconSignOut({ size = 14 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-      <polyline points="16 17 21 12 16 7" />
-      <line x1="21" y1="12" x2="9" y2="12" />
-    </svg>
   );
 }
