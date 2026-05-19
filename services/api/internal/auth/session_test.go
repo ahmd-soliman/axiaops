@@ -13,9 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"axiaops.io/api/internal/auth"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/observability"
 	"axiaops.io/shared/storage"
 )
 
@@ -1115,6 +1118,47 @@ func TestPerUserCap_TransactionalCommit_NoOverCapWindow(t *testing.T) {
 		if count != want {
 			t.Errorf("after mint #%d: count = %d, want %d (no over-cap window)", i, count, want)
 		}
+	}
+}
+
+// TestPerUserCap_IncrementsCapExceededMetric pins the
+// axiaops_auth_session_revocations_total{reason="cap_exceeded"} counter
+// increments by exactly the number of peer revocations the cap path
+// performed. The integration tests verify DB row state; this one guards
+// against a future refactor dropping the post-commit metric .Add() call
+// in MintSession — operators would lose dashboard signal on the cap path
+// with no test failure otherwise.
+//
+// NOT t.Parallel(): reads the global Prometheus counter via
+// testutil.ToFloat64; another parallel test incrementing the same
+// labelled series would race the before/after delta.
+func TestPerUserCap_IncrementsCapExceededMetric(t *testing.T) {
+	mgr, _, _, _ := newManager(t)
+	ctx := context.Background()
+
+	counter := observability.Global.AuthSessionRevocationsTotal.WithLabelValues(string(auth.RevokeReasonCapExceeded))
+	before := testutil.ToFloat64(counter)
+
+	// newManager sets cap = 3. 10 mints → mints 4-10 each revoke exactly
+	// one oldest peer → expect 7 cap_exceeded increments.
+	const totalMints = 10
+	const cap = 3
+	for i := 0; i < totalMints; i++ {
+		if _, err := mgr.MintSession(ctx, auth.MintRequest{
+			UserID:         "u-metric",
+			OrganizationID: "o",
+			AuthMode:       model.AuthModePassword,
+		}); err != nil {
+			t.Fatalf("MintSession #%d: %v", i, err)
+		}
+	}
+
+	after := testutil.ToFloat64(counter)
+	delta := after - before
+	wantDelta := float64(totalMints - cap)
+	if delta != wantDelta {
+		t.Errorf("axiaops_auth_session_revocations_total{reason=cap_exceeded} delta = %v; want %v (mints %d..%d each revoke 1 oldest peer at cap=%d)",
+			delta, wantDelta, cap+1, totalMints, cap)
 	}
 }
 
