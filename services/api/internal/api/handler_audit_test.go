@@ -18,7 +18,7 @@ import (
 func TestAuditEmission_CreateDismissal_RecordsDismissZombie(t *testing.T) {
 	store := NewMockStore().WithZombies([]model.ZombieResource{testZombie})
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	body := `{
@@ -49,6 +49,12 @@ func TestAuditEmission_CreateDismissal_RecordsDismissZombie(t *testing.T) {
 	if got.ActorEmail != "audit@axiaops.local" {
 		t.Errorf("actor_email: got %q, want audit@axiaops.local", got.ActorEmail)
 	}
+	// ActorName is captured at write time via middleware.UserName(ctx). If this
+	// assertion fails, audit.Record's enrichment seam likely regressed and the
+	// audit_log.actor_name column would land empty in production.
+	if got.ActorName != "Audit Tester" {
+		t.Errorf("actor_name: got %q, want Audit Tester", got.ActorName)
+	}
 	if got.Reason != "intentional" {
 		t.Errorf("reason: got %q, want intentional", got.Reason)
 	}
@@ -63,7 +69,7 @@ func TestAuditEmission_CreateDismissal_RecordsDismissZombie(t *testing.T) {
 func TestAuditEmission_SnoozeDismissal_RecordsSnoozeZombie(t *testing.T) {
 	store := NewMockStore()
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	snoozeUntil := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
@@ -91,7 +97,7 @@ func TestAuditEmission_RevokeDismissal_RecordsRevoke(t *testing.T) {
 		{ID: 7, AccountID: "acc-1", Action: "dismiss", Reason: "intentional"},
 	})
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -118,7 +124,7 @@ func TestAuditEmission_CreateAccount_RecordsAccountConnected(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 	store := NewMockStore()
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	body := `{"provider":"aws","label":"prod","access_key_id":"AKIA","secret_key":"s","region":"eu-central-1"}`
@@ -146,7 +152,7 @@ func TestAuditEmission_UpdateAccount_RecordsAccountUpdated(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
 	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-up", OrganizationID: "organization-audit"}})
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	body := `{"label":"renamed","region":"us-east-1"}`
@@ -171,7 +177,7 @@ func TestAuditEmission_UpdateAccount_RecordsAccountUpdated(t *testing.T) {
 func TestAuditEmission_ScanAccount_RecordsScanTriggered(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-scan", OrganizationID: "organization-audit", Label: "prod", Region: "eu-central-1"}})
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -195,7 +201,7 @@ func TestAuditEmission_ScanAccount_RecordsScanTriggered(t *testing.T) {
 func TestAuditEmission_DeleteAccount_RecordsAccountDeleted(t *testing.T) {
 	store := NewMockStore().WithAccounts([]model.Account{{ID: "acc-gone", OrganizationID: "organization-audit"}})
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -217,7 +223,7 @@ func TestAudit_WriteFailure_DoesNotBreakUserOperation(t *testing.T) {
 		WithZombies([]model.ZombieResource{testZombie}).
 		WithAuditWriteError(errors.New("simulated audit failure"))
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	body := `{
@@ -242,11 +248,11 @@ func TestAudit_WriteFailure_DoesNotBreakUserOperation(t *testing.T) {
 
 func TestListAuditEvents_ReturnsWrittenEvents(t *testing.T) {
 	store := NewMockStore().WithAuditEvents([]model.AuditEvent{
-		{ID: 1, Action: model.AuditActionDismissZombie, UserID: "u1", CreatedAt: time.Now()},
-		{ID: 2, Action: model.AuditActionAccountConnected, UserID: "u2", CreatedAt: time.Now()},
+		{ID: 1, Action: model.AuditActionDismissZombie, UserID: "u1", ActorEmail: "alice@acme.com", ActorName: "Alice Engineer", CreatedAt: time.Now()},
+		{ID: 2, Action: model.AuditActionAccountConnected, UserID: "u2", ActorEmail: "bob@acme.com", CreatedAt: time.Now()},
 	})
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -265,12 +271,34 @@ func TestListAuditEvents_ReturnsWrittenEvents(t *testing.T) {
 	if len(resp.Events) != 2 {
 		t.Errorf("expected 2 events, got %d", len(resp.Events))
 	}
+	// actor_name must be present in the JSON for the dashboard's name-primary
+	// row to render. The raw bytes assertion catches the case where someone
+	// adds `omitempty` to ActorName, which would silently drop the field for
+	// rows whose actor has no display name set.
+	if !strings.Contains(w.Body.String(), `"actor_name":"Alice Engineer"`) {
+		t.Errorf("actor_name missing from JSON or wrong value; body: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"actor_name":""`) {
+		t.Errorf("empty actor_name must still serialise (frontend falls back to email); body: %s", w.Body.String())
+	}
+	// Order-agnostic: the mock returns rows newest-first by ID, so assert by
+	// matching on actor_email rather than positional index.
+	byEmail := map[string]model.AuditEvent{}
+	for _, e := range resp.Events {
+		byEmail[e.ActorEmail] = e
+	}
+	if got := byEmail["alice@acme.com"].ActorName; got != "Alice Engineer" {
+		t.Errorf("alice's actor_name: got %q, want %q", got, "Alice Engineer")
+	}
+	if got := byEmail["bob@acme.com"].ActorName; got != "" {
+		t.Errorf("bob's actor_name (unset): got %q, want empty", got)
+	}
 }
 
 func TestListAuditEvents_InvalidAction_Returns400(t *testing.T) {
 	store := NewMockStore()
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -284,7 +312,7 @@ func TestListAuditEvents_InvalidAction_Returns400(t *testing.T) {
 func TestListAuditEvents_InvalidSince_Returns400(t *testing.T) {
 	store := NewMockStore()
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()
@@ -298,7 +326,7 @@ func TestListAuditEvents_InvalidSince_Returns400(t *testing.T) {
 func TestListAuditEvents_LimitOutOfRange_Returns400(t *testing.T) {
 	store := NewMockStore()
 	handler := middleware.DevBypass(
-		"organization-audit", "user-audit", "audit@axiaops.local", newMux(newHandlerWith(store)),
+		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
 	w := httptest.NewRecorder()

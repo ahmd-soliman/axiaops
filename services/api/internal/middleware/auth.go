@@ -15,6 +15,7 @@ const (
 	organizationIDKey contextKey = "organization_id"
 	userIDKey         contextKey = "user_id"
 	userEmailKey      contextKey = "user_email"
+	userNameKey       contextKey = "user_name"
 	roleKey           contextKey = "role"
 	authModeKey       contextKey = "auth_mode"
 )
@@ -87,6 +88,13 @@ func WithUserEmail(ctx context.Context, email string) context.Context {
 	return context.WithValue(ctx, userEmailKey, email)
 }
 
+// WithUserName returns a child context with the user's display name set.
+// Stamped into audit_log.actor_name at write time so audit history survives
+// later renames or GDPR anonymisation.
+func WithUserName(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, userNameKey, name)
+}
+
 // UserID returns the stable user identifier from the request context.
 // In production this is the UUID from the users table (set after the
 // auth provider resolves the session); under DevBypass it is DEV_USER_ID.
@@ -101,6 +109,13 @@ func UserID(ctx context.Context) string {
 func UserEmail(ctx context.Context) string {
 	email, _ := ctx.Value(userEmailKey).(string)
 	return email
+}
+
+// UserName returns the authenticated user's display name from the request
+// context. Returns "" if unset — callers fall back to UserEmail.
+func UserName(ctx context.Context) string {
+	name, _ := ctx.Value(userNameKey).(string)
+	return name
 }
 
 // Role returns the membership role ("owner"|"admin"|"member"|"viewer")
@@ -126,7 +141,7 @@ func AuthMode(ctx context.Context) string {
 // Only active when DEV_MODE=true — local development without auth.
 // The organization and user rows are ensured once at service startup (see cmd/main.go),
 // so this middleware does no DB work per request.
-func DevBypass(organizationID, userID, userEmail string, next http.Handler) http.Handler {
+func DevBypass(organizationID, userID, userEmail, userName string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions || publicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
@@ -136,6 +151,7 @@ func DevBypass(organizationID, userID, userEmail string, next http.Handler) http
 		ctx = context.WithValue(ctx, organizationIDKey, organizationID)
 		ctx = context.WithValue(ctx, userIDKey, userID)
 		ctx = context.WithValue(ctx, userEmailKey, userEmail)
+		ctx = context.WithValue(ctx, userNameKey, userName)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
