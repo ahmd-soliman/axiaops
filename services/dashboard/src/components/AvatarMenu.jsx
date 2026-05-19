@@ -9,9 +9,9 @@ import { useApp } from '../context/AppContext';
 // data) live on the Profile page itself, not in this dropdown, so a stray
 // click can't detonate anything from the navbar.
 //
-// `compact` is set by AppShell at xs/sm where the email text doesn't fit
+// `compact` is set by AppShell at xs/sm where the user label doesn't fit
 // alongside the logo, hamburger, and other navbar mass. Compact drops the
-// email span and renders just the avatar circle as the trigger; the
+// label span and renders just the avatar circle as the trigger; the
 // dropdown body is unchanged.
 export default function AvatarMenu({ compact = false }) {
   const { isDark } = useTheme();
@@ -35,8 +35,16 @@ export default function AvatarMenu({ compact = false }) {
     };
   }, [open]);
 
-  const email = me?.email || '';
-  const initial = (email[0] || '?').toUpperCase();
+  const pickLabel = () => {
+    const firstName = (me?.name || '').trim().split(/\s+/)[0];
+    if (firstName) return firstName;
+    const email = me?.email || '';
+    const localPart = email.split('@')[0];
+    if (localPart) return localPart;
+    return 'Account';
+  };
+  const label = pickLabel();
+  const initial = (label[0] || '?').toUpperCase();
 
   const go = (path) => { setOpen(false); navigate(path); };
   const signOut = () => { setOpen(false); onLogout(); };
@@ -48,7 +56,7 @@ export default function AvatarMenu({ compact = false }) {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={compact && email ? `Account menu (${email})` : 'Account menu'}
+        aria-label={compact && label !== 'Account' ? `Account menu (${label})` : 'Account menu'}
         style={compact ? {
           display: 'inline-flex',
           alignItems: 'center',
@@ -90,7 +98,7 @@ export default function AvatarMenu({ compact = false }) {
         </span>
         {!compact && (
           <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-accent-muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {email || 'Account'}
+            {label}
           </span>
         )}
       </button>
