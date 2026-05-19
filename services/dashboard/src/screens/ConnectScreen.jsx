@@ -184,7 +184,6 @@ function RoleAuthTab({ onConnected }) {
       </p>
       <Field label="Role ARN" value={roleArn} onChange={setRoleArn}
         placeholder="arn:aws:iam::...:role/AxiaOpsIntegration"
-        hint="e.g. arn:aws:iam::123456789012:role/AxiaOpsIntegration"
         mono />
 
       {error && <ErrorBox message={error} hint={verifyHint} />}
