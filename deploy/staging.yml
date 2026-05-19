@@ -76,7 +76,7 @@ services:
       API_HOST: axiaops-api-staging
       DEV_MODE: "false"
       DEV_ORG_NAME: ""
-      AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-}
+      AXIAOPS_AWS_ACCOUNT_ID: ${AXIAOPS_AWS_ACCOUNT_ID:-123456789012}
     networks:
       - default-network
 

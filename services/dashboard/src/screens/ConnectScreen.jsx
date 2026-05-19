@@ -97,10 +97,12 @@ function RoleAuthTab({ onConnected }) {
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
 
-  // Without AXIAOPS_AWS_ACCOUNT_ID the trust-policy template would render
-  // <AxiaOpsAccountId> literally and the customer would copy a broken policy
-  // into AWS. Block the flow with an explicit operator message instead.
-  const configMissing = !AXIAOPS_AWS_ACCOUNT_ID;
+  // AXIAOPS_AWS_ACCOUNT_ID must be a real 12-digit AWS account ID. Without
+  // a valid value the trust-policy template would render <AxiaOpsAccountId>
+  // (unset) or a garbage sentinel literally and the customer would copy a
+  // broken policy into AWS. Block the flow with an explicit operator message
+  // instead.
+  const configMissing = !/^\d{12}$/.test(AXIAOPS_AWS_ACCOUNT_ID);
 
   async function handleGenerate() {
     setError('');
@@ -449,8 +451,14 @@ export default function ConnectScreen({ onConnected, onSkip, onCancel, account }
 
   // Default to the Role ARN tab on a fresh connect (recommended posture); when
   // editing an existing access-key account, stay on Access Keys to avoid a
-  // confusing tab swap.
-  const [activeTab, setActiveTab] = useState(isEdit ? 'access_key' : 'role');
+  // confusing tab swap. AXIAOPS_AWS_ACCOUNT_ID must be a real 12-digit AWS
+  // account ID — without it (unset, empty, or a malformed sentinel like "-")
+  // the trust-policy template would render a broken principal, so fall back
+  // to Access Keys instead of first-painting an error.
+  const hasValidAccountId = /^\d{12}$/.test(AXIAOPS_AWS_ACCOUNT_ID);
+  const [activeTab, setActiveTab] = useState(
+    isEdit || !hasValidAccountId ? 'access_key' : 'role',
+  );
 
   return (
     <div style={{ minHeight: '100%', backgroundColor: 'var(--color-bg)' }}>
