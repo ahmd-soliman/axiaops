@@ -35,14 +35,6 @@ export function IconCost({ color, size = 18 }) {
   );
 }
 
-export function IconCloud({ color, size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-    </svg>
-  );
-}
-
 export function IconSettings({ color, size = 18 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -57,19 +49,18 @@ export function IconSettings({ color, size = 18 }) {
 // in the consumer's render path, not here, so role changes show up on
 // the next render.
 export const NAV_ITEMS = [
-  { label: 'Overview',       path: '/',                Icon: IconOverview },
-  { label: 'Trends',         path: '/trend',           Icon: IconTrend },
-  { label: 'Costs',          path: '/cost',            Icon: IconCost },
-  { label: 'Cloud Accounts', path: '/settings/cloud-accounts',  Icon: IconCloud },
-  { label: 'Settings',       path: '/settings',                 Icon: IconSettings },
+  { label: 'Overview', path: '/',         Icon: IconOverview },
+  { label: 'Trends',   path: '/trend',    Icon: IconTrend },
+  { label: 'Costs',    path: '/cost',     Icon: IconCost },
+  { label: 'Settings', path: '/settings', Icon: IconSettings },
 ];
 
-// isNavActive — sibling-aware prefix match. The naive `pathname.startsWith`
-// version made BOTH "Settings" (/settings) and "Cloud Accounts"
-// (/settings/cloud-accounts) read as active on /settings/cloud-accounts
-// once Cloud Accounts moved under settings. The fix: only the longest
-// matching path among the candidates wins. Pass the full NAV_ITEMS in so
-// the helper knows what the siblings are.
+// isNavActive — sibling-aware prefix match. Currently inert: no entry in
+// NAV_ITEMS is a path-prefix of another, so the sibling check degenerates
+// to a plain `startsWith`. Kept defensively because the bug it guards
+// against (naive `startsWith` lighting up both /settings and a future
+// /settings/<child> nav item at once) is silent and easy to reintroduce
+// the next time a settings sub-route is promoted to the top nav.
 export function isNavActive(path, pathname, items = NAV_ITEMS) {
   if (path === '/') return pathname === '/';
   if (!pathname.startsWith(path)) return false;
