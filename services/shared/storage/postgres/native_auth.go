@@ -27,6 +27,17 @@ import (
 // coordinated dual-write window.
 const bootstrapAdvisoryLockKey = int64(0x4178696F4F70730A) // "AxiaOps\n" as int64
 
+// sessionMintAdvisoryLockClass namespaces the per-user advisory locks taken
+// inside CreateSessionEnforcingCap. The two-argument form
+// pg_advisory_xact_lock(int4, int4) lives in a separate keyspace from the
+// single-int8 locks above, so this constant cannot collide with the
+// bootstrap or migration-history locks. Hashing the user_id with hashtext
+// into the second int4 gives per-user contention only — two mints for
+// DIFFERENT users never serialise on each other (modulo the rare int4 hash
+// collision, which is harmless: the worse-case is a millisecond wait for an
+// unrelated user's tx to commit). Stable across releases.
+const sessionMintAdvisoryLockClass = int32(0x4D696E74) // "Mint" as int32
+
 // ── Native-auth user mutations ──────────────────────────────────────────────
 
 // CreateUserWithPassword inserts a user row with a password hash and a
@@ -318,6 +329,22 @@ func (s *Store) CreateSessionEnforcingCap(ctx context.Context, in model.Session,
 		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Per-user advisory lock — serialises concurrent mints for the SAME
+	// user_id so the cap arithmetic is coherent under parallel logins.
+	// Without it, two mints arriving while the user is exactly at cap can
+	// each see liveOthers == cap (the new row is excluded via id <> $2)
+	// and skip the revoke, leaving the user transiently at cap+2 until
+	// the 5-minute sweep ticker. Released automatically at COMMIT/ROLLBACK
+	// because this is the _xact_ variant — no defer-unlock needed. Mints
+	// for different users hash to different second-arg ints and never
+	// contend.
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock($1, hashtext($2))`,
+		sessionMintAdvisoryLockClass, in.UserID,
+	); err != nil {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap lock: %w", err)
+	}
 
 	// INSERT the new row first. The cap-enforcement queries below
 	// exclude it via `id <> out.ID` so the just-inserted row is never
