@@ -22,7 +22,7 @@ Branch `security/hardening-2026-05` (13 commits on top of `origin/develop` at `d
 
 | Finding | Severity | Status | Commit |
 |---|---|---|---|
-| C-1 | Critical | Open — needs HMAC plumbing across api/ingestion/queue | — |
+| **C-1** | Critical | ✅ Resolved on branch `security/c1-ingestion-hmac-impl` (HMAC + Redis envelope + `requirepass`). Pending merge of the linked MR. | — |
 | **C-2** | Critical | ✅ Resolved | `541d7c1` |
 | **C-3** | Critical | ✅ Resolved | `c5d6467` |
 | H-1 | High | Open — needs prerequisite app-pool refactor | — |
@@ -44,7 +44,8 @@ Branch `security/hardening-2026-05` (13 commits on top of `origin/develop` at `d
 
 Findings carried over without code changes:
 - L-2 (IPv6 zone-id stripping) was implicitly addressed by C-3's `httpip` extraction — verify before closing.
-- I-1 (CLAUDE.md drift about ingestion `/scan` auth) tracked under C-1 — fix the doc when fixing the code.
+- I-1 (CLAUDE.md drift about ingestion `/scan` auth) — ✅ fixed alongside C-1: `services/ingestion/CLAUDE.md` Endpoints table now lists `/scan` and `/v1/credentials/verify` as `Auth: HMAC`.
+- §12 Q7 (Redis `requirepass`) — ✅ closed alongside C-1: deploy/*.yml + docker-compose.yml gate Redis on `REDIS_PASSWORD`, and `REDIS_URL` carries the password via userinfo.
 
 Operator follow-ups still owed:
 - **C-2 rotation runbook** (rotate dev-1/dev-2 keys, re-encrypt or wipe `accounts.secret_encrypted`, date the exposure window via `git log -S '5f67e3ef'`).
