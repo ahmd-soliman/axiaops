@@ -150,6 +150,7 @@ func (m *mockStoreForScheduler) GetUserByEmail(context.Context, string) (model.U
 func (m *mockStoreForScheduler) GetUserByID(context.Context, string) (model.User, error) {
 	return model.User{}, nil
 }
+
 // GetUserSSOConnectionID is on the Store interface for the API service's
 // SSO RP-Initiated Logout resolver. No ingestion code path uses it today;
 // if a future ingestion-side feature ever wires this method, the panic
@@ -509,7 +510,7 @@ func TestWorker_SkipsJobWhenLicenseExpired(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startWorker(ctx, q, store)
+	startWorker(ctx, q, store, nil, 5*time.Minute, false)
 
 	// Worker dequeues the seeded job, hits the gate, continues. With no
 	// further pending jobs the next Dequeue blocks on ctx — short sleep is
@@ -560,7 +561,7 @@ func TestWorker_ProcessesJobWhenLicenseValid(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startWorker(ctx, q, store)
+	startWorker(ctx, q, store, nil, 5*time.Minute, false)
 
 	// runScan path is best-effort here — it'll fail somewhere downstream
 	// (mock store returns empty accounts for various lookups) but that's
