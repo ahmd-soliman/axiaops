@@ -35,13 +35,12 @@ import { PERM } from '../api/permissions';
 // already covers the "scans paused" warning surface for everyone. The pane
 // is the affirmative read-only inspector for the healthy + DEV_MODE-bypass
 // states the banner is silent on. See pages/settings/License.jsx.
+// Workspace before Account: AxiaOps is a workspace tool — users enter
+// Settings to manage cloud accounts, members, SSO, etc. far more often
+// than to edit their own profile. Surfacing Workspace first matches usage
+// frequency and makes the first visible tab (Cloud Accounts) the natural
+// landing for /settings without needing a special-case redirect.
 const TAB_GROUPS = [
-  {
-    label: 'Account',
-    items: [
-      { label: 'Profile', path: '/settings/profile' },
-    ],
-  },
   {
     label: 'Workspace',
     items: [
@@ -51,6 +50,12 @@ const TAB_GROUPS = [
       { label: 'SSO',            path: '/settings/sso',            requires: PERM.SSO_MANAGE },
       { label: 'Organization',   path: '/settings/organization',   requires: PERM.ORGANIZATION_DELETE },
       { label: 'License',        path: '/settings/license',        requires: PERM.ORGANIZATION_DELETE },
+    ],
+  },
+  {
+    label: 'Account',
+    items: [
+      { label: 'Profile', path: '/settings/profile' },
     ],
   },
 ];
@@ -83,24 +88,17 @@ export default function Settings() {
 
   const visible = TABS.filter((tab) => !tab.requires || can(tab.requires));
 
-  // Prefer the first Workspace tab. Top-nav Settings is the workspace-admin
-  // entry point; "My Profile" in the avatar menu already covers personal
-  // account settings, so landing /settings on /settings/profile would just
-  // duplicate that route. Under the current authz table viewers carry
-  // ACCOUNTS_READ (services/shared/authz/roles.go), so every role today
-  // resolves to a Workspace tab; the fallback to `visible[0]` (Profile) is
-  // kept as forward-compat for any future role with no Workspace perms.
-  // <Navigate> is the declarative form; imperative navigate() during render
-  // fights React's render cycle.
-  const workspaceVisible = TAB_GROUPS
-    .find((g) => g.label === 'Workspace')
-    ?.items.filter((tab) => !tab.requires || can(tab.requires)) ?? [];
-  const landing = workspaceVisible[0] ?? visible[0];
+  // Land on first visible tab. Workspace sits above Account in TAB_GROUPS,
+  // so for every current role this resolves to Cloud Accounts (or whichever
+  // Workspace tab the caller's perms allow) and falls through to Profile
+  // only for a hypothetical future role with no Workspace perms. <Navigate>
+  // is the declarative form; imperative navigate() during render fights
+  // React's render cycle.
   if (
     (location.pathname === '/settings' || location.pathname === '/settings/') &&
-    landing
+    visible.length > 0
   ) {
-    return <Navigate to={landing.path} replace />;
+    return <Navigate to={visible[0].path} replace />;
   }
 
   return (
