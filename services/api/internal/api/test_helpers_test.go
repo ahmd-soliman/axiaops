@@ -1271,6 +1271,10 @@ func (m *MockStore) CreateSession(context.Context, model.Session) (model.Session
 	return model.Session{}, errors.New("MockStore.CreateSession not implemented")
 }
 
+func (m *MockStore) CreateSessionEnforcingCap(context.Context, model.Session, int) (model.Session, []string, error) {
+	return model.Session{}, nil, errors.New("MockStore.CreateSessionEnforcingCap not implemented")
+}
+
 func (m *MockStore) GetSessionByTokenHash(context.Context, string) (model.Session, error) {
 	return model.Session{}, storage.ErrSessionNotFound
 }
