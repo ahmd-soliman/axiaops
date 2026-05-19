@@ -11,12 +11,15 @@ import (
 	syncqueue "axiaops.io/shared/queue/sync"
 )
 
-var testJob = queue.ScanJob{
-	OrganizationID: "organization-1",
-	AccountID:      "account-1",
-	EnqueuedAt:     time.Now().UTC().Truncate(time.Second),
-	RequestID:      "req-1",
-}
+var (
+	testSecret = []byte("0123456789abcdef0123456789abcdef") // 32-byte
+	testJob    = queue.ScanJob{
+		OrganizationID: "organization-1",
+		AccountID:      "account-1",
+		EnqueuedAt:     time.Now().UTC().Truncate(time.Second),
+		RequestID:      "req-1",
+	}
+)
 
 // suite runs the shared enqueue/dequeue test against any Queue implementation.
 func suite(t *testing.T, q queue.Queue) {
@@ -44,19 +47,19 @@ func TestRedisQueue(t *testing.T) {
 	if url == "" {
 		t.Skip("TEST_REDIS_URL not set — skipping Redis queue tests")
 	}
-	rq, err := redisqueue.New(url)
+	rq, err := redisqueue.New(url, testSecret)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	defer func() { _ = rq.Close() }()
 
-	q := queue.New(url, "")
+	q := queue.New(url, "", testSecret)
 	defer func() { _ = q.Close() }()
 	suite(t, q)
 }
 
 func TestSyncQueue_DequeueRespectsContextCancel(t *testing.T) {
-	sq := syncqueue.New("http://localhost:9999") // unreachable — Dequeue should block then cancel
+	sq := syncqueue.New("http://localhost:9999", nil) // unreachable — Dequeue should block then cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	_, err := sq.Dequeue(ctx)

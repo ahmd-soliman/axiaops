@@ -168,6 +168,8 @@ Errors are logged to stdout with structured context (JSON format in production).
 | DEV_USER_EMAIL | No | dev@axiaops.local | Email for the dev user row |
 | CORS_ORIGIN | No | * | Allowed CORS origin. Two shapes: `*` (legacy posture, no credentials) or comma-separated allowlist (e.g. `http://localhost:5173`) which reflects the request Origin and emits `Access-Control-Allow-Credentials: true` so the native-auth session cookie round-trips. Required as a non-wildcard value when the dashboard is on a different origin from the API (e.g. local Vite dev). |
 | ENCRYPTION_KEY | Yes | — | 32-byte hex for AES-256-GCM |
+| INGESTION_SHARED_SECRET | Yes outside DEV_MODE | — | 32-byte hex (`openssl rand -hex 32`). Signs outbound api → ingestion calls (sync queue POST /scan and the role-onboarding POST /v1/credentials/verify) via C-1 HMAC. Must match the current slot on ingestion. DEV_MODE allows empty. |
+| INGESTION_HMAC_MAX_SKEW_SECONDS | No | 300 | Replay window in seconds (api side reads it for symmetry; today only ingestion enforces — the field exists so a future "verify signed responses" feature has the same single tunable name). |
 | APP_ENV | No | — | Environment (production, staging, development) |
 | APP_VERSION | No | — | Release version (e.g., 2.6.0); surfaced via `GET /v1/version` |
 | APP_COMMIT_SHA | No | — | Short git SHA of the build; surfaced via `GET /v1/version` |

@@ -3,11 +3,24 @@ services:
   redis:
     image: redis:7-alpine
     container_name: axiaops-redis
+    # requirepass closes the intra-LAN trust gap flagged in §12 Q7 of
+    # docs/c1-hmac-plan.md: any process on the docker network could
+    # otherwise LPUSH a forged scan job. Empty REDIS_PASSWORD ⇒ no
+    # password (local-dev convenience); deployed envs always set it.
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:-}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # -a + --no-auth-warning makes redis-cli send AUTH when a password is
+      # set AND stays silent on the (NOAUTH) startup warning. Works against
+      # both empty and configured REDIS_PASSWORD.
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
 
   postgres:
     image: postgres:16-alpine
@@ -50,7 +63,11 @@ services:
       # like the host-mode `make start-dev` flow does (via scripts/start.sh).
       # Override to `json` for parity with deployed envs.
       LOG_OUTPUT: ${LOG_OUTPUT:-text}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # REDIS_URL carries the password in userinfo form when
+      # REDIS_PASSWORD is set: redis://:<pw>@host:port. redis.ParseURL on
+      # the Go side handles the userinfo parse. Empty REDIS_PASSWORD falls
+      # back to the unauthenticated default — fine for local dev.
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379}
       # AXIAOPS_LICENSE — `make start-staging` injects the dev fixture so
       # the api boots into state="valid" and the scan-gate falls through.
       # Empty default is fine: a `docker compose up` invoked directly (not
@@ -58,6 +75,13 @@ services:
       # which is the correct posture without an explicit license. See
       # Makefile start-staging target + issue #76 for the Tier-1 follow-up.
       AXIAOPS_LICENSE: ${AXIAOPS_LICENSE:-}
+      # C-1: shared-secret HMAC for the api → ingestion hop. Empty default
+      # is intentional — DEV_MODE bypasses HMAC verification. Production
+      # deploys MUST set this (see deploy/*.yml). Optional `_NEXT` slot
+      # supports zero-downtime rotation on the verifier side only.
+      INGESTION_SHARED_SECRET: ${INGESTION_SHARED_SECRET:-}
+      INGESTION_SHARED_SECRET_NEXT: ${INGESTION_SHARED_SECRET_NEXT:-}
+      INGESTION_HMAC_SOFT_ENFORCE: ${INGESTION_HMAC_SOFT_ENFORCE:-false}
     volumes:
       - ${HOME}/.aws:/root/.aws:ro
     depends_on:
@@ -100,9 +124,14 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       # See ingestion service above for rationale.
       LOG_OUTPUT: ${LOG_OUTPUT:-text}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # REDIS_URL carries the password — see ingestion service comment.
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379}
       # See ingestion service above for the dev-fixture-injection story.
       AXIAOPS_LICENSE: ${AXIAOPS_LICENSE:-}
+      # C-1: shared-secret HMAC for outbound api → ingestion calls. Same
+      # value as the ingestion side (the api signs with current; rotation
+      # is verifier-side only). Empty default ⇒ DEV_MODE no-sign.
+      INGESTION_SHARED_SECRET: ${INGESTION_SHARED_SECRET:-}
     ports:
       - "8080:8080"
     depends_on:
