@@ -732,7 +732,7 @@ func testRoleAccount(organizationID string) model.Account {
 		Label:             "role account",
 		AuthMethod:        model.AuthMethodRole,
 		RoleARN:           "arn:aws:iam::123456789012:role/AxiaOpsIntegrationRole",
-		ExternalID:        "axops-ext-9f2a4d1e8b73",
+		ExternalID:        "axiaops-ext-9f2a4d1e8b73",
 		Region:            "eu-central-1",
 		Status:            model.AccountStatusConnected,
 		ScanIntervalHours: 24,
