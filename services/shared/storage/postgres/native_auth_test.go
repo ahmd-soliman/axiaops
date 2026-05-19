@@ -519,6 +519,106 @@ func TestCreateSessionEnforcingCap_RevokeColumnSet(t *testing.T) {
 	}
 }
 
+// TestCreateSessionEnforcingCap_ConcurrentMints_NeverOverCap pins the per-user
+// advisory-lock fix for the concurrent-mint race. The scenario fires when the
+// user is AT CAP-1 and two mints arrive in parallel:
+//
+//   - Each tx INSERTs its new row, then SELECT COUNT excludes its own id.
+//   - Under READ COMMITTED neither tx sees the other's still-uncommitted row.
+//   - Both compute liveOthers = cap-1, excess = cap-1 + 1 - cap = 0.
+//   - Both COMMIT without revoking — leaving the user at cap+1 until the
+//     5-minute sweep ticker.
+//
+// The pg_advisory_xact_lock keyed on user_id serialises mints for the same
+// user so the second tx observes the first's committed row and computes
+// excess = 1. Without the lock this test sees count = cap+1 on at least one
+// scheduler ordering; with it, count is always exactly cap.
+func TestCreateSessionEnforcingCap_ConcurrentMints_NeverOverCap(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+	user := seedUser(t, s, org.ID, "concurrent-mint@example.com")
+	if err := s.SaveMembership(ctx, model.Membership{
+		ID: uuid.NewString(), OrganizationID: org.ID, UserID: user.ID, Role: "owner",
+	}); err != nil {
+		t.Fatalf("SaveMembership: %v", err)
+	}
+
+	const cap = 3
+	// Pre-seed cap-1 live sessions. Each lock-free concurrent mint would
+	// see excess=0 in this state and decline to revoke.
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	now := time.Now().UTC()
+	for i := 0; i < cap-1; i++ {
+		sess, err := s.CreateSession(context.Background(), model.Session{
+			ID:               uuid.NewString(),
+			UserID:           user.ID,
+			OrganizationID:   org.ID,
+			AuthMode:         model.AuthModePassword,
+			SessionTokenHash: fmt.Sprintf("concurrent-pre-hash-%d", i),
+			ExpiresAt:        now.Add(24 * time.Hour),
+		})
+		if err != nil {
+			t.Fatalf("seed CreateSession #%d: %v", i, err)
+		}
+		// Backdate so oldest-first ordering is unambiguous if the lock
+		// fix routes the second mint into the revoke branch.
+		if _, err := conn.Exec(context.Background(),
+			`UPDATE axiaops.sessions SET created_at = $1 WHERE id = $2`,
+			now.Add(-time.Duration(cap-i)*time.Minute), sess.ID,
+		); err != nil {
+			t.Fatalf("backdate seed #%d: %v", i, err)
+		}
+	}
+
+	const parallel = 2
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, parallel)
+	revokedCounts := make([]int, parallel)
+	for i := 0; i < parallel; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, revoked, err := s.CreateSessionEnforcingCap(context.Background(), model.Session{
+				ID:               uuid.NewString(),
+				UserID:           user.ID,
+				OrganizationID:   org.ID,
+				AuthMode:         model.AuthModePassword,
+				SessionTokenHash: fmt.Sprintf("concurrent-new-hash-%d", i),
+				ExpiresAt:        now.Add(24 * time.Hour),
+			}, cap)
+			errs[i] = err
+			revokedCounts[i] = len(revoked)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("parallel mint #%d: %v", i, err)
+		}
+	}
+
+	count, err := s.CountSessionsForUser(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("CountSessionsForUser: %v", err)
+	}
+	if count != cap {
+		t.Fatalf("post-parallel-mint count = %d; want exactly %d (advisory lock must serialise mints so the second one revokes the oldest peer)",
+			count, cap)
+	}
+	// Sanity: across both mints, exactly one revoke happened. (cap-1
+	// peers + 2 new inserts - 1 revoke = cap.)
+	totalRevoked := revokedCounts[0] + revokedCounts[1]
+	if totalRevoked != 1 {
+		t.Errorf("total revoked across parallel mints = %d; want 1 (one mint revokes one oldest peer; the other is a no-op)",
+			totalRevoked)
+	}
+}
+
 // ── LookupInvitationByToken (B1.5 slice 6.5) ───────────────────────────────
 
 // TestLookupInvitationByToken_HappyPath_NewUser pins the SQL contract for
