@@ -62,8 +62,8 @@ func TestCreateDraftAccount_ReturnsExternalIDAndPendingStatus(t *testing.T) {
 	if got.Status != model.AccountStatusPendingRoleSetup {
 		t.Errorf("Status = %q, want %q", got.Status, model.AccountStatusPendingRoleSetup)
 	}
-	if !strings.HasPrefix(got.ExternalID, "axops-ext-") {
-		t.Errorf("ExternalID = %q, want axops-ext- prefix", got.ExternalID)
+	if !strings.HasPrefix(got.ExternalID, "axiaops-ext-") {
+		t.Errorf("ExternalID = %q, want axiaops-ext- prefix", got.ExternalID)
 	}
 	if len(got.ExternalID) < 30 {
 		t.Errorf("ExternalID is suspiciously short: %q (length %d)", got.ExternalID, len(got.ExternalID))
@@ -114,7 +114,7 @@ func TestUpdateAccount_RoleVerify_Success(t *testing.T) {
 		OrganizationID: "organization-test-uuid",
 		Provider:       "aws",
 		AuthMethod:     model.AuthMethodRole,
-		ExternalID:     "axops-ext-secret-value",
+		ExternalID:     "axiaops-ext-secret-value",
 		Region:         "eu-central-1",
 		Status:         model.AccountStatusPendingRoleSetup,
 	}
@@ -163,7 +163,7 @@ func TestScanAccount_RejectsPendingRoleSetup(t *testing.T) {
 		OrganizationID: "organization-test-uuid",
 		Provider:       "aws",
 		AuthMethod:     model.AuthMethodRole,
-		ExternalID:     "axops-ext-x",
+		ExternalID:     "axiaops-ext-x",
 		Region:         "eu-central-1",
 		Status:         model.AccountStatusPendingRoleSetup,
 	}
@@ -192,7 +192,7 @@ func TestUpdateAccount_RoleVerify_IngestionUnreachable(t *testing.T) {
 		OrganizationID: "organization-test-uuid",
 		Provider:       "aws",
 		AuthMethod:     model.AuthMethodRole,
-		ExternalID:     "axops-ext-x",
+		ExternalID:     "axiaops-ext-x",
 		Region:         "eu-central-1",
 		Status:         model.AccountStatusPendingRoleSetup,
 	}
@@ -223,7 +223,7 @@ func TestUpdateAccount_RoleVerify_ConnectedAccountFailsToError(t *testing.T) {
 		Provider:       "aws",
 		AuthMethod:     model.AuthMethodRole,
 		RoleARN:        "arn:aws:iam::123:role/Old",
-		ExternalID:     "axops-ext-x",
+		ExternalID:     "axiaops-ext-x",
 		Region:         "eu-central-1",
 		Status:         model.AccountStatusConnected,
 		AccountID:      "123456789012",
@@ -266,7 +266,7 @@ func TestUpdateAccount_RoleVerify_TrustPolicyMismatch(t *testing.T) {
 		OrganizationID: "organization-test-uuid",
 		Provider:       "aws",
 		AuthMethod:     model.AuthMethodRole,
-		ExternalID:     "axops-ext-x",
+		ExternalID:     "axiaops-ext-x",
 		Region:         "eu-central-1",
 		Status:         model.AccountStatusPendingRoleSetup,
 	}
