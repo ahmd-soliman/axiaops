@@ -318,7 +318,7 @@ The Connect screen grows a **two-tab selector at the top** ("Role ARN (recommend
                               [ Generate connection ]    ← POST /v1/accounts/draft
 
 ──── Step 2 (revealed after draft is created) ────
-External ID:  axops-ext-9f2a4d1e8b73…    [Copy]
+External ID:  axiaops-ext-9f2a4d1e8b73…    [Copy]
 AxiaOps Role: arn:aws:iam::905…:role/…    (informational)
 
 [ Launch CloudFormation (recommended) ]   ← deep-link
@@ -811,8 +811,10 @@ but for completeness the React-side change is:
 - New API client functions in `services/dashboard/src/api/client.js`:
   `draftAccount({label, region})` and `verifyAccount(id, {role_arn})`.
 
-The dashboard work fits behind a feature flag (`VITE_FEATURE_ROLE_AUTH`) so it can ship
-behind the backend without exposing partial UX.
+The dashboard work originally shipped behind a `VITE_FEATURE_ROLE_AUTH` feature flag so it
+could land ahead of the backend without exposing partial UX. The flag has since been removed
+(issue #81) — role-based onboarding is now the default Connect-screen tab and Access Keys
+remain reachable as a secondary tab.
 
 ### 6.10 Testing
 
