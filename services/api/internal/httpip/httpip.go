@@ -16,8 +16,11 @@
 //  2. The rightmost token of X-Forwarded-For — the one our trusted proxy
 //     added, i.e. the actual peer that connected to it. Reliable in both
 //     staging (single nginx hop) and production (single App Runner LB hop).
-//     If a future deployment introduces a second trusted proxy, this needs
-//     to take the rightmost-N-th token instead.
+//     Multi-hop self-hosted chains (e.g. NAS → an edge proxy → dashboard nginx)
+//     are handled at the dashboard-nginx layer via the real_ip module
+//     (set_real_ip_from + real_ip_recursive in services/dashboard/nginx.conf)
+//     which rewrites $remote_addr and the propagated X-Real-IP to the true
+//     client before this code ever runs.
 //  3. RemoteAddr — for direct-to-API requests (tests, dev mode).
 //
 // This is the single seam every package uses (auth rate-limiter, audit log,
