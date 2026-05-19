@@ -64,6 +64,7 @@ func WrapNative(provider auth.Provider, next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, organizationIDKey, identity.OrganizationID)
 		ctx = context.WithValue(ctx, userIDKey, identity.UserID)
 		ctx = context.WithValue(ctx, userEmailKey, identity.Email)
+		ctx = context.WithValue(ctx, userNameKey, identity.Name)
 		ctx = context.WithValue(ctx, roleKey, identity.Role)
 		ctx = context.WithValue(ctx, authModeKey, identity.AuthMode)
 		next.ServeHTTP(w, r.WithContext(ctx))

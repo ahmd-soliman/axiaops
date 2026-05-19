@@ -20,7 +20,7 @@ import (
 func meRequest(method, path string) *http.Request {
 	src := httptest.NewRequest(method, path, nil)
 	var captured *http.Request
-	middleware.DevBypass("organization-me", "user-me", "me@example.com", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	middleware.DevBypass("organization-me", "user-me", "me@example.com", "Me Tester", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		captured = r
 	})).ServeHTTP(httptest.NewRecorder(), src)
 	return captured

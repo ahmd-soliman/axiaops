@@ -135,7 +135,7 @@ func newOrganizationWithUsers(t *testing.T, conn *pgx.Conn) (organizationID, use
 		if _, err := conn.Exec(ctx, `
 			INSERT INTO axiaops.users (id, organization_id, external_id, email, name, created_at, last_seen)
 			VALUES ($1, $2, $3, '', '', NOW(), NOW())`,
-			uid, organizationID, "kinde-"+uid); err != nil {
+			uid, organizationID, "dev:"+uid); err != nil {
 			t.Fatalf("seed user %s: %v", uid, err)
 		}
 	}
