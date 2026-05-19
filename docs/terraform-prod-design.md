@@ -223,14 +223,20 @@ infra/terraform/
     │   ├── main.tf                    # VPC, subnets, IGW, route table, SGs
     │   ├── variables.tf
     │   └── outputs.tf
+    ├── secrets-passwords/             # split out of secrets/ to break the
+    │   ├── main.tf                    # secrets↔data cycle — passwords have
+    │   ├── variables.tf               # no data dep, so apply step 3a runs
+    │   └── outputs.tf                 # before step 5 (data → RDS)
     ├── data/
-    │   ├── main.tf                    # RDS, subnet group, parameter group, db roles
-    │   ├── variables.tf
-    │   └── outputs.tf
-    ├── secrets/
-    │   ├── main.tf                    # SSM parameters + generated passwords
-    │   ├── variables.tf
-    │   └── outputs.tf
+    │   ├── main.tf                    # RDS, subnet group, parameter group
+    │   ├── variables.tf               # (db roles handled by Bootstrap in the
+    │   └── outputs.tf                 # migrate binary — see §6.2)
+    ├── secrets-urls/                  # per-consumer SSM SecureString params:
+    │   ├── main.tf                    # DATABASE_URL, MIGRATION_DATABASE_URL,
+    │   ├── variables.tf               # ENCRYPTION_KEY, AXIAOPS_LICENSE,
+    │   └── outputs.tf                 # INGESTION_SHARED_SECRET[_NEXT]
+    │                                  # — composed from data.rds_endpoint +
+    │                                  # secrets-passwords outputs
     ├── compute/
     │   ├── main.tf                    # App Runner services (api + ingestion),
     │   │                              # ECR repos, ECS cluster + task def for migrate
@@ -257,12 +263,15 @@ infra/terraform/
 | Module | Owns | Reads from | Surfaced outputs |
 |---|---|---|---|
 | `network` | VPC, subnets, IGW, route table, App Runner & RDS security groups, VPC connector | nothing (root) | `vpc_id`, `public_subnet_ids`, `apprunner_sg_id`, `rds_sg_id`, `vpc_connector_arn` |
-| `data` | RDS instance, subnet group, parameter group, db role provisioning | `network.public_subnet_ids`, `network.rds_sg_id`, `secrets.owner_password_arn` | `rds_endpoint`, `rds_port`, `database_url_ssm_arn`, `migration_database_url_ssm_arn` |
-| `secrets` | All SSM SecureString parameters; `random_password` resources for db roles | `data.rds_endpoint` (to compose connection strings) | individual SSM parameter ARNs |
-| `compute` | ECR repos, App Runner services, ECS task definition for migrate, App Runner instance roles | `network.vpc_connector_arn`, `secrets.*_ssm_arn`, `iam.apprunner_instance_role_arn` | App Runner service ARNs, ECR repo URLs |
+| `secrets-passwords` | `random_password` for `axiaops_owner` and `axiaops`; SSM parameters at `/axiaops/prod/infra/{owner,app_user}_password` | nothing (no data dep — see note below on the cycle) | `owner_password_arn`, `app_user_password_arn`, raw password values for downstream composition |
+| `data` | RDS instance, subnet group, parameter group | `network.public_subnet_ids`, `network.rds_sg_id`, `secrets-passwords.owner_password_arn` (consumes the password at instance creation) | `rds_endpoint`, `rds_port` |
+| `secrets-urls` | Per-consumer SSM SecureString parameters: `DATABASE_URL` (api/ingestion/migrate copies), `MIGRATION_DATABASE_URL` (migrate), `ENCRYPTION_KEY` copies, `AXIAOPS_LICENSE` placeholders, `INGESTION_SHARED_SECRET[_NEXT]` copies | `secrets-passwords.{owner,app_user}_password`, `data.rds_endpoint`, `data.rds_port` | individual SSM parameter ARNs |
+| `compute` | ECR repos, App Runner services, ECS task definition for migrate, App Runner instance roles | `network.vpc_connector_arn`, `secrets-urls.*_ssm_arn`, `iam.apprunner_instance_role_arn` | App Runner service ARNs, ECR repo URLs |
 | `edge` | S3 bucket + bucket policy, CloudFront distribution + OAI, ACM cert (us-east-1), Route 53 zone + records | `compute.apprunner_api_service_url` (for CloudFront origin) | dashboard URL, S3 bucket name, CloudFront distribution ID |
 | `iam` | GitLab CI OIDC role, App Runner instance roles, ECS migrate task role | `compute.ecr_repo_arns`, `compute.apprunner_service_arns`, `edge.cloudfront_distribution_arn`, `edge.s3_bucket_arn` | CI deploy role ARN, App Runner instance role ARN |
 | `observability` | CloudWatch log groups | App Runner service names (to predict log group names) | log group ARNs |
+
+**On the `secrets` ↔ `data` cycle.** A single `secrets` module would deadlock: `data` needs an owner password (so `data` depends on `secrets`), and `secrets` needs the RDS endpoint to compose `DATABASE_URL` (so `secrets` depends on `data`). Terraform refuses to plan that. Splitting into `secrets-passwords` (password generation, no `data` dep — runs first) and `secrets-urls` (URL composition, depends on both `secrets-passwords` and `data` — runs after) breaks the cycle cleanly. The §13.1 first-apply sequence reflects the split (passwords step 3a, data step 5, URLs step 5b).
 
 The `iam` module reads from almost every other module — that's a feature, not a bug. IAM policies must be **resource-scoped** (least privilege), and the only way to scope a `apprunner:UpdateService` permission to "only the two services we created" is to know those services' ARNs. The reverse dependency would mean blanket `Resource: "*"` policies, which we are explicitly avoiding.
 
@@ -380,7 +389,7 @@ And on first `terraform init`, the operator runs `terraform init -migrate-state`
 
 1. Recreate the bucket manually with the same name and the same lifecycle config (versioning, encryption, public-access-block).
 2. Restore the bootstrap state from the committed `infra/terraform/bootstrap/terraform.tfstate` snapshot in git — that snapshot has the bucket resource, so re-applying the bootstrap module against the recreated bucket is a no-op import.
-3. For the **production environment state** (which is NOT committed to git): you have lost it. There is no offline backup. Recovery is `terraform import` against every live AWS resource, walked manually — a multi-day exercise. Mitigate by enabling **S3 Object Lock** on the state bucket in compliance mode (prevents `s3 rb --force` from succeeding for the retention window) once we have a single production deploy; the bootstrap module deliberately doesn't enable Object Lock because that would prevent recovery from a botched bootstrap-module apply during initial setup.
+3. For the **production environment state** (which is NOT committed to git): you have lost it. There is no offline backup. Recovery is `terraform import` against every live AWS resource, walked manually — a multi-day exercise. Mitigate by enabling **S3 Object Lock** on the state bucket in compliance mode (prevents `s3 rb --force` from succeeding for the retention window) once we have a single production deploy. AWS added retroactive Object Lock enablement on versioned buckets in November 2023 (`PutObjectLockConfiguration` works on existing versioned buckets, no recreate needed), so the bootstrap module deliberately omits Object Lock at first apply — keeping initial-setup recovery cheap — and the operator turns it on later once the deploy is stable.
 
 If the DynamoDB lock table is deleted: no state lost, only locking. Recreate the table; next `terraform apply` runs unlocked, which is fine for a single operator. Document this in `docs/ops.md`.
 
@@ -426,7 +435,8 @@ The RDS security group ingress rule is `tcp/5432 from sg-<apprunner_sg_id>`. **N
 The App Runner SG egress rules:
 - `tcp/5432 → sg-<rds_sg_id>` (RDS)
 - `tcp/443 → 0.0.0.0/0` (AWS API + outside-world HTTPS)
-- `tcp/80 → 0.0.0.0/0` (rare HTTP fetches — OIDC discovery for license validation pre-issuance was previously cited as a case but is no longer relevant; defensible to drop, kept for now as defensive cushion)
+
+**No plaintext-80 egress.** Every AWS API and every external endpoint AxiaOps reaches (OIDC discovery, AWS service endpoints, license-issuance fetches) speaks HTTPS. Opening port 80 outbound would add no capability and would make a future "where is this container talking to" audit harder. Drop the rule.
 
 No `tcp/* in` from anywhere — App Runner services receive inbound traffic via the App Runner managed HTTPS edge, not via the VPC. The connector is **egress only**.
 
@@ -436,8 +446,7 @@ No `tcp/* in` from anywhere — App Runner services receive inbound traffic via 
 RDS SG  ◄──── ingress 5432 ──── App Runner SG
                                     │
                                     ├── egress 5432 → RDS SG
-                                    ├── egress 443  → 0.0.0.0/0
-                                    └── egress 80   → 0.0.0.0/0
+                                    └── egress 443  → 0.0.0.0/0
 ```
 
 Both SGs are managed by the `network` module. The App Runner instance services reference the SG by ARN via the VPC connector's `security_groups` argument — App Runner doesn't take SGs directly, it takes a connector, which carries the SGs.
@@ -481,14 +490,40 @@ resource "aws_db_instance" "main" {
   maintenance_window      = "sun:03:30-sun:04:30"
   deletion_protection     = true
   skip_final_snapshot     = false
-  final_snapshot_identifier = "axiaops-prod-final-${formatdate("YYYY-MM-DD", timestamp())}"
+  final_snapshot_identifier = "axiaops-prod-final-snapshot"  # static — see note below
   copy_tags_to_snapshot   = true
   performance_insights_enabled = false  # adds €7/mo; revisit when we have ops budget
   apply_immediately       = false  # changes land in the next maintenance window
+
+  lifecycle {
+    # final_snapshot_identifier is consulted only when the instance is destroyed,
+    # which we never do via TF (deletion_protection = true). Keep it static so
+    # `terraform plan` doesn't show drift on every run. If you ever *do* destroy,
+    # rename the snapshot manually post-creation or override via -var at the
+    # destroy invocation.
+    ignore_changes = [final_snapshot_identifier]
+  }
 }
 ```
 
-Parameter group sets `rds.force_ssl = 1` so all client connections use TLS. The Go pgx pool already requests `sslmode=require` by default; this enforces it server-side.
+**Why not `timestamp()` in the snapshot identifier.** A previous sketch used `${formatdate("YYYY-MM-DD", timestamp())}`. `timestamp()` evaluates at plan time and changes every run, so TF reports planned drift on the RDS resource on every `plan` — and an unattended-apply CI job would attempt the change. A static identifier + `ignore_changes` is the canonical pattern.
+
+### 6.1.1 TLS posture — encrypted, and (with the CA bundle) authenticated
+
+Parameter group sets `rds.force_ssl = 1`. That refuses any non-TLS Postgres handshake server-side. Three implications the doc must be precise about:
+
+1. **`rds.force_ssl = 1` enforces TLS, not certificate authenticity.** A client that connects with `sslmode=require` opens an encrypted channel and ignores the server certificate. An attacker on the VPC datapath could in principle present a self-signed cert and the client would accept it. Intra-VPC MITM is a low-probability risk (AWS would have to be compromised, ENI hijacked, or a malicious sidecar deployed with the same SG), but the doc should not overstate the posture.
+
+2. **The pgx pool default is `sslmode=prefer`, not `require`.** `services/shared/storage/postgres/postgres.go:56` parses `DATABASE_URL` via `pgxpool.ParseConfig(url)` and applies no extra TLS config. Whatever's in the URL wins; if no `sslmode` is set, pgx falls back to its default of `prefer` (opportunistic, fail-open). Server-side `force_ssl = 1` then refuses the plaintext branch — so the connection ends up TLS-encrypted in practice — but the client is not the gatekeeper.
+
+3. **Real authentication requires `sslmode=verify-full` + the RDS CA bundle.** Production posture:
+   - Bake the AWS RDS CA bundle (`https://truststore.pki.rds.amazonaws.com/eu-central-1/eu-central-1-bundle.pem`) into the api/ingestion/migrate container images at `/etc/ssl/certs/rds-ca-eu-central-1.pem`. The bundle holds the AWS CA roots used by RDS endpoints in this region and rolls over on a published schedule (next planned root: 2029-08-22).
+   - `secrets-urls` composes `DATABASE_URL` with `?sslmode=verify-full&sslrootcert=/etc/ssl/certs/rds-ca-eu-central-1.pem` appended (verify-full also pins hostname — RDS endpoints carry SAN entries for `*.<region>.rds.amazonaws.com`, which the composed endpoint matches).
+   - The Dockerfile for each service adds `RUN curl -fsSL https://truststore.pki.rds.amazonaws.com/eu-central-1/eu-central-1-bundle.pem -o /etc/ssl/certs/rds-ca-eu-central-1.pem` in the runtime stage. Pin a SHA-256 of the bundle file in CI so a registry compromise can't silently swap roots.
+
+The migrate ECS task pulls the same bundle and uses the same composed URL, so RDS access is authenticated on every hop.
+
+**Operational note: CA rotation.** When AWS publishes a new RDS root, follow the AWS-published dual-bundle window: refresh the bundle file in all three images, redeploy, and confirm `psql --set=sslmode=verify-full ... -c "SELECT 1"` succeeds from a one-off task. The bundle rotation cadence is years, not months — track AWS's RDS CA expiry calendar.
 
 The `aws_db_instance.password` argument here is the password Terraform sets at instance creation. Terraform stores the password in the SSM parameter (§8), and the live password is set from there — if SSM and RDS ever drift, the recovery is `aws_db_instance.master_user_secret` (a managed-rotation feature we're deferring).
 
@@ -551,40 +586,33 @@ Cons: same network-reachability problem — the provider connects from the opera
 
 Rejected for the same reason.
 
-**Option C — Fold role-creation into the migrate job.**
+**Option C — Use the existing `postgres.Bootstrap` in the migrate binary.**
 
-The `services/migrate/main.go` binary already runs all `001..NNN_*.up.sql` migrations against `MIGRATION_DATABASE_URL`. We add a new migration (e.g. `000_create_app_user.up.sql`) that does:
+The migrate binary (`services/migrate/main.go`) already calls `postgres.Bootstrap(migrationURL, dbURL)` on every run (line 24), which is implemented in `services/shared/storage/postgres/migrate.go:35-88`. Bootstrap:
 
-```sql
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'axiaops') THEN
-    CREATE ROLE axiaops LOGIN PASSWORD :'app_password';
-  END IF;
-END
-$$;
-GRANT USAGE ON SCHEMA axiaops TO axiaops;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA axiaops TO axiaops;
-ALTER DEFAULT PRIVILEGES IN SCHEMA axiaops FOR ROLE axiaops_owner GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO axiaops;
-```
+- Acquires a `pg_advisory_lock` so concurrent boots serialise.
+- Runs `DO $$ ... IF NOT EXISTS (SELECT FROM pg_roles ...) THEN CREATE USER axiaops; END IF; END $$` — idempotent, no-op on subsequent runs.
+- Runs `ALTER USER axiaops WITH PASSWORD <quoted>` parsed out of `DATABASE_URL` via `pgxpool.ParseConfig` + `pq.QuoteLiteral` — sync-on-every-boot enables password rotation without manual SQL.
+- Creates the `axiaops` schema if absent.
+- Hands off to golang-migrate for `001..NNN_*.up.sql`.
 
-The migrate binary reads `APP_USER_PASSWORD` from its environment and passes it to `psql` via a parameter. The migrate ECS task definition pulls `APP_USER_PASSWORD` from SSM. **This is the only path that runs from inside the VPC, where the RDS instance is reachable.**
+The migrate ECS task pulls `DATABASE_URL` (app user, used by Bootstrap to derive the password) and `MIGRATION_DATABASE_URL` (owner, used to connect as the privileged role) from SSM. **This runs from inside the VPC, where RDS is reachable.**
 
-Pros: works without a bastion; uses our existing migration plumbing; idempotent.
-Cons: the migrate binary now does two things (migrate schema + bootstrap app user). The `axiaops` user has to exist before the first `terraform apply` of the api/ingestion services completes, so apply order matters (§13).
+Pros: zero new code; reuses the same mechanism the dev/staging/preview envs already exercise; rotates the app-user password automatically on every release.
+Cons: the migrate task now must run before the first api/ingestion deploy succeeds — apply order matters (§13.1).
 
-**Recommendation: Option C.** Implementation note: the migration that creates the `axiaops` role is special — it runs once at instance birth. Subsequent runs are no-ops via the `IF NOT EXISTS` guard. Rotation of the `axiaops` password is a separate operational concern (§13) and does not go through this migration.
+**Recommendation: Option C.** No new SQL migration is needed. The `IF NOT EXISTS` guard inside Bootstrap makes role creation idempotent, and `ALTER USER ... WITH PASSWORD` syncs the password from the canonical `DATABASE_URL` every release. Rotation of the `axiaops` password is "change DATABASE_URL in SSM → redeploy migrate task → redeploy api/ingestion" — no separate manual SQL step. (Note: an earlier draft proposed a net-new `000_create_app_user.up.sql` migration with `:'app_password'` psql substitution; that's both unnecessary and incompatible with golang-migrate's runner, which doesn't process psql variable bindings.)
 
 ### 6.3 Connection string composition
 
 Both `DATABASE_URL` (app user) and `MIGRATION_DATABASE_URL` (owner) are SSM parameters whose values Terraform composes from the RDS endpoint, port, and stored passwords:
 
 ```
-DATABASE_URL          = postgres://axiaops:<app_pw>@<rds_endpoint>:5432/axiaops?sslmode=require
-MIGRATION_DATABASE_URL = postgres://axiaops_owner:<owner_pw>@<rds_endpoint>:5432/axiaops?sslmode=require
+DATABASE_URL           = postgres://axiaops:<app_pw>@<rds_endpoint>:5432/axiaops?sslmode=verify-full&sslrootcert=/etc/ssl/certs/rds-ca-eu-central-1.pem
+MIGRATION_DATABASE_URL = postgres://axiaops_owner:<owner_pw>@<rds_endpoint>:5432/axiaops?sslmode=verify-full&sslrootcert=/etc/ssl/certs/rds-ca-eu-central-1.pem
 ```
 
-`?sslmode=require` matches the `rds.force_ssl = 1` server-side enforcement. The owner connection string is **not** present in the runtime App Runner services' environment — only the migrate ECS task pulls it. See §7.4.
+`sslmode=verify-full` plus `sslrootcert=` pins the RDS CA bundle (see §6.1.1 for why this is the right posture vs the weaker `sslmode=require`). The path matches where each service Dockerfile bakes the bundle — keep both seams in sync if the path ever moves. The owner connection string is **not** present in the runtime App Runner services' environment — only the migrate ECS task pulls it. See §7.4.
 
 ### 6.4 Backups and restore drill
 
@@ -635,10 +663,12 @@ resource "aws_apprunner_service" "api" {
           # anyway, but we still don't set it to avoid confusion.
         }
         runtime_environment_secrets = {
-          DATABASE_URL              = aws_ssm_parameter.database_url.arn
-          ENCRYPTION_KEY            = aws_ssm_parameter.encryption_key.arn
-          AXIAOPS_LICENSE           = aws_ssm_parameter.axiaops_license.arn
-          INGESTION_SHARED_SECRET   = aws_ssm_parameter.ingestion_shared_secret.arn
+          # Each secret resolves to the api-prefixed copy under
+          # /axiaops/prod/api/* — least-privilege via §8.2 path scoping.
+          DATABASE_URL              = aws_ssm_parameter.database_url_api.arn
+          ENCRYPTION_KEY            = aws_ssm_parameter.encryption_key_api.arn
+          AXIAOPS_LICENSE           = aws_ssm_parameter.axiaops_license_api.arn
+          INGESTION_SHARED_SECRET   = aws_ssm_parameter.api_ingestion_secret.arn
         }
       }
     }
@@ -694,7 +724,7 @@ Notes on each block:
 
 Identical shape to api, with:
 - `port = "8081"`.
-- Different env-var set: no `PUBLIC_HOST`, no `CORS_ORIGIN`, no `INVITATION_TTL_DAYS`; same `DATABASE_URL`/`ENCRYPTION_KEY`/`AXIAOPS_LICENSE`; plus `INGESTION_SHARED_SECRET` and `INGESTION_SHARED_SECRET_NEXT` (see §8.3).
+- Different env-var set: no `PUBLIC_HOST`, no `CORS_ORIGIN`, no `INVITATION_TTL_DAYS`; same `DATABASE_URL`/`ENCRYPTION_KEY`/`AXIAOPS_LICENSE` (each pointing at the **ingestion-prefixed** copies under `/axiaops/prod/ingestion/*`); plus `INGESTION_SHARED_SECRET = aws_ssm_parameter.ingestion_primary_secret.arn` and `INGESTION_SHARED_SECRET_NEXT = aws_ssm_parameter.ingestion_next_secret.arn` (see §8.3).
 - Different instance role: `apprunner_ingestion_instance` includes the `AxiaOpsReadOnly` policy from `docs/production.md` (Cost Explorer, CloudWatch, EC2/RDS/Lambda/ELB Describe). Plus a one-line policy granting `sts:AssumeRole` on `arn:aws:iam::*:role/AxiaOpsCrossAccountReader-*` to support the cross-account roles flow.
 - Same `network_configuration` shape — VPC connector for RDS access, public ingress because the api needs to reach `POST /scan` and Path A (public hop, HMAC-protected) is the v1 decision.
 
@@ -830,7 +860,7 @@ resource "aws_ecr_lifecycle_policy" "api" {
 }
 ```
 
-Three repos (api, ingestion, migrate) with identical shape. The 30-tagged-image cap is a balance between rollback runway (~3-4 weeks of deploys at one deploy/day) and ECR storage cost (€0.10/GB/mo × ~500MB per multi-arch image = €0.05/image/mo × 30 = €1.50/mo per repo, or €4.50/mo across all three). Untagged-7d cleans up failed pushes.
+Three repos (api, ingestion, migrate) with identical shape. The 30-tagged-image cap is a balance between rollback runway (~3-4 weeks of deploys at one deploy/day) and ECR storage cost. AxiaOps Go binary images compress to ~250MB on average (scratch base + ~80MB binary + RDS CA bundle + minimal runtime layer; multi-arch adds a manifest but the per-arch layers stay similar). At €0.10/GB-month that's €0.025/image/mo × 30 images × 3 repos ≈ **€2.25/mo across all three repos** — matches the §12.1 estimate. Untagged-7d cleans up failed pushes.
 
 ---
 
@@ -869,9 +899,34 @@ What we lose vs SM:
 - No cross-account access via resource policy. We don't need this.
 - API throttling: SSM `GetParameters` has a per-account rate limit, and a redeploying App Runner service makes one call per secret on instance start. At our deploy cadence this is irrelevant.
 
-**Decision: SSM Parameter Store SecureString for all eight secrets. Standard tier. No Advanced parameters.**
+**Decision: SSM Parameter Store SecureString for the configuration-shaped secrets (DATABASE_URL, MIGRATION_DATABASE_URL, ENCRYPTION_KEY, AXIAOPS_LICENSE, the two infra passwords). Standard tier. No Advanced parameters.**
 
 KMS: each SSM SecureString is encrypted with the AWS-managed `alias/aws/ssm` key. A customer-managed KMS key would cost €1/key/mo and give us auditable key-usage events; not worth it at v1. Revisit if SOC 2 type II calls for it.
+
+### 8.1.1 INGESTION_SHARED_SECRET — Secrets Manager is the right shape (gated on App Runner verify)
+
+The HMAC shared secret is the one secret in the set whose lifecycle map cleanly onto a feature SM has and SSM does not: **version stages**. C-1's rotation contract (`docs/c1-hmac-plan.md:506-517`) is "primary slot + staging slot; verifier accepts either; atomically promote staging to primary." That is literally what `AWSCURRENT` + `AWSPENDING` were built for. The naive SSM design re-implements the state machine via three separate parameters and a three-variable TF split (§8.3) — workable, but it's the workaround, not the idiomatic shape.
+
+**The trade-off:**
+
+| Aspect | SSM (current design) | Secrets Manager |
+|---|---|---|
+| Monthly cost | €0 | €0.40 (one secret) or €0.80 (two secrets) |
+| Rotation operator surface | Three `terraform apply` runs per §13.2 (state machine encoded in HCL vars) | One `aws secretsmanager update-secret-version-stage` call + redeploy |
+| Rotation atomicity | Operator-driven, multi-step, ordering-sensitive (typo at step 2 breaks the verifier) | Atomic AWS API call; can't half-fail mid-state |
+| Audit trail | `GetParameter` CloudTrail event, name only | `GetSecretValue` event includes `versionId` + `versionStage` — "ingestion verified against AWSCURRENT" is provable per-call |
+| Native two-slot semantics | None — emulated via three parameters | Built in via stage labels |
+
+**The wrinkle: App Runner `runtime_environment_secrets` `valueFrom` and version-stage suffixes.** ECS task definitions accept an SM ARN with `:json-key:version-stage:version-id` suffixes — pointing one secret at `AWSCURRENT` and another at `AWSPENDING` for the verifier. The AWS App Runner docs are under-specified here as of 2026. Two outcomes:
+
+- **If App Runner supports version-stage `valueFrom`:** one SM secret with `AWSCURRENT` + `AWSPENDING` stages. Two `runtime_environment_secrets` entries on the ingestion service (one per stage). Rotation collapses to a single `aws secretsmanager update-secret-version-stage` call + ingestion redeploy. €0.40/mo, strict win over SSM on every axis except cost.
+- **If App Runner does NOT support version-stage `valueFrom`:** two SM secrets (`ingestion-hmac-primary` + `ingestion-hmac-next`). Rotation is `PutSecretValue` on `-next` then promote via a second `PutSecretValue` on `-primary`. Still simpler than three TF applies; €0.80/mo.
+
+**Pre-flight verification step before MR 3 lands.** Provision a scratch SM secret with two stage labels in a sandbox account, attach it to a throwaway App Runner service via Terraform's `runtime_environment_secrets`, redeploy, and observe whether both env vars populate from the two stages. The behaviour answer determines the shape; the cost difference is small enough that the architectural fit wins.
+
+**Decision: provisionally Secrets Manager for `INGESTION_SHARED_SECRET[_NEXT]`, pending the App Runner verify.** The §8.3 rotation contract and §13.2 playbook below describe the SSM-three-parameter fallback shape so the design is unblocked either way; the SM shape is documented inline so the SM verification result triggers a clean swap, not a rewrite. If SM is confirmed, §8.3 and §13.2 collapse — see those sections for the SM-shape notes.
+
+**Why this dismissal of SM is different from §8.1's blanket dismissal.** §8.1 dismissed SM on rotation-Lambda grounds (managed rotation we wouldn't use). For HMAC the relevant SM feature is *version staging*, not managed rotation. Different axis, different answer.
 
 ### 8.2 Parameter naming convention
 
@@ -928,7 +983,9 @@ When the operator rotates the encryption key, both parameters update in the same
 - During steady state, all three carry the **same** value (defensive duplicate per the C-1 design — `docs/c1-hmac-plan.md:539` recommends `_NEXT = X` even when no rotation is in flight, so the verifier code path is exercised continuously and `==""` isn't a load-bearing precondition).
 - During rotation, the three parameters intentionally diverge for a window; see §13.2 for the sequenced playbook.
 
-**Critical: the `secrets` module MUST expose three separate input variables, not one.**
+**Note on §8.1.1:** if the App Runner verify confirms SM version-stage `valueFrom` support, this whole sub-section reduces to one SM secret with `AWSCURRENT` + `AWSPENDING` stages — the three-variable split below is the SSM fallback. The TF playbook in §13.2 assumes the fallback (SSM-three-parameters) and is unambiguous either way; if SM lands, replace the three `terraform apply` runs in §13.2 with a single `aws secretsmanager update-secret-version-stage` call. The decision lands at §8.1.1, not here.
+
+**Critical (SSM fallback shape): the `secrets-urls` module MUST expose three separate input variables, not one.**
 
 ```hcl
 variable "api_ingestion_secret" {
@@ -987,21 +1044,13 @@ A single coupled variable would flip both api and ingestion-primary atomically i
 
 **Terraform does NOT manage the JWT value.** The TF resource creates the parameter with a placeholder value (e.g. `lifecycle.ignore_changes = [value]`), the operator overwrites the value out-of-band. This matches the "license signing key never leaves the operator's laptop" posture from `docs/license-issuance.md`. If TF managed the JWT, the JWT would land in `terraform.tfstate` in S3 — which is itself encrypted and access-restricted, but adds an unnecessary access surface.
 
-**Placeholder-vs-real check before compute lands.** The first-apply sequence (§13.1) puts step 4 (operator populates `AXIAOPS_LICENSE`) before step 7 (`module.compute` lands the App Runner services). If an operator follows the sequence wrong and skips step 4, the App Runner services start with the placeholder JWT — the license verifier rejects it at boot, scans 403 on `license_not_loaded`. Guard against this with a TF `precondition` on each App Runner service resource that asserts the live SSM value is not the placeholder sentinel:
+**Placeholder-vs-real check before compute lands.** The first-apply sequence (§13.1) puts step 4 (operator populates `AXIAOPS_LICENSE`) before step 7 (`module.compute` lands the App Runner services). If an operator follows the sequence wrong and skips step 4, the App Runner services start with the placeholder JWT — the license verifier rejects it at boot, scans 403 on `license_not_loaded`.
 
-```hcl
-resource "aws_apprunner_service" "api" {
-  # ... source/instance/network blocks ...
-  lifecycle {
-    precondition {
-      condition     = data.aws_ssm_parameter.axiaops_license_live.value != var.license_placeholder_sentinel
-      error_message = "AXIAOPS_LICENSE still holds the placeholder value. Run §13.1 step 4 (aws ssm put-parameter for the prod JWT) before applying module.compute."
-    }
-  }
-}
-```
+**Why TF-side preconditions don't fit here.** A `precondition { condition = data.aws_ssm_parameter.axiaops_license_live.value != ... }` would force a `with_decryption = true` data source read, which pulls the live JWT plaintext into Terraform state — defeating the "TF doesn't manage the JWT value" intent from the paragraph above. The runbook is the right seam, not the TF graph.
 
-This converts a silent post-deploy failure into a `terraform apply` error with a self-explaining message.
+**Guard via the §13.1 runbook instead:** step 7 (compute apply) is preceded by step 6.5 (new — operator validates the live SSM value): `aws ssm get-parameter --name /axiaops/prod/api/AXIAOPS_LICENSE --with-decryption --query Parameter.Value --output text | head -c 32` should print the leading 32 chars of a real JWT (`eyJhbGciOiJSUzI1NiI...`). If it prints the placeholder sentinel, abort the apply and go back to step 4. The check is one shell line, runs with the operator's SSO credentials (not the TF principal), and leaves no plaintext in state.
+
+Documented in §13.1 as a numbered runbook step so the next operator running first-apply six months later doesn't skip it.
 
 The plaintext JWT lives only in:
 
@@ -1034,16 +1083,16 @@ resource "random_id" "ingestion_shared_secret" {
 # value: random_id.ingestion_shared_secret.hex
 ```
 
-**Wiring to the three §8.3 input variables.** At initial provisioning (and at every steady state) the single `random_id.ingestion_shared_secret.hex` value is passed as **all three** of the `secrets` module's input variables:
+**Wiring to the three §8.3 input variables.** At initial provisioning (and at every steady state) the single `random_id.ingestion_shared_secret.hex` value is passed as **all three** of the `secrets-urls` module's input variables:
 
 ```hcl
-module "secrets" {
-  source = "../../modules/secrets"
+module "secrets_urls" {
+  source = "../../modules/secrets-urls"
 
   api_ingestion_secret     = random_id.ingestion_shared_secret.hex
   ingestion_primary_secret = random_id.ingestion_shared_secret.hex
   ingestion_next_secret    = random_id.ingestion_shared_secret.hex
-  # ... other secrets
+  # ... other inputs (rds_endpoint from module.data, passwords from module.secrets_passwords)
 }
 ```
 
@@ -1092,11 +1141,14 @@ Three resolution options:
 
 ```bash
 cd services/dashboard/dist
+# The key set is whatever `services/dashboard/inject-env.sh` writes today.
+# As of the chore/drop-feature-role-auth branch, the FEATURE_ROLE_AUTH key
+# is being removed; check inject-env.sh at the time MR 4 lands and mirror
+# the live key set here so the production bundle matches dev/staging shape.
 cat > runtime-env.js <<EOF
 window.__ENV__ = {
   "DEV_MODE": "false",
   "DEV_ORG_NAME": "",
-  "FEATURE_ROLE_AUTH": "${FEATURE_ROLE_AUTH:-false}",
   "AXIAOPS_AWS_ACCOUNT_ID": "${AXIAOPS_AWS_ACCOUNT_ID:-}"
 };
 EOF
@@ -1154,7 +1206,10 @@ function handler(event) {
 ```javascript
 function handler(event) {
   const r = event.request;
-  if (r.uri === '/api/metrics' || r.uri === '/v1/metrics') {
+  // The api mounts /metrics (services/api/internal/serverbuild/build.go:314).
+  // After the /api/ strip below, /api/metrics becomes /metrics → reaches the
+  // handler. We block at the pre-strip layer.
+  if (r.uri === '/api/metrics') {
     return { statusCode: 404, statusDescription: 'Not Found' };
   }
   if (r.uri.startsWith('/api/')) {
@@ -1183,6 +1238,32 @@ resource "aws_acm_certificate" "cloudfront" {
   lifecycle {
     create_before_destroy = true
   }
+}
+
+# DNS-01 validation needs all three resources together — the cert alone
+# hangs PENDING_VALIDATION forever without the CNAME records and the
+# explicit validation handshake.
+resource "aws_route53_record" "cloudfront_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.cloudfront.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = aws_route53_zone.main.zone_id
+}
+
+resource "aws_acm_certificate_validation" "cloudfront" {
+  provider                = aws.us_east_1
+  certificate_arn         = aws_acm_certificate.cloudfront.arn
+  validation_record_fqdns = [for r in aws_route53_record.cloudfront_validation : r.fqdn]
 }
 ```
 
@@ -1417,7 +1498,7 @@ Two instance roles, one per service. The instance role is what each container's 
 
 That's it. The api binary doesn't make AWS API calls — it only consumes secrets. No CloudWatch Logs perm needed because App Runner writes to CloudWatch via the **access role** (`apprunner_ecr_access`), not the instance role.
 
-**`axiaops-apprunner-ingestion-instance`:** the same SSM/KMS block (scoped to `/axiaops/prod/ingestion/*`), plus the `AxiaOpsReadOnly` policy from `docs/production.md:41-60` **extended** with the additional Describe APIs needed for the API-only detection rules listed in `CLAUDE.md` ("API-only rules" table — EBS, snapshots, AMIs, log groups, Secrets Manager, ECR) and the Tier-2 services (`docs/tier2_detections_status.md` — ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, EKS):
+**`axiaops-apprunner-ingestion-instance`:** the same SSM/KMS block (scoped to `/axiaops/prod/ingestion/*`), plus the 9-action `AxiaOpsReadOnly` policy from `docs/production.md:41-60` (ce, cloudwatch×2, ec2×3, rds, lambda, elasticloadbalancing) **extended** with the additional Describe APIs needed for the API-only detection rules listed in `CLAUDE.md` ("API-only rules" table — EBS, snapshots, AMIs, log groups, Secrets Manager, ECR) and the Tier-2 services (`docs/tier2_detections_status.md` — ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, EKS):
 
 ```json
 {
@@ -1471,9 +1552,16 @@ The wildcard on the account ID is required because we assume roles into *custome
 
 For the **AxiaOps-own** AWS account (the same one TF runs in), the same instance role suffices because the resource is `*` and the role's home account is in scope.
 
-### 10.3 App Runner ECR access role
+### 10.3 App Runner ECR access role + instance-role trust
 
-Separate from the instance role. This is what App Runner uses to pull images from ECR and write logs to CloudWatch — it's a service role, not a task role.
+Two distinct roles, two distinct trust principals — easy to mix up. AWS splits the App Runner service identity into:
+
+- **Access role (`build.apprunner.amazonaws.com`)** — what App Runner uses outside the task to pull images from ECR and (on App Runner's side) write task-level logs to CloudWatch. One role per service, referenced as `source_configuration.authentication_configuration.access_role_arn`.
+- **Instance role (`tasks.apprunner.amazonaws.com`)** — the runtime IAM identity *inside* the container; every AWS SDK call from the api/ingestion process assumes this role. Referenced as `instance_configuration.instance_role_arn`. The policies in §10.2 attach here.
+
+Setting the trust principal to a bare `apprunner.amazonaws.com` (the obvious-but-wrong guess) silently fails: App Runner can't assume the role, the service stays in `CREATE_FAILED`, and the only signal is a confused CloudTrail `AssumeRole` denial buried under the AppRunner-side activity.
+
+**Access role inline policy:**
 
 ```json
 {
@@ -1504,7 +1592,31 @@ Separate from the instance role. This is what App Runner uses to pull images fro
 }
 ```
 
-Trust policy: `apprunner.amazonaws.com`.
+**Access role trust policy:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "Service": "build.apprunner.amazonaws.com" },
+    "Action": "sts:AssumeRole"
+  }]
+}
+```
+
+**Instance role trust policy (one per service, attached to the roles defined in §10.2):**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "Service": "tasks.apprunner.amazonaws.com" },
+    "Action": "sts:AssumeRole"
+  }]
+}
+```
 
 ### 10.4 RDS IAM auth — out of scope
 
@@ -1523,26 +1635,64 @@ Benefit: no DB password to rotate. Drawback: ~30-60 lines of Go in the pgx pool 
 
 ### 11.1 CloudWatch log groups
 
-Two log groups, both 7-day retention per `CLAUDE.md` → "Cost Awareness" mandate:
+Two challenges: App Runner log group names embed the auto-generated `service_id` (not knowable until the App Runner service is created), AND App Runner auto-creates the log group on the service's first run with a default retention that, left alone, costs €5-€10/mo of accumulated logs at AxiaOps's volume. The migrate ECS log group is unaffected — we name and pre-create it freely.
+
+**The migrate log group is easy:**
 
 ```hcl
-resource "aws_cloudwatch_log_group" "apprunner_api" {
-  name              = "/aws/apprunner/axiaops-api/${aws_apprunner_service.api.service_id}/application"
-  retention_in_days = 7
-}
-
-resource "aws_cloudwatch_log_group" "apprunner_ingestion" {
-  name              = "/aws/apprunner/axiaops-ingestion/${aws_apprunner_service.ingestion.service_id}/application"
-  retention_in_days = 7
-}
-
 resource "aws_cloudwatch_log_group" "ecs_migrate" {
   name              = "/aws/ecs/axiaops-migrate"
   retention_in_days = 7
 }
 ```
 
-App Runner has a convention for log group names (`/aws/apprunner/<service-name>/<service-id>/application` for application logs, `.../service` for service-level events). Pre-creating the log groups via TF prevents App Runner from auto-creating them with the default 30-day retention — without this pre-creation step the retention silently defaults to "never expire" or 30 days depending on the App Runner build, and CloudWatch logs at AxiaOps's log volume can add €5-€10/mo of accumulated cost over months. Pre-creating with 7-day retention is mandatory.
+The migrate task definition passes this name to the awslogs log driver explicitly (§7.4), so the group is created by TF and the task writes to the pre-created group.
+
+**App Runner log groups need post-create retention override.** Trying to pre-create with a name that references `aws_apprunner_service.api.service_id` creates a TF dependency cycle (`aws_cloudwatch_log_group.apprunner_api` → `aws_apprunner_service.api` → on first apply, App Runner is the side that creates the log group with its own default retention before our TF resource gets a chance). Two workable patterns:
+
+**Option A — TF data source + retention override after service exists:**
+
+```hcl
+resource "aws_apprunner_service" "api" { /* ... */ }
+
+# App Runner has already created this group with default retention.
+# Adopt it via a TF resource and override retention. The `name` lookup
+# uses the service_id available post-create.
+resource "aws_cloudwatch_log_group" "apprunner_api" {
+  name              = "/aws/apprunner/axiaops-api/${aws_apprunner_service.api.service_id}/application"
+  retention_in_days = 7
+
+  # On first apply, TF will fail to create (group exists). Import it.
+  lifecycle {
+    ignore_changes = [name]  # name is referentially derived; no drift
+  }
+}
+
+# The recommended workflow on first apply: TF creates the service, then
+# fails on log group create. Run:
+#   terraform import module.observability.aws_cloudwatch_log_group.apprunner_api \
+#     /aws/apprunner/axiaops-api/<service-id>/application
+# Subsequent applies see the resource as managed and apply the 7-day retention.
+```
+
+**Option B — null_resource provisioner (simpler, no import gymnastics):**
+
+```hcl
+resource "null_resource" "apprunner_api_log_retention" {
+  triggers = { service_id = aws_apprunner_service.api.service_id }
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws logs put-retention-policy \
+        --log-group-name "/aws/apprunner/axiaops-api/${aws_apprunner_service.api.service_id}/application" \
+        --retention-in-days 7
+    EOT
+  }
+}
+```
+
+**Decision: Option B.** Avoids first-apply import dance; same effect; small operational footprint. The trigger re-runs the override if the App Runner service is ever replaced (and gets a new service_id). The downside — local-exec runs on the operator's machine, not in CI's TF runner — is acceptable because the operator's AWS credentials in scope already include `logs:PutRetentionPolicy` via the GitLab CI role's catch-all logs permissions (§10.3).
+
+Same pattern for ingestion: a second `null_resource` keyed on `aws_apprunner_service.ingestion.service_id`.
 
 ### 11.2 The `/metrics` endpoint is internal
 
@@ -1571,10 +1721,12 @@ All prices in EUR, eu-central-1, post-tax-exclusive, 2025 pricing. "Idle" = no o
 
 | Component | Steady-state monthly cost | Notes |
 |---|---:|---|
-| RDS db.t4g.micro Single-AZ, 20 GB gp3 | €11.80 | €0.018/hr × 730 + €0.115/GB × 20 |
+| RDS db.t4g.micro Single-AZ instance | €11.80 | $0.018/hr × 730 = $13.14 ≈ €11.80 at $1.115/EUR FX rate (2025 spot) |
+| RDS storage (20 GB gp3) | €2.10 | $0.115/GB-month × 20 GB = $2.30 ≈ €2.10. Split from the instance line so the FX-vs-formula maths is auditable. |
 | RDS backup storage (7-day) | €0.10 | 20 GB × free-tier-equivalent retention; sub-€1 |
-| App Runner api — provisioned (0.25 vCPU, 0.5 GB) | €4.50 | `min_size = 1` posture: 0.5 GB × €0.007/GB-hr × 730 hrs = €2.55 provisioned-memory baseline (always-on), plus 0.25 vCPU × €0.064/vCPU-hr × ~120 active hrs (operator dashboard use) ≈ €1.92 active-vCPU. Rounded to €4.50. |
+| App Runner api — provisioned (0.25 vCPU, 0.5 GB) | €4.50 | `min_size = 1` posture: 0.5 GB × $0.007/GB-hr × 730 hrs = €2.30 provisioned-memory baseline (always-on), plus 0.25 vCPU × $0.064/vCPU-hr × ~120 active hrs (operator dashboard use) ≈ €1.73 active-vCPU. Rounded up to €4.50 for headroom. |
 | App Runner ingestion — scale-to-zero | €0.50 | One daily scan × ~5 min × small footprint; effectively rounding error |
+| Secrets Manager — INGESTION_SHARED_SECRET (one secret, two stages — §8.1.1) | €0.40 | Provisional; if App Runner version-stage support fails the verify, this becomes €0.80 (two secrets). |
 | ECR storage (3 repos × 30 images × 250 MB avg) | €2.25 | €0.10/GB × ~22.5 GB |
 | S3 dashboard bucket (50 MB) | €0.01 | Cents |
 | CloudFront (5 GB egress + 50k requests) | €0.60 | EU traffic, small SPA |
@@ -1585,7 +1737,7 @@ All prices in EUR, eu-central-1, post-tax-exclusive, 2025 pricing. "Idle" = no o
 | CloudWatch Logs (App Runner + ECS, 7-day) | €1.50 | ~5 GB ingestion + retained × €0.50/GB |
 | Data transfer (out to internet, IGW) | €0.50 | Mostly the CloudFront origin pulls |
 | VPC connector ENIs | €0.00 | Free for App Runner connector (charged inside service hours) |
-| **Total** | **~€22** | Below the €24-34 target |
+| **Total** | **~€24.80** | Inside the €24-34 target band, ~€2.80 above the prior estimate (which under-counted RDS storage and omitted the SM line). |
 
 ### 12.2 What blows the budget
 
@@ -1594,7 +1746,7 @@ All prices in EUR, eu-central-1, post-tax-exclusive, 2025 pricing. "Idle" = no o
 | NAT Gateway | +€33 | Switching to private subnets — DO NOT |
 | RDS Multi-AZ | +€12 | Flipping `multi_az = true` — defer until ops budget permits |
 | Performance Insights | +€7 | Per-DB enable — useful but not free |
-| Secrets Manager (instead of SSM) | +€2.40 | 6 secrets × €0.40 — avoid |
+| Secrets Manager for ALL secrets (instead of SSM where appropriate) | +€2.00 | Five extra secrets × €0.40 if we moved DATABASE_URL/ENCRYPTION_KEY/AXIAOPS_LICENSE/the two infra passwords to SM. Avoid — they don't benefit from SM features. INGESTION_SHARED_SECRET is in SM by design (§8.1.1). |
 | App Runner instance bumped to 0.5 vCPU | +€5 | Premature; 0.25 is enough for AxiaOps load |
 | CloudWatch log retention raised to 30 days | +€3 | Hold at 7 unless an incident demands more |
 | Custom domain on App Runner (per service) | +€1 | We use CloudFront → App Runner via origin instead; cost is in CloudFront pricing |
@@ -1620,34 +1772,67 @@ The AxiaOps service detecting zombie AWS resources cannot detect *its own* AWS a
 Run these in order. Each step is a separate `terraform apply` because the dependencies cross module boundaries in ways the operator should be able to inspect plan output for, mid-sequence.
 
 ```
-1. infra/terraform/bootstrap        → S3 state bucket + DynamoDB lock + state-readonly role (§4.2)
-2. infra/terraform/environments/production with -target=module.network
+1.  infra/terraform/bootstrap        → S3 state bucket + DynamoDB lock + state-readonly role (§4.2)
+2.  infra/terraform/environments/production with -target=module.network
                                     → VPC, subnets, IGW, security groups, VPC connector
-3. infra/terraform/environments/production with -target=module.secrets
-                                    → SSM parameters with placeholder values
-4. Operator: out-of-band populate AXIAOPS_LICENSE in SSM (§8.4) — `aws ssm put-parameter`
-5. infra/terraform/environments/production with -target=module.data
-                                    → RDS instance (uses owner password from secrets)
+3a. infra/terraform/environments/production with -target=module.secrets_passwords
+                                    → random_password for axiaops_owner + axiaops
+                                    → /axiaops/prod/infra/{owner,app_user}_password SSM params
+                                    → No data dep — runs before module.data on purpose (§3.2 cycle break)
+3b. infra/terraform/environments/production with -target=module.secrets_urls
+                                    → Placeholder SSM params for runtime-injected secrets.
+                                      AXIAOPS_LICENSE gets a placeholder sentinel; DATABASE_URL/
+                                      MIGRATION_DATABASE_URL stay empty (cannot compose without
+                                      rds_endpoint yet).
+                                      INGESTION_SHARED_SECRET[_NEXT] populated either:
+                                        - as one SM secret with AWSCURRENT/AWSPENDING stages, OR
+                                        - as two/three SSM SecureString params (the §8.1.1 fallback).
+                                      See §8.1.1 for the App-Runner-verify decision gate.
+4.  Operator: out-of-band populate /axiaops/prod/api/AXIAOPS_LICENSE AND
+              /axiaops/prod/ingestion/AXIAOPS_LICENSE in SSM (§8.4) — `aws ssm put-parameter`
+5.  infra/terraform/environments/production with -target=module.data
+                                    → RDS instance (consumes secrets_passwords.owner_password_arn)
                                     → ~10-minute apply due to RDS provisioning
-6. infra/terraform/environments/production with -target=module.iam
+5b. infra/terraform/environments/production with -target=module.secrets_urls -refresh-only
+                                    → re-runs the URL composition now that data.rds_endpoint exists.
+                                      DATABASE_URL + MIGRATION_DATABASE_URL get their real values.
+                                      The -refresh-only flag is a misnomer — we re-apply with the
+                                      newly-available output. Faster than a full -refresh-only since
+                                      we already know it touches only the secrets_urls submodule.
+6.  infra/terraform/environments/production with -target=module.iam
                                     → GitLab OIDC provider + role
-                                    → App Runner instance roles
+                                    → App Runner instance roles (with the §10.3 build./tasks. principals)
                                     → Migrate task roles
-7. infra/terraform/environments/production with -target=module.compute
+6.5 Operator: verify the live AXIAOPS_LICENSE values are not the placeholder sentinel.
+              For each path:
+                aws ssm get-parameter \
+                  --name /axiaops/prod/api/AXIAOPS_LICENSE \
+                  --with-decryption --query Parameter.Value --output text | head -c 16
+              Expect "eyJhbGciOiJSUzI1" (the standard RS256 JWT header prefix). If it prints
+              the placeholder sentinel, go back to step 4 — do NOT proceed to step 7.
+7.  infra/terraform/environments/production with -target=module.compute
                                     → ECR repos
-                                    → ECS task definition for migrate
-                                    → App Runner services (api + ingestion)
-                                    → API services start, fail health check (no app user yet)
-8. Operator: push first images to ECR (manual `docker push` on the operator's machine, since
-   the CI deploy role exists but the CI pipeline hasn't been migrated yet)
-9. Operator: run the migrate task once (creates the `axiaops` app user + schema)
-   aws ecs run-task --task-definition axiaops-migrate --cluster axiaops-migrate --launch-type FARGATE \
-     --network-configuration "awsvpcConfiguration={subnets=[...],securityGroups=[...]}"
-10. App Runner services pick up working DATABASE_URL on next deploy
-    aws apprunner start-deployment --service-arn <api-arn>
-    aws apprunner start-deployment --service-arn <ingestion-arn>
+                                    → ECS task definition for migrate + ECS cluster axiaops-migrate
+                                    → App Runner services (api + ingestion).
+                                      Containers boot, services.api.main:85 die()s on storage init
+                                      because the axiaops app user does not exist yet. App Runner
+                                      restarts the container; expect a crash-loop until step 9.
+                                      This is correct behaviour — not a regression.
+8.  Operator: push first images to ECR (manual `docker push` on the operator's machine, since
+    the CI deploy role exists but the CI pipeline hasn't been migrated yet)
+9.  Operator: run the migrate task once. This invokes postgres.Bootstrap (services/shared/
+    storage/postgres/migrate.go:35), which creates the axiaops role idempotently and ALTERs its
+    password from DATABASE_URL, then applies all migrations.
+      aws ecs run-task --task-definition axiaops-migrate --cluster axiaops-migrate \
+        --launch-type FARGATE \
+        --network-configuration "awsvpcConfiguration={subnets=[...],securityGroups=[...]}"
+10. After step 9, the App Runner crash-loop self-resolves on the next restart (no config change
+    needed — the user just now exists). Optionally nudge: `aws apprunner start-deployment` on
+    each service to skip the natural backoff.
 11. infra/terraform/environments/production with -target=module.edge
-                                    → S3 bucket, ACM cert, CloudFront distribution, Route 53 records
+                                    → S3 bucket, ACM cert (us-east-1) + validation records +
+                                      certificate_validation resource, CloudFront distribution,
+                                      Route 53 records
                                     → ACM validation hangs until step 12
 12. Operator: at the domain registrar, point axiaops.io NS records at the Route 53 NS values
 13. Wait ~30-60 minutes for ACM validation
@@ -1657,13 +1842,104 @@ Run these in order. Each step is a separate `terraform apply` because the depend
     test https://app.axiaops.io loads.
 16. Operator: install the GitLab CI deploy role in GitLab CI variables; update .gitlab-ci.yml
     to assume the role instead of using long-lived keys (separate MR).
+17. Adopt + cut over existing out-of-band resources (§13.1.1) — only AFTER steps 1-16 land cleanly.
 ```
 
 The `-target=` pattern is deliberately operator-driven for the first apply. Subsequent applies (`terraform apply` with no target) should produce a no-op plan once everything is in place.
 
+### 13.1.1 Adopting and cutting over the existing out-of-band production
+
+Production AWS account `123456789012` already runs three App Runner services (`axiaops-api`, `axiaops-ingestion`, `axiaops-dashboard`) and three ECR repos (`axiaops-api`, `axiaops-ingestion`, `axiaops-dashboard`), all created out-of-band by the founder and consumed by `.gitlab-ci.yml:1013-1023`. The §1 statement that this MR "replaces drift with declarative state" is non-trivial: TF must adopt the live api + ingestion services and retire the dashboard service.
+
+**Adoption (api + ingestion ECR repos + App Runner services + IAM):**
+
+```bash
+# After step 7 lands the new TF resources successfully (clean plan, clean apply),
+# import the existing AWS resources into the new TF state. terraform import
+# requires the live resource to match the TF resource config exactly — if it
+# doesn't (env-vars, IAM role refs, scaling config), terraform plan will show
+# diff after import and require a manual reconciliation pass.
+
+# Discover the live state first
+aws apprunner describe-service --service-arn arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-api/<id>
+aws apprunner describe-service --service-arn arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-ingestion/<id>
+
+# Compare to the §7.1 / §7.2 TF resource attributes. Edit the TF resource to
+# match the LIVE state where the live state is correct (e.g. existing
+# auto-scaling config ARN); edit the LIVE state where the TF config is
+# correct (e.g. the new instance role from §10.2). The order matters: TF
+# import binds whatever-is-live into state, so the LIVE-correct attributes
+# survive the import unchanged.
+
+terraform import module.compute.aws_apprunner_service.api      arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-api/<id>
+terraform import module.compute.aws_apprunner_service.ingestion arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-ingestion/<id>
+terraform import module.compute.aws_ecr_repository.api          axiaops-api
+terraform import module.compute.aws_ecr_repository.ingestion    axiaops-ingestion
+
+# terraform plan now. Expect drift — reconcile each diff line one at a time.
+# Most likely diffs:
+#   - instance role ARN (TF wants the new least-privilege role; live points at
+#     the old founder-provisioned one). Apply this diff — TF's role is correct.
+#   - runtime_environment_variables (some env-vars live in TF now, some still
+#     live in the live service). Match TF to operator's runbook intent.
+#   - lifecycle.ignore_changes for image_identifier (§7.3) — adopt as-is.
+```
+
+**Cutover (dashboard retirement):**
+
+```bash
+# Only after MR 4 (edge — S3 + CloudFront) lands and https://app.axiaops.io
+# verifiably serves the SPA. Cut DNS, validate, then retire the old service.
+
+# 1. Confirm the new path works
+curl -sS -o /dev/null -w "%{http_code}\n" https://app.axiaops.io/
+curl -sS -o /dev/null -w "%{http_code}\n" https://app.axiaops.io/api/v1/version
+
+# 2. Drop the dashboard App Runner update from .gitlab-ci.yml — remove the
+#    lines 1021-1023 update-service call in a follow-up MR (call it MR 4.5).
+#    This makes CI stop touching the dashboard service.
+
+# 3. Delete the dashboard service AND its ECR repo manually (NOT via TF — we
+#    never adopted them):
+aws apprunner delete-service --service-arn arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-dashboard/<id>
+aws ecr delete-repository --repository-name axiaops-dashboard --force
+
+# 4. Free the old dashboard's CloudFront-equivalent an edge proxy rules if any survive
+#    from the pre-prod env (none do for production, but check).
+```
+
+**Migrate ECR repo — net new.** The `axiaops-migrate` repo and image are net-new in this MR (no existing service to adopt). The first `terraform apply -target=module.compute` creates the empty repo; the operator then `docker push`es the migrate image in step 8.
+
+The whole adoption pass typically takes 1-2 hours of careful diff-reading + small TF edits + re-plans. Budget for it explicitly — the first time this MR lands in production is the hardest day of the rollout.
+
 ### 13.2 Rotating the C-1 HMAC secret without downtime
 
-Follows the playbook in `docs/c1-hmac-plan.md` §5, translated to TF actions. Uses the three-variable split from §8.3.
+Follows the playbook in `docs/c1-hmac-plan.md` §5, translated to TF actions. Uses the three-variable split from §8.3 (the SSM fallback shape).
+
+**If §8.1.1's Secrets Manager path was chosen,** the entire playbook below collapses to:
+
+```bash
+# 1. Stage new version Y as AWSPENDING
+aws secretsmanager put-secret-value --secret-id /axiaops/prod/ingestion-hmac \
+  --secret-string "Y" --version-stages AWSPENDING
+
+# 2. Redeploy ingestion to load both AWSCURRENT (X) and AWSPENDING (Y)
+aws apprunner start-deployment --service-arn <ingestion-arn>
+
+# 3. Promote AWSPENDING → AWSCURRENT atomically (single API call)
+aws secretsmanager update-secret-version-stage --secret-id /axiaops/prod/ingestion-hmac \
+  --version-stage AWSCURRENT \
+  --move-to-version-id <Y's version-id> \
+  --remove-from-version-id <X's version-id>
+
+# 4. Redeploy api + ingestion to load the promoted Y
+aws apprunner start-deployment --service-arn <api-arn>
+aws apprunner start-deployment --service-arn <ingestion-arn>
+```
+
+One TF action (`put-secret-value` is not in TF; the secret resource has `ignore_changes = [secret_string]` so SM-side rotations don't trip plan). Skip the SSM-fallback playbook below.
+
+**SSM-fallback playbook (the rest of §13.2):**
 
 ```
 Pre-state: api_ingestion_secret = X
@@ -1673,7 +1949,7 @@ Pre-state: api_ingestion_secret = X
 
 Step 1 — Stage new secret Y on ingestion's _NEXT slot.
   • Edit infra/terraform/environments/production/main.tf:
-      module "secrets" {
+      module "secrets_urls" {
         api_ingestion_secret     = "X"   # unchanged
         ingestion_primary_secret = "X"   # unchanged
         ingestion_next_secret    = "Y"   # ← new value
@@ -1688,7 +1964,7 @@ Step 1 — Stage new secret Y on ingestion's _NEXT slot.
 
 Step 2 — Flip api signer to Y. Ingestion primary stays X.
   • Edit infra/terraform/environments/production/main.tf:
-      module "secrets" {
+      module "secrets_urls" {
         api_ingestion_secret     = "Y"   # ← flipped
         ingestion_primary_secret = "X"   # unchanged — KEEP X HERE
         ingestion_next_secret    = "Y"   # unchanged
@@ -1702,7 +1978,7 @@ Step 2 — Flip api signer to Y. Ingestion primary stays X.
 
 Step 3 — Promote Y to ingestion primary, clear _NEXT.
   • Edit infra/terraform/environments/production/main.tf:
-      module "secrets" {
+      module "secrets_urls" {
         api_ingestion_secret     = "Y"   # unchanged
         ingestion_primary_secret = "Y"   # ← promoted
         ingestion_next_secret    = "Y"   # defensive — same value as primary (steady-state shape)
@@ -1723,23 +1999,56 @@ If the TF state stores the new secret values, anyone with state-read access lear
 
 ### 13.3 Rolling back an App Runner service to a prior image
 
-The ECR lifecycle keeps the last 30 tagged images. To roll back the api to the image from yesterday:
+The ECR lifecycle keeps the last 30 tagged images. **The naive rollback path (`aws apprunner update-service --source-configuration ImageRepository={...ImageConfiguration={Port=8080}}`) silently clears `RuntimeEnvironmentVariables` and `RuntimeEnvironmentSecrets`** — the CLI replays the entire source config, and any field omitted from the call is reset on the rolled-back revision. The api will then boot with no `DATABASE_URL`, no `ENCRYPTION_KEY`, no `AXIAOPS_LICENSE`, and `die()` on storage init. Don't do that.
+
+**Two safe rollback paths:**
+
+**Path A — re-tag `:latest` and `start-deployment` (recommended).** App Runner's `start-deployment` redeploys with the current `source_configuration`, so all env-vars are preserved. Re-tagging in ECR is the only mutation.
 
 ```bash
 # Find the previous tag
 aws ecr describe-images --repository-name axiaops-api \
   --query 'sort_by(imageDetails,& imagePushedAt)[*].[imagePushedAt,imageTags[0]]' \
   --output table
+# Pick e.g. main-abc1234
 
-# Roll back
-aws apprunner update-service \
-  --service-arn arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-api/<service-id> \
-  --source-configuration "ImageRepository={ImageIdentifier=123456789012.dkr.ecr.eu-central-1.amazonaws.com/axiaops-api:main-abc1234,ImageRepositoryType=ECR,ImageConfiguration={Port=8080}}"
+# Re-tag that image as :latest in ECR
+MANIFEST=$(aws ecr batch-get-image --repository-name axiaops-api \
+  --image-ids imageTag=main-abc1234 --query 'images[0].imageManifest' --output text)
+aws ecr put-image --repository-name axiaops-api \
+  --image-tag latest --image-manifest "$MANIFEST"
+
+# Redeploy — App Runner pulls the freshly-retagged :latest, env-vars intact
+aws apprunner start-deployment \
+  --service-arn arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-api/<service-id>
 ```
 
-The rollback typically completes in 2-5 minutes (App Runner pulls the image, starts a new instance, switches traffic, terminates the old instance). No TF involved — TF's `ignore_changes = [image_identifier]` keeps the rollback out of state drift.
+**Path B — full source-config replay (if you must use update-service).** Read the existing source config, mutate only the image identifier, replay everything else.
 
-For coordinated rollbacks (api + ingestion together), run both `apprunner update-service` calls in quick succession; App Runner doesn't serialize them.
+```bash
+SERVICE_ARN=arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-api/<service-id>
+
+# Capture the full current source config
+CURRENT=$(aws apprunner describe-service --service-arn "$SERVICE_ARN" \
+  --query 'Service.SourceConfiguration' --output json)
+
+# Patch ImageIdentifier in-place (python or jq); everything else — env-vars,
+# secrets, port, authentication_configuration, auto_deployments — survives.
+PATCHED=$(echo "$CURRENT" | python3 -c '
+import sys, json
+c = json.load(sys.stdin)
+c["ImageRepository"]["ImageIdentifier"] = "123456789012.dkr.ecr.eu-central-1.amazonaws.com/axiaops-api:main-abc1234"
+print(json.dumps(c))
+')
+
+aws apprunner update-service \
+  --service-arn "$SERVICE_ARN" \
+  --source-configuration "$PATCHED"
+```
+
+The rollback typically completes in 2-5 minutes (App Runner pulls the image, starts a new instance, switches traffic, terminates the old instance). No TF involved — TF's `ignore_changes = [image_identifier]` (§7.3) keeps either path out of state drift.
+
+For coordinated rollbacks (api + ingestion together), run both invocations in quick succession; App Runner doesn't serialize them.
 
 ### 13.4 RDS disaster recovery
 
@@ -1872,6 +2181,18 @@ The TF `aws_ssm_parameter` resource for `AXIAOPS_LICENSE` has `lifecycle.ignore_
 - Effort: ~1-2 days.
 - Validation: A test deploy from a `main`-branch pipeline succeeds.
 
+**MR 4.5 — Out-of-band production cutover.** Adopts the existing `axiaops-api` and `axiaops-ingestion` App Runner services + ECR repos into TF state via `terraform import`, then retires the old `axiaops-dashboard` App Runner service + ECR repo (replaced by S3 + CloudFront from MR 4). Follows §13.1.1 step-by-step. Has to land AFTER MR 4 verifies https://app.axiaops.io serves the SPA — otherwise the dashboard cutover leaves a window with no working UI.
+
+- Files: TF state imports (no source-file changes for the imports themselves); `.gitlab-ci.yml` (drop lines 1021-1023 dashboard update); audit doc update if needed.
+- Effort: ~1-2 days (mostly careful `terraform plan` diff-reading after imports).
+- Validation: post-cutover `terraform plan` is clean (no drift); axiaops-dashboard service deleted; CI deploy:production succeeds with no dashboard touch.
+
+**MR 5 — CI migration to OIDC role.** Updates `.gitlab-ci.yml` to assume the new role instead of using long-lived keys. Removes `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` from GitLab CI variables.
+
+- Files: `.gitlab-ci.yml`, `docs/CI_CD_SECRETS_SETUP.md` (rewrite for the OIDC posture).
+- Effort: ~1-2 days.
+- Validation: A test deploy from a `main`-branch pipeline succeeds.
+
 **MR 6 — `docs/ops.md` runbook.** Captures the operational playbook from §13 in a dedicated runbook, with the field-tested commands operators actually need.
 
 - Files: `docs/ops.md`.
@@ -1879,8 +2200,8 @@ The TF `aws_ssm_parameter` resource for `AXIAOPS_LICENSE` has `lifecycle.ignore_
 
 ### 15.2 Estimated total effort
 
-- 6 MRs.
-- ~13-17 working days of focused work.
+- 7 MRs (was 6 — added MR 4.5 for the out-of-band cutover).
+- ~14-19 working days of focused work.
 - Strung over ~3-4 weeks calendar time (DNS propagation, RDS provisioning, code review gaps).
 - Plus ~3-5 days of unanticipated AWS-quirk debugging — budget it.
 
