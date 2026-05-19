@@ -285,13 +285,29 @@ Cons: every var passed through one giant `variables.tf`; impossible to provision
 
 Rejected because the staging-environment story (constraint 8) is real even if staging isn't in the first apply. The module shape makes a future `environments/staging/main.tf` a 50-line file that calls the same modules with different vars.
 
-**Alternative B — Terragrunt with DRY hierarchical includes.**
+**Alternative B — Terragrunt with DRY hierarchical includes + per-module state.**
 
-Pros: industry-standard for multi-env Terraform; eliminates the `environments/*/main.tf` copy-paste.
+The conventional case for Terragrunt is multi-env DRY, but that's the *weakest* case for adopting it here. The stronger fit cases for THIS architecture, after the §3.2 module split and the §13.1 17-step apply sequence, are:
 
-Cons: adds a binary dependency (operators install `terragrunt` in addition to `terraform`); adds a config layer (`terragrunt.hcl` files) on top of the existing TF abstraction; the value only materialises once you have 3+ environments. For staging + production, vanilla TF workspaces or the `environments/` directory pattern is sufficient.
+1. **Ordered apply via `run-all`.** §13.1 currently lists 17 explicit `terraform apply -target=module.X` steps with manual SSM/IDP gates interspersed. Terragrunt's `run-all apply` walks the dependency graph natively — the `-target` plumbing collapses. §13.1.1 adoption + cutover gets per-module imports instead of fully-qualified `module.compute.aws_apprunner_service.api` strings.
 
-Rejected for now. Revisit when we provision a third env (e.g. customer-shared single-tenant SaaS slot).
+2. **Per-module state files.** Vanilla TF as designed keeps everything in `s3://axiaops-tf-state/production/terraform.tfstate` — one big state. Terragrunt would give one state file per module per env (`.../production/network/terraform.tfstate`, `.../production/data/terraform.tfstate`, etc.). State-corruption blast radius shrinks, `plan` is faster per-module, locks are finer-grained.
+
+3. **The §3.2 cycle break becomes the natural unit, not a workaround.** Splitting `secrets` into `secrets-passwords` + `secrets-urls` was forced by vanilla TF's single-composition-root model. In Terragrunt the two are root modules with a `dependency.data` block — the split reads as native architecture, not as plumbing.
+
+Pros (in priority order for AxiaOps): operational ergonomics on first apply; smaller blast radius per state file; cleaner expression of inter-module dependencies; THEN cross-env DRY (only matters once staging materialises).
+
+Cons: adds a binary dependency (`brew install terragrunt` for operators is trivial; the CI `docker:24` Alpine image needs `apk add terragrunt` or a baked-in static binary); steeper handoff curve if AxiaOps ever brings in a contractor (Terraform is universal, Terragrunt narrower); design decisions in this doc don't change either way — the win is purely how the apply orchestrates.
+
+**Rejected for v1, with a concrete revisit trigger.** Cost of switching now: ~1 day of layout work + the new bin-dep in CI. Marginal benefit for one operator on one env: low — the 17-step sequence runs exactly once per env, and per-module state isn't load-bearing until multiple people apply concurrently. Vanilla TF gets MR 1-6 shipped.
+
+Revisit when **any** of these lands:
+
+- A second environment (`environments/staging/`) is actually provisioned — the second copy of `main.tf` is when cross-env DRY pain becomes concrete.
+- A third env enters the roadmap (preview, customer-shared single-tenant SaaS slot, on-prem demo).
+- A second person besides the founder runs `terraform apply` against prod — per-module state + Terragrunt's plan display reduce concurrent-mistake surface.
+
+When the trigger fires, the migration is mechanical: the `infra/terraform/modules/` tree stays as-is and becomes the `source = "..."` target for per-module `terragrunt.hcl` files under `environments/<env>/<module>/`. Bookmark this section as the upgrade pre-read.
 
 **Alternative C — Pulumi or CDK.**
 
@@ -301,7 +317,7 @@ Cons: zero AxiaOps prior art; community for AWS infra patterns is much smaller t
 
 Rejected. HCL is the lingua franca for AWS infrastructure; the marginal pain of HCL is worth the marginal benefit of hireability.
 
-**Decision: vanilla Terraform with the module + environments shape above.** Pluggable into Terragrunt later if multi-env count grows.
+**Decision: vanilla Terraform with the module + environments shape above.** The §3.3 Alternative B revisit triggers are the explicit gates for picking Terragrunt up later — when one fires, the migration is mechanical because the `modules/` tree is already the shape Terragrunt expects.
 
 ### 3.4 Terraform version + provider versions
 
