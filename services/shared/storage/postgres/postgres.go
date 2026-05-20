@@ -1384,12 +1384,12 @@ func (s *Store) AuditLogWrite(ctx context.Context, e model.AuditEvent) (int64, e
 	var id int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO audit_log (
-			organization_id, user_id, actor_email, action,
+			organization_id, user_id, actor_email, actor_name, action,
 			resource_type, resource_id, reason, metadata,
 			request_id, ip_address, user_agent
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id`,
-		organizationID, userIDArg, e.ActorEmail, e.Action,
+		organizationID, userIDArg, e.ActorEmail, e.ActorName, e.Action,
 		e.ResourceType, e.ResourceID, e.Reason, string(metadataJSON),
 		e.RequestID, ipArg, e.UserAgent,
 	).Scan(&id)
@@ -1465,8 +1465,13 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 	// nullable **string). The default binary codec for INET decodes into
 	// netip.Prefix or net.IPNet, neither of which fit our nullable-string
 	// field without a typed wrapper. The cast is cheap — inet → text is O(1).
+	//
+	// actor_name is denormalised on write (migration 028) — captured at event
+	// time so audit history survives later renames and GDPR anonymisation,
+	// symmetrical to actor_email. AnonymiseUser clears it to '' alongside
+	// rewriting actor_email to 'deleted-user'.
 	query := fmt.Sprintf(`
-		SELECT id, organization_id, user_id, actor_email, action,
+		SELECT id, organization_id, user_id, actor_email, actor_name, action,
 		       resource_type, resource_id, reason, metadata,
 		       request_id, host(ip_address) AS ip_address, user_agent, created_at
 		FROM audit_log
@@ -1487,7 +1492,7 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 		var userID, ipAddr *string
 		var metadataJSON []byte
 		if err := rows.Scan(
-			&e.ID, &e.OrganizationID, &userID, &e.ActorEmail, &e.Action,
+			&e.ID, &e.OrganizationID, &userID, &e.ActorEmail, &e.ActorName, &e.Action,
 			&e.ResourceType, &e.ResourceID, &e.Reason, &metadataJSON,
 			&e.RequestID, &ipAddr, &e.UserAgent, &e.CreatedAt,
 		); err != nil {
@@ -1524,8 +1529,12 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 	return out, nil
 }
 
-// AuditLogAnonymiseUser nulls user_id and replaces actor_email for all rows
-// matching (organization_id, user_id). Called from the GDPR user-delete path.
+// AuditLogAnonymiseUser nulls user_id, replaces actor_email with the
+// 'deleted-user' sentinel, and clears actor_name. Called from the GDPR
+// user-delete path; actor_name uses '' rather than the email's sentinel
+// because the frontend already falls back to actor_email when name is empty,
+// so a parallel sentinel would just push 'deleted-user' onto the name row
+// of the UI redundantly.
 func (s *Store) AuditLogAnonymiseUser(ctx context.Context, userID string) (int64, error) {
 	organizationID := storage.OrganizationIDFromCtx(ctx)
 	if organizationID == "" {
@@ -1549,7 +1558,7 @@ func (s *Store) AuditLogAnonymiseUser(ctx context.Context, userID string) (int64
 	// insurance against an RLS misconfiguration slipping through code review.
 	tag, err := tx.Exec(ctx, `
 		UPDATE audit_log
-		SET user_id = NULL, actor_email = 'deleted-user'
+		SET user_id = NULL, actor_email = 'deleted-user', actor_name = ''
 		WHERE organization_id = $1 AND user_id = $2`,
 		organizationID, userID,
 	)

@@ -26,7 +26,9 @@ import (
 func injectIdentity(parent context.Context, organizationID, userID, email string) context.Context {
 	src := httptest.NewRequest(http.MethodGet, "/seed", nil).WithContext(parent)
 	var captured context.Context
-	middleware.DevBypass(organizationID, userID, email, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	// "" for the name slot — DevBypass seeds the display name as empty for
+	// most tests (covered by the dev user in cmd/main.go).
+	middleware.DevBypass(organizationID, userID, email, "", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		captured = r.Context()
 	})).ServeHTTP(httptest.NewRecorder(), src)
 	return captured
@@ -1255,12 +1257,25 @@ func (m *MockStore) UpdateUserPassword(context.Context, string, string) error {
 	return errors.New("MockStore.UpdateUserPassword not implemented")
 }
 
+func (m *MockStore) UpdateUserName(_ context.Context, userID, newName string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, u := range m.users {
+		if u.ID == userID {
+			old := u.Name
+			m.users[i].Name = newName
+			return old, nil
+		}
+	}
+	return "", storage.ErrUserNotFound
+}
+
 func (m *MockStore) CountOrganizations(context.Context) (int64, error) {
 	return 0, nil
 }
 
-func (m *MockStore) LookupMembership(context.Context, string, string) (string, string, error) {
-	return "", "", nil
+func (m *MockStore) LookupMembership(context.Context, string, string) (string, string, string, error) {
+	return "", "", "", nil
 }
 
 func (m *MockStore) LookupUserByEmail(context.Context, string) (model.User, []model.Membership, error) {
@@ -1269,6 +1284,10 @@ func (m *MockStore) LookupUserByEmail(context.Context, string) (model.User, []mo
 
 func (m *MockStore) CreateSession(context.Context, model.Session) (model.Session, error) {
 	return model.Session{}, errors.New("MockStore.CreateSession not implemented")
+}
+
+func (m *MockStore) CreateSessionEnforcingCap(context.Context, model.Session, int) (model.Session, []string, error) {
+	return model.Session{}, nil, errors.New("MockStore.CreateSessionEnforcingCap not implemented")
 }
 
 func (m *MockStore) GetSessionByTokenHash(context.Context, string) (model.Session, error) {

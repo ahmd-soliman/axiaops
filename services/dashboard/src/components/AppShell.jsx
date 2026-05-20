@@ -123,7 +123,7 @@ export default function AppShell() {
             {/* Nav links — color + weight signal active state; bg is reserved
                 for hover feedback so inactive items aren't dead targets. */}
             <nav aria-label="Main navigation" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
-              {visibleNavItems.map(({ label, path, Icon }) => {
+              {visibleNavItems.map(({ label, path }) => {
                 const isActive = isNavActive(path, location.pathname);
                 const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
                 return (
@@ -136,7 +136,6 @@ export default function AppShell() {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 6,
                       padding: '5px 10px',
                       borderRadius: 7,
                       border: 'none',
@@ -145,7 +144,6 @@ export default function AppShell() {
                       transition: 'background-color 120ms ease',
                     }}
                   >
-                    <Icon color={isActive ? 'var(--color-accent)' : 'var(--color-text)'} />
                     <span style={{
                       fontSize: 13,
                       fontWeight: isActive ? 700 : 550,

@@ -27,6 +27,17 @@ import (
 // coordinated dual-write window.
 const bootstrapAdvisoryLockKey = int64(0x4178696F4F70730A) // "AxiaOps\n" as int64
 
+// sessionMintAdvisoryLockClass namespaces the per-user advisory locks taken
+// inside CreateSessionEnforcingCap. The two-argument form
+// pg_advisory_xact_lock(int4, int4) lives in a separate keyspace from the
+// single-int8 locks above, so this constant cannot collide with the
+// bootstrap or migration-history locks. Hashing the user_id with hashtext
+// into the second int4 gives per-user contention only — two mints for
+// DIFFERENT users never serialise on each other (modulo the rare int4 hash
+// collision, which is harmless: the worse-case is a millisecond wait for an
+// unrelated user's tx to commit). Stable across releases.
+const sessionMintAdvisoryLockClass = int32(0x4D696E74) // "Mint" as int32
+
 // ── Native-auth user mutations ──────────────────────────────────────────────
 
 // CreateUserWithPassword inserts a user row with a password hash and a
@@ -105,6 +116,38 @@ func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash str
 	return nil
 }
 
+// UpdateUserName sets users.name and returns the previous value in one
+// round-trip. Bypasses RLS for the same reason as UpdateUserPassword.
+// Returns ErrUserNotFound when no row matches.
+func (s *Store) UpdateUserName(ctx context.Context, userID, newName string) (string, error) {
+	if userID == "" {
+		return "", fmt.Errorf("postgres: update user name: userID required")
+	}
+	// CTE captures the prior name before the UPDATE applies; the outer
+	// SELECT returns it. Single statement, atomic read+write — no race
+	// where a concurrent SELECT could see the new value but still be
+	// returned the old one.
+	var oldName string
+	err := s.adminPool.QueryRow(ctx, `
+		WITH prior AS (
+			SELECT name FROM users WHERE id = $1
+		),
+		upd AS (
+			UPDATE users SET name = $2 WHERE id = $1
+			RETURNING id
+		)
+		SELECT prior.name FROM prior, upd`,
+		userID, newName,
+	).Scan(&oldName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", storage.ErrUserNotFound
+		}
+		return "", fmt.Errorf("postgres: update user name: %w", err)
+	}
+	return oldName, nil
+}
+
 // CountOrganizations returns the total org count across the cluster.
 // Uses the admin pool — this is called at startup before any org context
 // exists, and organizations has no RLS policy anyway.
@@ -180,27 +223,27 @@ func (s *Store) LookupUserByEmail(ctx context.Context, email string) (model.User
 // Returns ("", "", nil) when no membership row matches — the caller
 // treats that as authentication failure (defence in depth: a session
 // that points at a now-deleted membership must not authenticate).
-func (s *Store) LookupMembership(ctx context.Context, organizationID, userID string) (string, string, error) {
+func (s *Store) LookupMembership(ctx context.Context, organizationID, userID string) (string, string, string, error) {
 	if organizationID == "" || userID == "" {
-		return "", "", nil
+		return "", "", "", nil
 	}
-	// users.email is NOT NULL DEFAULT '' (migration 001), so no COALESCE
-	// is needed — empty-string emails round-trip as empty strings.
-	var role, email string
+	// users.email and users.name are both NOT NULL DEFAULT '' (migration 001),
+	// so no COALESCE is needed — empty strings round-trip as empty strings.
+	var role, email, name string
 	err := s.adminPool.QueryRow(ctx, `
-		SELECT m.role, u.email
+		SELECT m.role, u.email, u.name
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1 AND m.user_id = $2`,
 		organizationID, userID,
-	).Scan(&role, &email)
+	).Scan(&role, &email, &name)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", nil
+		return "", "", "", nil
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("postgres: lookup membership: %w", err)
+		return "", "", "", fmt.Errorf("postgres: lookup membership: %w", err)
 	}
-	return role, email, nil
+	return role, email, name, nil
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────
@@ -269,6 +312,182 @@ func (s *Store) CreateSession(ctx context.Context, in model.Session) (model.Sess
 		out.IDTokenEncrypted = *idTokenEnc
 	}
 	return out, nil
+}
+
+// CreateSessionEnforcingCap inserts a session row and, in the same
+// transaction, revokes any oldest-first excess live sessions for the user
+// so the post-commit count is exactly perUserCap. Closes the M-7 audit
+// window from the 2026-05-09 audit: the previous implementation ran the
+// cap-enforcement in a separate post-INSERT call, so a transient revoke
+// failure (PG blip / cache error) left an over-cap leftover until the
+// 5-minute sweep. Folding both into one tx makes the cap an atomic
+// invariant — any reader sees either "no new session" (tx aborted) or
+// "exactly cap sessions, newest survived" (tx committed).
+//
+// Returns the persisted session and the list of session_token_hashes
+// that were revoked so the caller can evict cache entries post-commit
+// (architect C4 — no scan/wildcard delete on the cache).
+//
+// When perUserCap <= 0 the cap step is skipped and this method is
+// equivalent to CreateSession plus a transaction wrapper.
+func (s *Store) CreateSessionEnforcingCap(ctx context.Context, in model.Session, perUserCap int) (model.Session, []string, error) {
+	if in.ID == "" {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap: id required")
+	}
+	if in.UserID == "" || in.OrganizationID == "" {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap: user_id and organization_id required")
+	}
+	if in.SessionTokenHash == "" {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap: session_token_hash required")
+	}
+	if in.ExpiresAt.IsZero() {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap: expires_at required")
+	}
+	if in.AuthMode == "" {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap: auth_mode required")
+	}
+
+	var ipArg any
+	if in.IP != nil {
+		ipArg = in.IP.String()
+	}
+	var idTokenArg any
+	if in.IDTokenEncrypted != "" {
+		idTokenArg = in.IDTokenEncrypted
+	}
+
+	tx, err := s.adminPool.Begin(ctx)
+	if err != nil {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Per-user advisory lock — serialises concurrent mints for the SAME
+	// user_id so the cap arithmetic is coherent under parallel logins.
+	// Without it, two mints arriving while the user is exactly at cap can
+	// each see liveOthers == cap (the new row is excluded via id <> $2)
+	// and skip the revoke, leaving the user transiently at cap+2 until
+	// the 5-minute sweep ticker. Released automatically at COMMIT/ROLLBACK
+	// because this is the _xact_ variant — no defer-unlock needed. Mints
+	// for different users hash to different second-arg ints and never
+	// contend.
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock($1, hashtext($2))`,
+		sessionMintAdvisoryLockClass, in.UserID,
+	); err != nil {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap lock: %w", err)
+	}
+
+	// INSERT the new row first. The cap-enforcement queries below
+	// exclude it via `id <> out.ID` so the just-inserted row is never
+	// itself a revoke candidate — the newest session always wins the
+	// seat per architect C2 / plan §4.6. The exclusion is by ID rather
+	// than created_at because two mints within the same NOW() tick
+	// would otherwise tie on timestamp.
+	var out model.Session
+	var ipStr *string
+	var idTokenEnc *string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO sessions (
+			id, user_id, organization_id, auth_mode, session_token_hash,
+			created_at, expires_at, last_seen_at, ip, user_agent_hash,
+			id_token_encrypted
+		) VALUES (
+			$1, $2, $3, $4, $5, NOW(), $6, NOW(), $7, $8, $9
+		)
+		RETURNING id, user_id, organization_id, auth_mode, session_token_hash,
+		          created_at, expires_at, revoked_at, last_seen_at,
+		          host(ip), user_agent_hash, id_token_encrypted`,
+		in.ID, in.UserID, in.OrganizationID, string(in.AuthMode), in.SessionTokenHash,
+		in.ExpiresAt, ipArg, in.UserAgentHash, idTokenArg,
+	).Scan(
+		&out.ID, &out.UserID, &out.OrganizationID, (*string)(&out.AuthMode), &out.SessionTokenHash,
+		&out.CreatedAt, &out.ExpiresAt, &out.RevokedAt, &out.LastSeenAt,
+		&ipStr, &out.UserAgentHash, &idTokenEnc,
+	); err != nil {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap insert: %w", err)
+	}
+	if ipStr != nil {
+		out.IP = net.ParseIP(*ipStr)
+	}
+	if idTokenEnc != nil {
+		out.IDTokenEncrypted = *idTokenEnc
+	}
+
+	var revokedHashes []string
+	if perUserCap > 0 {
+		// Count live sessions for the user OTHER than the one we just
+		// inserted. If that count is >= cap the user is now over the cap
+		// (count + 1 > cap → revoke `count + 1 - cap` oldest peers).
+		// The id-exclusion guarantees we never revoke the brand-new row
+		// even in the pathological "cap = 0 after insert" case.
+		var liveOthers int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM sessions
+			WHERE user_id = $1
+			  AND revoked_at IS NULL
+			  AND expires_at > NOW()
+			  AND id <> $2`,
+			in.UserID, out.ID,
+		).Scan(&liveOthers); err != nil {
+			return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap count: %w", err)
+		}
+		// totalLive = liveOthers + 1 (the new row). Excess to revoke =
+		// totalLive - cap, clamped to >= 0.
+		excess := liveOthers + 1 - perUserCap
+		if excess > 0 {
+			// SELECT FOR UPDATE the oldest `excess` peer sessions (mirror
+			// ListUserSessionTokenHashes ordering — oldest-first by
+			// created_at, then id for stable ties). The lock prevents a
+			// concurrent revoke from racing the UPDATE below.
+			rows, err := tx.Query(ctx, `
+				SELECT id, session_token_hash FROM sessions
+				WHERE user_id = $1
+				  AND revoked_at IS NULL
+				  AND expires_at > NOW()
+				  AND id <> $2
+				ORDER BY created_at ASC, id ASC
+				LIMIT $3
+				FOR UPDATE`,
+				in.UserID, out.ID, excess,
+			)
+			if err != nil {
+				return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap select oldest: %w", err)
+			}
+			ids := make([]string, 0, excess)
+			revokedHashes = make([]string, 0, excess)
+			for rows.Next() {
+				var id, h string
+				if err := rows.Scan(&id, &h); err != nil {
+					rows.Close()
+					return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap scan oldest: %w", err)
+				}
+				ids = append(ids, id)
+				revokedHashes = append(revokedHashes, h)
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap rows oldest: %w", err)
+			}
+
+			if len(ids) > 0 {
+				if _, err := tx.Exec(ctx, `
+					UPDATE sessions
+					   SET revoked_at = NOW()
+					 WHERE id = ANY($1::text[])
+					   AND revoked_at IS NULL`,
+					ids,
+				); err != nil {
+					return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap revoke: %w", err)
+				}
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return model.Session{}, nil, fmt.Errorf("postgres: create session enforcing cap commit: %w", err)
+	}
+	return out, revokedHashes, nil
 }
 
 // GetSessionByTokenHash returns the session row whose session_token_hash
@@ -563,8 +782,8 @@ func (s *Store) RedeemPasswordReset(ctx context.Context, tokenHash, newPasswordH
 // Returns:
 //   - (true, nil)                       — this caller wrote the row
 //   - (false, nil)                      — another replica won the race; the
-//                                         row already exists with a different
-//                                         token hash
+//     row already exists with a different
+//     token hash
 //   - (false, ErrBootstrapAlreadyDone)  — organizations already exists
 func (s *Store) CreateBootstrapState(ctx context.Context, tokenHash, mintedByPod string) (bool, error) {
 	if tokenHash == "" {

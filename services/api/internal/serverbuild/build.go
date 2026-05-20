@@ -12,9 +12,9 @@
 // Four SaaS-extension seams cross Deps:
 //   - storage.Store    — already an interface; concrete impl is postgres
 //   - auth.Provider    — pluggable auth (today: native cookie sessions only;
-//                        the interface stays so a SaaS reactivation can
-//                        swap in a remote-IdP impl without touching the
-//                        rest of the chain)
+//     the interface stays so a SaaS reactivation can
+//     swap in a remote-IdP impl without touching the
+//     rest of the chain)
 //   - sso.Discoverer   — pre-auth domain → connection lookup (B2)
 //   - sso.Connector    — connection CRUD with discovery-doc validation (B2)
 //
@@ -60,12 +60,13 @@ type Config struct {
 	// native-auth handlers (login/bootstrap/OIDC ceremony) and the session-
 	// sweep ticker are NOT wired — DevBypass takes over the auth chain.
 	DevMode bool
-	// DevOrganizationID, DevUserID, DevUserEmail are read by DevBypass when
-	// DevMode is set. Required when DevMode=true; the composition root die()s
-	// on missing DevOrganizationID.
+	// DevOrganizationID, DevUserID, DevUserEmail, DevUserName are read by
+	// DevBypass when DevMode is set. Required when DevMode=true; the
+	// composition root die()s on missing DevOrganizationID.
 	DevOrganizationID string
 	DevUserID         string
 	DevUserEmail      string
+	DevUserName       string
 
 	// RedisConfigured is true when REDIS_URL was set. Drives whether
 	// rate-limiting and the readyz Redis check are wired in.
@@ -101,6 +102,13 @@ type Deps struct {
 	// Queue queues ingestion scan triggers (currently sync HTTP fallback
 	// in self-hosted; Redis LPUSH/BRPOP in SaaS). May be nil in tests.
 	Queue queue.Queue
+
+	// IngestionSecret signs outbound api → ingestion HTTP calls (POST /scan
+	// from the sync queue fallback, POST /v1/credentials/verify from the
+	// role-based onboarding flow). nil iff Config.DevMode — the receiving
+	// ingestion middleware is in passthrough mode under the same posture.
+	// See docs/c1-hmac-plan.md §3.3.
+	IngestionSecret []byte
 
 	// AuthProvider is the auth seam. Today there's a single impl
 	// (auth.NativeProvider — cookie + sessions table); the interface stays
@@ -149,8 +157,8 @@ type Deps struct {
 // (avoiding "duplicate metrics collector registration" errors) and the
 // smoke test can supply its own isolated registry.
 type Metrics struct {
-	RequestsTotal           *prometheus.CounterVec
-	RequestDurationSeconds  *prometheus.HistogramVec
+	RequestsTotal          *prometheus.CounterVec
+	RequestDurationSeconds *prometheus.HistogramVec
 }
 
 // NewDefaultMetrics constructs the standard request metrics. Callers MUST
@@ -195,12 +203,13 @@ func (sw *statusWriter) WriteHeader(code int) {
 // 500ing later.
 //
 // The returned handler is the full middleware chain, outermost-first:
-//   request-logging + metrics
-//     → request-id
-//       → auth (DevBypass | WrapNative + EnforceSSO)
-//         → rate-limiter
-//           → CORS
-//             → mux (handlers)
+//
+//	request-logging + metrics
+//	  → request-id
+//	    → auth (DevBypass | WrapNative + EnforceSSO)
+//	      → rate-limiter
+//	        → CORS
+//	          → mux (handlers)
 //
 // Tickers (stuck-scan, license, session-sweep, sso-sweep) are NOT started
 // here — composition roots own goroutine lifecycle so a test can build
@@ -231,7 +240,9 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	// ── Core API handler ──────────────────────────────────────────────────
-	apiH := api.New(deps.Store, deps.Queue).WithPublicHost(cfg.PublicHost)
+	apiH := api.New(deps.Store, deps.Queue).
+		WithPublicHost(cfg.PublicHost).
+		WithIngestionSecret(deps.IngestionSecret)
 	if cfg.RedisConfigured && deps.Cache != nil {
 		apiH = apiH.WithRedisCache(deps.Cache)
 	}
@@ -327,7 +338,7 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	// Auth: DevBypass overrides everything else. Otherwise the auth →
 	// enforcement chain wraps the rest.
 	if cfg.DevMode {
-		root = middleware.DevBypass(cfg.DevOrganizationID, cfg.DevUserID, cfg.DevUserEmail, root)
+		root = middleware.DevBypass(cfg.DevOrganizationID, cfg.DevUserID, cfg.DevUserEmail, cfg.DevUserName, root)
 	} else {
 		// EnforceSSO runs AFTER auth resolves the identity (enforcement
 		// reads organization_id + auth_mode from context). /v1/auth/logout
