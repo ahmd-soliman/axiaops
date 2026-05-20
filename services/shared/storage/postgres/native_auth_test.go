@@ -145,6 +145,76 @@ func TestLookupUserByEmail_EmptyInput(t *testing.T) {
 	}
 }
 
+// UpdateUserName pins the CTE-based atomic-read-and-write that backs the
+// PATCH /v1/users/me handler. The contract: on success the *prior* value
+// is returned (so the caller can audit {old_name, new_name}); on a missing
+// userID, ErrUserNotFound is returned distinctly from a generic DB error.
+
+func TestUpdateUserName_ReturnsPriorAndUpdates(t *testing.T) {
+	s := newTestStore(t)
+	_, org := newOrgCtx(t, s)
+	u := seedUserWithName(t, s, org.ID, "rename@example.com", "Initial Name")
+
+	old, err := s.UpdateUserName(context.Background(), u.ID, "Updated Name")
+	if err != nil {
+		t.Fatalf("UpdateUserName: %v", err)
+	}
+	if old != "Initial Name" {
+		t.Errorf("old = %q; want %q", old, "Initial Name")
+	}
+
+	// Round-trip the row to confirm the new value is persisted.
+	got, err := s.GetUserByID(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if got.Name != "Updated Name" {
+		t.Errorf("persisted name = %q; want %q", got.Name, "Updated Name")
+	}
+}
+
+func TestUpdateUserName_EmptyNewNameAllowed(t *testing.T) {
+	// Empty-string newName is "unset" — the dashboard falls back to email
+	// when name is empty. The store must not reject it (validation is the
+	// handler's job).
+	s := newTestStore(t)
+	_, org := newOrgCtx(t, s)
+	u := seedUserWithName(t, s, org.ID, "unset@example.com", "Will Be Unset")
+
+	old, err := s.UpdateUserName(context.Background(), u.ID, "")
+	if err != nil {
+		t.Fatalf("UpdateUserName: %v", err)
+	}
+	if old != "Will Be Unset" {
+		t.Errorf("old = %q; want %q", old, "Will Be Unset")
+	}
+	got, _ := s.GetUserByID(context.Background(), u.ID)
+	if got.Name != "" {
+		t.Errorf("persisted name = %q; want empty", got.Name)
+	}
+}
+
+func TestUpdateUserName_MissingUserReturnsNotFound(t *testing.T) {
+	// The CTE evaluates to zero rows when the id doesn't match — pgx.ErrNoRows
+	// must be mapped to storage.ErrUserNotFound so the handler can return
+	// 404 instead of 500.
+	s := newTestStore(t)
+	_, err := s.UpdateUserName(context.Background(), uuid.NewString(), "doesn't matter")
+	if !errors.Is(err, storage.ErrUserNotFound) {
+		t.Fatalf("expected ErrUserNotFound, got %v", err)
+	}
+}
+
+func TestUpdateUserName_EmptyUserIDIsError(t *testing.T) {
+	// Bare guard: empty userID is a programmer error, not a runtime case.
+	// Should fail fast, not run an unbounded SQL.
+	s := newTestStore(t)
+	_, err := s.UpdateUserName(context.Background(), "", "anything")
+	if err == nil {
+		t.Fatal("expected error on empty userID; got nil")
+	}
+}
+
 // TestCreateBootstrapState_MultiReplicaRace simulates the architect-C5
 // scenario: N replicas pointing at the same fresh DB simultaneously
 // trying to mint the install token. The pg_advisory_xact_lock + ON

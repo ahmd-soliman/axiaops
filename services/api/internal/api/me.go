@@ -192,6 +192,17 @@ func (h *Handler) updateCurrentUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// No-op short-circuit: if the caller posts the name they already have,
+	// skip the UPDATE and the audit row entirely. Frontend's `dirty` check
+	// guards the normal path; a raw curl or a rapid double-submit can
+	// otherwise land here and write a spurious audit row with
+	// old_name == new_name. One extra SELECT per PATCH is cheap (this is
+	// a rare endpoint), and worth keeping audit_log signal-dense.
+	if current, err := h.store.GetUserByID(r.Context(), uid); err == nil && current.Name == req.Name {
+		writeJSON(w, updateUserResponse{Name: current.Name})
+		return
+	}
+
 	oldName, err := h.store.UpdateUserName(r.Context(), uid, req.Name)
 	if err != nil {
 		switch {
@@ -214,10 +225,20 @@ func (h *Handler) updateCurrentUser(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	// Re-serve the /v1/me shape so the dashboard's MeContext can refresh
-	// without a separate GET. Reusing the GET handler is the simplest way
-	// to keep the response shape in lockstep with any future additions.
-	h.getMe(w, r)
+	// Respond with just the updated field, not the full /v1/me shape.
+	// Earlier revisions delegated to h.getMe so the dashboard could refresh
+	// in one round-trip; but that path could 500 *after* the UPDATE and
+	// audit had committed, leaving the client to retry and write a duplicate
+	// audit row. The dashboard's MeContext refetches /v1/me on its own
+	// after the mutation succeeds, so this minimal shape is sufficient.
+	writeJSON(w, updateUserResponse{Name: req.Name})
+}
+
+// updateUserResponse is the slim wire shape returned by PATCH /v1/users/me.
+// The frontend doesn't read it today (it calls MeContext.refresh() instead),
+// but a stable shape keeps `curl`-bypass-of-the-frontend honest.
+type updateUserResponse struct {
+	Name string `json:"name"`
 }
 
 // validDisplayName enforces 0..displayNameMaxLen runes and rejects control
