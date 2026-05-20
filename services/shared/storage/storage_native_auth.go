@@ -79,21 +79,38 @@ type NativeAuthStore interface {
 	// caller composes both inside its own transaction.
 	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
 
+	// UpdateUserName sets users.name on the row identified by userID and
+	// returns the previous value so the caller can audit {old_name, new_name}
+	// (issue #78 — self-service display-name editing via PATCH /v1/users/me).
+	// Single round-trip: the SQL is an UPDATE ... RETURNING ... combined with
+	// a CTE that captures the prior value, so the read and write are atomic
+	// from the table's point of view.
+	//
+	// newName is stored verbatim — caller is responsible for trimming and
+	// validating length/control-character rules. Empty string is allowed
+	// (semantics: "unset", and the dashboard falls back to email).
+	//
+	// Returns ErrUserNotFound when the row doesn't exist. Bypasses RLS for
+	// the same reason as UpdateUserPassword — users has no RLS policy and
+	// userID is the capability.
+	UpdateUserName(ctx context.Context, userID, newName string) (oldName string, err error)
+
 	// CountOrganizations returns the total number of rows in the organizations
 	// table across all organizations. Used by the bootstrap installer to
 	// decide whether to mint an install token. Bypasses RLS (uses the admin
 	// pool) because at startup no org context exists.
 	CountOrganizations(ctx context.Context) (int64, error)
 
-	// LookupMembership resolves the membership role and the user's email in
-	// a single SELECT joining memberships + users. Used on the native-auth
-	// request hot path: the auth provider needs both fields per request to
-	// populate Identity{Role, Email}.
+	// LookupMembership resolves the membership role plus the user's email
+	// and display name in a single SELECT joining memberships + users. Used
+	// on the native-auth request hot path: the auth provider needs all three
+	// fields per request to populate Identity{Role, Email, Name}. Name is
+	// stamped onto audit_log.actor_name at write time.
 	//
-	// Returns (role="", email="", nil) when no membership row exists — the
-	// caller treats that as "no membership" and rejects the request.
-	// Returns a non-nil error only on transient DB failure.
-	LookupMembership(ctx context.Context, organizationID, userID string) (role, email string, err error)
+	// Returns ("", "", "", nil) when no membership row exists — the caller
+	// treats that as "no membership" and rejects the request. Returns a
+	// non-nil error only on transient DB failure.
+	LookupMembership(ctx context.Context, organizationID, userID string) (role, email, name string, err error)
 
 	// LookupUserByEmail resolves the login candidate for the supplied
 	// email — global lookup, bypassing RLS, because login has no org

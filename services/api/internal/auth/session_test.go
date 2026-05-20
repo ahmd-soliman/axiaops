@@ -403,7 +403,10 @@ func (f *fakeStore) CreateUserWithPassword(context.Context, model.User) (model.U
 func (f *fakeStore) UpdateUserPassword(context.Context, string, string) error {
 	panic("not used by tests in this package")
 }
-func (f *fakeStore) LookupMembership(context.Context, string, string) (string, string, error) {
+func (f *fakeStore) UpdateUserName(context.Context, string, string) (string, error) {
+	panic("not used by tests in this package")
+}
+func (f *fakeStore) LookupMembership(context.Context, string, string) (string, string, string, error) {
 	panic("not used by tests in this package")
 }
 func (f *fakeStore) CreatePasswordReset(_ context.Context, id, userID, organizationID, tokenHash, issuedBy string, expiresAt time.Time) error {
