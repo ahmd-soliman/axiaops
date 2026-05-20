@@ -164,6 +164,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /v1/invitations", require(authz.PermMembersRead, h.listInvitations))
 	mux.Handle("DELETE /v1/invitations/{id}", require(authz.PermMembersInvite, h.revokeInvitation))
 
+	// Self-service display-name edit (issue #78). Authn-only — every
+	// authenticated user can rename themselves; the user_id from the
+	// session is the capability.
+	mux.HandleFunc("PATCH /v1/users/me", h.updateCurrentUser)
+
 	// GDPR — right to erasure (see docs/rbac-design.md §10).
 	// /users/me is authn-only: any logged-in user can delete themselves
 	// (subject to the sole-owner guard enforced by the store).

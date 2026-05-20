@@ -16,20 +16,23 @@ import (
 
 // LookupMembership is the hot-path helper used by the native auth provider
 // — every authenticated request hits it. The integration test pins the
-// SQL behaviour: empty inputs are no-ops, present rows return role+email
-// in one call, missing rows return ("","") with no error.
+// SQL behaviour: empty inputs are no-ops, present rows return role+email+name
+// in one call, missing rows return ("","","") with no error.
 
-func TestLookupMembership_ReturnsRoleAndEmail(t *testing.T) {
+func TestLookupMembership_ReturnsRoleEmailAndName(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
-	u := seedUser(t, s, org.ID, "alice@example.com")
+	// Distinct email and name so a regression that accidentally swaps the
+	// two columns in the SELECT projection — or returns email twice — is
+	// caught by these assertions rather than passing on equal values.
+	u := seedUserWithName(t, s, org.ID, "alice@example.com", "Alice Engineer")
 	if err := s.SaveMembership(ctx, model.Membership{
 		ID: uuid.NewString(), OrganizationID: org.ID, UserID: u.ID, Role: "admin",
 	}); err != nil {
 		t.Fatalf("SaveMembership: %v", err)
 	}
 
-	role, email, err := s.LookupMembership(context.Background(), org.ID, u.ID)
+	role, email, name, err := s.LookupMembership(context.Background(), org.ID, u.ID)
 	if err != nil {
 		t.Fatalf("LookupMembership: %v", err)
 	}
@@ -39,47 +42,50 @@ func TestLookupMembership_ReturnsRoleAndEmail(t *testing.T) {
 	if email != "alice@example.com" {
 		t.Errorf("email = %q; want alice@example.com", email)
 	}
+	if name != "Alice Engineer" {
+		t.Errorf("name = %q; want Alice Engineer", name)
+	}
 }
 
 func TestLookupMembership_NoRowReturnsEmpty(t *testing.T) {
 	s := newTestStore(t)
 	_, org := newOrgCtx(t, s)
 
-	role, email, err := s.LookupMembership(context.Background(), org.ID, "non-existent-user")
+	role, email, name, err := s.LookupMembership(context.Background(), org.ID, "non-existent-user")
 	if err != nil {
 		t.Fatalf("LookupMembership: %v", err)
 	}
-	if role != "" || email != "" {
-		t.Errorf("missing membership returned (%q, %q); want empty", role, email)
+	if role != "" || email != "" || name != "" {
+		t.Errorf("missing membership returned (%q, %q, %q); want empty", role, email, name)
 	}
 }
 
 func TestLookupMembership_EmptyInputsAreNoop(t *testing.T) {
 	s := newTestStore(t)
-	role, email, err := s.LookupMembership(context.Background(), "", "")
+	role, email, name, err := s.LookupMembership(context.Background(), "", "")
 	if err != nil {
 		t.Fatalf("LookupMembership: %v", err)
 	}
-	if role != "" || email != "" {
-		t.Errorf("empty inputs returned (%q, %q); want empty", role, email)
+	if role != "" || email != "" || name != "" {
+		t.Errorf("empty inputs returned (%q, %q, %q); want empty", role, email, name)
 	}
 }
 
 func TestLookupMembership_UserExistsWithoutMembership(t *testing.T) {
 	// User row exists but membership is missing — could happen after
 	// admin removes a member while their session is still cached. The
-	// SELECT JOIN returns no rows; LookupMembership returns ("", "", nil).
+	// SELECT JOIN returns no rows; LookupMembership returns ("", "", "", nil).
 	// Provider treats that as "no membership" and rejects.
 	s := newTestStore(t)
 	_, org := newOrgCtx(t, s)
 	u := seedUser(t, s, org.ID, "orphan@example.com")
 	// Deliberately skip SaveMembership — user exists, no membership.
-	role, email, err := s.LookupMembership(context.Background(), org.ID, u.ID)
+	role, email, name, err := s.LookupMembership(context.Background(), org.ID, u.ID)
 	if err != nil {
 		t.Fatalf("LookupMembership: %v", err)
 	}
-	if role != "" || email != "" {
-		t.Errorf("user without membership returned (%q, %q); want empty", role, email)
+	if role != "" || email != "" || name != "" {
+		t.Errorf("user without membership returned (%q, %q, %q); want empty", role, email, name)
 	}
 }
 
@@ -136,6 +142,76 @@ func TestLookupUserByEmail_EmptyInput(t *testing.T) {
 	_, _, err := s.LookupUserByEmail(context.Background(), "")
 	if !errors.Is(err, storage.ErrUserNotFound) {
 		t.Fatalf("empty email should return ErrUserNotFound, got %v", err)
+	}
+}
+
+// UpdateUserName pins the CTE-based atomic-read-and-write that backs the
+// PATCH /v1/users/me handler. The contract: on success the *prior* value
+// is returned (so the caller can audit {old_name, new_name}); on a missing
+// userID, ErrUserNotFound is returned distinctly from a generic DB error.
+
+func TestUpdateUserName_ReturnsPriorAndUpdates(t *testing.T) {
+	s := newTestStore(t)
+	_, org := newOrgCtx(t, s)
+	u := seedUserWithName(t, s, org.ID, "rename@example.com", "Initial Name")
+
+	old, err := s.UpdateUserName(context.Background(), u.ID, "Updated Name")
+	if err != nil {
+		t.Fatalf("UpdateUserName: %v", err)
+	}
+	if old != "Initial Name" {
+		t.Errorf("old = %q; want %q", old, "Initial Name")
+	}
+
+	// Round-trip the row to confirm the new value is persisted.
+	got, err := s.GetUserByID(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if got.Name != "Updated Name" {
+		t.Errorf("persisted name = %q; want %q", got.Name, "Updated Name")
+	}
+}
+
+func TestUpdateUserName_EmptyNewNameAllowed(t *testing.T) {
+	// Empty-string newName is "unset" — the dashboard falls back to email
+	// when name is empty. The store must not reject it (validation is the
+	// handler's job).
+	s := newTestStore(t)
+	_, org := newOrgCtx(t, s)
+	u := seedUserWithName(t, s, org.ID, "unset@example.com", "Will Be Unset")
+
+	old, err := s.UpdateUserName(context.Background(), u.ID, "")
+	if err != nil {
+		t.Fatalf("UpdateUserName: %v", err)
+	}
+	if old != "Will Be Unset" {
+		t.Errorf("old = %q; want %q", old, "Will Be Unset")
+	}
+	got, _ := s.GetUserByID(context.Background(), u.ID)
+	if got.Name != "" {
+		t.Errorf("persisted name = %q; want empty", got.Name)
+	}
+}
+
+func TestUpdateUserName_MissingUserReturnsNotFound(t *testing.T) {
+	// The CTE evaluates to zero rows when the id doesn't match — pgx.ErrNoRows
+	// must be mapped to storage.ErrUserNotFound so the handler can return
+	// 404 instead of 500.
+	s := newTestStore(t)
+	_, err := s.UpdateUserName(context.Background(), uuid.NewString(), "doesn't matter")
+	if !errors.Is(err, storage.ErrUserNotFound) {
+		t.Fatalf("expected ErrUserNotFound, got %v", err)
+	}
+}
+
+func TestUpdateUserName_EmptyUserIDIsError(t *testing.T) {
+	// Bare guard: empty userID is a programmer error, not a runtime case.
+	// Should fail fast, not run an unbounded SQL.
+	s := newTestStore(t)
+	_, err := s.UpdateUserName(context.Background(), "", "anything")
+	if err == nil {
+		t.Fatal("expected error on empty userID; got nil")
 	}
 }
 

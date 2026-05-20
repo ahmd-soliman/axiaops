@@ -1336,6 +1336,61 @@ func TestAuditLog_IPAddressRoundTrips(t *testing.T) {
 	}
 }
 
+// actor_name is denormalised on write (migration 028). Three branches need
+// coverage:
+//   - caller supplies a name → persists verbatim
+//   - caller supplies empty name → column stores '' (NOT NULL DEFAULT '')
+//   - row written before column existed → existing rows still surface '' as
+//     the read path projects the column with no fallback magic
+//
+// The frontend's fallback to actor_email depends on the empty-string branches
+// behaving cleanly. A regression that drops the column from the SELECT would
+// fail scan here loudly rather than as a UX glitch in production.
+func TestAuditLog_CapturesActorNameOnWrite(t *testing.T) {
+	s := newTestStore(t)
+	ctx, _ := newOrgCtx(t, s)
+
+	writeAudit(t, s, ctx, model.AuditEvent{
+		Action:     model.AuditActionDismissZombie,
+		UserID:     "user-alice",
+		ActorEmail: "alice@acme.com",
+		ActorName:  "Alice Engineer",
+	})
+	writeAudit(t, s, ctx, model.AuditEvent{
+		Action:     model.AuditActionSnoozeZombie,
+		UserID:     "user-bob",
+		ActorEmail: "bob@acme.com",
+		// ActorName intentionally omitted — '' must round-trip.
+	})
+	writeAudit(t, s, ctx, model.AuditEvent{
+		Action:     model.AuditActionScanTriggered,
+		ActorEmail: "system@axiaops.local",
+		// No UserID + no name — system action shape.
+	})
+
+	events, err := s.AuditLogList(ctx, model.AuditFilter{})
+	if err != nil {
+		t.Fatalf("AuditLogList: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(events))
+	}
+
+	byAction := map[string]model.AuditEvent{}
+	for _, e := range events {
+		byAction[e.Action] = e
+	}
+	if got := byAction[model.AuditActionDismissZombie].ActorName; got != "Alice Engineer" {
+		t.Errorf("named actor: actor_name = %q, want %q", got, "Alice Engineer")
+	}
+	if got := byAction[model.AuditActionSnoozeZombie].ActorName; got != "" {
+		t.Errorf("unnamed actor: actor_name = %q, want \"\"", got)
+	}
+	if got := byAction[model.AuditActionScanTriggered].ActorName; got != "" {
+		t.Errorf("system action: actor_name = %q, want \"\"", got)
+	}
+}
+
 func TestAuditLog_OrganizationIsolation(t *testing.T) {
 	if !rlsEnforced() {
 		t.Skip("skipping: requires DATABASE_URL for RLS to scope queries")
@@ -1344,7 +1399,7 @@ func TestAuditLog_OrganizationIsolation(t *testing.T) {
 	ctxA, _ := newOrgCtx(t, s)
 	ctxB, _ := newOrgCtx(t, s)
 
-	writeAudit(t, s, ctxA, model.AuditEvent{Action: model.AuditActionDismissZombie, UserID: "u-a"})
+	writeAudit(t, s, ctxA, model.AuditEvent{Action: model.AuditActionDismissZombie, UserID: "u-a", ActorName: "Alice OrgA"})
 	writeAudit(t, s, ctxB, model.AuditEvent{Action: model.AuditActionSnoozeZombie, UserID: "u-b"})
 
 	aEvents, err := s.AuditLogList(ctxA, model.AuditFilter{})
@@ -1354,12 +1409,22 @@ func TestAuditLog_OrganizationIsolation(t *testing.T) {
 	if len(aEvents) != 1 || aEvents[0].UserID != "u-a" {
 		t.Errorf("organization A must see only its own rows, got %+v", aEvents)
 	}
+	if aEvents[0].ActorName != "Alice OrgA" {
+		t.Errorf("org A's row should round-trip the captured actor_name, got %q", aEvents[0].ActorName)
+	}
 	bEvents, err := s.AuditLogList(ctxB, model.AuditFilter{})
 	if err != nil {
 		t.Fatalf("list B: %v", err)
 	}
 	if len(bEvents) != 1 || bEvents[0].UserID != "u-b" {
 		t.Errorf("organization B must see only its own rows, got %+v", bEvents)
+	}
+	// Sanity check: org A's captured name must not appear in org B's view —
+	// because audit_log RLS blocks the entire row, not because of any read-side
+	// JOIN guard. Field-level leakage isn't a category that exists in the
+	// denormalised posture: there's no cross-table read.
+	if bEvents[0].ActorName == "Alice OrgA" {
+		t.Errorf("cross-org row leaked into org B: got %q", bEvents[0].ActorName)
 	}
 }
 
@@ -1443,9 +1508,19 @@ func TestAuditLog_AnonymiseUser(t *testing.T) {
 	s := newTestStore(t)
 	ctx, _ := newOrgCtx(t, s)
 
-	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionDismissZombie, UserID: "target", ActorEmail: "target@acme.com"})
-	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionSnoozeZombie, UserID: "target", ActorEmail: "target@acme.com"})
-	writeAudit(t, s, ctx, model.AuditEvent{Action: model.AuditActionAccountConnected, UserID: "bystander", ActorEmail: "other@acme.com"})
+	// Names are denormalised on write (migration 028), so they're captured
+	// directly on the audit row — no need to seed users.name. The bystander's
+	// name must survive untouched; the target's name must be cleared to ''
+	// (parallel to actor_email → 'deleted-user').
+	writeAudit(t, s, ctx, model.AuditEvent{
+		Action: model.AuditActionDismissZombie, UserID: "target", ActorEmail: "target@acme.com", ActorName: "Target Person",
+	})
+	writeAudit(t, s, ctx, model.AuditEvent{
+		Action: model.AuditActionSnoozeZombie, UserID: "target", ActorEmail: "target@acme.com", ActorName: "Target Person",
+	})
+	writeAudit(t, s, ctx, model.AuditEvent{
+		Action: model.AuditActionAccountConnected, UserID: "bystander", ActorEmail: "other@acme.com", ActorName: "Bystander Person",
+	})
 
 	n, err := s.AuditLogAnonymiseUser(ctx, "target")
 	if err != nil {
@@ -1462,12 +1537,22 @@ func TestAuditLog_AnonymiseUser(t *testing.T) {
 			if e.UserID != "bystander" || e.ActorEmail != "other@acme.com" {
 				t.Errorf("bystander row was modified: %+v", e)
 			}
+			if e.ActorName != "Bystander Person" {
+				t.Errorf("bystander actor_name should be untouched: got %q", e.ActorName)
+			}
 		default:
 			if e.UserID != "" {
 				t.Errorf("target row user_id should be empty, got %q", e.UserID)
 			}
 			if e.ActorEmail != "deleted-user" {
 				t.Errorf("target row actor_email: got %q, want 'deleted-user'", e.ActorEmail)
+			}
+			// AnonymiseUser must also clear actor_name. If a future change removes
+			// the actor_name=' '' assignment from the UPDATE statement, this row
+			// would still carry "Target Person" — a GDPR violation, since the
+			// column lives forever once written.
+			if e.ActorName != "" {
+				t.Errorf("anonymised row leaks actor_name: got %q, want \"\"", e.ActorName)
 			}
 		}
 	}
