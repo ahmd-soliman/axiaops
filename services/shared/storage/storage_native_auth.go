@@ -79,6 +79,22 @@ type NativeAuthStore interface {
 	// caller composes both inside its own transaction.
 	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
 
+	// UpdateUserName sets users.name on the row identified by userID and
+	// returns the previous value so the caller can audit {old_name, new_name}
+	// (issue #78 — self-service display-name editing via PATCH /v1/users/me).
+	// Single round-trip: the SQL is an UPDATE ... RETURNING ... combined with
+	// a CTE that captures the prior value, so the read and write are atomic
+	// from the table's point of view.
+	//
+	// newName is stored verbatim — caller is responsible for trimming and
+	// validating length/control-character rules. Empty string is allowed
+	// (semantics: "unset", and the dashboard falls back to email).
+	//
+	// Returns ErrUserNotFound when the row doesn't exist. Bypasses RLS for
+	// the same reason as UpdateUserPassword — users has no RLS policy and
+	// userID is the capability.
+	UpdateUserName(ctx context.Context, userID, newName string) (oldName string, err error)
+
 	// CountOrganizations returns the total number of rows in the organizations
 	// table across all organizations. Used by the bootstrap installer to
 	// decide whether to mint an install token. Bypasses RLS (uses the admin

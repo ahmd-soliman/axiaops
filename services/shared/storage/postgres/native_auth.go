@@ -116,6 +116,38 @@ func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash str
 	return nil
 }
 
+// UpdateUserName sets users.name and returns the previous value in one
+// round-trip. Bypasses RLS for the same reason as UpdateUserPassword.
+// Returns ErrUserNotFound when no row matches.
+func (s *Store) UpdateUserName(ctx context.Context, userID, newName string) (string, error) {
+	if userID == "" {
+		return "", fmt.Errorf("postgres: update user name: userID required")
+	}
+	// CTE captures the prior name before the UPDATE applies; the outer
+	// SELECT returns it. Single statement, atomic read+write — no race
+	// where a concurrent SELECT could see the new value but still be
+	// returned the old one.
+	var oldName string
+	err := s.adminPool.QueryRow(ctx, `
+		WITH prior AS (
+			SELECT name FROM users WHERE id = $1
+		),
+		upd AS (
+			UPDATE users SET name = $2 WHERE id = $1
+			RETURNING id
+		)
+		SELECT prior.name FROM prior, upd`,
+		userID, newName,
+	).Scan(&oldName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", storage.ErrUserNotFound
+		}
+		return "", fmt.Errorf("postgres: update user name: %w", err)
+	}
+	return oldName, nil
+}
+
 // CountOrganizations returns the total org count across the cluster.
 // Uses the admin pool — this is called at startup before any org context
 // exists, and organizations has no RLS policy anyway.

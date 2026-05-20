@@ -1,14 +1,26 @@
 package api
 
 import (
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
+	"axiaops.io/api/internal/audit"
 	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/authz"
+	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 )
+
+// displayNameMaxLen caps users.name at the same boundary as bootstrap and
+// invitation flows. Empty is allowed and means "unset" — the dashboard falls
+// back to the email local-part for rendering.
+const displayNameMaxLen = 120
 
 // meResponse is the wire shape for GET /v1/me. Permissions are sent as
 // strings so the dashboard can drive UI gating without bundling the
@@ -148,3 +160,77 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+// updateCurrentUser handles PATCH /v1/users/me. Self-service display-name
+// edit (issue #78). Authn-only — every authenticated user can rename
+// themselves; the userID is the capability.
+//
+// Body: {"name": string}. Trimmed; empty allowed (unset); length capped at
+// displayNameMaxLen runes; rejects control characters. Mirrors the
+// updateCurrentOrganization validator shape.
+//
+// Audit row written under the caller's current org context with metadata
+// {old_name, new_name} — symmetric with AuditActionOrganizationRenamed.
+// Returns the updated meResponse so the dashboard can refresh in one
+// round-trip without a follow-up GET /v1/me.
+func (h *Handler) updateCurrentUser(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.UserID(r.Context())
+	if uid == "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if !validDisplayName(req.Name) {
+		http.Error(w, "name must be 0..120 visible characters", http.StatusBadRequest)
+		return
+	}
+
+	oldName, err := h.store.UpdateUserName(r.Context(), uid, req.Name)
+	if err != nil {
+		switch {
+		case errors.Is(err, storage.ErrUserNotFound):
+			http.Error(w, "user not found", http.StatusNotFound)
+		default:
+			slog.Error("users: update name failed", "error", err, "user_id", uid)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       model.AuditActionUserNameChanged,
+		ResourceType: "user",
+		ResourceID:   uid,
+		Metadata: map[string]any{
+			"old_name": oldName,
+			"new_name": req.Name,
+		},
+	})
+
+	// Re-serve the /v1/me shape so the dashboard's MeContext can refresh
+	// without a separate GET. Reusing the GET handler is the simplest way
+	// to keep the response shape in lockstep with any future additions.
+	h.getMe(w, r)
+}
+
+// validDisplayName enforces 0..displayNameMaxLen runes and rejects control
+// characters. Empty is intentionally allowed — the user choosing to unset
+// their name is a valid state (frontend falls back to email).
+func validDisplayName(s string) bool {
+	if utf8.RuneCountInString(s) > displayNameMaxLen {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
