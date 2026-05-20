@@ -1,9 +1,12 @@
 package api_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"axiaops.io/api/internal/api"
@@ -20,7 +23,7 @@ import (
 func meRequest(method, path string) *http.Request {
 	src := httptest.NewRequest(method, path, nil)
 	var captured *http.Request
-	middleware.DevBypass("organization-me", "user-me", "me@example.com", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	middleware.DevBypass("organization-me", "user-me", "me@example.com", "Me Tester", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		captured = r
 	})).ServeHTTP(httptest.NewRecorder(), src)
 	return captured
@@ -269,6 +272,116 @@ func TestGetMe_DisplayNameAlwaysPresent(t *testing.T) {
 	}
 	if string(got) != `""` {
 		t.Errorf("name = %s; want \"\" (empty string, not null/missing)", got)
+	}
+}
+
+// patchMeRequest builds a PATCH /v1/users/me request with the same DevBypass
+// identity meRequest uses, plus a JSON body.
+func patchMeRequest(t *testing.T, body string) *http.Request {
+	t.Helper()
+	src := httptest.NewRequest(http.MethodPatch, "/v1/users/me", bytes.NewReader([]byte(body)))
+	src.Header.Set("Content-Type", "application/json")
+	var captured *http.Request
+	middleware.DevBypass("organization-me", "user-me", "me@example.com", "Me Tester", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		captured = r
+	})).ServeHTTP(httptest.NewRecorder(), src)
+	return captured
+}
+
+func TestPatchMe_UpdatesNameAndReturnsMe(t *testing.T) {
+	store := NewMockStore().
+		WithRole("admin").
+		WithUsers([]model.User{{ID: "user-me", Email: "me@example.com", Name: "Old Name"}})
+	h := api.New(store, newQueueShim())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, patchMeRequest(t, `{"name":"  New Name  "}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body: %s)", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Name != "New Name" {
+		t.Errorf("response name=%q, want trimmed %q", resp.Name, "New Name")
+	}
+
+	// Store mutation is the real assertion — wire-shape echo via GetUserByID.
+	u, err := store.GetUserByID(context.Background(), "user-me")
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if u.Name != "New Name" {
+		t.Errorf("store users[0].name=%q, want %q", u.Name, "New Name")
+	}
+}
+
+func TestPatchMe_AllowsEmptyName(t *testing.T) {
+	// Empty name is a valid "unset" state — frontend falls back to email.
+	store := NewMockStore().
+		WithRole("admin").
+		WithUsers([]model.User{{ID: "user-me", Email: "me@example.com", Name: "Old Name"}})
+	h := api.New(store, newQueueShim())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, patchMeRequest(t, `{"name":""}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on empty-name unset, got %d (body: %s)", w.Code, w.Body.String())
+	}
+	u, _ := store.GetUserByID(context.Background(), "user-me")
+	if u.Name != "" {
+		t.Errorf("store users[0].name=%q, want empty after unset", u.Name)
+	}
+}
+
+func TestPatchMe_RejectsTooLongName(t *testing.T) {
+	store := NewMockStore().
+		WithRole("admin").
+		WithUsers([]model.User{{ID: "user-me", Email: "me@example.com", Name: "Old"}})
+	h := api.New(store, newQueueShim())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	// 121 ASCII characters — just over the 120-rune cap.
+	tooLong := strings.Repeat("a", 121)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, patchMeRequest(t, `{"name":"`+tooLong+`"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for 121-char name, got %d", w.Code)
+	}
+	// Store must not have been mutated on validation failure.
+	u, _ := store.GetUserByID(context.Background(), "user-me")
+	if u.Name != "Old" {
+		t.Errorf("store users[0].name=%q, want unchanged %q", u.Name, "Old")
+	}
+}
+
+func TestPatchMe_RejectsControlCharacters(t *testing.T) {
+	store := NewMockStore().
+		WithRole("admin").
+		WithUsers([]model.User{{ID: "user-me", Email: "me@example.com", Name: "Old"}})
+	h := api.New(store, newQueueShim())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	// BEL (U+0007) — a control character; mirrors organization-rename
+	// rejection for consistency.
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, patchMeRequest(t, `{"name":"Evil\x07Name"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for control-char name, got %d (body: %s)", w.Code, w.Body.String())
 	}
 }
 

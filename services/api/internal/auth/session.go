@@ -123,12 +123,23 @@ type MintResult struct {
 //
 //  1. Generate 32 bytes of CSPRNG entropy → base64url plaintext.
 //  2. Hash → SHA-256 hex (matches sessions.session_token_hash).
-//  3. INSERT sessions row.
-//  4. Cap-enforce per-user: if SessionsPerUser > 0 and the user is now over
-//     the cap, revoke the OLDEST live session to bring the count back in
-//     bounds (architect C2). Cap is checked after insert so the new session
-//     wins the seat; if the user already had cap+1 we evict cap's worth.
-//  5. Cache the new session.
+//  3. INSERT sessions row + (cap > 0) revoke OLDEST excess peer sessions
+//     in the SAME transaction (architect C2 / audit M-7). If the insert or
+//     the cap revoke fails, the whole tx rolls back — partial state is
+//     impossible. The just-inserted row is excluded from the revoke
+//     candidate set so the newest session always wins the seat.
+//  4. Cache the new session.
+//  5. Evict any cache entries for the sessions revoked by the cap step
+//     (post-commit — the PG state is now the source of truth and the
+//     cache is opportunistically aligned).
+//
+// Behaviour change vs the prior shape (audit M-7, 2026-05-09): cap-
+// enforcement failures previously logged at warn and returned success,
+// leaving an over-cap leftover until the next login / 5-minute sweep.
+// They now propagate to the caller as a MintSession error — the login
+// handler 5xx's and the client retries. The cap is part of the
+// documented guarantee, so transient breakage of that guarantee is
+// preferable to silently violating it.
 func (m *Manager) MintSession(ctx context.Context, in MintRequest) (MintResult, error) {
 	if in.UserID == "" || in.OrganizationID == "" {
 		return MintResult{}, errors.New("auth: mint session: user_id and organization_id required")
@@ -156,8 +167,19 @@ func (m *Manager) MintSession(ctx context.Context, in MintRequest) (MintResult, 
 		UserAgentHash:    hashUserAgent(in.UserAgent),
 		IDTokenEncrypted: in.IDTokenEncrypted,
 	}
-	saved, err := m.store.CreateSession(ctx, s)
+	saved, revokedHashes, err := m.store.CreateSessionEnforcingCap(ctx, s, m.cfg.SessionsPerUser)
 	if err != nil {
+		// Post-M-7: cap-enforcement failures propagate as login 5xx instead
+		// of slog.Warn-and-return-success. Structured-log with the context
+		// an operator needs to debug a sudden login-5xx spike — without
+		// this, the caller stack only sees "auth: mint session: <pg error>".
+		observability.LogError(ctx, err,
+			"operation", "mint_session",
+			"user_id", in.UserID,
+			"organization_id", in.OrganizationID,
+			"auth_mode", string(in.AuthMode),
+			"sessions_per_user_cap", m.cfg.SessionsPerUser,
+		)
 		return MintResult{}, fmt.Errorf("auth: mint session: %w", err)
 	}
 	// LastSeenAt is only present after the DB stamps it; copy back for cache.
@@ -165,16 +187,22 @@ func (m *Manager) MintSession(ctx context.Context, in MintRequest) (MintResult, 
 
 	if m.cache != nil {
 		m.cache.Put(ctx, s, now)
-	}
-
-	if m.cfg.SessionsPerUser > 0 {
-		if err := m.enforceCap(ctx, in.UserID); err != nil {
-			// Cap enforcement is best-effort. The new session is already
-			// minted and usable; an over-cap leftover will be cleaned up by
-			// the next login or the sweep ticker. Log and move on.
-			slog.Warn("auth: per-user session cap enforcement failed",
-				"err", err, "user_id", in.UserID)
+		// Post-commit cache eviction for sessions the cap revoked. The PG
+		// rows are already marked revoked_at — the cache is opportunistic
+		// alignment; a stale entry that survives this Delete still fails
+		// Live() on the next ValidateSession's cached re-check (architect
+		// C4). DeleteMany swallows per-key errors internally.
+		if len(revokedHashes) > 0 {
+			m.cache.DeleteMany(ctx, revokedHashes)
 		}
+	}
+	// Reflect the cap-driven revocations in the observability counter so
+	// the dashboard shows the same `reason="cap_exceeded"` series the
+	// old post-commit path emitted.
+	if len(revokedHashes) > 0 {
+		observability.Global.AuthSessionRevocationsTotal.
+			WithLabelValues(string(RevokeReasonCapExceeded)).
+			Add(float64(len(revokedHashes)))
 	}
 
 	return MintResult{
@@ -337,55 +365,12 @@ func (m *Manager) RevokeUserSessions(ctx context.Context, userID string, reason 
 	return len(hashes), nil
 }
 
-// enforceCap is invoked after each successful MintSession. Only runs when
-// cfg.SessionsPerUser > 0. Strategy: count live sessions; if over cap,
-// fetch the token hashes (oldest first) and revoke until back at the cap.
-//
-// Implemented as count + list-and-revoke rather than a single SQL DELETE so
-// the cache layer gets the same explicit eviction the rest of the system
-// uses (no scan).
-func (m *Manager) enforceCap(ctx context.Context, userID string) error {
-	count, err := m.store.CountSessionsForUser(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if count <= m.cfg.SessionsPerUser {
-		return nil
-	}
-	// Over cap. ListUserSessionTokenHashes returns hashes oldest-first
-	// (contractual — see storage_native_auth.go). We revoke the first
-	// `excess` of those, which is precisely the oldest excess sessions —
-	// matching the plan §4.6 acceptance criterion ("the 11th login revokes
-	// the OLDEST active session"). The just-minted session is the newest
-	// and stays at the tail.
-	//
-	// In practice the count is small (cap is 10 by default) so listing in
-	// memory is fine. If this ever shows up in flame graphs we can replace
-	// it with a single `DELETE ... WHERE session_token_hash = ANY($1)`.
-	hashes, err := m.store.ListUserSessionTokenHashes(ctx, userID)
-	if err != nil {
-		return err
-	}
-	excess := count - m.cfg.SessionsPerUser
-	if excess > len(hashes) {
-		excess = len(hashes)
-	}
-	if excess <= 0 {
-		return nil
-	}
-	for i := 0; i < excess; i++ {
-		s, err := m.store.GetSessionByTokenHash(ctx, hashes[i])
-		if err != nil {
-			// Row may have been swept between list and lookup; tolerate.
-			continue
-		}
-		if err := m.RevokeSession(ctx, s.ID, s.SessionTokenHash, RevokeReasonCapExceeded); err != nil {
-			slog.Warn("auth: cap enforcement revoke failed",
-				"err", err, "user_id", userID, "session_id", s.ID)
-		}
-	}
-	return nil
-}
+// (Per-user cap enforcement moved into the storage layer for atomicity
+// — see store.CreateSessionEnforcingCap. Audit M-7 closed the
+// post-insert log-and-move-on path that this function used to host.
+// `CountSessionsForUser` and `ListUserSessionTokenHashes` remain on the
+// NativeAuthStore interface as observability hooks for the test harness
+// and any future admin tool that wants a read-only peek.)
 
 // mintTokenPlaintext generates a CSPRNG token. base64url is chosen so the
 // value is cookie-safe without percent-encoding.

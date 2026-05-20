@@ -150,6 +150,7 @@ func (m *mockStoreForScheduler) GetUserByEmail(context.Context, string) (model.U
 func (m *mockStoreForScheduler) GetUserByID(context.Context, string) (model.User, error) {
 	return model.User{}, nil
 }
+
 // GetUserSSOConnectionID is on the Store interface for the API service's
 // SSO RP-Initiated Logout resolver. No ingestion code path uses it today;
 // if a future ingestion-side feature ever wires this method, the panic
@@ -194,15 +195,21 @@ func (m *mockStoreForScheduler) CreateUserWithPassword(context.Context, model.Us
 func (m *mockStoreForScheduler) UpdateUserPassword(context.Context, string, string) error {
 	return errors.New("UpdateUserPassword not implemented")
 }
+func (m *mockStoreForScheduler) UpdateUserName(context.Context, string, string) (string, error) {
+	return "", errors.New("UpdateUserName not implemented")
+}
 func (m *mockStoreForScheduler) CountOrganizations(context.Context) (int64, error) { return 0, nil }
-func (m *mockStoreForScheduler) LookupMembership(context.Context, string, string) (string, string, error) {
-	return "", "", nil
+func (m *mockStoreForScheduler) LookupMembership(context.Context, string, string) (string, string, string, error) {
+	return "", "", "", nil
 }
 func (m *mockStoreForScheduler) LookupUserByEmail(context.Context, string) (model.User, []model.Membership, error) {
 	return model.User{}, nil, storage.ErrUserNotFound
 }
 func (m *mockStoreForScheduler) CreateSession(context.Context, model.Session) (model.Session, error) {
 	return model.Session{}, errors.New("CreateSession not implemented")
+}
+func (m *mockStoreForScheduler) CreateSessionEnforcingCap(context.Context, model.Session, int) (model.Session, []string, error) {
+	return model.Session{}, nil, errors.New("CreateSessionEnforcingCap not implemented")
 }
 func (m *mockStoreForScheduler) GetSessionByTokenHash(context.Context, string) (model.Session, error) {
 	return model.Session{}, storage.ErrSessionNotFound
@@ -509,7 +516,7 @@ func TestWorker_SkipsJobWhenLicenseExpired(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startWorker(ctx, q, store)
+	startWorker(ctx, q, store, nil, 5*time.Minute, false)
 
 	// Worker dequeues the seeded job, hits the gate, continues. With no
 	// further pending jobs the next Dequeue blocks on ctx — short sleep is
@@ -560,7 +567,7 @@ func TestWorker_ProcessesJobWhenLicenseValid(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startWorker(ctx, q, store)
+	startWorker(ctx, q, store, nil, 5*time.Minute, false)
 
 	// runScan path is best-effort here — it'll fail somewhere downstream
 	// (mock store returns empty accounts for various lookups) but that's

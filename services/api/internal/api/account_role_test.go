@@ -5,10 +5,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"axiaops.io/api/internal/api"
+	"axiaops.io/shared/httpauth"
 	"axiaops.io/shared/model"
 )
 
@@ -62,8 +65,8 @@ func TestCreateDraftAccount_ReturnsExternalIDAndPendingStatus(t *testing.T) {
 	if got.Status != model.AccountStatusPendingRoleSetup {
 		t.Errorf("Status = %q, want %q", got.Status, model.AccountStatusPendingRoleSetup)
 	}
-	if !strings.HasPrefix(got.ExternalID, "axops-ext-") {
-		t.Errorf("ExternalID = %q, want axops-ext- prefix", got.ExternalID)
+	if !strings.HasPrefix(got.ExternalID, "axiaops-ext-") {
+		t.Errorf("ExternalID = %q, want axiaops-ext- prefix", got.ExternalID)
 	}
 	if len(got.ExternalID) < 30 {
 		t.Errorf("ExternalID is suspiciously short: %q (length %d)", got.ExternalID, len(got.ExternalID))
@@ -114,7 +117,7 @@ func TestUpdateAccount_RoleVerify_Success(t *testing.T) {
 		OrganizationID: "organization-test-uuid",
 		Provider:       "aws",
 		AuthMethod:     model.AuthMethodRole,
-		ExternalID:     "axops-ext-secret-value",
+		ExternalID:     "axiaops-ext-secret-value",
 		Region:         "eu-central-1",
 		Status:         model.AccountStatusPendingRoleSetup,
 	}
@@ -163,7 +166,7 @@ func TestScanAccount_RejectsPendingRoleSetup(t *testing.T) {
 		OrganizationID: "organization-test-uuid",
 		Provider:       "aws",
 		AuthMethod:     model.AuthMethodRole,
-		ExternalID:     "axops-ext-x",
+		ExternalID:     "axiaops-ext-x",
 		Region:         "eu-central-1",
 		Status:         model.AccountStatusPendingRoleSetup,
 	}
@@ -192,7 +195,7 @@ func TestUpdateAccount_RoleVerify_IngestionUnreachable(t *testing.T) {
 		OrganizationID: "organization-test-uuid",
 		Provider:       "aws",
 		AuthMethod:     model.AuthMethodRole,
-		ExternalID:     "axops-ext-x",
+		ExternalID:     "axiaops-ext-x",
 		Region:         "eu-central-1",
 		Status:         model.AccountStatusPendingRoleSetup,
 	}
@@ -223,7 +226,7 @@ func TestUpdateAccount_RoleVerify_ConnectedAccountFailsToError(t *testing.T) {
 		Provider:       "aws",
 		AuthMethod:     model.AuthMethodRole,
 		RoleARN:        "arn:aws:iam::123:role/Old",
-		ExternalID:     "axops-ext-x",
+		ExternalID:     "axiaops-ext-x",
 		Region:         "eu-central-1",
 		Status:         model.AccountStatusConnected,
 		AccountID:      "123456789012",
@@ -266,7 +269,7 @@ func TestUpdateAccount_RoleVerify_TrustPolicyMismatch(t *testing.T) {
 		OrganizationID: "organization-test-uuid",
 		Provider:       "aws",
 		AuthMethod:     model.AuthMethodRole,
-		ExternalID:     "axops-ext-x",
+		ExternalID:     "axiaops-ext-x",
 		Region:         "eu-central-1",
 		Status:         model.AccountStatusPendingRoleSetup,
 	}
@@ -307,5 +310,118 @@ func TestUpdateAccount_RoleVerify_TrustPolicyMismatch(t *testing.T) {
 	}
 	if !strings.Contains(persisted.ErrorMessage, "trust_policy_mismatch") {
 		t.Errorf("ErrorMessage = %q, want it to contain trust_policy_mismatch", persisted.ErrorMessage)
+	}
+}
+
+// ── HMAC: api → ingestion verify call carries signed headers ─────────────────
+
+// TestUpdateAccount_RoleVerify_SendsHMACHeaders pins the C-1 wiring on the
+// api side: when WithIngestionSecret is configured, the outbound
+// /v1/credentials/verify call MUST carry both X-AxiaOps-Ingestion-Timestamp
+// and X-AxiaOps-Ingestion-Signature, and the signature MUST verify against
+// the same secret.
+func TestUpdateAccount_RoleVerify_SendsHMACHeaders(t *testing.T) {
+	draft := model.Account{
+		ID:             "acct-hmac",
+		OrganizationID: "organization-test-uuid",
+		Provider:       "aws",
+		AuthMethod:     model.AuthMethodRole,
+		ExternalID:     "axops-ext-hmac",
+		Region:         "eu-central-1",
+		Status:         model.AccountStatusPendingRoleSetup,
+	}
+	store := NewMockStore().WithAccounts([]model.Account{draft})
+
+	secret := []byte("0123456789abcdef0123456789abcdef") // 32 bytes
+	var (
+		gotTimestamp string
+		gotSignature string
+		gotBody      []byte
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTimestamp = r.Header.Get(httpauth.HeaderTimestamp)
+		gotSignature = r.Header.Get(httpauth.HeaderSignature)
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "account_id": "123456789012"})
+	}))
+	defer srv.Close()
+
+	h := api.New(store, noopQueue()).
+		WithIngestionURL(srv.URL).
+		WithIngestionSecret(secret)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := `{"role_arn":"arn:aws:iam::123456789012:role/AxiaOpsIntegrationRole"}`
+	req := orgRequestWithBody(http.MethodPatch, "/v1/accounts/acct-hmac", body)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	if gotTimestamp == "" || gotSignature == "" {
+		t.Fatalf("expected signed headers, got timestamp=%q signature=%q",
+			gotTimestamp, gotSignature)
+	}
+	tsSecs, err := strconv.ParseInt(gotTimestamp, 10, 64)
+	if err != nil {
+		t.Fatalf("timestamp not parseable: %v", err)
+	}
+	// Sanity: timestamp is recent (within ±60s of now).
+	if dt := time.Since(time.Unix(tsSecs, 0)).Seconds(); dt < -60 || dt > 60 {
+		t.Fatalf("timestamp drift %.0fs (now=%d, header=%d)", dt, time.Now().Unix(), tsSecs)
+	}
+	if vErr := httpauth.Verify(secret, time.Minute, time.Now,
+		gotTimestamp, gotSignature,
+		http.MethodPost, "/v1/credentials/verify", gotBody); vErr != nil {
+		t.Fatalf("server-side Verify failed: %v", vErr)
+	}
+}
+
+// TestUpdateAccount_RoleVerify_NoSecret_NoHeaders pins the DEV_MODE shape:
+// when no secret is configured, the outbound call must NOT carry HMAC
+// headers (so the receiving DEV_MODE ingestion's passthrough doesn't
+// trigger its one-shot warning erroneously).
+func TestUpdateAccount_RoleVerify_NoSecret_NoHeaders(t *testing.T) {
+	draft := model.Account{
+		ID:             "acct-no-secret",
+		OrganizationID: "organization-test-uuid",
+		Provider:       "aws",
+		AuthMethod:     model.AuthMethodRole,
+		ExternalID:     "axops-ext-x",
+		Region:         "eu-central-1",
+		Status:         model.AccountStatusPendingRoleSetup,
+	}
+	store := NewMockStore().WithAccounts([]model.Account{draft})
+
+	var (
+		gotTimestamp string
+		gotSignature string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTimestamp = r.Header.Get(httpauth.HeaderTimestamp)
+		gotSignature = r.Header.Get(httpauth.HeaderSignature)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "account_id": "1"})
+	}))
+	defer srv.Close()
+
+	h := api.New(store, noopQueue()).WithIngestionURL(srv.URL) // no WithIngestionSecret
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := orgRequestWithBody(http.MethodPatch, "/v1/accounts/acct-no-secret",
+		`{"role_arn":"arn:aws:iam::1:role/X"}`)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	if gotTimestamp != "" || gotSignature != "" {
+		t.Fatalf("expected no auth headers in DEV_MODE, got timestamp=%q signature=%q",
+			gotTimestamp, gotSignature)
 	}
 }

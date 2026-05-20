@@ -102,7 +102,7 @@ The convention is already implicit in the dashboard code: **state goes in the ba
 ## How to cut a release
 
 1. **Decide the version.** Check the latest release tag (`git tag --sort=-v:refname -l '[0-9]*.[0-9]*.[0-9]*' | head -1`) and pick the next per the rules above. The semver glob is a guard against ever-reintroducing freeform tag names — anything that doesn't match is filtered out.
-2. **Update the CHANGELOG on `develop`.** Move entries from `## [Unreleased]` into a new section headed `## [X.Y.Z] — YYYY-MM-DD`. Commit on `develop` with `chore(release): X.Y.Z`. (CHANGELOG bootstrapping is a follow-up — see [§Open follow-ups](#open-follow-ups).)
+2. **Update the CHANGELOG on `develop`.** In [`CHANGELOG.md`](../CHANGELOG.md), move entries from `## [Unreleased]` into a new section headed `## [X.Y.Z] — YYYY-MM-DD`. At the bottom of the file, update the `[Unreleased]` link to compare against the new tag (`X.Y.Z...develop` instead of the previous tag) and add a `[X.Y.Z]: https://gitlab.com/axiaops/axiaops/-/tags/X.Y.Z` line. Commit on `develop` with `chore(release): X.Y.Z`. Format is [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) — see the "How to update" section at the top of the file for subheading order.
 3. **Promote `develop` → `main`** via the flow in [§Release promotion](#release-promotion-develop--main). Wait for the MR to merge.
 4. **Tag `main`** at the merge commit:
    ```bash
@@ -131,8 +131,45 @@ For a fix on an already-released line: branch off the tag, fix, tag `0.Y.(Z+1)` 
 
 ---
 
+## Release cadence & support
+
+Cadence is **pre-1.0 latitude** today: we cut a release when there's something meaningful to ship, not on a calendar. The policy below is what we commit to **once `1.0.0` ships**.
+
+### Cadence (post-1.0)
+
+| Release type                          | Cadence                              | Trigger                                                                                                                                                                                          |
+| ------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Minor** (`X.(Y+1).0`)               | Quarterly (max)                      | Substantive feature work, schema migrations, customer-visible changes. If `develop` accumulates meaningful work mid-quarter, cut earlier — quarterly is a ceiling, not a target.                  |
+| **Patch** (`X.Y.(Z+1)`)               | As needed, typically every 4–6 weeks | Bug fixes, additive non-schema changes, security fixes batched into the next patch on the supported lines.                                                                                       |
+| **Hotfix** (`X.Y.(Z+1)` off-cycle)    | As needed                            | Security CVE, customer-blocking regression. Bypasses normal cadence.                                                                                                                             |
+
+### Supported-versions window (post-1.0)
+
+| Line                                  | State       | Backports                                              |
+| ------------------------------------- | ----------- | ------------------------------------------------------ |
+| Current minor (`X.Y.x`)               | Supported   | All patches (bugs, security, additive non-schema)      |
+| Previous minor (`X.(Y-1).x`)          | Maintenance | Security patches only                                  |
+| Earlier (`X.(Y-2).x` and below)       | EOL         | None — customer must upgrade to consume any fix        |
+
+Pre-1.0 (current): only the latest `0.Y.x` line is supported. Customers on `0.(Y-1).x` upgrade to consume fixes.
+
+### Migration backwards-compatibility
+
+We use `golang-migrate` (`services/shared/storage/postgres/migrations/`). Every release embeds the cumulative migration set and applies whatever's missing at startup. **Skip-a-minor is supported in principle** — a customer on `0.3.0` upgrading directly to `0.5.0` replays every migration from `0.3.0+1` through `0.5.0`'s tip.
+
+The contract that makes that work:
+
+1. **Never delete a released migration.** Once a `.up.sql` is in a tagged release, it's immutable. Fix forward with a new migration — don't edit the old file.
+2. **Never reuse a migration number.** Numbers are sequential; gaps are fine, reuse breaks `golang-migrate`'s version tracking.
+3. **Down migrations are for local dev only.** We don't promise downgrade via `.down.sql`. Production downgrade is "restore from backup" — the `.down.sql` files exist so engineers can iterate locally.
+4. **Renames and drops are a two-release dance.** Release N adds the new column + dual-writes; release N+1 removes the old column. Never drop-in-one if there's any prod data on the column.
+5. **Migrations should be fast.** Single-digit seconds on a 100k-row table. Anything potentially long-running needs a runbook entry, not just a `.up.sql` file.
+
+The five rules bind the engineer cutting the release more than they bind the customer. The customer runs the new binary; we do the work that makes "run the new binary" safe regardless of what version they were on.
+
+---
+
 ## Open follow-ups
 
-- **CHANGELOG.md** — not yet bootstrapped. Convention will be [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) (Added / Changed / Fixed / Removed / Security under each version). First entry should retroactively reference Phase 1 MVP (April 2026) as the `0.0.x` history-before-tagging baseline.
 - **`docs/USER_STORIES_STATUS.md` cross-link** — when a version ships, mark the relevant user stories with the tag they landed in.
 - **Consider tag-only staging deploys.** Today `deploy:staging` fires on both `main` pushes (auto) and tag pushes (auto). That gives you a continuous "merge → staging" verification loop at the cost of (a) one wasted deploy per release cut and (b) a window where `/v1/version` on staging reports `APP_VERSION=main` instead of a labelled release. Flip to tag-only when any of these become true: (1) design partners hit staging and shouldn't see untagged builds, (2) compliance requires every change on a prod-like environment to be a named release, (3) staging starts being treated like production (long-running sessions you don't want disrupted by main pushes). The change is a single-line edit — remove the `- if: '$CI_COMMIT_BRANCH == "main"'` rule from `deploy:staging`.

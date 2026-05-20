@@ -365,7 +365,7 @@ func TestListZombies_IncludeDismissedQueryParam(t *testing.T) {
 func TestCreateDismissal_RecordsUserIdentityViaDevBypass(t *testing.T) {
 	store := NewMockStore().WithZombies([]model.ZombieResource{testZombie})
 	mux := newMux(newHandlerWith(store))
-	handler := middleware.DevBypass("organization-actor-uuid", "user-actor-uuid", "dev@axiaops.local", mux)
+	handler := middleware.DevBypass("organization-actor-uuid", "user-actor-uuid", "dev@axiaops.local", "Actor Tester", mux)
 
 	body := `{
 		"account_id":"acc-1","provider":"aws","service":"AmazonRDS",

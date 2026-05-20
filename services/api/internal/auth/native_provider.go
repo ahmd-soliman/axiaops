@@ -10,15 +10,20 @@ import (
 )
 
 // MembershipDetails is what MembershipLookup returns for the (org, user)
-// pair bound to the session. Both fields are required by callers:
+// pair bound to the session:
 //   - Role is the authorization decision input.
 //   - Email is the audit_log.actor_email value written for every mutation,
 //     and the body of GET /v1/me.
+//   - Name is the audit_log.actor_name value (denormalised on write so audit
+//     history survives rename + GDPR anonymisation). Empty string when the
+//     user has no display name set; the audit row stores '' and the frontend
+//     falls back to Email.
 //
 // Empty Role indicates "no membership exists" — Authenticate rejects.
 type MembershipDetails struct {
 	Role  string
 	Email string
+	Name  string
 }
 
 // MembershipLookup resolves the membership role + user email in a single
@@ -89,6 +94,7 @@ func (p *NativeProvider) Authenticate(r *http.Request) (Identity, error) {
 		OrganizationID:   sess.OrganizationID,
 		Role:             m.Role,
 		Email:            m.Email,
+		Name:             m.Name,
 		AuthMode:         string(sess.AuthMode),
 		SessionID:        sess.ID,
 		SessionTokenHash: sess.SessionTokenHash,
