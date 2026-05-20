@@ -26,7 +26,7 @@ set -e
 ENV_JS=/usr/share/nginx/html/runtime-env.js
 
 awk 'BEGIN {
-  n = split("DEV_MODE DEV_ORG_NAME FEATURE_ROLE_AUTH AXIAOPS_AWS_ACCOUNT_ID", keys, " ")
+  n = split("DEV_MODE DEV_ORG_NAME AXIAOPS_AWS_ACCOUNT_ID", keys, " ")
   printf "window.__ENV__ = {"
   for (i = 1; i <= n; i++) {
     v = ENVIRON[keys[i]]

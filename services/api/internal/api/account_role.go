@@ -10,12 +10,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 
 	"axiaops.io/api/internal/audit"
 	"axiaops.io/api/internal/middleware"
+	"axiaops.io/shared/httpauth"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 )
@@ -130,12 +132,19 @@ func (h *Handler) verifyRoleViaIngestion(ctx context.Context, roleARN, externalI
 	ctx, cancel := context.WithTimeout(ctx, verifyTimeout)
 	defer cancel()
 
+	const verifyPath = "/v1/credentials/verify"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		h.ingestionURL+"/v1/credentials/verify", bytes.NewReader(body))
+		h.ingestionURL+verifyPath, bytes.NewReader(body))
 	if err != nil {
 		return verifyOutcome{}, fmt.Errorf("build verify request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if len(h.ingestionSecret) > 0 {
+		ts := time.Now()
+		sig := httpauth.Sign(h.ingestionSecret, ts, http.MethodPost, verifyPath, body)
+		req.Header.Set(httpauth.HeaderTimestamp, strconv.FormatInt(ts.Unix(), 10))
+		req.Header.Set(httpauth.HeaderSignature, sig)
+	}
 
 	resp, err := verifyHTTPClient.Do(req)
 	if err != nil {
@@ -172,5 +181,5 @@ func generateExternalID() (string, error) {
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	return "axops-ext-" + base64.RawURLEncoding.EncodeToString(buf), nil
+	return "axiaops-ext-" + base64.RawURLEncoding.EncodeToString(buf), nil
 }

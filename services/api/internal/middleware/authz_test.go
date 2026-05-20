@@ -113,7 +113,7 @@ func TestRequire_DeniesWhenIdentityMissing(t *testing.T) {
 func ctxWithIdentity(parent context.Context, organizationID, userID string) context.Context {
 	r := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(parent)
 	var captured context.Context
-	middleware.DevBypass(organizationID, userID, "", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	middleware.DevBypass(organizationID, userID, "", "", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		captured = r.Context()
 	})).ServeHTTP(httptest.NewRecorder(), r)
 	return captured
