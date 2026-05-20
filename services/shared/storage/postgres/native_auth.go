@@ -116,6 +116,38 @@ func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash str
 	return nil
 }
 
+// UpdateUserName sets users.name and returns the previous value in one
+// round-trip. Bypasses RLS for the same reason as UpdateUserPassword.
+// Returns ErrUserNotFound when no row matches.
+func (s *Store) UpdateUserName(ctx context.Context, userID, newName string) (string, error) {
+	if userID == "" {
+		return "", fmt.Errorf("postgres: update user name: userID required")
+	}
+	// CTE captures the prior name before the UPDATE applies; the outer
+	// SELECT returns it. Single statement, atomic read+write — no race
+	// where a concurrent SELECT could see the new value but still be
+	// returned the old one.
+	var oldName string
+	err := s.adminPool.QueryRow(ctx, `
+		WITH prior AS (
+			SELECT name FROM users WHERE id = $1
+		),
+		upd AS (
+			UPDATE users SET name = $2 WHERE id = $1
+			RETURNING id
+		)
+		SELECT prior.name FROM prior, upd`,
+		userID, newName,
+	).Scan(&oldName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", storage.ErrUserNotFound
+		}
+		return "", fmt.Errorf("postgres: update user name: %w", err)
+	}
+	return oldName, nil
+}
+
 // CountOrganizations returns the total org count across the cluster.
 // Uses the admin pool — this is called at startup before any org context
 // exists, and organizations has no RLS policy anyway.
@@ -191,27 +223,27 @@ func (s *Store) LookupUserByEmail(ctx context.Context, email string) (model.User
 // Returns ("", "", nil) when no membership row matches — the caller
 // treats that as authentication failure (defence in depth: a session
 // that points at a now-deleted membership must not authenticate).
-func (s *Store) LookupMembership(ctx context.Context, organizationID, userID string) (string, string, error) {
+func (s *Store) LookupMembership(ctx context.Context, organizationID, userID string) (string, string, string, error) {
 	if organizationID == "" || userID == "" {
-		return "", "", nil
+		return "", "", "", nil
 	}
-	// users.email is NOT NULL DEFAULT '' (migration 001), so no COALESCE
-	// is needed — empty-string emails round-trip as empty strings.
-	var role, email string
+	// users.email and users.name are both NOT NULL DEFAULT '' (migration 001),
+	// so no COALESCE is needed — empty strings round-trip as empty strings.
+	var role, email, name string
 	err := s.adminPool.QueryRow(ctx, `
-		SELECT m.role, u.email
+		SELECT m.role, u.email, u.name
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1 AND m.user_id = $2`,
 		organizationID, userID,
-	).Scan(&role, &email)
+	).Scan(&role, &email, &name)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", nil
+		return "", "", "", nil
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("postgres: lookup membership: %w", err)
+		return "", "", "", fmt.Errorf("postgres: lookup membership: %w", err)
 	}
-	return role, email, nil
+	return role, email, name, nil
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────

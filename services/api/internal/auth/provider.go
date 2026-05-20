@@ -17,6 +17,11 @@ type Identity struct {
 	Role             string
 	AuthMode         string
 	Email            string
+	// Name is the user's display name at session-resolution time. Used to
+	// stamp audit_log.actor_name on writes, so anonymisation/rename later
+	// can't rewrite history. Empty string when the user has no display name
+	// set — audit rendering falls back to Email.
+	Name             string
 	SessionID        string
 	SessionTokenHash string // cache-eviction key on logout
 }

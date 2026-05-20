@@ -122,6 +122,7 @@ func main() {
 	devOrganizationID := ""
 	devUserID := ""
 	devUserEmail := ""
+	devUserName := ""
 	if devMode {
 		devOrganizationID = os.Getenv("DEV_ORGANIZATION_ID")
 		if devOrganizationID == "" {
@@ -135,6 +136,10 @@ func main() {
 		if devUserEmail == "" {
 			devUserEmail = "dev@axiaops.local"
 		}
+		devUserName = os.Getenv("DEV_USER_NAME")
+		if devUserName == "" {
+			devUserName = "Dev User"
+		}
 		if err := store.EnsureOrganization(ctx, devOrganizationID, devOrganizationID, devOrganizationID); err != nil {
 			die("auth: failed to ensure dev organization", "organization", devOrganizationID, "error", err)
 		}
@@ -142,7 +147,7 @@ func main() {
 			ID:             devUserID,
 			OrganizationID: devOrganizationID,
 			Email:          devUserEmail,
-			Name:           "Dev User",
+			Name:           devUserName,
 		}); err != nil {
 			die("auth: failed to ensure dev user", "user", devUserID, "error", err)
 		}
@@ -213,6 +218,7 @@ func main() {
 		DevOrganizationID:    devOrganizationID,
 		DevUserID:            devUserID,
 		DevUserEmail:         devUserEmail,
+		DevUserName:          devUserName,
 		RedisConfigured:      redisConfigured,
 		RateLimitMax:         rateLimitMax,
 		StuckScanTimeout:     stuckScanTimeout,
@@ -315,10 +321,10 @@ func buildSessionManager(store storage.Store, c cache.Cache) *auth.Manager {
 
 func membershipLookup(store storage.Store) auth.MembershipLookup {
 	return func(ctx context.Context, organizationID, userID string) (auth.MembershipDetails, error) {
-		role, email, err := store.LookupMembership(ctx, organizationID, userID)
+		role, email, name, err := store.LookupMembership(ctx, organizationID, userID)
 		if err != nil {
 			return auth.MembershipDetails{}, err
 		}
-		return auth.MembershipDetails{Role: role, Email: email}, nil
+		return auth.MembershipDetails{Role: role, Email: email, Name: name}, nil
 	}
 }

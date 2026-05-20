@@ -195,9 +195,12 @@ func (m *mockStoreForScheduler) CreateUserWithPassword(context.Context, model.Us
 func (m *mockStoreForScheduler) UpdateUserPassword(context.Context, string, string) error {
 	return errors.New("UpdateUserPassword not implemented")
 }
+func (m *mockStoreForScheduler) UpdateUserName(context.Context, string, string) (string, error) {
+	return "", errors.New("UpdateUserName not implemented")
+}
 func (m *mockStoreForScheduler) CountOrganizations(context.Context) (int64, error) { return 0, nil }
-func (m *mockStoreForScheduler) LookupMembership(context.Context, string, string) (string, string, error) {
-	return "", "", nil
+func (m *mockStoreForScheduler) LookupMembership(context.Context, string, string) (string, string, string, error) {
+	return "", "", "", nil
 }
 func (m *mockStoreForScheduler) LookupUserByEmail(context.Context, string) (model.User, []model.Membership, error) {
 	return model.User{}, nil, storage.ErrUserNotFound
