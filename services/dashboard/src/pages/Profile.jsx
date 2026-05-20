@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useMe } from '../context/MeContext';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import { downloadBlob } from '../utils/csv';
-import { deleteCurrentUser, exportOrganizationData } from '../api/client';
+import { deleteCurrentUser, exportOrganizationData, patchMe } from '../api/client';
 import { PERM } from '../api/permissions';
 import {
   useDestructiveConfirm,
@@ -12,12 +12,14 @@ import {
 } from '../components/DestructiveConfirm';
 import { DangerSection } from '../components/DangerSection';
 
+const DISPLAY_NAME_MAX = 120;
+
 // "Manage me" surface: read-only profile + GDPR Art. 15/20 export +
 // Art. 17 self-erasure. Organization-level destructive actions (delete
 // organization, transfer ownership) live under /settings/organization —
 // they're org admin, not personal.
 export default function Profile() {
-  const { me, can } = useMe();
+  const { me, can, refresh } = useMe();
   const { orgName, onLogout } = useApp();
   const { toast } = useToast();
 
@@ -29,7 +31,7 @@ export default function Profile() {
       </p>
 
       <Section title="Profile">
-        <Field label="Display name" value={me?.name || '—'} />
+        <DisplayNameField currentName={me?.name || ''} refresh={refresh} toast={toast} />
         <Field label="Email" value={me?.email || '—'} />
         <Field label="Role" value={me?.role || '—'} />
         <Field label="Organization" value={me?.organization?.name || orgName || me?.organization_id || '—'} />
@@ -43,6 +45,94 @@ export default function Profile() {
         onLogout={onLogout}
       />
     </div>
+  );
+}
+
+// DisplayNameField is an inline edit form for the user's display name.
+// "Save" enables only when the trimmed value differs from the current one;
+// success path refreshes MeContext so the avatar menu + audit metadata
+// pick up the new value on the next API call. Empty is intentionally
+// allowed — the server treats "" as unset and the dashboard falls back
+// to the email local-part for rendering.
+function DisplayNameField({ currentName, refresh, toast }) {
+  const [value, setValue] = useState(currentName);
+  const [error, setError] = useState('');
+
+  // Sync local state when MeContext refreshes (e.g. after a successful
+  // save from another tab). Without this, a fresh /v1/me arriving from
+  // outside this component would silently desync the input.
+  useEffect(() => { setValue(currentName); }, [currentName]);
+
+  const mutation = useMutation({
+    mutationFn: (name) => patchMe({ name }),
+    onSuccess: () => {
+      setError('');
+      toast('Display name updated.', 'success');
+      // refresh() re-fetches /v1/me; the useEffect above then resets the
+      // input to the server-canonical (trimmed) value.
+      refresh();
+    },
+    onError: (err) => {
+      if (err.status === 400) {
+        setError(err.body || 'Name must be 0–120 visible characters.');
+      } else {
+        setError(err.body || err.message || 'Failed to update name.');
+      }
+    },
+  });
+
+  const trimmed = value.trim();
+  const dirty = trimmed !== currentName.trim();
+  const tooLong = [...trimmed].length > DISPLAY_NAME_MAX;
+  const canSave = dirty && !tooLong && !mutation.isPending;
+
+  const onSubmit = (e) => {
+    e.preventDefault();
+    if (!canSave) return;
+    setError('');
+    mutation.mutate(trimmed);
+  };
+
+  return (
+    <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '6px 0' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label htmlFor="display-name" style={{ width: 96, color: 'var(--color-text-muted)', fontSize: 13 }}>
+          Display name
+        </label>
+        <input
+          id="display-name"
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="(unset — falls back to email)"
+          maxLength={DISPLAY_NAME_MAX + 1}
+          autoComplete="name"
+          disabled={mutation.isPending}
+          style={{
+            flex: '1 1 240px',
+            padding: '6px 10px',
+            borderRadius: 6,
+            border: '1px solid var(--color-border)',
+            backgroundColor: 'var(--color-surface)',
+            color: 'var(--color-text)',
+            fontSize: 13,
+          }}
+        />
+        <button type="submit" disabled={!canSave} style={primaryButton(!canSave)}>
+          {mutation.isPending ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      {tooLong && (
+        <div style={{ marginLeft: 108, fontSize: 11, color: 'var(--color-error)' }}>
+          {`${[...trimmed].length} of ${DISPLAY_NAME_MAX} characters — too long.`}
+        </div>
+      )}
+      {error && (
+        <div style={{ marginLeft: 108 }}>
+          <InlineBanner color={'var(--color-error)'} bg="rgba(239,68,68,0.15)">{error}</InlineBanner>
+        </div>
+      )}
+    </form>
   );
 }
 
