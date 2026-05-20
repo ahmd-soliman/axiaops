@@ -1257,6 +1257,19 @@ func (m *MockStore) UpdateUserPassword(context.Context, string, string) error {
 	return errors.New("MockStore.UpdateUserPassword not implemented")
 }
 
+func (m *MockStore) UpdateUserName(_ context.Context, userID, newName string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, u := range m.users {
+		if u.ID == userID {
+			old := u.Name
+			m.users[i].Name = newName
+			return old, nil
+		}
+	}
+	return "", storage.ErrUserNotFound
+}
+
 func (m *MockStore) CountOrganizations(context.Context) (int64, error) {
 	return 0, nil
 }
