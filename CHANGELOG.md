@@ -27,6 +27,80 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.2] — 2026-05-20
+
+Second alpha cut. Internal dogfooding only (dev-1 / dev-2 / staging). No
+breaking schema or API changes against `0.1.0-alpha.1`.
+
+### Added
+
+- Self-service display-name editing via `PATCH /v1/users/me` — closes #78.
+  Includes a no-op-rename guard so a PATCH with the current name is a 200
+  without writing to the DB or audit log.
+- Audit log denormalises the actor's display name onto each row (migration
+  `028_audit_actor_name`). Historical audit entries now survive the actor's
+  rename or deletion.
+- `docs/terraform-prod-design.md` (~2.3k lines) — production Terraform
+  shape after three review passes. Terragrunt re-engaged as Alternative B
+  with explicit revisit triggers.
+
+### Changed
+
+- **Dashboard navigation refactor.** Top nav consolidated to Vantage's
+  shape (Overview / Connect / Audit primary; sub-nav for the rest).
+  Settings moved off the top nav into the avatar menu, where the
+  admin-affordances belong. Icons trialled and then dropped from nav
+  surfaces — labels carry enough signal at this density.
+- Avatar menu shows the user's first name instead of email; the trigger
+  and dropdown no longer expose the address (cross-org name-disclosure
+  posture matches the `M-9` invitation-preview pin).
+- Role-onboarding (Connect) UX polish: widened Role ARN input, tightened
+  placeholder, restored the concrete-example hint, renamed the external-ID
+  prefix. `FEATURE_ROLE_AUTH` feature flag retired — the role tab is the
+  default for everyone.
+- `AXIAOPS_AWS_ACCOUNT_ID` now validated at boot, with a sensible default
+  for on-prem envs.
+- `docs/versioning.md` filled in release cadence, support window, and
+  migration policy. Added the CHANGELOG link-rotation step.
+- `Tasks.md` refreshed: 2.7.2/2.7.4/2.7.23 reconciled with landed work;
+  2.7.3 rescoped to docker-compose only (Helm deferred until a real
+  customer ask with buying motion).
+
+### Removed
+
+- `FEATURE_ROLE_AUTH` feature flag from the dashboard.
+
+### Fixed
+
+- `nginx` `real_ip` module now recovers the true client IP behind
+  multi-hop proxies (App Runner + edge). `docs/httpip.md` and
+  `services/dashboard/nginx.conf` reconciled with the actual topology;
+  the anti-spoof claim tempered to match what `real_ip` can actually
+  guarantee.
+- `fix(ci)`: `deploy:demo` was running against the GitLab runner's
+  Docker daemon instead of the demo host. `DEPLOY_HOST_IP` now points
+  at the demo host as intended.
+
+### Security
+
+- **C-1**: shared-secret HMAC-SHA256 on the api → ingestion hop
+  (`POST /scan`, `POST /v1/credentials/verify`, and the Redis queue
+  envelope). New `services/shared/httpauth` package with `Sign`,
+  `Verify`, `Middleware`, `MultiSecretMiddleware`, and
+  `PassthroughWithWarning`. Soft-enforce → hard-enforce rollout knob
+  (`INGESTION_HMAC_SOFT_ENFORCE`); multi-slot key rotation
+  (`INGESTION_SHARED_SECRET_NEXT`); per-env Redis `requirepass`
+  propagation; observability counters. Plan:
+  `docs/c1-hmac-plan.md`.
+- **M-7**: sessions-cap revocation folded into the mint transaction
+  with a per-user advisory lock serialising concurrent mints. Closes
+  the race where two near-simultaneous logins could exceed
+  `SESSIONS_PER_USER_CAP`. Cap-failure errors are now
+  structured-logged.
+- **H-3**: `RequireHTTPS` middleware now exempts IPv6 loopback
+  (`::1`), matching the IPv4 carve-out. SSO callbacks against local
+  IPv6-bound dev servers no longer 400.
+
 ## [0.1.0-alpha.1] — 2026-05-16
 
 First tagged release. Captures all work from the Phase 1 MVP baseline
@@ -187,5 +261,6 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.1...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.2...develop
+[0.1.0-alpha.2]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.2
 [0.1.0-alpha.1]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.1
