@@ -481,7 +481,7 @@ func TestOrganizationIsolation_LoadZombies_ReceivesContextOrganizationID(t *test
 	// DevBypass injects the organization ID via the middleware context key, exactly
 	// as the real auth middleware does. Without it, middleware.OrganizationID returns ""
 	// because the middleware and storage packages use distinct context key types.
-	handler := middleware.DevBypass("organization-alpha-uuid", "dev-user", "dev@axiaops.local", mux)
+	handler := middleware.DevBypass("organization-alpha-uuid", "dev-user", "dev@axiaops.local", "Dev User", mux)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/zombies", nil))
 
@@ -505,7 +505,7 @@ func TestOrganizationIsolation_ListAccounts_ReceivesContextOrganizationID(t *tes
 	mockStore := NewMockStore()
 	_, mux := newTrackingHandler(mockStore)
 
-	handler := middleware.DevBypass("organization-beta-uuid", "dev-user", "dev@axiaops.local", mux)
+	handler := middleware.DevBypass("organization-beta-uuid", "dev-user", "dev@axiaops.local", "Dev User", mux)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/accounts", nil))
 
@@ -554,8 +554,8 @@ func TestConcurrentScans_OrganizationIsolation(t *testing.T) {
 	)
 	// Wrap each mux in DevBypass so the middleware context keys (read by
 	// Require + handlers) are populated. Each organization gets a distinct dev user.
-	handlerA := middleware.DevBypass(orgA, "dev-user-a", "a@x.com", muxA)
-	handlerB := middleware.DevBypass(orgB, "dev-user-b", "b@x.com", muxB)
+	handlerA := middleware.DevBypass(orgA, "dev-user-a", "a@x.com", "Dev User A", muxA)
+	handlerB := middleware.DevBypass(orgB, "dev-user-b", "b@x.com", "Dev User B", muxB)
 
 	wg.Add(2)
 	go func() {

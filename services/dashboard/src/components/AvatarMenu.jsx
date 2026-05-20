@@ -110,7 +110,8 @@ export default function AvatarMenu({ compact = false }) {
             position: 'absolute',
             top: 'calc(100% + 6px)',
             right: 0,
-            minWidth: 160,
+            minWidth: 200,
+            maxWidth: 280,
             backgroundColor: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
             borderRadius: 8,
@@ -119,9 +120,65 @@ export default function AvatarMenu({ compact = false }) {
             zIndex: 150,
           }}
         >
+          {/*
+            Identity header — non-clickable. Trigger label stays first-name
+            only (MR !164, 2026-05-19); the email lives here so a user
+            switching between work and personal orgs can confirm which
+            account they're signed in as without leaving the navbar. Falls
+            back gracefully when either field is missing.
+          */}
+          <IdentityHeader name={me?.name || ''} email={me?.email || ''} />
+          <div style={{ height: 1, backgroundColor: 'var(--color-border)', margin: '4px 0' }} />
           <MenuItem onClick={() => go('/settings')}>Settings</MenuItem>
           <div style={{ height: 1, backgroundColor: 'var(--color-border)', margin: '4px 0' }} />
           <MenuItem onClick={signOut}>Sign Out</MenuItem>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IdentityHeader({ name, email }) {
+  // Three render shapes, in order of preference:
+  //   1. name + email — both lines, name bold + email muted.
+  //   2. email only — single line, no fake-name placeholder.
+  //   3. neither — render nothing; the dropdown is just Settings + Sign Out.
+  if (!name && !email) return null;
+  return (
+    <div
+      style={{
+        padding: '7px 10px 6px 10px',
+        cursor: 'default',
+      }}
+    >
+      {name && (
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: 'var(--color-text)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={name}
+        >
+          {name}
+        </div>
+      )}
+      {email && (
+        <div
+          style={{
+            fontSize: 11,
+            color: 'var(--color-text-muted)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            marginTop: name ? 1 : 0,
+          }}
+          title={email}
+        >
+          {email}
         </div>
       )}
     </div>
