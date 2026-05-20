@@ -31,6 +31,7 @@ import (
 	"axiaops.io/api/internal/serverbuild"
 	"axiaops.io/api/internal/sso"
 	"axiaops.io/shared/cache"
+	"axiaops.io/shared/httpauth"
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
@@ -100,7 +101,15 @@ func main() {
 	if ingestionURL == "" {
 		ingestionURL = "http://localhost:8081"
 	}
-	q := queue.New(os.Getenv("REDIS_URL"), ingestionURL)
+	// Shared-secret HMAC for outbound api → ingestion calls (C-1, plan §3.3).
+	// DEV_MODE allows empty; the receiving ingestion middleware is in
+	// passthrough mode under the same posture. Single secret on the signer
+	// side — rotation is verifier-only (ingestion holds current+next).
+	ingestionSecret, hmacErr := httpauth.LoadFromEnv("INGESTION_SHARED_SECRET", devModeEnabled())
+	if hmacErr != nil {
+		die("hmac: " + hmacErr.Error())
+	}
+	q := queue.New(os.Getenv("REDIS_URL"), ingestionURL, ingestionSecret)
 	defer func() { _ = q.Close() }()
 
 	// ── Resolve modes from env ───────────────────────────────────────────
@@ -113,6 +122,7 @@ func main() {
 	devOrganizationID := ""
 	devUserID := ""
 	devUserEmail := ""
+	devUserName := ""
 	if devMode {
 		devOrganizationID = os.Getenv("DEV_ORGANIZATION_ID")
 		if devOrganizationID == "" {
@@ -126,6 +136,10 @@ func main() {
 		if devUserEmail == "" {
 			devUserEmail = "dev@axiaops.local"
 		}
+		devUserName = os.Getenv("DEV_USER_NAME")
+		if devUserName == "" {
+			devUserName = "Dev User"
+		}
 		if err := store.EnsureOrganization(ctx, devOrganizationID, devOrganizationID, devOrganizationID); err != nil {
 			die("auth: failed to ensure dev organization", "organization", devOrganizationID, "error", err)
 		}
@@ -133,7 +147,7 @@ func main() {
 			ID:             devUserID,
 			OrganizationID: devOrganizationID,
 			Email:          devUserEmail,
-			Name:           "Dev User",
+			Name:           devUserName,
 		}); err != nil {
 			die("auth: failed to ensure dev user", "user", devUserID, "error", err)
 		}
@@ -204,6 +218,7 @@ func main() {
 		DevOrganizationID:    devOrganizationID,
 		DevUserID:            devUserID,
 		DevUserEmail:         devUserEmail,
+		DevUserName:          devUserName,
 		RedisConfigured:      redisConfigured,
 		RateLimitMax:         rateLimitMax,
 		StuckScanTimeout:     stuckScanTimeout,
@@ -214,6 +229,7 @@ func main() {
 		Store:               store,
 		Cache:               c,
 		Queue:               q,
+		IngestionSecret:     ingestionSecret,
 		AuthProvider:        authProvider,
 		Discoverer:          ssoDiscoverer,
 		Connector:           ssoConnector,
@@ -305,10 +321,10 @@ func buildSessionManager(store storage.Store, c cache.Cache) *auth.Manager {
 
 func membershipLookup(store storage.Store) auth.MembershipLookup {
 	return func(ctx context.Context, organizationID, userID string) (auth.MembershipDetails, error) {
-		role, email, err := store.LookupMembership(ctx, organizationID, userID)
+		role, email, name, err := store.LookupMembership(ctx, organizationID, userID)
 		if err != nil {
 			return auth.MembershipDetails{}, err
 		}
-		return auth.MembershipDetails{Role: role, Email: email}, nil
+		return auth.MembershipDetails{Role: role, Email: email, Name: name}, nil
 	}
 }

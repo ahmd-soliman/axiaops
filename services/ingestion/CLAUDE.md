@@ -31,7 +31,15 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | GET | /health | No | Healthcheck |
-| POST | /scan | Yes | Run ingestion for a specific account |
+| GET | /metrics | No | Prometheus metrics |
+| POST | /scan | HMAC | Run ingestion for a specific account |
+| POST | /v1/credentials/verify | HMAC | sts:AssumeRole probe for role-onboarding |
+
+Both POST endpoints are authenticated via shared-secret HMAC-SHA256 over the
+api → ingestion hop (C-1, `docs/c1-hmac-plan.md`). User-level authz is
+enforced upstream at the api hop (`authz.PermAccountsScan` + audit_log write);
+ingestion trusts that gate and only verifies "is this caller part of our
+deployment?" via the `X-AxiaOps-Ingestion-{Timestamp,Signature}` headers.
 
 ## Ingestion Flow
 
@@ -158,6 +166,11 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationI
 | LOG_OUTPUT | No | json | Log format (json or text) |
 | INGESTION_PORT | No | 8081 | HTTP listen port |
 | RUN_ONCE | No | false | One-shot mode (run once and exit) |
+| INGESTION_SHARED_SECRET | Yes outside DEV_MODE | — | 32-byte hex (`openssl rand -hex 32`). Verifier-side shared secret for C-1 HMAC. DEV_MODE allows empty (passthrough with one-shot warning on inbound signed traffic). |
+| INGESTION_SHARED_SECRET_NEXT | No | — | Optional verifier-side staging slot for zero-downtime rotation. Set on ingestion before flipping api over; clear after rotation. See `docs/c1-hmac-plan.md` §5. |
+| INGESTION_HMAC_MAX_SKEW_SECONDS | No | 300 | Replay window in seconds. Widen only when an NTP fix is in flight; never permanently. |
+| INGESTION_HMAC_SOFT_ENFORCE | No | false | Transition-only: when `true`, HMAC failures are logged + counted but NOT rejected. Used for the initial rollout's ingestion-before-api gap. Flip to `false` after one stable cycle per env; the `axiaops_ingestion_hmac_enforce_mode{mode="soft"}` alert fires if left on. |
+| REDIS_PASSWORD | When Redis is `requirepass`-protected | — | Used by the `redis-cli` healthcheck in deploy/*.yml and propagated into REDIS_URL's userinfo. Set as a per-env CI variable. |
 
 ## Testing
 

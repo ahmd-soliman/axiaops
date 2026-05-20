@@ -1,14 +1,26 @@
 package api
 
 import (
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
+	"axiaops.io/api/internal/audit"
 	"axiaops.io/api/internal/auth"
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/authz"
+	"axiaops.io/shared/model"
 	"axiaops.io/shared/storage"
 )
+
+// displayNameMaxLen caps users.name at the same boundary as bootstrap and
+// invitation flows. Empty is allowed and means "unset" — the dashboard falls
+// back to the email local-part for rendering.
+const displayNameMaxLen = 120
 
 // meResponse is the wire shape for GET /v1/me. Permissions are sent as
 // strings so the dashboard can drive UI gating without bundling the
@@ -148,3 +160,98 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+// updateCurrentUser handles PATCH /v1/users/me. Self-service display-name
+// edit (issue #78). Authn-only — every authenticated user can rename
+// themselves; the userID is the capability.
+//
+// Body: {"name": string}. Trimmed; empty allowed (unset); length capped at
+// displayNameMaxLen runes; rejects control characters. Mirrors the
+// updateCurrentOrganization validator shape.
+//
+// Audit row written under the caller's current org context with metadata
+// {old_name, new_name} — symmetric with AuditActionOrganizationRenamed.
+// Returns the updated meResponse so the dashboard can refresh in one
+// round-trip without a follow-up GET /v1/me.
+func (h *Handler) updateCurrentUser(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.UserID(r.Context())
+	if uid == "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if !validDisplayName(req.Name) {
+		http.Error(w, "name must be 0..120 visible characters", http.StatusBadRequest)
+		return
+	}
+
+	// No-op short-circuit: if the caller posts the name they already have,
+	// skip the UPDATE and the audit row entirely. Frontend's `dirty` check
+	// guards the normal path; a raw curl or a rapid double-submit can
+	// otherwise land here and write a spurious audit row with
+	// old_name == new_name. One extra SELECT per PATCH is cheap (this is
+	// a rare endpoint), and worth keeping audit_log signal-dense.
+	if current, err := h.store.GetUserByID(r.Context(), uid); err == nil && current.Name == req.Name {
+		writeJSON(w, updateUserResponse{Name: current.Name})
+		return
+	}
+
+	oldName, err := h.store.UpdateUserName(r.Context(), uid, req.Name)
+	if err != nil {
+		switch {
+		case errors.Is(err, storage.ErrUserNotFound):
+			http.Error(w, "user not found", http.StatusNotFound)
+		default:
+			slog.Error("users: update name failed", "error", err, "user_id", uid)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       model.AuditActionUserNameChanged,
+		ResourceType: "user",
+		ResourceID:   uid,
+		Metadata: map[string]any{
+			"old_name": oldName,
+			"new_name": req.Name,
+		},
+	})
+
+	// Respond with just the updated field, not the full /v1/me shape.
+	// Earlier revisions delegated to h.getMe so the dashboard could refresh
+	// in one round-trip; but that path could 500 *after* the UPDATE and
+	// audit had committed, leaving the client to retry and write a duplicate
+	// audit row. The dashboard's MeContext refetches /v1/me on its own
+	// after the mutation succeeds, so this minimal shape is sufficient.
+	writeJSON(w, updateUserResponse{Name: req.Name})
+}
+
+// updateUserResponse is the slim wire shape returned by PATCH /v1/users/me.
+// The frontend doesn't read it today (it calls MeContext.refresh() instead),
+// but a stable shape keeps `curl`-bypass-of-the-frontend honest.
+type updateUserResponse struct {
+	Name string `json:"name"`
+}
+
+// validDisplayName enforces 0..displayNameMaxLen runes and rejects control
+// characters. Empty is intentionally allowed — the user choosing to unset
+// their name is a valid state (frontend falls back to email).
+func validDisplayName(s string) bool {
+	if utf8.RuneCountInString(s) > displayNameMaxLen {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}

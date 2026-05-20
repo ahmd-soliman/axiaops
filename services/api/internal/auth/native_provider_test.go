@@ -12,12 +12,13 @@ import (
 	"axiaops.io/shared/model"
 )
 
-// membershipStub is a minimal MembershipLookup. Returns role+email for
+// membershipStub is a minimal MembershipLookup. Returns role+email+name for
 // the requested user; other users get the zero MembershipDetails (treated
 // as "no membership" by Authenticate).
 type membershipStub struct {
 	role   string
 	email  string
+	name   string
 	userID string
 	err    error
 }
@@ -27,7 +28,7 @@ func (m membershipStub) lookup(_ context.Context, _, userID string) (auth.Member
 		return auth.MembershipDetails{}, m.err
 	}
 	if userID == m.userID {
-		return auth.MembershipDetails{Role: m.role, Email: m.email}, nil
+		return auth.MembershipDetails{Role: m.role, Email: m.email, Name: m.name}, nil
 	}
 	return auth.MembershipDetails{}, nil
 }

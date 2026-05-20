@@ -10,19 +10,28 @@ import (
 // AuditEvent is a single audit_log row. Only user-initiated mutating actions
 // are recorded — reads and scheduled/automated scans are excluded.
 type AuditEvent struct {
-	ID             int64          `json:"id"`
-	OrganizationID string         `json:"organization_id,omitempty"`
-	UserID         string         `json:"user_id,omitempty"` // NULL after GDPR anonymisation
-	ActorEmail     string         `json:"actor_email"`       // captured at event time
-	Action         string         `json:"action"`            // one of AuditAction* constants
-	ResourceType   string         `json:"resource_type,omitempty"`
-	ResourceID     string         `json:"resource_id,omitempty"`
-	Reason         string         `json:"reason,omitempty"`
-	Metadata       map[string]any `json:"metadata,omitempty"`
-	RequestID      string         `json:"request_id,omitempty"`
-	IPAddress      net.IP         `json:"ip_address,omitempty"`
-	UserAgent      string         `json:"user_agent,omitempty"`
-	CreatedAt      time.Time      `json:"created_at"`
+	ID             int64  `json:"id"`
+	OrganizationID string `json:"organization_id,omitempty"`
+	UserID         string `json:"user_id,omitempty"` // NULL after GDPR anonymisation
+	ActorEmail     string `json:"actor_email"`       // captured at request time
+	// ActorName is captured at request time and persisted on audit_log
+	// (migration 028) — symmetrical to ActorEmail. Resolved live from
+	// users.name via LookupMembership on every authenticated request, so a
+	// rename takes effect on the next request; rows already in audit_log are
+	// immutable and preserve the name as-of when each event was written.
+	// AnonymiseUser clears it to '' alongside rewriting ActorEmail to
+	// 'deleted-user'. Empty when the actor had no display name set;
+	// frontends fall back to ActorEmail.
+	ActorName    string         `json:"actor_name"`
+	Action       string         `json:"action"` // one of AuditAction* constants
+	ResourceType string         `json:"resource_type,omitempty"`
+	ResourceID   string         `json:"resource_id,omitempty"`
+	Reason       string         `json:"reason,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	RequestID    string         `json:"request_id,omitempty"`
+	IPAddress    net.IP         `json:"ip_address,omitempty"`
+	UserAgent    string         `json:"user_agent,omitempty"`
+	CreatedAt    time.Time      `json:"created_at"`
 }
 
 // Audit action constants. Values match the action column in audit_log.
@@ -70,6 +79,12 @@ const (
 	// mutation-only, and authn-success / authn-failure belong in the
 	// auth-counter Prometheus metrics + slog (`axiaops_auth_login_total`).
 	// What lives here is the *state-changing* side of authn.
+	// AuditActionUserNameChanged records a self-service display-name edit
+	// via PATCH /v1/users/me (issue #78). Metadata carries {old_name,
+	// new_name}. Per-org row written under the caller's current org context,
+	// even though users.name is itself org-agnostic — the trail belongs to
+	// the org the user was operating in when they made the change.
+	AuditActionUserNameChanged           = "user_name_changed"
 	AuditActionUserPasswordChanged       = "user_password_changed"
 	AuditActionUserPasswordResetIssued   = "user_password_reset_issued"
 	AuditActionUserPasswordResetRedeemed = "user_password_reset_redeemed"
@@ -160,6 +175,7 @@ var ValidAuditActions = map[string]bool{
 	AuditActionDataExported:              true,
 	AuditActionOrganizationRenamed:       true,
 	AuditActionOnboardingCompleted:       true,
+	AuditActionUserNameChanged:           true,
 	AuditActionUserPasswordChanged:       true,
 	AuditActionUserPasswordResetIssued:   true,
 	AuditActionUserPasswordResetRedeemed: true,

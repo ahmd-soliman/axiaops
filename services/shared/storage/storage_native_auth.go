@@ -79,21 +79,38 @@ type NativeAuthStore interface {
 	// caller composes both inside its own transaction.
 	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
 
+	// UpdateUserName sets users.name on the row identified by userID and
+	// returns the previous value so the caller can audit {old_name, new_name}
+	// (issue #78 — self-service display-name editing via PATCH /v1/users/me).
+	// Single round-trip: the SQL is an UPDATE ... RETURNING ... combined with
+	// a CTE that captures the prior value, so the read and write are atomic
+	// from the table's point of view.
+	//
+	// newName is stored verbatim — caller is responsible for trimming and
+	// validating length/control-character rules. Empty string is allowed
+	// (semantics: "unset", and the dashboard falls back to email).
+	//
+	// Returns ErrUserNotFound when the row doesn't exist. Bypasses RLS for
+	// the same reason as UpdateUserPassword — users has no RLS policy and
+	// userID is the capability.
+	UpdateUserName(ctx context.Context, userID, newName string) (oldName string, err error)
+
 	// CountOrganizations returns the total number of rows in the organizations
 	// table across all organizations. Used by the bootstrap installer to
 	// decide whether to mint an install token. Bypasses RLS (uses the admin
 	// pool) because at startup no org context exists.
 	CountOrganizations(ctx context.Context) (int64, error)
 
-	// LookupMembership resolves the membership role and the user's email in
-	// a single SELECT joining memberships + users. Used on the native-auth
-	// request hot path: the auth provider needs both fields per request to
-	// populate Identity{Role, Email}.
+	// LookupMembership resolves the membership role plus the user's email
+	// and display name in a single SELECT joining memberships + users. Used
+	// on the native-auth request hot path: the auth provider needs all three
+	// fields per request to populate Identity{Role, Email, Name}. Name is
+	// stamped onto audit_log.actor_name at write time.
 	//
-	// Returns (role="", email="", nil) when no membership row exists — the
-	// caller treats that as "no membership" and rejects the request.
-	// Returns a non-nil error only on transient DB failure.
-	LookupMembership(ctx context.Context, organizationID, userID string) (role, email string, err error)
+	// Returns ("", "", "", nil) when no membership row exists — the caller
+	// treats that as "no membership" and rejects the request. Returns a
+	// non-nil error only on transient DB failure.
+	LookupMembership(ctx context.Context, organizationID, userID string) (role, email, name string, err error)
 
 	// LookupUserByEmail resolves the login candidate for the supplied
 	// email — global lookup, bypassing RLS, because login has no org
@@ -125,6 +142,24 @@ type NativeAuthStore interface {
 	// random plaintext token, hashed it (SHA-256), and computed expires_at.
 	// Returns the persisted Session (with timestamps populated).
 	CreateSession(ctx context.Context, s model.Session) (model.Session, error)
+
+	// CreateSessionEnforcingCap inserts a session row AND atomically enforces
+	// the per-user concurrent-session cap in the same transaction. When
+	// `perUserCap > 0` and inserting the new row would push the user above
+	// the cap, the oldest excess sessions are revoked (`revoked_at = NOW()`)
+	// in the same transaction — so no transient over-cap state is visible
+	// to any concurrent reader. When `perUserCap <= 0` the cap step is a
+	// no-op and the call is equivalent to CreateSession.
+	//
+	// Returns the persisted Session and the list of session_token_hashes
+	// that were revoked so the caller can evict the matching cache entries
+	// after the transaction commits (architect C4: no scan/wildcard).
+	//
+	// Audit (M-7): folds the cap-enforcement into the same transaction as
+	// the INSERT, closing the "11th login briefly visible" window from the
+	// previous best-effort post-insert revoke. Failures propagate to the
+	// caller — partial state is impossible because the whole tx rolls back.
+	CreateSessionEnforcingCap(ctx context.Context, s model.Session, perUserCap int) (saved model.Session, revokedHashes []string, err error)
 
 	// GetSessionByTokenHash looks up by SHA-256 hash. Returns ErrSessionNotFound
 	// when no row matches. Does NOT filter by revoked/expired — callers must
@@ -279,16 +314,16 @@ type NativeAuthStore interface {
 // struct (not positional args) so the inevitable additions (initial org name,
 // invite quota, license tier hint) don't churn the interface.
 type BootstrapConsume struct {
-	TokenHash         string // hex(SHA-256(plaintext token))
-	OrganizationID    string // pre-generated UUID
-	OrganizationName  string
-	UserID            string // pre-generated UUID
-	UserEmail         string
-	UserName          string
-	UserPasswordHash  string // pre-hashed (argon2id) by caller
-	SessionID         string
-	SessionTokenHash  string
-	SessionExpiresAt  time.Time
+	TokenHash            string // hex(SHA-256(plaintext token))
+	OrganizationID       string // pre-generated UUID
+	OrganizationName     string
+	UserID               string // pre-generated UUID
+	UserEmail            string
+	UserName             string
+	UserPasswordHash     string // pre-hashed (argon2id) by caller
+	SessionID            string
+	SessionTokenHash     string
+	SessionExpiresAt     time.Time
 	SessionUserAgentHash string
 	// SessionIP is captured as a string here to avoid pulling net into this
 	// package's interface; the postgres impl converts to net.IP.

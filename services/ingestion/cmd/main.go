@@ -10,7 +10,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -24,6 +23,7 @@ import (
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/errors"
+	"axiaops.io/shared/httpauth"
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
@@ -111,6 +111,23 @@ func main() {
 		die("license: refusing to start", "error", err.Error())
 	}
 
+	// ── Ingestion shared-secret HMAC (C-1, plan §3.4) ─────────────────────
+	// Two-secret slot list (current + previous) from day 1 — the operator
+	// can stage a `_NEXT` value on ingestion before flipping api over.
+	// DEV_MODE allows empty: both ends fall back to a passthrough that
+	// surfaces a one-shot warning if a signed request arrives anyway.
+	ingestionSecrets, hmacSoftEnforce := loadIngestionSecrets(devModeEnabled())
+	hmacMaxSkew := httpauth.LoadMaxSkew("INGESTION_HMAC_MAX_SKEW_SECONDS", httpauth.DefaultMaxSkew)
+	observability.SetHMACEnforceMode(hmacSoftEnforce)
+	// Emit the secret-slot fingerprint (lengths only, never bytes) so an
+	// operator inspecting a running container can confirm rotation is staged
+	// correctly without exposing the secret to log scrapers. See plan §4.5.
+	slog.Info("hmac: secret slots loaded", "fingerprint", secretsFingerprint(ingestionSecrets))
+	if hmacSoftEnforce && !devModeEnabled() {
+		slog.Warn("hmac: SOFT_ENFORCE active — failures are logged but NOT rejected. " +
+			"Transition flag only; flip INGESTION_HMAC_SOFT_ENFORCE=false after one stable cycle.")
+	}
+
 	store := newStore()
 
 	retentionDays := 90
@@ -141,73 +158,17 @@ func main() {
 	// wrong.
 	mux.Handle("GET /metrics", observability.MetricsHandler())
 
-	mux.HandleFunc("POST /scan", func(w http.ResponseWriter, r *http.Request) {
-		// License scan-gate (plan §4.9.2b, post-amendment). Routed through
-		// IsScanAllowedForState so the predicate stays in lockstep with the
-		// api-side handler and the scheduler — single source of truth for
-		// the policy. Internal-only surface today, but a future caller (a
-		// CLI, a one-off script, a future SaaS<>self-hosted bridge)
-		// shouldn't be able to skip the gate just because the api binary did.
-		//
-		// State is read ONCE and used for both the gate predicate and the
-		// error-code branch — avoids the wall-clock-driven TOCTOU where a
-		// `valid → in_grace → expired` cross-tick between two consecutive
-		// reads could cross-classify the response body.
-		licState := license.SnapshotState()
-		if !license.IsScanAllowedForState(licState) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			switch licState {
-			case license.StateExpired:
-				_, _ = w.Write([]byte(`{"error":"license_expired"}`))
-			case license.StateNotLoaded:
-				_, _ = w.Write([]byte(`{"error":"license_not_loaded"}`))
-			case license.StateValid, license.StateInGrace:
-				// Defensive: caller (the gate predicate above) should
-				// never let these states through. If they do, slog.Warn
-				// + generic body — same posture as the api side. Without
-				// this case the asymmetry would partially document the
-				// "should never reach here" reasoning.
-				slog.Warn("ingestion scan-gate: allow-listed state reached body builder",
-					"state", licState.String(),
-				)
-				_, _ = w.Write([]byte(`{"error":"license_inactive"}`))
-			default:
-				// Future blocking states surface as license_inactive +
-				// slog.Warn rather than silent mis-classification.
-				slog.Warn("ingestion scan-gate: unhandled license state", "state", licState.String())
-				_, _ = w.Write([]byte(`{"error":"license_inactive"}`))
-			}
-			return
-		}
-		var req struct {
-			AccountID      string `json:"account_id"`
-			OrganizationID string `json:"organization_id"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			slog.Error("scan: invalid request", "error", err)
-			http.Error(w, "invalid request", http.StatusBadRequest)
-			return
-		}
-
-		ctx := storage.WithOrganizationID(context.Background(), req.OrganizationID)
-
-		if err := runScan(ctx, store, req.AccountID); err != nil {
-			slog.Error("scan: ingestion failed", "account_id", req.AccountID, "error", err)
-			// Persist the failure reason on the row so the dashboard can surface
-			// it without forcing operators into the logs (design §6.6). Same
-			// path serves access-key and role accounts.
-			_ = store.SetAccountError(ctx, req.AccountID, err.Error())
-			http.Error(w, "ingestion failed", http.StatusInternalServerError)
-			return
-		}
-		_ = store.UpdateAccountStatus(ctx, req.AccountID, "connected")
-		w.WriteHeader(http.StatusOK)
-	})
+	// Protected handlers are wrapped individually via httpauth.Middleware so
+	// /health, /metrics, /livez, /readyz stay reachable by docker healthchecks
+	// and Prometheus scrapers (no shared secret). Future ingestion endpoints
+	// should explicitly opt in via protect() rather than opt out of a global
+	// allowlist. See docs/c1-hmac-plan.md §4.2.
+	protect := composeHMACProtect(ingestionSecrets, hmacMaxSkew, hmacSoftEnforce)
+	mux.Handle("POST /scan", protect(http.HandlerFunc(scanHandler(store))))
 
 	// Cross-account role verification — synchronous AssumeRole probe used by
 	// the dashboard's "Verify and connect" flow. Stateless: no DB writes.
-	mux.HandleFunc("POST /v1/credentials/verify", handleVerifyCredentials)
+	mux.Handle("POST /v1/credentials/verify", protect(http.HandlerFunc(handleVerifyCredentials)))
 
 	port := os.Getenv("INGESTION_PORT")
 	if port == "" {
@@ -222,10 +183,13 @@ func main() {
 
 	redisURL := os.Getenv("REDIS_URL")
 	ingestionURL := "http://localhost:" + port
-	q := queue.New(redisURL, ingestionURL)
+	// Pass the *first* secret (the current one) so envelope-signed enqueues
+	// from this binary's scheduler match what the worker verifies. Rotation
+	// only affects the verifier side — the signer always uses current.
+	q := queue.New(redisURL, ingestionURL, primarySecret(ingestionSecrets))
 	defer func() { _ = q.Close() }()
 	if redisURL != "" {
-		startWorker(sigCtx, q, store)
+		startWorker(sigCtx, q, store, ingestionSecrets, hmacMaxSkew, hmacSoftEnforce)
 		slog.Info("worker: started")
 	} else {
 		slog.Info("worker: skipped_no_redis")

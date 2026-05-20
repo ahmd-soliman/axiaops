@@ -12,6 +12,8 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint 
       <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-mid)' }}>{label}</label>
       <input
         style={{
+          width: '100%',
+          boxSizing: 'border-box',
           backgroundColor: 'var(--color-surface-alt)',
           border: `1px solid var(--color-border)`,
           borderRadius: 8,
