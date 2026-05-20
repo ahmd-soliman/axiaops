@@ -468,6 +468,15 @@ function resetFetchMeCache() {
   _meInFlight = null;
 }
 
+// patchMe updates the authenticated user's display name. Server trims and
+// caps at 120 runes; empty is allowed (unset). On success the API returns
+// the updated /v1/me shape so the caller can hand it to MeContext.refresh()
+// — though refresh() pulling a fresh /v1/me is the simpler, dedupe-aware
+// path the dashboard uses today.
+export async function patchMe({ name }) {
+  return request('/v1/users/me', { method: 'PATCH', body: { name } });
+}
+
 // ── Multi-org picker handoff ────────────────────────────────────────────────
 // Login → /select-org needs to ferry the user's email + password + orgs
 // list across the route boundary so the picker can re-POST to
