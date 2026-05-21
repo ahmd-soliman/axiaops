@@ -27,6 +27,23 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.3] — 2026-05-21
+
+Patch release on the `0.1.0-alpha` line — single deploy fix surfaced via
+the License page on staging. No schema or API changes.
+
+### Fixed
+
+- Deploy compose files now set `APP_ENV` on both `api` and `ingestion`
+  containers per environment (`staging`, `preview`, `demo`, plus
+  `${DEPLOY_ENV}` for dev-1 / dev-2). The License page (Settings →
+  License) and `GET /v1/version` were reporting `Env: development` on
+  every deployed env because the API handler falls back to
+  `"development"` when the var is unset
+  (`services/api/internal/api/handler.go:534`). Same value also feeds
+  the structured-log `env` slog attribute, so log filtering by env now
+  works end-to-end.
+
 ## [0.1.0-alpha.2] — 2026-05-20
 
 Second alpha cut. Internal dogfooding only (dev-1 / dev-2 / staging). No
@@ -261,6 +278,7 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.2...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.3...develop
+[0.1.0-alpha.3]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.3
 [0.1.0-alpha.2]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.2
 [0.1.0-alpha.1]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.1
