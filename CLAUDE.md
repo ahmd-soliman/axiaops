@@ -54,7 +54,11 @@ make test-integration   # Spins up an isolated docker-compose stack (postgres, r
 
 Non-obvious shape that's easy to misread from `.gitlab-ci.yml`:
 
-- **Each deployed env runs on its own self-hosted host**, NOT a single shared Docker host. The self-hosted stack lives in `self-hosted-infra/stacks/axiaops-dev` (separate repo / Terraform); each host is provisioned with the `deploy` user and a public key from `TF_VAR_deploy_ssh_public_keys`.
+- **Infrastructure-as-code lives in two sibling repos**, not in this one:
+  - [`(internal infra repo)`](https://gitlab.com/(internal infra repo)) — the self-hosted stack (`stacks/axiaops-dev`) for dev-1 / dev-2 / staging / preview / demo hosts. Each host is provisioned with the `deploy` user and a public key from `TF_VAR_deploy_ssh_public_keys`.
+  - [`axiaops/aws-infra`](https://gitlab.com/axiaops/aws-infra) — the AWS production stack (VPC, RDS, App Runner, ECR, S3+CloudFront, IAM OIDC role for CI). Design: [`aws-infra/docs/terraform-prod-design.md`](https://gitlab.com/axiaops/aws-infra/-/blob/main/docs/terraform-prod-design.md).
+
+- **Each deployed env runs on its own self-hosted host**, NOT a single shared Docker host.
 
   | Env | Hostname | IP |
   |---|---|---|
