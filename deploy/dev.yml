@@ -53,6 +53,7 @@ services:
       INGESTION_SHARED_SECRET: ${INGESTION_SHARED_SECRET:-}
       INGESTION_SHARED_SECRET_NEXT: ${INGESTION_SHARED_SECRET_NEXT:-}
       INGESTION_HMAC_SOFT_ENFORCE: ${INGESTION_HMAC_SOFT_ENFORCE:-false}
+      APP_ENV: ${DEPLOY_ENV}
     networks:
       - default-network
 
@@ -84,6 +85,7 @@ services:
       # but plumbing the variable here means operators don't have to edit
       # the manifest when they flip DEV_MODE.
       CORS_ORIGIN: ${CORS_ORIGIN:-}
+      APP_ENV: ${DEPLOY_ENV}
     # The api writes the first-owner install token to /var/run/axiaops/
     # on first boot (BOOTSTRAP_TOKEN_FILE_PATH default). Without a named
     # volume the file lives on the container's writable layer and dies

@@ -39,6 +39,7 @@ services:
       INGESTION_SHARED_SECRET: ${INGESTION_SHARED_SECRET}
       INGESTION_SHARED_SECRET_NEXT: ${INGESTION_SHARED_SECRET_NEXT:-}
       INGESTION_HMAC_SOFT_ENFORCE: ${INGESTION_HMAC_SOFT_ENFORCE:-false}
+      APP_ENV: staging
     networks:
       - default-network
 
@@ -65,6 +66,7 @@ services:
       # a per-env GitLab CI variable. Empty falls through to the wildcard
       # default and re-emits the warn.
       CORS_ORIGIN: ${CORS_ORIGIN:-}
+      APP_ENV: staging
     # Pin DNS to the LAN resolver so split-horizon rewrites for self-hosted
     # IdPs (e.g. *.example.com) take effect inside the container.
     # Otherwise Docker's embedded DNS forwards to a public resolver, returning
