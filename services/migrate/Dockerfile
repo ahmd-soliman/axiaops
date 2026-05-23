@@ -7,20 +7,19 @@ COPY services/migrate/ .
 RUN go build -o migrate .
 
 FROM alpine:3.20
-# Debug-build: keep the addgroup/adduser so the user exists, but do NOT
-# switch via USER. Earlier attempt with `USER app` produced a DNS-lookup
-# failure on the GitLab shared runner (`lookup postgres on [::1]:53: read
-# udp [::1]:46684->[::1]:53: read: connection refused`) — local tests
-# passed but CI didn't. This commit isolates whether the user switch is
-# the cause (printing /etc/resolv.conf at startup to confirm).
-RUN apk add --no-cache ca-certificates && \
-    addgroup -S app && adduser -S app -G app
+RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=builder /app/migrate .
+# Build identifiers — populated by CI via --build-arg and surfaced as
+# applied_by_image on every axiaops.migration_history row. Without these,
+# the wrapper records "unknown@unknown" and slog.Warns at boot that drift
+# forensics are degraded. Defaults so a vanilla `docker build` without CI
+# context still produces a usable image.
 ARG APP_VERSION=dev
 ARG APP_COMMIT_SHA=local
 ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
-# Debug step — print /etc/resolv.conf at container start so the next CI
-# trace shows whether the resolver is being given a sane nameserver list.
-CMD ["sh", "-c", "echo '--- /etc/resolv.conf ---'; cat /etc/resolv.conf; echo '--- id ---'; id; echo '--- start migrate ---'; exec ./migrate"]
+# Non-root runtime intentionally NOT set — see services/api/Dockerfile
+# for the resolv.conf-permission issue that blocks USER app on the
+# GitLab shared runner. Same deferral applies here.
+CMD ["./migrate"]
