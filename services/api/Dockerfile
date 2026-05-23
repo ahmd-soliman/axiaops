@@ -21,8 +21,7 @@ FROM alpine:3.20
 # outbound HTTPS to AWS APIs (STS, SSM, etc.). Alpine bundles a minimal set
 # by default; installing explicitly tracks the dependency and picks up
 # bundle updates. ~1MB.
-RUN apk add --no-cache ca-certificates && \
-    addgroup -S app && adduser -S app -G app
+RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=builder /app/api .
 # Build identifiers — populated by CI via --build-arg and surfaced via
@@ -32,9 +31,6 @@ ARG APP_VERSION=dev
 ARG APP_COMMIT_SHA=local
 ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
-# Non-root runtime. Binary doesn't write to disk, doesn't bind privileged
-# ports, doesn't need root capabilities. Defence-in-depth.
-USER app
 EXPOSE 8080
 # Liveness probe — `/livez` is the lightweight "process is up" endpoint
 # (does NOT touch DB). `/health` and `/readyz` are deeper checks; pointing
@@ -44,4 +40,12 @@ EXPOSE 8080
 # /livez); this in-image HEALTHCHECK is for `docker run` + dev/staging.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
     CMD wget -qO- http://localhost:8080/livez || exit 1
+# Non-root runtime is intentionally NOT set. Earlier attempt (USER app)
+# broke DNS on the GitLab shared runner: Go's pure-Go resolver couldn't
+# open /etc/resolv.conf as the non-root user (the runner's Docker daemon
+# bind-mounts the file with restrictive perms), fell back to defaults
+# 127.0.0.1:53 + [::1]:53, and lookups failed with connection-refused.
+# Fix deferred to a follow-up: either setcap CAP_DAC_READ_SEARCH on the
+# binary, or migrate to a distroless `nonroot` base where the resolver
+# path is known-compatible with UID 65532.
 CMD ["./api"]
