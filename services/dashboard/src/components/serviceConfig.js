@@ -22,11 +22,25 @@ export const SERVICE_CONFIG = {
   AmazonGlacier:              { label: 'Glacier', color: '#0EA5E9', bg: '#F0F9FF', darkBg: '#0C2E3F' },
   AWSCloudFormation:          { label: 'CloudFormation', color: '#A855F7', bg: '#F9F5FF', darkBg: '#2D0A4D' },
   AWSDataTransfer:            { label: 'Data Transfer', color: '#4F46E5', bg: '#EEF2FF', darkBg: '#1A1140' },
+  // Tier 2 detections (model.KnownServices). Added so the chip shows the real
+  // service name instead of the `slice(0, 3)` fallback ("Ama..." for every
+  // Amazon-prefixed service).
+  AmazonDynamoDB:             { label: 'DynamoDB', color: '#1D4ED8', bg: '#DBEAFE', darkBg: '#172554' },
+  AmazonElastiCache:          { label: 'ElastiCache', color: '#B91C1C', bg: '#FEE2E2', darkBg: '#450A0A' },
+  AmazonES:                   { label: 'Elasticsearch', color: '#0E7490', bg: '#CFFAFE', darkBg: '#083344' },
+  AmazonRedshift:             { label: 'Redshift', color: '#9F1239', bg: '#FFE4E6', darkBg: '#4C0519' },
+  AmazonSageMaker:            { label: 'SageMaker', color: '#047857', bg: '#D1FAE5', darkBg: '#022C22' },
+  AmazonECS:                  { label: 'ECS', color: '#C2410C', bg: '#FED7AA', darkBg: '#431407' },
   Tax:                        { label: 'Tax', color: '#94A3B8', bg: '#F8FAFC', darkBg: '#1E293B' },
 };
 
 export function serviceConfig(service) {
-  return SERVICE_CONFIG[service] ?? { label: service.slice(0, 3), color: '#718096', bg: '#F7FAFC', darkBg: '#1A2030' };
+  if (SERVICE_CONFIG[service]) return SERVICE_CONFIG[service];
+  // Fallback for services not yet explicitly styled: strip the Amazon/AWS
+  // prefix so e.g. AmazonOpenSearchService renders as "OpenSearchService"
+  // rather than getting truncated to "Ama" by a naive slice.
+  const label = service.replace(/^(Amazon|AWS)/, '') || service;
+  return { label, color: '#718096', bg: '#F7FAFC', darkBg: '#1A2030' };
 }
 
 // Display configuration for resource sub-types within a service.
