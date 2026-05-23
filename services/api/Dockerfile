@@ -17,6 +17,12 @@ ARG BUILD_TAGS=
 RUN go build -tags "$BUILD_TAGS" -o api ./cmd/
 
 FROM alpine:3.20
+# ca-certificates: Go's TLS verification needs the Mozilla CA bundle for
+# outbound HTTPS to AWS APIs (STS, SSM, etc.). Alpine bundles a minimal set
+# by default; installing explicitly tracks the dependency and picks up
+# bundle updates. ~1MB.
+RUN apk add --no-cache ca-certificates && \
+    addgroup -S app && adduser -S app -G app
 WORKDIR /app
 COPY --from=builder /app/api .
 # Build identifiers — populated by CI via --build-arg and surfaced via
@@ -26,4 +32,16 @@ ARG APP_VERSION=dev
 ARG APP_COMMIT_SHA=local
 ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
+# Non-root runtime. Binary doesn't write to disk, doesn't bind privileged
+# ports, doesn't need root capabilities. Defence-in-depth.
+USER app
+EXPOSE 8080
+# Liveness probe — `/livez` is the lightweight "process is up" endpoint
+# (does NOT touch DB). `/health` and `/readyz` are deeper checks; pointing
+# the in-image HEALTHCHECK at /livez means a transient DB blip doesn't
+# trigger a restart. ECS Express Mode + ALB target groups use their own
+# health check via --health-check-path on the create-service call (also
+# /livez); this in-image HEALTHCHECK is for `docker run` + dev/staging.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+    CMD wget -qO- http://localhost:8080/livez || exit 1
 CMD ["./api"]
