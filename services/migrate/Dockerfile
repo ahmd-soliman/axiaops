@@ -7,7 +7,8 @@ COPY services/migrate/ .
 RUN go build -o migrate .
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates && \
+    addgroup -S app && adduser -S app -G app
 WORKDIR /app
 COPY --from=builder /app/migrate .
 # Build identifiers — populated by CI via --build-arg and surfaced as
@@ -19,4 +20,9 @@ ARG APP_VERSION=dev
 ARG APP_COMMIT_SHA=local
 ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
+# Non-root runtime. Migrate is a one-shot binary that connects to RDS,
+# applies SQL, exits. No HEALTHCHECK (it's not a service), no EXPOSE
+# (no port). Non-root is defence-in-depth — the binary doesn't need
+# any privileged ops; running as root just enlarges blast radius.
+USER app
 CMD ["./migrate"]
