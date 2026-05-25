@@ -65,6 +65,12 @@ repo. Still an internal alpha — no schema or public-API changes against
   fallback.
 - `deploy:production` now fails loudly when an SSM platform parameter is
   missing, instead of proceeding with an empty value.
+- CI: the `docs:placeholder` job now compares against the merge request's
+  target branch (`$CI_MERGE_REQUEST_TARGET_BRANCH_NAME`) instead of a
+  hardcoded `develop`. A CHANGELOG-only `develop → main` release MR
+  previously diffed develop against itself, produced no placeholder
+  pipeline, and was blocked by the "pipelines must succeed" gate; it now
+  gets its pipeline and can merge.
 
 ## [0.1.0-alpha.3] — 2026-05-21
 
