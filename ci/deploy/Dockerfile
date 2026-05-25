@@ -15,6 +15,14 @@
 #   - aws-cli v2  — ECS Express verbs, SSM, S3, CloudFront, STS (OIDC)
 #   - jq          — SSM inventory JSON wrangling
 #   - nodejs/npm  — dashboard static-bundle build (`npm ci && npm run build`)
+#
+# Location: in-repo because deploy:production is its only consumer today. Extract
+# to a shared axiaops/ci-images repo (or a group registry) when a SECOND consumer
+# appears (e.g. preview/staging move to AWS) — only then does the cross-project
+# registry-auth cost buy real reuse. Until then, YAGNI. (issue #102)
+#
+# Built via the manual `build:ci-deploy-image` job (.gitlab-ci.yml): click it
+# once after bumping CI_DEPLOY_IMAGE_TAG + this file; deploys just pull the tag.
 FROM amazonlinux:2023
 
 # Must be >= the ECS Express Mode GA (Nov 2025) so the express-gateway-service
