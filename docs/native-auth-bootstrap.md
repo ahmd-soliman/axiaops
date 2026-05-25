@@ -86,6 +86,16 @@ to also print a banner to the API container's stderr:
 docker compose logs api 2>&1 | grep -A 8 "first-run setup"
 ```
 
+> **On ECS Express / Fargate** the container filesystem isn't reachable
+> (no `docker exec`, no ECS Exec), so the file above is a dead end.
+> Production therefore sets `BOOTSTRAP_PRINT_BANNER=true` +
+> `BOOTSTRAP_TOKEN_FILE_PATH=""` and reads the token from CloudWatch:
+> ```bash
+> aws logs tail /aws/ecs/axiaops-api --since 15m --region eu-central-1 --format short | grep -iA4 'first-run setup'
+> ```
+> You get **one** capture at first boot — a restart won't reprint (only the
+> SHA-256 hash is kept). Recovery: delete the `bootstrap_state` row to re-mint.
+
 ### 5. Open the bootstrap form
 
 Open **`http://localhost:8082`** in a browser. On a fresh install with no
@@ -243,7 +253,7 @@ is identical in both.
 | API protocol from edge | empty `X-Forwarded-Proto` (no edge) | `X-Forwarded-Proto: https` (set by edge) |
 | Internal API plain-HTTP | yes (over docker network) | yes (over VPC / docker network) |
 | Cookie `Secure` flag | non-Secure (header empty) | Secure (header propagated by dashboard nginx) |
-| Install-token path | `/var/run/axiaops/initial_setup_token` (mode 0600) | same; persistent disk if running on App Runner with volume |
+| Install-token retrieval | `docker exec … cat /var/run/axiaops/initial_setup_token` (file reachable on the local container) | **ECS Express/Fargate:** file unreachable — `BOOTSTRAP_PRINT_BANNER=true` prints it to CloudWatch (`/aws/ecs/axiaops-api`); capture on first boot |
 
 The cookie behaviour is identical *given the same input request* —
 both code paths read `X-Forwarded-Proto` and decide. Local and prod
