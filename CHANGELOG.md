@@ -27,6 +27,28 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.9] — 2026-05-25
+
+Patch release on the `0.1.0-alpha` line — makes the first AWS production
+deploy actually completable end-to-end. No schema or public-API changes.
+
+### Fixed
+
+- **`deploy:production` now completes on ECS Express.** The Express
+  `update-express-gateway-service` call no longer sends `linuxParameters`
+  or `healthCheck` in its primary-container payload — the verb rejects
+  both, which aborted every tagged production deploy at the service-update
+  step (after migrations had already applied). Container liveness stays
+  gated at the ALB target group (Terraform-owned), so nothing is lost.
+- **First-owner bootstrap is retrievable in production.** On ephemeral
+  Fargate the install-token file is unreachable (no SSH / ECS Exec), so
+  the api container now prints the single-use token to stdout
+  (`BOOTSTRAP_PRINT_BANNER=true`) and disables the on-disk file
+  (`BOOTSTRAP_TOKEN_FILE_PATH=""`). The token lands in CloudWatch
+  (`/aws/ecs/axiaops-api`), making `POST /v1/auth/bootstrap` completable
+  on a fresh production install. Capture it on first boot — a restart
+  won't reprint.
+
 ## [0.1.0-alpha.7] — 2026-05-25
 
 Patch release on the `0.1.0-alpha` line — fixes the `deploy:production` image so
@@ -396,7 +418,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.7...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.9...develop
+[0.1.0-alpha.9]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.9
 [0.1.0-alpha.7]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.7
 [0.1.0-alpha.6]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.6
 [0.1.0-alpha.5]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.5
