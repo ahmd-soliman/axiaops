@@ -27,6 +27,20 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.10] — 2026-05-25
+
+### Fixed
+
+- **`deploy:production` completes the post-update steady-state wait on the
+  pinned aws-cli.** The wait used `monitor-express-gateway-service
+  --monitor-mode TEXT-ONLY`, but the pinned CI aws-cli (alpine 2.32.7)
+  rejects that flag and the verb requires a TTY it has no way to provide in
+  CI (the TTY-less `--mode TEXT-ONLY` only exists in aws-cli >= 2.34). The
+  job now polls `describe-express-gateway-service` for `status=ACTIVE`
+  instead — version-stable and TTY-free, with rollout verification via the
+  `deploy-status` skill.
+
+
 ## [0.1.0-alpha.9] — 2026-05-25
 
 Patch release on the `0.1.0-alpha` line — makes the first AWS production
@@ -418,7 +432,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.9...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.10...develop
+[0.1.0-alpha.10]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.10
 [0.1.0-alpha.9]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.9
 [0.1.0-alpha.7]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.7
 [0.1.0-alpha.6]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.6
