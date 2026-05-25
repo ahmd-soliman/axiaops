@@ -1,21 +1,21 @@
 services:
 
   redis:
-    image: redis:7-alpine
-    container_name: axiaops-redis
+    image: valkey/valkey:8-alpine
+    container_name: axiaops-valkey
     # requirepass closes the intra-LAN trust gap flagged in §12 Q7 of
     # docs/c1-hmac-plan.md: any process on the docker network could
     # otherwise LPUSH a forged scan job. Empty REDIS_PASSWORD ⇒ no
     # password (local-dev convenience); deployed envs always set it.
     command:
-      - redis-server
+      - valkey-server
       - --requirepass
       - ${REDIS_PASSWORD:-}
     healthcheck:
-      # -a + --no-auth-warning makes redis-cli send AUTH when a password is
+      # -a + --no-auth-warning makes valkey-cli send AUTH when a password is
       # set AND stays silent on the (NOAUTH) startup warning. Works against
       # both empty and configured REDIS_PASSWORD.
-      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping || exit 1"]
+      test: ["CMD-SHELL", "valkey-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
