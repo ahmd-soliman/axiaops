@@ -16,6 +16,14 @@ FROM alpine:3.20
 # CloudWatch Logs, ECR). Alpine ships a minimal CA bundle by default;
 # explicit install tracks the dependency. ~1MB.
 RUN apk add --no-cache ca-certificates
+# AWS RDS CA bundle. The production DATABASE_URL connects with
+# sslmode=verify-full&sslrootcert=/etc/ssl/certs/rds-ca-eu-central-1.pem;
+# RDS presents an Amazon-issued cert that is NOT in the Mozilla bundle
+# above, so pgx's verify-full needs this explicit trust anchor. We vendor
+# the rotation-proof global bundle (all regional roots + future-dated CAs)
+# at the region-named path the aws-infra secret references.
+# See deploy/certs/README.md.
+COPY deploy/certs/rds-global-bundle.pem /etc/ssl/certs/rds-ca-eu-central-1.pem
 WORKDIR /app
 COPY --from=builder /app/ingestion .
 # Build identifiers — populated by CI via --build-arg and surfaced via the
