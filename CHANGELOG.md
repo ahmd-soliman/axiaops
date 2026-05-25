@@ -27,6 +27,19 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.11] — 2026-05-25
+
+### Fixed
+
+- **`deploy:production` dashboard publish no longer 403s on `index.html`.**
+  The cache-control rewrite used a same-key `aws s3 cp` (s3→s3), whose
+  HeadObject needs `s3:GetObject` — the write-only CI deploy role lacks it,
+  so it failed `403 ... HeadObject ... Forbidden`. `index.html` is now
+  excluded from the `aws s3 sync` and re-uploaded from the local build
+  artifact with the no-cache header (a plain PutObject), preserving the
+  role's least-privilege write-only posture.
+
+
 ## [0.1.0-alpha.10] — 2026-05-25
 
 ### Fixed
@@ -432,7 +445,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.10...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.11...develop
+[0.1.0-alpha.11]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.11
 [0.1.0-alpha.10]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.10
 [0.1.0-alpha.9]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.9
 [0.1.0-alpha.7]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.7
