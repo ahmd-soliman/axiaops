@@ -19,4 +19,7 @@ ARG APP_VERSION=dev
 ARG APP_COMMIT_SHA=local
 ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
+# Non-root runtime intentionally NOT set — see services/api/Dockerfile
+# for the resolv.conf-permission issue that blocks USER app on the
+# GitLab shared runner. Same deferral applies here.
 CMD ["./migrate"]
