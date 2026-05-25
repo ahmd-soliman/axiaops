@@ -27,6 +27,35 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.6] — 2026-05-25
+
+Patch release on the `0.1.0-alpha` line — clears the next two blockers the
+first AWS production deploy surfaced after `0.1.0-alpha.5`. No schema or API
+changes.
+
+### Fixed
+
+- `deploy:production` batched all 23 `/axiaops/prod/platform/*` SSM parameter
+  names into a single `aws ssm get-parameters --names …` call, but SSM
+  `GetParameters` caps at 10 names per call — the deploy aborted with
+  `ValidationException ... Member must have length less than or equal to 10`.
+  Names are now fetched in chunks of 10 and the per-chunk responses merged
+  back into one document, preserving the existing fail-loud check on missing
+  parameters.
+
+### Changed
+
+- `deploy:production` now runs on a **pinned prebuilt deploy image**
+  (`ci/deploy/Dockerfile`: `amazonlinux:2023` + official aws-cli v2 + docker
+  CLI + jq + node) published by a manual `build:ci-deploy-image` job, instead
+  of `docker:24` + a runtime `apk add aws-cli`. Alpine's packaged aws-cli
+  (2.15.57) lacked the ECS Express Mode verbs
+  (`update-/monitor-express-gateway-service`, GA Nov 2025) the deploy needs,
+  and the apk install also hit a musl `libexpat`/`pyexpat` symbol skew. The
+  pinned glibc image fixes both and makes the toolchain reproducible.
+  (Supersedes the interim `--upgrade expat` workaround from `0.1.0-alpha.5`;
+  see issue #102 for the durable follow-up.)
+
 ## [0.1.0-alpha.5] — 2026-05-25
 
 Patch release on the `0.1.0-alpha` line — unblocks the first AWS production
@@ -342,7 +371,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.5...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.6...develop
+[0.1.0-alpha.6]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.6
 [0.1.0-alpha.5]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.5
 [0.1.0-alpha.4]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.4
 [0.1.0-alpha.3]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.3
