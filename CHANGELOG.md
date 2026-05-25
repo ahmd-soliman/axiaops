@@ -27,6 +27,45 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.4] — 2026-05-25
+
+First cut deployed to **AWS production**. The headline is the production
+deploy target moving off AWS App Runner onto **ECS Express Mode**, with the
+service lifecycle now owned by Terraform in the sibling `axiaops/aws-infra`
+repo. Still an internal alpha — no schema or public-API changes against
+`0.1.0-alpha.3`.
+
+### Added
+
+- Manual `deploy:preview` button on `develop` pipelines — preview env can be
+  brought up on demand from any develop commit without a tag.
+- Auto-deploying integration environment on `develop` (its own self-hosted host)
+  for end-to-end exercise of the deploy path ahead of staging.
+
+### Changed
+
+- **Production deploy migrated from AWS App Runner to ECS Express Mode**
+  (`deploy:production`). The job now wires the OIDC role, the S3 + CloudFront
+  dashboard publish, and the ECS one-off migrate task, and is aligned with the
+  `axiaops/aws-infra` Terraform contract. Express service lifecycle (create /
+  update) is handed to Terraform rather than the CI job.
+- AWS production Terraform extracted out of this repo into the sibling
+  [`axiaops/aws-infra`](https://gitlab.com/axiaops/aws-infra) stack; this repo
+  now carries only a pointer.
+- Container images hardened: explicit `ca-certificates`, a `HEALTHCHECK`, and
+  a tini init process. (The non-root `USER app` switch was reverted — it broke
+  DNS resolution under the CI runner's daemon; tracked for a proper fix.)
+- `docs/`: Redis → Valkey migration plan added ahead of the cache-backend
+  swap across all envs.
+
+### Fixed
+
+- Dashboard `SERVICE_CONFIG` now styles the six previously-unmapped AWS
+  services, so their cards render with the correct icon/label instead of the
+  fallback.
+- `deploy:production` now fails loudly when an SSM platform parameter is
+  missing, instead of proceeding with an empty value.
+
 ## [0.1.0-alpha.3] — 2026-05-21
 
 Patch release on the `0.1.0-alpha` line — single deploy fix surfaced via
@@ -278,7 +317,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.3...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.4...develop
+[0.1.0-alpha.4]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.4
 [0.1.0-alpha.3]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.3
 [0.1.0-alpha.2]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.2
 [0.1.0-alpha.1]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.1
