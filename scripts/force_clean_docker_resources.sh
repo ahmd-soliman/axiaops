@@ -25,9 +25,13 @@ docker ps -aq --filter "name=axiaops" | xargs -r docker rm 2>/dev/null || true
 echo "Cleaning integration test containers..."
 docker ps -aq --filter "label=com.docker.compose.project=axiaops-test-infra" | xargs -r docker rm -f 2>/dev/null || true
 
-# Remove dev Redis container
-echo "Removing dev Redis container..."
+# Remove dev Redis / Valkey container. Both names listed so a checkout that
+# straddles the Redis→Valkey swap leaves no stranded container behind. Drop
+# the redis-named line after two release cycles per the migration plan rollback
+# window.
+echo "Removing dev Redis / Valkey container..."
 docker rm -f axiaops-dev-redis 2>/dev/null || true
+docker rm -f axiaops-dev-valkey 2>/dev/null || true
 
 # Clean up networks
 echo "Cleaning up networks..."
