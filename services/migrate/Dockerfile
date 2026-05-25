@@ -8,6 +8,15 @@ RUN go build -o migrate .
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
+# AWS RDS CA bundle. The production DATABASE_URL connects with
+# sslmode=verify-full&sslrootcert=/etc/ssl/certs/rds-ca-eu-central-1.pem;
+# RDS presents an Amazon-issued cert that is NOT in the Mozilla bundle
+# installed above, so pgx's verify-full needs this explicit trust anchor.
+# pgxpool.ParseConfig loads sslrootcert at parse time — a missing file fails
+# Bootstrap before any connection attempt. We vendor the rotation-proof
+# global bundle (all regional roots + future-dated CAs) at the region-named
+# path the aws-infra secret references. See deploy/certs/README.md.
+COPY deploy/certs/rds-global-bundle.pem /etc/ssl/certs/rds-ca-eu-central-1.pem
 WORKDIR /app
 COPY --from=builder /app/migrate .
 # Build identifiers — populated by CI via --build-arg and surfaced as
