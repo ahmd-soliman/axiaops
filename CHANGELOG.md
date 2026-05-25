@@ -27,6 +27,25 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.5] — 2026-05-25
+
+Patch release on the `0.1.0-alpha` line — unblocks the first AWS production
+deploy, which `0.1.0-alpha.4` could not complete. No schema or API changes.
+
+### Fixed
+
+- `deploy:production` now installs `aws-cli` with `apk add --no-cache
+  --upgrade aws-cli jq expat`. On the frozen Alpine `docker:24` base the
+  bundled `libexpat` was older than the `pyexpat` the current `aws-cli`
+  package links against, so every `aws` invocation aborted with
+  `XML_SetAllocTrackerActivationThreshold: symbol not found` —
+  `aws sts get-caller-identity` and `aws ecr get-login-password` both died,
+  and `docker login --password-stdin` then failed with a misleading
+  `Cannot perform an interactive login from a non TTY device`. Upgrading
+  `expat` in lockstep realigns it with `pyexpat`. (Durable follow-up: a
+  pinned prebuilt deploy image with aws-cli v2 + docker-cli, tracked
+  separately.)
+
 ## [0.1.0-alpha.4] — 2026-05-25
 
 First cut deployed to **AWS production**. The headline is the production
@@ -323,7 +342,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.4...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.5...develop
+[0.1.0-alpha.5]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.5
 [0.1.0-alpha.4]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.4
 [0.1.0-alpha.3]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.3
 [0.1.0-alpha.2]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.2
