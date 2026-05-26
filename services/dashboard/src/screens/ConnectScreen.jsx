@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { connectAccount, updateAccount, draftAccount, verifyAccount } from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
-import { AXIAOPS_AWS_ACCOUNT_ID } from '../config';
+import { AXIAOPS_AWS_ACCOUNT_ID, AXIAOPS_CFN_TEMPLATE_URL } from '../config';
 
 function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, readOnly }) {
   return (
@@ -137,6 +137,24 @@ function permissionsPolicyJSON() {
   }, null, 2);
 }
 
+// One-click "Launch Stack" deep link into the customer's CloudFormation console.
+// QuickCreate pre-fills the AxiaOpsIntegrationRole template (hosted public on S3
+// by aws-infra) and the per-account ExternalId; the customer reviews, ticks the
+// IAM-capability acknowledgement, and clicks Create. IAM roles are global, so the
+// region in the URL only decides where the (IAM-only, free) stack record lives —
+// us-east-1 is always available. Empty AXIAOPS_CFN_TEMPLATE_URL → no button.
+function launchStackUrl(externalId) {
+  const params = new URLSearchParams({
+    templateURL: AXIAOPS_CFN_TEMPLATE_URL,
+    stackName: 'AxiaOps-Integration',
+    param_ExternalId: externalId,
+  });
+  // Region goes in the console subdomain, not a query param: CloudFormation's
+  // hash-routed SPA never sees the pre-fragment query string, so ?region=… is
+  // dropped. The regional host is the reliable way to target a region.
+  return `https://us-east-1.console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?${params.toString()}`;
+}
+
 // Role tab: two-step flow. Step 1 collects label + region and POSTs /draft.
 // Step 2 reveals ExternalId + the trust policy, lets the customer paste back
 // their freshly-created role ARN, and runs the verify round-trip.
@@ -146,8 +164,7 @@ function RoleAuthTab({ onConnected }) {
   const [label, setLabel] = useState('');
   const [region, setRegion] = useState('eu-central-1');
   const [roleArn, setRoleArn] = useState('');
-  const [showJson, setShowJson] = useState(false);
-  const [showPerms, setShowPerms] = useState(false);
+  const [showManual, setShowManual] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
@@ -217,36 +234,59 @@ function RoleAuthTab({ onConnected }) {
   }
 
   // step === 'verify'
+  const hasLaunchStack = AXIAOPS_CFN_TEMPLATE_URL.startsWith('https://');
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <CopyableBlock label="External ID (used in your trust policy)" value={draft.external_id} />
-      <CopyableBlock label="AxiaOps principal (allowed to assume your role)"
-        value={`arn:aws:iam::${AXIAOPS_AWS_ACCOUNT_ID || '<AxiaOpsAccountId>'}:role/AxiaOpsScanner`} />
+      <CopyableBlock label="External ID (pre-filled into the stack / your trust policy)" value={draft.external_id} />
+
+      {hasLaunchStack && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <a
+            href={launchStackUrl(draft.external_id)}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-block', alignSelf: 'flex-start',
+              backgroundColor: 'var(--color-accent)', color: '#fff',
+              fontSize: 14, fontWeight: 600, padding: '10px 16px',
+              borderRadius: 8, textDecoration: 'none',
+            }}
+          >
+            Launch Stack in AWS ↗
+          </a>
+          <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+            Opens CloudFormation with the role and read-only policy pre-filled. Review it,
+            tick the IAM acknowledgement, and click Create. Then copy the stack's{' '}
+            <code>RoleArn</code> output into the field below.
+          </span>
+        </div>
+      )}
 
       <button
-        onClick={() => setShowJson(s => !s)}
+        onClick={() => setShowManual(s => !s)}
         style={{ background: 'none', border: 'none', color: 'var(--color-text-mid)', fontSize: 13, textDecoration: 'underline', cursor: 'pointer', alignSelf: 'flex-start', padding: 0 }}
       >
-        {showJson ? 'Hide trust policy JSON' : 'Show trust policy JSON'}
+        {showManual
+          ? 'Hide manual setup'
+          : (hasLaunchStack ? 'Prefer manual setup (Terraform / console)?' : 'Show policies for manual setup')}
       </button>
-      {showJson && <CopyableBlock label="Trust policy JSON" value={trustPolicyJSON(draft.external_id)} />}
+      {showManual && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingLeft: 12, borderLeft: '2px solid var(--color-border)' }}>
+          <CopyableBlock label="AxiaOps principal (allowed to assume your role)"
+            value={`arn:aws:iam::${AXIAOPS_AWS_ACCOUNT_ID || '<AxiaOpsAccountId>'}:role/AxiaOpsScanner`} />
+          <CopyableBlock label="Trust policy JSON" value={trustPolicyJSON(draft.external_id)} />
+          <CopyableBlock label="Permissions policy JSON (read-only)" value={permissionsPolicyJSON()} />
+          <p style={{ fontSize: 12, color: 'var(--color-text-mid)', margin: 0 }}>
+            Create an IAM role named <code>AxiaOpsIntegrationRole</code> with <strong>both</strong> the
+            trust policy and the read-only permissions policy, then paste its ARN below. Without the
+            permissions policy the role can be assumed but scans return nothing.
+          </p>
+        </div>
+      )}
 
-      <button
-        onClick={() => setShowPerms(s => !s)}
-        style={{ background: 'none', border: 'none', color: 'var(--color-text-mid)', fontSize: 13, textDecoration: 'underline', cursor: 'pointer', alignSelf: 'flex-start', padding: 0 }}
-      >
-        {showPerms ? 'Hide permissions policy JSON' : 'Show permissions policy JSON'}
-      </button>
-      {showPerms && <CopyableBlock label="Permissions policy JSON (read-only)" value={permissionsPolicyJSON()} />}
-
-      <p style={{ fontSize: 13, color: 'var(--color-text-mid)', margin: 0 }}>
-        Create an IAM role in your AWS account with <strong>both</strong> the trust
-        policy and the read-only permissions policy above, then paste its ARN below.
-        Without the permissions policy the role can be assumed but scans return nothing.
-      </p>
       <Field label="Role ARN" value={roleArn} onChange={setRoleArn}
-        placeholder="arn:aws:iam::...:role/AxiaOpsIntegration"
-        hint="e.g. arn:aws:iam::123456789012:role/AxiaOpsIntegration"
+        placeholder="arn:aws:iam::...:role/AxiaOpsIntegrationRole"
+        hint="From the CloudFormation stack's RoleArn output (or your manually-created role)"
         mono />
 
       {error && <ErrorBox message={error} hint={verifyHint} />}
@@ -423,7 +463,7 @@ function RoleEditTab({ account, onConnected }) {
       <CopyableBlock label="External ID (read-only)" value={account.external_id ?? ''} />
       <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production" />
       <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
-      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::...:role/AxiaOpsIntegration" mono
+      <Field label="Role ARN" value={roleArn} onChange={setRoleArn} placeholder="arn:aws:iam::...:role/AxiaOpsIntegrationRole" mono
         hint={roleArnChanged ? 'Save will re-verify this role with AWS STS.' : 'Paste a new ARN to re-verify.'} />
       <Field
         label="Auto-scan interval (hours)"
