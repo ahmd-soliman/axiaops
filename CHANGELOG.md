@@ -27,6 +27,30 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.13] — 2026-05-26
+
+### Fixed
+
+- **Production api → ingestion hop no longer 502s on a guessed hostname.** The
+  deploy hardcoded `INGESTION_URL` to a deterministic
+  `axiaops-ingestion.ecs.<region>.on.aws` name that never resolves — ECS
+  Express assigns a random per-service suffix. The deploy now fetches the real
+  endpoint from SSM (`/axiaops/prod/platform/ingestion_url`, published by
+  aws-infra) with a sanity gate that fails early on a missing value, fixing the
+  api container's credentials-verify and scan requests.
+- **Production runtime secrets are now provisioned via SSM at deploy time.**
+  `ENCRYPTION_KEY` and `AXIAOPS_LICENSE` are generated/minted and stored in SSM
+  Parameter Store instead of Terraform state. The key is generated
+  once-if-placeholder (hard-aborting on SSM read error to avoid orphaning
+  encrypted account secrets) and synced across the api + ingestion slots (api
+  is source-of-truth); the minted license (90-day token for production) is
+  written to both SecureString params.
+- **`ENCRYPTION_KEY` placeholder detection matches by prefix, not literal.** The
+  deploy guard now detects the `PLACEHOLDER_*` prefix instead of an exact
+  sentinel string, so a suffix rename on the aws-infra Terraform side can't
+  silently break placeholder detection. A real 64-char lowercase-hex key can
+  never match the prefix.
+
 ## [0.1.0-alpha.12] — 2026-05-26
 
 ### Fixed
@@ -459,7 +483,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.12...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.13...develop
+[0.1.0-alpha.13]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.13
 [0.1.0-alpha.12]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.12
 [0.1.0-alpha.11]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.11
 [0.1.0-alpha.10]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.10
