@@ -27,6 +27,28 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.14] — 2026-05-26
+
+### Fixed
+
+- **Native login on self-hosted / production rejected every valid credential.**
+  The api and ingestion containers were deployed without `MIGRATION_DATABASE_URL`,
+  so `storage/postgres.NewWithOwner` silently fell back to the RLS-bound app
+  pool. The native-login membership lookup (`LookupUserByEmail`) is
+  pre-org-context and reads the RLS-protected `memberships` table with no
+  `app.organization_id` set, so it returned zero rows and every login responded
+  `401 invalid_credentials` regardless of password (bootstrap was unaffected — it
+  sets the org GUC for its own membership insert). Wired the owner DSN into both
+  services (aws-infra publishes `/axiaops/<env>/{api,ingestion}/MIGRATION_DATABASE_URL`)
+  and added a startup fail-fast guard so a non-dev build refuses to start when
+  it is missing — surfacing the misconfiguration as a red deploy instead of a
+  green deploy serving broken auth.
+- **Demo environment scans now run.** `AXIAOPS_LICENSE` is passed to the demo
+  api and ingestion services so the license gate is satisfied.
+- **Production deploy poll reads the correct ECS Express status path.** The
+  steady-state poll queried the wrong key and logged `status=None`; corrected so
+  the deploy reports the real service status.
+
 ## [0.1.0-alpha.13] — 2026-05-26
 
 ### Fixed
@@ -483,7 +505,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.13...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.14...develop
+[0.1.0-alpha.14]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.14
 [0.1.0-alpha.13]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.13
 [0.1.0-alpha.12]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.12
 [0.1.0-alpha.11]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.11
