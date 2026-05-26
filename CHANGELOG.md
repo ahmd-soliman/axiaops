@@ -27,6 +27,20 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.12] — 2026-05-26
+
+### Fixed
+
+- **Production api & ingestion containers now actually start.** The deploy's
+  `update-express-gateway-service` payload omitted `command`; because the
+  Express update *merges* the primary_container, the Terraform bootstrap's
+  `sleep infinity` survived every deploy — the real image ran but the process
+  never started (nothing on :8080/:8081, no logs, no first-run bootstrap
+  banner, and the dashboard unreachable through CloudFront). The payload now
+  sets `command` explicitly (`["./api"]` / `["./ingestion"]`), overriding the
+  bootstrap sleep so the real binary runs.
+
+
 ## [0.1.0-alpha.11] — 2026-05-25
 
 ### Fixed
@@ -445,7 +459,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.11...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.12...develop
+[0.1.0-alpha.12]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.12
 [0.1.0-alpha.11]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.11
 [0.1.0-alpha.10]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.10
 [0.1.0-alpha.9]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.9
