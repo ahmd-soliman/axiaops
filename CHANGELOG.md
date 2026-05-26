@@ -27,6 +27,20 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.15] — 2026-05-26
+
+### Fixed
+
+- **Role-based AWS account onboarding now works in production.** The prod
+  dashboard is served as a static S3/CloudFront bundle (no nginx), so the
+  runtime `window.__ENV__` injection used by the dev/staging Docker path never
+  runs — the dashboard resolves `VITE_*` at build time only. The production
+  build set no `VITE_AXIAOPS_AWS_ACCOUNT_ID`, so the Connect-account screen
+  rendered "Role-based onboarding is not available in this environment" and fell
+  back to access keys. The prod dashboard build now bakes it in (sourced from
+  the deploy account — the principal customer trust policies allow on
+  `sts:AssumeRole`), so the cross-account role-trust flow renders.
+
 ## [0.1.0-alpha.14] — 2026-05-26
 
 ### Fixed
@@ -505,7 +519,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.14...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.15...develop
+[0.1.0-alpha.15]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.15
 [0.1.0-alpha.14]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.14
 [0.1.0-alpha.13]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.13
 [0.1.0-alpha.12]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.12
