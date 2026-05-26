@@ -86,6 +86,57 @@ function trustPolicyJSON(externalId) {
   }, null, 2);
 }
 
+// The least-privilege, read-only permissions policy the customer attaches to the
+// same role alongside the trust policy. A role with only the trust policy can be
+// assumed but can read nothing, so the scan returns zero resources. This list is
+// enumerated from the actual Describe/List calls in
+// services/ingestion/internal/provider/aws/ and mirrors docs/production.md
+// (AxiaOpsReadOnly) + docs/cross-account-roles-design.md §3.2. No write actions,
+// ever. Keep in sync when a new discover_*.go provider call is added.
+const SCAN_PERMISSION_ACTIONS = [
+  'sts:GetCallerIdentity',
+  'ce:GetCostAndUsage',
+  'ce:GetCostAndUsageWithResources',
+  'cloudwatch:GetMetricStatistics',
+  'ec2:DescribeInstances',
+  'ec2:DescribeVolumes',
+  'ec2:DescribeSnapshots',
+  'ec2:DescribeImages',
+  'ec2:DescribeAddresses',
+  'ec2:DescribeNatGateways',
+  'rds:DescribeDBInstances',
+  'rds:DescribeDBSnapshots',
+  'lambda:ListFunctions',
+  'elasticloadbalancing:DescribeLoadBalancers',
+  'logs:DescribeLogGroups',
+  'ecr:DescribeRepositories',
+  'ecr:DescribeImages',
+  'secretsmanager:ListSecrets',
+  'elasticache:DescribeCacheClusters',
+  'es:ListDomainNames',
+  'redshift:DescribeClusters',
+  'sagemaker:ListEndpoints',
+  'dynamodb:ListTables',
+  'kinesis:ListStreams',
+  'kinesis:DescribeStreamSummary',
+  'cloudfront:ListDistributions',
+  'eks:ListClusters',
+  's3:ListAllMyBuckets',
+  's3:GetBucketLocation',
+];
+
+function permissionsPolicyJSON() {
+  return JSON.stringify({
+    Version: '2012-10-17',
+    Statement: [{
+      Sid: 'AxiaOpsReadOnlyScan',
+      Effect: 'Allow',
+      Action: SCAN_PERMISSION_ACTIONS,
+      Resource: '*',
+    }],
+  }, null, 2);
+}
+
 // Role tab: two-step flow. Step 1 collects label + region and POSTs /draft.
 // Step 2 reveals ExternalId + the trust policy, lets the customer paste back
 // their freshly-created role ARN, and runs the verify round-trip.
@@ -96,6 +147,7 @@ function RoleAuthTab({ onConnected }) {
   const [region, setRegion] = useState('eu-central-1');
   const [roleArn, setRoleArn] = useState('');
   const [showJson, setShowJson] = useState(false);
+  const [showPerms, setShowPerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
@@ -179,8 +231,18 @@ function RoleAuthTab({ onConnected }) {
       </button>
       {showJson && <CopyableBlock label="Trust policy JSON" value={trustPolicyJSON(draft.external_id)} />}
 
+      <button
+        onClick={() => setShowPerms(s => !s)}
+        style={{ background: 'none', border: 'none', color: 'var(--color-text-mid)', fontSize: 13, textDecoration: 'underline', cursor: 'pointer', alignSelf: 'flex-start', padding: 0 }}
+      >
+        {showPerms ? 'Hide permissions policy JSON' : 'Show permissions policy JSON'}
+      </button>
+      {showPerms && <CopyableBlock label="Permissions policy JSON (read-only)" value={permissionsPolicyJSON()} />}
+
       <p style={{ fontSize: 13, color: 'var(--color-text-mid)', margin: 0 }}>
-        Once the role exists in your AWS account, paste its ARN below.
+        Create an IAM role in your AWS account with <strong>both</strong> the trust
+        policy and the read-only permissions policy above, then paste its ARN below.
+        Without the permissions policy the role can be assumed but scans return nothing.
       </p>
       <Field label="Role ARN" value={roleArn} onChange={setRoleArn}
         placeholder="arn:aws:iam::...:role/AxiaOpsIntegration"
@@ -273,16 +335,13 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
           padding: '14px 16px',
           marginBottom: 18,
         }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? 'var(--color-text-mid)' : '#1D4ED8', display: 'block', marginBottom: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? 'var(--color-text-mid)' : '#1D4ED8', display: 'block', marginBottom: 8 }}>
             Required IAM permissions
           </span>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {['ReadOnlyAccess (or below)', 'ce:GetCostAndUsage', 'cloudwatch:GetMetricStatistics', 'ec2:DescribeAddresses'].map(p => (
-              <code key={p} style={{ fontSize: 12, color: 'var(--color-text-mid)', fontFamily: '"Geist Mono Variable", monospace', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', padding: '2px 6px', borderRadius: 4, display: 'inline-block', width: 'fit-content' }}>
-                {p}
-              </code>
-            ))}
-          </div>
+          <p style={{ fontSize: 12, color: 'var(--color-text-mid)', margin: '0 0 8px' }}>
+            Attach this read-only policy to the IAM user behind these access keys.
+          </p>
+          <CopyableBlock label="Permissions policy JSON" value={permissionsPolicyJSON()} />
         </div>
       )}
       <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" />

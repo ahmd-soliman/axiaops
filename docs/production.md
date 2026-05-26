@@ -38,21 +38,48 @@ No credentials to rotate, no secrets to store.
 
 ### IAM Policy (`AxiaOpsReadOnly`)
 
+This list is enumerated from the actual Describe/List calls in
+`services/ingestion/internal/provider/aws/`. It is the single source of truth the
+dashboard Connect screen and `docs/cross-account-roles-design.md` §3.2 both mirror —
+keep all three in sync when a new `discover_*.go` provider call is added. Read-only;
+no write actions, ever.
+
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [{
+    "Sid": "AxiaOpsReadOnlyScan",
     "Effect": "Allow",
     "Action": [
+      "sts:GetCallerIdentity",
       "ce:GetCostAndUsage",
+      "ce:GetCostAndUsageWithResources",
       "cloudwatch:GetMetricStatistics",
-      "cloudwatch:ListMetrics",
       "ec2:DescribeInstances",
-      "ec2:DescribeNatGateways",
+      "ec2:DescribeVolumes",
+      "ec2:DescribeSnapshots",
+      "ec2:DescribeImages",
       "ec2:DescribeAddresses",
+      "ec2:DescribeNatGateways",
       "rds:DescribeDBInstances",
+      "rds:DescribeDBSnapshots",
       "lambda:ListFunctions",
-      "elasticloadbalancing:DescribeLoadBalancers"
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "logs:DescribeLogGroups",
+      "ecr:DescribeRepositories",
+      "ecr:DescribeImages",
+      "secretsmanager:ListSecrets",
+      "elasticache:DescribeCacheClusters",
+      "es:ListDomainNames",
+      "redshift:DescribeClusters",
+      "sagemaker:ListEndpoints",
+      "dynamodb:ListTables",
+      "kinesis:ListStreams",
+      "kinesis:DescribeStreamSummary",
+      "cloudfront:ListDistributions",
+      "eks:ListClusters",
+      "s3:ListAllMyBuckets",
+      "s3:GetBucketLocation"
     ],
     "Resource": "*"
   }]
