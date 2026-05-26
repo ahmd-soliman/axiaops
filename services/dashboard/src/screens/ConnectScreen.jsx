@@ -255,9 +255,11 @@ function RoleAuthTab({ onConnected }) {
             Launch Stack in AWS ↗
           </a>
           <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-            Opens CloudFormation with the role and read-only policy pre-filled. Review it,
-            tick the IAM acknowledgement, and click Create. Then copy the stack's{' '}
-            <code>RoleArn</code> output into the field below.
+            Opens CloudFormation in a new tab — make sure you're signed in to the AWS
+            account you want AxiaOps to scan. The ExternalId is pre-filled; tick the IAM
+            acknowledgement and click <strong>Create stack</strong>. When it reaches
+            CREATE_COMPLETE, open the stack's <strong>Outputs</strong> tab and copy{' '}
+            <code>RoleArn</code> into the field below.
           </span>
         </div>
       )}
@@ -298,9 +300,9 @@ function RoleAuthTab({ onConnected }) {
 function reasonToHint(reason) {
   switch (reason) {
     case 'trust_policy_mismatch':
-      return 'Make sure your role\'s trust policy lists the AxiaOps principal shown above.';
+      return 'The role does not trust the AxiaOps scanner principal. If you used Launch Stack, re-launch it; if you set the role up manually, expand "manual setup" and re-apply the trust policy.';
     case 'external_id_mismatch':
-      return 'The ExternalId in your trust policy does not match the one we generated. Re-copy and re-apply it.';
+      return 'The ExternalId on the role does not match this connection. Re-launch the stack (or re-apply the trust policy) with the ExternalId shown above — delete the old stack first.';
     case 'role_not_found':
       return 'AWS could not find that role. Double-check the ARN and that the role exists in the same account.';
     case 'malformed_policy':
