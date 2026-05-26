@@ -717,6 +717,15 @@ func newStore() storage.Store {
 	}
 	migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
 	if migrationURL == "" {
+		// Symmetric with the api: the owner pool (adminPool) bypasses RLS for
+		// the scheduled-scan account enumeration (ListAllAccounts). With no
+		// owner URL, NewWithOwner falls back to the RLS-bound app pool and the
+		// scan loop silently enumerates zero accounts. DEV_MODE runs a single
+		// shared pool by design; refuse to start in any other build.
+		// TODO(#107): explicit opt-in at the NewWithOwner type level.
+		if !devModeEnabled() {
+			die("storage: MIGRATION_DATABASE_URL is required outside DEV_MODE — without the owner connection the RLS-bypassing pool falls back to the app pool and scheduled scans silently enumerate zero accounts")
+		}
 		migrationURL = dbURL
 	}
 	s, err := postgres.NewWithOwner(ctx, dbURL, migrationURL)

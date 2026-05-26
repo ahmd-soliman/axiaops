@@ -71,6 +71,18 @@ func main() {
 	}
 	migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
 	if migrationURL == "" {
+		// The owner pool (adminPool) bypasses RLS for pre-auth / cross-org
+		// reads — notably the native-login membership lookup (LookupUserByEmail
+		// reads the RLS-protected `memberships` table with no app.organization_id
+		// set). With no owner URL, NewWithOwner falls back to the RLS-bound app
+		// pool, which silently returns zero rows there and breaks native login
+		// for every user. DEV_MODE runs a single shared pool by design; refuse
+		// to start in any other build rather than serve silently-broken auth.
+		// TODO(#107): explicit opt-in at the NewWithOwner type level + a
+		// readiness assertion that the owner pool reads without an org context.
+		if !devModeEnabled() {
+			die("storage: MIGRATION_DATABASE_URL is required outside DEV_MODE — without the owner connection the RLS-bypassing pool falls back to the app pool and native login silently fails for all users")
+		}
 		migrationURL = dbURL
 	}
 
