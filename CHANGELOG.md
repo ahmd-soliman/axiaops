@@ -25,6 +25,10 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+_Nothing yet — first entries land here in the next development cycle._
+
+## [0.1.0-alpha.19] — 2026-05-27
+
 ### Changed
 
 - **Cache engine migrated from Redis to Valkey across all envs.** Container
@@ -612,7 +616,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.18...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.19...develop
+[0.1.0-alpha.19]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.19
 [0.1.0-alpha.18]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.18
 [0.1.0-alpha.17]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.17
 [0.1.0-alpha.16]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.16
