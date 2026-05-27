@@ -27,6 +27,35 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.16] — 2026-05-27
+
+### Added
+
+- **One-click "Launch Stack" AWS onboarding.** Connect-account screen now
+  offers a CloudFormation Launch Stack button that pre-fills the trust
+  account ID and external ID and drops the operator into the AWS console
+  with the template URL ready to apply. Reduces the cross-account role
+  onboarding from "follow this 10-step runbook" to a single click for
+  customers landing on Connect for the first time. Operator runbook at
+  `docs/aws-account-onboarding.md`.
+- **Read-only permissions policy surfaced in the Connect screen.** The
+  account-onboarding panel now renders the exact AWS-managed read-only
+  policy set the role will be granted, so customers can see and audit it
+  before clicking Launch Stack instead of inferring it from documentation.
+- **`gitlab-await-deploy-gate` skill.** New operator skill that watches a
+  GitLab pipeline until its deploy gate is armed (manual stage available
+  to click), without ever clicking it. Pairs with `gitlab-release` —
+  release the tag, then run this skill to be paged the moment
+  `deploy:production` is clickable.
+
+### Fixed
+
+- **BuildKit default attestations disabled on `build:images`.** BuildKit's
+  default provenance + SBOM attestations were producing ECR images with
+  manifest lists ECS Express Mode treats as multi-platform unknowns,
+  causing pull-fail loops on deploy. Disabled at the buildx command level;
+  also switched the env flag value to the literal `"true"` for readability.
+
 ## [0.1.0-alpha.15] — 2026-05-26
 
 ### Fixed
@@ -519,7 +548,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.15...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.16...develop
+[0.1.0-alpha.16]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.16
 [0.1.0-alpha.15]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.15
 [0.1.0-alpha.14]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.14
 [0.1.0-alpha.13]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.13

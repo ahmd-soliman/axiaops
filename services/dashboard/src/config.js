@@ -18,3 +18,11 @@ export const APP_COMMIT_SHA = import.meta.env.VITE_APP_COMMIT_SHA || 'local';
 // that point at the right place.
 export const AXIAOPS_AWS_ACCOUNT_ID =
   env.AXIAOPS_AWS_ACCOUNT_ID ?? import.meta.env.VITE_AXIAOPS_AWS_ACCOUNT_ID ?? '';
+
+// Public S3 URL of the AxiaOpsIntegrationRole CloudFormation template, surfaced
+// by the aws-infra edge module (output onboarding_cfn_template_url). Powers the
+// Connect screen's one-click "Launch Stack" button — the customer is deep-linked
+// into CloudFormation with this template + their ExternalId pre-filled. Empty
+// (e.g. local dev / self-hosted) hides the button; the manual JSON flow remains.
+export const AXIAOPS_CFN_TEMPLATE_URL =
+  env.AXIAOPS_CFN_TEMPLATE_URL ?? import.meta.env.VITE_AXIAOPS_CFN_TEMPLATE_URL ?? '';
