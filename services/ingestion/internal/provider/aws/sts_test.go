@@ -91,18 +91,16 @@ func TestVerifyAssumeRole_Success(t *testing.T) {
 	if awssdk.ToString(in.ExternalId) != "axiaops-ext-secret-value" {
 		t.Errorf("ExternalId = %q, want %q", awssdk.ToString(in.ExternalId), "axiaops-ext-secret-value")
 	}
-	// Session tag is the entire reason we eat this complexity in v1: adding
-	// it later requires every customer to edit their trust policy to allow
-	// sts:TagSession (design §8 Q7).
-	if len(in.Tags) != 1 {
-		t.Fatalf("Tags = %d entries, want 1", len(in.Tags))
+	// Session tags + TransitiveTagKeys were removed 2026-05-27 — they required
+	// sts:TagSession on both the caller identity policy AND every customer's
+	// trust policy, and an IAM regional propagation issue made the dual grant
+	// flaky in practice. Re-introduce when an actual SCP key on
+	// aws:PrincipalTag/AxiaOpsOrg ships.
+	if len(in.Tags) != 0 {
+		t.Errorf("Tags = %d entries, want 0 (session tags removed)", len(in.Tags))
 	}
-	if awssdk.ToString(in.Tags[0].Key) != "AxiaOpsOrg" || awssdk.ToString(in.Tags[0].Value) != "org-1" {
-		t.Errorf("Tags[0] = (%q, %q), want (AxiaOpsOrg, org-1)",
-			awssdk.ToString(in.Tags[0].Key), awssdk.ToString(in.Tags[0].Value))
-	}
-	if len(in.TransitiveTagKeys) != 1 || in.TransitiveTagKeys[0] != "AxiaOpsOrg" {
-		t.Errorf("TransitiveTagKeys = %v, want [AxiaOpsOrg]", in.TransitiveTagKeys)
+	if len(in.TransitiveTagKeys) != 0 {
+		t.Errorf("TransitiveTagKeys = %v, want [] (session tags removed)", in.TransitiveTagKeys)
 	}
 	if awssdk.ToInt32(in.DurationSeconds) != 900 {
 		t.Errorf("DurationSeconds = %d, want 900 (verify path uses short-lived session)",
