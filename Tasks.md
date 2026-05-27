@@ -169,7 +169,14 @@ _Single source of truth for project work. Last updated: 2026-05-16._
 
 #### 2.14 Redis ✅
 
-- [x] Add Redis container to `docker-compose.yml` (`redis:7-alpine`)
+> **Note (2026-05-27):** the cache engine migrated to Valkey across all envs
+> via `chore/valkey-migration`. Wire-protocol surfaces (`REDIS_URL`, the
+> `Cache` interface, `/readyz` `"redis"` key, go-redis SDK) intentionally
+> stay redis-named — Valkey speaks RESP, the migration is a packaging
+> change. Container image and CLI invocations flipped: `redis:7-alpine` →
+> `valkey/valkey:8-alpine`, `redis-server`/`redis-cli` → `valkey-server`/`valkey-cli`.
+
+- [x] Add cache container to `docker-compose.yml` (originally `redis:7-alpine`; `valkey/valkey:8-alpine` since the Valkey migration)
 - [x] Add `REDIS_URL` env var to all service configs (default: `redis://localhost:6379`)
 - [x] `services/shared/cache/cache.go` — `Cache` interface (`Get`, `Set`, `Del`)
 - [x] `services/shared/cache/redis/redis.go` — Redis impl using `github.com/redis/go-redis/v9`
@@ -734,7 +741,7 @@ identically locally and in CI.
 - [ ] `test:unit` → add `image: golang:1.25`, drop `.go_setup` reliance.
 - [ ] `test:lint` → `image: golangci/golangci-lint:v2.1.0` (or matching version).
 - [ ] `test:storage` → `image: golang:1.25` + `services: [{ name: postgres:16-alpine, alias: postgres, variables: … }]`. Drop manual `docker run`, readiness probe, `after_script`, IP lookup.
-- [ ] `test:redis` → `image: golang:1.25` + `services: [{ name: redis:7-alpine, alias: redis }]`.
+- [ ] `test:redis` → `image: golang:1.25` + `services: [{ name: valkey/valkey:8-alpine, alias: redis }]`. Alias stays `redis` so `TEST_REDIS_URL=redis://redis:6379` resolves against the service container regardless of the underlying image (RESP wire-protocol).
 - [ ] Remove `.go_setup` block once nothing references it.
 - [ ] Revert commit `dafac6b` (IP-lookup hack) — no longer needed.
 - [ ] Drop unused variables (`RUNNER_NETWORK`, `PG_CONTAINER`, `REDIS_CONTAINER`, `POSTGRES_PASSWORD`, `POSTGRES_OWNER_PASSWORD`) if nothing else uses them.

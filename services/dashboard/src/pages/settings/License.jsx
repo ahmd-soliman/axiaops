@@ -145,12 +145,22 @@ function LicensePane({ lic, version, isDark }) {
         }}
       >
         <h2 style={{ margin: 0, marginBottom: 6, fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
-          Build
+          About AxiaOps
         </h2>
-        <ClaimRow k="Service" v={version.service || '—'} />
+        {/* Customer-facing prod view is intentionally minimal — just the
+            version, which is the single useful identifier for a support
+            ticket. The "Service: api" row was always meta noise (which
+            backend served the request — always the api service in this
+            app). Commit + env are operator-only signals; they distract on
+            a customer surface but are essential for debugging dev/staging,
+            so they render only when env != production. */}
         <ClaimRow k="Version" v={version.version || '—'} />
-        <ClaimRow k="Commit"  v={version.commit || '—'} />
-        <ClaimRow k="Env"     v={version.env || '—'} />
+        {version.env && version.env !== 'production' && (
+          <>
+            <ClaimRow k="Commit" v={version.commit || '—'} />
+            <ClaimRow k="Env"    v={version.env} />
+          </>
+        )}
       </section>
     </>
   );
