@@ -1,10 +1,7 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../theme/ThemeContext';
 import { useApp } from '../context/AppContext';
 import { useMe } from '../context/MeContext';
-import { fetchVersion } from '../api/client';
-import { APP_VERSION, APP_COMMIT_SHA } from '../config';
 import { useBreakpoint } from './primitives/useBreakpoint';
 import { NAV_ITEMS, isNavActive } from './navItems';
 import AvatarMenu from './AvatarMenu';
@@ -60,19 +57,6 @@ export default function AppShell() {
 
   const isMobile = isAtMost('sm');
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.requires || can(item.requires));
-
-  // Backend build identifier — fetched once per session and cached. The footer
-  // pairs it with the dashboard build identifier so support tickets carry both
-  // versions in a single click-to-select string. Failures are silently absorbed
-  // (apiVersion stays undefined) so a momentarily-unreachable API doesn't break
-  // the shell.
-  const apiVersion = useQuery({
-    queryKey: ['api-version'],
-    queryFn: fetchVersion,
-    staleTime: Infinity,
-    gcTime: Infinity,
-    retry: false,
-  });
 
   return (
     // --navbar-height: read by descendant pages that need to size relative
@@ -201,41 +185,6 @@ export default function AppShell() {
       <main id="main-content" style={{ flex: 1, overflowY: 'auto' }}>
         <Outlet />
       </main>
-
-      {/* ── Build footer ── */}
-      {/* Tiny, dim, monospace. Identifies the dashboard build *and* the API
-          build so support tickets carry both. user-select:all lets a click
-          highlight the whole identifier — paste straight into a bug report.
-
-          Version values are rendered verbatim — no "v" prefix wrapper. Per
-          docs/versioning.md, release tags are bare semver (e.g. "0.1.0-alpha.1",
-          no "v" prefix); branch builds set them to the branch slug ("develop",
-          "feature/foo"); local dev shows "dev". Keeping this footer free of a
-          hard-coded "v" prevents a future tag-format flip from doubling up.
-
-          API line is shown only after a successful fetch — a momentarily
-          unreachable backend just hides that line rather than yelling. */}
-      <footer
-        aria-label="Build version"
-        title="Click to select build identifier"
-        style={{
-          padding: '6px 12px',
-          textAlign: 'right',
-          fontSize: 10,
-          fontFamily: '"Geist Mono Variable", monospace',
-          color: 'var(--color-text-muted)',
-          opacity: 0.6,
-          flexShrink: 0,
-          letterSpacing: 0.3,
-          userSelect: 'all',
-          lineHeight: '14px',
-        }}
-      >
-        <div>dashboard {APP_VERSION} · {APP_COMMIT_SHA}</div>
-        {apiVersion.data && (
-          <div>api {apiVersion.data.version} · {apiVersion.data.commit}</div>
-        )}
-      </footer>
 
     </div>
   );
