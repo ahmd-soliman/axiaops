@@ -6,7 +6,7 @@ import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner } from '../components/primitives';
 import { useDestructiveConfirm, DestructiveConfirmModal } from '../components/DestructiveConfirm';
 
-function Field({ label, value, onChange, placeholder, mono, type = 'text', hint }) {
+function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, readOnly }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-mid)' }}>{label}</label>
@@ -14,13 +14,14 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint 
         style={{
           width: '100%',
           boxSizing: 'border-box',
-          backgroundColor: 'var(--color-surface-alt)',
+          backgroundColor: readOnly ? 'var(--color-surface)' : 'var(--color-surface-alt)',
           border: `1px solid var(--color-border)`,
           borderRadius: 8,
           padding: '10px 12px',
           fontSize: 14,
-          color: 'var(--color-text)',
+          color: readOnly ? 'var(--color-text-mid)' : 'var(--color-text)',
           fontFamily: mono ? '"Geist Mono Variable", monospace' : undefined,
+          cursor: readOnly ? 'default' : 'text',
         }}
         value={value}
         onChange={e => onChange(e.target.value)}
@@ -28,6 +29,7 @@ function Field({ label, value, onChange, placeholder, mono, type = 'text', hint 
         autoCapitalize="none"
         autoCorrect="off"
         type={type}
+        readOnly={readOnly}
       />
       {hint && <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>{hint}</span>}
     </div>
@@ -73,6 +75,12 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   const { watch }   = useScanStatus();
   const queryClient = useQueryClient();
 
+  // Role accounts have no access_key_id; access_key accounts have no role_arn.
+  // Render-time branching on auth_method keeps each mode's fields cleanly
+  // separated and avoids the validation crash where the access-key validator
+  // rejected a perfectly valid role-mode submission.
+  const isRoleMode = account?.auth_method === 'role';
+
   const [label, setLabel]             = useState(account?.label ?? '');
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
   const [secretKey, setSecretKey]     = useState('');
@@ -81,7 +89,22 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const scanning = account?.status === 'scanning';
-  const accountName = account ? (account.label || account.access_key_id.slice(0, 8) + '…') : '';
+
+  // accountName fallback: prefer label, then for access-key accounts a slice
+  // of the key id, for role accounts the trailing segment of the role ARN.
+  // The previous code crashed on role accounts because access_key_id was
+  // empty / undefined and `.slice(0,8)` returned '' (or threw).
+  function deriveAccountName(a) {
+    if (!a) return '';
+    if (a.label) return a.label;
+    if (a.access_key_id) return a.access_key_id.slice(0, 8) + '…';
+    if (a.role_arn) {
+      const parts = a.role_arn.split('/');
+      return parts[parts.length - 1] || a.role_arn;
+    }
+    return 'AWS account';
+  }
+  const accountName = deriveAccountName(account);
 
   // Type-to-confirm delete flow — same UX as Profile / Organization
   // destructive flows. The user must type the account name before the
@@ -95,23 +118,36 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   });
 
   async function handleSave() {
-    if (!accessKeyId.trim()) { setError('Access Key ID is required.'); return; }
+    // Validation diverges by auth mode: access-key accounts must always carry
+    // their access key id (secret is optional — blank means keep existing).
+    // Role accounts have no editable credentials in this screen (the role ARN
+    // change flow lives behind the dedicated Connect → Role tab on
+    // ConnectScreen, which re-runs the verify probe end-to-end).
+    if (!isRoleMode && !accessKeyId.trim()) { setError('Access Key ID is required.'); return; }
     const scanInterval = parseInt(scanIntervalHours, 10);
     if (isNaN(scanInterval) || scanInterval < 0) { setError('Scan interval must be a number ≥ 0.'); return; }
     setError('');
     setLoading(true);
     try {
-      const result = await updateAccount(account.id, {
+      const payload = {
         label: label.trim() || 'My AWS Account',
-        accessKeyId: accessKeyId.trim(),
-        secretKey: secretKey.trim() || undefined,
         region: region.trim() || 'eu-central-1',
         scan_interval_hours: scanInterval,
-      });
+      };
+      // Only thread credential fields for access-key accounts. Sending an
+      // empty accessKeyId on a role account would write garbage into the
+      // PATCH /v1/accounts/{id} body and confuse the api's account writer.
+      if (!isRoleMode) {
+        payload.accessKeyId = accessKeyId.trim();
+        payload.secretKey = secretKey.trim() || undefined;
+      }
+      const result = await updateAccount(account.id, payload);
       toast('Account settings saved', 'success');
       onAccountUpdated(result);
     } catch {
-      setError('Failed to update. Check your credentials and try again.');
+      setError(isRoleMode
+        ? 'Failed to update. Check the label, region, and scan interval.'
+        : 'Failed to update. Check your credentials and try again.');
     } finally {
       setLoading(false);
     }
@@ -275,8 +311,19 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
             <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>Account Details</span>
 
             <Field label="Label" value={label} onChange={setLabel} placeholder="e.g. Production AWS" />
-            <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
-            <Field label="AWS Secret Access Key" value={secretKey} onChange={setSecretKey} placeholder="Leave blank to keep existing" mono type="password" />
+
+            {isRoleMode ? (
+              <>
+                <Field label="Role ARN" value={account?.role_arn ?? ''} onChange={() => {}} mono readOnly hint="Edit via Connect → Role-based to re-verify the trust policy." />
+                <Field label="External ID" value={account?.external_id ?? ''} onChange={() => {}} mono readOnly />
+              </>
+            ) : (
+              <>
+                <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
+                <Field label="AWS Secret Access Key" value={secretKey} onChange={setSecretKey} placeholder="Leave blank to keep existing" mono type="password" />
+              </>
+            )}
+
             <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
             <Field
               label="Auto-scan interval (hours)"
