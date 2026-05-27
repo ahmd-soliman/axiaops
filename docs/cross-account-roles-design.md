@@ -185,10 +185,18 @@ Notes:
 
 ### 3.2 Permissions policy (what the role can do)
 
-This must mirror the AxiaOpsReadOnly policy already documented for the ingestion task role
-in `docs/production.md` lines 39–60, *plus* every Describe/List call that landed since
-that doc was written. Enumerated from the actual code in
-`services/ingestion/internal/provider/aws/`:
+This is the same AxiaOpsReadOnly policy documented for the ingestion task role in
+`docs/production.md` (§ "IAM Policy"); the two are kept identical. Enumerated from the
+actual Describe/List calls in `services/ingestion/internal/provider/aws/` — the action
+names below are the real IAM actions behind each SDK call (e.g. OpenSearch's
+`ListDomainNames` is `es:ListDomainNames`, not `es:DescribeDomains`; EKS discovery uses
+`eks:ListClusters`, not `eks:DescribeClusters`; SageMaker uses `sagemaker:ListEndpoints`).
+`cloudwatch:ListMetrics` is intentionally absent — the provider calls only
+`GetMetricStatistics`. `sts:GetCallerIdentity` is included because the provider calls it
+right after assuming the role to resolve the account number (`aws.go`
+`NewWithAssumedRole`); AWS allows it without an explicit grant, but listing it keeps the
+policy self-documenting and survives accounts that explicitly deny STS via an SCP.
+Re-derive this list whenever a `discover_*.go` call is added:
 
 ```json
 {
@@ -198,9 +206,10 @@ that doc was written. Enumerated from the actual code in
       "Sid": "AxiaOpsReadOnlyScan",
       "Effect": "Allow",
       "Action": [
+        "sts:GetCallerIdentity",
         "ce:GetCostAndUsage",
+        "ce:GetCostAndUsageWithResources",
         "cloudwatch:GetMetricStatistics",
-        "cloudwatch:ListMetrics",
         "ec2:DescribeInstances",
         "ec2:DescribeVolumes",
         "ec2:DescribeSnapshots",
@@ -216,13 +225,14 @@ that doc was written. Enumerated from the actual code in
         "ecr:DescribeImages",
         "secretsmanager:ListSecrets",
         "elasticache:DescribeCacheClusters",
-        "es:DescribeDomains",
+        "es:ListDomainNames",
         "redshift:DescribeClusters",
-        "sagemaker:ListNotebookInstances",
+        "sagemaker:ListEndpoints",
         "dynamodb:ListTables",
         "kinesis:ListStreams",
+        "kinesis:DescribeStreamSummary",
         "cloudfront:ListDistributions",
-        "eks:DescribeClusters",
+        "eks:ListClusters",
         "s3:ListAllMyBuckets",
         "s3:GetBucketLocation"
       ],
@@ -245,17 +255,14 @@ The list is opinionated:
   Worth a follow-up ticket; out of scope for the role migration itself.
 
 > **Permission expansion — this fixes both flows, not just the new one.**
-> The list above contains 27 actions. The currently-documented `AxiaOpsReadOnly` policy
-> in `docs/production.md` lines 39–60 enumerates only 9. That is not a discrepancy
-> introduced by this design — it is a pre-existing documentation drift. Customers who
-> deployed the access-key flow against the documented policy are silently missing
-> permissions for ECR, SecretsManager, ElastiCache, OpenSearch, Redshift, SageMaker,
-> DynamoDB, Kinesis, CloudFront, EKS, and S3 listing; their scans degrade quietly via
-> the `AccessDenied`-then-skip path described in §3.4. **Updating
-> `docs/production.md:39-60` is part of this work, not a follow-up ticket.** The
-> implementation PR must touch both the role-flow templates and the access-key
-> documentation in lockstep; there is no scenario where one is correct and the other
-> is not.
+> The list above contains 27 actions. `docs/production.md` (§ "IAM Policy") and the
+> dashboard Connect screen now carry this same list verbatim — historically
+> `production.md` enumerated only 9 actions, so customers who deployed the access-key
+> flow against the documented policy were silently missing permissions for ECR,
+> SecretsManager, ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, Kinesis,
+> CloudFront, EKS, and S3 listing; their scans degraded quietly via the
+> `AccessDenied`-then-skip path described in §3.4. All three sources are now in lockstep;
+> there is no scenario where one is correct and the other is not.
 
 ### 3.3 Recommendation: ship as a CloudFormation template, *also* as raw JSON
 
