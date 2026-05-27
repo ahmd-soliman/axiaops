@@ -25,7 +25,24 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
-_Nothing yet — first entries land here in the next development cycle._
+### Changed
+
+- **Cache engine migrated from Redis to Valkey across all envs.** Container
+  image: `redis:7-alpine` → `valkey/valkey:8-alpine`. Container name:
+  `axiaops-redis-${DEPLOY_ENV}` → `axiaops-valkey-${DEPLOY_ENV}`. CLI
+  invocations: `redis-server` / `redis-cli` → `valkey-server` /
+  `valkey-cli`. Wire-protocol surfaces (`REDIS_URL`, `REDIS_PASSWORD`, the
+  `/readyz` `"redis"` JSON key, the `redis://` URL scheme, the
+  `github.com/redis/go-redis/v9` SDK, the `services/shared/{cache,queue}/redis/`
+  Go package paths, and Prometheus metric names) intentionally stay —
+  Valkey speaks RESP unchanged. Rationale: Redis 7.4+ relicense (RSALv2 /
+  SSPL) makes the dependency awkward for self-hosted customers; Valkey 8
+  is BSD-3 under Linux Foundation governance, drop-in compatible, and is
+  what Debian / Ubuntu / Fedora / AWS ElastiCache now default to. The CI
+  cleanup template lists both `axiaops-redis-${DEPLOY_ENV}` and
+  `axiaops-valkey-${DEPLOY_ENV}` for a two-release rollback window
+  (`docs/redis-to-valkey-migration.md` §3). Drop the redis-named entry
+  after two release cycles.
 
 ## [0.1.0-alpha.18] — 2026-05-27
 
