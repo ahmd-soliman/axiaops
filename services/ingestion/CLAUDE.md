@@ -170,7 +170,8 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationI
 | INGESTION_SHARED_SECRET_NEXT | No | — | Optional verifier-side staging slot for zero-downtime rotation. Set on ingestion before flipping api over; clear after rotation. See `docs/c1-hmac-plan.md` §5. |
 | INGESTION_HMAC_MAX_SKEW_SECONDS | No | 300 | Replay window in seconds. Widen only when an NTP fix is in flight; never permanently. |
 | INGESTION_HMAC_SOFT_ENFORCE | No | false | Transition-only: when `true`, HMAC failures are logged + counted but NOT rejected. Used for the initial rollout's ingestion-before-api gap. Flip to `false` after one stable cycle per env; the `axiaops_ingestion_hmac_enforce_mode{mode="soft"}` alert fires if left on. |
-| REDIS_PASSWORD | When Redis is `requirepass`-protected | — | Used by the `redis-cli` healthcheck in deploy/*.yml and propagated into REDIS_URL's userinfo. Set as a per-env CI variable. |
+| REDIS_URL | No | — | Connection URL for the cache + scan-queue backend (RESP wire protocol — Valkey post-migration; Redis-compatible). Empty disables the worker (`worker: skipped_no_redis` at startup). Format: `redis://:<password>@<host>:6379` with `REDIS_PASSWORD` propagated into the userinfo. |
+| REDIS_PASSWORD | When the backend is `requirepass`-protected | — | Used by the `valkey-cli` healthcheck in deploy/*.yml and propagated into REDIS_URL's userinfo. Set as a per-env CI variable. |
 
 ## Testing
 

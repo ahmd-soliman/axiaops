@@ -1,18 +1,18 @@
 services:
   redis:
-    image: redis:7-alpine
-    container_name: axiaops-redis-staging
+    image: valkey/valkey:8-alpine
+    container_name: axiaops-valkey-staging
     restart: unless-stopped
     # requirepass — see docs/c1-hmac-plan.md §12 Q7. REDIS_PASSWORD MUST
     # be set as a CI variable scoped to the `staging` environment.
     command:
-      - redis-server
+      - valkey-server
       - --requirepass
       - ${REDIS_PASSWORD}
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping || exit 1"]
+      test: ["CMD-SHELL", "valkey-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5

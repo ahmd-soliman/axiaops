@@ -13,16 +13,16 @@ INTEGRATION_API_URL ?= http://localhost:8080
 INTEGRATION_REDIS_URL ?= redis://localhost:6379
 INTEGRATION_INGESTION_URL ?= http://localhost:8081
 
-# Integration test URLs
-INTEGRATION_API_URL ?= http://localhost:8080
-INTEGRATION_REDIS_URL ?= redis://localhost:6379
-INTEGRATION_INGESTION_URL ?= http://localhost:8081
-
 # Stop local processes, free ports, and stop the Docker stack.
 # Kills host-mode Go services from `start-dev` AND brings down any
 # docker-compose services from `start-staging`.
+# Both axiaops-dev-redis (legacy name) and axiaops-dev-valkey (post-migration
+# name) are listed so a checkout that straddles the Redis→Valkey swap leaves
+# no stranded container behind. Drop the redis-named line after two release
+# cycles per the migration plan rollback window.
 stop:
 	docker rm -f axiaops-dev-redis 2>/dev/null || true
+	docker rm -f axiaops-dev-valkey 2>/dev/null || true
 	docker compose down 2>/dev/null || true
 	./scripts/start.sh stop
 
