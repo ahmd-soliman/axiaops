@@ -27,6 +27,34 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.17] — 2026-05-27
+
+### Fixed
+
+- **Cross-account role onboarding (Verify step) no longer blocked on
+  `sts:TagSession`.** The ingestion's cross-account `sts:AssumeRole` call
+  no longer passes the `AxiaOpsOrg` session tag, which had required
+  `sts:TagSession` on **both** the customer trust policy and the
+  AxiaOps-side `AxiaOpsScanner` identity policy. Despite both grants being
+  in place (verified via `aws iam get-role-policy` + `simulate-principal-
+  policy`), an IAM regional propagation edge case in `eu-central-1` kept
+  denying the call. The session tag was originally added "from day one"
+  as future-proofing for SCP-based controls keyed on
+  `aws:PrincipalTag/AxiaOpsOrg`, but no current feature consumes it, so
+  removing it eliminates the entire two-sided permission requirement from
+  the onboarding path. Re-introduce when an actual SCP key on
+  `AxiaOpsOrg` ships.
+
+### Changed
+
+- **`test:integration:*` CI jobs only dump container logs + teardown on
+  test failure.** Previously the `after_script` ran on every job exit,
+  producing empty `--- logs <svc> ---` headers and a `cd: ... No such
+  file or directory` line on every green pipeline (the Makefile target
+  already tore down the stack on success). The block is now gated on
+  `$CI_JOB_STATUS = failed` plus a directory-exists guard — silent on
+  green, captures real container logs on red.
+
 ## [0.1.0-alpha.16] — 2026-05-27
 
 ### Added
@@ -548,7 +576,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.16...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.17...develop
+[0.1.0-alpha.17]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.17
 [0.1.0-alpha.16]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.16
 [0.1.0-alpha.15]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.15
 [0.1.0-alpha.14]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.14
