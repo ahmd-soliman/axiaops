@@ -380,7 +380,7 @@ axiaops/
 - [x] GitLab CI pipeline — test + build stages
 - [x] Scheduled auto-scan (24h default per account)
 - [x] `cost_records` 90-day retention cleanup
-- [x] Redis — JWKS cache, scan job queue, rate limiting
+- [x] Redis (now Valkey since 2026-05-27 migration) — JWKS cache, scan job queue, rate limiting
 - [x] Dismiss zombie workflow + snooze + audit trail
 - [x] Wire Redis in API `main.go` (inject into auth + rate limiter)
 - [ ] Weekly email digest + Slack alerts
