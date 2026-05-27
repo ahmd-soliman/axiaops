@@ -102,10 +102,13 @@ type AssumeRoleVerification struct {
 // endpoint to confirm a customer's trust policy is wired correctly before the
 // account row is finalised. Stateless: never touches the database.
 //
-// organizationID is the AxiaOps tenant ID; it is set as the AxiaOpsOrg
-// session tag so customer SCPs can target it via aws:PrincipalTag/AxiaOpsOrg.
-// Including the tag from day one avoids forcing every customer to edit their
-// trust policy later to allow sts:TagSession (design §8 Q7).
+// organizationID is the AxiaOps tenant ID; threaded into the session name so
+// concurrent scans for the same organization are distinguishable in CloudTrail.
+// (Previously also passed as an AxiaOpsOrg session tag for future SCP-based
+// controls per design §8 Q7, but tag-passing was removed 2026-05-27 — it
+// required sts:TagSession on both the caller identity policy AND the customer
+// trust policy, and an IAM-side propagation issue made the dual grant flaky.
+// Re-introduce when an actual SCP key on aws:PrincipalTag/AxiaOpsOrg ships.)
 func VerifyAssumeRole(ctx context.Context, sts STSAPI, roleARN, externalID, organizationID string) AssumeRoleVerification {
 	sessionName := newRoleSessionName("verify", organizationID)
 	out, err := sts.AssumeRole(ctx, assumeRoleInput(roleARN, externalID, organizationID, sessionName, verifyAssumeRoleSessionDuration))
@@ -132,7 +135,8 @@ func VerifyAssumeRole(ctx context.Context, sts STSAPI, roleARN, externalID, orga
 // must allow our AxiaOpsScanner principal with the matching ExternalId on its
 // trust policy — see docs/cross-account-roles-design.md §3.1.
 //
-// organizationID is set as the AxiaOpsOrg session tag (design §8 Q7).
+// organizationID is used only for the CloudTrail-distinguishable role session
+// name (no longer passed as a session tag — see VerifyAssumeRole doc comment).
 func NewWithAssumedRole(ctx context.Context, roleARN, externalID, region, organizationID string) (*Client, error) {
 	if region == "" {
 		region = "eu-central-1"
@@ -151,8 +155,6 @@ func NewWithAssumedRole(ctx context.Context, roleARN, externalID, region, organi
 		// Per-process unique session name so concurrent scans for the same
 		// organization are distinguishable in CloudTrail.
 		o.RoleSessionName = newRoleSessionName("scan", organizationID)
-		o.Tags = []ststypes.Tag{{Key: aws.String("AxiaOpsOrg"), Value: aws.String(organizationID)}}
-		o.TransitiveTagKeys = []string{"AxiaOpsOrg"}
 	})
 	cfg := baseCfg.Copy()
 	cfg.Credentials = aws.NewCredentialsCache(provider)
@@ -199,8 +201,11 @@ func NewForAccount(ctx context.Context, account model.Account) (*Client, error) 
 
 // assumeRoleInput builds the AssumeRole request shape used by both the verify
 // flow and the long-lived scan provider. Pulled into a helper so both paths
-// stay in lockstep on the ExternalId / Tags / TransitiveTagKeys contract.
+// stay in lockstep on the ExternalId contract. organizationID is accepted but
+// only used by the caller for session naming — no longer passed as a session
+// tag (see VerifyAssumeRole doc comment for the removal rationale).
 func assumeRoleInput(roleARN, externalID, organizationID, sessionName string, duration time.Duration) *sts.AssumeRoleInput {
+	_ = organizationID // kept on the signature so call sites and tests don't churn; threaded into sessionName by the caller
 	return &sts.AssumeRoleInput{
 		RoleArn:         aws.String(roleARN),
 		RoleSessionName: aws.String(sessionName),
@@ -208,10 +213,6 @@ func assumeRoleInput(roleARN, externalID, organizationID, sessionName string, du
 		// AWS takes seconds as int32; the Go-side type is time.Duration so
 		// callers cannot accidentally pass milliseconds or hours.
 		DurationSeconds: aws.Int32(int32(duration.Seconds())),
-		Tags: []ststypes.Tag{
-			{Key: aws.String("AxiaOpsOrg"), Value: aws.String(organizationID)},
-		},
-		TransitiveTagKeys: []string{"AxiaOpsOrg"},
 	}
 }
 
