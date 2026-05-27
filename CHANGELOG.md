@@ -27,6 +27,25 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.18] — 2026-05-27
+
+### Fixed
+
+- **Account Settings screen now shows the right fields for role-mode accounts.**
+  The screen rendered AWS Access Key ID + Secret inputs unconditionally; for
+  customers onboarded via Launch Stack (role-based auth) those inputs were
+  meaningless and the Save button rejected every submission with "Access Key
+  ID is required". Role-mode accounts now show the Role ARN + ExternalId as
+  read-only fields with a hint pointing to Connect → Role-based for
+  re-verify-required changes; access-key accounts are unchanged.
+- **Production dashboard footer no longer reports `dev · local`.** The
+  `deploy:production` job's `npm run build` step never exported
+  `VITE_APP_VERSION` / `VITE_APP_COMMIT_SHA`, so the bundle baked in the
+  config.js fallback values. Every prod build since the S3+CloudFront
+  migration shipped with `dashboard dev · local` in the footer. Now the
+  exports mirror the existing Docker build args (tag → branch slug → SHA),
+  giving operators a real identifier from a customer screenshot.
+
 ## [0.1.0-alpha.17] — 2026-05-27
 
 ### Fixed
@@ -576,7 +595,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.17...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.18...develop
+[0.1.0-alpha.18]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.18
 [0.1.0-alpha.17]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.17
 [0.1.0-alpha.16]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.16
 [0.1.0-alpha.15]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.15
