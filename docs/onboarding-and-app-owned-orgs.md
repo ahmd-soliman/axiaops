@@ -1,10 +1,17 @@
 # Onboarding + app-owned organisations (auth pattern B)
 
-> **Status: SUPERSEDED. Not planned.**
+> **This plan was not implemented.** See [`docs/native-auth-bootstrap.md`](./native-auth-bootstrap.md)
+> for what shipped.
 >
-> This plan describes a refactor that **we have decided not to do**. It is preserved as the historical record of an alternative we evaluated and rejected, not as a forward-looking roadmap item.
+> This plan describes a refactor that **we decided not to do**. It is preserved as the
+> historical record of an alternative we evaluated and rejected, not as a forward-looking
+> roadmap item.
 >
-> **What we're doing instead:** the `org_code`-from-Kinde model stays. Self-serve org creation happens by enabling Kinde's "Create organization on sign up" toggle (a Kinde admin setting, no code). Team invitations go through Kinde's Management API (org-scoped invitations sent by Kinde itself, redeemed in our auth middleware on the invitee's first authenticated request). Full design: **[`docs/invitation-flow.md`](./invitation-flow.md)**. The post-signup empty-state replacement is designed in **[`docs/onboarding-wizard.md`](./onboarding-wizard.md)**.
+> **What shipped instead:** native cookie sessions (argon2id) — org creation via
+> `POST /v1/auth/bootstrap` (first install) or SSO JIT provisioning; team invitations
+> via OOB token links (`POST /v1/invitations`). Kinde was removed in 2026-05.
+> See [`docs/native-auth-bootstrap.md`](./native-auth-bootstrap.md) and
+> [`docs/decisions/0001-deployment-model.md`](./decisions/0001-deployment-model.md).
 >
 > **Why we changed direction:**
 >

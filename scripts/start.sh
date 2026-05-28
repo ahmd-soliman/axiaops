@@ -4,7 +4,7 @@
 # Usage:
 #   ./scripts/start.sh                    start in dev mode (bypass auth with fixed organization)
 #   ./scripts/start.sh stop               kill all running services
-#   DEV_MODE=false ./scripts/start.sh     start in staging mode (real Kinde auth)
+#   DEV_MODE=false ./scripts/start.sh     start in staging mode (native cookie-session auth + OIDC SSO)
 
 set -euo pipefail
 
@@ -128,8 +128,6 @@ echo "Starting Dashboard (5173)..."
 cd "$DASHBOARD_DIR"
 echo "Installing dashboard dependencies..."
 npm install --silent --no-audit
-export VITE_KINDE_ISSUER="https://axiaops.kinde.com"
-export VITE_KINDE_CLIENT_ID="9fc9d3b7d0024947bd3c9fa253dfd28c"
 export VITE_DEV_MODE="$CALLER_DEV_MODE"
 export VITE_DEV_ORG_NAME="${DEV_ORG_NAME:-AxiaOps Dev}"
 npm run dev >> "$LOG_FILE" 2>&1 &

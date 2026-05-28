@@ -12,7 +12,7 @@ between the current state and a production-ready deployment on AWS.
 |---------|--------------|-------------------|
 | Database | PostgreSQL (Docker) | RDS PostgreSQL `db.t4g.micro` |
 | Cache / Queue | None (in-memory fallback) | ElastiCache Serverless (Redis) |
-| Auth | Kinde OAuth (PKCE + RS256 JWT) | Same — no change |
+| Auth | Native cookie sessions (argon2id) + per-org OIDC SSO | Same — no change |
 | CORS | `Access-Control-Allow-Origin: *` | Locked to `https://app.axiaops.io` |
 | TLS | HTTP only | Automatic HTTPS via App Runner |
 | Secrets | `ENCRYPTION_KEY` in `.env` | AWS Secrets Manager |
@@ -116,7 +116,7 @@ Aurora's advantages don't apply yet. Revisit when monthly DB cost exceeds €100
 
 | Use case | Detail |
 |----------|--------|
-| JWKS key cache | Cache Kinde's public keys with 1h TTL — avoids network round-trip on every request |
+| JWKS key cache | Cache per-org SSO connection JWKS with 1h TTL — avoids network round-trip on every SSO-authenticated request |
 | Scan job queue | `POST /accounts/{id}/scan` pushes a job; ingestion worker pops and processes |
 | Rate limiting | Replaces in-memory token bucket — survives restarts, works across replicas |
 
@@ -133,11 +133,10 @@ Aurora's advantages don't apply yet. Revisit when monthly DB cost exceeds €100
 |----------|-------------|
 | `DATABASE_URL` | RDS PostgreSQL connection string (application user `axiaops`) |
 | `MIGRATION_DATABASE_URL` | RDS PostgreSQL connection string (owner/admin, migrations only) |
-| `ENCRYPTION_KEY` | 32-byte hex — stored in AWS Secrets Manager, injected at runtime |
+| `ENCRYPTION_KEY` | 32-byte hex for AES-256-GCM (account secrets + SSO client secrets) — stored in AWS Secrets Manager |
 | `REDIS_URL` | ElastiCache Serverless endpoint |
 | `AWS_REGION` | `eu-central-1` |
-| `KINDE_ISSUER` | Your Kinde issuer URL |
-| `KINDE_CLIENT_ID` | Your Kinde client ID |
+| `INGESTION_SHARED_SECRET` | 32-byte hex for api → ingestion HMAC |
 | `LOG_FORMAT` | `json` in production, `text` in dev |
 | `INGESTION_URL` | Internal URL of the ingestion service (e.g. `http://ingestion:8081`) |
 

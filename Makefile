@@ -29,7 +29,7 @@ stop:
 # Fast dev loop — host-mode Go services (API + ingestion + Vite dashboard)
 # against a local Postgres container. DEV_MODE=true → auth bypassed, fixed tenant.
 # This is the default for day-to-day coding; use `make start-staging` when you
-# need the full containerised stack with Kinde auth and Redis.
+# need the full containerised stack with native auth and Redis.
 # Run `make seed` once after first start to populate dummy data.
 start-dev: stop migrate
 	./scripts/start.sh
