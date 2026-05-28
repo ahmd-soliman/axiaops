@@ -19,107 +19,22 @@ Complete checklist for configuring GitLab CI/CD variables and AWS secrets for Ax
 ## Overview
 
 GitLab CI/CD needs access to:
-1. **AWS credentials** — to push images to ECR and update App Runner
+1. **AWS OIDC role** — the `deploy:production` job assumes `gitlab-ci-axiaops-deploy` via `sts:AssumeRoleWithWebIdentity` (no static AWS keys). The role is provisioned in `axiaops/aws-infra`.
 2. **Encryption key** — to encrypt/decrypt AWS secrets in production
 3. **Ingestion shared secret** — for api → ingestion HMAC signing
 4. **CloudFront distribution ID** — to invalidate cache after dashboard deployment
 
 All secrets should be:
 - ✓ **Masked** — hidden in job logs
-- ✓ **Protected** — only available on protected branches (e.g., `main`)
+- ✓ **Protected** — only available on protected branches / tags
 
 ---
 
-## Step 1: Create AWS IAM User
+## Step 1: AWS OIDC deploy role
 
-Create a dedicated IAM user for GitLab CI/CD with minimal permissions.
+Production CI uses **GitLab OIDC** — no IAM user, no static access keys. The `deploy:production` job exchanges a GitLab `id_token` for short-lived AWS credentials via `sts:AssumeRoleWithWebIdentity`, assuming the role `gitlab-ci-axiaops-deploy`.
 
-### 1.1 Create User in AWS IAM
-
-```bash
-aws iam create-user --user-name gitlab-ci-axiaops
-```
-
-### 1.2 Create Access Keys
-
-```bash
-aws iam create-access-key --user-name gitlab-ci-axiaops
-```
-
-**Output:**
-```json
-{
-  "AccessKey": {
-    "AccessKeyId": "AKIA...",
-    "SecretAccessKey": "wJalr...",
-    "UserName": "gitlab-ci-axiaops",
-    "CreateDate": "2026-04-11T...",
-    "Status": "Active"
-  }
-}
-```
-
-**Save these securely** — you'll need them for GitLab.
-
-### 1.3 Attach Policy to User
-
-Create a policy with minimal permissions:
-
-```bash
-cat > /tmp/gitlab-ci-policy.json << 'EOF'
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "ECRAccess",
-      "Effect": "Allow",
-      "Action": [
-        "ecr:GetAuthorizationToken",
-        "ecr:BatchGetImage",
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:PutImage",
-        "ecr:InitiateLayerUpload",
-        "ecr:UploadLayerPart",
-        "ecr:CompleteLayerUpload",
-        "ecr:DescribeRepositories",
-        "ecr:ListImages"
-      ],
-      "Resource": "arn:aws:ecr:eu-central-1:123456789012:repository/axiaops-*"
-    },
-    {
-      "Sid": "AppRunnerAccess",
-      "Effect": "Allow",
-      "Action": [
-        "apprunner:UpdateService",
-        "apprunner:DescribeService"
-      ],
-      "Resource": "arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-*"
-    },
-    {
-      "Sid": "CloudFrontAccess",
-      "Effect": "Allow",
-      "Action": [
-        "cloudfront:CreateInvalidation",
-        "cloudfront:GetInvalidation"
-      ],
-      "Resource": "arn:aws:cloudfront::123456789012:distribution/*"
-    }
-  ]
-}
-EOF
-
-aws iam put-user-policy \
-  --user-name gitlab-ci-axiaops \
-  --policy-name GitLabCIPolicy \
-  --policy-document file:///tmp/gitlab-ci-policy.json
-```
-
-Verify:
-```bash
-aws iam get-user-policy \
-  --user-name gitlab-ci-axiaops \
-  --policy-name GitLabCIPolicy
-```
+The role, its trust policy, and its permission boundary are defined in the `axiaops/aws-infra` Terraform repo. See [`aws-infra/docs/terraform-prod-design.md`](https://gitlab.com/axiaops/aws-infra/-/blob/main/docs/terraform-prod-design.md) for the exact IAM shape. Add `AWS_CI_ROLE_ARN` (the role ARN, from Terraform output) to GitLab CI/CD variables.
 
 ---
 
@@ -193,20 +108,11 @@ In your GitLab project:
 
 Create the following variables (all must be **Masked** and **Protected**):
 
-#### AWS_ACCESS_KEY_ID
+#### AWS_CI_ROLE_ARN
 | Field | Value |
 |-------|-------|
-| Key | `AWS_ACCESS_KEY_ID` |
-| Value | `AKIA...` (from Step 1.2) |
-| Type | Variable |
-| Protect | ✓ Yes |
-| Mask | ✓ Yes |
-
-#### AWS_SECRET_ACCESS_KEY
-| Field | Value |
-|-------|-------|
-| Key | `AWS_SECRET_ACCESS_KEY` |
-| Value | `wJalr...` (from Step 1.2) |
+| Key | `AWS_CI_ROLE_ARN` |
+| Value | ARN of the `gitlab-ci-axiaops-deploy` OIDC role (from `aws-infra` Terraform output) |
 | Type | Variable |
 | Protect | ✓ Yes |
 | Mask | ✓ Yes |
@@ -238,26 +144,16 @@ Create the following variables (all must be **Masked** and **Protected**):
 | Protect | ✓ Yes |
 | Mask | ✓ Yes |
 
-#### STAGING_API_URL
-| Field | Value |
-|-------|-------|
-| Key | `STAGING_API_URL` |
-| Value | `https://your-api.eu-central-1.awsapprunner.com` |
-| Type | Variable |
-| Protect | ✓ Yes |
-| Mask | ✗ No (not a secret) |
 ---
 
 ## Verification Checklist
 
 ### In GitLab: Settings → CI/CD → Variables
 
-- [ ] `AWS_ACCESS_KEY_ID` — masked ✓, protected ✓
-- [ ] `AWS_SECRET_ACCESS_KEY` — masked ✓, protected ✓
+- [ ] `AWS_CI_ROLE_ARN` — masked ✓, protected ✓
 - [ ] `ENCRYPTION_KEY` — masked ✓, protected ✓
 - [ ] `INGESTION_SHARED_SECRET` — masked ✓, protected ✓
 - [ ] `CLOUDFRONT_DISTRIBUTION_ID` — masked ✓, protected ✓
-- [ ] `STAGING_API_URL` — protected ✓
 
 ### Test the Configuration
 
@@ -276,10 +172,8 @@ Create the following variables (all must be **Masked** and **Protected**):
    - `build:ingestion` — ECR push successful
    - `build:dashboard` — ECR push successful
 
-5. Verify deploy stage succeeds:
-   - `deploy:api` — App Runner updated
-   - `deploy:ingestion` — App Runner updated
-   - `deploy:dashboard` — App Runner updated + CloudFront invalidated
+5. Verify deploy stage (tag-gated manual gate):
+   - `deploy:production` — DB migration ran, ECS Express services updated, S3 + CloudFront invalidated
 
 ---
 
@@ -287,9 +181,8 @@ Create the following variables (all must be **Masked** and **Protected**):
 
 | Secret | Rotation Interval | Procedure |
 |--------|-------------------|-----------|
-| `AWS_ACCESS_KEY_ID` | 90 days | Create new key pair in AWS IAM; update GitLab variables; delete old keys |
-| `AWS_SECRET_ACCESS_KEY` | 90 days | Same as above |
-| `ENCRYPTION_KEY` | 12 months | Run `db/migrate-encryption-key.sql` (requires database downtime); then update GitLab variable |
+| `AWS_CI_ROLE_ARN` | Never (unless role is replaced) | Role trust is managed in `axiaops/aws-infra` Terraform; no key to rotate |
+| `ENCRYPTION_KEY` | Generate-once; requires re-encryption of all `accounts.secret_encrypted` rows before swap | See `docs/ops.md` for procedure |
 | `INGESTION_SHARED_SECRET` | As needed | Rotate both api and ingestion together using the dual-slot process in `docs/c1-hmac-plan.md` |
 | `CLOUDFRONT_DISTRIBUTION_ID` | Never (unless distribution is replaced) | Only update if CloudFront distribution is recreated |
 
@@ -298,20 +191,19 @@ Create the following variables (all must be **Masked** and **Protected**):
 ## Troubleshooting
 
 ### "Permission denied: User is not authorized to perform: ecr:PutImage"
-- IAM policy missing or incorrect
-- Verify policy is attached to `gitlab-ci-axiaops` user
+- OIDC token exchange succeeded but the deploy role lacks the permission
+- Verify the `gitlab-ci-axiaops-deploy` role policy in `axiaops/aws-infra` includes ECR push permissions
 - Check AWS account ID is correct (`123456789012`)
-- Regenerate access keys
 
-### "serviceName: 'axiaops-api' not found"
-- App Runner service doesn't exist
-- Create it via AWS Console or CLI (see docs/gitlab_ci_pipeline.md)
-- Verify service name in deploy job matches
+### "ECS Express service not found"
+- ECS Express service does not exist
+- Services are provisioned by `axiaops/aws-infra` Terraform — run `terraform apply` first
+- Verify service name in `.gitlab-ci.yml` matches what Terraform provisioned
 
-### "Cannot get authorization token"
-- AWS credentials invalid or missing in GitLab variables
-- Verify `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set
-- Test locally: `aws ecr get-login-password --region eu-central-1`
+### "Cannot get authorization token" / OIDC exchange fails
+- `AWS_CI_ROLE_ARN` is not set or incorrect
+- Verify the role trust policy allows the GitLab project's OIDC subject claim
+- See `axiaops/aws-infra` for the trust policy definition
 
 ### Variables not available in job
 - Check if variable is marked as **Protected** and job is on `main` branch
@@ -327,9 +219,9 @@ Create the following variables (all must be **Masked** and **Protected**):
 
 ## Security Best Practices
 
-1. **Rotate credentials regularly** — AWS keys every 90 days
-2. **Use separate IAM user** — never use root or personal AWS credentials
-3. **Audit IAM policy** — grant only minimum required permissions
+1. **No static AWS keys in CI** — OIDC tokens are short-lived and role-scoped; no rotation needed
+2. **Audit IAM policy** — grant only minimum required permissions; policy is defined in `axiaops/aws-infra`
+3. **Never use root or personal AWS credentials**
 4. **Mask secrets in logs** — all sensitive variables should be masked
 5. **Protect production variables** — only available on `main` branch
 6. **Monitor access** — check AWS CloudTrail for unexpected API calls

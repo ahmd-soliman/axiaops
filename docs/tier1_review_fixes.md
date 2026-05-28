@@ -164,7 +164,7 @@ Pagination adds minimal overhead:
 
 **Phase 2 (remaining)**:
 - [ ] Add fake provider scenarios for Tier 1 detections (dev mode testing)
-- [ ] Production deployment (App Runner + RDS + Terraform)
+- [ ] Production deployment (ECS Express + RDS + Terraform via aws-infra)
 
 **Phase 3 (enhancements)**:
 - [ ] Add retry logic with exponential backoff

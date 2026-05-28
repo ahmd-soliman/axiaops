@@ -147,7 +147,7 @@ _Single source of truth for project work. Last updated: 2026-05-28._
 - [x] Create `.gitlab-ci.yml` at repo root with three stages: `test`, `build`, `deploy`
 - [x] **test stage:** `go test ./...` for all three modules; `golangci-lint run`; on all branches
 - [x] **build stage** (main only): build Docker images; tag with Git SHA; push to AWS ECR
-- [x] **deploy stage** (main only): `aws apprunner update-service` for `api` + `ingestion`; CloudFront invalidation for dashboard
+- [x] **deploy stage** (main only): ECS Express service update (`update-express-gateway-service`) for `api` + `ingestion`; CloudFront invalidation for dashboard
 - [x] Add required CI/CD variables in GitLab: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ENCRYPTION_KEY`
 - [x] Test: feature branch only runs `test`; merge to main runs full pipeline
 
@@ -750,7 +750,7 @@ identically locally and in CI.
 **Phase 3 — Swap the runners**
 
 - [ ] Try GitLab.com shared runners on a test branch. Confirm all jobs green.
-- [ ] Decide: move everything to shared runners, or keep a minimal self-hosted runner for deploys that need VPC access (App Runner, RDS).
+- [ ] Decide: move everything to shared runners, or keep a minimal self-hosted runner for deploys that need VPC access (ECS, RDS).
 - [ ] If mixed model: tag deploy jobs with `tags: [self-hosted]`, leave test/build on shared.
 - [ ] Decommission old socket-mount runner.
 - [ ] Decommission self-hosted runner (or repurpose with stock `gitlab-runner` image and docker executor, no custom image).
