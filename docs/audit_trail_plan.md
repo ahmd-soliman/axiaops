@@ -24,7 +24,7 @@ Out of scope for this iteration:
 
 - Scheduled/automated scans (no user actor — logged to `scan_runs`, not `audit_log`)
 - Read-only list/get endpoints (volume is too high; no value unless an access log is a separate feature)
-- Auth events (login/logout lives in Kinde)
+- Auth events (login/logout — session events are in `sessions` table; Kinde was removed 2026-05)
 
 ---
 
@@ -32,7 +32,7 @@ Out of scope for this iteration:
 
 - `dismissed_zombies` table — has `dismissed_by` / `revoked_by` columns (`services/shared/storage/postgres/migrations/002_dismiss_snooze.up.sql`). These are populated with **organization_id, not user_id** — see `services/api/internal/api/handler.go:616` (`// swap for user email when available`). The audit trail work fixes this gap.
 - `middleware.OrganizationID(ctx)` is the only identity exposed on request context (`services/api/internal/middleware/auth.go:176`). **User identity is not propagated into handlers** today — blocker #1 for the audit trail.
-- `users` table exists (`id`, Kinde `sub`, email, `organization_id`, `last_seen`) — populated on every authenticated request by `UpsertUser` (`auth.go:160`).
+- `users` table exists (`id`, `external_id` (renamed from `kinde_sub` in migration 024), email, `last_seen`) — populated at login; joined to `organizations` via `memberships`.
 - Next available migration number is **`013`** — migrations 009–012 are already used.
 
 ---

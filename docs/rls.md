@@ -15,7 +15,7 @@ Every organization has an internal UUID in the `organizations` table:
 ```sql
 organizations
 ├── id         TEXT  PRIMARY KEY   -- internal UUID (e.g. "a1b2c3...")
-├── org_code   TEXT  UNIQUE        -- Kinde org identifier (e.g. "org_acme")
+├── org_code   TEXT  UNIQUE        -- legacy Kinde identifier (removed from use post-ADR-0001; column preserved for migration history)
 └── name       TEXT                -- display name (e.g. "Acme Corp")
 ```
 

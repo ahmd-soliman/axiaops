@@ -21,7 +21,7 @@ Complete checklist for configuring GitLab CI/CD variables and AWS secrets for Ax
 GitLab CI/CD needs access to:
 1. **AWS credentials** — to push images to ECR and update App Runner
 2. **Encryption key** — to encrypt/decrypt AWS secrets in production
-3. **Kinde OAuth** — to configure the dashboard authentication
+3. **Ingestion shared secret** — for api → ingestion HMAC signing
 4. **CloudFront distribution ID** — to invalidate cache after dashboard deployment
 
 All secrets should be:
@@ -146,24 +146,16 @@ openssl rand -hex 32
 
 ---
 
-## Step 3: Get Kinde OAuth Credentials
+## Step 3: Auth credentials (post-Kinde removal)
 
-### 3.1 Log in to Kinde Dashboard
-
-https://kinde.com/dashboard
-
-### 3.2 Find Issuer URL
-
-1. Go to **Settings → Applications**
-2. Find your AxiaOps application
-3. Copy the **Issuer URL** (e.g., `https://YOUR_KINDE_DOMAIN.kinde.com`)
-
-### 3.3 Find Client ID
-
-1. Same location as issuer
-2. Copy the **Client ID** (e.g., `your_client_id_here`)
-
-These are **not secrets** (safe to embed in frontend), but should still be masked in CI logs.
+> **Kinde is removed.** The `VITE_KINDE_ISSUER` / `VITE_KINDE_CLIENT_ID` variables below
+> are obsolete. Auth is now native cookie sessions. The required secrets are:
+>
+> - `ENCRYPTION_KEY` — 32-byte hex for AES-256-GCM (already in Step 2)
+> - `INGESTION_SHARED_SECRET` — 32-byte hex for the api → ingestion HMAC
+>   (`openssl rand -hex 32`)
+> - Per-env OIDC SSO config (`OIDC_*`) is stored per-org in the database, not as CI
+>   variables. See `services/api/CLAUDE.md` and `docs/sso-integration-design.md`.
 
 ---
 
@@ -228,23 +220,14 @@ Create the following variables (all must be **Masked** and **Protected**):
 | Protect | ✓ Yes |
 | Mask | ✓ Yes |
 
-#### VITE_KINDE_ISSUER
+#### INGESTION_SHARED_SECRET
 | Field | Value |
 |-------|-------|
-| Key | `VITE_KINDE_ISSUER` |
-| Value | `https://YOUR_KINDE_DOMAIN.kinde.com` |
+| Key | `INGESTION_SHARED_SECRET` |
+| Value | output of `openssl rand -hex 32` |
 | Type | Variable |
 | Protect | ✓ Yes |
-| Mask | ✓ No (not a secret, but safe to mask) |
-
-#### VITE_KINDE_CLIENT_ID
-| Field | Value |
-|-------|-------|
-| Key | `VITE_KINDE_CLIENT_ID` |
-| Value | `your_client_id_here` |
-| Type | Variable |
-| Protect | ✓ Yes |
-| Mask | ✓ No (not a secret, but safe to mask) |
+| Mask | ✓ Yes |
 
 #### CLOUDFRONT_DISTRIBUTION_ID
 | Field | Value |
@@ -272,8 +255,7 @@ Create the following variables (all must be **Masked** and **Protected**):
 - [ ] `AWS_ACCESS_KEY_ID` — masked ✓, protected ✓
 - [ ] `AWS_SECRET_ACCESS_KEY` — masked ✓, protected ✓
 - [ ] `ENCRYPTION_KEY` — masked ✓, protected ✓
-- [ ] `VITE_KINDE_ISSUER` — masked ✓, protected ✓
-- [ ] `VITE_KINDE_CLIENT_ID` — masked ✓, protected ✓
+- [ ] `INGESTION_SHARED_SECRET` — masked ✓, protected ✓
 - [ ] `CLOUDFRONT_DISTRIBUTION_ID` — masked ✓, protected ✓
 - [ ] `STAGING_API_URL` — protected ✓
 
@@ -308,7 +290,7 @@ Create the following variables (all must be **Masked** and **Protected**):
 | `AWS_ACCESS_KEY_ID` | 90 days | Create new key pair in AWS IAM; update GitLab variables; delete old keys |
 | `AWS_SECRET_ACCESS_KEY` | 90 days | Same as above |
 | `ENCRYPTION_KEY` | 12 months | Run `db/migrate-encryption-key.sql` (requires database downtime); then update GitLab variable |
-| `VITE_KINDE_*` | As per Kinde policy | Update when Kinde credentials change |
+| `INGESTION_SHARED_SECRET` | As needed | Rotate both api and ingestion together using the dual-slot process in `docs/c1-hmac-plan.md` |
 | `CLOUDFRONT_DISTRIBUTION_ID` | Never (unless distribution is replaced) | Only update if CloudFront distribution is recreated |
 
 ---

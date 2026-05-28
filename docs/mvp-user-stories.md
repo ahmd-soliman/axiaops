@@ -93,7 +93,7 @@ User Story:
 
 Acceptance Criteria:
 
-    [ ] Expo project initialized with TypeScript and a bottom-tab navigation pattern.
+    [ ] Vite + React project initialized with a bottom-tab navigation pattern. (Note: originally specified as Expo; shipped as Vite + React web app.)
 
     [ ] React Query is configured to handle API caching and background refreshing.
 
