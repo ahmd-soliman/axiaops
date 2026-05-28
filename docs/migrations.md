@@ -213,48 +213,22 @@ Both pass `MIGRATION_DATABASE_URL` through.
 
 ## Production Migrations
 
-Production runs on RDS inside a VPC. The CI runner cannot reach it directly, so
-migrations are **not run automatically** by the `deploy:production` pipeline job.
-The `axiaops-migrate` image is built and pushed to ECR on every deploy — you must
-run it manually before the App Runner services pick up the new image.
+Production runs on RDS inside a VPC. The `deploy:production` CI job handles migrations automatically as part of the deploy sequence — **you do not run them manually in normal deployments**.
 
-**The order matters: always migrate before deploying.** App Runner rolls out the
-new image gradually; if the new code reaches a schema it doesn't recognise, the
-service will error until migrations are applied.
+**The order matters: the `deploy:production` job runs DB migrations as a one-off ECS Fargate task (pinned to the release image) before updating the ECS Express services.** This ensures the schema is in place before new code starts handling requests.
 
-### Option A — ECS one-off task (recommended)
+### Normal path — `deploy:production` CI job (recommended)
 
-Once the Terraform ECS task definition is in place, trigger a one-off run from
-any machine with AWS credentials:
+Run the `deploy:production` job in GitLab CI (tag-gated manual gate). It:
+1. Runs the `axiaops-migrate` image as a one-off ECS Fargate task against RDS
+2. Waits for the task to reach `STOPPED` and verifies exit code `0`
+3. Only then updates the ECS Express gateway services
 
-```bash
-aws ecs run-task \
-  --cluster axiaops \
-  --task-definition axiaops-migrate \
-  --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={
-    subnets=[subnet-xxxxxxxx],
-    securityGroups=[sg-xxxxxxxx],
-    assignPublicIp=DISABLED
-  }" \
-  --overrides '{
-    "containerOverrides": [{
-      "name": "migrate",
-      "environment": [
-        {"name": "MIGRATION_DATABASE_URL", "value": "postgres://axiaops_owner:<password>@<rds-host>:5432/axiaops"},
-        {"name": "DATABASE_URL",           "value": "postgres://axiaops:<password>@<rds-host>:5432/axiaops"}
-      ]
-    }]
-  }'
-```
+See `.gitlab-ci.yml` for the exact `aws ecs run-task` invocation and network configuration (subnets, security groups are sourced from SSM at runtime).
 
-Wait for the task to reach `STOPPED` and confirm its exit code is `0` before
-proceeding with the App Runner deployment.
+### Option B — bastion / VPN jump host (emergency only)
 
-### Option B — bastion / VPN jump host
-
-If you have a host inside the VPC (or an active VPN tunnel to the RDS subnet),
-pull and run the migrate image directly:
+If you need to run migrations outside the CI job (e.g., a hotfix before CI is available), pull and run the migrate image directly from a host inside the VPC or with an active VPN tunnel to the RDS subnet:
 
 ```bash
 # Pull from ECR (authenticate first)
