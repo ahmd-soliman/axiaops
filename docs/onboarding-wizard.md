@@ -1,13 +1,20 @@
 # Onboarding Wizard & Organization Rename
 
-Status: shipped, partially superseded by Phase B1 (native auth).
-Owner: API service + dashboard. Touches `services/shared` (storage, model, migrations), `services/api` (handler, middleware, kinde package), and `services/dashboard` (new wizard routes + Settings → Organization).
+Status: partially shipped (wizard reduced to 2 steps post-B1; Kinde-clobber bug and Pattern A framing are obsolete).
+Owner: API service + dashboard. Touches `services/shared` (storage, model, migrations), `services/api` (handler), and `services/dashboard` (wizard routes + Settings → Organization).
 
-**Post-B1 reality (2026-04-30 update):** the wizard's "name your org" step was dropped because native-auth bootstrap (`POST /v1/auth/bootstrap`) already collects `organization_name` at install time. The wizard is now 2 steps: invite teammates → connect AWS. Renaming after the fact stays at Settings → Organization. The Kinde-clobber bug described in §3 is no longer reachable because `UpsertOrganization` is unused under `AUTH_PROVIDER=native` — kept here for Kinde-mode history until D2.
+> **Post-B1 reality (2026-05 update):** The wizard's "name your org" step was dropped because
+> native-auth bootstrap (`POST /v1/auth/bootstrap`) already collects `organization_name` at
+> install time. The wizard is now 2 steps: invite teammates → connect AWS. Renaming after the
+> fact stays at Settings → Organization. The `UpsertOrganization` name-clobber bug described
+> in §3 is moot — `UpsertOrganization` is unused post-Kinde-removal (2026-05). The two-phase
+> Kinde Mgmt API rename call in §5.1 and the Kinde M2M client additions in §6 were never
+> shipped; org rename is a local `UPDATE` only. Read §3–§6 as historical design context.
 
-This document is the implementation contract for the post-signup setup wizard, the organization-rename surface (with Kinde Management API sync), and the dashboard "What's next" panel that replaces the empty-state landing for fresh orgs. It assumes `docs/invitation-flow.md` (Phase 1, email invitations) ships first — the wizard's invite step calls `POST /v1/invitations` directly.
-
-This is Phase 2 of the team-invitations branch. It stays in **Pattern A** (Kinde-coupled organizations). `docs/onboarding-and-app-owned-orgs.md` (Pattern B) is no longer on the roadmap; revisit only if a concrete customer need surfaces (multi-org per user, branded invitation emails customers complain about, IdP swap-out).
+This document is the implementation contract for the post-signup setup wizard, the
+organization-rename surface, and the dashboard "What's next" panel. It assumes
+`docs/invitation-flow.md` (email invitations) ships first — the wizard's invite step
+calls `POST /v1/invitations` directly.
 
 ---
 
