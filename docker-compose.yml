@@ -166,7 +166,7 @@ services:
     container_name: axiaops-dashboard
     ports:
       # Plain HTTP only. TLS termination is the edge proxy's job in every
-      # real deployment (App Runner, on-prem reverse proxy); this local
+      # real deployment (CloudFront, on-prem reverse proxy); this local
       # stack mirrors the post-edge plain-HTTP shape. See nginx.conf for
       # the cookie posture under direct-port access.
       - "8082:80"
