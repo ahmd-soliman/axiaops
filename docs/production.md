@@ -11,17 +11,17 @@ between the current state and a production-ready deployment on AWS.
 | Concern | Current (dev) | Production target |
 |---------|--------------|-------------------|
 | Database | PostgreSQL (Docker) | RDS PostgreSQL `db.t4g.micro` |
-| Cache / Queue | None (in-memory fallback) | ElastiCache Serverless (Redis) |
+| Cache / Queue | None (in-memory fallback) | No ElastiCache in prod v1 (budget); api + ingestion run in-memory fallbacks. `REDIS_URL` intentionally unset. ElastiCache module exists in `aws-infra` for when budget allows. |
 | Auth | Native cookie sessions (argon2id) + per-org OIDC SSO | Same — no change |
 | CORS | `Access-Control-Allow-Origin: *` | Locked to `https://app.axiaops.io` |
-| TLS | HTTP only | Automatic HTTPS via App Runner |
-| Secrets | `ENCRYPTION_KEY` in `.env` | AWS Secrets Manager |
+| TLS | HTTP only | CloudFront (ACM cert) terminates TLS; Go services stay HTTP internally behind the ALB |
+| Secrets | `ENCRYPTION_KEY` in `.env` | AWS Secrets Manager (referenced by ARN in ECS task-def `secrets:` block) |
 | Ingestion schedule | On-demand via API | Scheduled auto-scan (24h default, 2.11) |
-| Logging | Structured JSON (slog) | Structured JSON → CloudWatch Logs |
+| Logging | Structured JSON (slog) | Structured JSON → stdout → CloudWatch Logs |
 | Metrics | Prometheus `/metrics` | Prometheus → Grafana Cloud (or CloudWatch custom metrics) |
 | Multi-tenancy | Per-organization RLS | Same — no change |
-| CI/CD | GitLab CI (test + build) | GitLab CI (test → build → deploy to ECR + App Runner) |
-| Infrastructure | Docker Compose | Terraform (App Runner + RDS + ElastiCache + Secrets Manager) |
+| CI/CD | GitLab CI (test + build) | GitLab CI (test → build → deploy to ECR + ECS Express) |
+| Infrastructure | Docker Compose | Terraform in sibling `axiaops/aws-infra` repo (ECS Express, RDS, Secrets Manager, CloudFront/S3, IAM) |
 
 ---
 
@@ -31,10 +31,9 @@ The ingestion service uses AWS SDK v2, which loads credentials in this order:
 
 1. `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` env vars
 2. `~/.aws/credentials` file (local dev)
-3. IAM Role attached to the compute resource (App Runner task role)
+3. IAM Role attached to the compute resource (ECS task role)
 
-**For production, use option 3** — attach an IAM role to the App Runner service.
-No credentials to rotate, no secrets to store.
+**For production, use option 3** — the ECS task role is provisioned in `axiaops/aws-infra` and attached to the ECS task definition. No credentials to rotate, no secrets to store.
 
 ### IAM Policy (`AxiaOpsReadOnly`)
 
@@ -110,20 +109,20 @@ Aurora's advantages don't apply yet. Revisit when monthly DB cost exceeds €100
 
 ---
 
-## Redis — ElastiCache Serverless
+## Cache / Queue — production v1
 
-**Use cases (dev plan 2.14):**
+**`REDIS_URL` is intentionally unset in production v1 (budget).** The api and ingestion services run on their in-memory fallbacks for JWKS caching, scan job queue, and rate limiting. An ElastiCache module exists in the `axiaops/aws-infra` Terraform repo for when budget allows; enabling it means setting `REDIS_URL` in the ECS task-def secrets and toggling the module on in aws-infra.
+
+**Use cases when Redis is enabled (dev plan 2.14):**
 
 | Use case | Detail |
 |----------|--------|
-| JWKS key cache | Cache per-org SSO connection JWKS with 1h TTL — avoids network round-trip on every SSO-authenticated request |
+| JWKS key cache | Cache per-org SSO connection JWKS with 1h TTL |
 | Scan job queue | `POST /accounts/{id}/scan` pushes a job; ingestion worker pops and processes |
 | Rate limiting | Replaces in-memory token bucket — survives restarts, works across replicas |
 
-**Infrastructure:**
-- Dev: Redis container in `docker-compose.yml`
-- Production: AWS ElastiCache Serverless (Redis-compatible) — pay-per-use
-- `REDIS_URL` env var; if unset, falls back to in-memory implementations
+- Dev: Valkey container in `docker-compose.yml`
+- `REDIS_URL` env var; if unset, services fall back to in-memory implementations
 
 ---
 
@@ -131,25 +130,28 @@ Aurora's advantages don't apply yet. Revisit when monthly DB cost exceeds €100
 
 | Variable | Description |
 |----------|-------------|
-| `DATABASE_URL` | RDS PostgreSQL connection string (application user `axiaops`) |
-| `MIGRATION_DATABASE_URL` | RDS PostgreSQL connection string (owner/admin, migrations only) |
-| `ENCRYPTION_KEY` | 32-byte hex for AES-256-GCM (account secrets + SSO client secrets) — stored in AWS Secrets Manager |
-| `REDIS_URL` | ElastiCache Serverless endpoint |
+| `DATABASE_URL` | RDS PostgreSQL connection string (application user `axiaops`) — referenced by ARN in ECS task-def `secrets:` |
+| `MIGRATION_DATABASE_URL` | RDS PostgreSQL connection string (owner/admin, migrations only) — referenced by ARN in ECS task-def `secrets:`. Known open item: still injected into the runtime api+ingestion task defs; should be migrate-task-only. |
+| `ENCRYPTION_KEY` | 32-byte hex for AES-256-GCM (account secrets + SSO client secrets) — generate-once with hard-abort guard against regeneration; referenced by ARN in ECS task-def `secrets:` |
+| `REDIS_URL` | Not set in prod v1 (in-memory fallback). Set to the ElastiCache endpoint when the aws-infra ElastiCache module is enabled. |
 | `AWS_REGION` | `eu-central-1` |
-| `INGESTION_SHARED_SECRET` | 32-byte hex for api → ingestion HMAC |
+| `INGESTION_SHARED_SECRET` | 32-byte hex for api → ingestion HMAC — referenced by ARN in ECS task-def `secrets:` |
+| `AXIAOPS_LICENSE` | License JWT, minted per-deploy by the `mint:license:production` CI job — referenced by ARN in ECS task-def `secrets:` |
 | `LOG_FORMAT` | `json` in production, `text` in dev |
-| `INGESTION_URL` | Internal URL of the ingestion service (e.g. `http://ingestion:8081`) |
+| `INGESTION_URL` | Internal URL of the ingestion service — read from SSM `/axiaops/prod/platform/*` by the `deploy:production` CI job |
 
 ---
 
 ## Secrets Management
 
-All secrets are stored in AWS Secrets Manager — not in environment variables on disk.
+All secrets are stored in AWS Secrets Manager and injected into containers **by ARN** in the ECS task-def `secrets:` block — never as plain env vars.
 
-**Secrets to store:**
-- `ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM
+**Secrets stored:**
+- `ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM; generate-once with a hard-abort guard against regeneration; must stay in sync between api and ingestion
 - `DATABASE_URL` / `MIGRATION_DATABASE_URL` — RDS connection strings
-- `REDIS_URL` — ElastiCache endpoint
+- `AXIAOPS_LICENSE` — license JWT minted per-deploy by `mint:license:production` CI job
+- `INGESTION_SHARED_SECRET` (+ `_NEXT` for rotation) — api → ingestion HMAC
+- `REDIS_URL` — set only when ElastiCache is enabled (not prod v1)
 
 **Key rotation warning:** Rotating `ENCRYPTION_KEY` is not a simple env var swap.
 All `secret_encrypted` values in the `accounts` table must be decrypted with the
@@ -161,80 +163,72 @@ Document the procedure in `docs/ops.md` before first production deployment.
 
 ## CORS
 
-In production, lock CORS to your actual domain:
-
-```go
-w.Header().Set("Access-Control-Allow-Origin", "https://app.axiaops.io")
-```
-
-With the nginx proxy (Docker Compose dev), the browser never reaches the Go API
-directly — CORS headers are only needed if the API is exposed publicly without a proxy.
-App Runner exposes the API directly, so this must be set correctly.
+In production, CORS is locked to `https://app.axiaops.io` via the `CORS_ORIGIN` env var on the api service. The CloudFront + S3 dashboard and the Go api are on the same origin (`app.axiaops.io`), so the browser never performs a cross-origin request — but the setting must be correct for any client that hits the ALB directly.
 
 ---
 
 ## TLS / HTTPS
 
-App Runner provides automatic HTTPS — no configuration needed. The Go services
-stay on HTTP internally; TLS is terminated at the App Runner edge.
+TLS terminates at **CloudFront** (ACM certificate for `app.axiaops.io`). The Go services stay on HTTP behind the ALB; they are never exposed to the internet directly. No TLS configuration is needed in the Go binaries or ECS task definitions.
 
 ---
 
-## Hosting — AWS App Runner
+## Hosting — AWS ECS Express Mode
 
-Both `api` and `ingestion` run on App Runner. The dashboard (Vite static build)
-is served via CloudFront.
+`api` and `ingestion` run as AWS ECS Express gateway services (api on `:8080`, ingestion on `:8081`) fronted by an ALB. The dashboard (Vite static build, VITE_* baked at build time) is served from S3 behind CloudFront.
 
 ```
-User browser (HTTPS)
+User browser (HTTPS → app.axiaops.io)
      │
      ▼
-CloudFront → S3 (dashboard static assets)
-     │ /api/v1/* proxied to App Runner
-     ▼
-App Runner — axiaops-api (:8080)
-     │ POST /accounts/{id}/scan → HTTP to ingestion
-     ▼
-App Runner — axiaops-ingestion (:8081)
+CloudFront (ACM cert, TLS termination)
+     ├── /api/v1/* → ALB → ECS Express — axiaops-api (:8080)
+     │                          │ POST /accounts/{id}/scan → HTTP to ingestion
+     │                          ▼
+     │                   ECS Express — axiaops-ingestion (:8081)
+     │                          │
+     │                          ▼
+     │                   RDS PostgreSQL (private, SG-locked)
      │
-     ▼
-RDS PostgreSQL + ElastiCache (Redis)
+     └── /* → S3 (dashboard static assets)
 ```
 
-### Deployment (ECR + App Runner)
+ALB health checks: api → `/livez`, ingestion → `/health`.
 
-```bash
-# Authenticate Docker to ECR
-aws ecr get-login-password --region eu-central-1 | \
-  docker login --username AWS --password-stdin <account_id>.dkr.ecr.eu-central-1.amazonaws.com
+Services boot with a busybox bootstrap container until the first CI image rollout flips `primary_container`.
 
-# Build and push
-docker build -t axiaops-api ./services/api
-docker tag axiaops-api:latest <account_id>.dkr.ecr.eu-central-1.amazonaws.com/axiaops-api:latest
-docker push <account_id>.dkr.ecr.eu-central-1.amazonaws.com/axiaops-api:latest
+### Deployment
 
-# App Runner picks up the new image automatically (auto-deploy enabled)
-```
+Production is deployed exclusively via the **`deploy:production` CI job** — a TAG-GATED MANUAL gate (a human clicks it). See `.gitlab-ci.yml` for the full job definition. The job:
 
-In production this is handled by the GitLab CI pipeline (dev plan 2.10) —
-no manual build/push steps.
+1. Authenticates to AWS via GitLab OIDC (`id_tokens` GITLAB_AWS_TOKEN, `sts:AssumeRoleWithWebIdentity`), assuming role `gitlab-ci-axiaops-deploy` (provisioned in `axiaops/aws-infra`). **No static AWS access keys.**
+2. Reads platform inventory (including `INGESTION_URL`) from SSM `/axiaops/prod/platform/*`.
+3. Pushes images to ECR (immutable repos).
+4. Runs DB migrations as a one-off ECS Fargate task **before** updating services. Order matters.
+5. Updates services via `update-express-gateway-service` — ingestion first, then api. Polls steady state via `describe-express-gateway-service`.
+6. Deploys the dashboard: `aws s3 sync` to the S3 bucket + `aws cloudfront create-invalidation`.
+
+No manual build/push steps.
 
 ---
 
 ## Infrastructure as Code — Terraform
 
-Production infrastructure is defined in Terraform for reproducible provisioning.
+Production infrastructure is defined in Terraform in the sibling **`axiaops/aws-infra`** repo. It does **not** live in a `terraform/` directory in this repo.
 
-**State backend:** S3 bucket + DynamoDB lock table
+See [`aws-infra/docs/terraform-prod-design.md`](https://gitlab.com/axiaops/aws-infra/-/blob/main/docs/terraform-prod-design.md) and [`aws-infra/docs/refactor-to-ecs-express-mode-plan.md`](https://gitlab.com/axiaops/aws-infra/-/blob/main/docs/refactor-to-ecs-express-mode-plan.md) for the authoritative shape.
 
-**Modules to provision:**
-- App Runner services (api, ingestion)
-- RDS PostgreSQL `db.t4g.micro`
-- ElastiCache Serverless (Redis)
+**State backend:** S3 bucket + DynamoDB lock table (in aws-infra).
+
+**Modules in aws-infra:**
+- ECS Express gateway services (api, ingestion)
+- RDS PostgreSQL `db.t4g.micro` (private, `PubliclyAccessible=false`)
 - AWS Secrets Manager secrets
-- ECR repositories
+- ECR repositories (immutable)
 - CloudFront distribution + S3 bucket (dashboard)
-- IAM roles and policies
+- IAM roles and policies (including `gitlab-ci-axiaops-deploy` OIDC role)
+- ElastiCache module (exists but not load-bearing in prod v1 — enabled when budget allows)
+- No NAT Gateway (public subnets + security groups)
 
 ---
 
@@ -253,15 +247,15 @@ Until 2.11 is shipped, scans are triggered manually via `POST /v1/accounts/{id}/
 
 ## Observability
 
-- **Logging:** `slog` JSON output → stdout → CloudWatch Logs (App Runner captures stdout automatically)
+- **Logging:** `slog` JSON output → stdout → CloudWatch Logs (ECS captures stdout automatically)
 - **Metrics:** Prometheus `/metrics` endpoint → Grafana Cloud (or CloudWatch custom metrics)
-- **Health:** `GET /health` checks DB connectivity + ingestion reachability
+- **Health:** `GET /livez` (api liveness), `GET /readyz` (api readiness, pings DB), `GET /health` (ingestion)
 - **Request tracing:** `X-Request-ID` header injected by middleware, included in all log lines
 
 ---
 
 ## Related
 
-- [deployment.md](deployment.md) — App Runner cost estimates by phase
+- [deployment.md](deployment.md) — deployment environments, cost estimates by phase
 - [development_plan.md](development_plan.md) — full phase-by-phase breakdown
 - [go_live_checklist.md](go_live_checklist.md) — what must be complete before first paying customer
