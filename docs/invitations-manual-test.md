@@ -1,7 +1,6 @@
 # Native invitations — manual test runbook
 
-Operator-facing probe pack for the native (`AUTH_PROVIDER=native|both`) invitation
-flow end-to-end. Mirrors the structure of `docs/sso-local-keycloak.md` so the
+Operator-facing probe pack for the native invitation flow end-to-end. Mirrors the structure of `docs/sso-local-keycloak.md` so the
 two runbooks fit together as the pre-merge checklist for `feat/sso → develop`.
 
 Each probe is independently runnable and atomic. Tick the boxes as you go,
@@ -273,10 +272,9 @@ the invite under self-hosted (no SMTP).
 - [ ] **Security warning footnote**: panel includes "Anyone with this
       link can redeem the invitation, so share over a private channel.
       Revoke from the Pending invitations table if needed."
-- [ ] **Legacy Kinde / addMember fallback**: if the dashboard hits the
-      Kinde branch (Kinde sends the email; no `redemption_url` in
-      response) OR the existing-user-no-membership fallback path, the
-      panel does NOT render (gated on `data?.redemption_url`).
+- [ ] **addMember fallback**: when inviting an existing AxiaOps user who already has
+      a `users` row but no membership in this org, the API response contains no
+      `redemption_url` — the panel does NOT render (gated on `data?.redemption_url`).
 - Notes:
 
 ## 14. Bugs found

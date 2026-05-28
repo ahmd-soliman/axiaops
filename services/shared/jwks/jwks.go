@@ -1,14 +1,15 @@
 // Package jwks provides cached JWKS retrieval and jwt.Keyfunc construction
 // for any JWT verifier in the AxiaOps codebase.
 //
-// Two consumers (B2 onwards):
-//   - The legacy Kinde JWT validation in services/api/internal/middleware
-//     (one issuer-bound JWKS endpoint) under AUTH_PROVIDER=kinde|both.
-//   - The native OIDC RP per-connection JWKS lookup (B2 phase).
+// Current consumer:
+//   - The native OIDC RP per-connection JWKS lookup
+//     (services/api/internal/sso) — one JWKS source per SSO connection,
+//     keyed on the connection ID.
 //
 // The cache key is opaque from this package's perspective — callers pass
-// whatever stable string distinguishes their JWKS source (Kinde issuer URL,
-// SSO connection ID, etc.). We prepend "jwks:" to keep cache keys namespaced.
+// whatever stable string distinguishes their JWKS source (today the SSO
+// connection ID; a future issuer-bound verifier could pass an issuer URL).
+// We prepend "jwks:" to keep cache keys namespaced.
 //
 // Auth never blocks on cache: cache miss or cache error falls through to a
 // live HTTP fetch, and a successful live fetch repopulates the cache
@@ -31,9 +32,8 @@ import (
 )
 
 // DefaultTTL is the cache lifetime for fetched JWKS payloads.
-// One hour matches the Kinde-era behaviour and is short enough that an IdP
-// key rotation propagates within an acceptable window without forcing a
-// fetch on every request.
+// One hour is short enough that an IdP key rotation propagates within an
+// acceptable window without forcing a fetch on every request.
 const DefaultTTL = time.Hour
 
 // fetchTimeout caps how long a single live JWKS fetch can hold the auth
@@ -52,9 +52,8 @@ const cacheKeyPrefix = "jwks:"
 //
 // Concurrency note: when N concurrent requests all hit a bad-signature
 // path and all call Del + FromCache, they will all see a cache miss and
-// each issue a live HTTP fetch to the IdP. For Kinde this is invisible
-// (one keyfunc at startup); for per-connection OIDC under load, this is
-// a fan-out spike at the worst moment. Coalescing is the caller's
+// each issue a live HTTP fetch to the IdP. For per-connection OIDC under
+// load, this is a fan-out spike at the worst moment. Coalescing is the caller's
 // responsibility for now — wrap with golang.org/x/sync/singleflight
 // keyed on cacheID, or land it in this package when the OIDC RP slice
 // wires the auto-refresh.
@@ -63,8 +62,7 @@ func CacheKey(cacheID string) string { return cacheKeyPrefix + cacheID }
 // FromCache returns a jwt.Keyfunc backed by a cached JWKS payload.
 //
 // cacheID is the caller-supplied identifier used to namespace the cache
-// entry — pass the issuer URL for issuer-bound JWKS (Kinde), the SSO
-// connection ID for per-connection JWKS (OIDC).
+// entry — pass the SSO connection ID for per-connection JWKS (OIDC).
 //
 // jwksURL is the absolute URL to fetch when the cache is cold.
 //

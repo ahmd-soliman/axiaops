@@ -93,7 +93,7 @@ func TestGetMe_AuthProviderTier(t *testing.T) {
 		{"password-maps-to-native", "password", "native"},
 		{"sso-maps-to-native", "sso", "native"},
 		{"bootstrap-maps-to-native", "bootstrap", "native"},
-		{"unknown-maps-to-unknown", "kinde", "unknown"},
+		{"unknown-maps-to-unknown", "legacy", "unknown"},
 		{"empty-maps-to-empty", "", ""},
 	}
 	for _, tc := range cases {

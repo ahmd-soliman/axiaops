@@ -58,7 +58,7 @@
 ## What's Already Done (Phase 2 shipped ahead of schedule)
 
 - AWS Cost Explorer + CloudWatch integration ✅
-- Kinde OAuth 2.0 auth + multi-tenancy (RLS) ✅
+- Native cookie sessions (argon2id) + per-org OIDC SSO + multi-tenancy (RLS) ✅
 - Account management — connect AWS, encrypted secrets, on-demand scan ✅
 - Resource inventory view (`GET /resources`) ✅
 - Savings history / trend (`zombie_snapshots` + `GET /trend`) ✅
