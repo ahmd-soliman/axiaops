@@ -477,11 +477,11 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if u.PasswordHash == "" {
-		// User exists (perhaps from a Kinde-era row) but has no native
+		// User exists (perhaps from a pre-native-auth row) but has no native
 		// password set. Surface as invalid_credentials — the user can
 		// recover via admin-issued password reset. Verify against the
 		// placeholder so the timing envelope matches the wrong-password
-		// path; otherwise an attacker probing Kinde-era email lists
+		// path; otherwise an attacker probing pre-native-auth email lists
 		// would observe a faster 401 here than for password-mismatch.
 		_ = Verify(req.Password, placeholderHash)
 		observability.Global.AuthLoginTotal.WithLabelValues("failure", "unknown_user").Inc()

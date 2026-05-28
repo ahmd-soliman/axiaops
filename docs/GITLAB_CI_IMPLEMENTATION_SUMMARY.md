@@ -94,7 +94,7 @@ Git Commit to main
 
 ✅ **Automated Docker Builds**
 - Multi-stage builds for API and ingestion (optimized for size)
-- Full Expo build for dashboard (with OAuth config)
+- Full Vite build for dashboard
 - ECR push with commit SHA tagging
 
 ✅ **Production Deployment**
@@ -119,14 +119,12 @@ Git Commit to main
 
 ### Before First Pipeline Run (Immediate)
 
-- [ ] **Kinde Configuration**
-  - [ ] Get Kinde issuer URL (https://YOUR_DOMAIN.kinde.com)
-  - [ ] Get Kinde client ID
+- [ ] **Auth secrets** (Kinde removed — auth is native)
+  - [ ] `ENCRYPTION_KEY` (masked, protected) — 32-byte hex
+  - [ ] `INGESTION_SHARED_SECRET` (masked, protected) — 32-byte hex
 
 - [ ] **GitLab Configuration**
-  - [ ] Add 2 CI/CD variables (Settings → CI/CD → Variables):
-    - `VITE_KINDE_ISSUER` (masked, protected)
-    - `VITE_KINDE_CLIENT_ID` (masked, protected)
+  - [ ] Add the above secrets in Settings → CI/CD → Variables
 
 - [ ] **Test Pipeline**
   - [ ] Push to feature branch (test stage runs automatically)
@@ -228,7 +226,7 @@ Git Commit to main
 2. **Secret Rotation**
    - AWS credentials: rotate every 90 days
    - Encryption key: rotate every 12 months (requires DB re-encryption)
-   - Kinde OAuth: rotate per Kinde's security policy
+   - Ingestion shared secret: rotate both api and ingestion together (see `docs/c1-hmac-plan.md`)
 
 3. **Audit Trail**
    - GitLab CI/CD logs secrets are masked (not visible in logs)

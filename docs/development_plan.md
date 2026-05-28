@@ -80,14 +80,13 @@ API service (always running on :8080)
 - `POST /accounts/{id}/scan` — trigger an on-demand ingestion scan for an account
 - CORS middleware — permissive in dev, locked to domain in production
 
-#### 1.4 Auth — Kinde ✅
+#### 1.4 Auth ✅
 
-- **Provider:** Kinde (chosen over Supabase Auth, Clerk, Cognito — see `docs/auth.md`)
-- **Flow:** PKCE OAuth via `expo-auth-session` on dashboard → JWT verified by Go middleware
-- **Middleware:** `services/api/internal/middleware/auth.go` — RS256 JWT verification via JWKS
-- **Organization persistence:** `org_code` → internal UUID in `organizations` table on first login
-- **User persistence:** `kinde_sub` + email in `users` table, `last_seen` updated on each login
-- **Migration path:** swap `AUTH_ISSUER` env var — schema is provider-agnostic (see `docs/auth.md`)
+- **Provider:** Native cookie sessions (argon2id password hashing) — replaced Kinde in 2026-05 per ADR-0001. See `docs/auth.md` and `docs/native-auth-bootstrap.md`.
+- **Middleware:** `services/api/internal/middleware/auth_native.go` — `WrapNative` wraps the `auth.Provider` seam; `DevBypass` used when `DEV_MODE=true`.
+- **Organization persistence:** `organizations` table; first owner created at bootstrap (`POST /v1/auth/bootstrap`).
+- **User persistence:** `users` table; `sessions` table tracks active cookie-bound sessions.
+- **SSO:** per-org OIDC SSO via `services/api/internal/sso/` — mints the same native session cookie with `auth_mode='sso'`.
 
 #### 1.5 Testing ✅
 
@@ -104,18 +103,17 @@ API service (always running on :8080)
 **Test patterns used:**
 - `mockCEClient` — implements `CostExplorerAPI` interface, no real AWS calls
 - `httptest.NewRecorder` — tests HTTP handlers without a real server
-- RSA key generation — signs test JWTs for middleware tests without hitting Kinde
+- RSA key generation — signs test JWTs for middleware tests
 
-#### 1.6 Frontend — React Native (Expo) ✅
-- **Stack:** Expo + React Native + React Query — same codebase runs on web, iOS, and Android
-- **Web first** — Phase 1 targets web only; mobile comes later
-- **Dashboard screen** — dark navy header, orange savings number, ghost list with per-service colour coding
+#### 1.6 Frontend — Vite + React (web) ✅
+- **Stack:** Vite + React + TanStack Query — web-only app served via nginx
+- **Dashboard screen** — dark navy header, orange savings number, zombie list with per-service colour coding
   - Accounts bar — shows connected accounts with green/red status dot; Scan button triggers on-demand ingestion
-  - Service pill filter — tap a service pill to filter the ghost list; tap again to clear
+  - Service pill filter — tap a service pill to filter the zombie list; tap again to clear
 - **Connect screen** — credential form (label, Access Key ID, Secret Access Key, region) with IAM permissions hint; auto-shown on first login when no accounts are connected
 - **Detail screen** — service-coloured header, stats with light orange labels (no borders), reason, remediation hint per service type
-- **Auth:** Kinde PKCE login screen → token stored in `localStorage` (web) / `SecureStore` (native)
-- **API client** — sends `Authorization: Bearer <token>` on every request
+- **Auth:** native cookie sessions — `POST /v1/auth/login` sets `axiaops_session` HttpOnly cookie
+- **API client** — sends requests with `credentials: 'include'` so the session cookie round-trips
 
 #### 1.7 Infrastructure — Docker Compose ✅
 
@@ -124,7 +122,7 @@ browser
    │
    ▼
 nginx (dashboard:80)
-   │  serves Expo static build
+   │  serves Vite + React static build
    │  proxies /api/* → api:8080
    ▼
 api service (Go binary, :8080)
@@ -143,8 +141,7 @@ PostgreSQL (same DB)
 - nginx proxy eliminates cross-origin requests
 - API healthcheck uses `/health` (no auth) — Docker `depends_on: service_healthy`
 - PostgreSQL container for local dev — survives container restarts
-- Expo web built at Docker image build time — no Node.js runtime in production
-- `EXPO_PUBLIC_*` vars passed as Docker build args — baked into static bundle
+- Vite bundle built at Docker image build time — no Node.js runtime in production
 
 **Note:** Runtime uses PostgreSQL exclusively. Integration tests run against a real PostgreSQL instance via `make test-storage`.
 
@@ -155,8 +152,8 @@ PostgreSQL (same DB)
 ```sql
 cost_records   — raw billing data from Cost Explorer
 ghost_records  — detected zombie resources (replaced on each ingestion run)
-organizations        — Kinde org_code → internal UUID mapping
-users          — Kinde users, linked to organization, last_seen updated on login
+organizations        — organization rows, created at bootstrap
+users          — users, linked to organization via memberships table
 accounts       — connected cloud accounts, secrets encrypted at rest
 ```
 
@@ -171,7 +168,7 @@ accounts       — connected cloud accounts, secrets encrypted at rest
 **Run locally:**
 ```bash
 make start-dev      # real AWS (from env or .env)
-make start-staging  # real AWS + Kinde auth
+make start-staging  # real AWS + native cookie auth
 make stop           # kill all services
 ```
 
@@ -289,12 +286,12 @@ CREATE POLICY accounts_organization_isolation ON accounts
 
 **Key rotation:** Rotating `ENCRYPTION_KEY` is not a simple env var swap — all `secret_encrypted` values in the `accounts` table must be decrypted with the old key and re-encrypted with the new key before the var is updated. A migration script must be written and tested before any key rotation in production. Document this in `docs/ops.md`.
 
-#### 2.3 Auth — Kinde ✅
+#### 2.3 Auth ✅
 
-- Chosen over Supabase Auth, Clerk, Cognito — see `docs/auth.md`
-- JWT middleware in `services/api/internal/middleware/`
-- Organization + user persisted on first login
-- Dashboard login screen with PKCE flow
+- Native cookie sessions (argon2id) replaced Kinde in 2026-05 per ADR-0001. See `docs/native-auth-bootstrap.md`.
+- `WrapNative` middleware in `services/api/internal/middleware/auth_native.go`
+- Organization created at bootstrap; users created at login; sessions in PostgreSQL `sessions` table
+- Dashboard login form posts to `POST /v1/auth/login`
 
 #### 2.4 PostgreSQL Migration ✅
 
@@ -423,7 +420,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 
 | Use case | Detail |
 |----------|--------|
-| **JWKS key cache** | Cache Kinde's public keys in Redis with a 1h TTL — avoids a network round-trip to Kinde on every authenticated request |
+| **JWKS key cache** | Cache per-org SSO connection JWKS in Redis with a 1h TTL — avoids a network round-trip to the IdP on every SSO-authenticated request |
 | **Scan job queue** | `POST /accounts/{id}/scan` pushes a job onto a Redis list; a worker goroutine in the ingestion service pops and processes — decouples scan from the HTTP response |
 | **Rate limiting** | Replace the in-memory token bucket (2.8) with a Redis `INCR` + `EXPIRE` counter — survives API restarts and works across multiple replicas |
 
@@ -451,7 +448,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 
 - API service: AWS App Runner — see `docs/deployment.md`
 - Ingestion service: App Runner (long-lived, receives HTTP scan requests)
-- Frontend: Expo EAS Build → web deploy (static assets behind CloudFront)
+- Frontend: Vite build → web deploy (static assets behind CloudFront)
 - Database: RDS PostgreSQL (`db.t4g.micro`) — see 2.4
 - Cache: AWS ElastiCache Serverless (Redis) — see 2.14
 - Secrets: AWS Secrets Manager for `ENCRYPTION_KEY`, `REDIS_URL`
@@ -534,7 +531,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 
 #### 3.9 User Management
 
-- Invite team members via Kinde organisation invites
+- Invite team members via email-based invitation links (`POST /v1/invitations`)
 - Roles: `admin` (full access) and `viewer` (read-only — no scan, no connect/disconnect)
 - `GET /users` — list users in organization; `DELETE /users/{id}` — remove access
 - Plan-gated: Team tier only (see 3.1)
@@ -602,7 +599,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 
 #### 4.3 Mobile App
 
-- Same Expo codebase — `npm run ios` / `npm run android`
+- Mobile app — native app (separate codebase; Vite + React dashboard is web-only)
 - Apple Developer account ($99/year) required for TestFlight
 - Only ship after web product has active paying users who request mobile access
 - Privacy policy, terms of service, and legal entity (3.12) required before App Store submission
@@ -652,8 +649,8 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | Backend | Go 1.25+ |
 | Database | PostgreSQL |
 | Cache / Queue | Redis (`go-redis/v9`) — JWKS cache, scan job queue, rate limiting |
-| Frontend | React Native (Expo) — web first, mobile in Phase 4 |
-| Auth | Kinde (see docs/auth.md) |
+| Frontend | Vite + React (web) — served via nginx |
+| Auth | Native cookie sessions (argon2id) + per-org OIDC SSO (see `docs/native-auth-bootstrap.md`) |
 | Billing | Stripe (subscriptions, invoicing) |
 | Hosting | AWS App Runner |
 | Observability | slog (structured logging), Prometheus (metrics) |
@@ -669,10 +666,10 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | Date | Milestone | Status |
 |------|-----------|--------|
 | April 2026 | Go ingestion service + AWS integration + zombie detection | ✅ Done |
-| April 2026 | React Native web dashboard | ✅ Done |
+| April 2026 | Vite + React web dashboard | ✅ Done |
 | April 2026 | Docker Compose full-stack + unit tests | ✅ Done |
 | April 2026 | AWS Cost Explorer + CloudWatch integration | ✅ Done |
-| April 2026 | Kinde auth + organization/user persistence | ✅ Done |
+| April–May 2026 | Auth — Kinde (replaced), then native cookie sessions (argon2id) + OIDC SSO | ✅ Done |
 | April 2026 | API/ingestion service split + ghost_records DB | ✅ Done |
 | April 2026 | Account management — connect AWS, encrypted secrets, on-demand scan | ✅ Done |
 | April 2026 | Resource inventory view — all resources with ghost/active annotation | ✅ Done |
@@ -705,6 +702,6 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | Q1 2027 | Cost forecasting (linear regression, anomaly alerts) | Planned |
 | Q1 2027 | Multi-cloud — Azure Cost Management API | Planned |
 | Q2 2027 | Multi-cloud — GCP Billing Export | Planned |
-| Q2 2027 | Mobile app — iOS + Android via Expo | Planned |
+| Q2 2027 | Mobile app — iOS + Android (separate native app, not Expo) | Planned |
 | Q3 2027 | IaC plan parser + cost estimation engine | Planned |
 | Q4 2027 | CI/CD budget gate + CLI tool | Planned |
