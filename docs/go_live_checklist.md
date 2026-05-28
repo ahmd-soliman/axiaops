@@ -16,8 +16,8 @@
 | `cost_records` 90-day retention cleanup job | 2.12 | June 2026 |
 | RDS automated backups + Secrets Manager for `ENCRYPTION_KEY` | 2.13 | June 2026 |
 | Redis — JWKS cache, scan job queue, rate limiting | 2.14 | July 2026 |
-| Production deployment — App Runner + RDS + ElastiCache via Terraform | 2.16 | August 2026 |
-| GitLab CI full pipeline — test → build → deploy to ECR + App Runner | 2.10 | May 2026 ✅ |
+| Production deployment — ECS Express + RDS + Secrets Manager via Terraform (aws-infra) | 2.16 | August 2026 |
+| GitLab CI full pipeline — test → build → deploy to ECR + ECS Express | 2.10 | May 2026 ✅ |
 
 ### Product
 
@@ -93,4 +93,4 @@ long-term moat but is Phase 5 (2027+) — it doesn't block launch.
 - [development_plan.md](development_plan.md) — full phase-by-phase breakdown
 - [business_plan.md](business_plan.md) — competitive landscape, pricing, GTM
 - [production.md](production.md) — infrastructure setup for production deployment
-- [deployment.md](deployment.md) — App Runner, cost estimates by phase
+- [deployment.md](deployment.md) — deployment environments, cost estimates by phase

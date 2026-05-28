@@ -39,7 +39,7 @@ make test
 
 ## GitLab CI
 
-CI builds and deploys via `.gitlab-ci.yml`. Dev and staging are deployed manually on `main`/`develop` branches. Production is deployed to AWS App Runner via ECR — no compose file is used for production.
+CI builds and deploys via `.gitlab-ci.yml`. Dev and staging are deployed manually on `main`/`develop` branches. Production is deployed to AWS ECS Express via ECR — no compose file is used for production.
 
 ## Environment Variables
 

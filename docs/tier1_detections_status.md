@@ -255,7 +255,7 @@ For a mid-sized AWS account (10-20 engineers), Tier 1 detections alone often unc
 **Phase 2 (remaining):**
 - [ ] Add fake provider scenarios for Tier 1 detections (dev mode testing)
 - [ ] Weekly email digest when new ghosts appear
-- [ ] Production deployment (App Runner + RDS + Terraform)
+- [ ] Production deployment (ECS Express + RDS + Terraform via aws-infra)
 
 **New Tier 1 API-only (shipped April 2026):**
 - [x] CloudWatch Log Groups — no retention or zero stored bytes
