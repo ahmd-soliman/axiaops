@@ -26,7 +26,7 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 | Database | PostgreSQL 16 (with Row-Level Security) |
 | Frontend | Vite + React — web |
 | Auth | Native cookie sessions (argon2id) + OIDC SSO |
-| Hosting | AWS App Runner + RDS |
+| Hosting | AWS ECS Express + RDS |
 | Cloud APIs | AWS Cost Explorer, CloudWatch |
 
 ---
@@ -384,7 +384,7 @@ axiaops/
 - [x] Dismiss zombie workflow + snooze + audit trail
 - [x] Wire Redis in API `main.go` (inject into auth + rate limiter)
 - [ ] Weekly email digest + Slack alerts
-- [ ] Production deployment (App Runner + RDS + ElastiCache via Terraform)
+- [ ] Production deployment (ECS Express + RDS + Valkey via Terraform)
 
 ### Phase 3 — Beta / Launch (target December 2026)
 - [ ] Stripe billing — (pricing removed)
@@ -424,7 +424,7 @@ axiaops/
 | [docs/error_handling.md](docs/error_handling.md) | Comprehensive error handling, retry logic, circuit breaker, UI status indicators |
 | [docs/go_live_checklist.md](docs/go_live_checklist.md) | Hard blockers and recommendations before first paying customer |
 | [docs/middleware.md](docs/middleware.md) | API middleware chain — auth, rate limiting, request ID, metrics |
-| [docs/production.md](docs/production.md) | Production setup — IAM, App Runner, RDS, Redis, Terraform |
+| [docs/production.md](docs/production.md) | Production setup — IAM, ECS Express, RDS, Secrets Manager, CloudFront; IaC in `axiaops/aws-infra` |
 | [docs/deployment.md](docs/deployment.md) | Deployment options, cost estimates by phase |
 | [docs/business_plan.md](docs/business_plan.md) | Business model, pricing, GTM strategy, competitive landscape |
 | [docs/tax_strategy.md](docs/tax_strategy.md) | German tax structure, VAT, exit planning |
@@ -433,4 +433,4 @@ axiaops/
 
 ## Status
 
-**Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow. Remaining: email/Slack alerts, production deployment (App Runner + RDS + Terraform). Target first paying customer: October 2026.
+**Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow. Remaining: email/Slack alerts, production deployment (ECS Express + RDS + Terraform). Target first paying customer: October 2026.
