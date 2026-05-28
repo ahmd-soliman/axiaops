@@ -76,8 +76,7 @@ Set these in **Settings → CI/CD → Variables** in GitLab:
 | `AWS_ACCESS_KEY_ID` | Your AWS access key | Protected, masked |
 | `AWS_SECRET_ACCESS_KEY` | Your AWS secret key | Protected, masked |
 | `ENCRYPTION_KEY` | 32-byte hex AES key | Protected, masked |
-| `VITE_KINDE_ISSUER` | Kinde issuer URL | Protected, masked |
-| `VITE_KINDE_CLIENT_ID` | Kinde client ID | Protected, masked |
+| `INGESTION_SHARED_SECRET` | 32-byte hex HMAC secret | Protected, masked |
 | `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront distribution ID | Protected, masked |
 
 **Recommendation:** Create an IAM user with minimal permissions (see **IAM Policy** below).
@@ -133,9 +132,9 @@ Create a dedicated IAM user for CI/CD with limited permissions:
 
 In **GitLab Settings → CI/CD → Variables** (for now, only the build stage needs variables):
 
-**Required for build stage:**
-1. Create `VITE_KINDE_ISSUER` (masked, protected) — your Kinde issuer URL
-2. Create `VITE_KINDE_CLIENT_ID` (masked, protected)
+**Required for build/deploy stage:**
+1. Create `ENCRYPTION_KEY` (masked, protected) — 32-byte hex AES key
+2. Create `INGESTION_SHARED_SECRET` (masked, protected) — 32-byte hex HMAC key
 
 **Optional (add when AWS account is ready for deployment):**
 3. Create `AWS_ACCESS_KEY_ID` (masked, protected)

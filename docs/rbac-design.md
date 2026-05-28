@@ -3,7 +3,7 @@
 Status: implemented (Phase 1 — branch feat/rbac-phase1).
 Supersedes the role sketch in `docs/user_onboarding.md`.
 
-> **Org primitive: stays Kinde-coupled.** The §3 stance ("AxiaOps owns authorization, ignores Kinde's role claims") applies to *roles and permissions only*. The *org primitive* stays sourced from Kinde's `org_code` JWT claim — the alternative "app-owned organisations" plan was evaluated and explicitly **not pursued** (see `docs/onboarding-and-app-owned-orgs.md`, marked superseded). Self-serve org creation uses Kinde's "Create organization on sign up" toggle; email-based team invitations use Kinde's Management API and are redeemed in auth middleware (see `docs/invitation-flow.md`). Nothing in this doc changes — the four-role matrix, permission model, RLS, and promote/demote rules all stand.
+> **Post-ADR-0001 note.** The §3 stance ("AxiaOps owns authorization") is fully implemented. Organizations are now owned by the `organizations` table — the `org_code` JWT claim and Kinde's Management API are gone (removed 2026-05). Org creation is via `POST /v1/auth/bootstrap` (first install) or SSO JIT provisioning; email-based invitations are native OOB token links. The four-role matrix, permission model, RLS, and promote/demote rules are unchanged — nothing in this doc needs revision except this note.
 
 ---
 
@@ -13,7 +13,7 @@ Supersedes the role sketch in `docs/user_onboarding.md`.
 
 - Authorization within an organization. Every current endpoint gets a required permission. Unauthorized users receive `403 Forbidden`.
 - Four roles with clear, non-overlapping semantics: `owner`, `admin`, `member`, `viewer`.
-- Role is a **property of (user, organization)**, not a property of the user. A single Kinde user could in theory belong to multiple AxiaOps organizations with different roles. (Kinde supports multi-org per user; we preserve that.)
+- Role is a **property of (user, organization)**, not a property of the user. A single user can belong to multiple AxiaOps organizations with different roles (B1.5 multi-org support).
 - Enforcement at the HTTP handler layer via a decorator. No change to the `storage.Store` interface. No change to RLS.
 - Admin UX to invite, promote, demote, and remove users.
 - Safe rollout: all existing users become `admin` on the v1 ship (no regression in capabilities).
@@ -23,7 +23,7 @@ Supersedes the role sketch in `docs/user_onboarding.md`.
 - **Per-cloud-account scoping.** ("This user can only see the `dev` account.") Real requirement for FinOps but deferred to v2. Schema is designed to extend without a painful migration.
 - **Custom roles.** No `CREATE ROLE ... GRANT permission`. The four roles are hardcoded.
 - **API keys / service accounts** as first-class principals with their own roles. Deferred to v2. The ingestion service talks to the API/DB as trusted infrastructure, not as a "user."
-- **SSO-driven role provisioning.** Kinde org-roles are not mapped to AxiaOps roles. Admins assign roles manually in v1.
+- **SSO-driven role provisioning.** IdP role claims are not mapped to AxiaOps roles. Admins assign roles manually in v1; JIT-provisioned SSO users start as `member`.
 - **Audit log.** Deferred to v2. `dismissed_zombies.dismissed_by` already captures the most sensitive action; broader audit can come with the security track.
 - **Resource-level permissions** (per-zombie dismiss permissions, per-snapshot export, etc.). Dismissals are organization-wide.
 - **Billing admin** as a separate role. `owner` handles billing until a subscription system exists.
@@ -81,7 +81,7 @@ Columns: endpoints registered in `services/api/internal/api/handler.go:40-58` an
 
 *\* admin can promote/demote `member`↔`viewer`, and invite at member/viewer level. Only `owner` can promote to or demote from `admin`. This prevents an `admin` from creating another `admin` and escalating permanently.*
 
-*† **Pre-existing bug:** `/metrics` is registered on the same mux that gets wrapped by `Auth.Wrap` (`cmd/main.go:120-163`). The only auth bypass in `auth.go:115` is for `/health` and OPTIONS — not `/metrics`. In production a Prometheus scraper without a Kinde JWT gets a 401. Fixing this is out of scope for RBAC but should be tracked: the RBAC implementation should add `/metrics` to the auth-bypass list, not put it behind a permission.*
+*† `/metrics` is in the `publicPath()` bypass list (`middleware/auth.go`) and exposed via `observability.MetricsHandler()` outside the auth chain in `serverbuild/build.go`. No session required for Prometheus scraping.*
 
 *\*\* Any user can remove themselves (leave the organization), subject to the last-owner guard in §8. Admins can remove any member/viewer but not another admin — see §7 for the permission split and the two-perm check (`members:manage_basic` for member/viewer targets, `members:manage_admin` for admin targets).*
 
@@ -190,12 +190,12 @@ CREATE UNIQUE INDEX memberships_one_owner_per_organization
 ```
 
 - `UNIQUE(organization_id, user_id)` — a user has at most one role per organization. Also provides the index used by `RoleOf` lookups on the hot path (no separate `CREATE INDEX` needed).
-- Not `users.role` because: (a) a user can belong to multiple organizations with different roles (Kinde supports this), (b) lets us delete membership without touching the user row.
+- Not `users.role` because: (a) a user can belong to multiple organizations with different roles (B1.5 multi-org), (b) lets us delete membership without touching the user row.
 - RLS: `organization_id = current_setting('app.organization_id', true)` USING + WITH CHECK (same pattern as every other table — see `migrations/011_add_rls_with_check.up.sql`). **Bootstrap caveat:** the `Require` middleware's `RoleOf` call happens before any handler sets `app.organization_id`. The `RoleOf` implementation must therefore open its own transaction, run `SET LOCAL app.organization_id = $1` inside it, then SELECT — identical pattern to `postgres.setOrganization` at `postgres.go:72-81`. Do not use `adminPool` here; we want RLS to enforce the organization scope even during the auth check.
 
 ### No changes to `users` or `organizations`
 
-The existing `users` row is still populated on every authenticated request by `auth.go:152-164`. Membership is a pure join. Auth middleware gains one extra query: "given this organization and user, what role?"
+The `users` row is populated at login / JIT-provisioning time. Membership is a pure join. The `WrapNative` middleware resolves the role via `MembershipLookup` for every authenticated request.
 
 ### Migration shape
 
@@ -213,13 +213,20 @@ The existing `users` row is still populated on every authenticated request by `a
 
 ---
 
-## 5. Kinde Integration Strategy
+## 5. Auth Provider Role Strategy
 
-**Recommendation: manage roles in our own DB. Kinde is authn only.**
+> **Post-ADR-0001:** Kinde is removed. This section's recommendation — "manage roles in our
+> own DB; the auth provider is authn only" — was correct and is now fully implemented. Roles
+> live in the `memberships` table; no JWT role claim is used. The "What Kinde still does"
+> subsection below is historical artefact. The "Alternative: Kinde-native roles" subsection
+> is preserved as the design rationale for the decision we did NOT take.
+
+**Recommendation: manage roles in our own DB. The auth provider is authn only.**
 
 ### The fork in the road
 
-Kinde supports org-scoped roles and permissions natively — you can define roles in the Kinde dashboard and they come back in the JWT as `roles` / `permissions` claims. Tempting to use.
+Kinde (the original provider — since removed) supported org-scoped roles natively. They
+came back in the JWT as `roles` / `permissions` claims. Tempting to use.
 
 ### Why we don't
 
@@ -229,11 +236,11 @@ Kinde supports org-scoped roles and permissions natively — you can define role
 4. **Testing.** Local roles are testable with `httptest` and a `Store` mock, which is the established pattern (see `handler_test.go`). Kinde-sourced roles would require a mock JWT per role or a Kinde API mock.
 5. **The permission vocabulary is ours.** `zombies:dismiss` is not a Kinde concept. Storing roles in Kinde but permissions in our code still means we'd fetch the role from the JWT and translate. If we're translating anyway, the source of truth might as well be our DB.
 
-### What Kinde still does
+### What the auth provider does (post-ADR-0001)
 
-- Authentication (identity + JWT issuance). No change.
-- Org-switching UX (Kinde's built-in dashboard). No change.
-- SSO provisioning (eventually). A SAML claim could seed a default role — but that's a v2 concern. v1: every invited user starts as `member` (or whatever the inviter specifies).
+- Authentication (identity verification + session issuance) — native argon2id for password logins, OIDC RP for SSO logins.
+- Org-switching is native (B1.5 org-picker flow).
+- SSO JIT provisioning: a SAML/OIDC claim can seed a default role — every JIT-provisioned user starts as `member`.
 
 ### Alternative: Kinde-native roles (the road not taken)
 

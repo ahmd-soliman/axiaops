@@ -1,137 +1,124 @@
 # API Middleware
 
-> ⚠️ **STALE — references Kinde JWT auth.** Kinde was removed in MR
-> `chore/remove-kinde-auth` (2026-05-06). The auth middleware is now
-> `auth_native.go`'s `WrapNative` (cookie + sessions table); the legacy
-> `Auth.Wrap` JWT path was deleted. The middleware chain is now composed
-> in `services/api/internal/serverbuild/build.go` rather than `cmd/main.go`.
-> Sections below describing JWT validation, Kinde issuer, or the legacy
-> `cmd/main.go` composition are pre-removal artefacts; read `auth_native.go`
-> + `serverbuild/build.go` for the live shape.
-
-The API middleware chain lives in `services/api/internal/middleware/` and `services/shared/observability/`. Middleware is applied in `services/api/cmd/main.go` from outermost to innermost:
+The API middleware chain is composed in `services/api/internal/serverbuild/build.go`
+(`ComposeServer`). Order, outermost to innermost:
 
 ```
-Request
-  └── CORS               (api/handler.go)            — outermost, always runs
-  └── Logger + Metrics   (cmd/main.go inline)
-  └── RequestID          (shared/observability)
-  └── Auth / DevBypass   (middleware/auth.go)
-  └── RateLimiter        (middleware/ratelimit.go)   — skipped in DEV_MODE
-  └── Mux (router)
+request-logging + metrics
+  → request-id
+    → auth  (DevBypass  OR  WrapNative → EnforceSSO)
+      → rate-limiter
+        → CORS
+          → mux (handlers)
 ```
 
 ---
 
-## CORS (`handler.go`)
+## CORS (`serverbuild/build.go` → inline handler)
 
-Sets `Access-Control-Allow-*` headers on every response so browsers allow cross-origin requests (e.g. dashboard on `:3000` calling API on `:8080` in local dev).
+Sets `Access-Control-Allow-*` headers on every response.
 
-- Reads `CORS_ORIGIN` env var — defaults to `*`. Set to your domain in production (e.g. `https://app.axiaops.com`).
-- Short-circuits `OPTIONS` preflight requests with `204 No Content` immediately — no auth or rate limiting applied.
-- **Must be outermost** so CORS headers are present even when auth or rate limiting rejects the request. If auth returns `401` without CORS headers, the browser cannot read the error response.
-
-### Before (broken)
-
-CORS was innermost — wrapped only the mux. Auth ran first, so a rejected request never reached CORS:
+- Reads `CORS_ORIGIN` env var. Two shapes: `*` (legacy, no credentials) or a comma-separated
+  allowlist (reflects `Origin` and emits `Access-Control-Allow-Credentials: true` so the
+  session cookie round-trips from a different origin).
+- Short-circuits `OPTIONS` preflight requests with `204 No Content`.
+- **Must be outermost** so CORS headers are present even when auth rejects the request.
 
 ```
-Browser → Auth (401, no CORS headers) ✗
-                ↓ never reached
-              CORS → Mux
+CORS_ORIGIN=https://app.axiaops.io   # production
+CORS_ORIGIN=http://localhost:5173    # local Vite dev with native auth
+CORS_ORIGIN=*                        # legacy / DEV_MODE (no credentials)
 ```
-
-The browser received a `401` with no `Access-Control-Allow-Origin` header and blocked the response entirely — showing a CORS error instead of an auth error.
-
-### After (fixed)
-
-CORS is outermost — wraps the entire chain. Headers are set before anything else runs:
-
-```
-Browser → CORS (sets headers) → Auth → Rate Limiter → Mux ✓
-```
-
-Even if auth returns `401`, the CORS headers are already written and the browser can read the response.
-
-```
-CORS_ORIGIN=https://app.axiaops.com  # production
-CORS_ORIGIN=*                        # default (local dev)
-```
-
-**In production with same-domain deployment** (dashboard and API behind the same load balancer/CDN), CORS headers are not strictly required since there is no cross-origin request. The middleware is harmless to keep.
 
 ---
 
-## Auth (`auth.go`)
+## Auth (`middleware/auth.go`, `middleware/auth_native.go`)
 
-Verifies Kinde RS256 JWTs on every request.
+Two modes, selected at startup:
 
-- Fetches JWKS from `{KINDE_ISSUER}/.well-known/jwks` at startup; keys refresh automatically.
-- Extracts `org_code` claim → looks up organization in DB → injects `organization_id`, `organization_name`, `user_id` into request context.
-- Returns `401` for missing, expired, wrong-issuer, or malformed tokens.
-- Passes `OPTIONS` preflight requests through without auth (CORS support).
+### Production — `WrapNative`
 
-**Per-request side effects (in order):**
+`middleware.WrapNative(provider, next)` wraps the `auth.Provider` seam. The production
+implementation is `auth.NativeProvider`: it reads the `axiaops_session` HttpOnly cookie,
+looks up the session in the PostgreSQL `sessions` table (via Redis cache when available),
+and resolves the bound `OrganizationID`, `UserID`, `Email`, `Role`, and `AuthMode`.
 
-1. `UpsertOrganization(org_code, org_name)` — creates the row on first auth, idempotent thereafter.
-2. `UpsertUser(...)` — creates the user row on first auth.
-3. `EnsureFirstMembership(...)` — auto-promotes the first authenticator in a brand-new org to `owner`. No-op once the org has any membership.
-4. `RedeemPendingInvitation(ctx, organization.ID, user.ID, email)` — converts a matching `pending_memberships` row (from `POST /v1/invitations`) into a real `memberships` row in one transaction. No-op when no pending row matches. See `docs/invitation-flow.md`.
+Per-request: if `provider.Authenticate(r)` returns an error, the middleware returns `401
+unauthenticated` and logs a warning — the internal reason is never echoed. On success, all
+resolved fields are attached to the request context.
 
-A user who lands without a membership row (e.g. signed up to an org they weren't invited to, or their email didn't match the pending invite) authenticates successfully but gets `403` from any `Require`-gated route until an admin grants access.
+**Public paths bypass auth** (no cookie required):
 
-**Context helpers:**
+| Family | Paths |
+|--------|-------|
+| Infra | `/health`, `/livez`, `/readyz`, `/metrics` |
+| Auth ceremony | `/v1/auth/*` (login, logout, bootstrap, invitations/redeem, etc.) |
+| SSO discovery | `/v1/sso/discover` |
+| OIDC ceremony | `/v1/sso/oidc/{cid}/initiate`, `/v1/sso/oidc/callback`, `/v1/sso/oidc/{cid}/callback` |
+
+After `WrapNative`, `middleware.EnforceSSO` runs: if the org has an active OIDC connection
+with `enforcement="required"`, requests authenticated with `auth_mode="password"` receive
+`403 sso_required` (except `/v1/auth/logout`, which is always allowed).
+
+### Dev mode — `DevBypass`
+
+When `DEV_MODE=true`, `middleware.DevBypass` replaces the entire auth chain. It injects
+`DEV_ORGANIZATION_ID` / `DEV_USER_ID` / `DEV_USER_EMAIL` into every request context with
+no token or cookie required. No DB lookup, no session — purely for local development.
+
+### Context helpers
+
 ```go
-middleware.OrganizationID(ctx)   // internal organization UUID
-middleware.OrganizationName(ctx) // organization display name
-middleware.UserID(ctx)     // internal user UUID
+middleware.OrganizationID(ctx)  // internal organization UUID
+middleware.UserID(ctx)          // internal user UUID
+middleware.UserEmail(ctx)       // authenticated user's email
+middleware.UserName(ctx)        // display name (empty when unset)
+middleware.Role(ctx)            // "owner" | "admin" | "member" | "viewer"
+middleware.AuthMode(ctx)        // "password" | "sso" | "bootstrap" | ""
 ```
 
-**Dev mode:** when `DEV_MODE=true`, `DevBypass` replaces the JWT verifier and injects `DEV_ORGANIZATION_ID` into every request context. No token required.
-
 ---
 
-## Rate Limiter (`ratelimit.go`)
+## Rate Limiter (`middleware/ratelimit.go`)
 
-In-memory token bucket, one bucket per organization.
+Redis-backed token bucket, one bucket per (organization, user). Only active when
+`REDIS_URL` is set — the in-memory fallback is per-replica and meaningless under
+autoscaling.
 
-- Default: 60 requests/minute per organization (1 token/sec, burst of 60).
-- Returns `429 Too Many Requests` with a `Retry-After` header when the bucket is empty.
+- Default: `RATE_LIMIT_MAX` per minute (default 1000).
+- Returns `429 Too Many Requests` with `Retry-After` header.
+- Advertises current state via `X-RateLimit-Limit/-Remaining/-Reset` headers.
 - Disabled in `DEV_MODE=true`.
-- Background ticker in `main.go` calls `CleanupStaleBuckets(1h)` every 5 minutes to prevent memory growth.
-
-> Temporary until Phase 2.14 (Redis-backed distributed rate limiting).
 
 ---
 
-## Request ID (`requestid.go`)
+## Request ID (`middleware/requestid.go`)
 
-Injects a unique `X-Request-ID` header into every request and response.
+Injects a unique `X-Request-ID` into every request and response.
 
-- Uses the incoming `X-Request-ID` header if present (allows tracing across services).
+- Uses the incoming `X-Request-ID` header if present.
 - Generates a new UUID v4 if absent.
-- Stores the ID in context — available via `middleware.RequestIDFromCtx(ctx)` for structured log lines.
+- Available via `middleware.RequestIDFromCtx(ctx)`.
 
 ---
 
-## Prometheus Metrics (`shared/observability/middleware.go`)
+## Request Logging + Metrics (inline in `serverbuild/build.go`)
 
-HTTP middleware that records per-request metrics.
+Outermost handler — records every request (including auth failures):
 
-- `axiaops_api_request_duration_seconds` — histogram, labels: `method`, `path`, `status`
-- `axiaops_api_requests_total` — counter, same labels
+- `axiaops_api_requests_total` — counter per method/route/status
+- `axiaops_api_request_duration_seconds` — histogram per method/route
 
-Exposed at `GET /metrics` (unversioned, not behind auth).
+Uses the matched route pattern as the label value (e.g. `/accounts/{id}/scan`) to avoid
+high-cardinality label explosion from per-ID paths.
 
 ---
 
 ## Middleware Chain Order
 
-Order matters — each layer wraps the next:
-
-1. **CORS** — outermost so headers are always set, even on rejected requests. Browser needs them to read any response.
-2. **Logger + Metrics** — wraps everything so all requests (including auth failures) are logged and counted.
-3. **RequestID** — early so every log line has a request ID, including auth failures.
-4. **Auth** — before rate limiter; injects organization context used by the rate limiter and all handlers.
-5. **RateLimiter** — after auth so it can bucket by organization ID rather than IP.
-6. **Mux** — innermost; routes to the correct handler.
+1. **Request logging + metrics** — outermost so all requests are counted.
+2. **Request ID** — early so every log line has an ID, including auth failures.
+3. **Auth** — `WrapNative` + `EnforceSSO`, or `DevBypass`.
+4. **Rate limiter** — after auth so it can bucket by (organization, user).
+5. **CORS** — before the mux so `OPTIONS` preflights short-circuit cleanly.
+6. **Mux** — routes to the correct handler.
