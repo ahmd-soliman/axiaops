@@ -118,10 +118,10 @@ type Deps struct {
 	AuthProvider auth.Provider
 
 	// Discoverer is the pre-auth /v1/sso/discover seam. Production: native.
-	// SaaS: composite (Kinde + native). Required.
+	// SaaS: external IdP mirror. Required.
 	Discoverer sso.Discoverer
 	// Connector is the SSO connection-CRUD seam. Production: native.
-	// SaaS: kinde-mirroring wrapper. Required.
+	// SaaS: external IdP mirror. Required.
 	Connector sso.Connector
 
 	// SessionManager is the native-auth session orchestrator. Required

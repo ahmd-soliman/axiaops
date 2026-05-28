@@ -407,12 +407,12 @@ func TestUpsertOrganization_PreservesLocalName(t *testing.T) {
 	ctx := context.Background()
 	orgCode := "org_" + uuid.New().String()
 
-	first, err := s.UpsertOrganization(ctx, orgCode, "Kinde Default")
+	first, err := s.UpsertOrganization(ctx, orgCode, "Default")
 	if err != nil {
 		t.Fatalf("first UpsertOrganization: %v", err)
 	}
-	if first.Name != "Kinde Default" {
-		t.Fatalf("first insert: expected Kinde Default, got %s", first.Name)
+	if first.Name != "Default" {
+		t.Fatalf("first insert: expected Default, got %s", first.Name)
 	}
 
 	// Simulate a local rename (the path PATCH /v1/organizations/me would take).
