@@ -135,10 +135,11 @@ Runs on all branches:
 1. Build Docker images
 2. Push to AWS ECR
 
-### Deploy Stage (main branch only, after build)
+### Deploy Stage (tag-gated manual gate)
 
-1. Update App Runner services
-2. Invalidate CloudFront cache
+1. Run DB migrations as a one-off ECS Fargate task
+2. Update ECS Express gateway services (ingestion first, then api)
+3. Sync dashboard to S3 + invalidate CloudFront cache
 
 ## Writing Tests
 
