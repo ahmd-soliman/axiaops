@@ -20,8 +20,9 @@ func main() {
 	if migrationURL == "" {
 		migrationURL = dbURL
 	}
+	runtimeAdminURL := os.Getenv("RUNTIME_ADMIN_DATABASE_URL")
 
-	if err := postgres.Bootstrap(migrationURL, dbURL); err != nil {
+	if err := postgres.Bootstrap(migrationURL, dbURL, runtimeAdminURL); err != nil {
 		slog.Error("bootstrap failed", "error", err)
 		os.Exit(1)
 	}
