@@ -502,10 +502,10 @@ func TestMigrationHistory_DDLIdempotent(t *testing.T) {
 	if dbURL == "" {
 		t.Skip("DATABASE_URL not set")
 	}
-	if err := postgres.Bootstrap(url, dbURL); err != nil {
+	if err := postgres.Bootstrap(url, dbURL, ""); err != nil {
 		t.Fatalf("first Bootstrap: %v", err)
 	}
-	if err := postgres.Bootstrap(url, dbURL); err != nil {
+	if err := postgres.Bootstrap(url, dbURL, ""); err != nil {
 		t.Fatalf("second Bootstrap: %v", err)
 	}
 }

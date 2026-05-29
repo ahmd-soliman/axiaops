@@ -67,6 +67,10 @@ done
 echo " Ready."
 export DATABASE_URL="postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable"
 export MIGRATION_DATABASE_URL="postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
+# Runtime RLS-bypass role — api/ingestion connect as this least-privilege role
+# (axiaops_runtime) instead of the schema owner; migrate.sh (run just below)
+# bootstraps it. See docs/runtime-admin-db-role.md.
+export RUNTIME_ADMIN_DATABASE_URL="postgres://axiaops_runtime:axiaops_runtime@localhost:5432/axiaops?sslmode=disable"
 
 # Run migrations
 echo "Running migrations..."
@@ -91,6 +95,7 @@ cd "$INGESTION_DIR"
 (
   export DATABASE_URL="$DATABASE_URL"
   export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
+  export RUNTIME_ADMIN_DATABASE_URL="$RUNTIME_ADMIN_DATABASE_URL"
   if [[ -f .env ]]; then
     set -a; source .env; set +a
   fi
@@ -108,6 +113,7 @@ cd "$API_DIR"
 (
   export DATABASE_URL="$DATABASE_URL"
   export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
+  export RUNTIME_ADMIN_DATABASE_URL="$RUNTIME_ADMIN_DATABASE_URL"
   if [[ -f .env ]]; then
     set -a; source .env; set +a
   fi

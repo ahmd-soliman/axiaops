@@ -69,31 +69,33 @@ func main() {
 	if dbURL == "" {
 		die("storage: DATABASE_URL is required")
 	}
-	migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
-	if migrationURL == "" {
-		// The owner pool (adminPool) bypasses RLS for pre-auth / cross-org
-		// reads — notably the native-login membership lookup (LookupUserByEmail
-		// reads the RLS-protected `memberships` table with no app.organization_id
-		// set). With no owner URL, NewWithOwner falls back to the RLS-bound app
-		// pool, which silently returns zero rows there and breaks native login
-		// for every user. DEV_MODE runs a single shared pool by design; refuse
-		// to start in any other build rather than serve silently-broken auth.
-		// TODO(#107): explicit opt-in at the NewWithOwner type level + a
-		// readiness assertion that the owner pool reads without an org context.
+	runtimeAdminURL := os.Getenv("RUNTIME_ADMIN_DATABASE_URL")
+	if runtimeAdminURL == "" {
+		// The bypass pool (adminPool) handles pre-auth / cross-org reads —
+		// notably the native-login membership lookup (LookupUserByEmail reads
+		// the RLS-protected `memberships` table with no app.organization_id set).
+		// With no runtime-admin URL, NewWithRuntimeAdmin falls back to the
+		// RLS-bound app pool, which silently returns zero rows there and breaks
+		// native login for every user. DEV_MODE runs a single shared pool by
+		// design; refuse to start in any other build rather than serve
+		// silently-broken auth. The schema-owner connection
+		// (MIGRATION_DATABASE_URL) is the migrate task's alone now — see
+		// docs/runtime-admin-db-role.md.
 		if !devModeEnabled() {
-			die("storage: MIGRATION_DATABASE_URL is required outside DEV_MODE — without the owner connection the RLS-bypassing pool falls back to the app pool and native login silently fails for all users")
+			die("storage: RUNTIME_ADMIN_DATABASE_URL is required outside DEV_MODE — without the RLS-bypass connection the pool falls back to the app pool and native login silently fails for all users")
 		}
-		migrationURL = dbURL
+		runtimeAdminURL = dbURL
 	}
 
 	// Startup recovery: reset accounts left in "scanning" from a previous crash.
-	if n, err := postgres.ResetStuckScans(ctx, migrationURL, stuckScanTimeout); err != nil {
+	// Cross-org maintenance — runs on the RLS-bypass connection.
+	if n, err := postgres.ResetStuckScans(ctx, runtimeAdminURL, stuckScanTimeout); err != nil {
 		slog.Warn("startup: failed to reset stuck scans", "error", err)
 	} else if n > 0 {
 		slog.Warn("startup: reset stuck scanning accounts", "count", n)
 	}
 
-	s, err := postgres.NewWithOwner(ctx, dbURL, migrationURL)
+	s, err := postgres.NewWithRuntimeAdmin(ctx, dbURL, runtimeAdminURL)
 	if err != nil {
 		die("storage: postgres init failed", "error", err)
 	}
@@ -224,17 +226,16 @@ func main() {
 	}
 
 	cfg := serverbuild.Config{
-		Addr:                 addr,
-		PublicHost:           os.Getenv("PUBLIC_HOST"),
-		DevMode:              devMode,
-		DevOrganizationID:    devOrganizationID,
-		DevUserID:            devUserID,
-		DevUserEmail:         devUserEmail,
-		DevUserName:          devUserName,
-		RedisConfigured:      redisConfigured,
-		RateLimitMax:         rateLimitMax,
-		StuckScanTimeout:     stuckScanTimeout,
-		MigrationDatabaseURL: migrationURL,
+		Addr:              addr,
+		PublicHost:        os.Getenv("PUBLIC_HOST"),
+		DevMode:           devMode,
+		DevOrganizationID: devOrganizationID,
+		DevUserID:         devUserID,
+		DevUserEmail:      devUserEmail,
+		DevUserName:       devUserName,
+		RedisConfigured:   redisConfigured,
+		RateLimitMax:      rateLimitMax,
+		StuckScanTimeout:  stuckScanTimeout,
 	}
 
 	deps := serverbuild.Deps{
@@ -272,9 +273,9 @@ func main() {
 	// Bound to sigCtx so SIGTERM/SIGINT stops them in the same beat as the
 	// HTTP server drain. Mirrors the ingestion-side wiring.
 	serverbuild.StartTickers(sigCtx, store, serverbuild.TickerOptions{
-		MigrationDatabaseURL: migrationURL,
-		StuckScanTimeout:     stuckScanTimeout,
-		NativeAuthActive:     nativeAuthActive,
+		RuntimeAdminDatabaseURL: runtimeAdminURL,
+		StuckScanTimeout:        stuckScanTimeout,
+		NativeAuthActive:        nativeAuthActive,
 	})
 
 	server := &http.Server{Addr: addr, Handler: handler}

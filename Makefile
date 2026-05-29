@@ -249,6 +249,7 @@ test-storage:
 	cd services/shared && \
 		MIGRATION_DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5433/axiaops?sslmode=disable" \
 		DATABASE_URL="postgres://axiaops:$(POSTGRES_PASSWORD)@localhost:5433/axiaops?sslmode=disable" \
+		RUNTIME_ADMIN_DATABASE_URL="postgres://axiaops_runtime:axiaops_runtime@localhost:5433/axiaops?sslmode=disable" \
 		go test -count=1 -v -p=1 ./storage/postgres/...
 	docker rm -f $(PG_CONTAINER)
 	$(if $(RUNNER_NETWORK),,docker network rm $(TEST_NETWORK) 2>/dev/null || true)
