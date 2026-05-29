@@ -71,9 +71,12 @@ Wiring is identical to a `BYPASSRLS` role except the migration creates **policie
 6. **Integration test** `runtime_admin_test.go`: bypass works (two orgs, no org context, runtime sees both); DDL denied (`CREATE/DROP/ALTER/TRUNCATE/CREATE ROLE` → `42501`); required DML succeeds (incl. `audit_log` DELETE); the readiness-probe constructor; **plus the per-RLS-table policy-coverage invariant**.
 7. **Docs:** root + `services/{shared,api,ingestion}/CLAUDE.md` (three roles: `axiaops_owner` migrate-only, `axiaops_runtime` RLS-bypass-no-DDL, `axiaops` app), `docs/audit_trail_plan.md §7`, Tasks.md §2.16, this file.
 
-### MR #2 — deployed-env wiring (after operator sets per-env CI vars + aws-infra provisions the prod secret)
-- `deploy/{dev,staging,preview,demo}.yml`: swap the api+ingestion `MIGRATION_DATABASE_URL` lines → `RUNTIME_ADMIN_DATABASE_URL`; add the var to each migrate service block.
-- `.gitlab-ci.yml`: add `-e RUNTIME_ADMIN_DATABASE_URL` to the self-hosted deploy migrate `docker run` steps; in the prod task defs replace the `MIGRATION_DATABASE_URL` secret entry in the api (`:1562`) and ingestion (`:1600`) task defs with `RUNTIME_ADMIN_DATABASE_URL`/`${SECRET_ARN_*_RUNTIME_ADMIN_DATABASE_URL}`, and switch the `:?` precondition guards (`:1346,:1348`). The TF-managed migrate task def keeps the owner URL.
+### Deployed-env wiring — self-hosted non-dev envs DONE (this MR); prod pending aws-infra
+**Shipped in this MR** (verified on preview 2026-05-29 — role flipped to LOGIN, API healthy):
+- `deploy/{preview,staging,demo,integration}.yml`: api+ingestion `MIGRATION_DATABASE_URL` → `RUNTIME_ADMIN_DATABASE_URL`. `deploy/dev.yml` (dev-1/dev-2, DEV_MODE=true) left on the single-pool fallback.
+- `.gitlab-ci.yml` deploy template (`.deploy-dev` + staging + integration blocks): construct `RUNTIME_ADMIN_DATABASE_URL` from `${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}` + `DB_HOST`, pass it to the migrate `docker run` (Bootstrap syncs the role LOGIN+password) and export it for compose-up. Operators should set a strong `POSTGRES_RUNTIME_PASSWORD` CI variable per env (it defaults to a weak literal so an unset var can't break the dev migrate).
+
+**Still pending — production (ECS Express), blocked on aws-infra:** in the prod task defs replace the `MIGRATION_DATABASE_URL` secret entry in the api (`:1562`) and ingestion (`:1600`) task defs with `RUNTIME_ADMIN_DATABASE_URL`/`${SECRET_ARN_*_RUNTIME_ADMIN_DATABASE_URL}`, switch the `:?` guards (`:1346,:1348`). The TF-managed migrate task def keeps the owner URL. **Do this only after the aws-infra step below** — the next prod release must not ship this code before then, or prod api/ingestion `die()` at boot (the exact failure we hit + fixed on preview).
 
 ### Cross-repo (`axiaops/aws-infra`) + rollout — prod is LIVE
 1. Terraform: a `random_password.runtime_admin` + two Secrets Manager secrets holding the `axiaops_runtime@rds` connection string; two SSM params publishing the secret ARNs; add the ARNs to the api/ingestion ECS execution-role `secretsmanager:GetSecretValue`; add `RUNTIME_ADMIN_DATABASE_URL` to the TF-managed **migrate** task def so prod Bootstrap can sync the role password.
