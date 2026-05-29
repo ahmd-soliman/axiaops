@@ -3,6 +3,7 @@
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
 POSTGRES_OWNER_PASSWORD ?= axiaops_owner
+POSTGRES_RUNTIME_PASSWORD ?= axiaops_runtime
 
 # Postgres integration test URLs (used by services/shared/storage/postgres tests).
 MIGRATION_DATABASE_URL ?= postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5432/axiaops?sslmode=disable
@@ -249,7 +250,7 @@ test-storage:
 	cd services/shared && \
 		MIGRATION_DATABASE_URL="postgres://axiaops_owner:$(POSTGRES_OWNER_PASSWORD)@localhost:5433/axiaops?sslmode=disable" \
 		DATABASE_URL="postgres://axiaops:$(POSTGRES_PASSWORD)@localhost:5433/axiaops?sslmode=disable" \
-		RUNTIME_ADMIN_DATABASE_URL="postgres://axiaops_runtime:axiaops_runtime@localhost:5433/axiaops?sslmode=disable" \
+		RUNTIME_ADMIN_DATABASE_URL="postgres://axiaops_runtime:$(POSTGRES_RUNTIME_PASSWORD)@localhost:5433/axiaops?sslmode=disable" \
 		go test -count=1 -v -p=1 ./storage/postgres/...
 	docker rm -f $(PG_CONTAINER)
 	$(if $(RUNNER_NETWORK),,docker network rm $(TEST_NETWORK) 2>/dev/null || true)
