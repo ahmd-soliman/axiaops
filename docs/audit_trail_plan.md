@@ -233,6 +233,8 @@ Per `docs/development_plan.md` §3.10:
 
 Both paths require the `UPDATE` grant on `audit_log` for the app user (granted in §3.1 migration).
 
+**Runtime-admin role (migration 029, `docs/runtime-admin-db-role.md`):** the org-cascade purge (`DELETE /v1/organizations/me`) runs on the runtime RLS-bypass pool (`axiaops_runtime`), which therefore holds `DELETE` on `audit_log`. NB: contrary to §3.1's stated "no `DELETE` for the app role," the app role (`axiaops`) *also* holds `DELETE` here in practice — `000_init`'s `ALTER DEFAULT PRIVILEGES … GRANT … DELETE … TO axiaops` fires when `audit_log` is created and nothing revokes it. So `axiaops_runtime`'s `DELETE` is no new exposure; tightening the app role's grant to match §3.1's intent is a separate, out-of-scope cleanup. `axiaops_runtime` still cannot DDL or own objects.
+
 ---
 
 ## 8. API — Surfacing the Trail
