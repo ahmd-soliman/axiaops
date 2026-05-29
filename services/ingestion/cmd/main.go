@@ -715,20 +715,20 @@ func newStore() storage.Store {
 	if dbURL == "" {
 		die("storage: DATABASE_URL is required")
 	}
-	migrationURL := os.Getenv("MIGRATION_DATABASE_URL")
-	if migrationURL == "" {
-		// Symmetric with the api: the owner pool (adminPool) bypasses RLS for
-		// the scheduled-scan account enumeration (ListAllAccounts). With no
-		// owner URL, NewWithOwner falls back to the RLS-bound app pool and the
-		// scan loop silently enumerates zero accounts. DEV_MODE runs a single
-		// shared pool by design; refuse to start in any other build.
-		// TODO(#107): explicit opt-in at the NewWithOwner type level.
+	runtimeAdminURL := os.Getenv("RUNTIME_ADMIN_DATABASE_URL")
+	if runtimeAdminURL == "" {
+		// Symmetric with the api: the bypass pool (adminPool) handles the
+		// scheduled-scan account enumeration (ListAllAccounts) across all orgs.
+		// With no runtime-admin URL, NewWithRuntimeAdmin falls back to the
+		// RLS-bound app pool and the scan loop silently enumerates zero
+		// accounts. DEV_MODE runs a single shared pool by design; refuse to
+		// start in any other build. See docs/runtime-admin-db-role.md.
 		if !devModeEnabled() {
-			die("storage: MIGRATION_DATABASE_URL is required outside DEV_MODE — without the owner connection the RLS-bypassing pool falls back to the app pool and scheduled scans silently enumerate zero accounts")
+			die("storage: RUNTIME_ADMIN_DATABASE_URL is required outside DEV_MODE — without the RLS-bypass connection the pool falls back to the app pool and scheduled scans silently enumerate zero accounts")
 		}
-		migrationURL = dbURL
+		runtimeAdminURL = dbURL
 	}
-	s, err := postgres.NewWithOwner(ctx, dbURL, migrationURL)
+	s, err := postgres.NewWithRuntimeAdmin(ctx, dbURL, runtimeAdminURL)
 	if err != nil {
 		die("storage: postgres init failed", "error", err)
 	}

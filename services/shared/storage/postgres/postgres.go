@@ -22,7 +22,7 @@ import (
 // Store is a PostgreSQL-backed implementation of storage.Store.
 type Store struct {
 	pool      *pgxpool.Pool
-	adminPool *pgxpool.Pool // owner connection — bypasses RLS, used only for ListAllAccounts
+	adminPool *pgxpool.Pool // RLS-bypass connection (axiaops_runtime via per-table policies in prod; falls back to the app pool in dev/tests). Cross-org / pre-auth reads — see docs/runtime-admin-db-role.md.
 }
 
 // New connects to PostgreSQL as the application user (axiaops).
@@ -50,6 +50,32 @@ func NewWithOwner(ctx context.Context, url, ownerURL string) (*Store, error) {
 		}
 	}
 	return &Store{pool: pool, adminPool: adminPool}, nil
+}
+
+// NewWithRuntimeAdmin opens the app pool (appURL) plus a least-privilege
+// RLS-bypass pool (runtimeAdminURL → the axiaops_runtime role; see
+// docs/runtime-admin-db-role.md). This is the production seam (resolves
+// TODO(#107)): the runtime no longer needs the schema-owner connection, only a
+// role that bypasses RLS via per-table permissive policies — no DDL, no
+// ownership. If runtimeAdminURL is empty or equal to appURL the bypass pool
+// falls back to the app pool (DEV_MODE single-pool / tests).
+func NewWithRuntimeAdmin(ctx context.Context, appURL, runtimeAdminURL string) (*Store, error) {
+	s, err := NewWithOwner(ctx, appURL, runtimeAdminURL)
+	if err != nil {
+		return nil, err
+	}
+	// Readiness assertion (TODO(#107)): when a distinct bypass pool is
+	// configured, force a real connection so a bad URL / unreachable role /
+	// wrong credentials fails startup loudly rather than on the first cross-org
+	// read. The cross-org bypass behaviour itself is pinned by
+	// runtime_admin_test.go.
+	if s.adminPool != s.pool {
+		if err := s.adminPool.Ping(ctx); err != nil {
+			_ = s.Close()
+			return nil, fmt.Errorf("postgres: runtime-admin pool: %w", err)
+		}
+	}
+	return s, nil
 }
 
 func newPool(ctx context.Context, url string) (*pgxpool.Pool, error) {
@@ -1531,7 +1557,7 @@ func (s *Store) AuditLogList(ctx context.Context, f model.AuditFilter) ([]model.
 
 // AuditLogAnonymiseUser nulls user_id, replaces actor_email with the
 // 'deleted-user' sentinel, and clears actor_name. Called from the GDPR
-// user-delete path; actor_name uses '' rather than the email's sentinel
+// user-delete path; actor_name uses ” rather than the email's sentinel
 // because the frontend already falls back to actor_email when name is empty,
 // so a parallel sentinel would just push 'deleted-user' onto the name row
 // of the UI redundantly.
