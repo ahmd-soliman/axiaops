@@ -360,8 +360,9 @@ func openMigrate(migrationURL string) (*migrate.Migrate, func(), error) {
 }
 
 // ResetStuckScans resets accounts stuck in "scanning" status for longer than
-// stuckAfter back to "error". Uses the admin URL (superuser) which bypasses
-// RLS — safe to call on startup and from a periodic background ticker.
+// stuckAfter back to "error". Uses the runtime-admin URL (axiaops_runtime — a
+// DML-only RLS-bypass role via per-table policies, no DDL) so this cross-org
+// maintenance bypasses RLS — safe on startup and from a periodic ticker.
 func ResetStuckScans(ctx context.Context, adminURL string, stuckAfter time.Duration) (int64, error) {
 	pool, err := pgxpool.New(ctx, adminURL)
 	if err != nil {
