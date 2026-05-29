@@ -73,8 +73,9 @@ Subcommands:
   history [V]     Show migration_history rows (optionally filtered by version V)
 
 Required env:
-  MIGRATION_DATABASE_URL  owner role (always required; defaults to DATABASE_URL when unset)
-  DATABASE_URL            app role  (only required for 'up' — Bootstrap reads it to sync the app password)`)
+  MIGRATION_DATABASE_URL      owner role (always required; defaults to DATABASE_URL when unset)
+  DATABASE_URL                app role  (only required for 'up' — Bootstrap reads it to sync the app password)
+  RUNTIME_ADMIN_DATABASE_URL  runtime RLS-bypass role (optional; 'up' syncs its LOGIN+password when set)`)
 }
 
 func dbURLs() (dbURL, migrationURL string) {
@@ -92,7 +93,8 @@ func runUp() {
 		slog.Error("DATABASE_URL is required")
 		os.Exit(1)
 	}
-	if err := postgres.Bootstrap(migrationURL, dbURL); err != nil {
+	runtimeAdminURL := os.Getenv("RUNTIME_ADMIN_DATABASE_URL")
+	if err := postgres.Bootstrap(migrationURL, dbURL, runtimeAdminURL); err != nil {
 		slog.Error("bootstrap failed", "error", err)
 		os.Exit(1)
 	}
