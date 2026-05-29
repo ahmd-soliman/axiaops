@@ -31,8 +31,12 @@ var migrationsFS embed.FS
 // Must be called before Migrate on every startup. Connects as the owner
 // (ownerURL) to create/update the user and schema, then syncs the password
 // from DATABASE_URL — enabling credential rotation without manual steps.
+// runtimeAdminURL is the least-privilege RLS-bypass role connection
+// (axiaops_runtime, see docs/runtime-admin-db-role.md); when non-empty its
+// LOGIN + password are synced here the same way (the role's privileges +
+// per-table bypass policies live in migration 029). Empty skips the sync.
 // Uses advisory lock to prevent concurrent bootstrap calls.
-func Bootstrap(ownerURL, appURL string) error {
+func Bootstrap(ownerURL, appURL, runtimeAdminURL string) error {
 	// Parse the app user's password out of DATABASE_URL.
 	appCfg, err := pgxpool.ParseConfig(appURL)
 	if err != nil {
@@ -85,6 +89,34 @@ func Bootstrap(ownerURL, appURL string) error {
 	// is embedded as a safely-escaped literal via pq.QuoteLiteral.
 	if _, err := db.Exec(`ALTER USER axiaops WITH PASSWORD ` + pq.QuoteLiteral(appPassword)); err != nil {
 		return fmt.Errorf("bootstrap: set password: %w", err)
+	}
+
+	// Create + sync the runtime RLS-bypass role (axiaops_runtime) when a runtime
+	// URL is configured. Mirrors the app-user handling above: the role's
+	// privileges + per-table bypass policies live in migration 029, but its
+	// LOGIN + password are synced here so credential rotation needs no manual
+	// steps. Empty runtimeAdminURL (DEV_MODE single-pool, or an env that has not
+	// split the role out yet) skips — migration 029 still creates the role
+	// NOLOGIN so its grants/policies apply regardless.
+	if runtimeAdminURL != "" {
+		rtCfg, err := pgxpool.ParseConfig(runtimeAdminURL)
+		if err != nil {
+			return fmt.Errorf("bootstrap: parse runtime-admin url: %w", err)
+		}
+		rtPassword := rtCfg.ConnConfig.Password
+		if rtPassword == "" {
+			return fmt.Errorf("bootstrap: RUNTIME_ADMIN_DATABASE_URL contains no password")
+		}
+		if _, err := db.Exec(`DO $$ BEGIN
+			IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'axiaops_runtime') THEN
+				CREATE ROLE axiaops_runtime LOGIN;
+			END IF;
+		END $$`); err != nil {
+			return fmt.Errorf("bootstrap: create runtime role: %w", err)
+		}
+		if _, err := db.Exec(`ALTER ROLE axiaops_runtime WITH LOGIN PASSWORD ` + pq.QuoteLiteral(rtPassword)); err != nil {
+			return fmt.Errorf("bootstrap: set runtime role password: %w", err)
+		}
 	}
 
 	// Create the axiaops schema if it does not exist yet. This must happen
@@ -328,8 +360,9 @@ func openMigrate(migrationURL string) (*migrate.Migrate, func(), error) {
 }
 
 // ResetStuckScans resets accounts stuck in "scanning" status for longer than
-// stuckAfter back to "error". Uses the admin URL (superuser) which bypasses
-// RLS — safe to call on startup and from a periodic background ticker.
+// stuckAfter back to "error". Uses the runtime-admin URL (axiaops_runtime — a
+// DML-only RLS-bypass role via per-table policies, no DDL) so this cross-org
+// maintenance bypasses RLS — safe on startup and from a periodic ticker.
 func ResetStuckScans(ctx context.Context, adminURL string, stuckAfter time.Duration) (int64, error) {
 	pool, err := pgxpool.New(ctx, adminURL)
 	if err != nil {

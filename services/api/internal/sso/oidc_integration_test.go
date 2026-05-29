@@ -71,7 +71,7 @@ func requireDB(t *testing.T) (appURL, ownerURL string) {
 func openStore(t *testing.T) (*postgresstore.Store, string, string) {
 	t.Helper()
 	appURL, ownerURL := requireDB(t)
-	if err := postgresstore.Bootstrap(ownerURL, appURL); err != nil {
+	if err := postgresstore.Bootstrap(ownerURL, appURL, ""); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
 	if err := postgresstore.Migrate(ownerURL); err != nil {
