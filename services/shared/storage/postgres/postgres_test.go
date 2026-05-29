@@ -103,7 +103,8 @@ func TestMain(m *testing.M) {
 	}
 	appURL := os.Getenv("DATABASE_URL")
 	if appURL != "" {
-		if err := postgres.Bootstrap(migrationURL, appURL); err != nil {
+		runtimeAdminURL := os.Getenv("RUNTIME_ADMIN_DATABASE_URL")
+		if err := postgres.Bootstrap(migrationURL, appURL, runtimeAdminURL); err != nil {
 			panic("postgres: bootstrap failed: " + err.Error())
 		}
 	}

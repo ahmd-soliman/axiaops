@@ -154,8 +154,9 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationI
 
 | Variable | Required | Default | Notes |
 |----------|----------|---------|-------|
-| DATABASE_URL | Yes | — | PostgreSQL app connection |
-| MIGRATION_DATABASE_URL | Yes | — | PostgreSQL owner connection |
+| DATABASE_URL | Yes | — | PostgreSQL app connection (`axiaops`, RLS-enforced) |
+| RUNTIME_ADMIN_DATABASE_URL | Yes outside DEV_MODE | — | Least-privilege RLS-bypass role (`axiaops_runtime`) for the cross-org scheduled-scan enumeration (`ListAllAccounts`). No DDL/ownership. DEV_MODE collapses to a single pool. See `docs/runtime-admin-db-role.md`. |
+| MIGRATION_DATABASE_URL | No | — | PostgreSQL owner connection (`axiaops_owner`). **Migrate task only** — not read by the ingestion runtime. |
 | AWS_REGION | Prod | eu-central-1 | AWS region for API calls |
 | DAYS_BACK | No | 30 | Cost lookback window (days) |
 | ENCRYPTION_KEY | Yes | — | Decrypt account secrets |
