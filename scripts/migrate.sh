@@ -6,6 +6,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 DATABASE_URL="${DATABASE_URL:-postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable}"
 MIGRATION_DATABASE_URL="${MIGRATION_DATABASE_URL:-postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable}"
+# Runtime RLS-bypass role (axiaops_runtime). Bootstrap syncs its LOGIN+password
+# from this URL so the api/ingestion services connect as the least-privilege
+# role instead of the schema owner. See docs/runtime-admin-db-role.md.
+RUNTIME_ADMIN_DATABASE_URL="${RUNTIME_ADMIN_DATABASE_URL:-postgres://axiaops_runtime:axiaops_runtime@localhost:5432/axiaops?sslmode=disable}"
 
 # Inject build identifiers so axiaops.migration_history.applied_by_image
 # records something more useful than "unknown@unknown" on local runs. CI
@@ -18,6 +22,7 @@ APP_COMMIT_SHA="${APP_COMMIT_SHA:-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev
 cd "$ROOT/services/migrate"
 DATABASE_URL="$DATABASE_URL" \
 MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL" \
+RUNTIME_ADMIN_DATABASE_URL="$RUNTIME_ADMIN_DATABASE_URL" \
 APP_VERSION="$APP_VERSION" \
 APP_COMMIT_SHA="$APP_COMMIT_SHA" \
 go run .

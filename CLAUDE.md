@@ -83,7 +83,10 @@ Non-obvious shape that's easy to misread from `.gitlab-ci.yml`:
 
 - **Runtime:** PostgreSQL 16 with Row-Level Security (organization isolation via `SET app.organization_id`)
 - **Migrations:** `services/shared/storage/postgres/migrations/` — versioned SQL, run on startup
-- Two connection strings: `DATABASE_URL` (app user) and `MIGRATION_DATABASE_URL` (owner/admin)
+- **Three DB roles** (see `docs/runtime-admin-db-role.md`):
+  - `DATABASE_URL` → `axiaops` app user, RLS-enforced — the request-path pool.
+  - `RUNTIME_ADMIN_DATABASE_URL` → `axiaops_runtime`, a least-privilege RLS-bypass role (DML + per-table bypass policies, **no DDL / no ownership**) used for pre-auth / cross-org reads (native login, scheduled-scan enumeration, GDPR purge). Required outside DEV_MODE.
+  - `MIGRATION_DATABASE_URL` → `axiaops_owner` schema owner — **migrate task only**; no longer read by the api/ingestion runtime.
 
 ## Testing Conventions
 

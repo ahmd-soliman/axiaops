@@ -27,9 +27,9 @@ const sessionSweepRetentionDays = 7
 
 // runStuckScanTicker resets accounts left in `scanning` for longer than
 // timeout. Opens its own pool because postgres.ResetStuckScans takes a URL,
-// not an existing connection — historically convenient because the action
-// is owner-level and brief.
-func runStuckScanTicker(ctx context.Context, migrationURL string, timeout time.Duration) {
+// not an existing connection — this cross-org maintenance needs the RLS-bypass
+// (runtime-admin) connection, and the action is brief.
+func runStuckScanTicker(ctx context.Context, runtimeAdminURL string, timeout time.Duration) {
 	t := time.NewTicker(stuckScanInterval)
 	defer t.Stop()
 	for {
@@ -37,7 +37,7 @@ func runStuckScanTicker(ctx context.Context, migrationURL string, timeout time.D
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			n, err := postgres.ResetStuckScans(context.Background(), migrationURL, timeout)
+			n, err := postgres.ResetStuckScans(context.Background(), runtimeAdminURL, timeout)
 			if err != nil {
 				slog.Warn("scan-recovery: failed to reset stuck scans", "error", err)
 				continue
