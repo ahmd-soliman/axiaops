@@ -265,9 +265,17 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const effectiveGranularity = period <= 30 ? 'daily' : granularity;
   const showGranularityToggle = period >= 90;
 
-  // Derive data — raw snaps for history list, aggregated for chart
+  // Derive data — raw snaps for history list, aggregated for chart.
+  //
+  // Filter by date (not by entry count): /v1/trend can return multiple
+  // snapshots per day in multi-account orgs (one per account-scan),
+  // so a naive slice(-period) treated `period` as "last N entries" —
+  // i.e. period=7 picked the most recent 7 scans rather than the last
+  // 7 days, and 6m/1y both collapsed to "all entries". Computing a
+  // wall-clock cutoff keeps the chip labels honest end-to-end.
   const allSnaps      = mergedSnaps;
-  const filteredSnaps = allSnaps.slice(-period);
+  const cutoffMs      = Date.now() - period * 24 * 60 * 60 * 1000;
+  const filteredSnaps = allSnaps.filter(s => new Date(s.snapshot_at).getTime() >= cutoffMs);
   const chartSnaps    = effectiveGranularity === 'monthly'
     ? downsampleByMonth(filteredSnaps)
     : downsample(filteredSnaps, period);
