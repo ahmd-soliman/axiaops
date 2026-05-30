@@ -440,7 +440,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
             "avg over period" framing would be misleading. */}
         {!selectedSnap && filteredSnaps.length > 0 && (
           <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginTop: 1 }}>
-            Average daily monthly-rate cost · last {period} day{period === 1 ? '' : 's'}
+            Avg zombie monthly-rate · last {period} day{period === 1 ? '' : 's'} · before dismissals
           </span>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
