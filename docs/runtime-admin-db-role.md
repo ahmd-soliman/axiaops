@@ -1,6 +1,6 @@
 # Runtime RLS-bypass role (`axiaops_runtime`)
 
-**Status:** design approved, implementation not started (paused 2026-05-29).
+**Status:** code + self-hosted non-dev envs shipped (2026-05-29 on preview, then staging/demo/integration); production (ECS Express) pending the aws-infra apply per §"Deployed-env wiring" below.
 **Drives:** Tasks.md §2.16 — *"Remove `MIGRATION_DATABASE_URL` from the runtime services."*
 **Related:** `TODO(#107)` (the `NewWithOwner` seam), security finding **H-1** (#94, app-pool RLS refactor).
 
