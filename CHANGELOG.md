@@ -27,6 +27,13 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.23] — 2026-05-30
+
+### Fixed
+
+- **Migrate task now auto-recovers from `migration_state.dirty=true`.** Previously, when a migration crashed mid-step (the alpha.20 prod incident was `ALTER ROLE NOSUPERUSER` rejected on RDS, leaving 029 half-applied with `dirty=true`), the wrapper silently skipped re-applying it on every subsequent boot. `runUpLoop` read `m.Version() → (29, true)`, then `idx.nextPendingUp(29, true)` found no `v > 29` and exited — golang-migrate's own `m.Steps(1)` would have raised `ErrDirty`, but we never reached the call. Net effect across alpha.21 and alpha.22: prod's `axiaops_runtime` role spent two release cycles missing `USAGE` on the schema, every table grant, and all 14 RLS bypass policies, surfacing only when alpha.22 actually wired `RUNTIME_ADMIN_DATABASE_URL` into the runtime path. This release adds a new `reapplyDirty` pass at the top of `runUpLoop` that rewinds via `m.Force(v-1)` and re-advances via `m.Steps(1)`, so the dirty version is re-applied under golang-migrate's normal success/failure machinery. The reapply is recorded as a distinct `migration_history` row with a `(dirty-recovery)` suffix in `name` so operators can tell recovery attempts apart from first-applies at a glance. After this release deploys to prod, the migrate task will idempotently re-run 029 and the role state heals automatically — no manual SQL. (`!273`)
+- **Migration `021_native_auth` is now fully idempotent.** Retrofitted `CREATE TABLE sessions / password_resets / bootstrap_state` and `CREATE INDEX sessions_user_idx / sessions_expires_idx / password_resets_user_idx / password_resets_expires_idx` to use `IF NOT EXISTS`. Required by the new `reapplyDirty` recovery path — re-running a bare `CREATE TABLE foo` against an already-created `foo` would error "relation already exists" and infinite-loop the recovery. **Operator note:** because the file's SHA-256 changed, existing deployments (every env that applied 021 at the original SHA) will log `migration_history: file checksum drift detected` on every migrate run. The drift detector is non-strict by default (`MIGRATION_HISTORY_STRICT` is not set in any deploy/*.yml or .gitlab-ci.yml) so this is WARN noise, not a boot failure. Self-hosted operators who set `MIGRATION_HISTORY_STRICT=true` should either disable strict for the alpha.23 deploy or update the recorded SHA: `UPDATE axiaops.migration_history SET file_sha256='<new sha>' WHERE version=21 AND status='succeeded'`. (`!273`)
+
 ## [0.1.0-alpha.22] — 2026-05-30
 
 ### Fixed
@@ -707,7 +714,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.22...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.23...develop
+[0.1.0-alpha.23]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.23
 [0.1.0-alpha.22]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.22
 [0.1.0-alpha.21]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.21
 [0.1.0-alpha.20]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.20
