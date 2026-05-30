@@ -191,5 +191,3 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
     </div>
   );
 }
-
-DateRangeChips.CUSTOM_DAYS = CUSTOM_DAYS;
