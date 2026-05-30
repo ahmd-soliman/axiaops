@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 
 // Preset windows shared across every chart screen (TrendScreen, CostAnalytics,
-// Overview). Sourced from the original RANGES constants previously copied in
-// each screen.
+// Overview). Sourced from the local PERIOD_OPTIONS constants that each screen
+// used to declare independently before this component existed.
 export const PRESET_OPTIONS = [
   { label: '7d',  days: 7 },
   { label: '30d', days: 30 },
