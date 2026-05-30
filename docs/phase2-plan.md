@@ -283,22 +283,27 @@ referenced in 2.16:
 
 | Option | Monthly cost (eu-central-1, steady ~10 req/s) | Ops burden | Notes |
 |---|---|---|---|
-| ElastiCache Serverless | ~€9–13 (1 GB min) | Low | In VPC; needs private subnet or App Runner VPC connector. Native integration with Secrets Manager. |
-| Upstash Redis (pay-per-request) | ~€0–3 at this traffic, €20–30 at 100 req/s | Lowest | External SaaS, public endpoint with TLS. Zero VPC plumbing. Per-request pricing is friendly to scale-to-zero workloads. |
+| ElastiCache Serverless | ~€9–13 (1 GB min) | Low | In VPC; private-subnet only — reachable from the ECS Express task's ENI. Native integration with Secrets Manager. |
+| Upstash Redis (pay-per-request) | ~€0–3 at this traffic, €20–30 at 100 req/s | Lowest | External SaaS, public endpoint with TLS. Zero VPC plumbing. Per-request pricing is friendly to bursty workloads. |
 | Self-hosted on Fargate Spot | ~€5 | Highest | Single AZ, no HA, you own backups. Only worth it if cost is critical and traffic is very low. |
 
-**Recommended:** Upstash for Phase 2 launch. It preserves the "App Runner scales to
-zero, no idle compute" pricing model from the project's cost discipline (CLAUDE.md
-"Cost Awareness" section) and avoids the VPC connector surcharge ElastiCache implies.
-Swap to ElastiCache Serverless when sustained traffic makes the per-request model
-more expensive than the ElastiCache floor.
+> **Status note:** the prod-design decision is "no ElastiCache in prod v1" —
+> `REDIS_URL` is intentionally unset on the production ECS task definitions
+> (`aws-infra` / `docs/production.md` §Cache). The comparison above is
+> preserved for when budget allows turning Redis on; until then it is not
+> load-bearing for prod.
+
+**Recommended (when Redis turns on):** Upstash for the first cycle. It avoids
+the ElastiCache 1 GB floor and the VPC plumbing the ECS Express tasks
+otherwise have to peer into. Swap to ElastiCache Serverless when sustained
+traffic makes the per-request model more expensive than the ElastiCache floor.
 
 **Changes:**
 
 - Add Terraform module under `terraform/modules/redis/` (aligned with 2.16). For
   Upstash, use the `upstash/upstash` provider; for ElastiCache, the AWS provider.
 - Store the resulting `REDIS_URL` (with TLS for Upstash — `rediss://`) in AWS
-  Secrets Manager, referenced from App Runner service env.
+  Secrets Manager, referenced from the ECS Express task definition's secrets.
 - `services/shared/cache/redis/redis.go` and `services/shared/queue/redis/redis.go`
   already accept full Redis URLs via `redis.ParseURL`, so TLS is automatic.
 - Update `.env.example` files (`services/api/.env`, `services/ingestion/.env`) with

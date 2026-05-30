@@ -1,7 +1,7 @@
 # Graceful Shutdown Implementation — P0 Blocker Complete
 
 **Status:** ✅ **COMPLETE**  
-**Priority:** P0 (blocker for App Runner deployment)  
+**Priority:** P0 blocker for production deployment, now shipped on ECS Express.  
 **Reference:** `docs/development_plan.md` section 2.9  
 **Implemented:** April 11, 2026
 
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-Both the **API** and **ingestion** services now handle process termination gracefully. When App Runner (or Docker/Kubernetes) sends `SIGTERM`, services will:
+Both the **API** and **ingestion** services now handle process termination gracefully. When ECS Express (or Docker/Kubernetes) sends `SIGTERM`, services will:
 
 - ✅ Stop accepting new requests
 - ✅ Wait for in-flight requests to complete (30-second timeout)
@@ -256,7 +256,7 @@ kill -SIGTERM $(pgrep -f "api.*main")
 
 From `development_plan.md`:
 - Longer than typical request latency (~1-3s for most API calls)
-- Shorter than App Runner default (60s)
+- Shorter than the ECS default container stop-timeout (30s; configurable up to 120s via `stopTimeout` on the container definition / `ECS_CONTAINER_STOP_TIMEOUT` on the agent)
 - Sufficient for a full ingestion scan (CloudWatch calls take ~5-10s per account)
 - Standard practice in production services
 
@@ -286,15 +286,23 @@ store.(interface{ Close() error }).Close()
 
 ---
 
-## App Runner Compatibility
+## ECS Express Compatibility
 
-### How App Runner Sends Shutdown Signal
+### How ECS Express Sends Shutdown Signal
 
 ```
-1. User initiates scale-down / version update
-2. App Runner sends SIGTERM to container
-3. Container has ~90 seconds to exit gracefully
-4. If process still running after timeout → SIGKILL
+1. A new task-definition revision is rolled out (CI deploy:production) or a
+   service update / scale-down is initiated.
+2. ECS Express drives the deployment circuit breaker: the new task is started,
+   becomes healthy on the ALB target group, and the old task is marked for
+   deregistration.
+3. The ALB drains the old target (default 30s; controlled by the target
+   group's `deregistration_delay`) — no new connections, in-flight requests
+   continue.
+4. ECS sends SIGTERM to the task's main container.
+5. The container has `stopTimeout` seconds (default 30, max 120) to exit
+   cleanly. The agent-level cap `ECS_CONTAINER_STOP_TIMEOUT` bounds this.
+6. If the process is still running after the grace period → SIGKILL.
 ```
 
 ### Our Implementation
@@ -333,13 +341,13 @@ From `development_plan.md` section 2.9:
 
 ## Next Steps
 
-This P0 blocker is **complete and ready for App Runner deployment**.
+This P0 blocker is **complete and shipped on ECS Express in production**.
 
 Remaining Phase 2 items before production:
 
 1. **2.6 Observability** — Prometheus metrics, structured logging
 2. **2.10 GitLab CI Pipeline** — Automated build/test/deploy
-3. **2.16 Deployment** — App Runner, RDS, Terraform
+3. **2.16 Deployment** — ECS Express, RDS, Terraform
 
 This graceful shutdown implementation is a **prerequisite** for all of the above.
 
