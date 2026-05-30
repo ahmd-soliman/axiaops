@@ -19,7 +19,7 @@ name: axiaops-test-sso
 services:
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17.5-alpine
     ports:
       - "${POSTGRES_HOST_PORT:-5532}:5432"
     environment:

@@ -50,7 +50,7 @@ Or add a cleanup job to `.gitlab-ci.yml`.
 
 ## Deployment (Optional - Do This Later)
 
-When you're ready to deploy (to AWS App Runner, Kubernetes, etc.):
+When you're ready to deploy (to AWS ECS Express, Kubernetes, etc.):
 
 1. Add a `deploy` stage to `.gitlab-ci.yml`
 2. Add secrets in **Settings → CI/CD → Variables** (if needed)

@@ -8,7 +8,7 @@ FinOps SaaS that detects idle/zombie cloud resources still incurring costs despi
 ## Current Status
 
 Phase 1 (MVP) complete. Phase 2 in progress — real AWS integration shipped, now working on
-observability, scheduled scans, and production deployment (App Runner + RDS).
+observability, scheduled scans, and production deployment (ECS Express + RDS).
 
 ## Architecture
 
@@ -43,7 +43,7 @@ make test-integration   # Spins up an isolated docker-compose stack (postgres, r
 ## Dev Workflow
 
 - `start-dev` = host-mode Go (API :8080, ingestion :8081, Vite dashboard :5173) against a local Postgres container. No Redis, no auth. Use this for most coding.
-- `start-staging` = full docker-compose stack: Postgres + Redis + ingestion + API + dashboard. Native auth enforced (cookie + sessions table). Dashboard served by nginx on plain HTTP at **`http://localhost:8082`** — TLS termination is the edge proxy's job in every real deployment (App Runner / customer ingress / on-prem reverse proxy in front of dev/staging) and is intentionally absent locally. License posture: the Makefile target injects the embedded dev fixture as `AXIAOPS_LICENSE` so scans run locally — `customer_id="axiaops-dev-fixture"` distinguishes this from deployed staging (which gets a CI-minted production-key-signed JWT, `customer_id="axiaops-internal-staging"`). Throwaway plumbing per issue #76. Use when debugging auth flows, Redis features, or verifying container parity.
+- `start-staging` = full docker-compose stack: Postgres + Redis + ingestion + API + dashboard. Native auth enforced (cookie + sessions table). Dashboard served by nginx on plain HTTP at **`http://localhost:8082`** — TLS termination is the edge proxy's job in every real deployment (CloudFront in front of the prod ECS Express ALB / customer ingress / on-prem reverse proxy in front of dev/staging) and is intentionally absent locally. License posture: the Makefile target injects the embedded dev fixture as `AXIAOPS_LICENSE` so scans run locally — `customer_id="axiaops-dev-fixture"` distinguishes this from deployed staging (which gets a CI-minted production-key-signed JWT, `customer_id="axiaops-internal-staging"`). Throwaway plumbing per issue #76. Use when debugging auth flows, Redis features, or verifying container parity.
 - Both modes use real AWS Cost Explorer + CloudWatch data.
 - `start-dev` requires AWS credentials in `services/*/.env` or environment.
 - `start-staging` needs no extra env beyond what `make start-dev` requires; no local TLS setup is needed.
@@ -56,7 +56,7 @@ Non-obvious shape that's easy to misread from `.gitlab-ci.yml`:
 
 - **Infrastructure-as-code lives in two sibling repos**, not in this one:
   - [`(internal infra repo)`](https://gitlab.com/(internal infra repo)) — the self-hosted stack (`stacks/axiaops-dev`) for dev-1 / dev-2 / staging / preview / demo hosts. Each host is provisioned with the `deploy` user and a public key from `TF_VAR_deploy_ssh_public_keys`.
-  - [`axiaops/aws-infra`](https://gitlab.com/axiaops/aws-infra) — the AWS production stack (VPC, RDS, App Runner, ECR, S3+CloudFront, IAM OIDC role for CI). Design: [`aws-infra/docs/terraform-prod-design.md`](https://gitlab.com/axiaops/aws-infra/-/blob/main/docs/terraform-prod-design.md).
+  - [`axiaops/aws-infra`](https://gitlab.com/axiaops/aws-infra) — the AWS production stack (VPC, RDS, ECS Express, ECR, S3+CloudFront, IAM OIDC role for CI). Design: [`aws-infra/docs/terraform-prod-design.md`](https://gitlab.com/axiaops/aws-infra/-/blob/main/docs/terraform-prod-design.md).
 
 - **Each deployed env runs on its own self-hosted host**, NOT a single shared Docker host.
 
@@ -65,7 +65,7 @@ Non-obvious shape that's easy to misread from `.gitlab-ci.yml`:
   | dev-1 | `axiaops-<env>.local` | `192.168.1.121` |
   | dev-2 | `axiaops-<env>.local` | `192.168.1.123` |
   | staging | `axiaops-<env>.local` | `192.168.1.122` |
-  | production | App Runner / ECR (separate concern) | — |
+  | production | ECS Express / ECR (separate concern) | — |
 
 - **an edge proxy (an edge proxy)** is the edge proxy in front of every env. Browser → `https://axiaops-<env>.local` → an edge proxy (TLS termination + routing) → host's port 80/8080. The dashboard's `services/dashboard/nginx.conf` listens on plain HTTP and propagates `X-Forwarded-Proto` from an edge proxy, so the API's session cookie correctly toggles `Secure` based on what an edge proxy saw.
 
@@ -75,15 +75,18 @@ Non-obvious shape that's easy to misread from `.gitlab-ci.yml`:
 
 - **`PUBLIC_HOST` per env**: should be the externally-reachable an edge proxy hostname (`https://axiaops-<env>.local`, etc.), not the host IP+port. an edge proxy-terminated TLS makes the API's `X-Forwarded-Proto`-derived cookie `Secure` posture work correctly. Empty → API logs `"sso: ceremony: PUBLIC_HOST is empty"` at startup and SSO ceremonies fail at the IdP redirect. Set as a GitLab CI variable per environment scope (`deploy:preview/staging/production` declare `environment.name`, which keys the lookup); `deploy:dev-1/2` are unscoped by design — set there only if you turn off DEV_MODE for SSO testing.
 
-- **`INTERNAL_DNS` per env (self-hosted IdP only)**: LAN resolver IP injected into the API container via `dns:` in `deploy/{preview,staging,demo}.yml`. Needed when the IdP hostname has split-horizon DNS — public IP for the world, internal LAN IP for on-premises traffic. Without it, the container resolves the IdP via public DNS, hits whatever WAF fronts Keycloak (Cloudflare Bot Fight Mode rejects the Go HTTP client's default UA on `/.well-known/openid-configuration`), and OIDC discovery fails. With it set to e.g. `192.168.1.1` (the router running AdGuard with a `*.example.com` rewrite), traffic stays on the LAN and the discovery fetch succeeds. Scope `*` if all envs share the same router; scope per env otherwise. Not relevant for App Runner / cloud envs (no LAN, no split-horizon).
+- **`INTERNAL_DNS` per env (self-hosted IdP only)**: LAN resolver IP injected into the API container via `dns:` in `deploy/{preview,staging,demo}.yml`. Needed when the IdP hostname has split-horizon DNS — public IP for the world, internal LAN IP for on-premises traffic. Without it, the container resolves the IdP via public DNS, hits whatever WAF fronts Keycloak (Cloudflare Bot Fight Mode rejects the Go HTTP client's default UA on `/.well-known/openid-configuration`), and OIDC discovery fails. With it set to e.g. `192.168.1.1` (the router running AdGuard with a `*.example.com` rewrite), traffic stays on the LAN and the discovery fetch succeeds. Scope `*` if all envs share the same router; scope per env otherwise. Not relevant for ECS Express / cloud envs (no LAN, no split-horizon).
 
 - **Adding a new env (preview, demo, etc.)** is NOT just a port-pair change. It requires: (a) provisioning a new self-hosted host via the `self-hosted-infra/stacks/axiaops-dev` Terraform stack with the `deploy` user + authorized key, (b) registering the new hostname in an edge proxy with a TLS cert, (c) adding a `deploy:<env>` CI job (and `gate:devmode:<env>` per plan §4.10 layer 1) that points at the new `DEPLOY_HOST_IP`. None of (a) or (b) lives in this repo.
 
 ## Database
 
-- **Runtime:** PostgreSQL 16 with Row-Level Security (organization isolation via `SET app.organization_id`)
+- **Runtime:** PostgreSQL 17 with Row-Level Security (organization isolation via `SET app.organization_id`)
 - **Migrations:** `services/shared/storage/postgres/migrations/` — versioned SQL, run on startup
-- Two connection strings: `DATABASE_URL` (app user) and `MIGRATION_DATABASE_URL` (owner/admin)
+- **Three DB roles** (see `docs/runtime-admin-db-role.md`):
+  - `DATABASE_URL` → `axiaops` app user, RLS-enforced — the request-path pool.
+  - `RUNTIME_ADMIN_DATABASE_URL` → `axiaops_runtime`, a least-privilege RLS-bypass role (DML + per-table bypass policies, **no DDL / no ownership**) used for pre-auth / cross-org reads (native login, scheduled-scan enumeration, GDPR purge). Required outside DEV_MODE.
+  - `MIGRATION_DATABASE_URL` → `axiaops_owner` schema owner — **migrate task only**; no longer read by the api/ingestion runtime.
 
 ## Testing Conventions
 
@@ -146,12 +149,12 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 
 ## Cost Awareness (FinOps for AxiaOps itself)
 
-- Phase 2 target: €24–34/mo (App Runner + RDS db.t4g.micro)
+- Phase 2 target: €24–34/mo (ECS Express + RDS db.t4g.micro)
 - Avoid NAT Gateways (~€33/mo fixed) — use public subnets with security groups
 - CloudWatch log retention: 7 days max
 - Clean up old ECR images (€0.10/GB)
 - RDS Multi-AZ doubles cost — defer until necessary
-- App Runner scales to zero — no idle compute cost
+- ECS Express runs always-on Fargate tasks (no scale-to-zero) — keep task CPU/memory minimal to cap idle compute cost
 
 ## Source Control
 

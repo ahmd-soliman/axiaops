@@ -266,7 +266,7 @@ Tier 2 adds minimal overhead to the scan:
 
 **Phase 2 (remaining)**:
 - [ ] Add fake provider scenarios for Tier 2 detections
-- [ ] Production deployment (App Runner + RDS + Terraform)
+- [ ] Production deployment (ECS Express + RDS + Terraform via aws-infra)
 
 **Phase 3 (enhancements)**:
 - [ ] EKS node count detection via Auto Scaling groups

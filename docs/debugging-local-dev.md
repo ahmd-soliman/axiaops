@@ -43,7 +43,7 @@ running stack (see [Stack pairing](#stack-pairing)).
 | Compound config | Pairs with | Auth | DB | Notes |
 |---|---|---|---|---|
 | **Debug Full Stack** | `make start-dev` (then stop the host Go services it spawns; keep the Postgres container) | `DEV_MODE=true`, JWT bypassed | Local Postgres container | The default. F5 builds and attaches to API + Ingestion + a Chrome session for the dashboard. |
-| **Debug Full Stack (auth)** | `make start-staging`, then `docker stop axiaops-api axiaops-ingestion` | `DEV_MODE=false`, real Kinde JWTs | Compose Postgres + Redis | For debugging auth flows or anything that depends on Redis. |
+| **Debug Full Stack (auth)** | `make start-staging`, then `docker stop axiaops-api axiaops-ingestion` | `DEV_MODE=false`, native cookie sessions | Compose Postgres + Redis | For debugging auth flows or anything that depends on Redis. |
 
 The launch configs assume host ports 5432 (Postgres) and — for the
 auth variants — 6379 (Redis), 8081 (Ingestion). Free those before
@@ -56,7 +56,7 @@ Hit **F5** with no config selected to launch the default compound
 ("Debug Full Stack"). Or use the picker:
 
 - **Debug Full Stack** — most day-to-day work. DEV_MODE=true.
-- **Debug Full Stack (auth)** — when Kinde or Redis matters.
+- **Debug Full Stack (auth)** — when native auth or Redis matters.
 - **Debug Migrate CLI** — runs `services/shared/cmd/migrate`
   against the API's `.env`. Useful when a migration misbehaves.
 - **Debug Tests** — debugs the test file currently focused in the

@@ -7,8 +7,11 @@ import { authColors as C, useAuthStyles } from './_authShell';
 // BootstrapScreen renders the first-run install form.
 //
 // Plan §4.4 / D5: the install token lives only in the form body, never
-// in the URL — operators paste it from `cat /var/run/axiaops/initial_setup_token`
-// (or from the BOOTSTRAP_PRINT_BANNER stdout banner). The token field
+// in the URL — operators retrieve it from whichever channel their deploy
+// enabled: the API server logs (BOOTSTRAP_PRINT_BANNER=true → stderr, the
+// only channel on cloud/Fargate where there's no shell into the task) or
+// the token file at BOOTSTRAP_TOKEN_FILE_PATH (on-prem/compose; empty path
+// disables the file). The token field
 // is `type="text"` (not "password") because operators need to verify
 // they pasted the right value; a show/hide toggle is overkill for a
 // one-time setup screen.
@@ -65,7 +68,7 @@ export default function BootstrapScreen() {
       if (e2.code === 'bootstrap_already_done') {
         setError('Bootstrap is already complete on this installation. Please sign in instead.');
       } else if (e2.code === 'invalid_token') {
-        setError('That install token is incorrect. Re-check the value from the token file or banner.');
+        setError('That install token is incorrect. Re-check the value from your API server logs, or the token file if your deployment writes one.');
       } else if (e2.code === 'weak_password') {
         setError(e2.message || 'Choose a stronger password.');
       } else if (e2.code === 'email_taken') {
@@ -83,8 +86,10 @@ export default function BootstrapScreen() {
         <img src="/axiaops-logo-dark.svg" alt="AxiaOps" style={S.logoImg} />
         <span style={S.title}>First-run setup</span>
         <span style={S.tagline}>
-          Create the first owner account. The install token was printed to the API
-          server&apos;s log and written to <code>{'/var/run/axiaops/initial_setup_token'}</code>.
+          Create the first owner account. Find the install token in your API
+          server&apos;s logs, or in the token file at{' '}
+          <code>{'/var/run/axiaops/initial_setup_token'}</code> if your deployment
+          writes one (cloud/Fargate deploys log it only).
         </span>
 
         {error && <div style={S.errorBox}>{error}</div>}
