@@ -367,14 +367,27 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const displaySnap = selectedSnap ?? latestSnap;
   const firstSnap   = filteredSnaps[0];
 
-  // Average monthly cost across the picked window. Used as the headline when
-  // no specific snapshot is selected from the history list — gives the chip
-  // selection a visible effect on the big number, not just the chart + delta.
-  // selectedSnap still overrides so clicking a history point shows its exact
-  // value (the user's already-explicit choice).
-  const avgWindowCost = filteredSnaps.length > 0
-    ? filteredSnaps.reduce((sum, s) => sum + (s.total_monthly_cost ?? 0), 0) / filteredSnaps.length
-    : 0;
+  // Average daily org-wide cost across the picked window. Computed as
+  // (sum across all accounts per day, then average those daily totals across
+  // the unique days in the window). The two-step shape matters: naively
+  // averaging .total_monthly_cost across every (account, scan) row biases
+  // the result toward whichever account scans most often, which produces
+  // weird mixed-magnitude numbers in multi-account orgs. Grouping by day
+  // first collapses that bias — every day contributes one observation,
+  // regardless of how many accounts scanned it.
+  //
+  // selectedSnap still overrides so clicking a history point shows its
+  // exact value (the user's already-explicit choice).
+  const avgWindowCost = (() => {
+    if (filteredSnaps.length === 0) return 0;
+    const byDay = new Map();
+    for (const s of filteredSnaps) {
+      const day = s.snapshot_at.slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + (s.total_monthly_cost ?? 0));
+    }
+    const dailyTotals = [...byDay.values()];
+    return dailyTotals.reduce((a, b) => a + b, 0) / dailyTotals.length;
+  })();
   const headlineCost = selectedSnap
     ? selectedSnap.total_monthly_cost
     : avgWindowCost;
@@ -427,7 +440,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
             "avg over period" framing would be misleading. */}
         {!selectedSnap && filteredSnaps.length > 0 && (
           <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginTop: 1 }}>
-            Average monthly cost · last {period} day{period === 1 ? '' : 's'}
+            Average daily monthly-rate cost · last {period} day{period === 1 ? '' : 's'}
           </span>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
