@@ -1085,12 +1085,19 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 -- Extend the cost timeline backwards: one row per (account × service ×
--- resource_id) per day for days 4..90. The hand-written rows above cover the
--- last three days with specific values that the demo / docs reference; this
--- block fills 4..90 with jittered amounts (±15%) so the chip selections
--- (7d / 30d / 90d) actually produce visibly different totals and the trend
--- chart shows a meaningful series. Without this the dashboard's date filter
--- looked broken locally — only ~3 days of cost history existed.
+-- resource_id) per day for days 4..DAYS. The hand-written rows above cover
+-- the last three days with specific values that the demo / docs reference;
+-- this block fills 4..DAYS with jittered amounts (±15%) so the chip
+-- selections (7d / 30d / 90d / 6m / 1y) actually produce visibly different
+-- totals and the cost chart shows a meaningful series across the full
+-- trend window. Without this the dashboard's date filter looked broken
+-- locally — only ~3 days of cost history existed, and the 1y / 6m chips
+-- collapsed to the same numbers.
+--
+-- setseed makes the jitter deterministic across re-runs. The outer
+-- setseed(0.42) at the snapshot pipe doesn't carry over — each psql_pipe
+-- invocation is a new session — so we re-seed here.
+DO \$\$ BEGIN PERFORM setseed(0.42); END \$\$;
 INSERT INTO cost_records
   (organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency, period_start, period_end, tags, fetched_at)
 SELECT
@@ -1101,7 +1108,7 @@ SELECT
   NOW() - (d.day || ' days')::interval,
   NOW() - ((d.day - 1) || ' days')::interval,
   '{}'::jsonb, '$NOW'
-FROM generate_series(4, 90) AS d(day)
+FROM generate_series(4, ${DAYS}) AS d(day)
 CROSS JOIN (VALUES
   ('${ACCT1}', 'AmazonEC2',                  'eu-central-1', 'i-0abc123prod0001',          46.50),
   ('${ACCT1}', 'AmazonRDS',                  'eu-central-1', 'db-prod-legacy-reporting',  211.00),
@@ -1371,7 +1378,7 @@ echo "Dev organization zombie records:      $ZOMBIE_COUNT  (expected 41)"
 echo "Dev organization resource records:    $RESOURCE_COUNT  (expected 33)"
 echo "Dev organization zombie snapshots:    $SNAPSHOT_COUNT  (expected $((DAYS * 3)))"
 echo "Dev organization snapshot services:   $SVC_COUNT"
-echo "Dev organization cost records:        $COST_COUNT  (expected 21)"
+echo "Dev organization cost records:        $COST_COUNT  (expected $((24 + (DAYS - 3) * 14)))"
 echo ""
 
 # Hard row-count gate before the gap-math invariants below. Without this, an

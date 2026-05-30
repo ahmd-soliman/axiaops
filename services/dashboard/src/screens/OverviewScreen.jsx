@@ -112,11 +112,11 @@ function OverviewHero({ summary, totalSpend, trend, period, onPeriodChange, onSh
   // ▲/▼ headline answers "how have we trended over the last {period} days?"
   // rather than the previous "vs yesterday" which collapses to noise when the
   // user picks 90d / 6m. dailyTotals is already trimmed to `slice(-period)`
-  // above, so .at(0) is the oldest day in the window. Falling back to .at(-2)
-  // when the window is just one entry preserves the previous yesterday-vs-today
-  // behaviour for the period=1d (Custom… same-day) edge case.
+  // above, so .at(0) is the oldest day in the window. When the window has
+  // only one day (Custom… same-day pick) there's no earlier point to compare
+  // to — delta is undefined and the headline omits the arrow.
   const latest   = dailyTotals.at(-1)?.[1];
-  const earliest = dailyTotals.length > 1 ? dailyTotals.at(0)?.[1] : dailyTotals.at(-2)?.[1];
+  const earliest = dailyTotals.length > 1 ? dailyTotals.at(0)?.[1] : undefined;
   const delta    = latest != null && earliest != null
     ? ((latest - earliest) / Math.max(earliest, 0.01)) * 100
     : null;
@@ -1245,7 +1245,11 @@ export default function OverviewScreen({
   // window's request is in flight — chip clicks invite rapid exploration and
   // a fresh isLoading state on every click flashes the chart on each change.
   const costs      = useQuery({ queryKey: ['costs', selectedAccount, period], queryFn: () => fetchCosts(selectedAccount, null, period), placeholderData: (prev) => prev });
-  const trend      = useQuery({ queryKey: ['trend', selectedAccount],      queryFn: () => fetchTrend(selectedAccount) });
+  // placeholderData mirrors the costs query so the chart doesn't flash empty
+  // when account-switching (chip changes don't invalidate this key — period
+  // is applied client-side via dailyTotals.slice — so the placeholder only
+  // matters for the account selector path).
+  const trend      = useQuery({ queryKey: ['trend', selectedAccount],      queryFn: () => fetchTrend(selectedAccount), placeholderData: (prev) => prev });
   const dismissals = useQuery({ queryKey: ['dismissals', selectedAccount], queryFn: () => fetchDismissals(selectedAccount) });
 
   const totalSpend = useMemo(() => {
