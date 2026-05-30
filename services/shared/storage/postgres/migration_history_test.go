@@ -608,9 +608,22 @@ func TestMigrationHistory_DirtyStateAutoRecovers(t *testing.T) {
 	if err := db.QueryRow(`SELECT version, dirty FROM axiaops.migration_state`).Scan(&origVersion, &origDirty); err != nil {
 		t.Fatalf("snapshot migration_state: %v", err)
 	}
+	if origDirty {
+		// A previous run of this test (or another dirty-mutating test) left
+		// migration_state dirty. Bail loud rather than roll a second incident
+		// forward into this test's assertions — the suite needs a clean
+		// pointer at startup. Fix by running `axiaopsctl migrate force N` (or
+		// `UPDATE axiaops.migration_state SET dirty=false`) against the local
+		// DB, then re-run.
+		t.Fatalf("test precondition: migration_state.dirty=true at startup (version=%d); previous run failed to clean up. Manual reset required before re-running.", origVersion)
+	}
 	t.Cleanup(func() {
+		// Use t.Errorf (not t.Logf) so a cleanup failure flips the test red —
+		// silent cleanup failure would leak dirty=true into the next
+		// `make test-storage` run and flake other tests that assume a clean
+		// pointer (e.g. TestMigrationHistory_RerunMigrateAddsNoNewRows).
 		if _, err := db.Exec(`UPDATE axiaops.migration_state SET version=$1, dirty=$2`, origVersion, origDirty); err != nil {
-			t.Logf("cleanup restore migration_state: %v", err)
+			t.Errorf("cleanup restore migration_state failed (next run will start dirty=true and will fail the precondition above): %v", err)
 		}
 	})
 
@@ -657,15 +670,22 @@ func TestMigrationHistory_DirtyStateAutoRecovers(t *testing.T) {
 		t.Errorf("post-recovery: version want %d, got %d", origVersion, version)
 	}
 
-	var newSucceededCount int
+	// Recovery row exists and is marked distinctly (so operators inspecting
+	// `axiaopsctl migrate history v=N direction=up` can tell the recovery
+	// attempt apart from the original first-apply without correlating timestamps).
+	var recoveryRowName string
 	if err := db.QueryRow(`
-		SELECT COUNT(*) FROM axiaops.migration_history
+		SELECT name FROM axiaops.migration_history
 		WHERE version = $1 AND direction = 'up' AND status = 'succeeded' AND id > $2
-	`, origVersion, failedRowID).Scan(&newSucceededCount); err != nil {
-		t.Fatalf("count succeeded recovery rows: %v", err)
+		ORDER BY id DESC LIMIT 1
+	`, origVersion, failedRowID).Scan(&recoveryRowName); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("no succeeded recovery history row for v=%d after failed id=%d — reapplyDirty did not run or did not record",
+				origVersion, failedRowID)
+		}
+		t.Fatalf("read recovery row: %v", err)
 	}
-	if newSucceededCount < 1 {
-		t.Errorf("want >=1 new succeeded history row for v=%d after id=%d, got %d",
-			origVersion, failedRowID, newSucceededCount)
+	if !strings.Contains(recoveryRowName, "(dirty-recovery)") {
+		t.Errorf("recovery row name must carry the '(dirty-recovery)' marker for operator visibility; got name=%q", recoveryRowName)
 	}
 }
