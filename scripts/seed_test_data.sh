@@ -1083,6 +1083,42 @@ VALUES
   -- Tax (simulated)
   ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'Tax', 'NoRegion', 'vat', 1.42, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW')
 ON CONFLICT DO NOTHING;
+
+-- Extend the cost timeline backwards: one row per (account × service ×
+-- resource_id) per day for days 4..90. The hand-written rows above cover the
+-- last three days with specific values that the demo / docs reference; this
+-- block fills 4..90 with jittered amounts (±15%) so the chip selections
+-- (7d / 30d / 90d) actually produce visibly different totals and the trend
+-- chart shows a meaningful series. Without this the dashboard's date filter
+-- looked broken locally — only ~3 days of cost history existed.
+INSERT INTO cost_records
+  (organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency, period_start, period_end, tags, fetched_at)
+SELECT
+  '${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}',
+  src.internal_account_id, src.service, src.region, src.resource_id,
+  ROUND((src.base_amount * (0.85 + random() * 0.30))::numeric, 2),
+  'USD',
+  NOW() - (d.day || ' days')::interval,
+  NOW() - ((d.day - 1) || ' days')::interval,
+  '{}'::jsonb, '$NOW'
+FROM generate_series(4, 90) AS d(day)
+CROSS JOIN (VALUES
+  ('${ACCT1}', 'AmazonEC2',                  'eu-central-1', 'i-0abc123prod0001',          46.50),
+  ('${ACCT1}', 'AmazonRDS',                  'eu-central-1', 'db-prod-legacy-reporting',  211.00),
+  ('${ACCT1}', 'AmazonS3',                   'eu-central-1', 'prod-data-lake-bucket',      24.00),
+  ('${ACCT1}', 'AmazonCloudFront',           'us-east-1',    'E1PROD0ABANDONED',           19.00),
+  ('${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod',  18.50),
+  ('${ACCT1}', 'AmazonVPC',                  'eu-central-1', 'nat-abc123prod',             32.00),
+  ('${ACCT2}', 'AmazonEC2',                  'us-east-1',    'i-0abc123stg0001',           38.50),
+  ('${ACCT2}', 'AmazonS3',                   'us-east-1',    'staging-backups',            15.50),
+  ('${ACCT2}', 'AmazonCloudFront',           'us-east-1',    'E2STG0OLDSITE',               8.50),
+  ('${ACCT2}', 'AWSLambda',                  'us-east-1',    'stg-image-resizer',           4.20),
+  ('${ACCT2}', 'AWSDataTransfer',            'us-east-1',    'data-transfer-out',          12.50),
+  ('${ACCT3}', 'AmazonEC2',                  'eu-west-1',    'i-0abc123dev0001',           22.80),
+  ('${ACCT3}', 'AmazonRDS',                  'eu-west-1',    'db-dev-abandoned',           89.10),
+  ('${ACCT3}', 'AWSLambda',                  'eu-west-1',    'dev-unused-email-sender',     2.30)
+) AS src(internal_account_id, service, region, resource_id, base_amount)
+ON CONFLICT DO NOTHING;
 EOF
 
 echo "  Inserted cost records (EC2, RDS, S3, CloudFront, Lambda, ELB, VPC, Data Transfer, Tax)"
