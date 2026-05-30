@@ -654,9 +654,15 @@ func detectDrift(ctx context.Context, conn *sql.Conn, efs fs.FS, idx *migrationF
 //   - Dirty at a version that's no longer in the embedded migrations index
 //     (someone deleted N.up.sql after it half-applied in prod). Bails loudly;
 //     operator must `axiaopsctl migrate force N` after manual investigation.
-//   - Dirty at v=1 (Force(0) is supported by golang-migrate as "no version",
-//     but Steps(1) re-applies whatever's first; functionally identical to a
-//     fresh boot on an empty pointer, so the guard is just "v>=1 = recover").
+//
+// Edge cases that DO recover (no extra guard needed):
+//   - Dirty at v=1: Force(0) writes (0, false) and Steps(1) advances forward
+//     from version 0 by running v=1's up.sql. The post-state is `hasRow=true,
+//     version=0` between Force and Steps — distinct from a truly-fresh-boot
+//     `NilVersion` (-1), but runUpLoop doesn't observe that intermediate state.
+//   - Dirty at v=0 (theoretical 000_init half-apply): Force(-1) on a dirty=false
+//     payload TRUNCATEs migration_state (per golang-migrate's NilVersion
+//     branch), Steps(1) then reads NilVersion and applies v=0 from scratch.
 func reapplyDirty(ctx context.Context, conn *sql.Conn, m *migrate.Migrate, efs fs.FS, idx *migrationFSIndex, ident runtimeIdentity) error {
 	smVer, smDirty, smHasRow, err := migrationStateRead(ctx, conn)
 	if err != nil {
@@ -681,8 +687,12 @@ func reapplyDirty(ctx context.Context, conn *sql.Conn, m *migrate.Migrate, efs f
 	slog.Warn("migration_state: dirty=true at boot; re-applying idempotently",
 		"version", v, "name", mf.name)
 
+	// Suffix the recorded name so an operator inspecting `axiaopsctl migrate
+	// history v=N direction=up` can tell the recovery attempt apart from the
+	// original first-apply at a glance, without having to correlate timestamps.
+	const recoverySuffix = " (dirty-recovery)"
 	started := time.Now().UTC()
-	id, err := recordStarted(ctx, conn, v, mf.name, "up", sha, ident)
+	id, err := recordStarted(ctx, conn, v, mf.name+recoverySuffix, "up", sha, ident)
 	if err != nil {
 		return err
 	}
@@ -700,7 +710,7 @@ func reapplyDirty(ctx context.Context, conn *sql.Conn, m *migrate.Migrate, efs f
 	var shortLimit migrate.ErrShortLimit
 	if errors.Is(stepErr, migrate.ErrNoChange) || errors.As(stepErr, &shortLimit) {
 		_ = completeRow(ctx, conn, id, "failed", started,
-			"library returned no-change despite rewound state — manual recovery required", false, true)
+			"library returned no-change despite rewound state — manual recovery required (axiaopsctl migrate force N after investigation)", false, true)
 		return fmt.Errorf("migration_history: dirty recovery for v=%d: library returned %w after rewind", v, stepErr)
 	}
 	_, dirtyAfter, smHasRow2, smErr := migrationStateRead(ctx, conn)
