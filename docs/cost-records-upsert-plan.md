@@ -6,11 +6,11 @@ Planning. Implementation MR to follow once this design lands.
 
 ## Reviewer questions
 
-One item worth confirming on review:
+All design questions resolved. Earlier drafts left three open; status:
 
-1. **`fetched_at` semantics.** Assumed to track scan freshness — always overwritten. Grep did not surface any "first seen" reader of this column; flag if one exists.
-
-(Earlier drafts asked about a one-shot `DAYS_BACK=90` backfill and the `internal_account_id` COALESCE direction. Both are resolved below — the backfill is dropped as cosmetic, the COALESCE is kept as defence for migration-010-era NULL rows only.)
+1. **`fetched_at` semantics — resolved.** Tracks scan freshness (always overwritten). Confirmed by grep: every reader of `fetched_at` is either a write site (the three fetchers in `aws.go`), the INSERT statement itself, or a pass-through SELECT to the `/costs` API. `model/cost.go:59` is explicit: "FetchedAt is informational and not checked." No retention / row-age / first-seen logic depends on it.
+2. **One-shot `DAYS_BACK=90` backfill — resolved.** Dropped as cosmetic. The next-scan automatic repair covers all visible damage.
+3. **`internal_account_id` COALESCE direction — resolved.** Kept as defence specifically for migration-010-era NULL rows; steady-state writes always populate the field.
 
 ## Problem
 
