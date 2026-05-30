@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # seed_test_data.sh — seed dev organization with dummy data for local development or remote servers
 #
+# Repo-root helper: resolves the path to the AxiaOps repo regardless of how
+# the script is invoked (from the repo root via Makefile, or from elsewhere
+# via an absolute path). Needed for the `go run ./services/api/cmd/hash-password`
+# invocation in the --demo block that mints argon2id hashes for the
+# alice/bob/carol personas — see docs/demo-setup.md for the password flow.
+#
 # Prerequisites:
 #   Requires psql. If not installed:
 #     brew install libpq
@@ -54,9 +60,12 @@ resolve_psql() {
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 REMOTE_ENV=""
 AUTO_YES=false
 DEMO_MODE=false
+BOOTSTRAP_FIRST=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,6 +81,13 @@ while [[ $# -gt 0 ]]; do
       esac
       ;;
     --yes|-y) AUTO_YES=true ;;
+    --bootstrap-first)
+      # Skip the dashboard bootstrap ceremony on auth-on remote envs by
+      # creating the first organization + first owner (alice) + sealing
+      # bootstrap_state directly via SQL. ONLY for ephemeral demo envs.
+      # See docs/demo-setup.md for the rationale and constraints.
+      BOOTSTRAP_FIRST=true
+      ;;
     --demo)
       # Tier-1 slice of #93. Populates Acme + Globex orgs with copies of the
       # dev seed data under acme-*/globex-* account IDs so the dashboard can
@@ -87,14 +103,37 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-# --demo is allowed for local docker and --remote preview. Staging + demo
-# envs are intentionally blocked: they're the stable / stakeholder-facing
-# envs (per "preview vs staging" convention in CLAUDE.md), and overwriting
-# their org list with demo fixtures would pollute reference data.
-if [[ "$DEMO_MODE" == "true" && -n "$REMOTE_ENV" && "$REMOTE_ENV" != "preview" ]]; then
-  echo "Error: --demo only supports local docker or --remote preview." >&2
+# --demo is allowed for local docker + --remote preview + --remote demo.
+# Staging / integration / dev-* are intentionally blocked: dev-* are auth-bypass
+# envs where the persona logins wouldn't exercise anything, and staging /
+# integration are reference envs whose org list shouldn't be polluted with
+# demo fixtures. The full multi-user demo posture is tracked in #93.
+DEMO_ALLOWED_REMOTES_REGEX='^(preview|demo)$'
+if [[ "$DEMO_MODE" == "true" && -n "$REMOTE_ENV" && ! "$REMOTE_ENV" =~ $DEMO_ALLOWED_REMOTES_REGEX ]]; then
+  echo "Error: --demo only supports local docker, --remote preview, or --remote demo." >&2
   echo "       For --remote $REMOTE_ENV, the full multi-org demo posture is tracked in #93." >&2
   exit 1
+fi
+
+# --bootstrap-first preconditions: only meaningful on a fresh auth-on remote
+# env, only useful with --demo (which mints alice as the first owner), only
+# usable when DEMO_USERS_PASSWORD is set (so alice has a real hashed login).
+# Refuse loudly otherwise — silent miscombination here would either no-op or
+# create an orphan org with no owner.
+if [[ "$BOOTSTRAP_FIRST" == "true" ]]; then
+  if [[ -z "$REMOTE_ENV" ]]; then
+    echo "Error: --bootstrap-first only applies to --remote envs (local docker auto-creates the dev org)." >&2
+    exit 1
+  fi
+  if [[ "$DEMO_MODE" != "true" ]]; then
+    echo "Error: --bootstrap-first requires --demo (the alice/bob/carol personas are demo-mode only)." >&2
+    exit 1
+  fi
+  if [[ -z "${DEMO_USERS_PASSWORD:-}" ]]; then
+    echo "Error: --bootstrap-first requires DEMO_USERS_PASSWORD env var to be set so alice has a hashed login." >&2
+    echo "       See docs/demo-setup.md for the recommended workflow." >&2
+    exit 1
+  fi
 fi
 
 # ── Remote connection setup ───────────────────────────────────────────────────
@@ -256,10 +295,50 @@ AUTH_ON_ENVS_REGEX="^(staging|preview|demo|integration)$"
 if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX ]]; then
   ORGANIZATION_ID=$(psql_query "SELECT id FROM organizations ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
   if [ -z "$ORGANIZATION_ID" ]; then
-    echo "Error: no organization found in $REMOTE_ENV DB — bootstrap the first owner via the dashboard at https://axiaops-$REMOTE_ENV.local first so an organization row exists, then re-run."
-    exit 1
+    if [[ "$BOOTSTRAP_FIRST" == "true" ]]; then
+      # Mint the first org + first owner (alice) directly via SQL, skipping
+      # the install-token-gated /auth/bootstrap endpoint. See docs/demo-setup.md
+      # for the security trade-off — only safe on ephemeral demo envs.
+      echo "=== --bootstrap-first: creating first org + owner (alice) directly ==="
+      ORGANIZATION_ID="org_axiaops_demo"
+      psql_exec "INSERT INTO organizations (id, org_code, name, created_at)
+        VALUES ('${ORGANIZATION_ID}', '${ORGANIZATION_ID}', 'AxiaOps Demo', NOW())
+        ON CONFLICT (org_code) DO NOTHING;"
+
+      echo "Hashing DEMO_USERS_PASSWORD for alice (first owner)..."
+      DEMO_USERS_HASH=$(printf '%s' "${DEMO_USERS_PASSWORD}" | (cd "$REPO_ROOT" && go run ./services/api/cmd/hash-password)) || {
+        echo "Error: failed to hash DEMO_USERS_PASSWORD." >&2
+        exit 1
+      }
+
+      psql_exec "INSERT INTO users (id, organization_id, external_id, email, name, password_hash, password_set_at, created_at, last_seen)
+        VALUES ('demo-user-alice', '${ORGANIZATION_ID}', 'demo:alice', 'alice@axiaops.io', 'Alice (FinOps Lead)', '${DEMO_USERS_HASH}', NOW(), NOW(), NOW())
+        ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, password_set_at = EXCLUDED.password_set_at;"
+
+      psql_exec "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at)
+        VALUES (gen_random_uuid()::text, '${ORGANIZATION_ID}', 'demo-user-alice', 'owner', NOW(), NOW())
+        ON CONFLICT (organization_id, user_id) DO NOTHING;"
+
+      # Seal /auth/bootstrap — DELETE on the singleton row makes the endpoint
+      # return 409 'already bootstrapped' for any subsequent install-token POST.
+      psql_exec "DELETE FROM bootstrap_state;"
+
+      echo "Bootstrap completed via --bootstrap-first:"
+      echo "  org      = ${ORGANIZATION_ID} (AxiaOps Demo)"
+      echo "  owner    = alice@axiaops.io (id=demo-user-alice)"
+      echo "  password = DEMO_USERS_PASSWORD"
+      echo "  /auth/bootstrap = sealed (409 on subsequent POSTs)"
+    else
+      echo "Error: no organization found in $REMOTE_ENV DB — bootstrap the first owner via the dashboard at https://axiaops-$REMOTE_ENV.local first so an organization row exists, then re-run."
+      echo "       Or, for ephemeral demo envs, pass --bootstrap-first --demo with DEMO_USERS_PASSWORD set."
+      exit 1
+    fi
+  else
+    echo "Using $REMOTE_ENV organization: ${ORGANIZATION_ID}"
+    if [[ "$BOOTSTRAP_FIRST" == "true" ]]; then
+      echo "Warning: --bootstrap-first specified but $REMOTE_ENV is already bootstrapped (org=${ORGANIZATION_ID}); skipping bootstrap step."
+    fi
   fi
-  echo "Using $REMOTE_ENV organization: ${ORGANIZATION_ID}"
 else
   ORGANIZATION_ID="$DEV_ORGANIZATION_ID_VAL"
   psql_exec "INSERT INTO organizations (id, org_code, name, created_at)
@@ -1125,14 +1204,82 @@ if [[ "$DEMO_MODE" == "true" ]]; then
     echo "Target user: $TARGET_USER_ID (dev user)"
   fi
 
-  # Owner membership for the target user in each demo org. Idempotent via the
-  # (organization_id, user_id) unique constraint.
+  # Target-user membership in each demo org. Role depends on whether personas
+  # are also being created: the schema enforces one owner per organization
+  # (memberships_one_owner_per_organization), so giving the bootstrap user
+  # 'owner' of Acme + Globex would block bob from owning Globex and carol from
+  # owning Acme in the persona block below.
+  #
+  # When DEMO_USERS_PASSWORD is set → personas are the owners; target user
+  # becomes 'viewer' (still able to switch into those orgs, just can't
+  # administer them).
+  # When unset (no personas) → target user keeps owner of Acme + Globex
+  # (the original --demo behaviour, before this MR).
+  if [[ -n "${DEMO_USERS_PASSWORD:-}" ]]; then
+    TARGET_DEMO_ROLE='viewer'
+  else
+    TARGET_DEMO_ROLE='owner'
+  fi
   for demo_org in "$ACME_ORG_ID" "$GLOBEX_ORG_ID"; do
     psql_exec "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at)
-      VALUES (gen_random_uuid()::text, '${demo_org}', '${TARGET_USER_ID}', 'owner', NOW(), NOW())
+      VALUES (gen_random_uuid()::text, '${demo_org}', '${TARGET_USER_ID}', '${TARGET_DEMO_ROLE}', NOW(), NOW())
       ON CONFLICT (organization_id, user_id) DO NOTHING;"
   done
-  echo "Memberships wired for $TARGET_USER_ID in Acme + Globex (owner each)."
+  echo "Memberships wired for $TARGET_USER_ID in Acme + Globex (${TARGET_DEMO_ROLE} each)."
+
+  # ── Demo personas: alice / bob / carol ────────────────────────────────────
+  # Three named users with a known password (sourced from $DEMO_USERS_PASSWORD,
+  # NEVER hardcoded in this script) so prospects + walk-through demos always
+  # log in as the same identifiable personas across reseeds. Membership shape
+  # demonstrates cross-org switching:
+  #   alice → owner  in AxiaOps Dev (the bootstrap org), viewer in Acme + Globex
+  #   bob   → owner  in Globex,                          viewer in AxiaOps Dev + Acme
+  #   carol → owner  in Acme,                            viewer in AxiaOps Dev + Globex
+  #
+  # If DEMO_USERS_PASSWORD is unset, this block prints a warning and skips
+  # user creation — useful for callers that only want the data seed
+  # (cost_records, snapshots, etc.) without minting login-capable accounts.
+  # See docs/demo-setup.md for the full rationale and operator workflow.
+  if [[ -n "${DEMO_USERS_PASSWORD:-}" ]]; then
+    echo "Hashing DEMO_USERS_PASSWORD via services/api/cmd/hash-password..."
+    DEMO_USERS_HASH=$(printf '%s' "${DEMO_USERS_PASSWORD}" | (cd "$REPO_ROOT" && go run ./services/api/cmd/hash-password)) || {
+      echo "Error: failed to hash DEMO_USERS_PASSWORD." >&2
+      echo "       Confirm the password is at least 12 characters and Go is on PATH." >&2
+      exit 1
+    }
+
+    psql_exec "INSERT INTO users (id, organization_id, external_id, email, name, password_hash, password_set_at, created_at, last_seen) VALUES
+      ('demo-user-alice', '${ORGANIZATION_ID}', 'demo:alice', 'alice@axiaops.io', 'Alice (FinOps Lead)',     '${DEMO_USERS_HASH}', NOW(), NOW(), NOW()),
+      ('demo-user-bob',   '${GLOBEX_ORG_ID}',   'demo:bob',   'bob@globex.io',    'Bob (Cloud Architect)',   '${DEMO_USERS_HASH}', NOW(), NOW(), NOW()),
+      ('demo-user-carol', '${ACME_ORG_ID}',     'demo:carol', 'carol@acme.io',    'Carol (Finance Lead)',    '${DEMO_USERS_HASH}', NOW(), NOW(), NOW())
+      ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, password_set_at = EXCLUDED.password_set_at;"
+
+    psql_exec "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at) VALUES
+      -- Alice: admin in the bootstrap org (the dev user / existing bootstrap
+      -- user keeps owner — schema is one-owner-per-org). With --bootstrap-first
+      -- alice IS the bootstrap user and is already owner from the earlier
+      -- block, so this 'admin' INSERT conflicts on (org, user) and DO NOTHING
+      -- leaves the owner seat alone.
+      (gen_random_uuid()::text, '${ORGANIZATION_ID}', 'demo-user-alice', 'admin',  NOW(), NOW()),
+      (gen_random_uuid()::text, '${ACME_ORG_ID}',     'demo-user-alice', 'viewer', NOW(), NOW()),
+      (gen_random_uuid()::text, '${GLOBEX_ORG_ID}',   'demo-user-alice', 'viewer', NOW(), NOW()),
+      -- Bob: owner in Globex, viewer in AxiaOps Dev + Acme
+      (gen_random_uuid()::text, '${GLOBEX_ORG_ID}',   'demo-user-bob',   'owner',  NOW(), NOW()),
+      (gen_random_uuid()::text, '${ORGANIZATION_ID}', 'demo-user-bob',   'viewer', NOW(), NOW()),
+      (gen_random_uuid()::text, '${ACME_ORG_ID}',     'demo-user-bob',   'viewer', NOW(), NOW()),
+      -- Carol: owner in Acme, viewer in AxiaOps Dev + Globex
+      (gen_random_uuid()::text, '${ACME_ORG_ID}',     'demo-user-carol', 'owner',  NOW(), NOW()),
+      (gen_random_uuid()::text, '${ORGANIZATION_ID}', 'demo-user-carol', 'viewer', NOW(), NOW()),
+      (gen_random_uuid()::text, '${GLOBEX_ORG_ID}',   'demo-user-carol', 'viewer', NOW(), NOW())
+      ON CONFLICT (organization_id, user_id) DO NOTHING;"
+
+    echo "Created demo personas: alice@axiaops.io / bob@globex.io / carol@acme.io"
+    echo "  Password sourced from DEMO_USERS_PASSWORD (not echoed)."
+  else
+    echo "Skipping demo personas (alice/bob/carol) — DEMO_USERS_PASSWORD not set."
+    echo "  Set DEMO_USERS_PASSWORD before re-running to mint login-capable demo users."
+    echo "  See docs/demo-setup.md for the recommended workflow."
+  fi
 
   # Copy the dev seed data into Acme + Globex. INSERT...SELECT with
   # REPLACE() on the seed-account-* prefix gives us acme-account-001 /
