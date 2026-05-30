@@ -17,52 +17,37 @@ const MARGIN = { top: 16, right: 20, bottom: 32, left: 56 };
 // Max rows to render in scan history list before paginating
 const LIST_PAGE_SIZE = 50;
 
-// ─── Downsampling ────────────────────────────────────────────────────────────
-// 7d/30d: every scan. 90d/6m: weekly avg. 1y: monthly avg.
+// ─── Aggregation ─────────────────────────────────────────────────────────────
+// Two view modes match the granularity toggle on the screen:
+//   - daily  → aggregateToDays(): one point per day, org-wide sum
+//   - monthly→ downsampleByMonth(): one point per month, mean of org-wide
+//             daily sums (same shape as the headline + CostAnalytics)
+// No auto-weekly bucketing — the user's explicit toggle choice is honored
+// end-to-end, mirroring how CostAnalyticsScreen renders. Previously a 90d
+// view on the "daily" toggle was silently weekly-bucketed, which made the
+// two screens render inconsistent shapes at the same period.
 
-function downsample(snaps, periodDays) {
-  if (periodDays <= 30 || snaps.length <= 30) return snaps;
-
-  // Group by bucket key (ISO week or month)
-  const bucketKey = periodDays <= 180
-    ? (iso) => {
-        // Week bucket: Monday of the ISO week
-        const d = new Date(iso);
-        const day = d.getUTCDay();
-        const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
-        const mon = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff));
-        return mon.toISOString().slice(0, 10);
-      }
-    : (iso) => {
-        // Month bucket
-        return new Date(iso).toISOString().slice(0, 7);
-      };
-
-  const buckets = new Map();
+// Group snapshots by day, sum across same-day scans (multi-account orgs
+// have multiple scans per day with distinct timestamps). One point per day,
+// org-wide total_monthly_cost rate.
+function aggregateToDays(snaps) {
+  if (!snaps || snaps.length === 0) return [];
+  const byDay = new Map();
   for (const s of snaps) {
-    const key = bucketKey(s.snapshot_at);
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(s);
+    const day = s.snapshot_at.slice(0, 10);
+    const existing = byDay.get(day);
+    if (existing) {
+      existing.total_monthly_cost += s.total_monthly_cost ?? 0;
+      existing.zombie_count += s.zombie_count ?? 0;
+    } else {
+      byDay.set(day, {
+        ...s,
+        total_monthly_cost: s.total_monthly_cost ?? 0,
+        zombie_count: s.zombie_count ?? 0,
+      });
+    }
   }
-
-  // Per-bucket aggregate: sum within each day first (so multi-account scans
-  // on the same day collapse to one org-wide value), then average those daily
-  // sums across the bucket. Without this two-step, the per-snapshot mean
-  // would understate the org-wide cost by a factor of N (number of accounts)
-  // in any deployment where accounts scan at different clock times within
-  // the day — the local seed avoids this by writing identical timestamps per
-  // day, but real prod scans don't. Same fix as the headline (which uses
-  // group-by-day-then-avg already).
-  return [...buckets.values()].map(group => {
-    const latest = group[group.length - 1];
-    const { costAvg, zombiesAvg } = aggregateBucket(group);
-    return {
-      ...latest,
-      total_monthly_cost: Math.round(costAvg * 100) / 100,
-      zombie_count: zombiesAvg,
-      _scanCount: group.length,
-    };
-  });
+  return [...byDay.values()].sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
 }
 
 // Group snapshots by calendar month — sum costs, sum zombie counts.
@@ -301,7 +286,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const filteredSnaps = allSnaps.filter(s => new Date(s.snapshot_at).getTime() >= cutoffMs);
   const chartSnaps    = effectiveGranularity === 'monthly'
     ? downsampleByMonth(filteredSnaps)
-    : downsample(filteredSnaps, period);
+    : aggregateToDays(filteredSnaps);
   const reversedSnaps = [...filteredSnaps].reverse();
 
   // Total CSV rows across all buckets (one row per snap per bucket, period-windowed).

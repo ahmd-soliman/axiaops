@@ -1031,9 +1031,13 @@ echo ""
 # ── Cost records ──────────────────────────────────────────────────────────────
 # Seed raw cost data (Cost Explorer API records) for testing cost filtering.
 # All accounts use the same AWS account ID (111111111111) matching seed script.
-# 23 realistic daily cost records across multiple services from the last 30 days.
+# generate_series writes one row per (account × service × resource_id) per
+# day for the full DAYS window — at DAYS=365 that's 365 × 14 = 5,110 rows.
+# The chart-sampling rules these rows feed into are documented in
+# docs/chart-sampling.md (sum across days/services for amounts, never
+# average — cost_records.amount is an actual, not a rate).
 
-echo "Inserting cost records for all accounts (last 30 days of records)..."
+echo "Inserting cost records for all accounts (last ${DAYS} days of records)..."
 
 psql_exec "DELETE FROM cost_records WHERE account_id = '${AWS_ACCT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
