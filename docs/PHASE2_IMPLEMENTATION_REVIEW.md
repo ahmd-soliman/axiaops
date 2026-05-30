@@ -455,65 +455,20 @@ APP_VERSION=1.0.0                       # release tag
 | Rate limiting | ✅ Done | Per-tenant token bucket; 60 req/min |
 | API versioning | ✅ Done | All endpoints use `/v1/` prefix |
 | Health endpoint | ✅ Done | Basic; extend for dependency checks |
-| Graceful shutdown | ❌ TODO | SIGTERM handling not yet implemented |
-| GitLab CI pipeline | ⏳ PARTIAL | Test stage done; build/deploy stages needed |
+| Graceful shutdown | ✅ Done | SIGTERM via `signal.NotifyContext` + `server.Shutdown`; 30s drain |
+| GitLab CI pipeline | ✅ Done | Test, build, and deploy stages wired; manual gates on all deploy jobs |
 
 ---
 
 ## 7. Known Issues / Gaps
 
-### 7.1 Graceful Shutdown Missing
+### 7.1 ~~Graceful Shutdown Missing~~ (Resolved)
 
-Both `services/api/cmd/main.go` and `services/ingestion/cmd/main.go` still use:
-```go
-if err := http.ListenAndServe(addr, logged); err != nil {
-    die("api: server error", "error", err)
-}
-```
+Implemented in `services/api/cmd/main.go` and `services/ingestion/cmd/main.go` via `signal.NotifyContext` + `server.Shutdown` with a 30-second drain timeout.
 
-This needs:
-```go
-ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
-server := &http.Server{Addr: addr, Handler: logged}
-go func() {
-    <-ctx.Done()
-    shutdownCtx, _ := context.WithTimeout(context.Background(), 30*time.Second)
-    server.Shutdown(shutdownCtx)
-}()
-if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-    die(...)
-}
-```
+### 7.2 ~~Health Endpoint Not Extended~~ (Resolved)
 
-### 7.2 Health Endpoint Not Extended
-
-Current implementation is minimal. Should add:
-```go
-func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
-    // Check DB connectivity
-    ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-    defer cancel()
-    if err := h.store.Ping(ctx); err != nil {
-        writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-            "status": "unhealthy",
-            "reason": "database unavailable",
-        })
-        return
-    }
-    
-    // Check ingestion service
-    resp, err := http.Get(h.ingestionURL + "/health")
-    if err != nil || resp.StatusCode != 200 {
-        writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-            "status": "unhealthy",
-            "reason": "ingestion service unavailable",
-        })
-        return
-    }
-    
-    writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-```
+`/health` pings the DB (503 if unreachable). `/readyz` pings the DB and reports Redis status. `/livez` is always 200 for orchestrator instance health.
 
 ### 7.3 Rate Limiter Doesn't Survive Restarts
 
