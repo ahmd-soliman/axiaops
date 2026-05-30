@@ -619,10 +619,117 @@ func detectDrift(ctx context.Context, conn *sql.Conn, efs fs.FS, idx *migrationF
 	return nil
 }
 
+// reapplyDirty recovers from a `migration_state.dirty=true` left by a previous
+// boot's mid-step crash by idempotently re-applying the dirty version's up.sql.
+//
+// Why this exists: before this function, the apply loop ran m.Version() →
+// (V, true) → nextPendingUp(V, true) → 'no pending version > V' → loop exit.
+// The dirty pointer was never reconsidered. `golang-migrate.Steps(1)` would
+// have returned ErrDirty, but we never reached the call. Net effect: a
+// half-applied migration's GRANTs / policies / late statements stayed missing
+// across every subsequent boot, the api silently served a broken role, and the
+// only way to recover was a manual `axiaopsctl migrate force N` + re-deploy.
+// Production incident 2026-05-30 (alpha.20's `ALTER ROLE NOSUPERUSER` reject
+// on RDS — fixed in source by alpha.21's d20e6b10 hotfix, but never re-applied
+// to prod because of this skip-on-dirty bug).
+//
+// Why auto-retry is safe in this codebase: every migration under
+// `services/shared/storage/postgres/migrations/` is written idempotent —
+// `IF NOT EXISTS` for CREATE TABLE/ROLE, `IF EXISTS` for DROP, GRANT (naturally
+// idempotent), `DROP POLICY IF EXISTS` before `CREATE POLICY`, etc. Re-running
+// a fully-applied migration is a sequence of no-ops; re-running a half-applied
+// one completes the missing tail. If a migration is ever added that is NOT
+// idempotent, the safe pattern is to refactor it to be so — not to disable
+// this recovery path.
+//
+// Mechanics: we use golang-migrate's `Force(V-1)` to rewind the pointer one
+// step (this writes migration_state, runs no SQL), then `Steps(1)` to advance
+// back to V by running its up.sql. On success the engine ends at (V, false).
+// On failure the engine ends at (V, true) — exactly where we started, so a
+// future boot can recover again. We wrap the entire reapply in a new
+// `migration_history` row keyed `direction='up'` with a clear error_message
+// trail if it fails — operators see the recovery attempt and its outcome.
+//
+// What this will NOT auto-recover:
+//   - Dirty at a version that's no longer in the embedded migrations index
+//     (someone deleted N.up.sql after it half-applied in prod). Bails loudly;
+//     operator must `axiaopsctl migrate force N` after manual investigation.
+//   - Dirty at v=1 (Force(0) is supported by golang-migrate as "no version",
+//     but Steps(1) re-applies whatever's first; functionally identical to a
+//     fresh boot on an empty pointer, so the guard is just "v>=1 = recover").
+func reapplyDirty(ctx context.Context, conn *sql.Conn, m *migrate.Migrate, efs fs.FS, idx *migrationFSIndex, ident runtimeIdentity) error {
+	smVer, smDirty, smHasRow, err := migrationStateRead(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if !smHasRow || !smDirty {
+		return nil
+	}
+	v := uint(smVer)
+	mf, ok := idx.byVersion[v]
+	if !ok {
+		// The embedded source doesn't have this version anymore (file deleted
+		// between releases). Auto-retry would advance to a different version
+		// than the one marked dirty, leaving the recorded pointer wrong.
+		// Operator action required.
+		return fmt.Errorf("migration_history: migration_state dirty=true at v=%d but version not in embedded index; manual recovery required (axiaopsctl migrate force N after investigation)", v)
+	}
+	_, sha, err := idx.readBytes(efs, v, "up")
+	if err != nil {
+		return err
+	}
+	slog.Warn("migration_state: dirty=true at boot; re-applying idempotently",
+		"version", v, "name", mf.name)
+
+	started := time.Now().UTC()
+	id, err := recordStarted(ctx, conn, v, mf.name, "up", sha, ident)
+	if err != nil {
+		return err
+	}
+
+	// Rewind one step. Writes (V-1, false) to migration_state; runs no SQL.
+	if err := m.Force(int(smVer) - 1); err != nil {
+		_ = completeRow(ctx, conn, id, "failed", started,
+			truncateError(fmt.Errorf("rewind force(v-1): %w", err)), true, true)
+		return fmt.Errorf("migration_history: dirty recovery for v=%d: rewind failed: %w", v, err)
+	}
+
+	// Re-advance by running v's up.sql. golang-migrate writes (V, false) on
+	// success or (V, true) on failure — same posture as a fresh first apply.
+	stepErr := m.Steps(1)
+	var shortLimit migrate.ErrShortLimit
+	if errors.Is(stepErr, migrate.ErrNoChange) || errors.As(stepErr, &shortLimit) {
+		_ = completeRow(ctx, conn, id, "failed", started,
+			"library returned no-change despite rewound state — manual recovery required", false, true)
+		return fmt.Errorf("migration_history: dirty recovery for v=%d: library returned %w after rewind", v, stepErr)
+	}
+	_, dirtyAfter, smHasRow2, smErr := migrationStateRead(ctx, conn)
+	if smErr != nil {
+		return smErr
+	}
+	if stepErr != nil {
+		_ = completeRow(ctx, conn, id, "failed", started, truncateError(stepErr), dirtyAfter, smHasRow2)
+		return fmt.Errorf("migration_history: dirty recovery for v=%d: re-apply still failing: %w", v, stepErr)
+	}
+	if cerr := completeRow(ctx, conn, id, "succeeded", started, "", dirtyAfter, smHasRow2); cerr != nil {
+		return cerr
+	}
+	slog.Warn("migration_state: dirty=true cleared by idempotent re-apply",
+		"version", v, "name", mf.name, "history_id", id)
+	return nil
+}
+
 // runUpLoop applies all pending up migrations one step at a time, recording a
 // history row around each. Caller has already acquired the wrapper-level
 // advisory lock and finished orphan recovery / backfill / drift detection.
+//
+// The dirty-state recovery pass runs first: if a previous boot's mid-step
+// crash left `migration_state.dirty=true`, we idempotently re-apply that
+// version before considering newer pending migrations. See reapplyDirty.
 func runUpLoop(ctx context.Context, conn *sql.Conn, m *migrate.Migrate, efs fs.FS, idx *migrationFSIndex, ident runtimeIdentity) error {
+	if err := reapplyDirty(ctx, conn, m, efs, idx, ident); err != nil {
+		return err
+	}
 	for {
 		current, _, vErr := m.Version()
 		hasCurrent := true
