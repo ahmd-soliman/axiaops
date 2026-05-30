@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging inspect-db clean-db clean-db-drop clean-db-files clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging seed-remote-preview seed-remote-demo seed-remote-integration inspect-db clean-db clean-db-drop clean-db-files clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-preview clean-remote-demo clean-remote-integration clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop clean-remote-preview-drop clean-remote-demo-drop clean-remote-integration-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -132,6 +132,9 @@ seed-remote-preview:
 seed-remote-demo:
 	./scripts/seed_test_data.sh --remote demo
 
+seed-remote-integration:
+	./scripts/seed_test_data.sh --remote integration
+
 inspect-db:
 	./scripts/inspect_db.sh
 
@@ -184,6 +187,9 @@ clean-remote-preview:
 clean-remote-demo:
 	./scripts/clean_db.sh --remote demo
 
+clean-remote-integration:
+	./scripts/clean_db.sh --remote integration
+
 # Drop schema and user (destructive — requires re-running migrations).
 clean-remote-dev-1-drop:
 	./scripts/clean_db.sh --remote dev-1 --drop-schema
@@ -199,6 +205,9 @@ clean-remote-preview-drop:
 
 clean-remote-demo-drop:
 	./scripts/clean_db.sh --remote demo --drop-schema
+
+clean-remote-integration-drop:
+	./scripts/clean_db.sh --remote integration --drop-schema
 
 # Per-service test targets — each mirrors the matching CI job (test:shared, test:api, test:ingestion).
 # Running one target locally reproduces exactly what CI runs for that job.

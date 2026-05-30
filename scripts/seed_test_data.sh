@@ -64,9 +64,9 @@ while [[ $# -gt 0 ]]; do
       shift
       REMOTE_ENV="${1:-}"
       case "$REMOTE_ENV" in
-        dev-1|dev-2|staging|preview|demo) ;;
+        dev-1|dev-2|staging|preview|demo|integration) ;;
         *)
-          echo "Error: --remote requires 'dev-1', 'dev-2', 'staging', 'preview', or 'demo', got '$REMOTE_ENV'"
+          echo "Error: --remote requires 'dev-1', 'dev-2', 'staging', 'preview', 'demo', or 'integration', got '$REMOTE_ENV'"
           exit 1
           ;;
       esac
@@ -125,11 +125,12 @@ if [[ -n "$REMOTE_ENV" ]]; then
   # from a LAN-attached laptop). The script itself sticks to IPs to
   # avoid the resolver-dependency surface.
   case "$REMOTE_ENV" in
-    dev-1)   HOST_IP="192.168.1.121" ;;
-    dev-2)   HOST_IP="192.168.1.123" ;;
-    staging) HOST_IP="192.168.1.122" ;;
-    preview) HOST_IP="192.168.1.124" ;;
-    demo)    HOST_IP="192.168.1.126" ;;
+    dev-1)       HOST_IP="192.168.1.121" ;;
+    dev-2)       HOST_IP="192.168.1.123" ;;
+    staging)     HOST_IP="192.168.1.122" ;;
+    preview)     HOST_IP="192.168.1.124" ;;
+    demo)        HOST_IP="192.168.1.126" ;;
+    integration) HOST_IP="192.168.1.130" ;;
   esac
   DB_PORT=5432
 
@@ -250,7 +251,7 @@ PERIOD_END="$NOW"
 # AUTH_ON_ENVS = the set where the API requires real auth and creates real
 # org rows via the native bootstrap flow. Keep in sync with DEV_MODE settings
 # in deploy/{env}.yml — if you flip an env's DEV_MODE here, mirror it there.
-AUTH_ON_ENVS_REGEX="^(staging|preview|demo)$"
+AUTH_ON_ENVS_REGEX="^(staging|preview|demo|integration)$"
 
 if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX ]]; then
   ORGANIZATION_ID=$(psql_query "SELECT id FROM organizations ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
@@ -910,7 +911,7 @@ echo ""
 # production scan flow where both SaveZombies and SaveSnapshot run off one
 # analyzer.Summarize(zombies) call. See issue #91.
 
-DAYS=90
+DAYS=365
 echo "Inserting zombie snapshots derived from zombie_records (${DAYS} days × 3 accounts)..."
 
 # Clean old seed snapshot data first. The FK on zombie_snapshot_services.snapshot_id
@@ -1031,57 +1032,61 @@ echo ""
 # ── Cost records ──────────────────────────────────────────────────────────────
 # Seed raw cost data (Cost Explorer API records) for testing cost filtering.
 # All accounts use the same AWS account ID (111111111111) matching seed script.
-# 23 realistic daily cost records across multiple services from the last 30 days.
+# generate_series writes one row per (account × service × resource_id) per
+# day for the full DAYS window — at DAYS=365 that's 365 × 14 = 5,110 rows.
+# The chart-sampling rules these rows feed into are documented in
+# docs/chart-sampling.md (sum across days/services for amounts, never
+# average — cost_records.amount is an actual, not a rate).
 
-echo "Inserting cost records for all accounts (last 30 days of records)..."
+echo "Inserting cost records for all accounts (last ${DAYS} days of records)..."
 
 psql_exec "DELETE FROM cost_records WHERE account_id = '${AWS_ACCT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_pipe << EOF
+-- One row per (account × service × resource_id) per day for the full
+-- DAYS-day window. Jittered amounts (±15%) around the per-resource base
+-- value so chip selections (7d / 30d / 90d / 6m / 1y) produce visibly
+-- different totals AND the chart shows a meaningful daily-spend shape
+-- end-to-end without the kink that an earlier hand-written-vs-generated
+-- split introduced at days 1..3.
+--
+-- The hand-written specific-value block this replaces had ~22 records
+-- tied to particular zombie stories (i-0abc123prod0001 etc.); those
+-- demoed resource_ids still live in zombie_records / resource_records
+-- (the cost rows were just mirror data). The story-tied values are not
+-- consumed by any test.
+--
+-- setseed makes the jitter deterministic across re-runs. The outer
+-- setseed(0.42) at the snapshot psql_pipe doesn't carry over — each
+-- psql_pipe call is a new session — so we re-seed here.
+DO \$\$ BEGIN PERFORM setseed(0.42); END \$\$;
 INSERT INTO cost_records
   (organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency, period_start, period_end, tags, fetched_at)
-VALUES
-  -- Daily EC2 costs (3 samples from last 30 days)
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 45.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 47.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 46.80, 'USD', NOW() - interval '1 day', NOW(), '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonEC2', 'us-east-1', 'i-0abc123stg0001', 38.20, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonEC2', 'us-east-1', 'i-0abc123stg0001', 39.10, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AmazonEC2', 'eu-west-1', 'i-0abc123dev0001', 22.80, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- Daily RDS costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonRDS', 'eu-central-1', 'db-prod-legacy-reporting', 210.40, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonRDS', 'eu-central-1', 'db-prod-legacy-reporting', 212.10, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AmazonRDS', 'eu-west-1', 'db-dev-abandoned', 89.10, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- S3 costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonS3', 'eu-central-1', 'prod-data-lake-bucket', 23.75, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonS3', 'eu-central-1', 'prod-data-lake-bucket', 24.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonS3', 'us-east-1', 'staging-backups', 15.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- CloudFront costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonCloudFront', 'us-east-1', 'E1PROD0ABANDONED', 18.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonCloudFront', 'us-east-1', 'E1PROD0ABANDONED', 19.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonCloudFront', 'us-east-1', 'E2STG0OLDSITE', 8.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- Lambda costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSLambda', 'us-east-1', 'stg-image-resizer', 4.10, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSLambda', 'us-east-1', 'stg-image-resizer', 4.35, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AWSLambda', 'eu-west-1', 'dev-unused-email-sender', 2.30, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- ELB costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod', 18.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod', 18.75, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-
-  -- VPC NAT Gateway costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonVPC', 'eu-central-1', 'nat-abc123prod', 32.40, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonVPC', 'eu-central-1', 'nat-abc123prod', 31.80, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-
-  -- Data Transfer costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSDataTransfer', 'us-east-1', 'data-transfer-out', 12.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- Tax (simulated)
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'Tax', 'NoRegion', 'vat', 1.42, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW')
+SELECT
+  '${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}',
+  src.internal_account_id, src.service, src.region, src.resource_id,
+  ROUND((src.base_amount * (0.85 + random() * 0.30))::numeric, 2),
+  'USD',
+  NOW() - (d.day || ' days')::interval,
+  NOW() - ((d.day - 1) || ' days')::interval,
+  '{}'::jsonb, '$NOW'
+FROM generate_series(1, ${DAYS}) AS d(day)
+CROSS JOIN (VALUES
+  ('${ACCT1}', 'AmazonEC2',                  'eu-central-1', 'i-0abc123prod0001',          46.50),
+  ('${ACCT1}', 'AmazonRDS',                  'eu-central-1', 'db-prod-legacy-reporting',  211.00),
+  ('${ACCT1}', 'AmazonS3',                   'eu-central-1', 'prod-data-lake-bucket',      24.00),
+  ('${ACCT1}', 'AmazonCloudFront',           'us-east-1',    'E1PROD0ABANDONED',           19.00),
+  ('${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod',  18.50),
+  ('${ACCT1}', 'AmazonVPC',                  'eu-central-1', 'nat-abc123prod',             32.00),
+  ('${ACCT2}', 'AmazonEC2',                  'us-east-1',    'i-0abc123stg0001',           38.50),
+  ('${ACCT2}', 'AmazonS3',                   'us-east-1',    'staging-backups',            15.50),
+  ('${ACCT2}', 'AmazonCloudFront',           'us-east-1',    'E2STG0OLDSITE',               8.50),
+  ('${ACCT2}', 'AWSLambda',                  'us-east-1',    'stg-image-resizer',           4.20),
+  ('${ACCT2}', 'AWSDataTransfer',            'us-east-1',    'data-transfer-out',          12.50),
+  ('${ACCT3}', 'AmazonEC2',                  'eu-west-1',    'i-0abc123dev0001',           22.80),
+  ('${ACCT3}', 'AmazonRDS',                  'eu-west-1',    'db-dev-abandoned',           89.10),
+  ('${ACCT3}', 'AWSLambda',                  'eu-west-1',    'dev-unused-email-sender',     2.30)
+) AS src(internal_account_id, service, region, resource_id, base_amount)
 ON CONFLICT DO NOTHING;
 EOF
 
@@ -1333,9 +1338,9 @@ SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshot_services WHERE orga
 COST_COUNT=$(psql_query "SELECT COUNT(*) FROM cost_records WHERE organization_id = '${ORGANIZATION_ID}';" 2>/dev/null || echo "n/a")
 echo "Dev organization zombie records:      $ZOMBIE_COUNT  (expected 41)"
 echo "Dev organization resource records:    $RESOURCE_COUNT  (expected 33)"
-echo "Dev organization zombie snapshots:    $SNAPSHOT_COUNT  (expected 270)"
+echo "Dev organization zombie snapshots:    $SNAPSHOT_COUNT  (expected $((DAYS * 3)))"
 echo "Dev organization snapshot services:   $SVC_COUNT"
-echo "Dev organization cost records:        $COST_COUNT  (expected 21)"
+echo "Dev organization cost records:        $COST_COUNT  (expected $((DAYS * 14)))"
 echo ""
 
 # Hard row-count gate before the gap-math invariants below. Without this, an
@@ -1345,8 +1350,9 @@ echo ""
 # silent-passing through a gap-of-\$0.00 false positive.
 SEED_SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshots WHERE id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
 SEED_SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
-if [[ "$SEED_SNAPSHOT_COUNT" -ne 270 ]]; then
-  echo "  snapshot count: FAIL ($SEED_SNAPSHOT_COUNT seed rows, expected 270)" >&2
+EXPECTED_SNAPSHOTS=$((DAYS * 3))   # 3 dev accounts × DAYS days
+if [[ "$SEED_SNAPSHOT_COUNT" -ne "$EXPECTED_SNAPSHOTS" ]]; then
+  echo "  snapshot count: FAIL ($SEED_SNAPSHOT_COUNT seed rows, expected $EXPECTED_SNAPSHOTS)" >&2
   echo "                  Issue #91 invariant verification would silently pass with no rows; aborting." >&2
   exit 1
 fi
