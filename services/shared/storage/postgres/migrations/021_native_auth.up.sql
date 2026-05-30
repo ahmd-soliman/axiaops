@@ -53,7 +53,7 @@ CREATE UNIQUE INDEX users_email_lower_unique
 --      (cryptographically-random) token to retrieve the row.
 -- Session middleware sets app.organization_id from sessions.organization_id
 -- AFTER lookup, before any subsequent handler-level query runs.
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
     id                  TEXT        PRIMARY KEY,
     user_id             TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     organization_id     TEXT        NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -66,8 +66,8 @@ CREATE TABLE sessions (
     ip                  INET,
     user_agent_hash     TEXT
 );
-CREATE INDEX sessions_user_idx     ON sessions (user_id);
-CREATE INDEX sessions_expires_idx  ON sessions (expires_at) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS sessions_user_idx     ON sessions (user_id);
+CREATE INDEX IF NOT EXISTS sessions_expires_idx  ON sessions (expires_at) WHERE revoked_at IS NULL;
 -- (no sessions_token_idx — the UNIQUE constraint on session_token_hash creates the index)
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON sessions TO axiaops;
@@ -76,7 +76,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON sessions TO axiaops;
 -- Single-use, time-bounded reset tokens. Admin-mediated in v1 (decision D4).
 -- RLS NOT enabled — same capability-based reasoning as `sessions`. The
 -- redeem endpoint looks up by token_hash before any org context exists.
-CREATE TABLE password_resets (
+CREATE TABLE IF NOT EXISTS password_resets (
     id                  TEXT        PRIMARY KEY,
     user_id             TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     organization_id     TEXT        NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -86,8 +86,8 @@ CREATE TABLE password_resets (
     redeemed_at         TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX password_resets_user_idx     ON password_resets (user_id);
-CREATE INDEX password_resets_expires_idx  ON password_resets (expires_at) WHERE redeemed_at IS NULL;
+CREATE INDEX IF NOT EXISTS password_resets_user_idx     ON password_resets (user_id);
+CREATE INDEX IF NOT EXISTS password_resets_expires_idx  ON password_resets (expires_at) WHERE redeemed_at IS NULL;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON password_resets TO axiaops;
 
@@ -101,7 +101,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON password_resets TO axiaops;
 -- Why a table and not just a sentinel file: replicas don't share filesystems
 -- in containerised deployments, and we need exactly-once token generation
 -- across the cluster. PG is the only shared coordination point AxiaOps has.
-CREATE TABLE bootstrap_state (
+CREATE TABLE IF NOT EXISTS bootstrap_state (
     id                  TEXT        PRIMARY KEY DEFAULT 'singleton'
                                     CHECK (id = 'singleton'),  -- enforces ≤1 row
     token_hash          TEXT        NOT NULL,
