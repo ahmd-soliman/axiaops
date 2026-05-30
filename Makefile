@@ -39,10 +39,11 @@ start-dev: stop migrate
 # scan queue worker). Mirrors the deployed environment — use this when
 # debugging auth flows, Redis-backed features, or container parity issues.
 # Dashboard is served by nginx on plain HTTP at http://localhost:8082;
-# TLS termination is the edge proxy's job in real deployments (App Runner,
-# the on-prem reverse proxy in front of dev/staging) and is intentionally
-# absent locally. The session cookie is non-Secure when accessed over
-# plain HTTP, which is correct for direct-port access.
+# TLS termination is the edge proxy's job in real deployments (CloudFront in
+# front of the prod ECS Express ALB, customer ingress, an edge proxy in front of
+# dev/staging) and is intentionally absent locally. The session cookie is
+# non-Secure when accessed over plain HTTP, which is correct for
+# direct-port access.
 # Always runs `stop` first so host-mode services and stale containers are cleared.
 start-staging: stop migrate
 	@# Inject the embedded dev fixture as AXIAOPS_LICENSE so the api boots

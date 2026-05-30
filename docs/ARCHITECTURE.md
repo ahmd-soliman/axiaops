@@ -185,7 +185,7 @@ flowchart LR
     end
 
     subgraph aws_prod["AWS (production)"]
-        appr["App Runner<br/>(scales to zero)"]
+        ecs["ECS Express<br/>(Fargate, always-on)"]
         rds[("RDS db.t4g.micro")]
     end
 
@@ -197,7 +197,7 @@ flowchart LR
     runner -.->|"docker pull / compose up<br/>over SSH tunnel"| d1stack
     runner -.->|over SSH| d2stack
     runner -.->|over SSH| stgstack
-    appr -->|VPC| rds
+    ecs -->|VPC| rds
 
     classDef host fill:#F5F5F4,stroke:#D6D3D1
     class d1,d2,stg host
