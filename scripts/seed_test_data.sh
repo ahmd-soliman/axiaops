@@ -910,7 +910,7 @@ echo ""
 # production scan flow where both SaveZombies and SaveSnapshot run off one
 # analyzer.Summarize(zombies) call. See issue #91.
 
-DAYS=90
+DAYS=365
 echo "Inserting zombie snapshots derived from zombie_records (${DAYS} days × 3 accounts)..."
 
 # Clean old seed snapshot data first. The FK on zombie_snapshot_services.snapshot_id
@@ -1369,7 +1369,7 @@ SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshot_services WHERE orga
 COST_COUNT=$(psql_query "SELECT COUNT(*) FROM cost_records WHERE organization_id = '${ORGANIZATION_ID}';" 2>/dev/null || echo "n/a")
 echo "Dev organization zombie records:      $ZOMBIE_COUNT  (expected 41)"
 echo "Dev organization resource records:    $RESOURCE_COUNT  (expected 33)"
-echo "Dev organization zombie snapshots:    $SNAPSHOT_COUNT  (expected 270)"
+echo "Dev organization zombie snapshots:    $SNAPSHOT_COUNT  (expected $((DAYS * 3)))"
 echo "Dev organization snapshot services:   $SVC_COUNT"
 echo "Dev organization cost records:        $COST_COUNT  (expected 21)"
 echo ""
@@ -1381,8 +1381,9 @@ echo ""
 # silent-passing through a gap-of-\$0.00 false positive.
 SEED_SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshots WHERE id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
 SEED_SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
-if [[ "$SEED_SNAPSHOT_COUNT" -ne 270 ]]; then
-  echo "  snapshot count: FAIL ($SEED_SNAPSHOT_COUNT seed rows, expected 270)" >&2
+EXPECTED_SNAPSHOTS=$((DAYS * 3))   # 3 dev accounts × DAYS days
+if [[ "$SEED_SNAPSHOT_COUNT" -ne "$EXPECTED_SNAPSHOTS" ]]; then
+  echo "  snapshot count: FAIL ($SEED_SNAPSHOT_COUNT seed rows, expected $EXPECTED_SNAPSHOTS)" >&2
   echo "                  Issue #91 invariant verification would silently pass with no rows; aborting." >&2
   exit 1
 fi
