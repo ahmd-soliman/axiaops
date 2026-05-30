@@ -108,49 +108,74 @@ func setOrganization(ctx context.Context, tx pgx.Tx) error {
 	return err
 }
 
-// Save inserts cost records in a single transaction, skipping duplicates.
-func (s *Store) Save(ctx context.Context, records []model.CostRecord) (int64, error) {
+// Save upserts cost records in a single transaction. Rows whose conflict key
+// (organization_id, provider, account_id, service, region, resource_id,
+// period_start, period_end) already exists have their amount, currency, tags,
+// fetched_at, and internal_account_id refreshed from the incoming payload —
+// this is how AWS Cost Explorer's late-settled NetAmortizedCost for day-1 of a
+// billing period reaches the database under the rolling 30-day re-fetch
+// window. See docs/cost-records-upsert-plan.md.
+//
+// The internal_account_id column uses COALESCE so a re-fetch that omits the
+// field never clobbers a populated legacy value (the column was added in
+// migration 010 without NOT NULL).
+//
+// Returns the count of rows that were fresh inserts and the count that were
+// updates, discriminated via the PostgreSQL upsert idiom RETURNING (xmax = 0):
+// xmax is 0 for a brand-new row and non-zero for a row touched by the current
+// transaction's update path.
+func (s *Store) Save(ctx context.Context, records []model.CostRecord) (inserted, updated int64, err error) {
 	organizationID := storage.OrganizationIDFromCtx(ctx)
 	if organizationID == "" {
-		return 0, fmt.Errorf("postgres: organization_id missing from context")
+		return 0, 0, fmt.Errorf("postgres: organization_id missing from context")
 	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("postgres: begin tx: %w", err)
+		return 0, 0, fmt.Errorf("postgres: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := setOrganization(ctx, tx); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
-	var inserted int64
 	for _, r := range records {
 		tags, err := json.Marshal(r.Tags)
 		if err != nil {
-			return 0, fmt.Errorf("postgres: marshal tags: %w", err)
+			return 0, 0, fmt.Errorf("postgres: marshal tags: %w", err)
 		}
-		res, err := tx.Exec(ctx, `
+		var wasInsert bool
+		err = tx.QueryRow(ctx, `
 			INSERT INTO cost_records
 				(organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency,
 				 period_start, period_end, tags, fetched_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 			ON CONFLICT (organization_id, provider, account_id, service, region, resource_id, period_start, period_end)
-			DO NOTHING`,
+			DO UPDATE SET
+				amount              = EXCLUDED.amount,
+				currency            = EXCLUDED.currency,
+				tags                = EXCLUDED.tags,
+				fetched_at          = EXCLUDED.fetched_at,
+				internal_account_id = COALESCE(EXCLUDED.internal_account_id, cost_records.internal_account_id)
+			RETURNING (xmax = 0)`,
 			organizationID,
 			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID,
 			r.Amount, r.Currency,
 			r.PeriodStart, r.PeriodEnd,
 			string(tags), r.FetchedAt,
-		)
+		).Scan(&wasInsert)
 		if err != nil {
-			return 0, fmt.Errorf("postgres: insert cost record: %w", err)
+			return 0, 0, fmt.Errorf("postgres: upsert cost record: %w", err)
 		}
-		inserted += res.RowsAffected()
+		if wasInsert {
+			inserted++
+		} else {
+			updated++
+		}
 	}
 
-	return inserted, tx.Commit(ctx)
+	return inserted, updated, tx.Commit(ctx)
 }
 
 // SaveZombies replaces the organization's zombie records for the specified accounts with the latest detection results.
