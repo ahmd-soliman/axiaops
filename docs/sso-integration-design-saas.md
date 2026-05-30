@@ -334,7 +334,7 @@ Different shape from sibling §11.8 because we re-process customer billing/usage
 - **CC6.1 (logical access)**: same audit-log evidence + Kinde's SOC 2 covers the auth control.
 - **CC6.6 (boundary defence)**: enforcement=required closes the social-login bypass.
 - **GDPR Art. 32**: encryption at rest of IdP secrets satisfies the technical-measures clause; multi-tenant RLS provides organizational isolation.
-- **CC7.x (system operations)**: now in scope because we operate customer billing-data infrastructure (App Runner, RDS).
+- **CC7.x (system operations)**: now in scope because we operate customer billing-data infrastructure (ECS Express, RDS).
 
 The SaaS SKU's SOC 2 scope is **wider** than self-hosted — because we hold customer data, we evidence more controls. Reactivate `Tasks.md` Phase 3 #17 (multi-tenant SOC 2 Type II) when this doc is reactivated.
 
@@ -344,7 +344,7 @@ The SaaS SKU's SOC 2 scope is **wider** than self-hosted — because we hold cus
 
 Required disclosures:
 - Kinde — authentication, identity broker (sub-processor for ALL SaaS customers).
-- AWS — infrastructure (App Runner, RDS, ElastiCache).
+- AWS — infrastructure (ECS Express, RDS, ElastiCache).
 - Resend / Postmark / SendGrid (whichever picked) — transactional email.
 - Sentry / similar — error monitoring.
 
@@ -365,7 +365,7 @@ The implementation-plan D5 install-token bootstrap (`bootstrap_state` table, `BO
 The two SKUs are **separate deployments built from one codebase**:
 
 - Self-hosted: `cmd/api-selfhosted` (default). Native auth. Customer runs the binary.
-- SaaS: `cmd/api-saashosted`. Kinde auth. AxiaOps Inc runs the binary on App Runner.
+- SaaS: `cmd/api-saashosted`. Kinde auth. AxiaOps Inc runs the binary on ECS Express.
 
 **Customers do not move between SKUs.** A customer signed up on AxiaOps Cloud cannot drop into self-hosted without re-signing-up on the self-hosted instance (or vice versa). Cross-SKU migration tooling is **out of scope for SaaS reactivation v1**; revisit if customers ask.
 

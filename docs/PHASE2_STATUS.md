@@ -88,11 +88,11 @@ All May 2026 milestone items and most June 2026 items are in `main`.
 > is unchanged — wire-protocol surfaces stay redis-named on purpose; only the
 > container image + container name + `redis-cli`→`valkey-cli` invocations
 > flipped. Entries below were written pre-migration; the architecture they
-> describe is identical, just with `valkey/valkey:8-alpine` as the running
+> describe is identical, just with `valkey/valkey:8.1-alpine` as the running
 > image.
 
 **Shipped:**
-- `valkey/valkey:8-alpine` in `docker-compose.yml` with `valkey-cli ping` healthcheck (was `redis:7-alpine` + `redis-cli ping` pre-migration).
+- `valkey/valkey:8.1-alpine` in `docker-compose.yml` with `valkey-cli ping` healthcheck (was `redis:7-alpine` + `redis-cli ping` pre-migration).
 - `REDIS_URL` threaded into api + ingestion service env.
 - Unified `Cache` interface at `services/shared/cache/cache.go` with Redis and in-memory implementations.
 - Unified queue interface at `services/shared/queue/queue.go` — Redis-backed scan queue, synchronous fallback.
