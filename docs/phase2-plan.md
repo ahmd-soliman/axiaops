@@ -217,7 +217,7 @@ table doesn't exist yet), and the timeout is hard-coded.
 > **Note (2026-05-27):** the cache engine migrated to Valkey across all envs
 > via `chore/valkey-migration`. Snippets below were written pre-migration and
 > reference `redis:7-alpine` / `redis-cli` / `redis-server`; the current
-> equivalents are `valkey/valkey:8-alpine` / `valkey-cli` / `valkey-server`.
+> equivalents are `valkey/valkey:8.1-alpine` / `valkey-cli` / `valkey-server`.
 > Wire-protocol surfaces (`REDIS_URL`, `redis://` URL scheme, the `redis`
 > compose service name used as hostname in `redis://redis:6379`, the
 > `/readyz` `"redis"` key) intentionally stay — Valkey speaks RESP and the
@@ -225,7 +225,7 @@ table doesn't exist yet), and the timeout is hard-coded.
 
 ### B.0 Current state
 
-- `docker-compose.yml:3-23` has `valkey/valkey:8-alpine` (was `redis:7-alpine`) with a `valkey-cli ping` healthcheck.
+- `docker-compose.yml:3-23` has `valkey/valkey:8.1-alpine` (was `redis:7-alpine`) with a `valkey-cli ping` healthcheck.
 - `REDIS_URL: redis://redis:6379` is threaded into both api and ingestion services
   (`docker-compose.yml:70, 128`). The compose service is still named `redis:` so the URL host resolves; the container is `axiaops-valkey`.
 - `services/shared/cache/{cache.go,redis/redis.go,memory/memory.go}` provide a
@@ -242,7 +242,7 @@ table doesn't exist yet), and the timeout is hard-coded.
 
 ```yaml
   redis:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:8.1-alpine
     container_name: axiaops-valkey
     command: >
       valkey-server
