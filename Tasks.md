@@ -757,7 +757,7 @@ identically locally and in CI.
 
 **Phase 4 — Cleanup**
 
-- [ ] Pin service image tags (`postgres:17.x-alpine`, not `17-alpine`).
+- [x] Pin Postgres service image tag to `postgres:17.5-alpine` (matches prod RDS minor; source of truth: `aws-infra` `terraform/environments/production/main/terraform.tfvars` `engine_version = "17.5"`). Done in this MR; valkey + dashboard nginx pinning tracked separately.
 - [ ] Pin Go image tag (`golang:1.25.3`, not `golang:1.25`).
 - [ ] Pin DinD tag.
 - [ ] Document the CI model in `docs/` — one page, "runners are disposable, images are pinned."
