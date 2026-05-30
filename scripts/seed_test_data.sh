@@ -64,9 +64,9 @@ while [[ $# -gt 0 ]]; do
       shift
       REMOTE_ENV="${1:-}"
       case "$REMOTE_ENV" in
-        dev-1|dev-2|staging|preview|demo) ;;
+        dev-1|dev-2|staging|preview|demo|integration) ;;
         *)
-          echo "Error: --remote requires 'dev-1', 'dev-2', 'staging', 'preview', or 'demo', got '$REMOTE_ENV'"
+          echo "Error: --remote requires 'dev-1', 'dev-2', 'staging', 'preview', 'demo', or 'integration', got '$REMOTE_ENV'"
           exit 1
           ;;
       esac
@@ -125,11 +125,12 @@ if [[ -n "$REMOTE_ENV" ]]; then
   # from a LAN-attached laptop). The script itself sticks to IPs to
   # avoid the resolver-dependency surface.
   case "$REMOTE_ENV" in
-    dev-1)   HOST_IP="192.168.1.121" ;;
-    dev-2)   HOST_IP="192.168.1.123" ;;
-    staging) HOST_IP="192.168.1.122" ;;
-    preview) HOST_IP="192.168.1.124" ;;
-    demo)    HOST_IP="192.168.1.126" ;;
+    dev-1)       HOST_IP="192.168.1.121" ;;
+    dev-2)       HOST_IP="192.168.1.123" ;;
+    staging)     HOST_IP="192.168.1.122" ;;
+    preview)     HOST_IP="192.168.1.124" ;;
+    demo)        HOST_IP="192.168.1.126" ;;
+    integration) HOST_IP="192.168.1.130" ;;
   esac
   DB_PORT=5432
 
@@ -250,7 +251,7 @@ PERIOD_END="$NOW"
 # AUTH_ON_ENVS = the set where the API requires real auth and creates real
 # org rows via the native bootstrap flow. Keep in sync with DEV_MODE settings
 # in deploy/{env}.yml — if you flip an env's DEV_MODE here, mirror it there.
-AUTH_ON_ENVS_REGEX="^(staging|preview|demo)$"
+AUTH_ON_ENVS_REGEX="^(staging|preview|demo|integration)$"
 
 if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX ]]; then
   ORGANIZATION_ID=$(psql_query "SELECT id FROM organizations ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
