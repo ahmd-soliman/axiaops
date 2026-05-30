@@ -704,8 +704,8 @@ The following are intentionally not in v1:
    Go constant + a CHECK constraint. The number itself (4 KB) is a guess;
    pin a final value once we have one quarter of real `pq` error strings.
 3. **Connection-context details.** Some bastion-run migrations connect with
-   one `sslmode`, App Runner forces another. Adding `applied_by_connection`
-   is doable but noisy and not on the critical path.
+   one `sslmode`, the ECS Express migrate task forces another. Adding
+   `applied_by_connection` is doable but noisy and not on the critical path.
 
 ### Settled, not open
 
