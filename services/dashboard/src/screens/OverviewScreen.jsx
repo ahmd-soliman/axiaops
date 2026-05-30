@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissZombie, revokeDismissal } from '../api/client';
+import DateRangeChips from '../components/DateRangeChips';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
@@ -74,7 +75,7 @@ function MonthlyWasteCard({ onShowTrend, children }) {
   );
 }
 
-function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, isMobile }) {
+function OverviewHero({ summary, totalSpend, trend, period, onPeriodChange, onShowTrend, onShowCosts, isMobile }) {
   const data = summary.data;
   const waste = data?.potential_monthly_savings ?? 0;
   const zombieCount = data?.total_zombies ?? 0;
@@ -86,14 +87,18 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, is
   // scanned), so naively comparing the last two rows compared two arbitrary
   // accounts' totals — making the headline ▲/▼ % delta meaningless. Roll up
   // by date here so the delta compares yesterday's org-wide total to today's.
+  // Then trim to the selected window — `period` days back from the most
+  // recent snapshot — so the chip selection scopes the dailyTotals slice
+  // exactly the way it scopes the fetchCosts window in the parent component.
   const dailyTotals = useMemo(() => {
     const m = new Map();
     for (const s of trend.data ?? []) {
       const day = s.snapshot_at.slice(0, 10);
       m.set(day, (m.get(day) || 0) + s.total_monthly_cost);
     }
-    return [...m.entries()].sort();
-  }, [trend.data]);
+    const sorted = [...m.entries()].sort();
+    return period > 0 && sorted.length > period ? sorted.slice(-period) : sorted;
+  }, [trend.data, period]);
   const latest = dailyTotals.at(-1)?.[1];
   const prev   = dailyTotals.at(-2)?.[1];
   const delta  = latest != null && prev != null
@@ -102,6 +107,14 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, is
 
   return (
     <div style={{ backgroundColor: 'var(--color-surface-alt)', borderBottom: '1px solid var(--color-border)', padding: isMobile ? '16px' : '20px' }}>
+      {/* Date range chips — same shared picker used on TrendScreen +
+          CostAnalyticsScreen. Right-aligned above the two-stat row so the
+          stats stay the visual anchor; on phones the chips wrap below the
+          flex row but stay tappable. */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <DateRangeChips value={period} onChange={onPeriodChange} mobile={isMobile} />
+      </div>
+
       {/* Two-stat row — stacks vertically on phones; the 28px-bold spend value
           + 11px label cluster only fits side-by-side once the viewport has
           ~440px of inner width. */}
@@ -119,7 +132,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, is
             {currency} {totalSpend.toFixed(2)}
           </span>
           <span style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2, display: 'block' }}>
-            last 30 days
+            last {period} day{period === 1 ? '' : 's'}
           </span>
         </button>
 
@@ -1204,10 +1217,15 @@ export default function OverviewScreen({
   const [selected, setSelected]         = useState(new Set());
   const [bulkModal, setBulkModal]       = useState(null); // 'dismiss' | 'snooze' | null
   const [hiddenFilter, setHiddenFilter] = useState('all'); // 'all' | 'dismissed' | 'snoozed'
+  // Time window applied to the hero stat block (Total Spend + Monthly Waste
+  // delta) and the underlying fetchCosts / trend trim. Default 30d matches
+  // the previous hardcoded behaviour; the chip row in OverviewHero lets the
+  // user widen/narrow without leaving the screen.
+  const [period, setPeriod] = useState(30);
 
   const summary    = useQuery({ queryKey: ['summary', selectedAccount],    queryFn: () => fetchSummary(selectedAccount) });
   const resources  = useQuery({ queryKey: ['resources', selectedAccount],  queryFn: () => fetchResources(selectedAccount) });
-  const costs      = useQuery({ queryKey: ['costs', selectedAccount, 30], queryFn: () => fetchCosts(selectedAccount, null, 30) });
+  const costs      = useQuery({ queryKey: ['costs', selectedAccount, period], queryFn: () => fetchCosts(selectedAccount, null, period) });
   const trend      = useQuery({ queryKey: ['trend', selectedAccount],      queryFn: () => fetchTrend(selectedAccount) });
   const dismissals = useQuery({ queryKey: ['dismissals', selectedAccount], queryFn: () => fetchDismissals(selectedAccount) });
 
@@ -1548,7 +1566,7 @@ export default function OverviewScreen({
       </div>
 
       {/* Overview hero */}
-      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} onShowCosts={onShowCosts} isMobile={isMobile} />
+      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} period={period} onPeriodChange={setPeriod} onShowTrend={onShowTrend} onShowCosts={onShowCosts} isMobile={isMobile} />
 
       {/* Service breakdown */}
       <ServiceBreakdown

@@ -4,6 +4,7 @@ import { fetchTrend, fetchTrendServices, fetchTrendResourceTypes } from '../api/
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
+import DateRangeChips from '../components/DateRangeChips';
 import { useToast } from '../context/ToastContext';
 import { useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
@@ -15,14 +16,6 @@ const MARGIN = { top: 16, right: 20, bottom: 32, left: 56 };
 
 // Max rows to render in scan history list before paginating
 const LIST_PAGE_SIZE = 50;
-
-const PERIOD_OPTIONS = [
-  { label: '7d',  days: 7 },
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
-  { label: '6m',  days: 180 },
-  { label: '1y',  days: 365 },
-];
 
 // ─── Downsampling ────────────────────────────────────────────────────────────
 // 7d/30d: every scan. 90d/6m: weekly avg. 1y: monthly avg.
@@ -462,33 +455,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               </div>
             )}
           </div>
-          <div role="group" aria-label="Select time period" style={{ display: 'flex', gap: 4 }}>
-            {PERIOD_OPTIONS.map(p => {
-              const active = period === p.days;
-              return (
-                <button
-                  key={p.label}
-                  onClick={() => changePeriod(p.days)}
-                  aria-pressed={active}
-                  style={{
-                    // 4/10 → 7/14 puts each pill at ~36×30px vs the prior
-                    // ~22×24px — still tighter than the 44px HIG floor but
-                    // close enough to be reliably tappable, and the row
-                    // wraps if all 4 don't fit. Single padding pair so the
-                    // pill height stays consistent with the granularity
-                    // toggle next to it.
-                    padding: '7px 14px', borderRadius: 6, cursor: 'pointer',
-                    backgroundColor: active ? 'var(--color-accent)' : 'var(--color-surface-raised)',
-                    border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                    fontSize: 12, fontWeight: 700,
-                    color: active ? '#fff' : 'var(--color-text-mid)',
-                  }}
-                >
-                  {p.label}
-                </button>
-              );
-            })}
-          </div>
+          <DateRangeChips value={period} onChange={changePeriod} mobile />
         </div>
 
         {/* Service filter pills */}
