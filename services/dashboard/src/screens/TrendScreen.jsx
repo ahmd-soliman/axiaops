@@ -367,6 +367,18 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const displaySnap = selectedSnap ?? latestSnap;
   const firstSnap   = filteredSnaps[0];
 
+  // Average monthly cost across the picked window. Used as the headline when
+  // no specific snapshot is selected from the history list — gives the chip
+  // selection a visible effect on the big number, not just the chart + delta.
+  // selectedSnap still overrides so clicking a history point shows its exact
+  // value (the user's already-explicit choice).
+  const avgWindowCost = filteredSnaps.length > 0
+    ? filteredSnaps.reduce((sum, s) => sum + (s.total_monthly_cost ?? 0), 0) / filteredSnaps.length
+    : 0;
+  const headlineCost = selectedSnap
+    ? selectedSnap.total_monthly_cost
+    : avgWindowCost;
+
   const delta = latestSnap && firstSnap && firstSnap !== latestSnap
     ? ((latestSnap.total_monthly_cost - firstSnap.total_monthly_cost) / Math.max(firstSnap.total_monthly_cost, 0.01)) * 100
     : null;
@@ -407,17 +419,15 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
           })()}
         </span>
         <span style={{ fontSize: 32, fontWeight: 800, color: 'var(--color-accent)', letterSpacing: -0.5, display: 'block' }}>
-          {displaySnap?.currency ?? '$'} {displaySnap ? displaySnap.total_monthly_cost.toFixed(2) : '0.00'}
+          {displaySnap?.currency ?? '$'} {filteredSnaps.length > 0 ? headlineCost.toFixed(2) : '0.00'}
         </span>
-        {/* Honesty label — the number above is captured at scan time, BEFORE the
-            user's dismissals/snoozes are applied. The Overview's Monthly Waste
-            headline is the live current-state total AFTER dismissals; the two
-            can legitimately differ. Only show when looking at the most-recent
-            snapshot — if the user picked a past snapshot from the history list,
-            they already understand it's historical. */}
-        {displaySnap && !selectedSnap && (
-          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic', display: 'block', marginTop: 1 }}>
-            At last scan · before dismissals
+        {/* Average label visible only on the non-selected (period) view —
+            when the user has clicked into a history point we show that
+            point's exact value (handled by selectedSnap above), so the
+            "avg over period" framing would be misleading. */}
+        {!selectedSnap && filteredSnaps.length > 0 && (
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginTop: 1 }}>
+            Average monthly cost · last {period} day{period === 1 ? '' : 's'}
           </span>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
