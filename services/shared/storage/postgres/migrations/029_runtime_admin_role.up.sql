@@ -39,7 +39,18 @@ END $$;
 
 -- Explicitly no privilege escalation. NO BYPASSRLS (see RDS note above);
 -- cross-org reads come from the per-table policies below.
-ALTER ROLE axiaops_runtime NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+--
+-- RDS NOTE 2: we deliberately do NOT re-assert NOSUPERUSER / NOCREATEDB /
+-- NOCREATEROLE here even though they're the defensive shape. PostgreSQL
+-- requires the *caller itself* to be a true superuser before it can touch
+-- the SUPERUSER attribute on any role — even setting it to false-which-
+-- it-already-is. On RDS the migrate role is `rds_superuser` (not a true
+-- superuser), so an `ALTER ROLE ... NOSUPERUSER ...` is rejected with
+-- "permission denied to alter role" (PG MR !262 / alpha.20 hit this on
+-- the first prod deploy). CREATE ROLE already defaults to NOSUPERUSER /
+-- NOCREATEDB / NOCREATEROLE, so they don't need re-asserting; NOINHERIT
+-- is the only attribute this line actually changes (default is INHERIT).
+ALTER ROLE axiaops_runtime NOINHERIT;
 
 -- Connect + schema usage.
 GRANT CONNECT ON DATABASE axiaops TO axiaops_runtime;
