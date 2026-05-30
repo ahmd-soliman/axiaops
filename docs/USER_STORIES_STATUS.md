@@ -81,7 +81,7 @@ Total: **~30 stories planned** for May 2026 → Q4 2027
 | Story | Due | Phase | Labels |
 |-------|-----|-------|--------|
 | Backup and disaster recovery | Aug 2026 | 2.16 | infra, reliability |
-| Production deployment (App Runner + RDS + ElastiCache) | Aug 2026 | 2.16 | infra, deployment |
+| Production deployment (ECS Express + RDS + Secrets Manager via aws-infra) | Aug 2026 | 2.16 | infra, deployment |
 | Weekly email digest (Resend) | Aug 2026 | 2.15 | backend, alerting |
 | Slack webhook alerts per account | Aug 2026 | 2.#6 | backend, alerting |
 | tenant → organization rename | Aug 2026 | 2.#9 | backend, frontend, database |

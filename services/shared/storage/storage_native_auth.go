@@ -1,5 +1,5 @@
 // storage_native_auth.go — Phase B1 (native auth) Store interface additions.
-// Kept in a separate file so the diff against the Kinde-era interface stays
+// Kept in a separate file so the diff against the pre-native interface stays
 // reviewable. The methods compose into the same Store interface via Go's
 // support for interface declarations spanning multiple files.
 
@@ -272,7 +272,7 @@ type NativeAuthStore interface {
 	// storage.WithOrganizationID. Unlike the rest of the native-auth methods
 	// (which bypass RLS via the admin pool because they predate any org
 	// context), this method runs against pending_memberships under RLS — the
-	// table is org-scoped and consistent with how the Kinde-era
+	// table is org-scoped and consistent with how the pre-native
 	// CreatePendingInvitation operates.
 	//
 	// Returns the persisted invitation and a bool that is true on a fresh

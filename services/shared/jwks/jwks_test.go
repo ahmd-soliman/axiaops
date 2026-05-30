@@ -99,7 +99,7 @@ func (m *mockCache) has(key string) bool {
 }
 
 // TestFromCache_CacheHit_SkipsHTTPFetch covers the issuer-bound consumer
-// (Kinde-style: one stable issuer URL, one JWKS endpoint). First call
+// (single-issuer style: one stable issuer URL, one JWKS endpoint). First call
 // populates the cache; second call must hit the cache and skip the HTTP
 // fetch — the test counts fetches against the test server.
 func TestFromCache_CacheHit_SkipsHTTPFetch(t *testing.T) {
@@ -116,7 +116,7 @@ func TestFromCache_CacheHit_SkipsHTTPFetch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cacheID := srv.URL // issuer URL — Kinde call shape
+	cacheID := srv.URL // issuer URL — single-issuer call shape
 	jwksURL := srv.URL + "/.well-known/jwks.json"
 	c := newMockCache()
 

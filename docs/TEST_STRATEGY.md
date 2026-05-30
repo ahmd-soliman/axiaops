@@ -49,7 +49,7 @@ Each serves a different purpose and has different constraints.
 - Concurrent access patterns
 
 **Database:**
-- **PostgreSQL 16** — shared test database
+- **PostgreSQL 17** — shared test database
 - Cleaned before each test (`TRUNCATE CASCADE`)
 - Each test creates own organization for isolation
 

@@ -78,10 +78,6 @@ type Config struct {
 
 	// StuckScanTimeout is the cutoff the stuck-scan recovery ticker uses.
 	StuckScanTimeout time.Duration
-	// MigrationDatabaseURL is needed by the stuck-scan recovery goroutine
-	// (it opens its own pool because the action is owner-level). Optional
-	// for tests — when empty, the stuck-scan ticker is not started.
-	MigrationDatabaseURL string
 }
 
 // Deps bundles the concrete services ComposeServer plugs together. Every
@@ -118,10 +114,10 @@ type Deps struct {
 	AuthProvider auth.Provider
 
 	// Discoverer is the pre-auth /v1/sso/discover seam. Production: native.
-	// SaaS: composite (Kinde + native). Required.
+	// SaaS: external IdP mirror. Required.
 	Discoverer sso.Discoverer
 	// Connector is the SSO connection-CRUD seam. Production: native.
-	// SaaS: kinde-mirroring wrapper. Required.
+	// SaaS: external IdP mirror. Required.
 	Connector sso.Connector
 
 	// SessionManager is the native-auth session orchestrator. Required
@@ -386,9 +382,10 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 // needs. Composition roots construct one from env; tests pass a zero-value
 // to skip ticker startup.
 type TickerOptions struct {
-	// MigrationDatabaseURL is the owner-pool URL the stuck-scan ticker
-	// uses (it opens its own short-lived pool). Empty → ticker not started.
-	MigrationDatabaseURL string
+	// RuntimeAdminDatabaseURL is the RLS-bypass-pool URL the stuck-scan ticker
+	// uses (it opens its own short-lived pool for this cross-org maintenance).
+	// Empty → ticker not started.
+	RuntimeAdminDatabaseURL string
 	// StuckScanTimeout is the cutoff for "this account has been scanning
 	// too long; reset it". Zero → ticker not started.
 	StuckScanTimeout time.Duration
@@ -412,8 +409,8 @@ type TickerOptions struct {
 // Composition roots call this AFTER ComposeServer and BEFORE
 // http.Server.ListenAndServe.
 func StartTickers(ctx context.Context, store storage.Store, opts TickerOptions) {
-	if opts.MigrationDatabaseURL != "" && opts.StuckScanTimeout > 0 {
-		go runStuckScanTicker(ctx, opts.MigrationDatabaseURL, opts.StuckScanTimeout)
+	if opts.RuntimeAdminDatabaseURL != "" && opts.StuckScanTimeout > 0 {
+		go runStuckScanTicker(ctx, opts.RuntimeAdminDatabaseURL, opts.StuckScanTimeout)
 	}
 
 	// License ticker: re-classify every hour. No-op under DEV_MODE (no

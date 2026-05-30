@@ -46,7 +46,7 @@ git push origin feature/my-feature
 |-------|------|----------|------|
 | **test** | All branches | ~2–3 min | Unit tests + linting + vet |
 | **build** | main only | ~3–5 min per image | Docker build + ECR push |
-| **deploy** | main only | ~5–10 min per service | App Runner update + CloudFront |
+| **deploy:production** | TAG-GATED, manual | ~10–15 min | DB migration (ECS Fargate), ECS Express update, S3 + CloudFront |
 
 ---
 
@@ -90,9 +90,9 @@ cannot find module providing package axiaops.io/shared
 ```
 denied: User is not authorized to perform: ecr:PutImage
 ```
-- AWS credentials missing or invalid
-- Check GitLab CI/CD variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
-- Verify IAM policy has `ecr:PutImage` permission (see gitlab_ci_pipeline.md)
+- OIDC token exchange failed or `AWS_CI_ROLE_ARN` is not set / incorrect
+- Verify the `gitlab-ci-axiaops-deploy` role trust policy in `axiaops/aws-infra` allows the GitLab project's OIDC subject
+- Verify the role has `ecr:PutImage` permission (see `aws-infra/docs/terraform-prod-design.md`)
 
 **`build:dashboard` fails with "npm error":**
 ```
@@ -105,13 +105,13 @@ npm ERR! syscall open
 
 ### 4. Common Deploy Failures
 
-**`deploy:api` fails with "service not found":**
+**`deploy:production` fails with "service not found":**
 ```
-An error occurred (ServiceNotFoundException) when calling the UpdateService operation
+An error occurred when calling the update-express-gateway-service operation
 ```
-- App Runner service `axiaops-api` doesn't exist
-- Create it via AWS Console or CLI (see gitlab_ci_pipeline.md)
-- Verify service name in deploy job (`--service-arn` parameter)
+- ECS Express service does not exist or the name is wrong
+- Services are provisioned by `axiaops/aws-infra` Terraform — run `terraform apply` in aws-infra first
+- Verify service name matches what Terraform provisioned (see `.gitlab-ci.yml` deploy job)
 
 **`deploy:dashboard` fails at CloudFront invalidation:**
 ```
@@ -149,28 +149,23 @@ git push origin main
 
 ## Monitoring Deployments
 
-### Check App Runner Status
-```bash
-aws apprunner describe-service \
-  --service-arn arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-api \
-  --region eu-central-1 \
-  --query 'Service.[Status,UpdateStatus]'
+### Check ECS Express Service Status
 
-# Output: ["RUNNING", "IN_PROGRESS"] or ["RUNNING", "UPDATE_COMPLETE"]
-```
+Use `describe-express-gateway-service` as wired in the `deploy:production` job in `.gitlab-ci.yml`. The exact CLI invocation and service name are defined there and in `axiaops/aws-infra`.
 
-### View App Runner Logs
+### View ECS Logs
 ```bash
-aws logs tail /aws/apprunner/axiaops-api/service --follow
+aws logs tail /ecs/axiaops-api --follow --region eu-central-1
+# (log group name defined in aws-infra Terraform; verify there if the above returns an error)
 ```
 
 ### Verify Deployment
 ```bash
-# API
-curl -s https://api.axiaops.dev/health | jq .
+# API readiness (pings DB)
+curl -s https://app.axiaops.io/api/readyz | jq .
 
-# Ingestion
-curl -s https://ingest.axiaops.dev/health | jq .
+# API liveness
+curl -s https://app.axiaops.io/api/livez | jq .
 ```
 
 ---
@@ -185,21 +180,13 @@ If the latest deployment causes issues:
    ```bash
    aws ecr describe-images \
      --repository-name axiaops-api \
-     --query 'sort_by(imageDetails, &imagePushedAt)[-5:].[imageTags,imagePushedAt]'
+     --query 'sort_by(imageDetails, &imagePushedAt)[-5:].[imageTags,imagePushedAt]' \
+     --region eu-central-1
    ```
 
-2. **Manually update App Runner** (temporary):
-   ```bash
-   aws apprunner update-service \
-     --service-arn arn:aws:apprunner:eu-central-1:123456789012:service/axiaops-api \
-     --source-configuration ImageRepository={ImageIdentifier=123456789012.dkr.ecr.eu-central-1.amazonaws.com/axiaops-api:PREVIOUS_SHA}
-   ```
+2. **Manually update the ECS Express service** with the previous image digest using `update-express-gateway-service`. See `.gitlab-ci.yml` `deploy:production` for the exact CLI form — replicate it with the previous SHA.
 
-3. **Fix the code**, commit, and re-deploy:
-   ```bash
-   git revert HEAD  # or fix and commit
-   git push origin main  # triggers pipeline
-   ```
+3. **Fix the code**, commit, push a new tag, and re-run `deploy:production`.
 
 ---
 
@@ -214,10 +201,8 @@ GitLab → **Settings → CI/CD → Variables**
 3. Save
 
 ### Rotate AWS Credentials
-1. Generate new access keys in AWS IAM Console
-2. Update `AWS_ACCESS_KEY_ID` in GitLab
-3. Update `AWS_SECRET_ACCESS_KEY` in GitLab
-4. Delete old keys from AWS IAM Console
+
+Production uses GitLab OIDC — there are no static AWS access keys to rotate. If the deploy role trust policy needs updating, edit it in `axiaops/aws-infra` Terraform.
 
 ### Rotate ENCRYPTION_KEY
 ⚠️ **Dangerous operation — requires database migration:**
@@ -249,12 +234,13 @@ GitLab → **Settings → CI/CD → Variables**
   ```
 
 ### Speed Up Deploy Stage
-- Check App Runner auto-scaling configuration
+- ECS Express service update time is determined by the new container's health check passing; check ALB health check thresholds in `aws-infra`
 - Monitor CloudFront invalidation:
   ```bash
   aws cloudfront get-invalidation \
-    --distribution-id E123ABC \
-    --id I456DEF
+    --distribution-id $CLOUDFRONT_DISTRIBUTION_ID \
+    --id <invalidation-id> \
+    --region eu-central-1
   ```
 
 ---
@@ -305,7 +291,7 @@ aws ecr batch-delete-image \
 
 - [ ] **Test fails:** Run `make test-all` locally; fix and commit
 - [ ] **Build fails:** Check Docker build locally; verify AWS credentials
-- [ ] **Deploy fails:** Verify App Runner service exists; check logs
+- [ ] **Deploy fails:** Verify ECS Express service exists (provisioned in `aws-infra`); check job logs
 - [ ] **Performance slow:** Check pipeline duration in GitLab; profile locally
 - [ ] **Security issue:** Rotate secrets; check IAM policy
 - [ ] **Old images accumulating:** Set ECR lifecycle policy
@@ -355,9 +341,9 @@ make seed             # Populate dummy data
 ./scripts/check_db.sh # Inspect PostgreSQL
 
 # AWS CLI
-aws apprunner list-services --region eu-central-1
-aws ecr list-images --repository-name axiaops-api
-aws logs tail /aws/apprunner/axiaops-api/service --follow
+aws ecr list-images --repository-name axiaops-api --region eu-central-1
+aws logs tail /ecs/axiaops-api --follow --region eu-central-1
+# (exact log group name defined in aws-infra Terraform)
 ```
 
 ---
@@ -387,6 +373,6 @@ A: No. Tests are required before build. Use `git push -o ci.skip` only for non-c
 ## Support
 
 - **GitLab CI/CD docs:** https://docs.gitlab.com/ee/ci/
-- **AWS App Runner docs:** https://docs.aws.amazon.com/apprunner/
+- **AWS ECS docs:** https://docs.aws.amazon.com/ecs/
 - **Docker docs:** https://docs.docker.com/
 - **Go testing:** https://golang.org/pkg/testing/

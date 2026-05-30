@@ -66,10 +66,7 @@ const (
 	// that an export happened.
 	AuditActionDataExported = "data_exported"
 	// AuditActionOrganizationRenamed records a successful PATCH /v1/organizations/me.
-	// Metadata carries old_name and new_name plus kinde_synced (whether the
-	// outbound push to Kinde succeeded — false would only happen if the local
-	// commit raced ahead of a Kinde failure that wasn't rolled back, which the
-	// two-phase commit prevents but the field is reserved for safety).
+	// Metadata carries old_name and new_name.
 	AuditActionOrganizationRenamed = "organization_renamed"
 	// AuditActionOnboardingCompleted records the wizard reaching the final
 	// step. Metadata carries steps_skipped (subset of "invite", "aws-account").
