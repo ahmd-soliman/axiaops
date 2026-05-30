@@ -282,7 +282,7 @@ CREATE POLICY accounts_organization_isolation ON accounts
 5. Ingestion fetches account from DB, decrypts secret, sets AWS env vars, runs full ingestion
 6. API updates account status to `connected` or `error` on completion
 
-**Scan recovery (planned — see milestone May 2026):** A background ticker (every 5 minutes) will check for accounts stuck in `scanning` status for longer than 15 minutes and reset them to `error` with a timeout reason. This prevents permanently stuck scans if the API restarts mid-scan or the ingestion service crashes. Not yet implemented — currently a stuck scan requires a manual status reset.
+**Scan recovery ✅:** A background ticker (every 5 minutes) resets accounts stuck in `scanning` status for longer than 15 minutes to `error` with a timeout reason, preventing permanently stuck scans if the API restarts mid-scan or the ingestion service crashes. Implemented in `postgres.ResetStuckScans` + `serverbuild/tickers.go`.
 
 **Key rotation:** Rotating `ENCRYPTION_KEY` is not a simple env var swap — all `secret_encrypted` values in the `accounts` table must be decrypted with the old key and re-encrypted with the new key before the var is updated. A migration script must be written and tested before any key rotation in production. Document this in `docs/ops.md`.
 
@@ -544,7 +544,7 @@ Both the API (`:8080`) and ingestion (`:8081`) services must handle `SIGTERM` cl
 - ✅ **User deletion:** `DELETE /v1/users/me` — authn-only, refused with 409 if the caller is the sole owner of any organization (must transfer ownership or delete those organizations first). Anonymises that user's audit_log rows across all organizations (`user_id = NULL`, `actor_email = 'deleted-user'`) before removing memberships and the user row. Implemented in `Store.DeleteUser`.
 - **Data retention disclosure:** Document what is stored and for how long in the privacy policy.
 - **Account offboarding:** When an organization deletes their account, encrypted AWS secrets are deleted immediately; billing is cancelled via Stripe webhook *(Stripe hook lands with the billing feature)*.
-- **Data portability:** `GET /v1/export` — full JSON dump of the organization's data (zombies, accounts metadata without secrets, scan history). *Not yet implemented.*
+- **Data portability ✅:** `GET /v1/export` — full JSON dump of the organization's data (zombies, accounts metadata without secrets, scan history).
 - Privacy policy and terms of service pages required before Phase 3 launch.
 
 #### 3.11 Expanded Detection Rules
@@ -681,21 +681,22 @@ Simulate  Gate   Optimize   ← AxiaOps owns all three
 | May 2026 | In-memory rate limiting — per-organization token bucket before Redis | ✅ Done |
 | May 2026 | Graceful shutdown — SIGTERM handling for API and ingestion | ✅ Done |
 | May 2026 | GitLab CI pipeline — test, build, deploy stages | ✅ Done |
-| June 2026 | Scheduled auto-scan (24h default interval per account) | Planned |
-| June 2026 | cost_records retention — 90-day cleanup job | Planned |
+| June 2026 | Scheduled auto-scan (24h default interval per account) | ✅ Done |
+| June 2026 | cost_records retention — 90-day cleanup job | ✅ Done |
 | June 2026 | Backup / disaster recovery — RDS snapshots, Secrets Manager | Planned |
-| July 2026 | Redis — JWKS cache, scan job queue, rate limiting (replaces in-memory) | Planned |
+| July 2026 | Redis — JWKS cache, scan job queue, rate limiting (replaces in-memory) | ✅ Done |
 | July 2026 | Weekly email digest + Slack webhook alerts | Planned |
-| August 2026 | Production deployment — ECS Express, RDS, Terraform | Planned |
+| August 2026 | Production deployment — ECS Express, RDS, Terraform | ✅ Done |
 | September 2026 | Pricing & billing — Stripe integration, 3 tiers | Planned |
-| September 2026 | Dismiss ghost workflow + snooze | Planned |
-| September 2026 | GDPR / data deletion — right to erasure, data export | Planned |
+| September 2026 | Dismiss ghost workflow + snooze | ✅ Done |
+| September 2026 | GDPR / data deletion — right to erasure, data export | ✅ Done |
 | September 2026 | Operating entity / legal registration | Planned |
-| October 2026 | Remediation CLI commands + audit trail | Planned |
+| September 2026 | Audit trail — organization audit timeline | ✅ Done |
+| October 2026 | Remediation CLI commands | Planned |
 | October 2026 | Scan history log + per-account summary | Planned |
 | October 2026 | Tag/team filtering + CSV export | Planned |
 | November 2026 | Expanded detection rules (EBS, S3, CloudFront, Redshift, ElastiCache) + configurable thresholds | Planned |
-| November 2026 | User management + roles (admin/viewer) | Planned |
+| November 2026 | User management + roles (admin/viewer) | ✅ Done |
 | November 2026 | PDF savings report | Planned |
 | December 2026 | First paying customer | Planned |
 | December 2026 | 10 customers, €5K MRR target | Planned |
