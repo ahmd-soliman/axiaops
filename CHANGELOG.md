@@ -27,6 +27,30 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.22] — 2026-05-30
+
+### Fixed
+
+- **`RUNTIME_ADMIN_DATABASE_URL` is now wired into the production ECS task
+  definitions for `axiaops-api` and `axiaops-ingestion`.** The non-prod docker-
+  compose deploys (`dev-1`, `dev-2`, `preview`, `staging`, `integration`) had
+  been wired in `alpha.18`, but the `deploy:production` job in `.gitlab-ci.yml`
+  generates ECS task-defs from a hand-written `secrets:` block (only the
+  `migrate` task-def is Terraform-managed in aws-infra) — and that block was
+  never updated. As a result, the `alpha.20` and `alpha.21` prod deploys
+  produced task-defs missing the new env var, and both binaries
+  (`api/cmd/main.go:73`, `ingestion/cmd/main.go:718`) `die()` at startup
+  outside `DEV_MODE` with `storage: RUNTIME_ADMIN_DATABASE_URL is required`.
+  ECS Express's deployment circuit-breaker rolled the api service back to
+  `alpha.19` (reads kept working), but the ingestion service stayed on the
+  new task-def in an open crashloop — no scheduled scans ran for ~2 hours
+  on `2026-05-30`. This release adds the missing entry to both task-def
+  `secrets:` blocks, loads `secret_arn_{api,ingestion}_runtime_admin_database_url`
+  from the `/axiaops/prod/platform/*` SSM inventory (already published by
+  aws-infra `!51`), and adds the standard `:?` "aws-infra not applied yet?"
+  guards so a future un-applied state fails the deploy fast instead of
+  silently shipping a crashloop again. (`!268`)
+
 ## [0.1.0-alpha.21] — 2026-05-30
 
 ### Fixed
@@ -683,7 +707,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.21...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.22...develop
+[0.1.0-alpha.22]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.22
 [0.1.0-alpha.21]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.21
 [0.1.0-alpha.20]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.20
 [0.1.0-alpha.19]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.19
