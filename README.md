@@ -23,7 +23,7 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 | Layer | Technology |
 |-------|-----------|
 | Backend | Go 1.25+ |
-| Database | PostgreSQL 16 (with Row-Level Security) |
+| Database | PostgreSQL 17 (with Row-Level Security) |
 | Frontend | Vite + React — web |
 | Auth | Native cookie sessions (argon2id) + OIDC SSO |
 | Hosting | AWS ECS Express + RDS |

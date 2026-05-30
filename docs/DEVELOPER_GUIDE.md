@@ -46,7 +46,7 @@ make start-dev
 
 `make start-dev` brings up:
 
-- A Postgres 16 container (`docker compose up -d postgres`)
+- A Postgres 17 container (`docker compose up -d postgres`)
 - API as a host-mode Go process on `:8080` with `DEV_MODE=true`
 - Ingestion as a host-mode Go process on `:8081`
 - Vite dev server for the dashboard on `:5173`

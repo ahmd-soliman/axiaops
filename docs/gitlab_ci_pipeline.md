@@ -119,7 +119,7 @@ Runs unit tests for the shared module (models, storage interface, analyzer, cryp
 
 ### test:postgres
 Runs PostgreSQL integration tests for the storage layer.
-- Spins up a temporary PostgreSQL 16 container
+- Spins up a temporary PostgreSQL 17 container
 - Tests Row-Level Security policies and migrations
 - Must pass before database schema changes merge to main
 
