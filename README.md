@@ -384,15 +384,15 @@ axiaops/
 - [x] Dismiss zombie workflow + snooze + audit trail
 - [x] Wire Redis in API `main.go` (inject into auth + rate limiter)
 - [ ] Weekly email digest + Slack alerts
-- [ ] Production deployment (ECS Express + RDS + Valkey via Terraform)
+- [x] Production deployment (ECS Express + RDS + Valkey via Terraform)
 
 ### Phase 3 — Beta / Launch (target December 2026)
 - [ ] Stripe billing — Starter €49 / Growth €149 / Team €399
-- [ ] GDPR / right to erasure + data export
+- [x] GDPR / right to erasure + data export
 - [ ] Remediation CLI commands per resource type
 - [ ] Scan history log + tag/team filtering + CSV export
-- [ ] Expanded detection rules (EBS, S3, CloudFront, Redshift, ElastiCache)
-- [ ] User management + roles (admin/viewer)
+- [x] Expanded detection rules (EBS, S3, CloudFront, Redshift, ElastiCache)
+- [x] User management + roles (admin/viewer)
 - [ ] Operating entity — Holding GmbH + Operating UG (target August 2026)
 
 ### Phase 4 — Scale (2027)
@@ -433,4 +433,4 @@ axiaops/
 
 ## Status
 
-**Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow. Remaining: email/Slack alerts, production deployment (ECS Express + RDS + Terraform). Target first paying customer: October 2026.
+**Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow. Remaining: email/Slack alerts. Target first paying customer: October 2026.

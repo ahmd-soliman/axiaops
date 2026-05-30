@@ -545,17 +545,17 @@ Remaining for Phase 3:
 - [ ] Integration test: connect as `axiaops_ingestion`, assert it cannot SELECT from `tenants` or `users`
 - [ ] Integration test: connect as `axiaops_api`, assert it cannot INSERT into `cost_records` directly
 
-#### 3.15 Migration History Log 🔲
+#### 3.15 Migration History Log ✅
 
 > golang-migrate's `schema_migrations` keeps only the latest applied version (single row). We want a per-migration audit log with filename + checksum (Flyway-style) so we can see when each migration was applied and detect in-place edits of already-applied migration files. Keeps golang-migrate as the engine — adds a sibling table populated by `migrate.go`.
 
-- [ ] Migration `NNN_migration_history.up.sql` / `.down.sql` — `axiaops.migration_history (version BIGINT PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`; grant `SELECT` to `axiaops` app user, writes stay with `axiaops_owner`
-- [ ] Extend `services/shared/storage/postgres/migrate.go` — after `m.Up()` succeeds, enumerate embedded `migrations/*.up.sql` files, compute SHA-256, `INSERT ... ON CONFLICT (version) DO NOTHING` into `migration_history`
-- [ ] Drift detection: for rows that already exist with a different checksum, emit `slog.Warn("migration checksum mismatch", "version", v, "file", name, "db_checksum", ..., "file_checksum", ...)`
-- [ ] Document backfill behaviour: on existing DBs, migrations 000–NNN-1 get recorded with `applied_at = NOW()` on first upgrade
-- [ ] Integration test: clean DB → assert one row per `*.up.sql` with matching checksum
-- [ ] Integration test: tamper checksum, re-run Migrate(), assert warning logged
-- [ ] `docs/migrations.md` — document the table + warning
+- [x] ~~Migration `NNN_migration_history.up.sql`~~ — shipped as bootstrap DDL in `migration_history.go` (not a numbered migration); `axiaops.migration_history` table with richer columns (`file_sha256`, `applied_by_actor`, `applied_by_image`, `direction`, `status`). `SELECT` granted to `axiaops`, DML revoked via `025_migration_history_revoke_dml.up.sql`
+- [x] Extend `services/shared/storage/postgres/migrate.go` — `migration_history.go` records one row per up/down/force with the embedded-file SHA-256 (`recordStarted`, `recordForce`, `backfillIfEmpty`)
+- [x] Drift detection: `detectDrift` compares each embedded `.up.sql` SHA-256 against the most-recent succeeded checksum and emits `slog.Warn("migration_history: file checksum drift detected", ...)`; `MIGRATION_HISTORY_STRICT=true` refuses boot
+- [x] Document backfill behaviour: on existing DBs the history table is backfilled (`status='backfilled'`, one row per applied version) — documented in `docs/migrations.md`
+- [x] Integration test: clean DB → one row per applied version (`TestMigrationHistory_RowsExistForAppliedVersions`, `migration_history_test.go`)
+- [x] Integration test: drift injection → strict Migrate errors (`TestMigrationHistory_StrictModeFailsOnDrift`, `migration_history_test.go`)
+- [x] `docs/migrations.md` — documents the table (`## Migration history`) + drift detection (`### Drift detection`)
 
 #### 3.16 SOC 2 Compliance — Type I → Type II 🔲
 
