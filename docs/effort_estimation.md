@@ -24,7 +24,7 @@ Single developer, full-time (~6–7 productive coding hours/day).
 | Phase | Scope | Without AI | With AI |
 |-------|-------|------------|---------|
 | **Phase 1+2 done** | Go services, AWS integration, native auth (replaced Kinde), account management, Vite + React web dashboard, Docker Compose, unit tests | 30–40 days | 9–13 days |
-| **Phase 2 remaining** | PostgreSQL + RLS migration, email alerts (Resend), App Runner + RDS deployment | 5–8 days | 2–3 days |
+| **Phase 2 remaining** | PostgreSQL + RLS migration, email alerts (Resend), ECS Express + RDS deployment | 5–8 days | 2–3 days |
 | **Phase 3** | Remediation workflow + audit trail, multi-cloud Azure + GCP, PDF/CSV reports, iOS/Android + App Store | 28–40 days | 9–13 days |
 | **Phase 4** | IaC plan parser (Terraform/CDK), cost estimation engine (3 cloud pricing APIs), what-if scenarios, CI/CD budget gate, CLI tool (`brew install`) | 30–46 days | 11–16 days |
 
