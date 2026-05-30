@@ -171,35 +171,35 @@ func TestSave_InsertsRecords(t *testing.T) {
 		costRecord("AmazonRDS", "eu-central-1", 200.00),
 	}
 
-	inserted, err := s.Save(ctx, records)
+	inserted, updated, err := s.Save(ctx, records)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if inserted != 2 {
-		t.Errorf("expected 2 inserted, got %d", inserted)
+	if inserted != 2 || updated != 0 {
+		t.Errorf("expected inserted=2 updated=0, got inserted=%d updated=%d", inserted, updated)
 	}
 }
 
-func TestSave_DeduplicatesOnRerun(t *testing.T) {
+func TestSave_SecondCallUpdatesExisting(t *testing.T) {
 	s := newTestStore(t)
 	ctx, _ := newOrgCtx(t, s)
 
 	records := []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 100.00)}
 
-	inserted, err := s.Save(ctx, records)
+	inserted, updated, err := s.Save(ctx, records)
 	if err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
-	if inserted != 1 {
-		t.Errorf("expected 1 inserted on first run, got %d", inserted)
+	if inserted != 1 || updated != 0 {
+		t.Errorf("first call: expected inserted=1 updated=0, got inserted=%d updated=%d", inserted, updated)
 	}
 
-	inserted, err = s.Save(ctx, records)
+	inserted, updated, err = s.Save(ctx, records)
 	if err != nil {
 		t.Fatalf("second Save: %v", err)
 	}
-	if inserted != 0 {
-		t.Errorf("expected 0 inserted on second run (duplicate), got %d", inserted)
+	if inserted != 0 || updated != 1 {
+		t.Errorf("second call: expected inserted=0 updated=1, got inserted=%d updated=%d", inserted, updated)
 	}
 }
 
@@ -207,12 +207,12 @@ func TestSave_EmptyBatch(t *testing.T) {
 	s := newTestStore(t)
 	ctx, _ := newOrgCtx(t, s)
 
-	inserted, err := s.Save(ctx, nil)
+	inserted, updated, err := s.Save(ctx, nil)
 	if err != nil {
 		t.Fatalf("Save with nil: %v", err)
 	}
-	if inserted != 0 {
-		t.Errorf("expected 0 inserted for empty batch, got %d", inserted)
+	if inserted != 0 || updated != 0 {
+		t.Errorf("expected 0/0 for empty batch, got inserted=%d updated=%d", inserted, updated)
 	}
 }
 
@@ -225,12 +225,12 @@ func TestSave_DifferentRegionIsNotDuplicate(t *testing.T) {
 		costRecord("AmazonEC2", "eu-west-1", 100.00),
 	}
 
-	inserted, err := s.Save(ctx, records)
+	inserted, updated, err := s.Save(ctx, records)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if inserted != 2 {
-		t.Errorf("expected 2 inserted (different regions), got %d", inserted)
+	if inserted != 2 || updated != 0 {
+		t.Errorf("expected inserted=2 updated=0 (different regions), got inserted=%d updated=%d", inserted, updated)
 	}
 }
 
@@ -238,9 +238,190 @@ func TestSave_MissingOrganizationID_Errors(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background() // no organization in context
 
-	_, err := s.Save(ctx, []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 10)})
+	_, _, err := s.Save(ctx, []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 10)})
 	if err == nil {
 		t.Error("expected error when organization_id missing from context, got nil")
+	}
+}
+
+// readBackCostRecord queries the row identified by the conflict key via the
+// owner-role connection so the test sees the row independently of RLS. Returns
+// id, amount, and internal_account_id. Used by the upsert tests below.
+func readBackCostRecord(t *testing.T, orgID, service, region, resourceID string) (id string, amount float64, internalAccountID *string) {
+	t.Helper()
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	err := conn.QueryRow(context.Background(), `
+		SELECT id::text, amount, internal_account_id
+		FROM axiaops.cost_records
+		WHERE organization_id = $1 AND provider = 'aws' AND account_id = '000000000000'
+		  AND service = $2 AND region = $3 AND resource_id = $4
+		  AND period_start = '2026-03-01'::date AND period_end = '2026-03-31'::date`,
+		orgID, service, region, resourceID,
+	).Scan(&id, &amount, &internalAccountID)
+	if err != nil {
+		t.Fatalf("readBackCostRecord: %v", err)
+	}
+	return
+}
+
+func TestSave_UpsertWinsLatest(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	first := costRecord("AmazonEC2", "eu-central-1", 0.33)
+	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
+		t.Fatalf("first Save: %v", err)
+	}
+
+	second := costRecord("AmazonEC2", "eu-central-1", 4.03) // same conflict key, late-settled amount
+	inserted, updated, err := s.Save(ctx, []model.CostRecord{second})
+	if err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	if inserted != 0 || updated != 1 {
+		t.Errorf("expected inserted=0 updated=1, got inserted=%d updated=%d", inserted, updated)
+	}
+
+	_, amount, _ := readBackCostRecord(t, org.ID, "AmazonEC2", "eu-central-1", "res-001")
+	if amount != 4.03 {
+		t.Errorf("expected amount=4.03 after upsert, got %v", amount)
+	}
+}
+
+func TestSave_UpsertPreservesID(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	first := costRecord("AmazonRDS", "eu-central-1", 100.00)
+	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
+		t.Fatalf("first Save: %v", err)
+	}
+	firstID, _, _ := readBackCostRecord(t, org.ID, "AmazonRDS", "eu-central-1", "res-001")
+
+	second := costRecord("AmazonRDS", "eu-central-1", 200.00)
+	if _, _, err := s.Save(ctx, []model.CostRecord{second}); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	secondID, _, _ := readBackCostRecord(t, org.ID, "AmazonRDS", "eu-central-1", "res-001")
+
+	if firstID != secondID {
+		t.Errorf("upsert changed row id: first=%s second=%s — DO UPDATE must preserve the original primary key", firstID, secondID)
+	}
+}
+
+func TestSave_UpsertPreservesInternalAccountID(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	internal := "internal-acct-abc"
+	first := costRecord("AmazonElastiCache", "eu-central-1", 50.00)
+	first.InternalAccountID = &internal
+	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
+		t.Fatalf("first Save: %v", err)
+	}
+
+	// Second write has the field nil — COALESCE in the upsert clause must preserve the stored value.
+	second := costRecord("AmazonElastiCache", "eu-central-1", 75.00)
+	second.InternalAccountID = nil
+	if _, _, err := s.Save(ctx, []model.CostRecord{second}); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+
+	_, amount, gotInternal := readBackCostRecord(t, org.ID, "AmazonElastiCache", "eu-central-1", "res-001")
+	if amount != 75.00 {
+		t.Errorf("expected amount refreshed to 75.00, got %v", amount)
+	}
+	if gotInternal == nil || *gotInternal != internal {
+		t.Errorf("expected internal_account_id preserved as %q, got %v", internal, gotInternal)
+	}
+}
+
+func TestSave_UpsertRLSIsolation(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("DATABASE_URL not set — RLS isolation only meaningful against the app role")
+	}
+	s := newTestStore(t)
+	ctxA, orgA := newOrgCtx(t, s)
+	ctxB, orgB := newOrgCtx(t, s)
+
+	// Both orgs upsert the same conflict-key shape but with different amounts.
+	a := costRecord("AmazonELB", "eu-central-1", 11.00)
+	b := costRecord("AmazonELB", "eu-central-1", 22.00)
+
+	if _, _, err := s.Save(ctxA, []model.CostRecord{a}); err != nil {
+		t.Fatalf("orgA Save: %v", err)
+	}
+	if _, _, err := s.Save(ctxB, []model.CostRecord{b}); err != nil {
+		t.Fatalf("orgB Save: %v", err)
+	}
+
+	// Each org's row must be untouched by the other's write.
+	_, amountA, _ := readBackCostRecord(t, orgA.ID, "AmazonELB", "eu-central-1", "res-001")
+	_, amountB, _ := readBackCostRecord(t, orgB.ID, "AmazonELB", "eu-central-1", "res-001")
+	if amountA != 11.00 {
+		t.Errorf("orgA amount: expected 11.00, got %v (RLS leaked org B's write into org A)", amountA)
+	}
+	if amountB != 22.00 {
+		t.Errorf("orgB amount: expected 22.00, got %v (RLS leaked org A's write into org B)", amountB)
+	}
+}
+
+func TestSave_ConcurrentUpsertLastWriterWins(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	// Seed the row so both goroutines hit the UPDATE path (cleanest race shape).
+	seed := costRecord("AmazonVPC", "eu-central-1", 0.10)
+	if _, _, err := s.Save(ctx, []model.CostRecord{seed}); err != nil {
+		t.Fatalf("seed Save: %v", err)
+	}
+
+	a := costRecord("AmazonVPC", "eu-central-1", 100.00)
+	b := costRecord("AmazonVPC", "eu-central-1", 200.00)
+
+	start := make(chan struct{})
+	done := make(chan error, 2)
+	go func() {
+		<-start
+		_, _, err := s.Save(ctx, []model.CostRecord{a})
+		done <- err
+	}()
+	go func() {
+		<-start
+		_, _, err := s.Save(ctx, []model.CostRecord{b})
+		done <- err
+	}()
+	close(start)
+	for i := 0; i < 2; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("concurrent Save: %v", err)
+		}
+	}
+
+	// Both transactions committed. There must be exactly one row, and its
+	// amount must match one of the two writers — never a torn read of a
+	// mixed state.
+	_, amount, _ := readBackCostRecord(t, org.ID, "AmazonVPC", "eu-central-1", "res-001")
+	if amount != 100.00 && amount != 200.00 {
+		t.Errorf("expected amount in {100.00, 200.00}, got %v", amount)
+	}
+
+	// Assert there is exactly one row for the conflict key — DO UPDATE must
+	// never create a duplicate even under contention.
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	var count int
+	if err := conn.QueryRow(context.Background(), `
+		SELECT COUNT(*) FROM axiaops.cost_records
+		WHERE organization_id = $1 AND service = 'AmazonVPC' AND region = 'eu-central-1' AND resource_id = 'res-001'
+		  AND period_start = '2026-03-01'::date AND period_end = '2026-03-31'::date`,
+		org.ID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count query: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 row for the conflict key, got %d", count)
 	}
 }
 
@@ -1191,7 +1372,7 @@ func TestDeleteOldCostRecords_DeletesExpiredRows(t *testing.T) {
 	recent := costRecord("AmazonRDS", "eu-central-1", 20.00)
 	// recent uses default PeriodEnd (2026-03-31) which is within 90 days
 
-	if _, err := s.Save(ctx, []model.CostRecord{old, recent}); err != nil {
+	if _, _, err := s.Save(ctx, []model.CostRecord{old, recent}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -1210,7 +1391,7 @@ func TestDeleteOldCostRecords_KeepsRecentRows(t *testing.T) {
 	ctx, _ := newOrgCtx(t, s)
 
 	recent := costRecord("AmazonEC2", "eu-central-1", 50.00)
-	if _, err := s.Save(ctx, []model.CostRecord{recent}); err != nil {
+	if _, _, err := s.Save(ctx, []model.CostRecord{recent}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
