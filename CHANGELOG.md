@@ -27,6 +27,54 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.20] — 2026-05-30
+
+### Added
+
+- **`RUNTIME_ADMIN_DATABASE_URL`** — least-privilege RLS-bypass connection
+  (`axiaops_runtime`: DML + per-table bypass policies, **no DDL / no ownership**)
+  used by api + ingestion for pre-auth / cross-org reads (native login,
+  `/v1/me`, scheduled-scan enumeration, GDPR purge, stuck-scan recovery).
+  Required outside `DEV_MODE`; the migrate task continues to use
+  `MIGRATION_DATABASE_URL` (`axiaops_owner`). Migration `029_runtime_admin_role`
+  introduces the role and policies. See `docs/runtime-admin-db-role.md`.
+
+### Changed
+
+- **Postgres image pinned to `postgres:17.5-alpine`** across local
+  docker-compose, integration test stacks, the CI `test:storage` service
+  container, `make` test targets, and the `aws-prod-sql` skill's throwaway VPC
+  container. Matches the deployed envs (the deploy stack runs PG 17 on every self-hosted
+  DB) and prod RDS (`engine_version = 17.5`). Local + CI were previously
+  drifting on `postgres:16-alpine`.
+- **Valkey image pinned to `valkey/valkey:8.1-alpine`** across `docker-compose.yml`
+  and `deploy/*.yml`. Was floating on the `8-alpine` major tag.
+- **Bootstrap install-token help in the dashboard is now deployment-aware** —
+  points operators at the right retrieval surface per deployment shape
+  (CloudWatch on ECS, `docker compose logs` for self-hosted, etc.) instead of
+  one-size-fits-all copy.
+- **CI:** API pipelines label themselves via `workflow:name` for cleaner
+  pipeline listings.
+
+### Removed
+
+- Residual Kinde + Expo / React-Native references purged from docs and code.
+  The product has shipped on native auth and a Vite + React web dashboard for
+  some time; these were stale leftovers.
+
+### Security
+
+- **Runtime services no longer hold schema-owner privileges in non-dev envs.**
+  Previously api + ingestion containers connected as `axiaops_owner` (the
+  DDL/ownership-holding migrate role) to bypass RLS on cross-org reads — an
+  RCE in either always-on container got the keys to reshape the schema.
+  Migration `029` introduces the `axiaops_runtime` role with per-table
+  permissive RLS-bypass policies (DML-only, no DDL, no ownership) and the
+  runtime services now read `RUNTIME_ADMIN_DATABASE_URL`. The
+  `MIGRATION_DATABASE_URL` connection is reserved for the one-off migrate
+  task. Rolled out to preview / staging / demo / integration via this MR;
+  the prod ECS task-def flip lands in the sibling `axiaops/aws-infra` repo.
+
 ## [0.1.0-alpha.19] — 2026-05-27
 
 ### Changed
@@ -616,7 +664,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.19...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.20...develop
+[0.1.0-alpha.20]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.20
 [0.1.0-alpha.19]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.19
 [0.1.0-alpha.18]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.18
 [0.1.0-alpha.17]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.17
