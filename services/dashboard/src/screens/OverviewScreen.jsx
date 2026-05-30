@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissZombie, revokeDismissal } from '../api/client';
-import DateRangeChips from '../components/DateRangeChips';
+import DateRangeChips, { DEFAULT_DAYS } from '../components/DateRangeChips';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
@@ -77,10 +77,19 @@ function MonthlyWasteCard({ onShowTrend, children }) {
 
 function OverviewHero({ summary, totalSpend, trend, period, onPeriodChange, onShowTrend, onShowCosts, isMobile }) {
   const data = summary.data;
-  const waste = data?.potential_monthly_savings ?? 0;
+  const monthlyWaste = data?.potential_monthly_savings ?? 0;
+  // Scale the monthly waste to the chosen window so the headline number and the
+  // % ratio against the period's totalSpend stay on the same time scale.
+  // potential_monthly_savings is "monthly cost of currently-detected zombies if
+  // they persist for a month" — extrapolating linearly to other windows is the
+  // natural interpretation. period=30 collapses to the previous behaviour.
+  // The Monthly Waste label flips to "{period}-day Waste" when period !== 30 so
+  // the unit is unambiguous; the InfoTooltip body still describes the source.
+  const waste = monthlyWaste * (period / 30);
   const zombieCount = data?.total_zombies ?? 0;
   const currency = data?.currency || '$';
   const wastePercent = totalSpend > 0 ? (waste / totalSpend) * 100 : 0;
+  const wasteLabel = period === 30 ? 'Monthly Waste' : `${period}-day Waste`;
 
   // /v1/trend returns one row per (account, scan), not one row per scan day.
   // In All Accounts mode each scan day produces N rows (one per account that
@@ -142,7 +151,7 @@ function OverviewHero({ summary, totalSpend, trend, period, onPeriodChange, onSh
         <MonthlyWasteCard onShowTrend={onShowTrend}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase' }}>
-              Monthly Waste
+              {wasteLabel}
             </span>
             <InfoTooltip
               label="What does Monthly Waste mean?"
@@ -1218,14 +1227,17 @@ export default function OverviewScreen({
   const [bulkModal, setBulkModal]       = useState(null); // 'dismiss' | 'snooze' | null
   const [hiddenFilter, setHiddenFilter] = useState('all'); // 'all' | 'dismissed' | 'snoozed'
   // Time window applied to the hero stat block (Total Spend + Monthly Waste
-  // delta) and the underlying fetchCosts / trend trim. Default 30d matches
-  // the previous hardcoded behaviour; the chip row in OverviewHero lets the
-  // user widen/narrow without leaving the screen.
-  const [period, setPeriod] = useState(30);
+  // delta) and the underlying fetchCosts / trend trim. Default matches the
+  // previous hardcoded 30-day behaviour; the chip row in OverviewHero lets
+  // the user widen/narrow without leaving the screen.
+  const [period, setPeriod] = useState(DEFAULT_DAYS);
 
   const summary    = useQuery({ queryKey: ['summary', selectedAccount],    queryFn: () => fetchSummary(selectedAccount) });
   const resources  = useQuery({ queryKey: ['resources', selectedAccount],  queryFn: () => fetchResources(selectedAccount) });
-  const costs      = useQuery({ queryKey: ['costs', selectedAccount, period], queryFn: () => fetchCosts(selectedAccount, null, period) });
+  // placeholderData keeps the previous window's costs visible while the new
+  // window's request is in flight — chip clicks invite rapid exploration and
+  // a fresh isLoading state on every click flashes the chart on each change.
+  const costs      = useQuery({ queryKey: ['costs', selectedAccount, period], queryFn: () => fetchCosts(selectedAccount, null, period), placeholderData: (prev) => prev });
   const trend      = useQuery({ queryKey: ['trend', selectedAccount],      queryFn: () => fetchTrend(selectedAccount) });
   const dismissals = useQuery({ queryKey: ['dismissals', selectedAccount], queryFn: () => fetchDismissals(selectedAccount) });
 

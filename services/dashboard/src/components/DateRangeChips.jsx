@@ -14,8 +14,6 @@ export const PRESET_OPTIONS = [
 // Default selection when a screen mounts without a remembered value.
 export const DEFAULT_DAYS = 30;
 
-const CUSTOM_DAYS = -1;
-
 function isoToday() { return new Date().toISOString().slice(0, 10); }
 function isoDaysAgo(n) {
   const d = new Date(); d.setDate(d.getDate() - n);
@@ -59,8 +57,12 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
     function onDocClick(e) {
       if (popoverRef.current && !popoverRef.current.contains(e.target)) setOpen(false);
     }
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    // pointerdown covers mouse + touch + pen in one event, sidestepping the
+    // ~300ms-delayed synthetic mousedown iOS Safari emits after taps (which
+    // would close the popover after the user has already started interacting
+    // with the date input inside it).
+    document.addEventListener('pointerdown', onDocClick);
+    return () => document.removeEventListener('pointerdown', onDocClick);
   }, [open]);
 
   function applyCustom() {
@@ -86,22 +88,27 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
 
   return (
     <div role="group" aria-label="Select time period" style={{ display: 'flex', gap: 4, position: 'relative' }}>
-      {presets.map(p => (
-        <button
-          key={p.days}
-          type="button"
-          onClick={() => onChange(p.days)}
-          style={chipStyle(value === p.days)}
-        >
-          {p.label}
-        </button>
-      ))}
+      {presets.map(p => {
+        const active = value === p.days;
+        return (
+          <button
+            key={p.days}
+            type="button"
+            onClick={() => onChange(p.days)}
+            aria-pressed={active}
+            style={chipStyle(active)}
+          >
+            {p.label}
+          </button>
+        );
+      })}
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        style={chipStyle(isCustom)}
+        aria-pressed={isCustom}
         aria-haspopup="dialog"
         aria-expanded={open}
+        style={chipStyle(isCustom)}
       >
         Custom…
       </button>
@@ -120,7 +127,12 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
             border: '1px solid var(--color-border)',
             borderRadius: 8,
             boxShadow: '0 6px 24px rgba(0,0,0,0.18)',
-            zIndex: 30,
+            // 150: same tier as AvatarMenu / OrgSwitcher (anchored panel opened
+            // by a button click) — sits above InfoTooltip (z=50) so a tooltip
+            // rendered behind a nearby chart can't float over the open popover,
+            // and below LicenseBanner (z=99) / AppShell (z=100) so global
+            // banners still occlude correctly.
+            zIndex: 150,
             display: 'flex',
             flexDirection: 'column',
             gap: 8,

@@ -4,7 +4,7 @@ import { fetchTrend, fetchTrendServices, fetchTrendResourceTypes } from '../api/
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
-import DateRangeChips from '../components/DateRangeChips';
+import DateRangeChips, { DEFAULT_DAYS } from '../components/DateRangeChips';
 import { useToast } from '../context/ToastContext';
 import { useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
@@ -246,7 +246,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const trendHasData   = trendQueries.some(q => Array.isArray(q.data));
   const mergedSnaps    = mergeSnapshotSeries(trendQueries.map(q => q.data));
   const [selectedSnap, setSelectedSnap] = useState(null);
-  const [period, setPeriod]             = useState(30);
+  const [period, setPeriod]             = useState(DEFAULT_DAYS);
   const [granularity, setGranularity]   = useState('daily');
   const [listPage, setListPage]         = useState(1);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -455,7 +455,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               </div>
             )}
           </div>
-          <DateRangeChips value={period} onChange={changePeriod} mobile />
+          <DateRangeChips value={period} onChange={changePeriod} mobile={isMobile} />
         </div>
 
         {/* Service filter pills */}
