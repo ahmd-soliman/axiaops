@@ -4,6 +4,7 @@ import { fetchCosts, fetchAccounts, scanAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
+import DateRangeChips, { PRESET_OPTIONS, DEFAULT_DAYS } from '../components/DateRangeChips';
 import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner } from '../components/primitives';
@@ -11,14 +12,6 @@ import { useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { MobileSheet } from '../components/primitives/MobileSheet';
 import { csvEncode, downloadCSV } from '../utils/csv';
-
-const PERIOD_OPTIONS = [
-  { label: '7d',  days: 7 },
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
-  { label: '6m',  days: 180 },
-  { label: '1y',  days: 365 },
-];
 
 // AWS Cost Explorer's GetCostAndUsageWithResources tops out at 14 days of
 // resource-level history. The drill-down panel is clamped to this window
@@ -67,7 +60,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const screenWidth = useWindowWidth();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
-  const [period, setPeriod] = useState(30);
+  const [period, setPeriod] = useState(DEFAULT_DAYS);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
   const [filterServices, setFilterServices] = useState(() => new Set());
   const [selectedService, setSelectedService] = useState(null);
@@ -332,7 +325,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
       {/* Total cost hero */}
       <div style={{ backgroundColor: 'var(--color-surface-alt)', borderBottom: '1px solid var(--color-border)', padding: '20px 20px 16px' }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
-          Total Spend · {PERIOD_OPTIONS.find(p => p.days === period)?.label || `${period}d`}
+          Total Spend · {PRESET_OPTIONS.find(p => p.days === period)?.label || `${period}d`}
         </span>
         <span style={{ fontSize: 32, fontWeight: 800, color: 'var(--color-accent)', letterSpacing: -0.5, display: 'block' }}>
           ${totalCost.toFixed(2)}
@@ -371,28 +364,11 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {PERIOD_OPTIONS.map(p => (
-              <button
-                key={p.days}
-                onClick={() => { setPeriod(p.days); setSelectedService(null); setSelectedChartDate(null); }}
-                style={{
-                  padding: isMobile ? '7px 12px' : '4px 10px',
-                  borderRadius: 6,
-                  border: `1px solid ${period === p.days ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                  backgroundColor: period === p.days ? 'var(--color-accent)' : 'var(--color-surface-raised)',
-                  color: period === p.days ? 'var(--color-text-on-dark)' : 'var(--color-text-mid)',
-                  fontWeight: 700,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                }}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+          <DateRangeChips
+            value={period}
+            onChange={(days) => { setPeriod(days); setSelectedService(null); setSelectedChartDate(null); }}
+            mobile={isMobile}
+          />
         </div>
 
         {/* Service filter pills */}

@@ -4,6 +4,7 @@ import { fetchTrend, fetchTrendServices, fetchTrendResourceTypes } from '../api/
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
+import DateRangeChips, { DEFAULT_DAYS } from '../components/DateRangeChips';
 import { useToast } from '../context/ToastContext';
 import { useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
@@ -16,54 +17,37 @@ const MARGIN = { top: 16, right: 20, bottom: 32, left: 56 };
 // Max rows to render in scan history list before paginating
 const LIST_PAGE_SIZE = 50;
 
-const PERIOD_OPTIONS = [
-  { label: '7d',  days: 7 },
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
-  { label: '6m',  days: 180 },
-  { label: '1y',  days: 365 },
-];
+// ─── Aggregation ─────────────────────────────────────────────────────────────
+// Two view modes match the granularity toggle on the screen:
+//   - daily  → aggregateToDays(): one point per day, org-wide sum
+//   - monthly→ downsampleByMonth(): one point per month, mean of org-wide
+//             daily sums (same shape as the headline + CostAnalytics)
+// No auto-weekly bucketing — the user's explicit toggle choice is honored
+// end-to-end, mirroring how CostAnalyticsScreen renders. Previously a 90d
+// view on the "daily" toggle was silently weekly-bucketed, which made the
+// two screens render inconsistent shapes at the same period.
 
-// ─── Downsampling ────────────────────────────────────────────────────────────
-// 7d/30d: every scan. 90d/6m: weekly avg. 1y: monthly avg.
-
-function downsample(snaps, periodDays) {
-  if (periodDays <= 30 || snaps.length <= 30) return snaps;
-
-  // Group by bucket key (ISO week or month)
-  const bucketKey = periodDays <= 180
-    ? (iso) => {
-        // Week bucket: Monday of the ISO week
-        const d = new Date(iso);
-        const day = d.getUTCDay();
-        const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
-        const mon = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff));
-        return mon.toISOString().slice(0, 10);
-      }
-    : (iso) => {
-        // Month bucket
-        return new Date(iso).toISOString().slice(0, 7);
-      };
-
-  const buckets = new Map();
+// Group snapshots by day, sum across same-day scans (multi-account orgs
+// have multiple scans per day with distinct timestamps). One point per day,
+// org-wide total_monthly_cost rate.
+function aggregateToDays(snaps) {
+  if (!snaps || snaps.length === 0) return [];
+  const byDay = new Map();
   for (const s of snaps) {
-    const key = bucketKey(s.snapshot_at);
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(s);
+    const day = s.snapshot_at.slice(0, 10);
+    const existing = byDay.get(day);
+    if (existing) {
+      existing.total_monthly_cost += s.total_monthly_cost ?? 0;
+      existing.zombie_count += s.zombie_count ?? 0;
+    } else {
+      byDay.set(day, {
+        ...s,
+        total_monthly_cost: s.total_monthly_cost ?? 0,
+        zombie_count: s.zombie_count ?? 0,
+      });
+    }
   }
-
-  // Take the average per bucket, keep the latest snapshot_at as the representative timestamp
-  return [...buckets.values()].map(group => {
-    const latest = group[group.length - 1];
-    const avgCost = group.reduce((sum, s) => sum + s.total_monthly_cost, 0) / group.length;
-    const avgZombies = Math.round(group.reduce((sum, s) => sum + s.zombie_count, 0) / group.length);
-    return {
-      ...latest,
-      total_monthly_cost: Math.round(avgCost * 100) / 100,
-      zombie_count: avgZombies,
-      _scanCount: group.length,
-    };
-  });
+  return [...byDay.values()].sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
 }
 
 // Group snapshots by calendar month — sum costs, sum zombie counts.
@@ -77,14 +61,31 @@ function downsampleByMonth(snaps) {
   }
   return [...buckets.values()].map(group => {
     const latest = group[group.length - 1];
-    const avgCost = group.reduce((sum, s) => sum + s.total_monthly_cost, 0) / group.length;
-    const avgZombies = Math.round(group.reduce((sum, s) => sum + s.zombie_count, 0) / group.length);
+    const { costAvg, zombiesAvg } = aggregateBucket(group);
     return {
       ...latest,
-      total_monthly_cost: Math.round(avgCost * 100) / 100,
-      zombie_count: avgZombies,
+      total_monthly_cost: Math.round(costAvg * 100) / 100,
+      zombie_count: zombiesAvg,
     };
   });
+}
+
+// aggregateBucket — sum across same-day scans, then average across days.
+// Shared by downsample() and downsampleByMonth() so they agree on
+// "org-wide daily rate, averaged across the bucket".
+function aggregateBucket(group) {
+  const byDay = new Map();
+  for (const s of group) {
+    const day = s.snapshot_at.slice(0, 10);
+    const acc = byDay.get(day) ?? { cost: 0, zombies: 0 };
+    acc.cost += s.total_monthly_cost ?? 0;
+    acc.zombies += s.zombie_count ?? 0;
+    byDay.set(day, acc);
+  }
+  const days = [...byDay.values()];
+  const costAvg = days.reduce((a, b) => a + b.cost, 0) / days.length;
+  const zombiesAvg = Math.round(days.reduce((a, b) => a + b.zombies, 0) / days.length);
+  return { costAvg, zombiesAvg };
 }
 
 // ─── Format helpers ──────────────────────────────────────────────────────────
@@ -253,7 +254,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const trendHasData   = trendQueries.some(q => Array.isArray(q.data));
   const mergedSnaps    = mergeSnapshotSeries(trendQueries.map(q => q.data));
   const [selectedSnap, setSelectedSnap] = useState(null);
-  const [period, setPeriod]             = useState(30);
+  const [period, setPeriod]             = useState(DEFAULT_DAYS);
   const [granularity, setGranularity]   = useState('daily');
   const [listPage, setListPage]         = useState(1);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -272,12 +273,20 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const effectiveGranularity = period <= 30 ? 'daily' : granularity;
   const showGranularityToggle = period >= 90;
 
-  // Derive data — raw snaps for history list, aggregated for chart
+  // Derive data — raw snaps for history list, aggregated for chart.
+  //
+  // Filter by date (not by entry count): /v1/trend can return multiple
+  // snapshots per day in multi-account orgs (one per account-scan),
+  // so a naive slice(-period) treated `period` as "last N entries" —
+  // i.e. period=7 picked the most recent 7 scans rather than the last
+  // 7 days, and 6m/1y both collapsed to "all entries". Computing a
+  // wall-clock cutoff keeps the chip labels honest end-to-end.
   const allSnaps      = mergedSnaps;
-  const filteredSnaps = allSnaps.slice(-period);
+  const cutoffMs      = Date.now() - period * 24 * 60 * 60 * 1000;
+  const filteredSnaps = allSnaps.filter(s => new Date(s.snapshot_at).getTime() >= cutoffMs);
   const chartSnaps    = effectiveGranularity === 'monthly'
     ? downsampleByMonth(filteredSnaps)
-    : downsample(filteredSnaps, period);
+    : aggregateToDays(filteredSnaps);
   const reversedSnaps = [...filteredSnaps].reverse();
 
   // Total CSV rows across all buckets (one row per snap per bucket, period-windowed).
@@ -366,6 +375,31 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const displaySnap = selectedSnap ?? latestSnap;
   const firstSnap   = filteredSnaps[0];
 
+  // Average daily org-wide cost across the picked window. Computed as
+  // (sum across all accounts per day, then average those daily totals across
+  // the unique days in the window). The two-step shape matters: naively
+  // averaging .total_monthly_cost across every (account, scan) row biases
+  // the result toward whichever account scans most often, which produces
+  // weird mixed-magnitude numbers in multi-account orgs. Grouping by day
+  // first collapses that bias — every day contributes one observation,
+  // regardless of how many accounts scanned it.
+  //
+  // selectedSnap still overrides so clicking a history point shows its
+  // exact value (the user's already-explicit choice).
+  const avgWindowCost = (() => {
+    if (filteredSnaps.length === 0) return 0;
+    const byDay = new Map();
+    for (const s of filteredSnaps) {
+      const day = s.snapshot_at.slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + (s.total_monthly_cost ?? 0));
+    }
+    const dailyTotals = [...byDay.values()];
+    return dailyTotals.reduce((a, b) => a + b, 0) / dailyTotals.length;
+  })();
+  const headlineCost = selectedSnap
+    ? selectedSnap.total_monthly_cost
+    : avgWindowCost;
+
   const delta = latestSnap && firstSnap && firstSnap !== latestSnap
     ? ((latestSnap.total_monthly_cost - firstSnap.total_monthly_cost) / Math.max(firstSnap.total_monthly_cost, 0.01)) * 100
     : null;
@@ -406,17 +440,15 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
           })()}
         </span>
         <span style={{ fontSize: 32, fontWeight: 800, color: 'var(--color-accent)', letterSpacing: -0.5, display: 'block' }}>
-          {displaySnap?.currency ?? '$'} {displaySnap ? displaySnap.total_monthly_cost.toFixed(2) : '0.00'}
+          {displaySnap?.currency ?? '$'} {filteredSnaps.length > 0 ? headlineCost.toFixed(2) : '0.00'}
         </span>
-        {/* Honesty label — the number above is captured at scan time, BEFORE the
-            user's dismissals/snoozes are applied. The Overview's Monthly Waste
-            headline is the live current-state total AFTER dismissals; the two
-            can legitimately differ. Only show when looking at the most-recent
-            snapshot — if the user picked a past snapshot from the history list,
-            they already understand it's historical. */}
-        {displaySnap && !selectedSnap && (
-          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic', display: 'block', marginTop: 1 }}>
-            At last scan · before dismissals
+        {/* Average label visible only on the non-selected (period) view —
+            when the user has clicked into a history point we show that
+            point's exact value (handled by selectedSnap above), so the
+            "avg over period" framing would be misleading. */}
+        {!selectedSnap && filteredSnaps.length > 0 && (
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginTop: 1 }}>
+            Avg zombie monthly-rate · last {period} day{period === 1 ? '' : 's'} · before dismissals
           </span>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
@@ -462,33 +494,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               </div>
             )}
           </div>
-          <div role="group" aria-label="Select time period" style={{ display: 'flex', gap: 4 }}>
-            {PERIOD_OPTIONS.map(p => {
-              const active = period === p.days;
-              return (
-                <button
-                  key={p.label}
-                  onClick={() => changePeriod(p.days)}
-                  aria-pressed={active}
-                  style={{
-                    // 4/10 → 7/14 puts each pill at ~36×30px vs the prior
-                    // ~22×24px — still tighter than the 44px HIG floor but
-                    // close enough to be reliably tappable, and the row
-                    // wraps if all 4 don't fit. Single padding pair so the
-                    // pill height stays consistent with the granularity
-                    // toggle next to it.
-                    padding: '7px 14px', borderRadius: 6, cursor: 'pointer',
-                    backgroundColor: active ? 'var(--color-accent)' : 'var(--color-surface-raised)',
-                    border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                    fontSize: 12, fontWeight: 700,
-                    color: active ? '#fff' : 'var(--color-text-mid)',
-                  }}
-                >
-                  {p.label}
-                </button>
-              );
-            })}
-          </div>
+          <DateRangeChips value={period} onChange={changePeriod} mobile={isMobile} />
         </div>
 
         {/* Service filter pills */}
