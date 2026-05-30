@@ -27,6 +27,25 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.21] — 2026-05-30
+
+### Fixed
+
+- **Migration `029_runtime_admin_role` now applies on AWS RDS.** The original
+  statement `ALTER ROLE axiaops_runtime NOSUPERUSER NOCREATEDB NOCREATEROLE
+  NOINHERIT;` is rejected on RDS with `permission denied to alter role, Only
+  roles with the SUPERUSER attribute may change the SUPERUSER attribute`.
+  PostgreSQL requires the *caller* to be a true superuser before it can touch
+  the SUPERUSER attribute on any role — even setting it to `NOSUPERUSER`-which-
+  it-already-is. RDS's `axiaops_owner` is in `rds_superuser`, which is not a
+  true superuser (same restriction that previously blocked `BYPASSRLS`). The
+  three re-asserted defaults (`NOSUPERUSER` / `NOCREATEDB` / `NOCREATEROLE`)
+  are already what `CREATE ROLE` set; only `NOINHERIT` is a real change.
+  Migration now reads `ALTER ROLE axiaops_runtime NOINHERIT;`. End state
+  identical on non-prod envs where 029 already applied (file SHA changes; the
+  hash-drift detector will warn at the next migrate run — non-strict, no
+  divergence in DB state). First successful application on prod.
+
 ## [0.1.0-alpha.20] — 2026-05-30
 
 ### Added
@@ -664,7 +683,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.20...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.21...develop
+[0.1.0-alpha.21]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.21
 [0.1.0-alpha.20]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.20
 [0.1.0-alpha.19]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.19
 [0.1.0-alpha.18]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.18
