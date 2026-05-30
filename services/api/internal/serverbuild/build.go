@@ -200,11 +200,11 @@ func (sw *statusWriter) WriteHeader(code int) {
 //
 // The returned handler is the full middleware chain, outermost-first:
 //
-//	request-logging + metrics
-//	  → request-id
-//	    → auth (DevBypass | WrapNative + EnforceSSO)
-//	      → rate-limiter
-//	        → CORS
+//	CORS
+//	  → request-logging + metrics
+//	    → request-id
+//	      → auth (DevBypass | WrapNative + EnforceSSO)
+//	        → rate-limiter
 //	          → mux (handlers)
 //
 // Tickers (stuck-scan, license, session-sweep, sso-sweep) are NOT started

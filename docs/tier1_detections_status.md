@@ -1,8 +1,8 @@
 # Tier 1 Detection Rules — Implementation Status
 
-**Status: ✅ PRODUCTION-READY** (April 2026)
+**Status: ✅ PRODUCTION-READY** (last reviewed 2026-05)
 
-All four Tier 1 "easy wins" detection rules are fully implemented with pagination support and integrated into the AxiaOps scan workflow.
+The four original Tier 1 "easy wins" detection rules are fully implemented with pagination support and integrated into the AxiaOps scan workflow. Four further API-only rules (CloudWatch Log Groups, orphaned RDS snapshots, stale ECR images, unused Secrets Manager secrets) shipped after April — see the "New Tier 1 API-only" section below for status, and the `Detection Method` column of the API-only rules table in the root `CLAUDE.md` for thresholds.
 
 ---
 
@@ -257,13 +257,13 @@ For a mid-sized AWS account (10-20 engineers), Tier 1 detections alone often unc
 - [ ] Weekly email digest when new ghosts appear
 - [ ] Production deployment (ECS Express + RDS + Terraform via aws-infra)
 
-**New Tier 1 API-only (shipped April 2026):**
-- [x] CloudWatch Log Groups — no retention or zero stored bytes
-- [x] Orphaned RDS Snapshots — manual, source DB deleted, > 30 days
-- [x] Stale ECR Images — untagged or > 90 days (per repo summary)
+**New Tier 1 API-only (shipped, see `services/ingestion/internal/provider/aws/discover_*.go`):**
+- [x] CloudWatch Log Groups — no retention or zero stored bytes (`discover_logs.go`)
+- [x] Orphaned RDS Snapshots — manual, source DB deleted, > 30 days (`discover_rds.go`)
+- [x] Stale ECR Images — untagged or > 90 days (`discover_ecr.go`)
+- [x] Secrets Manager: unused secrets (last accessed > 90 days) (`discover_secrets.go`)
 
 **Phase 3 (remaining detections):**
-- [ ] Secrets Manager: unused secrets (last accessed > 90 days)
 - [ ] S3: buckets with zero requests over 60 days
 - [ ] CloudFront: distributions with zero requests over 30 days
 
