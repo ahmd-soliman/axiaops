@@ -85,8 +85,8 @@ REST server on `:8080`. Exposes the dashboard's full surface (zombies, summary, 
 
 Notable patterns:
 - Go 1.22+ `mux.HandleFunc("METHOD /path", fn)` route registration
-- **Per-account scan lock is enforced at the DB row level**, not in-memory: `TryMarkAccountScanning` in `services/shared/storage/postgres/postgres.go:680-682` runs `UPDATE accounts SET status='scanning' WHERE id=$1 AND status<>'scanning'` and returns whether the row was updated. The atomicity of the UPDATE prevents duplicate concurrent scans even across multiple API replicas.
-- 5-minute background ticker (`runStuckScanTicker` wired by `serverbuild.StartTickers` at `services/api/internal/serverbuild/build.go:374`) resets accounts stuck in `scanning` >15 min via `ResetStuckScans` at `services/shared/storage/postgres/migrate.go:140`. The 15-min const lives at `services/api/cmd/main.go:42`.
+- **Per-account scan lock is enforced at the DB row level**, not in-memory: `TryMarkAccountScanning` in `services/shared/storage/postgres/postgres.go` runs `UPDATE accounts SET status='scanning' WHERE id=$1 AND status<>'scanning'` and returns whether the row was updated. The atomicity of the UPDATE prevents duplicate concurrent scans even across multiple API replicas.
+- 5-minute background ticker (`runStuckScanTicker` wired by `serverbuild.StartTickers` in `services/api/internal/serverbuild/build.go`) resets accounts stuck in `scanning` >15 min via `ResetStuckScans` in `services/shared/storage/postgres/migrate.go`. The 15-min const (`stuckScanTimeout`) lives in `services/api/cmd/main.go`.
 - `production` build tag strips DEV_MODE from customer-shipping binaries
 
 ### `ingestion` — write path + AWS work

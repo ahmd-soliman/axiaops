@@ -28,11 +28,15 @@ End state: a fresh signup goes from "I just authenticated with Kinde" to "my org
 
 ## 2. Scope
 
-In scope:
-- A 3-step wizard at `/onboarding` for fresh organizations: confirm name → invite teammates (optional) → connect first AWS account (optional).
-- Organization rename via `PATCH /v1/organizations/me`, with **two-phase commit to Kinde** so invitation emails and Kinde-hosted UI stay in sync with the local name.
-- A derived "What's next" panel on the dashboard home (no new endpoints), dismissible per-user.
-- Fix the `UpsertOrganization` name-clobber bug at `services/shared/storage/postgres/postgres.go:250-255` — the load-bearing change that makes any rename UX possible.
+In scope (current — post-B1):
+- A 2-step wizard at `/onboarding` for fresh organizations: invite teammates (optional) → connect first AWS account (optional). The "confirm name" step was dropped because native-auth bootstrap already collects `organization_name` at install time. See `services/dashboard/src/pages/onboarding/{Invite,AwsAccount,OnboardingLayout}.jsx`.
+- Organization rename via `PATCH /v1/organizations/me` — local `UPDATE` only, no external sync (Kinde was removed; the two-phase commit described in §5.1 is historical).
+- A derived "What's next" panel on the dashboard home (no new endpoints), dismissible per-user (`services/dashboard/src/components/onboarding/WhatsNextPanel.jsx`).
+
+Historical / superseded (read §3–§6 as design context, not as a TODO list):
+- "Confirm name" step (dropped — bootstrap already collects it).
+- Two-phase Kinde rename commit (Kinde is gone).
+- `UpsertOrganization` name-clobber bug — moot, the function is unused post-Kinde-removal.
 
 Out of scope (deferred, with rationale):
 - **Pattern B (app-owned organizations).** Dropped from the roadmap. See header.
