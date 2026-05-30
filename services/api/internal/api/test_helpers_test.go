@@ -314,8 +314,8 @@ func (m *MockStore) GetStatusUpdateCalls() []struct {
 
 // ── Store Interface Implementation ──
 
-func (m *MockStore) Save(_ context.Context, _ []model.CostRecord) (int64, error) {
-	return 0, nil
+func (m *MockStore) Save(_ context.Context, _ []model.CostRecord) (int64, int64, error) {
+	return 0, 0, nil
 }
 
 func (m *MockStore) SaveZombies(_ context.Context, z []model.ZombieResource) error {

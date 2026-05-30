@@ -91,9 +91,12 @@ type Store interface {
 	// storage_native_auth.go for the full method set.
 	NativeAuthStore
 
-	// Save inserts a batch of cost records, skipping duplicates.
-	// Returns the number of records actually inserted.
-	Save(ctx context.Context, records []model.CostRecord) (int64, error)
+	// Save upserts a batch of cost records, refreshing amount/currency/tags/
+	// fetched_at/internal_account_id when an existing conflict-key row is
+	// touched. Returns (inserted, updated) counts so callers can split
+	// metrics by which path each record took. See
+	// docs/cost-records-upsert-plan.md for rationale.
+	Save(ctx context.Context, records []model.CostRecord) (inserted, updated int64, err error)
 
 	// SaveZombies replaces all zombie records with the latest detection results.
 	// Called by the ingestion job after each analysis run.

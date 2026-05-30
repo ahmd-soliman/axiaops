@@ -30,8 +30,8 @@ func (m *mockStoreForScheduler) ListAllAccounts(ctx context.Context) ([]model.Ac
 	}
 	return append([]model.Account(nil), m.accounts...), nil
 }
-func (m *mockStoreForScheduler) Save(context.Context, []model.CostRecord) (int64, error) {
-	return 0, nil
+func (m *mockStoreForScheduler) Save(context.Context, []model.CostRecord) (int64, int64, error) {
+	return 0, 0, nil
 }
 func (m *mockStoreForScheduler) SaveZombies(context.Context, []model.ZombieResource) error {
 	return nil
