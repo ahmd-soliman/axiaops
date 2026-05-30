@@ -45,15 +45,21 @@ function downsample(snaps, periodDays) {
     buckets.get(key).push(s);
   }
 
-  // Take the average per bucket, keep the latest snapshot_at as the representative timestamp
+  // Per-bucket aggregate: sum within each day first (so multi-account scans
+  // on the same day collapse to one org-wide value), then average those daily
+  // sums across the bucket. Without this two-step, the per-snapshot mean
+  // would understate the org-wide cost by a factor of N (number of accounts)
+  // in any deployment where accounts scan at different clock times within
+  // the day — the local seed avoids this by writing identical timestamps per
+  // day, but real prod scans don't. Same fix as the headline (which uses
+  // group-by-day-then-avg already).
   return [...buckets.values()].map(group => {
     const latest = group[group.length - 1];
-    const avgCost = group.reduce((sum, s) => sum + s.total_monthly_cost, 0) / group.length;
-    const avgZombies = Math.round(group.reduce((sum, s) => sum + s.zombie_count, 0) / group.length);
+    const { costAvg, zombiesAvg } = aggregateBucket(group);
     return {
       ...latest,
-      total_monthly_cost: Math.round(avgCost * 100) / 100,
-      zombie_count: avgZombies,
+      total_monthly_cost: Math.round(costAvg * 100) / 100,
+      zombie_count: zombiesAvg,
       _scanCount: group.length,
     };
   });
@@ -70,14 +76,31 @@ function downsampleByMonth(snaps) {
   }
   return [...buckets.values()].map(group => {
     const latest = group[group.length - 1];
-    const avgCost = group.reduce((sum, s) => sum + s.total_monthly_cost, 0) / group.length;
-    const avgZombies = Math.round(group.reduce((sum, s) => sum + s.zombie_count, 0) / group.length);
+    const { costAvg, zombiesAvg } = aggregateBucket(group);
     return {
       ...latest,
-      total_monthly_cost: Math.round(avgCost * 100) / 100,
-      zombie_count: avgZombies,
+      total_monthly_cost: Math.round(costAvg * 100) / 100,
+      zombie_count: zombiesAvg,
     };
   });
+}
+
+// aggregateBucket — sum across same-day scans, then average across days.
+// Shared by downsample() and downsampleByMonth() so they agree on
+// "org-wide daily rate, averaged across the bucket".
+function aggregateBucket(group) {
+  const byDay = new Map();
+  for (const s of group) {
+    const day = s.snapshot_at.slice(0, 10);
+    const acc = byDay.get(day) ?? { cost: 0, zombies: 0 };
+    acc.cost += s.total_monthly_cost ?? 0;
+    acc.zombies += s.zombie_count ?? 0;
+    byDay.set(day, acc);
+  }
+  const days = [...byDay.values()];
+  const costAvg = days.reduce((a, b) => a + b.cost, 0) / days.length;
+  const zombiesAvg = Math.round(days.reduce((a, b) => a + b.zombies, 0) / days.length);
+  return { costAvg, zombiesAvg };
 }
 
 // ─── Format helpers ──────────────────────────────────────────────────────────
