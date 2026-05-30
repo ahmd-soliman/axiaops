@@ -24,7 +24,7 @@ Out of scope for this iteration:
 
 - Scheduled/automated scans (no user actor — logged to `scan_runs`, not `audit_log`)
 - Read-only list/get endpoints (volume is too high; no value unless an access log is a separate feature)
-- Auth events (login/logout lives in Kinde)
+- Auth events (login/logout — session events are in `sessions` table; Kinde was removed 2026-05)
 
 ---
 
@@ -32,7 +32,7 @@ Out of scope for this iteration:
 
 - `dismissed_zombies` table — has `dismissed_by` / `revoked_by` columns (`services/shared/storage/postgres/migrations/002_dismiss_snooze.up.sql`). These are populated with **organization_id, not user_id** — see `services/api/internal/api/handler.go:616` (`// swap for user email when available`). The audit trail work fixes this gap.
 - `middleware.OrganizationID(ctx)` is the only identity exposed on request context (`services/api/internal/middleware/auth.go:176`). **User identity is not propagated into handlers** today — blocker #1 for the audit trail.
-- `users` table exists (`id`, Kinde `sub`, email, `organization_id`, `last_seen`) — populated on every authenticated request by `UpsertUser` (`auth.go:160`).
+- `users` table exists (`id`, `external_id` (renamed from `kinde_sub` in migration 024), email, `last_seen`) — populated at login; joined to `organizations` via `memberships`.
 - Next available migration number is **`013`** — migrations 009–012 are already used.
 
 ---
@@ -232,6 +232,8 @@ Per `docs/development_plan.md` §3.10:
 - `DELETE /v1/organizations/me` (Phase 3.10) cascades a full delete of `audit_log` rows for that organization — *right to erasure* trumps audit retention once the organization itself is gone. Add `audit_log` to the cascade list in the GDPR task.
 
 Both paths require the `UPDATE` grant on `audit_log` for the app user (granted in §3.1 migration).
+
+**Runtime-admin role (migration 029, `docs/runtime-admin-db-role.md`):** the org-cascade purge (`DELETE /v1/organizations/me`) runs on the runtime RLS-bypass pool (`axiaops_runtime`), which therefore holds `DELETE` on `audit_log`. NB: contrary to §3.1's stated "no `DELETE` for the app role," the app role (`axiaops`) *also* holds `DELETE` here in practice — `000_init`'s `ALTER DEFAULT PRIVILEGES … GRANT … DELETE … TO axiaops` fires when `audit_log` is created and nothing revokes it. So `axiaops_runtime`'s `DELETE` is no new exposure; tightening the app role's grant to match §3.1's intent is a separate, out-of-scope cleanup. `axiaops_runtime` still cannot DDL or own objects.
 
 ---
 

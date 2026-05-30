@@ -28,8 +28,8 @@ import (
 
 // Discoverer maps a login email's domain to a connection. The HTTP handler
 // for GET /v1/sso/discover delegates to this interface — handler is impl-
-// agnostic. SaaS reactivation adds a compositeDiscoverer wrapping native +
-// Kinde Mgmt API; B2 ships only NativeDiscoverer.
+// agnostic. Today only NativeDiscoverer ships; a SaaS reactivation could add
+// a compositeDiscoverer wrapping native + an external IdP's management API.
 //
 // Lookup is constant-shape (always returns DiscoverResult, never errors for
 // "not found") so the handler response shape doesn't fork on the discovery

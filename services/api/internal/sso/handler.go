@@ -23,9 +23,9 @@ import (
 // The Handler depends on the Discoverer + Connector seams (D11), not on the
 // store directly. Domain CRUD goes through the store because the seam for
 // domains is implicit — ListSSODomains/CreateSSODomain are pure data
-// operations that don't differ between Option A (Kinde-mirror) and Option B
-// (self-hosted). If a future Connector-style seam emerges for domains, it
-// can be introduced without API churn.
+// operations that don't differ between the self-hosted native impl and a
+// future external-IdP-mirror impl. If a future Connector-style seam emerges
+// for domains, it can be introduced without API churn.
 type Handler struct {
 	store      storage.Store
 	connector  Connector

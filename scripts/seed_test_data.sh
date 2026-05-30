@@ -99,7 +99,7 @@ fi
 
 # ── Remote connection setup ───────────────────────────────────────────────────
 # When --remote is passed, build a MIGRATION_DATABASE_URL pointing to the remote host.
-# For staging, look up the real organization ID from the DB (created by Kinde auth).
+# For staging, look up the real organization ID from the DB (created by the native bootstrap flow).
 # Prompts for confirmation unless --yes/-y is passed.
 
 if [[ -n "$REMOTE_ENV" ]]; then
@@ -239,17 +239,17 @@ PERIOD_END="$NOW"
 
 # ── Resolve organization ID ─────────────────────────────────────────────────────────
 # Must match whichever organization the API is serving data for:
-#   - Auth-on envs (staging / preview / demo, AUTH_PROVIDER=native or kinde):
-#     one real organization created by the bootstrap flow (or by Kinde login on
-#     legacy staging). Pick the oldest organizations row — first one wins on
-#     a multi-org install, which is the only one we'd want to seed.
+#   - Auth-on envs (staging / preview / demo, native cookie auth + OIDC SSO):
+#     one real organization created by the native bootstrap flow. Pick the
+#     oldest organizations row — first one wins on a multi-org install, which
+#     is the only one we'd want to seed.
 #   - Auth-bypass envs (dev-1 / dev-2 / local docker, DEV_MODE=true):
 #     organization id == DEV_ORGANIZATION_ID (ensured by the API at startup
 #     via Store.EnsureOrganization). Seed mirrors that — pin the same id.
 
 # AUTH_ON_ENVS = the set where the API requires real auth and creates real
-# org rows via bootstrap or Kinde. Keep in sync with DEV_MODE settings in
-# deploy/{env}.yml — if you flip an env's DEV_MODE here, mirror it there.
+# org rows via the native bootstrap flow. Keep in sync with DEV_MODE settings
+# in deploy/{env}.yml — if you flip an env's DEV_MODE here, mirror it there.
 AUTH_ON_ENVS_REGEX="^(staging|preview|demo)$"
 
 if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX ]]; then
@@ -268,7 +268,7 @@ else
 
   # Dev user — must match DEV_USER_ID env var used by the API's DevBypass
   # middleware. Pinned id so audit_log / dismissed_by FK references resolve
-  # without going through the Kinde-upsert path.
+  # without going through the native sign-up path.
   DEV_USER_ID_VAL="${DEV_USER_ID:-dev-user-axiaops}"
   DEV_USER_EMAIL_VAL="${DEV_USER_EMAIL:-dev@axiaops.local}"
   # Values are interpolated into SQL strings below. Reject anything that could

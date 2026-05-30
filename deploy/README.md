@@ -17,7 +17,7 @@ DEPLOY_ENV=dev-1 API_HOST_PORT=30031 DASHBOARD_HOST_PORT=30032 \
 ```
 
 ### `staging.yml` — Staging Environment
-- **DEV_MODE**: `false` (real Kinde auth required)
+- **DEV_MODE**: `false` (native cookie-session auth + OIDC SSO required)
 - **Image tags**: `:staging`
 - **Restart policy**: `unless-stopped`
 - **Network**: Uses external GitLab runner network
@@ -39,7 +39,7 @@ make test
 
 ## GitLab CI
 
-CI builds and deploys via `.gitlab-ci.yml`. Dev and staging are deployed manually on `main`/`develop` branches. Production is deployed to AWS App Runner via ECR — no compose file is used for production.
+CI builds and deploys via `.gitlab-ci.yml`. Dev and staging are deployed manually on `main`/`develop` branches. Production is deployed to AWS ECS Express via ECR — no compose file is used for production.
 
 ## Environment Variables
 
@@ -47,10 +47,6 @@ CI builds and deploys via `.gitlab-ci.yml`. Dev and staging are deployed manuall
 - `DATABASE_URL`
 - `MIGRATION_DATABASE_URL`
 - `ENCRYPTION_KEY` (32-byte hex)
-- `KINDE_ISSUER`
-- `KINDE_CLIENT_ID`
-- `KINDE_M2M_CLIENT_ID` — required when invitations are enabled
-- `KINDE_M2M_CLIENT_SECRET` — required when invitations are enabled
 
 ### Optional (have defaults)
 - `SCAN_INTERVAL` (default: `60s` for dev, `1h` for staging)

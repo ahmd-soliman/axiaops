@@ -31,7 +31,7 @@ flowchart TB
     end
 
     subgraph data["Data layer"]
-        pg[("PostgreSQL 16<br/>schema 'axiaops'<br/>RLS-enforced")]
+        pg[("PostgreSQL 17<br/>schema 'axiaops'<br/>RLS-enforced")]
         redis[("Redis<br/>(cache + queue,<br/>staging only)")]
     end
 
@@ -215,7 +215,7 @@ flowchart LR
 
 ## 5. Database & Multi-Tenancy
 
-PostgreSQL 16 with **schema `axiaops`** (not `public`). Two connection roles: `axiaops_owner` runs migrations and owns DDL; `axiaops` is the app role bound by RLS policies.
+PostgreSQL 17 with **schema `axiaops`** (not `public`). Two connection roles: `axiaops_owner` runs migrations and owns DDL; `axiaops` is the app role bound by RLS policies.
 
 ### Row-Level Security pattern
 

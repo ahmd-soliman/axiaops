@@ -158,7 +158,7 @@ All limitations are acceptable for Phase 2. Can be addressed in Phase 3 if custo
 
 **Phase 2 (remaining)**:
 - [ ] Add fake provider scenarios for Tier 2 detections (dev mode testing)
-- [ ] Production deployment (App Runner + RDS + Terraform)
+- [ ] Production deployment (ECS Express + RDS + Terraform via aws-infra)
 
 **Phase 3 (enhancements)**:
 - [ ] Cost-based filtering (only flag resources >$10/month)
