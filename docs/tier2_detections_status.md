@@ -266,7 +266,7 @@ Tier 2 adds minimal overhead to the scan:
 
 **Phase 2 (remaining)**:
 - [ ] Add fake provider scenarios for Tier 2 detections
-- [ ] Production deployment (ECS Express + RDS + Terraform via aws-infra)
+- [x] Production deployment (ECS Express + RDS + Terraform via aws-infra)
 
 **Phase 3 (enhancements)**:
 - [ ] EKS node count detection via Auto Scaling groups
@@ -276,9 +276,9 @@ Tier 2 adds minimal overhead to the scan:
 
 **Phase 4 (Tier 3 detections)**:
 - [ ] S3 buckets with no access logs
-- [ ] CloudFront distributions with no requests
+- [x] CloudFront distributions with no requests
 - [ ] Underutilized RDS instances (CPU < 10% + connections < 5)
-- [ ] Idle NAT Gateways (bytes < 1 GB/day)
+- [x] Idle NAT Gateways (bytes < 1 GB/day)
 
 ---
 
