@@ -81,7 +81,7 @@ Non-obvious shape that's easy to misread from `.gitlab-ci.yml`:
 
 ## Database
 
-- **Runtime:** PostgreSQL 16 with Row-Level Security (organization isolation via `SET app.organization_id`)
+- **Runtime:** PostgreSQL 17 with Row-Level Security (organization isolation via `SET app.organization_id`)
 - **Migrations:** `services/shared/storage/postgres/migrations/` — versioned SQL, run on startup
 - **Three DB roles** (see `docs/runtime-admin-db-role.md`):
   - `DATABASE_URL` → `axiaops` app user, RLS-enforced — the request-path pool.
