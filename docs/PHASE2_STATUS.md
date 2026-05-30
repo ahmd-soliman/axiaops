@@ -130,7 +130,7 @@ All May 2026 milestone items and most June 2026 items are in `main`.
 - S3 + DynamoDB state backend under `terraform/`.
 
 **RDS**
-- Provision `db.t4g.micro` PostgreSQL 16 in `eu-central-1`.
+- Provision `db.t4g.micro` PostgreSQL 17 in `eu-central-1`.
 - Run migrations as a one-off container job (not inside long-running services).
 - Daily snapshots, 7-day retention. CloudWatch log retention 7 days.
 
