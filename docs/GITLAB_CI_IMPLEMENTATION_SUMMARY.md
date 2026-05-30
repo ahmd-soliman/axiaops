@@ -70,11 +70,21 @@ Git Commit to main
   │    ├── build:ingestion   (Docker → ECR)
   │    └── build:dashboard   (Docker + Vite → ECR)
   │
-  └─→ DEPLOY STAGE (main only, if build passes)
-       ├── deploy:api        (App Runner update)
-       ├── deploy:ingestion  (App Runner update)
-       └── deploy:dashboard  (App Runner + CloudFront invalidation)
+  └─→ DEPLOY STAGE (per-env manual gates)
+       ├── deploy:dev-1     (SSH-as-Docker-context → self-hosted host)
+       ├── deploy:dev-2     (SSH-as-Docker-context → self-hosted host)
+       ├── deploy:preview   (SSH-as-Docker-context → self-hosted host)
+       ├── deploy:staging   (SSH-as-Docker-context → self-hosted host)
+       ├── deploy:demo      (SSH-as-Docker-context → self-hosted host)
+       └── deploy:production (ECS task-def update + `aws ecs update-service`
+                              + CloudFront invalidation for dashboard;
+                              GitLab OIDC → AWS, not access keys)
 ```
+
+> The jobs above reflect the post-Phase-B reality. The original
+> `deploy:api / deploy:ingestion / deploy:dashboard` triad has been replaced
+> by per-env manual gates. The canonical job set is whatever `.gitlab-ci.yml`
+> declares — see also `docs/ci.md`.
 
 **Duration:** 
 - Test stage: ~2–3 minutes
@@ -98,7 +108,7 @@ Git Commit to main
 - ECR push with commit SHA tagging
 
 ✅ **Production Deployment**
-- AWS App Runner updates for all services
+- ECS task-def update + `aws ecs update-service` for api and ingestion
 - CloudFront cache invalidation for dashboard
 - Graceful error handling (non-blocking failures)
 
@@ -139,7 +149,7 @@ Git Commit to main
   - [ ] Create access keys (save securely)
   - [ ] Attach minimal permissions policy
   - [ ] Verify ECR repositories exist (`axiaops-api`, `axiaops-ingestion`, `axiaops-dashboard`)
-  - [ ] Verify App Runner services exist (`axiaops-api`, `axiaops-ingestion`, `axiaops-dashboard`)
+  - [ ] Verify ECS Express services exist (`axiaops-api`, `axiaops-ingestion`) and the dashboard S3 bucket + CloudFront distribution are in place
 
 - [ ] **GitLab Configuration** (Add for deploy stage)
   - [ ] Add 3 more CI/CD variables:
@@ -150,7 +160,7 @@ Git Commit to main
 - [ ] **Deploy to Production**
   - [ ] Push to main (test + build stages run)
   - [ ] In GitLab CI/CD, click "Play" button on any deploy job
-  - [ ] Verify deployment to App Runner
+  - [ ] Verify deployment to ECS Express
   - [ ] Check application health: `/health` endpoint
 
 ---
@@ -176,12 +186,12 @@ Git Commit to main
    - Create AWS IAM user and generate credentials
    - Generate `ENCRYPTION_KEY`
    - Add all 6 variables to GitLab CI/CD settings
-   - Verify App Runner services exist
+   - Verify ECS Express services exist
    - Test pipeline with feature branch → main push
 
 3. **Ongoing**
    - Monitor pipeline runs in GitLab CI/CD dashboard
-   - Check deployment status in AWS App Runner
+   - Check deployment status in AWS ECS (Express) console
    - Rotate AWS credentials every 90 days
    - Update documentation as pipeline evolves
 
@@ -197,7 +207,7 @@ Git Commit to main
 | test: `golangci-lint run` | ✅ | test:lint job |
 | build: Docker images for api, ingestion, dashboard | ✅ | 3 build jobs |
 | build: push to AWS ECR | ✅ | Uses ECR registry |
-| deploy: `aws apprunner update-service` | ✅ | deploy:api, deploy:ingestion |
+| deploy: ECS task-def update + `aws ecs update-service` | ✅ | deploy:production (api + ingestion) |
 | deploy: CloudFront invalidation for dashboard | ✅ | deploy:dashboard |
 | Branch strategy: main → full pipeline, features → test only | ✅ | `only: - main` filters |
 | Secrets stored as GitLab CI/CD variables (masked) | ✅ | 6 variables configured |
@@ -231,7 +241,7 @@ Git Commit to main
 3. **Audit Trail**
    - GitLab CI/CD logs secrets are masked (not visible in logs)
    - AWS CloudTrail logs all API calls for compliance
-   - App Runner deployment history available in AWS Console
+   - ECS deployment history (task-definition revisions + service events) available in AWS Console
 
 ---
 
@@ -288,7 +298,7 @@ Git Commit to main
 - Automated testing ✓
 - Docker builds ✓
 - ECR integration ✓
-- App Runner deployment ✓
+- ECS Express deployment ✓
 - CloudFront invalidation ✓
 - Branch strategy ✓
 - Secret management ✓

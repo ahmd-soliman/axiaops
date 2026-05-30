@@ -550,6 +550,6 @@ In-memory buckets are lost on restart. Fixed in Phase 2.14 with Redis.
 4. cost_records retention (90-day cleanup)
 5. Redis integration (JWKS cache, scan queue, rate limiting)
 6. Email + Slack alerting
-7. Production deployment to App Runner
+7. Production deployment to ECS Express (shipped 2026-05; see `aws-infra` repo)
 
 **Target:** Fully production-ready by end of July 2026.
