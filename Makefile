@@ -233,7 +233,7 @@ test-storage:
 		-e POSTGRES_DB=axiaops \
 		-e POSTGRES_USER=axiaops_owner \
 		-e POSTGRES_PASSWORD=$(POSTGRES_OWNER_PASSWORD) \
-		postgres:16-alpine
+		postgres:17.5-alpine
 	@echo "Waiting for PostgreSQL to be ready..."
 	@timeout=60; elapsed=0; \
 	until docker exec $(PG_CONTAINER) pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do \
