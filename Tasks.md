@@ -757,7 +757,7 @@ identically locally and in CI.
 
 **Phase 4 — Cleanup**
 
-- [ ] Pin service image tags (`postgres:16.4-alpine`, not `16-alpine`).
+- [ ] Pin service image tags (`postgres:17.x-alpine`, not `17-alpine`).
 - [ ] Pin Go image tag (`golang:1.25.3`, not `golang:1.25`).
 - [ ] Pin DinD tag.
 - [ ] Document the CI model in `docs/` — one page, "runners are disposable, images are pinned."
