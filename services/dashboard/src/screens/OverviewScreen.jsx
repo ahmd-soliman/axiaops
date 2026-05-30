@@ -108,10 +108,17 @@ function OverviewHero({ summary, totalSpend, trend, period, onPeriodChange, onSh
     const sorted = [...m.entries()].sort();
     return period > 0 && sorted.length > period ? sorted.slice(-period) : sorted;
   }, [trend.data, period]);
-  const latest = dailyTotals.at(-1)?.[1];
-  const prev   = dailyTotals.at(-2)?.[1];
-  const delta  = latest != null && prev != null
-    ? ((latest - prev) / Math.max(prev, 0.01)) * 100
+  // Compare today's org-wide total to the total at the WINDOW START — so the
+  // ▲/▼ headline answers "how have we trended over the last {period} days?"
+  // rather than the previous "vs yesterday" which collapses to noise when the
+  // user picks 90d / 6m. dailyTotals is already trimmed to `slice(-period)`
+  // above, so .at(0) is the oldest day in the window. Falling back to .at(-2)
+  // when the window is just one entry preserves the previous yesterday-vs-today
+  // behaviour for the period=1d (Custom… same-day) edge case.
+  const latest   = dailyTotals.at(-1)?.[1];
+  const earliest = dailyTotals.length > 1 ? dailyTotals.at(0)?.[1] : dailyTotals.at(-2)?.[1];
+  const delta    = latest != null && earliest != null
+    ? ((latest - earliest) / Math.max(earliest, 0.01)) * 100
     : null;
 
   return (
