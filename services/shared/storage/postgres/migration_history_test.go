@@ -578,3 +578,114 @@ func TestMigrationStateRead_TableAbsent(t *testing.T) {
 		t.Fatalf("zero values expected, got version=%d dirty=%v", version, dirty)
 	}
 }
+
+// TestMigrationHistory_DirtyStateAutoRecovers regression-pins the
+// migration_state.dirty=true recovery path. Reproduces the prod incident
+// 2026-05-30 (alpha.20's `ALTER ROLE NOSUPERUSER` reject on RDS left
+// migration 029 half-applied — role created, GRANTs / policies skipped —
+// and the wrapper silently skipped re-applying it on every subsequent
+// boot because m.Version() returned (29, dirty=true) and
+// nextPendingUp(29, true) found no v>29 to run).
+//
+// Test shape:
+//  1. Stash + restore migration_state.
+//  2. Force migration_state.dirty=true at the current version.
+//  3. Insert a 'failed' history row to match what a real partial-failure
+//     would have left behind.
+//  4. Call postgres.Migrate(url) — reapplyDirty should detect the dirty
+//     state, rewind via Force(v-1), and re-apply via Steps(1). Every
+//     migration in this repo is idempotent so re-applying is safe.
+//  5. Assert: migration_state.dirty=false, version unchanged, and a NEW
+//     succeeded history row exists for that version.
+//
+// Mutates axiaops.migration_state transiently — keep serial (no t.Parallel).
+func TestMigrationHistory_DirtyStateAutoRecovers(t *testing.T) {
+	url := migrationURLOrSkip(t)
+	db := openOwner(t)
+
+	var origVersion int64
+	var origDirty bool
+	if err := db.QueryRow(`SELECT version, dirty FROM axiaops.migration_state`).Scan(&origVersion, &origDirty); err != nil {
+		t.Fatalf("snapshot migration_state: %v", err)
+	}
+	if origDirty {
+		// A previous run of this test (or another dirty-mutating test) left
+		// migration_state dirty. Bail loud rather than roll a second incident
+		// forward into this test's assertions — the suite needs a clean
+		// pointer at startup. Fix by running `axiaopsctl migrate force N` (or
+		// `UPDATE axiaops.migration_state SET dirty=false`) against the local
+		// DB, then re-run.
+		t.Fatalf("test precondition: migration_state.dirty=true at startup (version=%d); previous run failed to clean up. Manual reset required before re-running.", origVersion)
+	}
+	t.Cleanup(func() {
+		// Use t.Errorf (not t.Logf) so a cleanup failure flips the test red —
+		// silent cleanup failure would leak dirty=true into the next
+		// `make test-storage` run and flake other tests that assume a clean
+		// pointer (e.g. TestMigrationHistory_RerunMigrateAddsNoNewRows).
+		if _, err := db.Exec(`UPDATE axiaops.migration_state SET version=$1, dirty=$2`, origVersion, origDirty); err != nil {
+			t.Errorf("cleanup restore migration_state failed (next run will start dirty=true and will fail the precondition above): %v", err)
+		}
+	})
+
+	// Synthesise the half-applied state: dirty=true + a 'failed' history row.
+	if _, err := db.Exec(`UPDATE axiaops.migration_state SET dirty=true`); err != nil {
+		t.Fatalf("set dirty=true: %v", err)
+	}
+	var failedRowID int64
+	if err := db.QueryRow(`
+		INSERT INTO axiaops.migration_history
+		    (version, name, direction, status, file_sha256, error_message,
+		     finished_at, migration_state_dirty_after)
+		VALUES ($1, 'simulated_partial_failure', 'up', 'failed', NULL,
+		        'simulated: ALTER ROLE rejected (mirrors alpha.20 incident)',
+		        now(), true)
+		RETURNING id
+	`, origVersion).Scan(&failedRowID); err != nil {
+		t.Fatalf("insert failed row: %v", err)
+	}
+	t.Cleanup(func() {
+		// Drop the synthetic failed row AND any recovery row this test
+		// created (id >= failedRowID, same version).
+		if _, err := db.Exec(`
+			DELETE FROM axiaops.migration_history
+			WHERE version = $1 AND direction = 'up' AND id >= $2
+		`, origVersion, failedRowID); err != nil {
+			t.Logf("cleanup history rows: %v", err)
+		}
+	})
+
+	if err := postgres.Migrate(url); err != nil {
+		t.Fatalf("Migrate with dirty state did not auto-recover: %v", err)
+	}
+
+	var version int64
+	var dirty bool
+	if err := db.QueryRow(`SELECT version, dirty FROM axiaops.migration_state`).Scan(&version, &dirty); err != nil {
+		t.Fatalf("re-read migration_state: %v", err)
+	}
+	if dirty {
+		t.Errorf("post-recovery: dirty want false, got true")
+	}
+	if version != origVersion {
+		t.Errorf("post-recovery: version want %d, got %d", origVersion, version)
+	}
+
+	// Recovery row exists and is marked distinctly (so operators inspecting
+	// `axiaopsctl migrate history v=N direction=up` can tell the recovery
+	// attempt apart from the original first-apply without correlating timestamps).
+	var recoveryRowName string
+	if err := db.QueryRow(`
+		SELECT name FROM axiaops.migration_history
+		WHERE version = $1 AND direction = 'up' AND status = 'succeeded' AND id > $2
+		ORDER BY id DESC LIMIT 1
+	`, origVersion, failedRowID).Scan(&recoveryRowName); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("no succeeded recovery history row for v=%d after failed id=%d — reapplyDirty did not run or did not record",
+				origVersion, failedRowID)
+		}
+		t.Fatalf("read recovery row: %v", err)
+	}
+	if !strings.Contains(recoveryRowName, "(dirty-recovery)") {
+		t.Errorf("recovery row name must carry the '(dirty-recovery)' marker for operator visibility; got name=%q", recoveryRowName)
+	}
+}
