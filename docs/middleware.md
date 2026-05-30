@@ -4,13 +4,17 @@ The API middleware chain is composed in `services/api/internal/serverbuild/build
 (`ComposeServer`). Order, outermost to innermost:
 
 ```
-request-logging + metrics
-  → request-id
-    → auth  (DevBypass  OR  WrapNative → EnforceSSO)
-      → rate-limiter
-        → CORS
+CORS
+  → request-logging + metrics
+    → request-id
+      → auth  (DevBypass  OR  WrapNative → EnforceSSO)
+        → rate-limiter
           → mux (handlers)
 ```
+
+CORS sits outermost so preflight `OPTIONS` and rejection responses still carry
+`Access-Control-Allow-*`; rate-limiter sits closest to the mux because it buckets
+by (organization, user), which auth has to resolve first.
 
 ---
 
@@ -116,9 +120,12 @@ high-cardinality label explosion from per-ID paths.
 
 ## Middleware Chain Order
 
-1. **Request logging + metrics** — outermost so all requests are counted.
-2. **Request ID** — early so every log line has an ID, including auth failures.
-3. **Auth** — `WrapNative` + `EnforceSSO`, or `DevBypass`.
-4. **Rate limiter** — after auth so it can bucket by (organization, user).
-5. **CORS** — before the mux so `OPTIONS` preflights short-circuit cleanly.
+1. **CORS** — outermost so headers are present on preflights and on responses that
+   auth/rate-limit rejected.
+2. **Request logging + metrics** — wraps everything except CORS so all requests
+   (including auth failures) are counted.
+3. **Request ID** — early so every log line has an ID, including auth failures.
+4. **Auth** — `WrapNative` + `EnforceSSO`, or `DevBypass`.
+5. **Rate limiter** — innermost wrap; needs the resolved (organization, user)
+   bucket auth attaches to the request context. Only present when Redis is wired.
 6. **Mux** — routes to the correct handler.
