@@ -4,7 +4,7 @@ import { fetchCosts, fetchAccounts, scanAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
-import DateRangeChips, { PRESET_OPTIONS } from '../components/DateRangeChips';
+import DateRangeChips, { PRESET_OPTIONS, DEFAULT_DAYS } from '../components/DateRangeChips';
 import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner } from '../components/primitives';
@@ -60,7 +60,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const screenWidth = useWindowWidth();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
-  const [period, setPeriod] = useState(30);
+  const [period, setPeriod] = useState(DEFAULT_DAYS);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
   const [filterServices, setFilterServices] = useState(() => new Set());
   const [selectedService, setSelectedService] = useState(null);
