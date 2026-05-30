@@ -1,7 +1,9 @@
 # Tier 2 Detection Rules — Implementation Summary
 
-**Date**: 2026-04-20  
+**Date**: 2026-04-20 (shipped); last reviewed 2026-05  
 **Status**: ✅ COMPLETE
+
+**Scope note:** "Tier 2" in this doc refers specifically to the six CloudWatch-metric-based rules listed below. The four API-only rules added after April (CloudWatch Log Groups, orphaned RDS snapshots, stale ECR images, unused Secrets Manager secrets) are categorised as **new Tier 1 API-only** — they don't need CloudWatch — and are tracked in `tier1_detections_status.md`. The root `CLAUDE.md` has both tables.
 
 ---
 

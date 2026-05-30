@@ -386,6 +386,6 @@ Avoid labels with unbounded values (e.g., user IDs, full paths). Use route patte
 
 ---
 
-**Last Updated:** 2025-04-11  
-**Phase:** 2.6  
+**Last Updated:** 2026-05-30  
+**Phase:** 2.6 (shipped, plus the MR !85 `/metrics` registry-merge fix)  
 **Maintainers:** AxiaOps Team
