@@ -23,18 +23,24 @@ CREATE TABLE axiaops.notification_channels (
   kind            TEXT NOT NULL CHECK (kind IN ('email', 'slack', 'teams', 'jira')),
   label           TEXT NOT NULL,
   enabled         BOOLEAN NOT NULL DEFAULT TRUE,
-  trigger_rule    JSONB NOT NULL DEFAULT '{}'::jsonb,
-  -- e.g. {"min_monthly_savings_usd": 100, "on": ["new_zombies"]}
-  config_ciphertext BYTEA NOT NULL,
-  -- AES-256-GCM. Kind-discriminated decoded shape:
+  trigger_rule    JSONB NOT NULL DEFAULT '{"min_monthly_savings_usd":25,"digest_top_n":10,"on":["new_zombies"]}'::jsonb,
+  -- Two decoupled knobs:
+  --   min_monthly_savings_usd  — gate, "is this scan worth notifying about?"
+  --   digest_top_n             — body trim, "how many findings to list in the message"
+  config_ciphertext TEXT NOT NULL,
+  -- AES-256-GCM (hex-encoded, nonce-prepended — matches `crypto.Encrypt` output
+  -- and the `accounts.secret_encrypted` precedent; do NOT use BYTEA, the codec
+  -- returns a hex string and a column-type mismatch would force a wrapper).
+  -- Kind-discriminated decoded shape:
   --   email: {"smtp_host","smtp_port","smtp_user","smtp_pass","from","recipients":["…"]}
   --   slack: {"webhook_url"}
   --   teams: {"webhook_url","format":"messagecard|adaptive_card"}   (follow-up)
   --   jira:  {"site_url","project_key","issue_type","account_email","api_token"}  (follow-up)
-  last_dispatched_at TIMESTAMPTZ,
-  last_error         TEXT,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  -- NB: no `last_dispatched_at` / `last_error` denormalised columns — read the
+  -- newest `notification_dispatches` row per channel instead. The index on
+  -- `(channel_id, created_at DESC)` below makes this a cheap join.
 );
 ALTER TABLE axiaops.notification_channels ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON axiaops.notification_channels
@@ -45,12 +51,12 @@ CREATE TABLE axiaops.notification_dispatches (
   organization_id       UUID NOT NULL REFERENCES axiaops.organizations(id) ON DELETE CASCADE,
   channel_id            UUID NOT NULL REFERENCES axiaops.notification_channels(id) ON DELETE CASCADE,
   snapshot_id           UUID REFERENCES axiaops.zombie_snapshots(id) ON DELETE SET NULL,
-  account_id            TEXT,
+  account_id            TEXT REFERENCES axiaops.accounts(id) ON DELETE SET NULL,
   status                TEXT NOT NULL CHECK (status IN ('queued','sent','failed','skipped_threshold')),
   zombie_count          INT,
   monthly_savings_cents BIGINT,
   attempts              INT NOT NULL DEFAULT 0,
-  external_ticket_id    TEXT,   -- Jira ticket key for dedup/update semantics. NULL for fire-and-forget kinds.
+  external_ticket_id    TEXT,   -- External-system row key (Jira ticket key, Linear ID, GitHub issue #). NULL for fire-and-forget kinds. Partial unique index below enforces "one open row per channel per external resource".
   error                 TEXT,
   dispatched_at         TIMESTAMPTZ,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -64,38 +70,40 @@ CREATE UNIQUE INDEX ON axiaops.notification_dispatches (channel_id, external_tic
 
 `config_ciphertext` keeps the kind-specific transport blob opaque to SQL — the only thing the DB indexes on is `(organization_id, kind, enabled)`. **Use one ciphertext column, not per-kind columns**: the shape diverges enough that flattening would balloon the schema, and the dispatcher decrypts and unmarshals into a kind-typed Go struct anyway.
 
-**Why `external_ticket_id` ships in v1 even though Jira is deferred:** Jira's dedup story (re-flagging an already-open zombie should *update* the existing ticket, not create a duplicate) needs a stable per-channel external-id key with a partial unique index. Pre-provisioning the column + unique index now means #113 ships as transport-only without touching the schema; backfilling it later would require a coordinated `axiaops_owner` migration in prod.
+**Why `external_ticket_id` ships in v1 even though Jira is deferred:** Jira's dedup story (re-flagging an already-open zombie should *update* the existing ticket, not create a duplicate) needs a stable per-channel external-key with a partial unique index. The column is named generically — Linear, GitHub Issues, ServiceNow, etc. would all reuse it — so it isn't a speculative-abstraction smell despite Jira being the only known consumer today. Pre-provisioning the column + unique index now means #113 ships as transport-only without touching the schema; backfilling it later would require a coordinated `axiaops_owner` migration in prod, which is a human-gated apply.
 
 ## Files
 
 - New: `services/shared/storage/postgres/migrations/030_notification_channels.{up,down}.sql`
 - Extend: `services/shared/storage/storage.go` — `Store` interface
-- Extend: `services/shared/storage/postgres/postgres.go` — impl
-- New: `services/shared/model/notification.go` — `NotificationChannel`, `NotificationDispatch`, `NotificationPayload`, transport config structs
-- New package: `services/shared/notifications/` — `dispatcher.go`, `transport.go` (interface), `email_smtp.go`, `slack_webhook.go`, `renderer.go`
-- New: `services/api/internal/api/channels.go` + `channels_test.go`
-- Extend: `services/api/internal/api/handler.go` — register routes
-- Extend: `services/api/internal/authz/` — `channels:read`, `channels:manage`
-- Extend: `services/ingestion/cmd/main.go` — dispatch hook after `SaveSnapshotServices` (~line 695)
-- New: `services/dashboard/src/screens/IntegrationsScreen.jsx`
-- Extend: `services/dashboard/src/screens/AccountSettingsScreen.jsx` — Integrations tab link
+- Extend: `services/shared/storage/postgres/postgres.go` — impl. The `DeleteOrganizationCascade` table slice (`postgres.go:2206-2215` at time of writing) must list `notification_dispatches` **before** `notification_channels` (FK-safe order).
+- New: `services/shared/model/notification.go` — `NotificationChannel`, `NotificationDispatch`, `NotificationPayload`, transport config structs.
+- New package: `services/shared/notifications/` — `dispatcher.go`, `transport.go` (interface), `email_smtp.go`, `slack_webhook.go`, `renderer.go`.
+- New: `services/api/internal/api/channels.go` + `channels_test.go`. **CRUD precedent lives in `services/api/internal/api/handler.go:695-870`** (`listAccounts`, `createAccount`, `updateAccount` — the redact-on-read / re-encrypt-only-on-non-mask-PATCH UX comes from there). `handler.go` is 1000+ lines today, and this MR is a good moment to extract the account-CRUD block into its own `accounts.go` while `channels.go` is being created — but that extraction is in-scope only if it stays small; defer if it bloats the review.
+- Extend: `services/api/internal/api/handler.go` — register the `/v1/channels` routes alongside the existing handlers.
+- Extend: **`services/shared/authz/roles.go`** — add `PermChannelsRead`, `PermChannelsManage` next to the existing `PermAccountsRead/Write/Delete/Scan` constants. The api-side seam (`services/api/internal/middleware/authz.go`) is where the route gate uses them; no new authz package.
+- Extend: `services/ingestion/cmd/main.go` — dispatch hook after `SaveSnapshotServices` (locate by symbol name; line numbers drift between releases).
+- New: `services/dashboard/src/screens/IntegrationsScreen.jsx`.
+- Extend: `services/dashboard/src/screens/AccountSettingsScreen.jsx` — Integrations tab link.
 
 ## Dispatch seam
 
-`services/ingestion/cmd/main.go` `runIngestionCore` ends at `SaveResources` (line ~707). Right before that, `SaveSnapshot` (~660) and `SaveSnapshotServices` (~690) persist the per-scan deltas — this is the natural "scan finished, here's what changed" cut. The snapshot row + `summary.ByService` map are already in scope.
+`services/ingestion/cmd/main.go` `runIngestionCore` ends at `SaveResources`. Right before that, `SaveSnapshot` then `SaveSnapshotServices` persist the per-scan deltas — this is the natural "scan finished, here's what changed" cut. The snapshot row + `summary.ByService` map are already in scope. Locate by symbol name, not line number — the file drifts between releases.
 
 ```go
 // After SaveSnapshotServices:
 notifications.DispatchForScan(ctx, store, snap, summary, accountID)
 ```
 
-`DispatchForScan` is **synchronous, non-fatal**:
-- Loads enabled channels for the org via a new `Store.ListEnabledChannels(ctx)` method.
-- Per channel: evaluates `trigger_rule` against `summary` (e.g. `summary.PotentialMonthlySave >= min_monthly_savings_usd`); if it fires, decrypts `config_ciphertext` and calls `Transport.Send(ctx, payload)`.
+`DispatchForScan` is **synchronous, non-fatal, per-org via the RLS-bound pool**:
+- Loads enabled channels for the org via a new `Store.ListEnabledChannels(ctx)` method. **This is per-org data, so use the RLS-bound app pool**, not `adminPool` — `ctx` already carries `organization_id` by the time it reaches `runIngestionCore` (set on the scan job; see how `SaveSnapshot` reads `OrganizationIDFromCtx` and calls `setOrganization(ctx, tx)`). **Do NOT copy `ListAllAccounts` as a template — that method intentionally uses `adminPool` for cross-org scheduled-scan enumeration, which would silently bypass RLS here.**
+- Per channel: evaluates `trigger_rule` against `summary` (e.g. `summary.PotentialMonthlySave >= min_monthly_savings_usd`); if it fires, decrypts `config_ciphertext` and calls `Transport.Send(ctx, channel, payload)` under a **per-transport timeout** (`ctx, cancel := context.WithTimeout(ctx, 10*time.Second); defer cancel()`).
 - Writes one `notification_dispatches` row per attempt (`status=sent|failed|skipped_threshold`).
 - Errors are logged + recorded on the dispatch row, never abort the scan. Same posture as the existing `SaveSnapshot` error path.
 
 **Why synchronous in v1.** SMTP send is ~200 ms; scans already take minutes; synchronous keeps the dispatch row's lifecycle inside the same `ctx.Done()` shutdown window. If a transport turns flaky and starts blocking scans, v2 = push a `NotificationJob` envelope into the existing `queue.Queue` (the Redis path already handles HMAC-signed envelopes for free — see `docs/c1-hmac-plan.md`).
+
+**Why a per-transport timeout, not just a dispatcher-wide budget.** With 3 channels at no-timeout, a single Slack 5xx tail can add 30s+ latency to every scan. 10 s is generous for SMTP relay + Slack/Teams webhook; longer than 10 s, mark the dispatch `failed` and let the admin re-send via `/v1/channels/:id/test`. No in-process retry in v1 — surface failures in the UI immediately rather than burning the scan loop on backoff.
 
 ## Transport interface
 
@@ -118,9 +126,14 @@ type Transport interface {
 
 `externalID` is empty for email/Slack/Teams (no persistent state); Jira returns the issue key (e.g. `OPS-1234`), which `Dispatcher` writes into `notification_dispatches.external_ticket_id`. On a re-dispatch the dispatcher does a SELECT-by-(`channel_id`, `external_ticket_id`) to decide PUT vs POST.
 
+**Contract for `Send` implementations:**
+- Respect `ctx` deadline — `http.Client{Timeout: 10*time.Second}` on the embedded client, **and** propagate `ctx` to the request so the dispatcher's `context.WithTimeout` cuts cleanly.
+- Return `err` on transport-level failure (4xx/5xx, network, dial). Do **not** retry inside `Send`; the dispatcher records a `status=failed` row and the admin re-sends via `/v1/channels/:id/test`.
+- Scrub bearer-token URLs from returned error strings. Slack's 404 page sometimes echoes the webhook URL; a naive `fmt.Errorf("slack: %s", body)` leaks the secret into `notification_dispatches.error` (and from there into the dashboard's "Recent deliveries" drawer). Use a `redactURL(err.Error(), channel.ConfigURLs())` helper.
+
 ## API surface
 
-Mirror `services/api/internal/api/accounts.go`:
+Mirror the account-CRUD block currently inside `services/api/internal/api/handler.go:695-870`:
 
 | Method | Path                            | Permission         |
 |--------|----------------------------------|--------------------|
@@ -131,10 +144,10 @@ Mirror `services/api/internal/api/accounts.go`:
 | POST   | `/v1/channels/{id}/test`         | `channels:manage`  |
 | GET    | `/v1/channels/{id}/dispatches`   | `channels:read`    |
 
-- Encrypt-on-write / decrypt-on-read for `config_ciphertext` follows the `accounts.secret_key` pattern.
-- **PATCH redacts secrets on read** (return `"smtp_pass":"***"`); only re-encrypts if the field comes back non-empty/non-mask in the request — same UX as `accounts.secret_key`.
-- `POST /test` synthesizes a fake `Payload` with realistic content and runs `Transport.Send` end-to-end. Writes a dispatch row with `status='sent'|'failed'`. Required before flipping `enabled=true` on first save (UX gate).
-- Audit_log every CRUD via `axiaops.io/api/internal/audit` with new `AuditActionChannelCreated/Updated/Deleted/Tested` constants.
+- Encrypt-on-write / decrypt-on-read for `config_ciphertext` follows the `accounts.secret_encrypted` pattern in `handler.go`.
+- **PATCH redacts secrets on read** (return `"smtp_pass":"***"`, `"webhook_url":"***"`, `"api_token":"***"`); only re-encrypts if the field comes back non-empty/non-mask in the request — same UX as `accounts.secret_encrypted`.
+- `POST /test` requires `channels:manage` (it produces side effects: a real outbound HTTP/SMTP call + an audit row). Body is empty — the endpoint synthesizes a **fixed synthetic** `Payload` (5 zombies, $123.45/mo, 3 mock services). Keeping the body fixed keeps the surface boring; if customers later ask "let me test with my own preview content", that's a v2 toggle. Writes a dispatch row with `status='sent'|'failed'`. Required before flipping `enabled=true` on first save (UX gate).
+- Audit_log every CRUD via `axiaops.io/api/internal/audit` with new `AuditActionChannelCreated/Updated/Deleted/Tested` constants added to `services/shared/model/audit.go`.
 
 ## Dashboard
 
@@ -174,14 +187,15 @@ Each is genuinely smaller scope post-foundation — schema is already provisione
 
 ## Risks + deferred
 
-- **GDPR cascade — easy to miss.** Recipient emails live in `config_ciphertext`. The cascade-delete chain (`organizations → notification_channels → notification_dispatches`) makes erasure automatic, but the org-erasure step list in `services/api/internal/api/organizations.go` (right-to-erasure) must enumerate the two new tables. Reviewer should grep for `DeleteOrganizationCascade` and confirm.
-- **First-scan storm.** A fresh org's first scan surfaces dozens of zombies. Default `trigger_rule` = `{"min_monthly_savings_usd": 100}` to bound noise; admin can widen later. Avoid `enabled=false` default — that's a sharper UX cliff.
-- **Slack webhook URLs are bearer tokens.** Encrypt the whole URL, never log it, redact in API responses (`"webhook_url":"***"`). Same posture as SMTP creds.
-- **SMTP credential rotation UX.** PATCH with empty `smtp_pass` = "keep existing" (same convention as `accounts.secret_key`). Document on the form.
+- **GDPR cascade — easy to miss.** Recipient emails live in `config_ciphertext`. The cascade-delete chain (`organizations → notification_channels → notification_dispatches`) makes erasure automatic at the DB level, but the org-erasure helper `DeleteOrganizationCascade` in **`services/shared/storage/postgres/postgres.go:2181`** uses a hard-coded table slice (lines 2206-2215 at time of writing) to drive the per-tenant delete loop, and that slice must list `notification_dispatches` **before** `notification_channels`. Reviewer should grep for `DeleteOrganizationCascade` and confirm the order.
+- **First-scan storm — two decoupled knobs.** `trigger_rule.min_monthly_savings_usd` is the **gate** ("is this scan worth notifying about?") and `trigger_rule.digest_top_n` is the **body trim** ("how many findings to list in the message"). The original single-knob design conflated them — a $100 gate would silence small-org demos where the first scan surfaces $40 of real findings. Defaults: gate=$25 (covers one mid-size EBS / a stopped instance / a handful of orphaned snapshots, while suppressing single-Lambda noise around $13/mo), digest_top_n=10. The product's whole value prop is finding the $10–$50 zombies the cloud team forgot, so the gate must not silence them. Avoid `enabled=false` default — sharper UX cliff than a permissive gate.
+- **Slack/Teams webhook URLs are bearer tokens — redact + scrub.** Encrypt the whole URL (in `config_ciphertext`), redact in API responses (`"webhook_url":"***"`), **and** scrub from `notification_dispatches.error` strings before write — Slack's 404 page sometimes echoes the URL into its response body and a naive error wrap leaks it into the dispatches drawer in the dashboard. `redactURL(err.Error(), channel.ConfigURLs())` helper in the dispatcher.
+- **SMTP credential rotation UX.** PATCH with empty `smtp_pass` = "keep existing" (same convention as `accounts.secret_encrypted` in `handler.go`). Document on the form.
 - **Per-user opt-out / preferences.** Out of scope. Channels are org-level. v2 might add `trigger_rule.owner_team = "platform"` as a filter.
-- **Retry / DLQ.** v1 = single attempt; `attempts` column is reserved for v2. Failed dispatch is visible in the UI; admin re-sends via `/test`.
-- **Rate limits.** SES sandbox = 200/day; one email per channel per scan stays well below. Add a per-org daily counter only if customers report bumping into it.
-- **Email digest vs per-zombie.** v1 = one digest per scan summarizing top N zombies. Per-zombie alerts are a v2 `trigger_rule.on = ["new_zombie"]` mode joining against the previous snapshot.
+- **Retry / DLQ.** v1 = single attempt + 10 s per-transport timeout; `attempts` column is reserved for v2. Failed dispatch is visible in the UI; admin re-sends via `/test`.
+- **Rate limits.** SES sandbox = 200/day; one email per channel per scan stays well below. Slack incoming-webhooks cap at ~1 req/sec per webhook, Teams at ~4 req/sec — neither bites at one-per-scan. Add a per-org daily counter only if customers report bumping into it.
+- **Email digest vs per-zombie.** v1 = one digest per scan, body-trimmed to `digest_top_n` by per-resource savings descending. Per-zombie alerts are a v2 `trigger_rule.on = ["new_zombie"]` mode joining against the previous snapshot.
+- **License gating is a non-issue today.** `services/shared/license/license.go` doesn't currently track a notification quota; `license.IsScanAllowed` already gates upstream so the dispatch loop never runs on an expired license. Flag for v2 only if customers ship abuse.
 
 ## References
 
