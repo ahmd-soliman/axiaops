@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { formatDateRange } from '../utils/formatDate';
 
 // Preset windows shared across every chart screen (TrendScreen, CostAnalytics,
 // Overview). Sourced from the local PERIOD_OPTIONS constants that each screen
@@ -110,7 +111,11 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
         aria-expanded={open}
         style={chipStyle(isCustom)}
       >
-        Custom…
+        {/* Once a Custom range is applied, label the chip with the selected
+            window in the app's locale-unambiguous "1–15 May 2026" form, so the
+            persistent display never depends on the native input's MM/DD vs DD/MM
+            locale rendering. Falls back to "Custom…" before any selection. */}
+        {isCustom ? formatDateRange(customSince, customUntil) : 'Custom…'}
       </button>
 
       {open && (
