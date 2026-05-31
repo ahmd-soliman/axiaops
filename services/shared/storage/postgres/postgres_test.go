@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -200,6 +201,48 @@ func TestSave_DeduplicatesOnRerun(t *testing.T) {
 	}
 	if inserted != 0 {
 		t.Errorf("expected 0 inserted on second run (duplicate), got %d", inserted)
+	}
+}
+
+func TestListCostRecords_AbsoluteWindow(t *testing.T) {
+	s := newTestStore(t)
+	ctx, _ := newOrgCtx(t, s)
+
+	// Five daily records; distinct period_start (and resource_id) so none
+	// collide on the upsert conflict key.
+	days := []int{1, 5, 10, 15, 20}
+	var records []model.CostRecord
+	for i, d := range days {
+		r := costRecord("AmazonEC2", "eu-central-1", 10.0)
+		r.ResourceID = fmt.Sprintf("res-%02d", d)
+		r.PeriodStart = time.Date(2026, 3, d, 0, 0, 0, 0, time.UTC)
+		r.PeriodEnd = time.Date(2026, 3, d+1, 0, 0, 0, 0, time.UTC)
+		records = append(records, r)
+		_ = i
+	}
+	if _, err := s.Save(ctx, records); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Absolute window 03-05 .. 03-15 (both inclusive) → exactly 03-05/10/15.
+	got, err := s.ListCostRecords(ctx, storage.CostFilter{
+		Since: time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC),
+		Until: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
+		// Days is intentionally left unset to prove Since/Until take precedence —
+		// the fixture dates are years in the past, so any trailing window would
+		// return nothing.
+	})
+	if err != nil {
+		t.Fatalf("ListCostRecords: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 records in [03-05, 03-15], got %d", len(got))
+	}
+	for _, r := range got {
+		day := r.PeriodStart.Day()
+		if day < 5 || day > 15 {
+			t.Errorf("record outside window leaked: period_start day %d", day)
+		}
 	}
 }
 
