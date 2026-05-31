@@ -9,6 +9,9 @@ import { useToast } from '../context/ToastContext';
 import { useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { Spinner } from '../components/primitives';
+// Aliased: this file keeps a local compact `formatDate` ("29 May", no year) for
+// chart-axis ticks; the shared helper is the full "29 May 2026" display form.
+import { formatDate as formatFullDate } from '../utils/formatDate';
 import { csvEncode, downloadCSV } from '../utils/csv';
 
 const CHART_HEIGHT = 200;
@@ -102,7 +105,7 @@ function formatDate(iso) {
 
 function formatDateTime(iso) {
   const d = new Date(iso);
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatFullDate(d)
     + ' · ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -426,7 +429,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
           {(() => {
             if (selectedSnap) {
-              return `Snapshot · ${new Date(selectedSnap.snapshot_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+              return `Snapshot · ${formatFullDate(selectedSnap.snapshot_at)}`;
             }
             const svcLabels = [...filterServices].map(s => serviceConfig(s).label);
             if (filterServices.size === 1 && filterResourceTypes.size > 0) {
