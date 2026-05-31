@@ -10,6 +10,7 @@ import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { csvEncode, downloadCSV } from '../utils/csv';
+import { formatDate } from '../utils/formatDate';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1008,7 +1009,7 @@ function DismissedCard({ item, onSelect, isSelected, onToggleSelect }) {
           </span>
           {isSnoozed && item.snoozed_until && (
             <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
-              until {new Date(item.snoozed_until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+              until {formatDate(item.snoozed_until)}
             </span>
           )}
         </div>
