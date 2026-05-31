@@ -9,6 +9,7 @@ import {
   verifySSODomain,
 } from '../../../api/client';
 import { Spinner } from '../../../components/primitives';
+import { formatDate as formatFullDate } from '../../../utils/formatDate';
 
 // Domains pane: list verified / pending domains + add + verify + delete.
 //
@@ -409,12 +410,7 @@ function ghostButton() {
 }
 
 function formatDate(s) {
-  if (!s) return '—';
-  try {
-    return new Date(s).toLocaleDateString();
-  } catch {
-    return s;
-  }
+  return formatFullDate(s) || '—';
 }
 
 function humanize(err, fallback) {

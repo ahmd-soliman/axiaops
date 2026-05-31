@@ -869,17 +869,35 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 		return nil, err
 	}
 
-	days := filter.Days
-	if days <= 0 {
-		days = 30
-	}
-
 	query := `SELECT provider, account_id, internal_account_id, service, region, resource_id,
 	                 amount, currency, period_start, period_end, tags, fetched_at
 	          FROM cost_records
-	          WHERE amount > 0 AND period_end >= NOW() - make_interval(days => $1)`
-	args := []any{days}
-	argN := 2
+	          WHERE amount > 0`
+	var args []any
+	argN := 1
+
+	// Absolute calendar window (Since/Until on period_start, both inclusive)
+	// takes precedence over the trailing Days window when either bound is set.
+	if !filter.Since.IsZero() || !filter.Until.IsZero() {
+		if !filter.Since.IsZero() {
+			query += fmt.Sprintf(" AND period_start >= $%d", argN)
+			args = append(args, filter.Since)
+			argN++
+		}
+		if !filter.Until.IsZero() {
+			query += fmt.Sprintf(" AND period_start <= $%d", argN)
+			args = append(args, filter.Until)
+			argN++
+		}
+	} else {
+		days := filter.Days
+		if days <= 0 {
+			days = 30
+		}
+		query += fmt.Sprintf(" AND period_end >= NOW() - make_interval(days => $%d)", argN)
+		args = append(args, days)
+		argN++
+	}
 
 	// Filter by account: match either internal_account_id (new records) or account_id (old records with NULL internal_account_id)
 	if filter.InternalAccountID != "" || filter.AWSAccountID != "" {

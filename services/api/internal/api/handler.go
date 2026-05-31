@@ -466,6 +466,21 @@ func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 		Days:    days,
 	}
 
+	// Absolute calendar window. `since`/`until` are ISO dates (YYYY-MM-DD,
+	// both inclusive); when present they override the trailing `days` window
+	// so the dashboard's Custom… date picker selects a fixed range rather
+	// than silently degrading to "last N days".
+	if since := r.URL.Query().Get("since"); since != "" {
+		if t, err := time.Parse("2006-01-02", since); err == nil {
+			filter.Since = t
+		}
+	}
+	if until := r.URL.Query().Get("until"); until != "" {
+		if t, err := time.Parse("2006-01-02", until); err == nil {
+			filter.Until = t
+		}
+	}
+
 	// account_id parameter can be either the internal UUID or the AWS account ID.
 	// Strategy:
 	// 1. If it looks like a UUID, try to look it up as internal account ID first
