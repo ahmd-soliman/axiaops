@@ -123,7 +123,7 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 	}
 
 	// Cost record + account + audit row.
-	if _, err := s.Save(ctx, []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 1.23)}); err != nil {
+	if _, _, err := s.Save(ctx, []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 1.23)}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	if err := s.SaveAccount(ctx, model.Account{
