@@ -48,7 +48,9 @@ var (
 	)
 
 	// axiaops_ingestion_records_saved_total: Total number of cost records successfully saved to the database.
-	// Labels: provider, organization_id, status (inserted/skipped).
+	// Labels: provider, organization_id, status (inserted = brand-new row,
+	// updated = existing row whose amount/tags were refreshed by the upsert).
+	// See docs/cost-records-upsert-plan.md for the discrimination via xmax.
 	ingestionRecordsSavedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "axiaops_ingestion_records_saved_total",
@@ -427,15 +429,14 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			records[i].InternalAccountID = &accountID
 		}
 
-		inserted, saveErr := store.Save(ctx, records)
+		inserted, updated, saveErr := store.Save(ctx, records)
 		if saveErr != nil {
 			return fmt.Errorf("[%s] save failed: %w", p.Name(), saveErr)
 		}
-		skipped := int64(len(records)) - inserted
-		slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted, "skipped", skipped)
+		slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted, "updated", updated)
 		ingestionRecordsFetchedTotal.WithLabelValues(p.Name(), organizationID).Add(float64(len(records)))
 		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), organizationID, "inserted").Add(float64(inserted))
-		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), organizationID, "skipped").Add(float64(skipped))
+		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), organizationID, "updated").Add(float64(updated))
 
 		allRecords = append(allRecords, records...)
 	}
@@ -456,15 +457,14 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		for i := range resourceCosts {
 			resourceCosts[i].InternalAccountID = &accountID
 		}
-		inserted, saveErr := store.Save(ctx, resourceCosts)
+		inserted, updated, saveErr := store.Save(ctx, resourceCosts)
 		if saveErr != nil {
 			return fmt.Errorf("save resource costs failed: %w", saveErr)
 		}
-		skipped := int64(len(resourceCosts)) - inserted
-		slog.Info("saved resource-level costs", "total", len(resourceCosts), "inserted", inserted, "skipped", skipped)
+		slog.Info("saved resource-level costs", "total", len(resourceCosts), "inserted", inserted, "updated", updated)
 		ingestionRecordsFetchedTotal.WithLabelValues("aws", organizationID).Add(float64(len(resourceCosts)))
 		ingestionRecordsSavedTotal.WithLabelValues("aws", organizationID, "inserted").Add(float64(inserted))
-		ingestionRecordsSavedTotal.WithLabelValues("aws", organizationID, "skipped").Add(float64(skipped))
+		ingestionRecordsSavedTotal.WithLabelValues("aws", organizationID, "updated").Add(float64(updated))
 		allRecords = append(allRecords, resourceCosts...)
 	}
 
