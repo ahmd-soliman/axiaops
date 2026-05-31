@@ -4,6 +4,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { dismissZombie, fetchDismissals, revokeDismissal } from '../api/client';
 import { Overlay, Spinner } from '../components/primitives';
+import { formatDate } from '../utils/formatDate';
 
 const DISMISS_REASONS = [
   { value: 'intentional',        label: 'Intentionally idle' },
@@ -30,7 +31,7 @@ const METRIC_LABELS = {
 };
 
 function fmtDate(iso) {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatDate(iso);
 }
 
 function remediationCommand(service, resourceId = '', region = 'eu-central-1') {
