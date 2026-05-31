@@ -396,11 +396,20 @@ export async function fetchVersion() {
   return res.json();
 }
 
-export async function fetchCosts(accountId, service, days = 30) {
+// When `since`/`until` (ISO YYYY-MM-DD) are provided they select an absolute
+// calendar window and the server ignores `days`; otherwise `days` is a trailing
+// "last N days" window. The absolute path backs the Custom… date-range picker —
+// without it a custom range silently degrades to a trailing window.
+export async function fetchCosts(accountId, service, days = 30, since = null, until = null) {
   const params = new URLSearchParams();
   if (accountId) params.set('account_id', accountId);
   if (service) params.set('service', service);
-  params.set('days', String(days));
+  if (since && until) {
+    params.set('since', since);
+    params.set('until', until);
+  } else {
+    params.set('days', String(days));
+  }
   const qs = params.toString();
   const url = qs ? `${BASE_URL}/v1/costs?${qs}` : `${BASE_URL}/v1/costs`;
   const res = await ifetch(url, { headers: authHeaders() });
