@@ -220,7 +220,7 @@ func TestListCostRecords_AbsoluteWindow(t *testing.T) {
 		records = append(records, r)
 		_ = i
 	}
-	if _, err := s.Save(ctx, records); err != nil {
+	if _, _, err := s.Save(ctx, records); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
