@@ -31,11 +31,10 @@ function formatDateShort(iso) {
 
 // ─── CSV export ──────────────────────────────────────────────────────────────
 
-function exportCSV(records, { services, periodDays }, toast) {
+function exportCSV(records, { services }, toast) {
   const filterSlug = services.length
     ? '-' + services.map(s => s.replace(/^Amazon|^AWS/, '').toLowerCase()).join('-')
     : '';
-  const filename = `axiaops-costs${filterSlug}-${periodDays}d-${new Date().toISOString().split('T')[0]}.csv`;
 
   const headers = ['service', 'region', 'amount', 'currency', 'period_start', 'period_end', 'resource_id'];
   const rows = records.map(r => [
@@ -47,6 +46,16 @@ function exportCSV(records, { services, periodDays }, toast) {
     new Date(r.period_end).toISOString().split('T')[0],
     r.resource_id,
   ]);
+
+  // Name the file after the actual data window (min/max period_start) rather
+  // than the requested lookback + today's date. A trailing window that ends on
+  // an unsettled day, or a custom calendar range, then labels itself honestly
+  // instead of advertising coverage the rows don't have.
+  const dayStamps = rows.map(r => r[4]).sort();
+  const windowSlug = dayStamps.length
+    ? `${dayStamps[0]}_${dayStamps[dayStamps.length - 1]}`
+    : 'empty';
+  const filename = `axiaops-costs${filterSlug}-${windowSlug}.csv`;
 
   downloadCSV(csvEncode(headers, rows), filename);
 
@@ -61,6 +70,9 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
   const [period, setPeriod] = useState(DEFAULT_DAYS);
+  // Absolute calendar window from the Custom… picker ({ sinceIso, untilIso }),
+  // or null for the trailing `period`-day window. Presets clear it back to null.
+  const [customRange, setCustomRange] = useState(null);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
   const [filterServices, setFilterServices] = useState(() => new Set());
   const [selectedService, setSelectedService] = useState(null);
@@ -74,8 +86,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   // Fetch costs and trends
   // Cost records now filter by internal_account_id directly (no resolution needed)
   const costsQuery = useQuery({
-    queryKey: ['costs', selectedAccount, period],
-    queryFn: () => fetchCosts(selectedAccount, null, period),
+    queryKey: ['costs', selectedAccount, period, customRange?.sinceIso ?? null, customRange?.untilIso ?? null],
+    queryFn: () => fetchCosts(selectedAccount, null, period, customRange?.sinceIso, customRange?.untilIso),
   });
 
   // Derive distinct services from costs
@@ -366,7 +378,14 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
           </div>
           <DateRangeChips
             value={period}
-            onChange={(days) => { setPeriod(days); setSelectedService(null); setSelectedChartDate(null); }}
+            onChange={(days, range) => {
+              setPeriod(days);
+              // Presets call onChange(days) with no range → trailing window.
+              // Custom… passes { sinceIso, untilIso } → absolute window.
+              setCustomRange(range ?? null);
+              setSelectedService(null);
+              setSelectedChartDate(null);
+            }}
             mobile={isMobile}
           />
         </div>
@@ -470,7 +489,6 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               <button
                 onClick={() => exportCSV(records, {
                   services: [...filterServices],
-                  periodDays: period,
                 }, toast)}
                 disabled={records.length === 0}
                 aria-label="Export to CSV"

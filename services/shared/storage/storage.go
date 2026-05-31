@@ -82,7 +82,14 @@ type CostFilter struct {
 	InternalAccountID string // optional: filter by internal_account_id (system account ID)
 	AWSAccountID      string // optional: filter by account_id (AWS account ID) — for backward compatibility with old records
 	Service           string // optional: filter by service name
-	Days              int    // optional: lookback window in days (default: 30)
+	Days              int    // optional: trailing lookback window in days (default: 30). Ignored when Since/Until are set.
+
+	// Since/Until select an absolute window on period_start (both inclusive).
+	// When either is non-zero the absolute window takes precedence over Days,
+	// so the caller can request a fixed calendar range (e.g. the first half of
+	// a month) rather than a trailing "last N days" window. Both zero → Days.
+	Since time.Time
+	Until time.Time
 }
 
 // Store persists and retrieves cost records, organizations, and users.
