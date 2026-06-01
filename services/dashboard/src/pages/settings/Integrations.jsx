@@ -92,7 +92,7 @@ export default function Integrations() {
           <thead>
             <tr style={{ borderBottom: `1px solid var(--color-border)` }}>
               <Th>Label</Th>
-              <Th>Kind</Th>
+              <Th>Type</Th>
               <Th>Status</Th>
               <Th>Min savings</Th>
               <Th></Th>
@@ -194,7 +194,7 @@ function ChannelModal({ mode, existing, onClose, onSaved, isDark }) {
         onSubmit={(e) => { e.preventDefault(); setError(''); mutation.mutate(); }}
         style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
       >
-        <Field label="Kind">
+        <Field label="Type">
           <select value={form.kind} onChange={set('kind')} style={inputStyle()} disabled={isEdit}>
             {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
           </select>
