@@ -78,18 +78,61 @@ host, port, username, password, and a verified From address.
 > SES sandbox accounts can only send to verified recipients and cap at 200/day —
 > request production access before pointing real recipients at it.
 
+> ⚠️ **Use port 587 (STARTTLS), not 465.** AxiaOps's email transport opens a plain
+> connection and upgrades with STARTTLS — it does **not** speak implicit TLS
+> (SMTPS) on port 465. A channel pointed at 465 will fail to connect. Every relay
+> below supports 587.
+
+#### Sending from a Google Workspace `@axiaops.io` address
+
+Google Workspace gives you two ways to send. Pick one:
+
+**Option A — App Password (simplest; sends as one mailbox).** Good when a single
+mailbox (e.g. `finops@axiaops.io`) is the sender.
+
+1. The sending Workspace account must have **2-Step Verification** enabled.
+2. In that account: **Google Account → Security → 2-Step Verification → App
+   passwords** → create one (a 16-character string). This is the SMTP password —
+   *not* the account's login password.
+   - If you don't see "App passwords", a Workspace admin has disabled them
+     org-wide → use Option B.
+3. SMTP settings:
+   - **host** `smtp.gmail.com` · **port** `587` (STARTTLS)
+   - **username** the full address, e.g. `finops@axiaops.io`
+   - **password** the 16-char App Password (paste without spaces)
+   - **from** the same address (or a "Send as" alias that mailbox is authorised
+     to use)
+   - Limit: ~2,000 messages/day on Workspace (external recipients count). One
+     digest per scan stays far below this.
+
+**Option B — Workspace SMTP relay (`smtp-relay.gmail.com`; send from any
+`@axiaops.io` address, higher limits).** Better for a service sender.
+
+1. A Workspace **admin** configures it: **Admin console → Apps → Google Workspace
+   → Gmail → Routing → "SMTP relay service" → Add**. Set *Allowed senders* to
+   "Only addresses in my domains", and turn on **Require SMTP Authentication**
+   and **Require TLS**.
+2. SMTP settings:
+   - **host** `smtp-relay.gmail.com` · **port** `587` (STARTTLS)
+   - **username / password** a Workspace mailbox + its App Password (because you
+     enabled *Require SMTP Authentication*). If the relay is instead locked to a
+     static egress IP only, you may leave username + password blank.
+   - **from** any `@axiaops.io` address.
+   - Limit: 10,000 messages/day.
+
 ### 2. Create the channel in AxiaOps
 
 1. Dashboard → **Settings → Integrations → Add channel** → Kind = **Email (SMTP)**.
 2. Fill in:
    - **Label** — e.g. `Platform team digest`
-   - **SMTP host** — e.g. `email-smtp.eu-central-1.amazonaws.com`
-   - **SMTP port** — `587`
-   - **SMTP username** — the SES SMTP username (leave blank only for an
-     unauthenticated relay)
-   - **SMTP password** — the SES SMTP password
-   - **From address** — a verified sender, e.g. `finops@example.com`
-   - **Recipients** — comma-separated, e.g. `alice@example.com, bob@example.com`
+   - **SMTP host** — `email-smtp.eu-central-1.amazonaws.com` (SES) or
+     `smtp.gmail.com` (Workspace App Password) / `smtp-relay.gmail.com` (Workspace relay)
+   - **SMTP port** — `587` (STARTTLS — **not** 465)
+   - **SMTP username** — the SES SMTP username, or the Workspace mailbox
+     (`finops@axiaops.io`); leave blank only for an IP-allowlisted relay
+   - **SMTP password** — the SES SMTP password, or the Workspace **App Password**
+   - **From address** — a verified/authorised sender, e.g. `finops@axiaops.io`
+   - **Recipients** — comma-separated, e.g. `alice@axiaops.io, bob@axiaops.io`
 3. (Optional) adjust the trigger gate / digest size.
 4. **Save** (created disabled).
 
@@ -135,9 +178,14 @@ big, noisy account.
 - Common failures:
   - **Slack** `failed` with a 4xx — webhook URL revoked or wrong; recreate it.
     (AxiaOps scrubs the URL out of the stored error, so the detail won't echo it.)
-  - **Email** `failed` `535`/auth — wrong SMTP username/password.
-  - **Email** `failed` timeout — host/port unreachable from the ingestion network,
-    or a wedged relay (10s per-transport cap).
+  - **Email** `failed` `535`/auth — wrong SMTP username/password. For **Google
+    Workspace**: you must use an **App Password**, not the account login password;
+    2-Step Verification must be on; and if the message is `Username and Password
+    not accepted`, App Passwords may be disabled org-wide (use the SMTP relay
+    option) or the From isn't an address that mailbox may send as.
+  - **Email** `failed` timeout / connection refused — host/port unreachable from
+    the ingestion network, a wedged relay (10s per-transport cap), **or the channel
+    is pointed at port 465** (implicit TLS — unsupported; switch to 587).
 - Nothing arriving but status is `sent`: check the Slack channel/email spam folder,
   and confirm the From address is verified (SES silently drops unverified senders).
 
