@@ -31,6 +31,20 @@ function formatDateShort(iso) {
 
 // ─── CSV export ──────────────────────────────────────────────────────────────
 
+// Render an amount for the CSV at full fidelity. The DB stores NUMERIC and the
+// API ships the raw float, so the only place precision was being lost was the
+// old `toFixed(2)` here — which collapsed sub-cent services (S3, CloudWatch,
+// DynamoDB, …) to "0.00" and broke reconciliation against AWS CUR / Vantage.
+// We keep up to 10 decimals (CUR-grade), strip float-representation noise via
+// the fixed-point round-trip, and trim trailing zeros so whole-cent values
+// still read cleanly (0.19, not 0.1900000000). Fixed-point avoids scientific
+// notation that would confuse spreadsheet imports. On-screen display stays at
+// 2dp — this is the data-interchange path only.
+function csvAmount(n) {
+  if (typeof n !== 'number' || !isFinite(n)) return '';
+  return n.toFixed(10).replace(/\.?0+$/, '');
+}
+
 function exportCSV(records, { services }, toast) {
   const filterSlug = services.length
     ? '-' + services.map(s => s.replace(/^Amazon|^AWS/, '').toLowerCase()).join('-')
@@ -40,7 +54,7 @@ function exportCSV(records, { services }, toast) {
   const rows = records.map(r => [
     r.service,
     r.region,
-    r.amount.toFixed(2),
+    csvAmount(r.amount),
     r.currency,
     new Date(r.period_start).toISOString().split('T')[0],
     new Date(r.period_end).toISOString().split('T')[0],

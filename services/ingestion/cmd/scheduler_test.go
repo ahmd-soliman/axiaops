@@ -304,6 +304,27 @@ func (m *mockStoreForScheduler) ListSSOGroupMappings(context.Context, string) ([
 func (m *mockStoreForScheduler) ReplaceSSOGroupMappings(context.Context, string, []model.SSOGroupMapping) error {
 	return errors.New("mockStoreForScheduler.ReplaceSSOGroupMappings not implemented")
 }
+func (m *mockStoreForScheduler) SaveNotificationChannel(context.Context, model.NotificationChannel) error {
+	return nil
+}
+func (m *mockStoreForScheduler) ListNotificationChannels(context.Context) ([]model.NotificationChannel, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) ListEnabledNotificationChannels(context.Context) ([]model.NotificationChannel, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) GetNotificationChannel(context.Context, string) (model.NotificationChannel, error) {
+	return model.NotificationChannel{}, nil
+}
+func (m *mockStoreForScheduler) DeleteNotificationChannel(context.Context, string) error {
+	return nil
+}
+func (m *mockStoreForScheduler) SaveNotificationDispatch(context.Context, model.NotificationDispatch) error {
+	return nil
+}
+func (m *mockStoreForScheduler) ListNotificationDispatches(context.Context, string, int) ([]model.NotificationDispatch, error) {
+	return nil, nil
+}
 
 // captureQueue records enqueued jobs and optionally returns pre-seeded jobs
 // from Dequeue (used by the worker tests). When `pending` is empty, Dequeue
