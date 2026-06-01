@@ -423,6 +423,8 @@ var ceServiceToInternal = map[string]string{
 	"Amazon SageMaker":                       "AmazonSageMaker",
 	"Amazon DynamoDB":                        "AmazonDynamoDB",
 	"Amazon Elastic Kubernetes Service":      "AmazonEKS",
+	"EC2 Container Registry (ECR)":           "AmazonECR",
+	"Amazon EC2 Container Registry (ECR)":    "AmazonECR",
 	"Amazon Cost Explorer":                   "AWSCostExplorer",
 	"AWS Cost Explorer":                      "AWSCostExplorer",
 	"AWS Data Transfer":                      "AWSDataTransfer",
