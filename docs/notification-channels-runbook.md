@@ -43,7 +43,7 @@ schema but not yet shippable — the UI only offers Email and Slack.
 ### 2. Create the channel in AxiaOps
 
 1. Dashboard → avatar menu → **Settings → Integrations**.
-2. **Add channel** → Kind = **Slack webhook**.
+2. **Add channel** → Type = **Slack webhook**.
 3. **Label**: a human name, e.g. `FinOps Slack`.
 4. **Webhook URL**: paste the URL from step 1.
 5. (Optional) adjust the trigger — **Minimum monthly savings** (default `$25`)
@@ -122,7 +122,7 @@ mailbox (e.g. `finops@axiaops.io`) is the sender.
 
 ### 2. Create the channel in AxiaOps
 
-1. Dashboard → **Settings → Integrations → Add channel** → Kind = **Email (SMTP)**.
+1. Dashboard → **Settings → Integrations → Add channel** → Type = **Email (SMTP)**.
 2. Fill in:
    - **Label** — e.g. `Platform team digest`
    - **SMTP host** — `email-smtp.eu-central-1.amazonaws.com` (SES) or
