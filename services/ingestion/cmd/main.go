@@ -27,6 +27,7 @@ import (
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/notifications"
 	"axiaops.io/shared/observability"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
@@ -660,6 +661,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 	snap := model.ZombieSnapshot{
 		ID:               uuid.New().String(),
+		OrganizationID:   organizationID,
 		AccountID:        accountID,
 		SnapshotAt:       time.Now().UTC(),
 		ZombieCount:      summary.TotalZombies,
@@ -692,6 +694,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		} else {
 			slog.Info("storage: saved snapshot services", "count", len(svcRows))
 		}
+
+		// Notify the org's enabled channels about the completed scan. Placed
+		// inside the snapshot-saved branch so the dispatch row's snapshot_id FK
+		// always resolves. Best-effort + non-fatal — see DispatchForScan.
+		dispatchNotifications(ctx, store, snap, summary, accountID)
 	}
 
 	// allRecords already contains resourceCosts (appended in the FetchResourceCosts
@@ -707,6 +714,21 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	}
 	slog.Info("storage: saved resource records", "total", len(resources), "zombies", len(zombies))
 	return nil
+}
+
+// dispatchNotifications fans a completed scan out to the org's enabled
+// notification channels. Best-effort + non-fatal: DispatchForScan logs and
+// records every error internally and never returns one, so a notification
+// problem can't fail a scan. The transports are stateless (they decrypt config
+// per-call via ENCRYPTION_KEY), so constructing them per scan is cheap.
+// PUBLIC_HOST builds the dashboard deep-link; empty omits it.
+func dispatchNotifications(ctx context.Context, store storage.Store, snap model.ZombieSnapshot, summary analyzer.Summary, accountID string) {
+	transports := map[string]notifications.Transport{
+		model.ChannelKindEmail: notifications.NewEmailTransport(),
+		model.ChannelKindSlack: notifications.NewSlackTransport(nil),
+	}
+	notifications.NewDispatcher(store, transports, os.Getenv("PUBLIC_HOST")).
+		DispatchForScan(ctx, snap, summary, accountID)
 }
 
 func newStore() storage.Store {

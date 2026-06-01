@@ -2245,10 +2245,15 @@ func (s *Store) DeleteOrganizationCascade(ctx context.Context, organizationID st
 		return fmt.Errorf("postgres: cascade anonymise audit: %w", err)
 	}
 
-	// Per-organization data, FK-safe order.
+	// Per-organization data, FK-safe order. notification_dispatches MUST precede
+	// notification_channels (dispatches.channel_id → channels.id) — though both
+	// also cascade from the final organizations delete, this explicit per-table
+	// loop runs first, so the order has to be honoured here too.
 	tables := []string{
 		"dismissed_zombies",
 		"zombie_snapshot_services",
+		"notification_dispatches",
+		"notification_channels",
 		"zombie_snapshots",
 		"zombie_records",
 		"resource_records",
