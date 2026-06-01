@@ -39,6 +39,8 @@ import (
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/api/internal/sso"
 	"axiaops.io/shared/cache"
+	"axiaops.io/shared/model"
+	"axiaops.io/shared/notifications"
 	"axiaops.io/shared/observability"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
@@ -238,7 +240,11 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	// ── Core API handler ──────────────────────────────────────────────────
 	apiH := api.New(deps.Store, deps.Queue).
 		WithPublicHost(cfg.PublicHost).
-		WithIngestionSecret(deps.IngestionSecret)
+		WithIngestionSecret(deps.IngestionSecret).
+		WithNotificationTransports(map[string]notifications.Transport{
+			model.ChannelKindEmail: notifications.NewEmailTransport(),
+			model.ChannelKindSlack: notifications.NewSlackTransport(nil),
+		})
 	if cfg.RedisConfigured && deps.Cache != nil {
 		apiH = apiH.WithRedisCache(deps.Cache)
 	}
