@@ -38,6 +38,8 @@ var permissionMatrix = []permissionMatrixCase{
 	{method: "GET", path: "/v1/dismissals", minRole: "viewer"},
 	{method: "GET", path: "/v1/audit", minRole: "viewer"},
 	{method: "GET", path: "/v1/memberships", minRole: "viewer"},
+	{method: "GET", path: "/v1/channels", minRole: "viewer"},
+	{method: "GET", path: "/v1/channels/c-test/dispatches", minRole: "viewer"},
 
 	// Member-write tier.
 	{method: "POST", path: "/v1/accounts", body: `{}`, minRole: "member"},
@@ -45,6 +47,10 @@ var permissionMatrix = []permissionMatrixCase{
 
 	// Admin-only.
 	{method: "POST", path: "/v1/memberships", body: `{}`, minRole: "admin"},
+	{method: "POST", path: "/v1/channels", body: `{}`, minRole: "admin"},
+	{method: "PATCH", path: "/v1/channels/c-test", body: `{}`, minRole: "admin"},
+	{method: "DELETE", path: "/v1/channels/c-test", minRole: "admin"},
+	{method: "POST", path: "/v1/channels/c-test/test", minRole: "admin"},
 
 	// Owner-only.
 	{method: "POST", path: "/v1/organizations/transfer-ownership", body: `{}`, minRole: "owner"},

@@ -23,6 +23,7 @@ import (
 	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/notifications"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 )
@@ -51,6 +52,13 @@ type Handler struct {
 	// Defaults to the empty string; the handler falls back to building
 	// a relative URL when unset.
 	publicHost string
+
+	// channelTransports maps a notification channel kind (model.ChannelKind*)
+	// to its Transport, used by POST /v1/channels/{id}/test. nil ⇒ /test
+	// returns 500 (transports not wired — a server misconfiguration, since
+	// serverbuild always wires them). Set via WithNotificationTransports;
+	// tests inject fakes through the same seam.
+	channelTransports map[string]notifications.Transport
 }
 
 // New creates a Handler backed by the given store and queue.
@@ -94,6 +102,14 @@ func (h *Handler) WithIngestionSecret(secret []byte) *Handler {
 	return h
 }
 
+// WithNotificationTransports wires the per-kind transports used by
+// POST /v1/channels/{id}/test. Not called ⇒ /test reports 503. Tests inject
+// fakes here to avoid real network/SMTP calls.
+func (h *Handler) WithNotificationTransports(transports map[string]notifications.Transport) *Handler {
+	h.channelTransports = transports
+	return h
+}
+
 // Register attaches the routes to the given mux. Each non-public route is
 // wrapped in middleware.Require, which 403s any caller whose role does not
 // grant the listed permission. Public routes (health, livez, readyz, version,
@@ -134,6 +150,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("PATCH /v1/accounts/{id}", require(authz.PermAccountsWrite, h.updateAccount))
 	mux.Handle("DELETE /v1/accounts/{id}", require(authz.PermAccountsDelete, h.deleteAccount))
 	mux.Handle("POST /v1/accounts/{id}/scan", require(authz.PermAccountsScan, h.scanAccount))
+
+	// Notification channels (docs/notifications-plan.md).
+	mux.Handle("GET /v1/channels", require(authz.PermChannelsRead, h.listChannels))
+	mux.Handle("POST /v1/channels", require(authz.PermChannelsManage, h.createChannel))
+	mux.Handle("PATCH /v1/channels/{id}", require(authz.PermChannelsManage, h.updateChannel))
+	mux.Handle("DELETE /v1/channels/{id}", require(authz.PermChannelsManage, h.deleteChannel))
+	mux.Handle("POST /v1/channels/{id}/test", require(authz.PermChannelsManage, h.testChannel))
+	mux.Handle("GET /v1/channels/{id}/dispatches", require(authz.PermChannelsRead, h.listChannelDispatches))
 
 	// Dismissals.
 	mux.Handle("POST /v1/dismissals", require(authz.PermZombiesDismiss, h.createDismissal))

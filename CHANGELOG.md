@@ -25,7 +25,9 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
-_Nothing yet — first entries land here in the next development cycle._
+### Added
+
+- **Notification channels — email + Slack scan digests.** Admins can configure org-level outbound channels under **Settings → Integrations** (`/v1/channels`) that receive a savings digest after each scan. Email is SMTP/SES (no third-party SDK); Slack is an incoming webhook. Each channel has a trigger rule (`min_monthly_savings_usd` gate + `digest_top_n` body trim) and a **Test** button. Transport config (SMTP password / webhook URL) is AES-256-GCM encrypted at rest, masked as `***` on read, and scrubbed from delivery-error records. Dispatch is wired into the ingestion scan loop (best-effort, non-fatal) and every attempt is logged to a deliveries drawer. New permissions `channels:read` (viewer+) / `channels:manage` (admin+); migration `031_notification_channels`. Teams/Jira are pre-provisioned in the schema for follow-ups (#113/#114) but not yet shippable. See [`docs/notifications-plan.md`](docs/notifications-plan.md).
 
 ## [0.1.0-alpha.23] — 2026-05-30
 

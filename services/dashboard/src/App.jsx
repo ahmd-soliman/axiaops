@@ -26,6 +26,7 @@ import CloudAccountSettings from './pages/CloudAccountSettings';
 import Profile           from './pages/Profile';
 import Settings          from './pages/Settings';
 import SettingsMembers   from './pages/settings/Members';
+import SettingsIntegrations from './pages/settings/Integrations';
 import SettingsAudit     from './pages/settings/Audit';
 import SettingsSSO       from './pages/settings/SSO';
 import SettingsOrganization from './pages/settings/Organization';
@@ -132,6 +133,7 @@ function AuthenticatedApp() {
                   <Route path="cloud-accounts/:accountId"  element={<CloudAccountSettings />} />
                   <Route path="members"   element={<SettingsMembers />} />
                   <Route path="team"      element={<Navigate to="/settings/members" replace />} />
+                  <Route path="integrations" element={<SettingsIntegrations />} />
                   <Route path="audit"     element={<SettingsAudit />} />
                   <Route path="sso"       element={<SettingsSSO />} />
                   <Route path="organization" element={<SettingsOrganization />} />

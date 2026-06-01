@@ -675,6 +675,43 @@ export async function replaceSSOGroupMappings(connectionId, mappings) {
   });
 }
 
+// ── Notification channels ─────────────────────────────────────────────────────
+// Secret config fields (smtp_pass, webhook_url) come back masked as "***" on
+// read; a PATCH that sends "***" (or empty) keeps the stored secret.
+
+export async function listChannels() {
+  return request('/v1/channels');
+}
+
+export async function createChannel({ kind, label, enabled, triggerRule, config }) {
+  return request('/v1/channels', {
+    method: 'POST',
+    body: { kind, label, enabled, trigger_rule: triggerRule, config },
+  });
+}
+
+export async function updateChannel(id, { label, enabled, triggerRule, config }) {
+  const body = {};
+  if (label !== undefined) body.label = label;
+  if (enabled !== undefined) body.enabled = enabled;
+  if (triggerRule !== undefined) body.trigger_rule = triggerRule;
+  if (config !== undefined) body.config = config;
+  return request(`/v1/channels/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+}
+
+export async function deleteChannel(id) {
+  return request(`/v1/channels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+// Returns {status: "sent"|"failed", error?: string}.
+export async function testChannel(id) {
+  return request(`/v1/channels/${encodeURIComponent(id)}/test`, { method: 'POST' });
+}
+
+export async function listChannelDispatches(id) {
+  return request(`/v1/channels/${encodeURIComponent(id)}/dispatches`);
+}
+
 // ── Native auth ─────────────────────────────────────────────────────────────
 //
 // All four endpoints below work via the `axiaops_session` HttpOnly cookie —
