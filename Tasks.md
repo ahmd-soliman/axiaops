@@ -198,8 +198,9 @@ Shipped design diverged from the original sketch (Resend / per-account webhook c
 - [x] Post-scan dispatch wired into `runIngestionCore` (after `SaveSnapshotServices`) — gated on `trigger_rule.min_monthly_savings_usd`, non-fatal
 - [x] `/v1/channels` CRUD + `/test` + `/dispatches`; `channels:read` (viewer+) / `channels:manage` (admin+); encrypt-on-write, redact-on-read
 - [x] Dashboard `/settings/integrations` pane — list, add/edit (email+slack), enable toggle, test, deliveries drawer
-- [ ] Weekly/scheduled email digest (v1 is per-scan only) — deferred
-- [ ] Staging smoke: configure a real SMTP relay + Slack webhook, trigger a scan, confirm delivery
+- [ ] **Post-deploy smoke** (staging, after merge): configure a real SMTP relay + Slack webhook on an org, trigger a scan, confirm delivery. Can't run in CI — needs a deployed env + real credentials.
+
+v2 enhancements (weekly/scheduled digest, per-zombie alerts, retry/DLQ) are tracked under §3.17 — they're distinct features, not unfinished v1 work.
 
 #### 2.16 Production Deployment 🟡 (architecture pivoted App Runner → ECS Express)
 
@@ -607,6 +608,15 @@ Ongoing (2028+):
 - [ ] Annual Type II renewal (rolling 12-month windows)
 - [ ] Reconsider Privacy TSC if EU enterprise customers ask
 - [ ] Layer ISO 27001 if a major customer demands it (~70% control overlap)
+
+#### 3.17 Notification enhancements (v2) 🔲
+
+Builds on the per-scan email/Slack channels shipped in §2.15. All deferred by the
+v1 plan — see `docs/notifications-plan.md` "Risks + deferred".
+
+- [ ] Weekly / scheduled email digest — aggregate findings across scans on its own ticker (dedupe against the last send) instead of v1's one-digest-per-scan
+- [ ] Per-zombie alert mode — `trigger_rule.on = ["new_zombie"]` joining against the previous snapshot (the `on` field is already provisioned + validated)
+- [ ] In-process retry / DLQ for failed dispatches (the `attempts` column is reserved)
 
 ---
 
