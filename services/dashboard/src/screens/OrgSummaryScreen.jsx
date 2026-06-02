@@ -27,7 +27,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
   const costs = useQuery({ queryKey: ['costs', 'org', 30], queryFn: () => fetchCosts(null, null, 30) });
   // Per-account waste breakdown (slice-0 endpoint). Only accounts with zombies
   // appear; we overlay the full account list (prop) for the health strip.
-  const byAccount = useQuery({ queryKey: ['summary-by-account'], queryFn: fetchSummaryByAccount });
+  const byAccount = useQuery({ queryKey: ['summary', 'by-account'], queryFn: fetchSummaryByAccount });
 
   // #1 "total spend": /v1/costs returns a raw []CostRecord with no org total,
   // so reduce client-side. Re-implemented here (the workbench has its own copy).
@@ -46,8 +46,11 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
       .sort((a, b) => (b.w?.potential_monthly_savings ?? 0) - (a.w?.potential_monthly_savings ?? 0));
   }, [accounts, byAccount.data]);
 
-  const loading = summary.isPending || costs.isPending || byAccount.isPending;
-  const errored = summary.isError || costs.isError || byAccount.isError;
+  // The per-account section loads independently — it must NOT gate the whole
+  // page (the tiles + by-service shouldn't wait on it, and a transient error on
+  // this secondary endpoint shouldn't blank a page whose core data loaded fine).
+  const loading = summary.isPending || costs.isPending;
+  const errored = summary.isError || costs.isError;
 
   if (loading) {
     return (
@@ -134,9 +137,17 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
         </>
       )}
 
-      {/* Accounts: per-account waste (#3) + health (#6). Rendered even when no
-          scan results exist yet — it's the most useful view in that state. */}
-      <AccountsSection rows={accountRows} currency={currency} isMobile={isMobile} onSelectAccount={onSelectAccount} />
+      {/* Accounts: per-account waste (#3) + health (#6). Loads independently of
+          the tiles; renders even when no scan results exist yet (health is the
+          most useful view in that state). */}
+      <AccountsSection
+        rows={accountRows}
+        currency={currency}
+        isMobile={isMobile}
+        onSelectAccount={onSelectAccount}
+        wastePending={byAccount.isPending}
+        wasteError={byAccount.isError}
+      />
     </div>
   );
 }
@@ -234,7 +245,7 @@ function ByServiceBreakdown({ byService, currency }) {
   );
 }
 
-function AccountsSection({ rows, currency, isMobile, onSelectAccount }) {
+function AccountsSection({ rows, currency, isMobile, onSelectAccount, wastePending, wasteError }) {
   return (
     <section
       style={{
@@ -250,6 +261,12 @@ function AccountsSection({ rows, currency, isMobile, onSelectAccount }) {
           Accounts
         </span>
       </div>
+
+      {wasteError && (
+        <div style={{ padding: '8px 20px', fontSize: 12, color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>
+          Couldn’t load per-account savings — showing account health only.
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: 0, padding: '20px' }}>
@@ -289,22 +306,32 @@ function AccountsSection({ rows, currency, isMobile, onSelectAccount }) {
                   </div>
                 </div>
 
-                {!isMobile && (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0, minWidth: 120 }}>
-                    <AccountStatus status={acc.status} />
+                {/* Status badge always shows (it's the health cue); the
+                    scanned-date is desktop-only to save width on mobile. */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0, minWidth: isMobile ? 'auto' : 120 }}>
+                  <AccountStatus status={acc.status} />
+                  {!isMobile && (
                     <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
                       {formatScanned(acc.last_scanned_at)}
                     </span>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 <div style={{ flexShrink: 0, textAlign: 'right', minWidth: 92 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums' }}>
-                    {currency} {(w?.potential_monthly_savings ?? 0).toFixed(2)}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
-                    {w?.total_zombies ?? 0} zombie{(w?.total_zombies ?? 0) === 1 ? '' : 's'}
-                  </div>
+                  {wastePending ? (
+                    <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>…</span>
+                  ) : wasteError ? (
+                    <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>—</span>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums' }}>
+                        {currency} {(w?.potential_monthly_savings ?? 0).toFixed(2)}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                        {w?.total_zombies ?? 0} zombie{(w?.total_zombies ?? 0) === 1 ? '' : 's'}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <span aria-hidden style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>›</span>
@@ -338,7 +365,9 @@ function formatScanned(ts) {
   if (!ts) return 'never scanned';
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return 'never scanned';
-  return `scanned ${d.toLocaleDateString()}`;
+  // Explicit format so the date is unambiguous regardless of browser locale
+  // (avoids the en-US 6/2 vs en-GB 2/6 ambiguity).
+  return `scanned ${d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`;
 }
 
 function ScansPending() {
