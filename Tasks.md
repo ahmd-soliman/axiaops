@@ -419,6 +419,17 @@ Shipped as part of the unified Phase 2 CSV export convention.
 >
 > Full design (data model, API surface, middleware hook, edge cases, testing): [`docs/invitation-flow.md`](docs/invitation-flow.md) on `feat/team-invitations`. Effort plan: ~7.75 days (vs. the original ~10 commits / ~2 weeks).
 
+> **Outstanding: actually *send* invitation email (AxiaOps system email).** Today invitations
+> return an OOB `redemption_url` the admin shares manually — no email is sent. To deliver it
+> (and password-reset emails), AxiaOps needs a **deployment-level transactional sender**,
+> distinct from the per-org notification channels in §2.15 (those are org-configured + DB-stored;
+> this is AxiaOps's *own* mail). The shared SMTP transport (`services/shared/notifications`)
+> can be reused, but the sender config is infra, not a DB channel. **For the hosted product
+> this is an `aws-infra` change** (sibling repo): SES domain identity for `axiaops.io` + DKIM,
+> an IAM user with `ses:SendRawEmail` → SMTP credential (SES-via-SMTP needs an IAM user, not
+> the ECS task role) → Secrets Manager → env wiring (`PUBLIC_HOST` already in place). Plus
+> SPF/DKIM/DMARC on the domain. Track the infra side in `aws-infra`; the app side here.
+
 Backend (Go):
 
 - [ ] Migration `017_pending_memberships.up.sql` / `.down.sql` — table per `docs/invitation-flow.md §3`. RLS policy `pending_memberships_organization_isolation`. Partial unique index on `(organization_id, lower(email)) WHERE status='pending'`.
@@ -617,6 +628,7 @@ v1 plan — see `docs/notifications-plan.md` "Risks + deferred".
 - [ ] Weekly / scheduled email digest — aggregate findings across scans on its own ticker (dedupe against the last send) instead of v1's one-digest-per-scan
 - [ ] Per-zombie alert mode — `trigger_rule.on = ["new_zombie"]` joining against the previous snapshot (the `on` field is already provisioned + validated)
 - [ ] In-process retry / DLQ for failed dispatches (the `attempts` column is reserved)
+- [ ] Email-channel **provider presets** in the Add-channel form — a dropdown that prefills `smtp_host`/`smtp_port` for **Amazon SES** and **Google Workspace relay**, plus a **Custom SMTP** fallback. Pure frontend sugar; backend stays generic SMTP. **Steering decision:** do *not* offer a first-class "single mailbox / App Password" preset — it's the least-best-practice path (credential tied to a person, lower cap); keep it reachable via "Custom" + the runbook only. Build only if operator onboarding friction shows up.
 
 ---
 
