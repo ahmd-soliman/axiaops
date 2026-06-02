@@ -628,7 +628,7 @@ v1 plan — see `docs/notifications-plan.md` "Risks + deferred".
 - [ ] Weekly / scheduled email digest — aggregate findings across scans on its own ticker (dedupe against the last send) instead of v1's one-digest-per-scan
 - [ ] Per-zombie alert mode — `trigger_rule.on = ["new_zombie"]` joining against the previous snapshot (the `on` field is already provisioned + validated)
 - [ ] In-process retry / DLQ for failed dispatches (the `attempts` column is reserved)
-- [ ] Email-channel **provider presets** in the Add-channel form — a dropdown that prefills `smtp_host`/`smtp_port` for **Amazon SES** and **Google Workspace relay**, plus a **Custom SMTP** fallback. Pure frontend sugar; backend stays generic SMTP. **Steering decision:** do *not* offer a first-class "single mailbox / App Password" preset — it's the least-best-practice path (credential tied to a person, lower cap); keep it reachable via "Custom" + the runbook only. Build only if operator onboarding friction shows up.
+- [x] Email-channel **provider presets** in the Add-channel form — a dropdown prefilling `smtp_host`/`smtp_port` for **Amazon SES** and **Google Workspace relay**, plus a **Custom SMTP** fallback (shipped on MR !289). Pure frontend sugar; backend stays generic SMTP. Per the steering decision, **no** "single mailbox / App Password" preset — that path stays "Custom" + runbook only.
 
 ---
 
