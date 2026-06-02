@@ -1,13 +1,13 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSummary, fetchCosts } from '../api/client';
+import { fetchSummary, fetchCosts, fetchSummaryByAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import { Spinner } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 
-// OrgSummaryScreen — read-only organization summary at `/`. Slice 1: headline
-// tiles (#1) + by-service breakdown (#4). Per-account breakdown, trend, and
-// top-zombies are later slices.
+// OrgSummaryScreen — read-only organization summary at `/`. Slices: headline
+// tiles (#1) + by-service breakdown (#4) + per-account breakdown (#3) + account
+// health strip (#6). Org-wide trend, top-zombies, and member-activity are later.
 //
 // Deliberately self-contained: it does NOT import the heavy OverviewHero /
 // ServiceBreakdown out of the ~1800-line workbench (OverviewScreen.jsx). The
@@ -16,7 +16,7 @@ import { useBreakpoint } from '../components/primitives/useBreakpoint';
 //
 // This screen only ever renders for orgs with 2+ accounts — the zero-account
 // and single-account cases are handled by redirects in pages/OrgSummary.jsx.
-export default function OrgSummaryScreen({ accounts = [], onViewAccounts }) {
+export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSelectAccount }) {
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
 
@@ -25,6 +25,9 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts }) {
   // Org-wide spend, 30-day window. fetchCosts(accountId, service, days) — pass
   // null for both account and service to get the unfiltered org total.
   const costs = useQuery({ queryKey: ['costs', 'org', 30], queryFn: () => fetchCosts(null, null, 30) });
+  // Per-account waste breakdown (slice-0 endpoint). Only accounts with zombies
+  // appear; we overlay the full account list (prop) for the health strip.
+  const byAccount = useQuery({ queryKey: ['summary-by-account'], queryFn: fetchSummaryByAccount });
 
   // #1 "total spend": /v1/costs returns a raw []CostRecord with no org total,
   // so reduce client-side. Re-implemented here (the workbench has its own copy).
@@ -32,8 +35,19 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts }) {
     return (costs.data ?? []).reduce((a, c) => a + (c.amount || 0), 0);
   }, [costs.data]);
 
-  const loading = summary.isPending || costs.isPending;
-  const errored = summary.isError || costs.isError;
+  // Merge per-account waste (keyed by internal_account_id) over the full account
+  // list so zero-waste and never-scanned accounts still show in the strip.
+  const accountRows = useMemo(() => {
+    const waste = new Map(
+      (byAccount.data?.accounts ?? []).map((a) => [a.internal_account_id, a]),
+    );
+    return accounts
+      .map((acc) => ({ acc, w: waste.get(acc.id) }))
+      .sort((a, b) => (b.w?.potential_monthly_savings ?? 0) - (a.w?.potential_monthly_savings ?? 0));
+  }, [accounts, byAccount.data]);
+
+  const loading = summary.isPending || costs.isPending || byAccount.isPending;
+  const errored = summary.isError || costs.isError || byAccount.isError;
 
   if (loading) {
     return (
@@ -119,6 +133,10 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts }) {
           <ByServiceBreakdown currency={currency} byService={byService} />
         </>
       )}
+
+      {/* Accounts: per-account waste (#3) + health (#6). Rendered even when no
+          scan results exist yet — it's the most useful view in that state. */}
+      <AccountsSection rows={accountRows} currency={currency} isMobile={isMobile} onSelectAccount={onSelectAccount} />
     </div>
   );
 }
@@ -214,6 +232,113 @@ function ByServiceBreakdown({ byService, currency }) {
       )}
     </section>
   );
+}
+
+function AccountsSection({ rows, currency, isMobile, onSelectAccount }) {
+  return (
+    <section
+      style={{
+        marginTop: 28,
+        backgroundColor: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 12,
+        overflow: 'hidden',
+      }}
+    >
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Accounts
+        </span>
+      </div>
+
+      {rows.length === 0 ? (
+        <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: 0, padding: '20px' }}>
+          No connected accounts.
+        </p>
+      ) : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {rows.map(({ acc, w }, idx) => (
+            <li key={acc.id} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)' }}>
+              <button
+                type="button"
+                onClick={() => onSelectAccount?.(acc.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '12px 20px',
+                  fontFamily: 'inherit',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-bg)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {acc.label || acc.account_id || acc.id}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                    {acc.account_id || '—'}
+                    {acc.status === 'error' && acc.error_message && (
+                      <span style={{ color: 'var(--color-error)', marginLeft: 8 }}>· {acc.error_message}</span>
+                    )}
+                  </div>
+                </div>
+
+                {!isMobile && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0, minWidth: 120 }}>
+                    <AccountStatus status={acc.status} />
+                    <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+                      {formatScanned(acc.last_scanned_at)}
+                    </span>
+                  </div>
+                )}
+
+                <div style={{ flexShrink: 0, textAlign: 'right', minWidth: 92 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums' }}>
+                    {currency} {(w?.potential_monthly_savings ?? 0).toFixed(2)}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                    {w?.total_zombies ?? 0} zombie{(w?.total_zombies ?? 0) === 1 ? '' : 's'}
+                  </div>
+                </div>
+
+                <span aria-hidden style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>›</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// AccountStatus — small colored label; mirrors the status-colour idiom used by
+// the SSO/account panes (colour carries the cue, no pill chrome).
+function AccountStatus({ status }) {
+  const color = {
+    connected: '#10b981',
+    scanning: 'var(--color-accent)',
+    error: 'var(--color-error)',
+    pending_role_setup: 'var(--color-text-muted)',
+  }[status] || 'var(--color-text-muted)';
+  return (
+    <span style={{ fontSize: 11, fontWeight: 600, color, letterSpacing: 0.2 }}>
+      {(status || 'unknown').replace(/_/g, ' ')}
+    </span>
+  );
+}
+
+// formatScanned — last_scanned_at is null until the first scan completes.
+function formatScanned(ts) {
+  if (!ts) return 'never scanned';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return 'never scanned';
+  return `scanned ${d.toLocaleDateString()}`;
 }
 
 function ScansPending() {
