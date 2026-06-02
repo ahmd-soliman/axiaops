@@ -157,9 +157,18 @@ the domain `axiaops.io` and the mailbox `notifications@axiaops.io` — substitut
 
 **B2 — Make an App Password** (on the mailbox you'll send as, e.g. `notifications@axiaops.io` —
 use a shared/role address, not a personal one), once:
-1. Sign in as that mailbox → **myaccount.google.com → Security**.
-2. **2-Step Verification must be ON** — App Passwords don't exist without it. Turn it on first.
-3. Search **App passwords** → **Create** (name it `AxiaOps`) → copy the code.
+1. **The SMTP username must be a real, licensed Workspace *user* mailbox** — not an alias, a
+   Group, or an address that only exists as a "send-as". You cannot authenticate as an
+   alias/group, so create the user first if it doesn't exist (**admin.google.com → Directory →
+   Users → Add new user**; first + last name are required — for a service account use
+   something like `AxiaOps` / `Notifications`, which also becomes the friendly sender name).
+   The `From` can still be an alias of that user.
+2. Sign in **as that exact mailbox** → **myaccount.google.com → Security**.
+3. **2-Step Verification must be ON** — App Passwords don't exist without it. Turn it on first.
+4. Search **App passwords** → **Create** (name it `AxiaOps`) → copy the code. **Generate it
+   while signed into the username mailbox** — an App Password minted on a *different* account
+   authenticates as that other account and fails with `535 Username and Password not accepted`,
+   even though the password itself is valid.
    - Google shows it as four spaced groups, e.g. **`abcd efgh ijkl mnop`**.
    - **Remove the spaces** → use **`abcdefghijklmnop`** (16 chars). That's the password.
    - No "App passwords" option? An admin disabled it, or 2SV is security-key-only — use
@@ -291,10 +300,20 @@ big, noisy account.
   - **Slack** `failed` with a 4xx — webhook URL revoked or wrong; recreate it.
     (AxiaOps scrubs the URL out of the stored error, so the detail won't echo it.)
   - **Email** `failed` `535`/auth — wrong SMTP username/password. For **Google
-    Workspace**: you must use an **App Password**, not the account login password;
-    2-Step Verification must be on; and if the message is `Username and Password
-    not accepted`, App Passwords may be disabled org-wide (use the SMTP relay
-    option) or the From isn't an address that mailbox may send as.
+    Workspace**: use an **App Password**, not the login password; 2-Step Verification
+    must be on; the App Password must be generated **on the same mailbox as the SMTP
+    username** (one minted on a different account → `535` even if the password is
+    valid); and the username must be a **real user mailbox**, not an alias or Group
+    (those can't authenticate). If the message is `Username and Password not accepted`,
+    App Passwords may also be disabled org-wide (use SES) or the From isn't an address
+    that mailbox may send as.
+  - **Email** `failed` `email: send: EOF` — the relay dropped the connection. Against
+    the Google Workspace relay this was historically the client greeting with a
+    non-domain HELO (the relay answers `421 4.7.0 … closing connection. (EHLO)` and
+    never advertises `AUTH`); the transport now EHLOs the sender's domain, so **upgrade
+    if an old build is deployed**. It can also mean an **unauthenticated** send the
+    relay refused (blank SMTP username while the relay requires auth) — set the
+    username + App Password.
   - **Email** `failed` timeout / connection refused — host/port unreachable from
     the ingestion network, a wedged relay (10s per-transport cap), **or the channel
     is pointed at port 465** (implicit TLS — unsupported; switch to 587).
