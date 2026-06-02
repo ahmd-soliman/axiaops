@@ -143,19 +143,44 @@ mailbox (e.g. `finops@axiaops.io`) is the sender.
      digest per scan stays far below this.
 
 **Option B — Workspace SMTP relay (`smtp-relay.gmail.com`; send from any
-`@axiaops.io` address, higher limits).** Better for a service sender.
+`@axiaops.io` address, higher limits).** Better for a service sender. Step-by-step for an
+`axiaops.io` Google Workspace account:
 
-1. A Workspace **admin** configures it: **Admin console → Apps → Google Workspace
-   → Gmail → Routing → "SMTP relay service" → Add**. Set *Allowed senders* to
-   "Only addresses in my domains", and turn on **Require SMTP Authentication**
-   and **Require TLS**.
-2. SMTP settings:
+**B1. Enable the relay (Workspace super-admin, one-time).**
+1. Sign in at **admin.google.com** as a **super administrator**.
+2. **Apps → Google Workspace → Gmail → Routing**.
+3. Find **SMTP relay service** → **Configure** (or *Add another rule* if one exists).
+4. Name it, e.g. `AxiaOps notifications`.
+5. **Allowed senders** → select **"Only addresses in my domains"** (prevents an open relay).
+6. **Authentication** → tick **"Require SMTP Authentication"** (recommended for AxiaOps —
+   its sender has no fixed egress IP). *Only* if you have a static egress IP and prefer
+   network-level trust, instead tick **"Only accept mail from the specified IP addresses"**
+   and add that IP (then you can skip the App Password in B2).
+7. **Encryption** → tick **"Require TLS encryption"**.
+8. **Save.** Propagation is usually minutes but can take up to ~24h.
+
+**B2. Create an App Password (skip if you chose the IP-allowlist path).** Do this on a
+**role** mailbox you'll send through, e.g. `notifications@axiaops.io` — not a personal one.
+1. Sign in as that mailbox → **myaccount.google.com → Security**.
+2. Ensure **2-Step Verification** is **ON** (App Passwords require it).
+3. Open **App passwords** → create one named `AxiaOps` → copy the **16-char** value.
+   - No "App passwords" option? A super-admin must allow it (**Admin console → Security →
+     Authentication → "Allow users to manage their app passwords"**), and 2SV must not be
+     security-key-only (which disables app passwords).
+
+**B3. Authenticate the domain for deliverability** (see the
+[Email deliverability](#email-deliverability-do-this-once-or-digests-go-to-spam) section):
+ensure `axiaops.io` SPF includes `include:_spf.google.com`, and turn on DKIM at
+**Admin console → Apps → Google Workspace → Gmail → Authenticate email**.
+
+**B4. Create the channel in AxiaOps** (Settings → Integrations → Add channel → Type =
+Email (SMTP)):
    - **host** `smtp-relay.gmail.com` · **port** `587` (STARTTLS)
-   - **username / password** a Workspace mailbox + its App Password (because you
-     enabled *Require SMTP Authentication*). If the relay is instead locked to a
-     static egress IP only, you may leave username + password blank.
-   - **from** any `@axiaops.io` address.
-   - Limit: 10,000 messages/day.
+   - **username / password** the role mailbox (`notifications@axiaops.io`) + its App Password
+     — leave both blank only if you chose the IP-allowlist path in B1.6
+   - **from** any `@axiaops.io` address (e.g. `notifications@axiaops.io`)
+   - **recipients** comma-separated
+   - **Save → Test → confirm arrival → enable.** Limit: 10,000 messages/day.
 
 ### 2. Create the channel in AxiaOps
 
