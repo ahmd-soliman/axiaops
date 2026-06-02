@@ -54,6 +54,9 @@ export default function OrgSummary() {
         accounts={accounts.data ?? []}
         onViewAccounts={() => navigate('/account')}
         onSelectAccount={(id) => navigate(`/account?account=${encodeURIComponent(id)}`)}
+        onSelectZombie={(z) =>
+          navigate(`/detail/${encodeURIComponent(z.resource_id)}?account=${encodeURIComponent(z.internal_account_id)}&region=${encodeURIComponent(z.region)}&service=${encodeURIComponent(z.service)}`)
+        }
       />
     </>
   );
