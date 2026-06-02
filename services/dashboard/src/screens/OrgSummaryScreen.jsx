@@ -36,7 +36,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
   const zombies = useQuery({ queryKey: ['zombies', 'org'], queryFn: () => fetchZombies() });
   // Recent org activity (#7) — last few audit events. Independent of scans
   // (account/member events exist before any scan), so rendered unconditionally.
-  const activity = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => fetchAuditEvents({ limit: 5 }) });
+  const activity = useQuery({ queryKey: ['audit', 'recent', 5], queryFn: () => fetchAuditEvents({ limit: 5 }) });
 
   // /v1/trend returns one row per (account, scan); roll up to one point per day
   // for an org-wide line (same approach as TrendScreen's aggregateToDays). Keep
@@ -373,9 +373,10 @@ function MemberActivity({ events, pending, error }) {
     body = (
       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
         {events.map((e, idx) => {
-          // actor_name/actor_email are denormalised on the row — no lookup. A
-          // missing actor_email means a system action.
-          const actor = e.actor_name || e.actor_email || 'system';
+          // actor_name/actor_email are denormalised on the row — no lookup.
+          // Mirror AuditScreen's rule: a missing actor_email IS a system action
+          // (regardless of actor_name); otherwise prefer the name over the email.
+          const actor = e.actor_email ? (e.actor_name || e.actor_email) : 'system';
           return (
             <li
               key={e.id}
