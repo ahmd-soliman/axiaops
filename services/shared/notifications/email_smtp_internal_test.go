@@ -177,6 +177,22 @@ func TestEmailTransport_RespectsContextDeadline(t *testing.T) {
 	}
 }
 
+func TestHeloName(t *testing.T) {
+	cases := []struct{ from, want string }{
+		{"ops@example.com", "example.com"},
+		{"notifications@axiaops.io", "axiaops.io"},
+		{"user@sub.corp.example.com", "sub.corp.example.com"},
+		{"no-at-sign", "localhost"}, // malformed: no domain
+		{"trailing@", "localhost"},  // empty domain after @
+		{"", "localhost"},           // empty from
+	}
+	for _, tc := range cases {
+		if got := heloName(tc.from); got != tc.want {
+			t.Errorf("heloName(%q) = %q, want %q", tc.from, got, tc.want)
+		}
+	}
+}
+
 func TestEmailTransport_BadCiphertext(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", emailTestKey)
 	tr := &EmailTransport{sendMail: (&capturedSend{}).fn()}
