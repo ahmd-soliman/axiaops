@@ -657,6 +657,10 @@ func (m *MockStore) DeleteOldCostRecords(_ context.Context, _ time.Time) (int64,
 	return 0, nil
 }
 
+func (m *MockStore) DeleteOldNotificationDispatches(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
 func (m *MockStore) DismissZombie(_ context.Context, d model.DismissAction) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

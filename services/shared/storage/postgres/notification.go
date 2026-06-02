@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -242,6 +243,18 @@ func (s *Store) SaveNotificationDispatch(ctx context.Context, d model.Notificati
 		return fmt.Errorf("postgres: save notification dispatch: %w", err)
 	}
 	return tx.Commit(ctx)
+}
+
+// DeleteOldNotificationDispatches removes dispatch rows created before cutoff
+// across all organizations. Runs on adminPool (RLS-bypass) because the retention
+// sweep is a global background job not bound to any one org's request context —
+// same posture as DeleteOldCostRecords.
+func (s *Store) DeleteOldNotificationDispatches(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := s.adminPool.Exec(ctx, `DELETE FROM notification_dispatches WHERE created_at < $1`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: delete old notification_dispatches: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // clampError truncates an error string to maxDispatchErrorLen, on a rune
