@@ -140,6 +140,39 @@ mailbox (e.g. `finops@axiaops.io`) is the sender.
 
 Same as Slack: **Test** → confirm the email arrives → flip to **enabled**.
 
+## Email deliverability (do this once, or digests go to spam)
+
+The relay choice (SES vs Workspace, Option A vs B) matters far less than these. A **Test
+that "sent" but never arrived** is almost always one of these missing — the message left
+AxiaOps fine and the receiver dropped or spam-binned it.
+
+1. **Authenticate the domain — SPF + DKIM + DMARC** (highest leverage):
+   - **SPF** — a DNS TXT record on `axiaops.io` authorizing your sender. SES:
+     `v=spf1 include:amazonses.com ~all`; Google Workspace: `v=spf1 include:_spf.google.com ~all`.
+     (One SPF record per domain — merge includes if you use both.)
+   - **DKIM** — cryptographic signing. SES: enable "Easy DKIM" on the verified identity and
+     add the 3 CNAMEs it gives you. Workspace: Admin console → Gmail → *Authenticate email*
+     → generate the key → publish the DKIM TXT record.
+   - **DMARC** — a `_dmarc.axiaops.io` TXT record (start permissive:
+     `v=DMARC1; p=none; rua=mailto:dmarc@axiaops.io`) so receivers trust aligned mail and
+     you get visibility before tightening to `quarantine`/`reject`.
+
+2. **Send from a dedicated *role* address, never a person's mailbox** — e.g.
+   `notifications@axiaops.io`, not `alice@axiaops.io`. A personal mailbox's App Password
+   silently breaks the day that person leaves, resets 2-Step Verification, or is suspended.
+   A role mailbox (or the domain relay) survives staffing changes.
+
+3. **Verify the From address/domain** at the relay — SES silently drops mail from an
+   unverified sender; Workspace requires the From to be an address the authenticated
+   mailbox may send as.
+
+> **Bigger-picture best practice:** Google Workspace SMTP is built for *human* mail, not a
+> product's transactional stream. For a real deployment prefer a dedicated ESP — **Amazon
+> SES** is the natural fit (AWS-native, already in the IAM blast radius, purpose-built for
+> transactional mail with bounce/complaint handling, scales past Workspace's 10k/day cap).
+> Workspace SMTP is the convenient path for a self-hosted operator who already has it and
+> sends low volume. Either way, items 1–3 above are non-negotiable.
+
 ---
 
 ## Tuning the trigger
