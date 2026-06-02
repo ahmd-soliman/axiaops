@@ -91,7 +91,9 @@ export default function AreaChart({ data, selectedId, onSelect, screenWidth }) {
   }
 
   function handleClick() {
-    if (hoverIdx !== null) onSelect(data[hoverIdx]);
+    // onSelect is optional — read-only consumers (e.g. the org-summary trend)
+    // render the chart without a per-point drill-down.
+    if (hoverIdx !== null && onSelect) onSelect(data[hoverIdx]);
   }
 
   const hoverPoint = hoverIdx !== null ? points[hoverIdx] : null;
