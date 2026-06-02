@@ -122,6 +122,9 @@ func (m *mockStoreForScheduler) ExpireSnoozes(context.Context) (int64, error) { 
 func (m *mockStoreForScheduler) DeleteOldCostRecords(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }
+func (m *mockStoreForScheduler) DeleteOldNotificationDispatches(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
 func (m *mockStoreForScheduler) Close() error { return nil }
 func (m *mockStoreForScheduler) RoleOf(context.Context, string, string) (string, error) {
 	return "", nil

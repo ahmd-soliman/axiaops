@@ -563,6 +563,10 @@ type Store interface {
 	// in the request org, capped at limit (<=0 applies a sane default).
 	ListNotificationDispatches(ctx context.Context, channelID string, limit int) ([]model.NotificationDispatch, error)
 
+	// DeleteOldNotificationDispatches removes dispatch rows created before the
+	// given cutoff for all organizations (RLS-bypass). Returns rows deleted.
+	DeleteOldNotificationDispatches(ctx context.Context, cutoff time.Time) (int64, error)
+
 	// Close releases any resources held by the store.
 	Close() error
 }
