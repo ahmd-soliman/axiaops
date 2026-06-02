@@ -17,7 +17,7 @@ import AreaChart from '../components/AreaChart';
 //
 // This screen only ever renders for orgs with 2+ accounts — the zero-account
 // and single-account cases are handled by redirects in pages/OrgSummary.jsx.
-export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSelectAccount, onSelectZombie, onSelectService }) {
+export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSelectAccount, onSelectZombie, onSelectService, onViewAudit }) {
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
   const windowWidth = useWindowWidth();
@@ -200,6 +200,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
         events={activity.data?.events ?? []}
         pending={activity.isPending}
         error={activity.isError}
+        onViewAll={onViewAudit}
       />
     </div>
   );
@@ -365,7 +366,7 @@ function TopZombies({ rows, currency, pending, error, onSelectZombie }) {
   return <SectionShell title="Top zombies by cost">{body}</SectionShell>;
 }
 
-function MemberActivity({ events, pending, error }) {
+function MemberActivity({ events, pending, error, onViewAll }) {
   let body;
   if (pending) {
     body = <div style={{ padding: 32, textAlign: 'center' }}><Spinner size={24} color={'var(--color-accent)'} /></div>;
@@ -401,7 +402,18 @@ function MemberActivity({ events, pending, error }) {
       </ul>
     );
   }
-  return <SectionShell title="Recent activity">{body}</SectionShell>;
+  // The whole audit log is the drill-down for activity — link the section, not
+  // each (heterogeneous, often target-less) row.
+  const action = onViewAll && (
+    <button
+      type="button"
+      onClick={onViewAll}
+      style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--color-accent)' }}
+    >
+      View all →
+    </button>
+  );
+  return <SectionShell title="Recent activity" action={action}>{body}</SectionShell>;
 }
 
 // timeAgo — compact relative time; falls back to a short date past a week.
@@ -421,13 +433,14 @@ function timeAgo(ts) {
 }
 
 // SectionShell — shared card chrome for the trend + top-zombies sections.
-function SectionShell({ title, children }) {
+function SectionShell({ title, action, children }) {
   return (
     <section style={{ marginTop: 28, backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
           {title}
         </span>
+        {action}
       </div>
       {children}
     </section>
