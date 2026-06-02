@@ -32,7 +32,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts }) {
     return (costs.data ?? []).reduce((a, c) => a + (c.amount || 0), 0);
   }, [costs.data]);
 
-  const loading = summary.isLoading || costs.isLoading;
+  const loading = summary.isPending || costs.isPending;
   const errored = summary.isError || costs.isError;
 
   if (loading) {
