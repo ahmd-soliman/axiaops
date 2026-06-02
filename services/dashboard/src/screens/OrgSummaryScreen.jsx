@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSummary, fetchCosts, fetchSummaryByAccount } from '../api/client';
+import { fetchSummary, fetchCosts, fetchSummaryByAccount, fetchTrend, fetchZombies } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
-import { Spinner } from '../components/primitives';
+import { Spinner, useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
+import AreaChart from '../components/AreaChart';
 
 // OrgSummaryScreen — read-only organization summary at `/`. Slices: headline
 // tiles (#1) + by-service breakdown (#4) + per-account breakdown (#3) + account
@@ -16,9 +17,10 @@ import { useBreakpoint } from '../components/primitives/useBreakpoint';
 //
 // This screen only ever renders for orgs with 2+ accounts — the zero-account
 // and single-account cases are handled by redirects in pages/OrgSummary.jsx.
-export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSelectAccount }) {
+export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSelectAccount, onSelectZombie }) {
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
+  const windowWidth = useWindowWidth();
 
   // Org-wide summary (no account arg → fetchSummary() hits /v1/summary clean).
   const summary = useQuery({ queryKey: ['summary', 'org'], queryFn: () => fetchSummary() });
@@ -28,6 +30,28 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
   // Per-account waste breakdown (slice-0 endpoint). Only accounts with zombies
   // appear; we overlay the full account list (prop) for the health strip.
   const byAccount = useQuery({ queryKey: ['summary', 'by-account'], queryFn: fetchSummaryByAccount });
+  // Org-wide trend (#2) and zombie list (#5) — both no-account → org-wide. Each
+  // loads independently and renders its own state; they do NOT gate the page.
+  const trend = useQuery({ queryKey: ['trend', 'org'], queryFn: () => fetchTrend() });
+  const zombies = useQuery({ queryKey: ['zombies', 'org'], queryFn: () => fetchZombies() });
+
+  // /v1/trend returns one row per (account, scan); roll up to one point per day
+  // for an org-wide line (same approach as TrendScreen's aggregateToDays).
+  const trendDays = useMemo(() => {
+    const byDay = new Map();
+    for (const s of trend.data ?? []) {
+      const day = s.snapshot_at.slice(0, 10);
+      byDay.set(day, { snapshot_at: day, total_monthly_cost: (byDay.get(day)?.total_monthly_cost ?? 0) + (s.total_monthly_cost ?? 0) });
+    }
+    return [...byDay.values()].sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
+  }, [trend.data]);
+
+  // Top zombies by monthly cost, capped — each links into the detail view.
+  const topZombies = useMemo(() => {
+    return [...(zombies.data ?? [])]
+      .sort((a, b) => (b.monthly_cost ?? 0) - (a.monthly_cost ?? 0))
+      .slice(0, 8);
+  }, [zombies.data]);
 
   // #1 "total spend": /v1/costs returns a raw []CostRecord with no org total,
   // so reduce client-side. Re-implemented here (the workbench has its own copy).
@@ -133,7 +157,17 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
             ]}
           />
 
+          <TrendChart days={trendDays} pending={trend.isPending} error={trend.isError} screenWidth={Math.min(windowWidth, 1040)} />
+
           <ByServiceBreakdown currency={currency} byService={byService} />
+
+          <TopZombies
+            rows={topZombies}
+            currency={currency}
+            pending={zombies.isPending}
+            error={zombies.isError}
+            onSelectZombie={onSelectZombie}
+          />
         </>
       )}
 
@@ -193,6 +227,7 @@ function ByServiceBreakdown({ byService, currency }) {
   return (
     <section
       style={{
+        marginTop: 28,
         backgroundColor: 'var(--color-surface)',
         border: '1px solid var(--color-border)',
         borderRadius: 12,
@@ -244,6 +279,84 @@ function ByServiceBreakdown({ byService, currency }) {
     </section>
   );
 }
+
+function TrendChart({ days, pending, error, screenWidth }) {
+  let body;
+  if (pending) {
+    body = <div style={{ padding: 32, textAlign: 'center' }}><Spinner size={24} color={'var(--color-accent)'} /></div>;
+  } else if (error) {
+    body = <p style={sectionMuted}>Couldn’t load the trend.</p>;
+  } else if (days.length < 2) {
+    body = <p style={sectionMuted}>Not enough scan history yet to chart a trend — it builds up as scans run.</p>;
+  } else {
+    body = <div style={{ padding: '8px 4px' }}><AreaChart data={days} screenWidth={screenWidth} /></div>;
+  }
+  return <SectionShell title="Waste over time">{body}</SectionShell>;
+}
+
+function TopZombies({ rows, currency, pending, error, onSelectZombie }) {
+  let body;
+  if (pending) {
+    body = <div style={{ padding: 32, textAlign: 'center' }}><Spinner size={24} color={'var(--color-accent)'} /></div>;
+  } else if (error) {
+    body = <p style={sectionMuted}>Couldn’t load zombie resources.</p>;
+  } else if (rows.length === 0) {
+    body = <p style={sectionMuted}>No zombie resources detected across your accounts.</p>;
+  } else {
+    body = (
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {rows.map((z, idx) => {
+          const cfg = serviceConfig(z.service);
+          return (
+            <li key={`${z.internal_account_id}:${z.resource_id}`} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)' }}>
+              <button
+                type="button"
+                onClick={() => onSelectZombie?.(z)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
+                  background: 'transparent', border: 'none', cursor: 'pointer', padding: '12px 20px', fontFamily: 'inherit',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-bg)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {z.resource_id}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+                    {cfg.label}{z.resource_type ? ` · ${z.resource_type}` : ''} · {z.region}
+                  </div>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                  {currency} {(z.monthly_cost ?? 0).toFixed(2)}
+                </span>
+                <span aria-hidden style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>›</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+  return <SectionShell title="Top zombies by cost">{body}</SectionShell>;
+}
+
+// SectionShell — shared card chrome for the trend + top-zombies sections.
+function SectionShell({ title, children }) {
+  return (
+    <section style={{ marginTop: 28, backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {title}
+        </span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+const sectionMuted = { fontSize: 13, color: 'var(--color-text-muted)', margin: 0, padding: '20px' };
 
 function AccountsSection({ rows, currency, isMobile, onSelectAccount, wastePending, wasteError }) {
   return (
