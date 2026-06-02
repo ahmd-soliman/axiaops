@@ -281,9 +281,11 @@ func main() {
 			case <-time.After(time.Until(next)):
 			}
 
+			// Use sigCtx so an in-flight sweep is cancelled on shutdown rather
+			// than outliving the graceful-drain window on an uncancellable DELETE.
 			start := time.Now()
 			cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
-			deleted, err := store.DeleteOldCostRecords(context.Background(), cutoff)
+			deleted, err := store.DeleteOldCostRecords(sigCtx, cutoff)
 			if err != nil {
 				slog.Error("cost_records.cleanup failed", "error", err)
 			} else {
@@ -292,7 +294,7 @@ func main() {
 
 			start = time.Now()
 			dispatchCutoff := time.Now().UTC().AddDate(0, 0, -dispatchRetentionDays)
-			dDeleted, err := store.DeleteOldNotificationDispatches(context.Background(), dispatchCutoff)
+			dDeleted, err := store.DeleteOldNotificationDispatches(sigCtx, dispatchCutoff)
 			if err != nil {
 				slog.Error("notification_dispatches.cleanup failed", "error", err)
 			} else {
