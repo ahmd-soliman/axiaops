@@ -58,6 +58,7 @@ export default function OrgSummary() {
           navigate(`/detail/${encodeURIComponent(z.resource_id)}?account=${encodeURIComponent(z.internal_account_id)}&region=${encodeURIComponent(z.region)}&service=${encodeURIComponent(z.service)}`)
         }
         onSelectService={(svc) => navigate(`/account?service=${encodeURIComponent(svc)}`)}
+        onViewAudit={() => navigate('/settings/audit')}
       />
     </>
   );
