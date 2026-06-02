@@ -142,45 +142,57 @@ mailbox (e.g. `finops@axiaops.io`) is the sender.
    - Limit: ~2,000 messages/day on Workspace (external recipients count). One
      digest per scan stays far below this.
 
-**Option B — Workspace SMTP relay (`smtp-relay.gmail.com`; send from any
-`@axiaops.io` address, higher limits).** Better for a service sender. Step-by-step for an
-`axiaops.io` Google Workspace account:
+**Option B — Workspace SMTP relay (`smtp-relay.gmail.com`; send from any address in your
+domain, 10,000/day).** Three one-time steps, then add the channel. The examples below use
+the domain `axiaops.io` and the mailbox `notifications@axiaops.io` — substitute your own.
 
-**B1. Enable the relay (Workspace super-admin, one-time).**
-1. Sign in at **admin.google.com** as a **super administrator**.
-2. **Apps → Google Workspace → Gmail → Routing**.
-3. Find **SMTP relay service** → **Configure** (or *Add another rule* if one exists).
-4. Name it, e.g. `AxiaOps notifications`.
-5. **Allowed senders** → select **"Only addresses in my domains"** (prevents an open relay).
-6. **Authentication** → tick **"Require SMTP Authentication"** (recommended for AxiaOps —
-   its sender has no fixed egress IP). *Only* if you have a static egress IP and prefer
-   network-level trust, instead tick **"Only accept mail from the specified IP addresses"**
-   and add that IP (then you can skip the App Password in B2).
-7. **Encryption** → tick **"Require TLS encryption"**.
-8. **Save.** Propagation is usually minutes but can take up to ~24h.
+**B1 — Turn the relay on** (a Workspace **admin** of the domain, once):
+1. **admin.google.com** → **Apps → Google Workspace → Gmail → Routing**.
+2. Find **SMTP relay service** → **Configure**.
+3. Set: **Name** = `AxiaOps`; **Allowed senders** = *Only addresses in my domains*;
+   ☑ **Require SMTP Authentication**; ☑ **Require TLS encryption** → **Save**.
+   *(Ignore "Only accept mail from specified IP addresses" — that's the no-password
+   alternative, and it only works with a fixed public egress IP, which AxiaOps usually
+   doesn't have. Use SMTP Authentication.)*
 
-**B2. Create an App Password (skip if you chose the IP-allowlist path).** Do this on a
-**role** mailbox you'll send through, e.g. `notifications@axiaops.io` — not a personal one.
+**B2 — Make an App Password** (on the mailbox you'll send as, e.g. `notifications@axiaops.io` —
+use a shared/role address, not a personal one), once:
 1. Sign in as that mailbox → **myaccount.google.com → Security**.
-2. Ensure **2-Step Verification** is **ON** (App Passwords require it).
-3. Open **App passwords** → create one named `AxiaOps` → copy the **16-char** value.
-   - No "App passwords" option? A super-admin must allow it (**Admin console → Security →
-     Authentication → "Allow users to manage their app passwords"**), and 2SV must not be
-     security-key-only (which disables app passwords).
+2. **2-Step Verification must be ON** — App Passwords don't exist without it. Turn it on first.
+3. Search **App passwords** → **Create** (name it `AxiaOps`) → copy the code.
+   - Google shows it as four spaced groups, e.g. **`abcd efgh ijkl mnop`**.
+   - **Remove the spaces** → use **`abcdefghijklmnop`** (16 chars). That's the password.
+   - No "App passwords" option? An admin disabled it, or 2SV is security-key-only — use
+     Option A on a different mailbox, or SES.
 
-**B3. Authenticate the domain for deliverability** (see the
-[Email deliverability](#email-deliverability-do-this-once-or-digests-go-to-spam) section):
-ensure `axiaops.io` SPF includes `include:_spf.google.com`, and turn on DKIM at
-**Admin console → Apps → Google Workspace → Gmail → Authenticate email**.
+**B3 — (deliverability)** ensure `axiaops.io` SPF includes `include:_spf.google.com` and DKIM
+is on (**Admin console → Apps → Google Workspace → Gmail → Authenticate email**). See the
+[deliverability section](#email-deliverability-do-this-once-or-digests-go-to-spam).
 
-**B4. Create the channel in AxiaOps** (Settings → Integrations → Add channel → Type =
-Email (SMTP)):
-   - **host** `smtp-relay.gmail.com` · **port** `587` (STARTTLS)
-   - **username / password** the role mailbox (`notifications@axiaops.io`) + its App Password
-     — leave both blank only if you chose the IP-allowlist path in B1.6
-   - **from** any `@axiaops.io` address (e.g. `notifications@axiaops.io`)
-   - **recipients** comma-separated
-   - **Save → Test → confirm arrival → enable.** Limit: 10,000 messages/day.
+**B4 — Add the channel** (Settings → Integrations → Add channel → Type = Email (SMTP)).
+Worked example — exactly what to type:
+
+| Field | Example value | Notes |
+|---|---|---|
+| SMTP host | `smtp-relay.gmail.com` | |
+| SMTP port | `587` | STARTTLS — **not 465** (unsupported) |
+| SMTP username | `notifications@axiaops.io` | **full email**, not just `notifications` |
+| SMTP password | `abcdefghijklmnop` | the App Password, **spaces removed** |
+| From | `notifications@axiaops.io` | must be **same domain as the username** (see rule below) |
+| Recipients | `you@example.com, team@example.com` | **any** domain — recipients are unrestricted |
+
+Then **Save → Test → confirm it arrives → toggle Enabled**.
+
+**The rules that actually matter (this trips people up):**
+- **From = same domain as the SMTP username.** Both must belong to the *same* Workspace.
+  You authenticate as `notifications@axiaops.io`, so From must be `@axiaops.io`. You can't
+  log in as one domain and send "From" another — Google's "only addresses in my domains"
+  check rejects it.
+- **Where AxiaOps runs does NOT matter.** It logs into Google over the internet with the
+  App Password, so a local/dev/staging instance on a different domain works fine — identity
+  is the *login*, not the network origin. (Origin only matters with the IP-allowlist option,
+  which we're not using.)
+- **Recipients can be any domain** — your personal inbox is fine for a test.
 
 ### 2. Create the channel in AxiaOps
 
