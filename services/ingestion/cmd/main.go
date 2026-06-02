@@ -140,6 +140,13 @@ func main() {
 		}
 	}
 
+	dispatchRetentionDays := 90
+	if v := os.Getenv("NOTIFICATION_DISPATCH_RETENTION_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			dispatchRetentionDays = n
+		}
+	}
+
 	if os.Getenv("RUN_ONCE") == "true" {
 		if err := runScan(context.Background(), store, ""); err != nil {
 			die("ingestion: one-shot run failed", "error", err)
@@ -261,7 +268,9 @@ func main() {
 		errCh <- server.ListenAndServe()
 	}()
 
-	// Daily cost_records retention cleanup — runs at midnight UTC.
+	// Daily retention cleanup — runs at midnight UTC. Sweeps cost_records and
+	// notification_dispatches in the same pass (both are global, RLS-bypass
+	// deletes keyed on an age cutoff).
 	go func() {
 		for {
 			now := time.Now().UTC()
@@ -271,6 +280,7 @@ func main() {
 				return
 			case <-time.After(time.Until(next)):
 			}
+
 			start := time.Now()
 			cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
 			deleted, err := store.DeleteOldCostRecords(context.Background(), cutoff)
@@ -278,6 +288,15 @@ func main() {
 				slog.Error("cost_records.cleanup failed", "error", err)
 			} else {
 				slog.Info("cost_records.cleanup", "rows_deleted", deleted, "duration_ms", time.Since(start).Milliseconds())
+			}
+
+			start = time.Now()
+			dispatchCutoff := time.Now().UTC().AddDate(0, 0, -dispatchRetentionDays)
+			dDeleted, err := store.DeleteOldNotificationDispatches(context.Background(), dispatchCutoff)
+			if err != nil {
+				slog.Error("notification_dispatches.cleanup failed", "error", err)
+			} else {
+				slog.Info("notification_dispatches.cleanup", "rows_deleted", dDeleted, "duration_ms", time.Since(start).Milliseconds())
 			}
 		}
 	}()
