@@ -33,12 +33,20 @@ schema but not yet shippable — the UI only offers Email and Slack.
 
 ### 1. Create a Slack incoming webhook
 
-1. In Slack: **Apps → Incoming Webhooks → Add to Slack** (or create a Slack app
-   with the *Incoming Webhooks* feature enabled).
-2. Pick the channel to post to (e.g. `#finops-alerts`).
-3. Copy the webhook URL — it looks like
+The reliable current method is a small Slack app (the legacy "Incoming Webhooks"
+directory app is deprecated in many workspaces). You need permission to install apps in
+the workspace — if installs are admin-approved, an admin does this or approves the request.
+
+1. Go to **api.slack.com/apps** → **Create New App** → **From scratch**.
+2. Name it (e.g. `AxiaOps`), pick the **workspace** → **Create App**.
+3. App's left nav → **Incoming Webhooks** → toggle **Activate Incoming Webhooks** to **On**.
+4. Scroll down → **Add New Webhook to Workspace**.
+5. Pick the **channel** to post to (e.g. `#finops-alerts`) → **Allow**. (For a *private*
+   channel, invite the app to it first: in Slack, `/invite @AxiaOps` in that channel.)
+6. Back on the Incoming Webhooks page, **Copy** the webhook URL — it looks like
    `https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`.
-   **Treat it as a secret** — anyone with it can post to your channel.
+   **Treat it as a secret** — anyone with it can post to that channel. Each URL is bound to
+   the single channel you picked; to post elsewhere, add another webhook (repeat steps 4–6).
 
 ### 2. Create the channel in AxiaOps
 
@@ -57,6 +65,21 @@ schema but not yet shippable — the UI only offers Email and Slack.
 2. Confirm the message arrived in Slack.
 3. Click the **disabled** status toggle to flip it to **enabled**. Done — the next
    scan will post a real digest if it clears the savings gate.
+
+**Optional — verify the webhook directly** (isolates "is the URL good?" from AxiaOps;
+handy if **Test** fails and you want to know whether the webhook or the stored config
+is at fault):
+
+```bash
+curl -i -X POST -H 'Content-type: application/json' \
+  --data '{"text":"AxiaOps webhook test ✅"}' \
+  'https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX'
+```
+
+- **`200` / body `ok`** → webhook valid; the message posts to its channel. If **Test**
+  still fails, the URL stored on the channel is wrong — re-paste it.
+- **`404` `no_service` / `no_team`** → URL revoked or wrong → recreate the incoming webhook.
+- **`400` `invalid_payload`** → malformed JSON (curl-only; not something AxiaOps emits).
 
 ---
 
