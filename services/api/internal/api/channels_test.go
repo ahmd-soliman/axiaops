@@ -135,6 +135,21 @@ func TestCreateChannel_EmailValidation(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("incomplete email config should be 400, got %d body %s", rr.Code, rr.Body.String())
 	}
+
+	// Header injection: CR, LF, or CRLF in From or a recipient must be rejected
+	// (the transport interpolates these straight into RFC 5322 headers).
+	inject := []string{
+		`{"kind":"email","label":"x","config":{"smtp_host":"h","smtp_port":587,"from":"f@x.com\r\nBcc: evil@x.com","recipients":["r@x.com"]}}`,
+		`{"kind":"email","label":"x","config":{"smtp_host":"h","smtp_port":587,"from":"f@x.com\nBcc: evil@x.com","recipients":["r@x.com"]}}`,
+		`{"kind":"email","label":"x","config":{"smtp_host":"h","smtp_port":587,"from":"f@x.com","recipients":["r@x.com\r\nBcc: evil@x.com"]}}`,
+		`{"kind":"email","label":"x","config":{"smtp_host":"h","smtp_port":587,"from":"f@x.com","recipients":["r@x.com\nevil@x.com"]}}`,
+	}
+	for i, body := range inject {
+		rr := do(t, mux, http.MethodPost, "/v1/channels", body)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("case %d: CR/LF in header field should be 400, got %d body %s", i, rr.Code, rr.Body.String())
+		}
+	}
 }
 
 func TestCreateChannel_RequiresConfig(t *testing.T) {

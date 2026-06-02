@@ -566,5 +566,21 @@ func validateEmailConfig(c model.EmailConfig) error {
 	if c.SMTPHost == "" || c.SMTPPort == 0 || c.From == "" || len(c.Recipients) == 0 {
 		return errors.New("email config requires smtp_host, smtp_port, from, and at least one recipient")
 	}
+	// Reject CR/LF in any address that lands in a mail header (From:/To:). The
+	// transport interpolates these straight into the RFC 5322 headers, so a
+	// newline would let an admin-supplied value inject extra headers. Config is
+	// admin-only, so this is defence-in-depth, not a privilege boundary.
+	if hasCRLF(c.From) {
+		return errors.New("from must not contain newlines")
+	}
+	for _, r := range c.Recipients {
+		if hasCRLF(r) {
+			return errors.New("recipient must not contain newlines")
+		}
+	}
 	return nil
+}
+
+func hasCRLF(s string) bool {
+	return strings.ContainsAny(s, "\r\n")
 }
