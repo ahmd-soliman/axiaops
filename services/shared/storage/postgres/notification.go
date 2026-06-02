@@ -204,7 +204,15 @@ func scanNotificationDispatch(r rowScanner) (model.NotificationDispatch, error) 
 // SaveNotificationDispatch inserts one dispatch row. Nullable columns use
 // NULLIF so empty strings persist as NULL (honouring the ON DELETE SET NULL FKs
 // on snapshot_id / account_id and the partial unique index on external_ticket_id).
+// maxDispatchErrorLen caps the persisted error string. Transports scrub their
+// own secrets, but a relay can still echo an arbitrarily long body; clamp on
+// write so a single failed send can't bloat the row (the drawer only needs the
+// leading, human-readable part of the message).
+const maxDispatchErrorLen = 1000
+
 func (s *Store) SaveNotificationDispatch(ctx context.Context, d model.NotificationDispatch) error {
+	d.Error = clampError(d.Error)
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("postgres: begin tx: %w", err)
@@ -234,6 +242,19 @@ func (s *Store) SaveNotificationDispatch(ctx context.Context, d model.Notificati
 		return fmt.Errorf("postgres: save notification dispatch: %w", err)
 	}
 	return tx.Commit(ctx)
+}
+
+// clampError truncates an error string to maxDispatchErrorLen, on a rune
+// boundary, appending an ellipsis when it cuts. Empty in → empty out.
+func clampError(s string) string {
+	if len(s) <= maxDispatchErrorLen {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= maxDispatchErrorLen {
+		return s
+	}
+	return string(r[:maxDispatchErrorLen]) + "…"
 }
 
 const (
