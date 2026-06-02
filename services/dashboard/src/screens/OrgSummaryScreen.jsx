@@ -17,7 +17,7 @@ import AreaChart from '../components/AreaChart';
 //
 // This screen only ever renders for orgs with 2+ accounts — the zero-account
 // and single-account cases are handled by redirects in pages/OrgSummary.jsx.
-export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSelectAccount, onSelectZombie, onSelectService, onViewAudit }) {
+export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSelectAccount, onSelectZombie, onSelectService, onViewAudit, onViewTrends }) {
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
   const windowWidth = useWindowWidth();
@@ -170,7 +170,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
             ]}
           />
 
-          <TrendChart days={trendDays} pending={trend.isPending} error={trend.isError} screenWidth={Math.min(windowWidth - (isMobile ? 32 : 48), 1040)} />
+          <TrendChart days={trendDays} pending={trend.isPending} error={trend.isError} screenWidth={Math.min(windowWidth - (isMobile ? 32 : 48), 1040)} onViewTrends={onViewTrends} />
 
           <ByServiceBreakdown currency={currency} byService={byService} onSelectService={onSelectService} />
 
@@ -304,7 +304,7 @@ function ByServiceBreakdown({ byService, currency, onSelectService }) {
   );
 }
 
-function TrendChart({ days, pending, error, screenWidth }) {
+function TrendChart({ days, pending, error, screenWidth, onViewTrends }) {
   let body;
   if (pending) {
     body = <div style={{ padding: 32, textAlign: 'center' }}><Spinner size={24} color={'var(--color-accent)'} /></div>;
@@ -315,7 +315,19 @@ function TrendChart({ days, pending, error, screenWidth }) {
   } else {
     body = <div style={{ padding: '8px 4px' }}><AreaChart data={days} screenWidth={screenWidth} /></div>;
   }
-  return <SectionShell title="Waste over time">{body}</SectionShell>;
+  // This chart is a glanceable org-wide summary; the filterable trend view
+  // (by service / resource-type / account + date ranges) is the dedicated
+  // /trend screen. Link to it rather than duplicating its filters here.
+  const action = onViewTrends && (
+    <button
+      type="button"
+      onClick={onViewTrends}
+      style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--color-accent)' }}
+    >
+      View trends →
+    </button>
+  );
+  return <SectionShell title="Waste over time" action={action}>{body}</SectionShell>;
 }
 
 function TopZombies({ rows, currency, pending, error, onSelectZombie }) {

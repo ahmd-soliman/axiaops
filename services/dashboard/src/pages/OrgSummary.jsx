@@ -59,6 +59,7 @@ export default function OrgSummary() {
         }
         onSelectService={(svc) => navigate(`/account?service=${encodeURIComponent(svc)}`)}
         onViewAudit={() => navigate('/settings/audit')}
+        onViewTrends={() => navigate('/trend')}
       />
     </>
   );
