@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSummary, fetchCosts, fetchSummaryByAccount, fetchTrend, fetchZombies } from '../api/client';
+import { fetchSummary, fetchCosts, fetchSummaryByAccount, fetchTrend, fetchZombies, fetchAuditEvents } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import { Spinner, useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
@@ -34,6 +34,9 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
   // loads independently and renders its own state; they do NOT gate the page.
   const trend = useQuery({ queryKey: ['trend', 'org'], queryFn: () => fetchTrend() });
   const zombies = useQuery({ queryKey: ['zombies', 'org'], queryFn: () => fetchZombies() });
+  // Recent org activity (#7) — last few audit events. Independent of scans
+  // (account/member events exist before any scan), so rendered unconditionally.
+  const activity = useQuery({ queryKey: ['audit', 'recent'], queryFn: () => fetchAuditEvents({ limit: 5 }) });
 
   // /v1/trend returns one row per (account, scan); roll up to one point per day
   // for an org-wide line (same approach as TrendScreen's aggregateToDays). Keep
@@ -191,6 +194,12 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
         onSelectAccount={onSelectAccount}
         wastePending={byAccount.isPending}
         wasteError={byAccount.isError}
+      />
+
+      <MemberActivity
+        events={activity.data?.events ?? []}
+        pending={activity.isPending}
+        error={activity.isError}
       />
     </div>
   );
@@ -350,6 +359,60 @@ function TopZombies({ rows, currency, pending, error, onSelectZombie }) {
     );
   }
   return <SectionShell title="Top zombies by cost">{body}</SectionShell>;
+}
+
+function MemberActivity({ events, pending, error }) {
+  let body;
+  if (pending) {
+    body = <div style={{ padding: 32, textAlign: 'center' }}><Spinner size={24} color={'var(--color-accent)'} /></div>;
+  } else if (error) {
+    body = <p style={sectionMuted}>Couldn’t load recent activity.</p>;
+  } else if (events.length === 0) {
+    body = <p style={sectionMuted}>No recent activity.</p>;
+  } else {
+    body = (
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {events.map((e, idx) => {
+          // actor_name/actor_email are denormalised on the row — no lookup. A
+          // missing actor_email means a system action.
+          const actor = e.actor_name || e.actor_email || 'system';
+          return (
+            <li
+              key={e.id}
+              style={{
+                display: 'flex', alignItems: 'baseline', gap: 8, padding: '12px 20px',
+                borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontWeight: 600 }}>{actor}</span>
+                <span style={{ color: 'var(--color-text-muted)' }}> · {(e.action || '').replace(/_/g, ' ')}</span>
+                {e.resource_type && <span style={{ color: 'var(--color-text-muted)' }}> · {e.resource_type}</span>}
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--color-text-muted)', flexShrink: 0 }}>{timeAgo(e.created_at)}</span>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+  return <SectionShell title="Recent activity">{body}</SectionShell>;
+}
+
+// timeAgo — compact relative time; falls back to a short date past a week.
+function timeAgo(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  const secs = Math.round((Date.now() - d.getTime()) / 1000);
+  if (secs < 60) return 'just now';
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 // SectionShell — shared card chrome for the trend + top-zombies sections.
