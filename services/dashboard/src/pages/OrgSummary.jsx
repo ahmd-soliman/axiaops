@@ -20,6 +20,22 @@ export default function OrgSummary() {
   // queries needlessly. Mirrors Settings.jsx's load gate.
   if (accounts.isPending) return null;
 
+  // If the account list itself fails, bail with a plain message rather than
+  // falling through to render the summary as "0 connected accounts" and firing
+  // the org-wide queries against a state we can't trust.
+  if (accounts.isError) {
+    return (
+      <div style={{ maxWidth: 560, margin: '64px auto', padding: '0 20px', textAlign: 'center' }}>
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--color-text)', margin: '0 0 8px' }}>
+          Couldn’t load your accounts
+        </h2>
+        <p style={{ fontSize: 14, color: 'var(--color-text-muted)', lineHeight: 1.5, margin: 0 }}>
+          Refresh the page to try again.
+        </p>
+      </div>
+    );
+  }
+
   // Preserve the onboarding redirect from the old `/`: zero accounts → connect.
   // skip_connect=1 lets a user reach the (sparse) summary even with no accounts.
   const skipConnect = params.get('skip_connect') === '1';
