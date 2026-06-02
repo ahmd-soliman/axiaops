@@ -170,12 +170,14 @@ is on (**Admin console → Apps → Google Workspace → Gmail → Authenticate 
 [deliverability section](#email-deliverability-do-this-once-or-digests-go-to-spam).
 
 **B4 — Add the channel** (Settings → Integrations → Add channel → Type = Email (SMTP)).
-Worked example — exactly what to type:
+**Pick Provider = "Google Workspace relay"** and it fills the host + port for you; you only
+type the username, password, From, and recipients. Worked example — exactly what to enter:
 
 | Field | Example value | Notes |
 |---|---|---|
-| SMTP host | `smtp-relay.gmail.com` | |
-| SMTP port | `587` | STARTTLS — **not 465** (unsupported) |
+| Provider | `Google Workspace relay` | prefills host + port (below) |
+| SMTP host | `smtp-relay.gmail.com` | auto-filled by the preset |
+| SMTP port | `587` | auto-filled; STARTTLS — **not 465** (unsupported) |
 | SMTP username | `notifications@axiaops.io` | **full email**, not just `notifications` |
 | SMTP password | `abcdefghijklmnop` | the App Password, **spaces removed** |
 | From | `notifications@axiaops.io` | must be **same domain as the username** (see rule below) |
@@ -199,9 +201,12 @@ Then **Save → Test → confirm it arrives → toggle Enabled**.
 1. Dashboard → **Settings → Integrations → Add channel** → Type = **Email (SMTP)**.
 2. Fill in:
    - **Label** — e.g. `Platform team digest`
-   - **SMTP host** — `email-smtp.eu-central-1.amazonaws.com` (SES) or
-     `smtp.gmail.com` (Workspace App Password) / `smtp-relay.gmail.com` (Workspace relay)
-   - **SMTP port** — `587` (STARTTLS — **not** 465)
+   - **Provider** — pick **Amazon SES** or **Google Workspace relay** to auto-fill the host
+     + port (edit the SES region in the host if not `eu-central-1`); pick **Custom SMTP**
+     to type them yourself (e.g. `smtp.gmail.com` for the single-mailbox App Password path,
+     or any other relay).
+   - **SMTP host / port** — auto-filled by the preset (`587`, STARTTLS — **not** 465), or
+     typed for Custom.
    - **SMTP username** — the SES SMTP username, or the Workspace mailbox
      (`finops@axiaops.io`); leave blank only for an IP-allowlisted relay
    - **SMTP password** — the SES SMTP password, or the Workspace **App Password**
