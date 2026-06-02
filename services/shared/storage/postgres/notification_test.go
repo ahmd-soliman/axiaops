@@ -251,6 +251,49 @@ func TestNotificationDispatch_SaveAndList(t *testing.T) {
 	}
 }
 
+func TestDeleteOldNotificationDispatches(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	ch := notificationChannel(model.ChannelKindSlack, "retention target")
+	ch.OrganizationID = org.ID
+	if err := s.SaveNotificationChannel(ctx, ch); err != nil {
+		t.Fatalf("save channel: %v", err)
+	}
+	list, _ := s.ListNotificationChannels(ctx)
+	channelID := list[0].ID
+
+	if err := s.SaveNotificationDispatch(ctx, model.NotificationDispatch{
+		OrganizationID: org.ID, ChannelID: channelID, Status: model.DispatchStatusSent,
+	}); err != nil {
+		t.Fatalf("save dispatch: %v", err)
+	}
+
+	// A cutoff in the past must not touch a row created just now (created_at >= cutoff).
+	deleted, err := s.DeleteOldNotificationDispatches(ctx, time.Now().Add(-1*time.Hour))
+	if err != nil {
+		t.Fatalf("delete (past cutoff): %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("past cutoff should delete nothing, deleted %d", deleted)
+	}
+	if got, _ := s.ListNotificationDispatches(ctx, channelID, 10); len(got) != 1 {
+		t.Fatalf("row should survive past-cutoff sweep, have %d", len(got))
+	}
+
+	// A cutoff in the future is newer than the row → it gets swept.
+	deleted, err = s.DeleteOldNotificationDispatches(ctx, time.Now().Add(1*time.Hour))
+	if err != nil {
+		t.Fatalf("delete (future cutoff): %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("future cutoff should delete the row, deleted %d", deleted)
+	}
+	if got, _ := s.ListNotificationDispatches(ctx, channelID, 10); len(got) != 0 {
+		t.Errorf("row should be gone after future-cutoff sweep, have %d", len(got))
+	}
+}
+
 func TestListNotificationDispatches_ClampsToCeiling(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)

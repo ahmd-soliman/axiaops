@@ -161,6 +161,8 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationI
 | MIGRATION_DATABASE_URL | No | — | PostgreSQL owner connection (`axiaops_owner`). **Migrate task only** — not read by the ingestion runtime. |
 | AWS_REGION | Prod | eu-central-1 | AWS region for API calls |
 | DAYS_BACK | No | 30 | Cost lookback window (days) |
+| COST_RECORDS_RETENTION_DAYS | No | 90 | Age cutoff for the daily `cost_records` retention sweep (midnight UTC, cross-org). |
+| NOTIFICATION_DISPATCH_RETENTION_DAYS | No | 90 | Age cutoff (by `created_at`) for the daily `notification_dispatches` retention sweep — runs in the same midnight-UTC pass as the cost sweep, cross-org via the admin pool. |
 | ENCRYPTION_KEY | Yes | — | Decrypt account secrets; also decrypts `notification_channels.config_ciphertext` in the post-scan notification dispatch |
 | APP_ENV | No | — | Environment (production, staging, development) |
 | APP_VERSION | No | — | Release version (e.g., 2.6.0); attached to slog `version` attribute |
