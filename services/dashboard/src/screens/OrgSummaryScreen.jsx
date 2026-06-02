@@ -17,7 +17,7 @@ import AreaChart from '../components/AreaChart';
 //
 // This screen only ever renders for orgs with 2+ accounts — the zero-account
 // and single-account cases are handled by redirects in pages/OrgSummary.jsx.
-export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSelectAccount, onSelectZombie }) {
+export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSelectAccount, onSelectZombie, onSelectService }) {
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
   const windowWidth = useWindowWidth();
@@ -172,7 +172,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
 
           <TrendChart days={trendDays} pending={trend.isPending} error={trend.isError} screenWidth={Math.min(windowWidth - (isMobile ? 32 : 48), 1040)} />
 
-          <ByServiceBreakdown currency={currency} byService={byService} />
+          <ByServiceBreakdown currency={currency} byService={byService} onSelectService={onSelectService} />
 
           <TopZombies
             rows={topZombies}
@@ -240,7 +240,7 @@ function TileGrid({ tiles, isMobile }) {
   );
 }
 
-function ByServiceBreakdown({ byService, currency }) {
+function ByServiceBreakdown({ byService, currency, onSelectService }) {
   const totalSavings = byService.reduce((s, [, d]) => s + (d.savings || 0), 0);
 
   return (
@@ -269,27 +269,31 @@ function ByServiceBreakdown({ byService, currency }) {
             const cfg = serviceConfig(svc);
             const pct = totalSavings > 0 ? (data.savings / totalSavings) * 100 : 0;
             return (
-              <li
-                key={svc}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '12px 20px',
-                  borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)',
-                }}
-              >
-                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {cfg.label}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--color-text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-                  {data.zombies} resource{data.zombies === 1 ? '' : 's'}
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)', flexShrink: 0, minWidth: 92, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                  {currency} {(data.savings || 0).toFixed(2)}
-                  <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', marginLeft: 6 }}>· {pct.toFixed(1)}%</span>
-                </span>
+              <li key={svc} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)' }}>
+                <button
+                  type="button"
+                  onClick={() => onSelectService?.(svc)}
+                  title={`View ${cfg.label} resources`}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
+                    background: 'transparent', border: 'none', cursor: 'pointer', padding: '12px 20px', fontFamily: 'inherit',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-bg)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {cfg.label}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                    {data.zombies} resource{data.zombies === 1 ? '' : 's'}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)', flexShrink: 0, minWidth: 92, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {currency} {(data.savings || 0).toFixed(2)}
+                    <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', marginLeft: 6 }}>· {pct.toFixed(1)}%</span>
+                  </span>
+                  <span aria-hidden style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>›</span>
+                </button>
               </li>
             );
           })}

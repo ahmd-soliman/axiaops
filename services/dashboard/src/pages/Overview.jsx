@@ -7,6 +7,9 @@ export default function Overview() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const selectedAccount = params.get('account');
+  // Optional deep-link from the org summary's "Waste by service" rows — seeds
+  // the workbench's service filter on first load.
+  const serviceFilter = params.get('service');
 
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
 
@@ -17,6 +20,7 @@ export default function Overview() {
     <OverviewScreen
       accounts={accounts.data ?? []}
       selectedAccount={selectedAccount}
+      initialServiceFilter={serviceFilter}
       onSelectAccount={(id) => id ? setParams({ account: id }) : setParams({})}
       onSelectZombie={(z) =>
         navigate(`/detail/${encodeURIComponent(z.resource_id)}?account=${encodeURIComponent(z.internal_account_id)}&region=${encodeURIComponent(z.region)}&service=${encodeURIComponent(z.service)}`)
