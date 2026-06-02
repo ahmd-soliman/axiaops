@@ -259,6 +259,41 @@ big, noisy account.
 - Nothing arriving but status is `sent`: check the Slack channel/email spam folder,
   and confirm the From address is verified (SES silently drops unverified senders).
 
+## Security model
+
+How AxiaOps protects the credentials you enter, and the choices behind the setup
+guidance above. The through-line is **limit the blast radius if any one thing leaks** —
+no layer is assumed perfect.
+
+**What AxiaOps does with a channel's secrets (built in):**
+- **Encrypted at rest** — the SMTP password / webhook URL is AES-256-GCM encrypted
+  (`ENCRYPTION_KEY`) before it touches the database, so a stolen DB dump or backup yields
+  ciphertext, not credentials.
+- **Never returned on read** — the API redacts secret fields to `***`; the real value never
+  leaves the server, so it can't be read back via the API, the browser, or shoulder-surfed
+  in the form. Editing other fields and re-saving `***` keeps the stored secret.
+- **Scrubbed from errors** — a transport strips its own bearer secret (webhook URL / SMTP
+  password) from any error before it's stored on the dispatch row or logged (Slack's 404
+  body sometimes echoes the webhook URL — this stops it leaking into the deliveries drawer).
+- **Tenant-isolated** — Row-Level Security on the channel + dispatch tables means one
+  organization physically cannot read another's channels or delivery history.
+- **Least privilege** — configuring a channel requires `channels:manage` (admin+), the same
+  tier as deleting a cloud account, because a channel holds credentials and sends outbound;
+  viewers can see channels exist but not the secrets.
+
+**Choices behind the sending setup (your side):**
+- **TLS in transit (STARTTLS / 587)** — credentials + message are never sent in cleartext.
+- **App Password + 2-Step Verification, not the login password** — a scoped, revocable
+  send-only credential; if it leaks it can send mail but can't log into or change the
+  Google account.
+- **Role address, not a person's mailbox** — org-owned, auditable, survives staff changes;
+  avoids a service credential orphaned in someone's personal account.
+- **SPF + DKIM + DMARC** — stop others spoofing `@axiaops.io` (and get your own mail
+  trusted); DMARC reports surface attempted abuse.
+- **Relay hardening** — *Allowed senders = only my domains* prevents an open relay;
+  *Require SMTP Authentication + Require TLS* reject anonymous/cleartext callers. IP-allowlist
+  (if you have a static egress IP) trades a stealable shared secret for network-level trust.
+
 ## Operator notes (deployment)
 
 - Notifications dispatch **synchronously inside the scan**, best-effort: a failing
