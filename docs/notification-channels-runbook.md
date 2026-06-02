@@ -60,6 +60,43 @@ schema but not yet shippable — the UI only offers Email and Slack.
 
 ---
 
+## Choosing a sender: SES vs Workspace relay vs single mailbox
+
+AxiaOps only speaks **SMTP** — SES, a Google Workspace relay, and a single mailbox are all
+just different SMTP endpoints you point a channel at (SES exposes an SMTP interface,
+`email-smtp.<region>.amazonaws.com:587`). So this is a deployment choice, not a product
+one; the setup is identical (host / port 587 / username / password / From).
+
+| | **SES** | **Workspace relay** | **Single mailbox** |
+|---|---|---|---|
+| Best for | the AxiaOps-hosted product; any AWS-native deployment | Workspace shops wanting a service sender | quick-start / low volume |
+| Send as | any verified domain address | any `@axiaops.io` address | one mailbox (+aliases) |
+| Daily cap | very high (request prod access; sandbox = 200/day) | 10,000 | ~2,000 |
+| Cost | ~$0.10 / 1,000 emails → **cents/month** at digest volume | included in Workspace | included in Workspace |
+| Setup | verify domain/identity + DKIM in AWS | admin opens the relay | self-service App Password |
+
+**Recommendation**
+- **AxiaOps-hosted / prod → SES.** AWS-native, already in the IAM blast radius, purpose-built
+  for transactional mail (bounce/complaint handling, suppression lists), and effectively
+  free at notification volume.
+- **Self-hosted customer → their choice** — SES if they're on AWS, otherwise their own
+  relay or mailbox. AxiaOps treats all three identically.
+- **Single personal mailbox → quick-start only**, and even then use a **role** address
+  (`notifications@axiaops.io`), never a person's account.
+
+**"Don't I need the emails in a central place?"** No special setup required — **AxiaOps
+already records every send** in `notification_dispatches`, surfaced in the per-channel
+**deliveries drawer** (status, time, error). *That* is your audit trail. A mailbox/relay
+also leaves a copy in its **Sent folder**; **SES does not** (it's fire-and-forget — you'd
+archive to S3 or BCC a mailbox if you specifically wanted browsable copies). Since the
+dispatches log already answers "what did we send / did it land," SES's lack of a Sent
+folder is **not** a reason to prefer a mailbox.
+
+> Whatever you pick, the [deliverability](#email-deliverability-do-this-once-or-digests-go-to-spam)
+> items (SPF/DKIM/DMARC + role From) matter far more than the sender choice.
+
+---
+
 ## Add an Email (SMTP) channel
 
 ### 1. Get SMTP credentials
