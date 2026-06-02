@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/smtp"
 	"strconv"
@@ -59,6 +60,16 @@ func dialingSendMail(addr string, auth smtp.Auth, from string, to []string, msg 
 	}
 	defer func() { _ = c.Close() }()
 
+	// EHLO with the sender's domain instead of stdlib's default "localhost".
+	// Hardened relays (Postfix reject_unknown_helo_hostname, some cloud relays)
+	// drop a connection that greets as "localhost", which surfaces here as a
+	// post-greeting EOF. Must run before the first c.Extension() call, which
+	// otherwise triggers a lazy EHLO with the default name; StartTLS re-EHLOs
+	// with this same name afterward.
+	if err := c.Hello(heloName(from)); err != nil {
+		return err
+	}
+
 	if ok, _ := c.Extension("STARTTLS"); ok {
 		if err := c.StartTLS(&tls.Config{ServerName: host}); err != nil {
 			return err
@@ -89,7 +100,25 @@ func dialingSendMail(addr string, auth smtp.Auth, from string, to []string, msg 
 	if err := w.Close(); err != nil {
 		return err
 	}
-	return c.Quit()
+	// DATA was accepted (w.Close returned the relay's final 250) — the message
+	// is committed. Some relays close the connection without answering QUIT,
+	// which makes c.Quit() return io.EOF; treat that as non-fatal so a delivered
+	// message isn't reported as a failed send. The deferred c.Close() still
+	// releases the socket.
+	if err := c.Quit(); err != nil {
+		slog.Debug("email: QUIT after accepted message failed (treating as sent)", "error", err)
+	}
+	return nil
+}
+
+// heloName derives the EHLO/HELO hostname from the envelope sender's domain,
+// falling back to "localhost" for a malformed/domainless from. A real domain
+// keeps strict relays from dropping the connection on an unknown HELO.
+func heloName(from string) string {
+	if at := strings.LastIndex(from, "@"); at >= 0 && at < len(from)-1 {
+		return from[at+1:]
+	}
+	return "localhost"
 }
 
 // Send implements Transport. externalID is always empty for email.
