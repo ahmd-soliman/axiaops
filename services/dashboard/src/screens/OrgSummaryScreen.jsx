@@ -36,12 +36,22 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
   const zombies = useQuery({ queryKey: ['zombies', 'org'], queryFn: () => fetchZombies() });
 
   // /v1/trend returns one row per (account, scan); roll up to one point per day
-  // for an org-wide line (same approach as TrendScreen's aggregateToDays).
+  // for an org-wide line (same approach as TrendScreen's aggregateToDays). Keep
+  // the first row's FULL ISO snapshot_at (not the bare 'YYYY-MM-DD' slice) so
+  // AreaChart's formatDate stays timezone-anchored — a date-only string parses
+  // as UTC midnight and shifts the label a day back in UTC-negative zones. Carry
+  // zombie_count too so the chart tooltip can show it.
   const trendDays = useMemo(() => {
     const byDay = new Map();
     for (const s of trend.data ?? []) {
       const day = s.snapshot_at.slice(0, 10);
-      byDay.set(day, { snapshot_at: day, total_monthly_cost: (byDay.get(day)?.total_monthly_cost ?? 0) + (s.total_monthly_cost ?? 0) });
+      const existing = byDay.get(day);
+      if (existing) {
+        existing.total_monthly_cost += s.total_monthly_cost ?? 0;
+        existing.zombie_count += s.zombie_count ?? 0;
+      } else {
+        byDay.set(day, { ...s, total_monthly_cost: s.total_monthly_cost ?? 0, zombie_count: s.zombie_count ?? 0 });
+      }
     }
     return [...byDay.values()].sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
   }, [trend.data]);
@@ -157,7 +167,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
             ]}
           />
 
-          <TrendChart days={trendDays} pending={trend.isPending} error={trend.isError} screenWidth={Math.min(windowWidth, 1040)} />
+          <TrendChart days={trendDays} pending={trend.isPending} error={trend.isError} screenWidth={Math.min(windowWidth - (isMobile ? 32 : 48), 1040)} />
 
           <ByServiceBreakdown currency={currency} byService={byService} />
 
@@ -308,7 +318,7 @@ function TopZombies({ rows, currency, pending, error, onSelectZombie }) {
         {rows.map((z, idx) => {
           const cfg = serviceConfig(z.service);
           return (
-            <li key={`${z.internal_account_id}:${z.resource_id}`} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)' }}>
+            <li key={`${z.internal_account_id}:${z.service}:${z.region}:${z.resource_id}`} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)' }}>
               <button
                 type="button"
                 onClick={() => onSelectZombie?.(z)}
