@@ -53,6 +53,7 @@ export default function OrgSummary() {
       <OrgSummaryScreen
         accounts={accounts.data ?? []}
         onViewAccounts={() => navigate('/account')}
+        onSelectAccount={(id) => navigate(`/account?account=${encodeURIComponent(id)}`)}
       />
     </>
   );
