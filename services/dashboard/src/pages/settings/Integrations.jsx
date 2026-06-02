@@ -21,6 +21,24 @@ const KINDS = [
   { value: 'slack', label: 'Slack webhook' },
 ];
 
+// Email provider presets — prefill host/port so the admin picks instead of
+// memorising endpoints. Pure UX sugar; the stored config stays generic SMTP.
+// No "single mailbox / App Password" preset by design — that path is the
+// least-best-practice one (see docs/notification-channels-runbook.md); it
+// stays reachable via "Custom SMTP" + the runbook.
+const EMAIL_PROVIDERS = [
+  { value: 'workspace', label: 'Google Workspace relay', smtpHost: 'smtp-relay.gmail.com', smtpPort: '587' },
+  { value: 'ses', label: 'Amazon SES', smtpHost: 'email-smtp.eu-central-1.amazonaws.com', smtpPort: '587' },
+  { value: 'custom', label: 'Custom SMTP' },
+];
+
+function inferEmailProvider(host) {
+  if (!host) return 'custom';
+  if (host === 'smtp-relay.gmail.com') return 'workspace';
+  if (/^email-smtp\..+\.amazonaws\.com$/.test(host)) return 'ses';
+  return 'custom';
+}
+
 export default function Integrations() {
   const { isDark } = useTheme();
   const qc = useQueryClient();
@@ -166,6 +184,17 @@ function ChannelModal({ mode, existing, onClose, onSaved, isDark }) {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  // Picking a provider preset prefills host/port; "Custom" leaves them as-is.
+  const applyProvider = (e) => {
+    const value = e.target.value;
+    const preset = EMAIL_PROVIDERS.find((p) => p.value === value);
+    setForm((f) => ({
+      ...f,
+      provider: value,
+      ...(preset?.smtpHost ? { smtpHost: preset.smtpHost, smtpPort: preset.smtpPort } : {}),
+    }));
+  };
+
   const mutation = useMutation({
     mutationFn: () => {
       const payload = {
@@ -209,6 +238,11 @@ function ChannelModal({ mode, existing, onClose, onSaved, isDark }) {
           </Field>
         ) : (
           <>
+            <Field label="Provider" hint={form.provider === 'ses' ? 'Edit the region in the host below if not eu-central-1.' : 'Prefills the host/port — you still enter username, password and From.'}>
+              <select value={form.provider} onChange={applyProvider} style={inputStyle()}>
+                {EMAIL_PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </select>
+            </Field>
             <Field label="SMTP host">
               <input type="text" value={form.smtpHost} onChange={set('smtpHost')} required style={inputStyle()} />
             </Field>
@@ -259,7 +293,9 @@ function initialForm(existing) {
     label: existing?.label || '',
     // slack
     webhookUrl: cfg.webhook_url || '',
-    // email
+    // email — provider is a UI hint (prefills host/port); inferred from the
+    // stored host in edit mode so the dropdown reflects reality.
+    provider: inferEmailProvider(cfg.smtp_host),
     smtpHost: cfg.smtp_host || '',
     smtpPort: cfg.smtp_port != null ? String(cfg.smtp_port) : '587',
     smtpUser: cfg.smtp_user || '',
