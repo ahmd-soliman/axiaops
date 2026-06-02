@@ -120,6 +120,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// Zombies / summary / costs / resources / trend.
 	mux.Handle("GET /v1/zombies", require(authz.PermZombiesRead, h.listZombies))
 	mux.Handle("GET /v1/summary", require(authz.PermZombiesRead, h.getSummary))
+	mux.Handle("GET /v1/summary/by-account", require(authz.PermZombiesRead, h.getSummaryByAccount))
 	mux.Handle("GET /v1/trend", require(authz.PermSnapshotsRead, h.getTrend))
 	mux.Handle("GET /v1/trend/services", require(authz.PermSnapshotsRead, h.getTrendServices))
 	mux.Handle("GET /v1/trend/resource-types", require(authz.PermSnapshotsRead, h.getTrendResourceTypes))
@@ -388,6 +389,29 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, analyzer.Summarize(zombies))
+}
+
+// getSummaryByAccount returns per-account zombie aggregates for the organization.
+// It mirrors getSummary's dismissal-exclusion pipeline exactly (LoadZombies →
+// enrichWithDismissals with accountID="" = all org dismissals) so the two
+// endpoints never diverge on which zombies count, then groups in-memory.
+func (h *Handler) getSummaryByAccount(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithOrganizationID(r.Context(), middleware.OrganizationID(r.Context()))
+	zombies, err := h.store.LoadZombies(ctx)
+	if err != nil {
+		slog.Error("getSummaryByAccount: load failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Exclude dismissed/snoozed resources — identical to getSummary so the two
+	// endpoints agree on which zombies count.
+	zombies, err = h.enrichWithDismissals(ctx, zombies, "", false)
+	if err != nil {
+		slog.Error("getSummaryByAccount: enrich dismissals failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, analyzer.SummarizeByAccount(zombies))
 }
 
 // getTrend returns zombie snapshots for the organization, ordered oldest-first.
