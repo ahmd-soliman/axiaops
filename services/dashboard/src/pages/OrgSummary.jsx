@@ -14,6 +14,12 @@ export default function OrgSummary() {
   const [params] = useSearchParams();
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
 
+  // Wait for the account list before deciding: until it resolves we can't tell
+  // zero/one/many apart, and rendering the summary early would flash it (then
+  // redirect) for the common single-account operator and fire two org-wide
+  // queries needlessly. Mirrors Settings.jsx's load gate.
+  if (accounts.isPending) return null;
+
   // Preserve the onboarding redirect from the old `/`: zero accounts → connect.
   // skip_connect=1 lets a user reach the (sparse) summary even with no accounts.
   const skipConnect = params.get('skip_connect') === '1';
