@@ -58,6 +58,8 @@ type MockStore struct {
 	auditEvents      []model.AuditEvent
 	nextAuditID      int64
 	organizationName string
+	channels         []model.NotificationChannel
+	dispatches       []model.NotificationDispatch
 
 	// UserMembershipsByUser keys ListUserMemberships responses by user_id
 	// so a single test can drive multiple distinct users (e.g. the
@@ -652,6 +654,10 @@ func (m *MockStore) Close() error {
 }
 
 func (m *MockStore) DeleteOldCostRecords(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *MockStore) DeleteOldNotificationDispatches(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }
 
@@ -1415,4 +1421,84 @@ func (m *MockStore) ListSSOGroupMappings(context.Context, string) ([]model.SSOGr
 }
 func (m *MockStore) ReplaceSSOGroupMappings(context.Context, string, []model.SSOGroupMapping) error {
 	return errors.New("MockStore.ReplaceSSOGroupMappings not implemented")
+}
+
+// ── Notification channels (in-memory, used by channel handler tests) ──
+
+func (m *MockStore) SaveNotificationChannel(_ context.Context, ch model.NotificationChannel) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.channels {
+		if m.channels[i].ID == ch.ID {
+			ch.Kind = m.channels[i].Kind // kind is immutable after insert, mirroring the DB upsert
+			m.channels[i] = ch
+			return nil
+		}
+	}
+	m.channels = append(m.channels, ch)
+	return nil
+}
+
+func (m *MockStore) ListNotificationChannels(_ context.Context) ([]model.NotificationChannel, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]model.NotificationChannel(nil), m.channels...), nil
+}
+
+func (m *MockStore) ListEnabledNotificationChannels(_ context.Context) ([]model.NotificationChannel, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []model.NotificationChannel
+	for _, ch := range m.channels {
+		if ch.Enabled {
+			out = append(out, ch)
+		}
+	}
+	return out, nil
+}
+
+func (m *MockStore) GetNotificationChannel(_ context.Context, id string) (model.NotificationChannel, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ch := range m.channels {
+		if ch.ID == id {
+			return ch, nil
+		}
+	}
+	return model.NotificationChannel{}, storage.ErrChannelNotFound
+}
+
+func (m *MockStore) DeleteNotificationChannel(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.channels {
+		if m.channels[i].ID == id {
+			m.channels = append(m.channels[:i], m.channels[i+1:]...)
+			return nil
+		}
+	}
+	return storage.ErrChannelNotFound
+}
+
+func (m *MockStore) SaveNotificationDispatch(_ context.Context, d model.NotificationDispatch) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dispatches = append(m.dispatches, d)
+	return nil
+}
+
+func (m *MockStore) ListNotificationDispatches(_ context.Context, channelID string, limit int) ([]model.NotificationDispatch, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	var out []model.NotificationDispatch
+	// Newest-first, matching the postgres impl's ORDER BY created_at DESC.
+	for i := len(m.dispatches) - 1; i >= 0 && len(out) < limit; i-- {
+		if m.dispatches[i].ChannelID == channelID {
+			out = append(out, m.dispatches[i])
+		}
+	}
+	return out, nil
 }
