@@ -24,7 +24,7 @@ export default function Profile() {
   const { toast } = useToast();
 
   return (
-    <div style={{ padding: 24, color: 'var(--color-text-mid)', maxWidth: 760 }}>
+    <div style={{ padding: 24, color: 'var(--color-text-mid)' }}>
       <h1 style={{ margin: 0, color: 'var(--color-text)', fontSize: 22, fontWeight: 700 }}>My Profile</h1>
       <p style={{ marginTop: 4, marginBottom: 24, color: 'var(--color-text-muted)', fontSize: 13 }}>
         Your AxiaOps account, data export, and self-erasure controls.
