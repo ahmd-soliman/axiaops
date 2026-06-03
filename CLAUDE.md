@@ -7,9 +7,10 @@ FinOps SaaS that detects idle/zombie cloud resources still incurring costs despi
 
 ## Current Status
 
-Phase 1 (MVP) complete. Phase 2 largely complete — AWS integration, observability, scheduled
-scans, Redis/Valkey, dismiss/snooze, audit trail, GDPR deletion, data export, and production
-deployment (ECS Express + RDS) all shipped. Remaining Phase 2 work: email/Slack alerts.
+Phase 1 (MVP) complete. Phase 2 complete — AWS integration, observability, scheduled
+scans, Redis/Valkey, dismiss/snooze, audit trail, GDPR deletion, data export, production
+deployment (ECS Express + RDS), and outbound notification channels (email + Slack scan
+digests — see `docs/notifications-plan.md`) all shipped.
 
 ## Architecture
 

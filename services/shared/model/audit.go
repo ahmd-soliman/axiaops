@@ -88,6 +88,13 @@ const (
 	AuditActionInvitationRedeemedNative  = "invitation_redeemed_native"
 	AuditActionBootstrapCompleted        = "bootstrap_completed"
 	AuditActionSessionRevokedByAdmin     = "session_revoked_by_admin"
+	// Notification channels (docs/notifications-plan.md). Metadata carries
+	// {kind, label} on create/delete and {fields_changed} on update; secret
+	// config values (SMTP pass, webhook URL) are NEVER written to audit.
+	AuditActionChannelCreated = "channel_created"
+	AuditActionChannelUpdated = "channel_updated"
+	AuditActionChannelDeleted = "channel_deleted"
+	AuditActionChannelTested  = "channel_tested"
 	// Phase B1.6 — license-file TTL enforcement (docs/sso-implementation-plan.md
 	// §4.9). The license JWT is verified at boot and re-classified hourly by
 	// the runtime ticker; both code paths write into audit_log so an operator
