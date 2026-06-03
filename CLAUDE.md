@@ -157,6 +157,7 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 - Clean up old ECR images (€0.10/GB)
 - RDS Multi-AZ doubles cost — defer until necessary
 - ECS Express runs always-on Fargate tasks (no scale-to-zero) — keep task CPU/memory minimal to cap idle compute cost
+- Graviton/ARM64 was evaluated and **declined** (June 2026) — ECS Express is x86-only and the ~€46/yr saving doesn't justify the migration. See `docs/graviton-arm-decision.md` for the math + revisit trigger
 
 ## Source Control
 
@@ -183,3 +184,4 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 - **CloudTrail Integration:** See `docs/cloudtrail-analysis.md` — Why CloudTrail detection was deferred to Phase 4+, ROI analysis, when to reconsider
 - **AWS Service Coverage:** See `tmp/aws-coverage-and-cost-explorer-notes.md` — Why certain services are prioritized, detection patterns
 - **Tier 2 Detections:** See `docs/tier2_detections_status.md` — ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, EKS detection status
+- **Graviton/ARM64 (declined):** See `docs/graviton-arm-decision.md` — why prod stays on ECS Express + x86, the ~€46/yr savings math, and the revisit trigger
