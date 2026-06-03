@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"strconv"
 	"strings"
@@ -179,7 +180,7 @@ func (t *EmailTransport) Send(ctx context.Context, channel model.NotificationCha
 // v1 is plaintext only — HTML is deferred per the plan (Outlook CSS / MIME risk).
 func buildEmailMessage(cfg model.EmailConfig, p Payload) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "From: %s\r\n", cfg.From)
+	fmt.Fprintf(&b, "From: %s\r\n", formatFromHeader(cfg))
 	fmt.Fprintf(&b, "To: %s\r\n", strings.Join(cfg.Recipients, ", "))
 	fmt.Fprintf(&b, "Subject: %s\r\n", renderEmailSubject(p))
 	b.WriteString("MIME-Version: 1.0\r\n")
@@ -187,6 +188,24 @@ func buildEmailMessage(cfg model.EmailConfig, p Payload) []byte {
 	b.WriteString("\r\n")
 	b.WriteString(renderEmailBody(p))
 	return []byte(b.String())
+}
+
+// defaultSenderName is the From: display name used when a channel leaves
+// from_name blank — the product brand, so a fresh channel is on-brand out of the
+// box without the admin having to know to type it.
+const defaultSenderName = "AxiaOps"
+
+// formatFromHeader builds the RFC 5322 From: header value, rendering
+// `"AxiaOps" <noreply@example.com>` (mail.Address quotes/encodes the name as
+// needed). A blank from_name falls back to defaultSenderName so the brand is
+// guaranteed even if an admin clears the field. The envelope sender (MAIL FROM)
+// always stays cfg.From — the display name is header-only.
+func formatFromHeader(cfg model.EmailConfig) string {
+	name := cfg.FromName
+	if name == "" {
+		name = defaultSenderName
+	}
+	return (&mail.Address{Name: name, Address: cfg.From}).String()
 }
 
 func renderEmailSubject(p Payload) string {
