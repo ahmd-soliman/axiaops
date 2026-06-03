@@ -49,7 +49,7 @@ export default function License() {
   });
 
   return (
-    <div style={{ padding: 24, color: 'var(--color-text-mid)', maxWidth: 760 }}>
+    <div style={{ padding: 24, color: 'var(--color-text-mid)' }}>
       <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <h1 style={{ margin: 0, color: 'var(--color-text)', fontSize: 22, fontWeight: 700 }}>License</h1>
