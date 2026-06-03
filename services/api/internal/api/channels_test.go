@@ -143,6 +143,7 @@ func TestCreateChannel_EmailValidation(t *testing.T) {
 		`{"kind":"email","label":"x","config":{"smtp_host":"h","smtp_port":587,"from":"f@x.com\nBcc: evil@x.com","recipients":["r@x.com"]}}`,
 		`{"kind":"email","label":"x","config":{"smtp_host":"h","smtp_port":587,"from":"f@x.com","recipients":["r@x.com\r\nBcc: evil@x.com"]}}`,
 		`{"kind":"email","label":"x","config":{"smtp_host":"h","smtp_port":587,"from":"f@x.com","recipients":["r@x.com\nevil@x.com"]}}`,
+		`{"kind":"email","label":"x","config":{"smtp_host":"h","smtp_port":587,"from":"f@x.com","from_name":"x\r\nBcc: evil@x.com","recipients":["r@x.com"]}}`,
 	}
 	for i, body := range inject {
 		rr := do(t, mux, http.MethodPost, "/v1/channels", body)
