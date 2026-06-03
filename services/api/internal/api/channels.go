@@ -467,6 +467,7 @@ func redactConfig(ch model.NotificationChannel) (map[string]any, error) {
 			"smtp_user":  c.SMTPUser,
 			"smtp_pass":  maskIfSet(c.SMTPPass),
 			"from":       c.From,
+			"from_name":  c.FromName,
 			"recipients": recipients,
 		}, nil
 	case model.ChannelKindSlack:
@@ -533,6 +534,7 @@ func canonicalMergedConfig(kind, existingPlaintext string, raw json.RawMessage) 
 		existing.SMTPPort = incoming.SMTPPort
 		existing.SMTPUser = incoming.SMTPUser
 		existing.From = incoming.From
+		existing.FromName = incoming.FromName
 		existing.Recipients = incoming.Recipients
 		// Secret: keep stored unless a genuinely new value was supplied.
 		if incoming.SMTPPass != "" && incoming.SMTPPass != channelSecretMask {
@@ -572,6 +574,9 @@ func validateEmailConfig(c model.EmailConfig) error {
 	// admin-only, so this is defence-in-depth, not a privilege boundary.
 	if hasCRLF(c.From) {
 		return errors.New("from must not contain newlines")
+	}
+	if hasCRLF(c.FromName) {
+		return errors.New("from_name must not contain newlines")
 	}
 	for _, r := range c.Recipients {
 		if hasCRLF(r) {

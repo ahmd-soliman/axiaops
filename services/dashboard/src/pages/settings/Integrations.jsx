@@ -258,6 +258,9 @@ function ChannelModal({ mode, existing, onClose, onSaved, isDark }) {
             <Field label="From address">
               <input type="email" value={form.from} onChange={set('from')} required style={inputStyle()} />
             </Field>
+            <Field label="Sender name" hint='Display name shown to recipients. Defaults to "AxiaOps" — change it to use your own team name.'>
+              <input type="text" value={form.fromName} onChange={set('fromName')} style={inputStyle()} />
+            </Field>
             <Field label="Recipients" hint="Comma-separated email addresses.">
               <input type="text" value={form.recipients} onChange={set('recipients')} required style={inputStyle()} />
             </Field>
@@ -301,6 +304,7 @@ function initialForm(existing) {
     smtpUser: cfg.smtp_user || '',
     smtpPass: cfg.smtp_pass || '', // arrives as *** in edit mode; preserved on save
     from: cfg.from || '',
+    fromName: cfg.from_name || 'AxiaOps',
     recipients: Array.isArray(cfg.recipients) ? cfg.recipients.join(', ') : '',
     minSavings: tr.min_monthly_savings_usd != null ? String(tr.min_monthly_savings_usd) : '25',
     digestTopN: tr.digest_top_n != null ? String(tr.digest_top_n) : '10',
@@ -317,6 +321,7 @@ function buildConfig(form) {
     smtp_user: form.smtpUser,
     smtp_pass: form.smtpPass,
     from: form.from,
+    from_name: form.fromName,
     recipients: form.recipients.split(',').map((s) => s.trim()).filter(Boolean),
   };
 }

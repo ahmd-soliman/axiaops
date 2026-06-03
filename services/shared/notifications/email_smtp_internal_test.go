@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/mail"
 	"net/smtp"
 	"strings"
 	"sync"
@@ -174,6 +175,99 @@ func TestEmailTransport_RespectsContextDeadline(t *testing.T) {
 	_, err := tr.Send(ctx, emailChannel(t, cfg), emailPayload())
 	if err == nil || !strings.Contains(err.Error(), "context canceled") {
 		t.Fatalf("want context-canceled error, got %v", err)
+	}
+}
+
+func TestFormatFromHeader(t *testing.T) {
+	cases := []struct {
+		name              string
+		cfg               model.EmailConfig
+		wantName, wantAdr string
+	}{
+		{"explicit name", model.EmailConfig{FromName: "AxiaOps", From: "noreply@example.com"}, "AxiaOps", "noreply@example.com"},
+		{"blank falls back to brand", model.EmailConfig{From: "noreply@example.com"}, defaultSenderName, "noreply@example.com"},
+		// A name with a comma/period is not a bare atom; mail.Address must quote
+		// it so the header still parses — the whole reason we render via
+		// mail.Address instead of fmt.Sprintf.
+		{"name needing quotes", model.EmailConfig{FromName: "AxiaOps, Inc.", From: "noreply@example.com"}, "AxiaOps, Inc.", "noreply@example.com"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatFromHeader(tc.cfg)
+			addr, err := mail.ParseAddress(got)
+			if err != nil {
+				t.Fatalf("formatFromHeader(%+v) = %q, not a parseable address: %v", tc.cfg, got, err)
+			}
+			if addr.Name != tc.wantName {
+				t.Errorf("name = %q, want %q (header %q)", addr.Name, tc.wantName, got)
+			}
+			if addr.Address != tc.wantAdr {
+				t.Errorf("address = %q, want %q (header %q)", addr.Address, tc.wantAdr, got)
+			}
+		})
+	}
+}
+
+// TestEmailTransport_DisplayNameHeaderOnly proves the sender display name lands
+// in the From: header but the SMTP envelope (MAIL FROM) stays the bare address —
+// the split that keeps strict relays from rejecting the send.
+func TestEmailTransport_DisplayNameHeaderOnly(t *testing.T) {
+	sender := &capturedSend{}
+	tr := &EmailTransport{sendMail: sender.fn()}
+	cfg := model.EmailConfig{
+		SMTPHost: "smtp.example.com", SMTPPort: 587,
+		From: "noreply@example.com", FromName: "AxiaOps",
+		Recipients: []string{"r@example.com"},
+	}
+	if _, err := tr.Send(context.Background(), emailChannel(t, cfg), emailPayload()); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if sender.from != "noreply@example.com" {
+		t.Errorf("envelope from = %q, want bare address noreply@example.com", sender.from)
+	}
+	var fromHeader string
+	for _, line := range strings.Split(string(sender.msg), "\r\n") {
+		if rest, ok := strings.CutPrefix(line, "From: "); ok {
+			fromHeader = rest
+			break
+		}
+	}
+	addr, err := mail.ParseAddress(fromHeader)
+	if err != nil {
+		t.Fatalf("From header %q not parseable: %v", fromHeader, err)
+	}
+	if addr.Name != "AxiaOps" || addr.Address != "noreply@example.com" {
+		t.Errorf("From header = %q, want display name AxiaOps over bare address", fromHeader)
+	}
+}
+
+// TestEmailTransport_BlankFromNameDefaultsBrand pins the fallback at the
+// transport level: a channel with no from_name still composes a From: header
+// carrying the "AxiaOps" brand, not a bare address.
+func TestEmailTransport_BlankFromNameDefaultsBrand(t *testing.T) {
+	sender := &capturedSend{}
+	tr := &EmailTransport{sendMail: sender.fn()}
+	cfg := model.EmailConfig{
+		SMTPHost: "smtp.example.com", SMTPPort: 587,
+		From: "noreply@example.com", // no FromName
+		Recipients: []string{"r@example.com"},
+	}
+	if _, err := tr.Send(context.Background(), emailChannel(t, cfg), emailPayload()); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	var fromHeader string
+	for _, line := range strings.Split(string(sender.msg), "\r\n") {
+		if rest, ok := strings.CutPrefix(line, "From: "); ok {
+			fromHeader = rest
+			break
+		}
+	}
+	addr, err := mail.ParseAddress(fromHeader)
+	if err != nil {
+		t.Fatalf("From header %q not parseable: %v", fromHeader, err)
+	}
+	if addr.Name != defaultSenderName {
+		t.Errorf("From header = %q, want default brand name %q", fromHeader, defaultSenderName)
 	}
 }
 
