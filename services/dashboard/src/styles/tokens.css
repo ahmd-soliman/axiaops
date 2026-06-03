@@ -80,6 +80,8 @@
   /* Semantic status — clear, accessible */
   --color-error: #DC2626;              /* red-600 */
   --color-success: #059669;            /* emerald-600 */
+  --color-info: #2563EB;               /* blue-600 — in-progress / informational status. 5.2:1 on
+                                          surface #FFFFFF, ~5.0:1 on bg #FAFAF9 (both AA). */
   --color-warning: #A16207;            /* yellow-700 — distinct hue from orange brand;
                                           yellow-500 on white fails AA at 1.9:1, so we
                                           push darker. */
@@ -169,6 +171,7 @@
   /* Semantic status — desaturated/lightened for dark-mode comfort */
   --color-error: #F87171;              /* red-400, soft coral */
   --color-success: #34D399;            /* emerald-400 */
+  --color-info: #60A5FA;               /* blue-400 — in-progress / informational status, tuned for dark surface */
   --color-warning: #FACC15;            /* yellow-400, distinct hue from orange brand */
 
   /* Dashboard alert / status tokens (UI color system review, 2026-05-11).

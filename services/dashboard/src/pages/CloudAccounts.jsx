@@ -148,7 +148,7 @@ export default function CloudAccounts() {
                       <button
                         type="button"
                         onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
-                        aria-label="Manage account"
+                        aria-label={`Manage ${a.label || 'account'}`}
                         style={{ ...ghostButton(), flex: 1, minHeight: 40 }}
                       >
                         Manage
@@ -176,6 +176,12 @@ export default function CloudAccounts() {
                 <tr
                   key={a.id}
                   style={{ borderBottom: `1px solid var(--color-border)`, cursor: 'pointer' }}
+                  // Row click is a mouse convenience only. The keyboard /
+                  // assistive-tech path is the focusable per-row Manage
+                  // button below — a <tr>'s implicit `row` role isn't an
+                  // interactive role, so making it tabbable would expose a
+                  // handler screen readers never fire. Keeping the accessible
+                  // action on a real <button> is the idiomatic pattern.
                   onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
                 >
                   <Td><span style={{ color: 'var(--color-text)', fontWeight: 600 }}>{a.label || '—'}</span></Td>
@@ -198,11 +204,11 @@ export default function CloudAccounts() {
                       <button
                         type="button"
                         onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
-                        aria-label="Manage account"
+                        aria-label={`Manage ${a.label || 'account'}`}
                         title="Manage"
-                        style={ghostButton()}
+                        style={{ ...ghostButton(), display: 'inline-flex', alignItems: 'center' }}
                       >
-                        ⚙
+                        <IconGear />
                       </button>
                     </div>
                   </Td>
@@ -231,14 +237,28 @@ function EmptyState({ canConnect, onConnect }) {
   );
 }
 
+// IconGear — settings/manage glyph. Replaces the bare ⚙ emoji, which
+// renders inconsistently across OSes and ignores the theme; this SVG
+// inherits currentColor so it tracks the ghost button's text color.
+function IconGear({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
 function StatusBadge({ status }) {
   // Inline colored label — no pill chrome. Color carries the state cue.
+  // Semantic design tokens (not raw hex) so the cues stay on-palette and
+  // hit the dark-theme contrast targets defined in tokens.css.
   const fg = {
-    connected:            '#10b981',
-    scanning:             '#3b82f6',
-    error:                '#ef4444',
-    scan_timeout:         '#f59e0b',
-    circuit_breaker_open: '#f59e0b',
+    connected:            'var(--color-success)',
+    scanning:             'var(--color-info)',
+    error:                'var(--color-error)',
+    scan_timeout:         'var(--color-warning)',
+    circuit_breaker_open: 'var(--color-warning)',
   }[status] || 'var(--color-text-muted)';
   return (
     <span style={{
