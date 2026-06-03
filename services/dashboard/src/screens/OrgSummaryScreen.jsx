@@ -124,7 +124,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
   const scansPending = zombieCount === 0 && totalSpend === 0;
 
   return (
-    <div style={{ padding: isMobile ? '16px' : '24px', maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ padding: isMobile ? '16px' : '24px' }}>
       <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: isMobile ? 20 : 24, fontWeight: 800, color: 'var(--color-text)', margin: '0 0 4px', letterSpacing: -0.5 }}>
@@ -170,7 +170,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
             ]}
           />
 
-          <TrendChart days={trendDays} pending={trend.isPending} error={trend.isError} screenWidth={Math.min(windowWidth - (isMobile ? 32 : 48), 1040)} onViewTrends={onViewTrends} />
+          <TrendChart days={trendDays} pending={trend.isPending} error={trend.isError} screenWidth={windowWidth - (isMobile ? 32 : 48)} onViewTrends={onViewTrends} />
 
           <ByServiceBreakdown currency={currency} byService={byService} onSelectService={onSelectService} />
 
@@ -327,7 +327,12 @@ function TrendChart({ days, pending, error, screenWidth, onViewTrends }) {
       View trends →
     </button>
   );
-  return <SectionShell title="Waste over time" action={action}>{body}</SectionShell>;
+  // Range caption — only when there's a chartable series. `days` is
+  // oldest-first (one point per day), so [0] is the start and [last] the end.
+  const rangeLabel = (!pending && !error && days.length >= 2)
+    ? `${humanizeSpan(days.length)} · ${formatRangeLabel(days[0].snapshot_at, days[days.length - 1].snapshot_at)}`
+    : null;
+  return <SectionShell title="Waste over time" subtitle={rangeLabel} action={action}>{body}</SectionShell>;
 }
 
 function TopZombies({ rows, currency, pending, error, onSelectZombie }) {
@@ -445,18 +450,54 @@ function timeAgo(ts) {
 }
 
 // SectionShell — shared card chrome for the trend + top-zombies sections.
-function SectionShell({ title, action, children }) {
+function SectionShell({ title, subtitle, action, children }) {
   return (
     <section style={{ marginTop: 28, backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          {title}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            {title}
+          </span>
+          {subtitle && (
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-sub)' }}>
+              {subtitle}
+            </span>
+          )}
+        </div>
         {action}
       </div>
       {children}
     </section>
   );
+}
+
+// Humanize a span (in days) to the largest sensible unit — "1 year",
+// "3 months", "12 days" — so the caption reads at a glance instead of making
+// the reader divide 365 in their head.
+function humanizeSpan(days) {
+  if (days >= 345) {
+    const years = Math.round(days / 365);
+    return `${years} year${years === 1 ? '' : 's'}`;
+  }
+  if (days >= 45) {
+    const months = Math.round(days / 30);
+    return `${months} month${months === 1 ? '' : 's'}`;
+  }
+  return `${days} day${days === 1 ? '' : 's'}`;
+}
+
+// Compact span label for the Waste-over-time card header, e.g.
+// "12 Mar – 9 Jun 2026". The year always shows on the end date (this is the
+// fix for the "is this a whole year of data?" ambiguity) and on the start
+// too when the range straddles a year boundary.
+function formatRangeLabel(startIso, endIso) {
+  const s = new Date(startIso);
+  const e = new Date(endIso);
+  const base = { day: 'numeric', month: 'short' };
+  const sameYear = s.getFullYear() === e.getFullYear();
+  const start = s.toLocaleDateString('en-GB', sameYear ? base : { ...base, year: 'numeric' });
+  const end = e.toLocaleDateString('en-GB', { ...base, year: 'numeric' });
+  return `${start} – ${end}`;
 }
 
 const sectionMuted = { fontSize: 13, color: 'var(--color-text-muted)', margin: 0, padding: '20px' };
