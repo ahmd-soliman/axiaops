@@ -186,15 +186,21 @@ _Single source of truth for project work. Last updated: 2026-05-28._
 - [x] Replace in-memory rate limiter with Redis `INCR` + `EXPIRE` counter
 - [x] Test: run with and without `REDIS_URL` — verify fallback behaviour
 
-#### 2.15 Weekly Email Digest + Slack Alerts 🔲
+#### 2.15 Notification Channels (Email + Slack scan digests) ✅
 
-- [ ] Choose and set up email provider — **Resend** (preferred; add `RESEND_API_KEY` env var)
-- [ ] Build digest HTML email template — zombie count, top 5 zombie resources by cost, week-over-week delta from `zombie_snapshots`
-- [ ] Trigger digest after nightly ingestion: if new zombies detected since last digest, send to all tenant users
-- [ ] Add `SLACK_WEBHOOK_URL` env var per account (store in `accounts` table — write migration `006_add_slack_webhook.sql`)
-- [ ] Send Slack message after scan completes if zombie count changes (new zombies or resolved zombies)
-- [ ] Add `POST /v1/settings/notifications` endpoint — enable/disable email digest and Slack webhook per tenant
-- [ ] Test: trigger a scan in staging, verify email is received and Slack message is posted
+Shipped design diverged from the original sketch (Resend / per-account webhook column /
+`/v1/settings/notifications`): channels are **org-level rows** in dedicated tables, email is
+**SMTP/SES** (no third-party SDK), and CRUD lives under `/v1/channels`. See
+[`docs/notifications-plan.md`](docs/notifications-plan.md) for the full design.
+
+- [x] Migration `031_notification_channels` — `notification_channels` + `notification_dispatches`, RLS + runtime-bypass policies
+- [x] `services/shared/notifications/` — `Transport` seam, `Dispatcher`, email (SMTP) + Slack (webhook) transports; secret-scrubbing on errors
+- [x] Post-scan dispatch wired into `runIngestionCore` (after `SaveSnapshotServices`) — gated on `trigger_rule.min_monthly_savings_usd`, non-fatal
+- [x] `/v1/channels` CRUD + `/test` + `/dispatches`; `channels:read` (viewer+) / `channels:manage` (admin+); encrypt-on-write, redact-on-read
+- [x] Dashboard `/settings/integrations` pane — list, add/edit (email+slack), enable toggle, test, deliveries drawer
+- [ ] **Post-deploy smoke** (staging, after merge): configure a real SMTP relay + Slack webhook on an org, trigger a scan, confirm delivery. Can't run in CI — needs a deployed env + real credentials.
+
+v2 enhancements (weekly/scheduled digest, per-zombie alerts, retry/DLQ) are tracked under §3.17 — they're distinct features, not unfinished v1 work.
 
 #### 2.16 Production Deployment 🟡 (architecture pivoted App Runner → ECS Express)
 
@@ -413,6 +419,17 @@ Shipped as part of the unified Phase 2 CSV export convention.
 >
 > Full design (data model, API surface, middleware hook, edge cases, testing): [`docs/invitation-flow.md`](docs/invitation-flow.md) on `feat/team-invitations`. Effort plan: ~7.75 days (vs. the original ~10 commits / ~2 weeks).
 
+> **Outstanding: actually *send* invitation email (AxiaOps system email).** Today invitations
+> return an OOB `redemption_url` the admin shares manually — no email is sent. To deliver it
+> (and password-reset emails), AxiaOps needs a **deployment-level transactional sender**,
+> distinct from the per-org notification channels in §2.15 (those are org-configured + DB-stored;
+> this is AxiaOps's *own* mail). The shared SMTP transport (`services/shared/notifications`)
+> can be reused, but the sender config is infra, not a DB channel. **For the hosted product
+> this is an `aws-infra` change** (sibling repo): SES domain identity for `axiaops.io` + DKIM,
+> an IAM user with `ses:SendRawEmail` → SMTP credential (SES-via-SMTP needs an IAM user, not
+> the ECS task role) → Secrets Manager → env wiring (`PUBLIC_HOST` already in place). Plus
+> SPF/DKIM/DMARC on the domain. Track the infra side in `aws-infra`; the app side here.
+
 Backend (Go):
 
 - [ ] Migration `017_pending_memberships.up.sql` / `.down.sql` — table per `docs/invitation-flow.md §3`. RLS policy `pending_memberships_organization_isolation`. Partial unique index on `(organization_id, lower(email)) WHERE status='pending'`.
@@ -603,6 +620,16 @@ Ongoing (2028+):
 - [ ] Reconsider Privacy TSC if EU enterprise customers ask
 - [ ] Layer ISO 27001 if a major customer demands it (~70% control overlap)
 
+#### 3.17 Notification enhancements (v2) 🔲
+
+Builds on the per-scan email/Slack channels shipped in §2.15. All deferred by the
+v1 plan — see `docs/notifications-plan.md` "Risks + deferred".
+
+- [ ] Weekly / scheduled email digest — aggregate findings across scans on its own ticker (dedupe against the last send) instead of v1's one-digest-per-scan
+- [ ] Per-zombie alert mode — `trigger_rule.on = ["new_zombie"]` joining against the previous snapshot (the `on` field is already provisioned + validated)
+- [ ] In-process retry / DLQ for failed dispatches (the `attempts` column is reserved)
+- [x] Email-channel **provider presets** in the Add-channel form — a dropdown prefilling `smtp_host`/`smtp_port` for **Amazon SES** and **Google Workspace relay**, plus a **Custom SMTP** fallback (shipped on MR !289). Pure frontend sugar; backend stays generic SMTP. Per the steering decision, **no** "single mailbox / App Password" preset — that path stays "Custom" + runbook only.
+
 ---
 
 ## Phase 4 — Multi-cloud + Mobile + FOCUS (Q1–Q2 2027)
@@ -779,7 +806,7 @@ identically locally and in CI.
 | May 2026 | Versioned migrations, savings history, observability, scan recovery, API versioning, rate limiting, graceful shutdown | ✅ Done |
 | June 2026 | GitLab CI pipeline, scheduled auto-scan, cost_records retention | ✅ Done |
 | July 2026 | Redis (JWKS cache, scan queue, rate limiting), unified CSV, raw cost view | ✅ Done |
-| August 2026 | Production deployment (ECS Express + RDS + Valkey — largely shipped, see §2.16), email digest, Slack alerts, tenant→organization rename | 🟡 In progress |
+| August 2026 | Production deployment (ECS Express + RDS + Valkey — largely shipped, see §2.16), notification channels (email + Slack scan digests — shipped, see §2.15), tenant→organization rename | 🟡 In progress |
 | September 2026 | Stripe billing, GDPR paperwork live, legal entity | Planned |
 | October 2026 | Tag filtering, scan history log, per-account summary, custom detection thresholds | Planned |
 | November 2026 | Custodian rule backlog, multi-org UX, org dashboard, PDF report, cost forecast | Planned |

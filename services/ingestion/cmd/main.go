@@ -27,6 +27,7 @@ import (
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/notifications"
 	"axiaops.io/shared/observability"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
@@ -136,6 +137,13 @@ func main() {
 	if v := os.Getenv("COST_RECORDS_RETENTION_DAYS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			retentionDays = n
+		}
+	}
+
+	dispatchRetentionDays := 90
+	if v := os.Getenv("NOTIFICATION_DISPATCH_RETENTION_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			dispatchRetentionDays = n
 		}
 	}
 
@@ -260,7 +268,9 @@ func main() {
 		errCh <- server.ListenAndServe()
 	}()
 
-	// Daily cost_records retention cleanup — runs at midnight UTC.
+	// Daily retention cleanup — runs at midnight UTC. Sweeps cost_records and
+	// notification_dispatches in the same pass (both are global, RLS-bypass
+	// deletes keyed on an age cutoff).
 	go func() {
 		for {
 			now := time.Now().UTC()
@@ -270,13 +280,25 @@ func main() {
 				return
 			case <-time.After(time.Until(next)):
 			}
+
+			// Use sigCtx so an in-flight sweep is cancelled on shutdown rather
+			// than outliving the graceful-drain window on an uncancellable DELETE.
 			start := time.Now()
 			cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
-			deleted, err := store.DeleteOldCostRecords(context.Background(), cutoff)
+			deleted, err := store.DeleteOldCostRecords(sigCtx, cutoff)
 			if err != nil {
 				slog.Error("cost_records.cleanup failed", "error", err)
 			} else {
 				slog.Info("cost_records.cleanup", "rows_deleted", deleted, "duration_ms", time.Since(start).Milliseconds())
+			}
+
+			start = time.Now()
+			dispatchCutoff := time.Now().UTC().AddDate(0, 0, -dispatchRetentionDays)
+			dDeleted, err := store.DeleteOldNotificationDispatches(sigCtx, dispatchCutoff)
+			if err != nil {
+				slog.Error("notification_dispatches.cleanup failed", "error", err)
+			} else {
+				slog.Info("notification_dispatches.cleanup", "rows_deleted", dDeleted, "duration_ms", time.Since(start).Milliseconds())
 			}
 		}
 	}()
@@ -660,6 +682,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 	snap := model.ZombieSnapshot{
 		ID:               uuid.New().String(),
+		OrganizationID:   organizationID,
 		AccountID:        accountID,
 		SnapshotAt:       time.Now().UTC(),
 		ZombieCount:      summary.TotalZombies,
@@ -692,6 +715,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		} else {
 			slog.Info("storage: saved snapshot services", "count", len(svcRows))
 		}
+
+		// Notify the org's enabled channels about the completed scan. Placed
+		// inside the snapshot-saved branch so the dispatch row's snapshot_id FK
+		// always resolves. Best-effort + non-fatal — see DispatchForScan.
+		dispatchNotifications(ctx, store, snap, summary, accountID)
 	}
 
 	// allRecords already contains resourceCosts (appended in the FetchResourceCosts
@@ -707,6 +735,21 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	}
 	slog.Info("storage: saved resource records", "total", len(resources), "zombies", len(zombies))
 	return nil
+}
+
+// dispatchNotifications fans a completed scan out to the org's enabled
+// notification channels. Best-effort + non-fatal: DispatchForScan logs and
+// records every error internally and never returns one, so a notification
+// problem can't fail a scan. The transports are stateless (they decrypt config
+// per-call via ENCRYPTION_KEY), so constructing them per scan is cheap.
+// PUBLIC_HOST builds the dashboard deep-link; empty omits it.
+func dispatchNotifications(ctx context.Context, store storage.Store, snap model.ZombieSnapshot, summary analyzer.Summary, accountID string) {
+	transports := map[string]notifications.Transport{
+		model.ChannelKindEmail: notifications.NewEmailTransport(),
+		model.ChannelKindSlack: notifications.NewSlackTransport(nil),
+	}
+	notifications.NewDispatcher(store, transports, os.Getenv("PUBLIC_HOST")).
+		DispatchForScan(ctx, snap, summary, accountID)
 }
 
 func newStore() storage.Store {
