@@ -93,7 +93,8 @@ type EmailConfig struct {
 	SMTPPort   int      `json:"smtp_port"`
 	SMTPUser   string   `json:"smtp_user"`
 	SMTPPass   string   `json:"smtp_pass"`
-	From       string   `json:"from"`
+	From       string   `json:"from"`      // bare envelope address — also MAIL FROM + HELO domain
+	FromName   string   `json:"from_name"` // optional display name for the From: header (e.g. "AxiaOps")
 	Recipients []string `json:"recipients"`
 }
 
