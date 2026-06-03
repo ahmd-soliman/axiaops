@@ -159,6 +159,12 @@ export async function fetchSummary(accountId) {
   return res.json();
 }
 
+export async function fetchSummaryByAccount() {
+  const res = await ifetch(`${BASE_URL}/v1/summary/by-account`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch per-account summary');
+  return res.json();
+}
+
 export async function fetchZombies(accountId) {
   const url = accountId
     ? `${BASE_URL}/v1/zombies?account_id=${encodeURIComponent(accountId)}`

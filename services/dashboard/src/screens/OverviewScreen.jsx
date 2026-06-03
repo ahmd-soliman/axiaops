@@ -1215,7 +1215,7 @@ function sortResources(list, sortBy) {
 
 export default function OverviewScreen({
   onShowTrend, onShowCosts, onSelectZombie, accounts = [], onConnectAccount, onEditAccount,
-  selectedAccount, onSelectAccount,
+  selectedAccount, onSelectAccount, initialServiceFilter,
 }) {
   const { isDark } = useTheme();
   const { toast }         = useToast();
@@ -1224,7 +1224,10 @@ export default function OverviewScreen({
   const { isAtMost }      = useBreakpoint();
   const isMobile          = isAtMost('xs');
 
-  const [filterSvcs, setFilterSvcs]                   = useState(() => new Set());
+  // Seed the service filter from a deep-link (org summary's "Waste by service"
+  // rows → /account?service=<svc>). Read once on mount; further toggling is the
+  // user's via the existing filter pills.
+  const [filterSvcs, setFilterSvcs]                   = useState(() => new Set(initialServiceFilter ? [initialServiceFilter] : []));
   const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
   const [filterOwner, setFilterOwner]                 = useState(null);
   const [zombieOnly, setZombieOnly]       = useState(true);

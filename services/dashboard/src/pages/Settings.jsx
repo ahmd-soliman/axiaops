@@ -126,6 +126,8 @@ export default function Settings() {
       ) : (
         <DesktopAside can={can} location={location} navigate={navigate} isDark={isDark} />
       )}
+      {/* No width cap — settings tabs are full-width like the rest of the
+          app; each tab's own padding governs its content inset. */}
       <main style={{ flex: 1, minWidth: 0 }}>
         {visible.length === 0 ? (
           <div style={{ padding: 24, color: 'var(--color-text-muted)', fontSize: 13 }}>
