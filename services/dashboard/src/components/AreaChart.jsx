@@ -1,4 +1,4 @@
-import { useState, useRef, useId } from 'react';
+import { useState, useRef, useId, useEffect } from 'react';
 
 const CHART_HEIGHT = 200;
 // Default desktop margins. The 56px left gutter holds 5-character y-axis
@@ -19,6 +19,21 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+// Year-bearing variant for the tooltip, where the exact date matters and
+// there's room. The x-axis stays compact (no year) to avoid clutter; the
+// section caption carries the overall range + year.
+function formatDateFull(iso) {
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Month label for the x-axis — month name only, no year. The year lives in
+// the section caption ("3 Jun 2025 – 2 Jun 2026") and the hover tooltip, so
+// putting it on the axis would be redundant and the compact form ("Jan 26")
+// reads as a day-of-month rather than a year.
+function formatMonth(iso) {
+  return new Date(iso).toLocaleDateString('en-GB', { month: 'short' });
+}
+
 /**
  * AreaChart — Interactive SVG area chart for cost/zombie trends
  *
@@ -26,18 +41,38 @@ function formatDate(iso) {
  * @param {String} selectedId - snapshot_at timestamp of selected point
  * @param {Function} onSelect - Called with data point when clicked
  * @param {Object} theme - Theme object
- * @param {Number} screenWidth - Screen width for responsive sizing
+ * @param {Number} screenWidth - First-paint width fallback (px). The chart is
+ *        container-responsive at runtime via ResizeObserver; this prop only
+ *        seeds the width for the initial render before the observer fires.
  */
 export default function AreaChart({ data, selectedId, onSelect, screenWidth }) {
   const [hoverIdx, setHoverIdx] = useState(null);
   const svgRef = useRef(null);
+  const wrapRef = useRef(null);
   const reactId = useId();
   const gradientId = `area-chart-grad-${reactId}`;
 
+  // Container-responsive sizing. Earlier the SVG width was derived from a
+  // window-width prop, so the chart couldn't fill a width-capped column —
+  // it overflowed or under-filled whenever its container wasn't the full
+  // window. Now we measure the wrapper itself (clientWidth minus its 16px
+  // horizontal padding) and reflow on any container resize, not just window
+  // resize. `screenWidth` survives only as the pre-measurement fallback.
+  const [measuredWidth, setMeasuredWidth] = useState(Math.max(320, (screenWidth ?? 800) - 32));
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const measure = () => setMeasuredWidth(Math.max(320, el.clientWidth - 32));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   if (!data || data.length < 2) return null;
 
-  const width = Math.max(320, screenWidth - 32);
-  const marginLeft = screenWidth < 480 ? MARGIN_LEFT_NARROW : MARGIN.left;
+  const width = measuredWidth;
+  const marginLeft = width < 480 ? MARGIN_LEFT_NARROW : MARGIN.left;
   const plotW = width - marginLeft - MARGIN.right;
   const plotH = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
 
@@ -68,12 +103,34 @@ export default function AreaChart({ data, selectedId, onSelect, screenWidth }) {
     return { val, y };
   });
 
-  // X-axis: ~5 evenly spaced labels
-  const xLabelCount = Math.min(6, data.length);
-  const xLabels = [];
-  for (let i = 0; i < xLabelCount; i++) {
-    const idx = Math.round(i * (data.length - 1) / (xLabelCount - 1));
-    xLabels.push({ x: points[idx].x, label: formatDate(data[idx].snapshot_at) });
+  // X-axis labels — first-of-month ticks so the cadence reads as calendar
+  // months. Width-aware: show every month when the plot is wide enough, then
+  // thin to every Nth month as space tightens so labels never collide (a full
+  // year shows all ~12 months on desktop, ~4 on a phone). Falls back to
+  // evenly-spaced date ticks when the range is shorter than two months.
+  const MIN_LABEL_PX = 64;
+  const monthBoundaries = [];
+  let prevMonthKey = null;
+  data.forEach((s, i) => {
+    const d = new Date(s.snapshot_at);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    if (key !== prevMonthKey) { monthBoundaries.push(i); prevMonthKey = key; }
+  });
+
+  let xLabels;
+  if (monthBoundaries.length >= 2) {
+    const maxLabels = Math.max(2, Math.floor(plotW / MIN_LABEL_PX));
+    const stride = Math.ceil(monthBoundaries.length / maxLabels);
+    xLabels = monthBoundaries
+      .filter((_, i) => i % stride === 0)
+      .map((idx) => ({ x: points[idx].x, label: formatMonth(data[idx].snapshot_at) }));
+  } else {
+    const xLabelCount = Math.min(6, data.length);
+    xLabels = [];
+    for (let i = 0; i < xLabelCount; i++) {
+      const idx = Math.round(i * (data.length - 1) / (xLabelCount - 1));
+      xLabels.push({ x: points[idx].x, label: formatDate(data[idx].snapshot_at) });
+    }
   }
 
   // Find nearest data point to cursor
@@ -108,7 +165,7 @@ export default function AreaChart({ data, selectedId, onSelect, screenWidth }) {
     : 0;
 
   return (
-    <div style={{ padding: '0 16px', position: 'relative' }}>
+    <div ref={wrapRef} style={{ padding: '0 16px', position: 'relative' }}>
       <svg
         ref={svgRef}
         width={width}
@@ -191,7 +248,7 @@ export default function AreaChart({ data, selectedId, onSelect, screenWidth }) {
           zIndex: 10,
         }}>
           <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginBottom: 2 }}>
-            {formatDate(hoverSnap.snapshot_at)}
+            {formatDateFull(hoverSnap.snapshot_at)}
           </span>
           <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--color-accent)', display: 'block' }}>
             ${hoverSnap.total_monthly_cost.toFixed(2)}
