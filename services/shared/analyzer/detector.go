@@ -125,6 +125,86 @@ func Summarize(zombies []model.ZombieResource) Summary {
 	return s
 }
 
+// ByAccountSummary holds per-account zombie aggregates across an organization.
+type ByAccountSummary struct {
+	Currency string           `json:"currency"`
+	Accounts []AccountSummary `json:"accounts"`
+}
+
+// AccountSummary groups zombie counts and savings for one connected account.
+// InternalAccountID is the grouping key (the accounts-table UUID); AccountID is
+// the AWS account number, retained for display only.
+type AccountSummary struct {
+	InternalAccountID string  `json:"internal_account_id"`
+	AccountID         string  `json:"account_id"`
+	TotalZombies      int     `json:"total_zombies"`
+	PotentialMonthly  float64 `json:"potential_monthly_savings"`
+	TopService        string  `json:"top_service"`
+}
+
+// SummarizeByAccount groups zombie resources by their internal account ID and
+// computes per-account totals: zombie count, summed monthly savings, and the
+// service with the largest summed savings in that account (top_service; "" if
+// none). Accounts with zero zombies are omitted. The returned Accounts slice is
+// always non-nil so it serialises as [] rather than null on empty input.
+func SummarizeByAccount(zombies []model.ZombieResource) ByAccountSummary {
+	type accountAgg struct {
+		accountID    string
+		totalZombies int
+		savings      float64
+		byService    map[string]float64
+	}
+
+	order := make([]string, 0)
+	aggs := make(map[string]*accountAgg)
+
+	out := ByAccountSummary{Accounts: []AccountSummary{}}
+	for _, z := range zombies {
+		if out.Currency == "" {
+			out.Currency = z.Currency
+		}
+		a, ok := aggs[z.InternalAccountID]
+		if !ok {
+			a = &accountAgg{byService: make(map[string]float64)}
+			aggs[z.InternalAccountID] = a
+			order = append(order, z.InternalAccountID)
+		}
+		if a.accountID == "" {
+			a.accountID = z.AccountID
+		}
+		a.totalZombies++
+		a.savings += z.MonthlyCost
+		a.byService[z.Service] += z.MonthlyCost
+	}
+
+	for _, id := range order {
+		a := aggs[id]
+		out.Accounts = append(out.Accounts, AccountSummary{
+			InternalAccountID: id,
+			AccountID:         a.accountID,
+			TotalZombies:      a.totalZombies,
+			PotentialMonthly:  round2(a.savings),
+			TopService:        topService(a.byService),
+		})
+	}
+	return out
+}
+
+// topService returns the service key with the largest summed savings, or "" when
+// the map is empty. Ties break toward the lexicographically smallest service
+// name so output is deterministic.
+func topService(byService map[string]float64) string {
+	top := ""
+	var max float64
+	for svc, savings := range byService {
+		if top == "" || savings > max || (savings == max && svc < top) {
+			top = svc
+			max = savings
+		}
+	}
+	return top
+}
+
 // owner derives the responsible team from resource tags.
 // Falls back to "unknown" when no team tag is present.
 func owner(tags map[string]string) string {

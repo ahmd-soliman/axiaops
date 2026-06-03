@@ -24,7 +24,7 @@ export default function Organization() {
   const currentName = me?.organization?.name || orgName || '';
 
   return (
-    <div style={{ padding: 24, color: 'var(--color-text-mid)', maxWidth: 760 }}>
+    <div style={{ padding: 24, color: 'var(--color-text-mid)' }}>
       <h1 style={{ margin: 0, color: 'var(--color-text)', fontSize: 22, fontWeight: 700 }}>Organization</h1>
       <p style={{ marginTop: 4, marginBottom: 24, color: 'var(--color-text-muted)', fontSize: 13 }}>
         Organization-level controls.

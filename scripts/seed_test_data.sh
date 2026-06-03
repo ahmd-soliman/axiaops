@@ -981,7 +981,8 @@ echo ""
 # Each day's snapshot is a rollup of a scaled view of the zombie_records inserted above:
 #   - Day 1 (most recent) uses scale = 1.0, so SUM(svc.cost) on that day's services
 #     equals SUM(zombie_records.monthly_cost) per account — exactly.
-#   - Days 2..90 (older) scale per service by an upward trend × weekly sine wobble
+#   - Days 2..N (older; N = $DAYS, currently 365) scale per service by an upward
+#     trend × weekly sine wobble
 #     × per-service noise, so the time series looks plausible without inventing
 #     services that aren't in zombie_records.
 # Snapshot totals are computed as SUM of the inserted zombie_snapshot_services for
@@ -1077,7 +1078,8 @@ WITH
       snapshot_id,
       (SELECT org_id FROM params),
       account_id,
-      -- d=1 is today at noon UTC; d=90 is today − 89 days. Keeping the latest
+      -- d=1 is today at noon UTC; d=N is today − (N−1) days (N = $DAYS,
+      -- currently 365 → a full year of history). Keeping the latest
       -- snapshot dated "today" so the dashboard's trend chart's most recent
       -- point matches dev's wall-clock expectation when eyeballing fresh data.
       date_trunc('day', NOW()) - ((d - 1)::text || ' days')::interval + INTERVAL '12 hours',

@@ -34,7 +34,8 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 | GET | /metrics | No | Prometheus metrics (internal only) |
 | GET | /version | Yes | Build identifier + license summary — `{service, version, commit, env, license}`. `license` is `{state}` only when no license is loaded (SaaS / production-with-no-license-installed), otherwise `{state, customer_id, expires_at, days_remaining, max_organizations}`. State values: `valid \| in_grace \| expired \| not_loaded`. Post-B1.6-amendment, `state="expired"` carries the full claim sub-object (the snapshot is retained on past-grace so `/v1/version` stays informative). Post-B1.7-layer-4, DEV_MODE returns the full claim sub-object with `state=valid` and `customer_id="axiaops-dev-fixture"` (embedded dev fixture, not a missing-license case). Source for the LicenseBanner. |
 | GET | /zombies | Yes | List zombie resources for organization |
-| GET | /summary | Yes | Aggregate savings + per-service breakdown |
+| GET | /summary | Yes | Aggregate savings + per-service breakdown (?account_id to scope to one account) |
+| GET | /summary/by-account | Yes | Per-account waste rollup for the org dashboard (`{currency, accounts:[{internal_account_id, account_id, total_zombies, potential_monthly_savings, top_service}]}`); zero-zombie accounts omitted; dismissed excluded like /summary |
 | GET | /trend | Yes | Zombie snapshots over time (?account_id, ?service, ?resource_type) |
 | GET | /trend/services | Yes | Distinct services available in trend data |
 | GET | /trend/resource-types | Yes | Distinct resource types for a service (?service) |
