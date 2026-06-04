@@ -48,18 +48,19 @@ type MockStore struct {
 	mu sync.Mutex
 
 	// ── Data Storage (used by all tests) ──
-	zombies          []model.ZombieResource
-	accounts         []model.Account
-	snapshots        []model.ZombieSnapshot
-	resources        []model.ResourceRecord
-	costs            []model.CostRecord
-	dismissals       []model.DismissAction
-	nextDismID       int64
-	auditEvents      []model.AuditEvent
-	nextAuditID      int64
-	organizationName string
-	channels         []model.NotificationChannel
-	dispatches       []model.NotificationDispatch
+	zombies                []model.ZombieResource
+	accounts               []model.Account
+	snapshots              []model.ZombieSnapshot
+	resources              []model.ResourceRecord
+	costs                  []model.CostRecord
+	dismissals             []model.DismissAction
+	nextDismID             int64
+	auditEvents            []model.AuditEvent
+	nextAuditID            int64
+	organizationName       string
+	channels               []model.NotificationChannel
+	listEnabledChannelsErr error
+	dispatches             []model.NotificationDispatch
 
 	// UserMembershipsByUser keys ListUserMemberships responses by user_id
 	// so a single test can drive multiple distinct users (e.g. the
@@ -1072,6 +1073,25 @@ func (m *MockStore) MarkOnboardingComplete(_ context.Context) (time.Time, error)
 	return time.Now().UTC(), nil
 }
 
+// WithChannels seeds notification channels for tests.
+func (m *MockStore) WithChannels(chs []model.NotificationChannel) *MockStore {
+	m.channels = append(m.channels, chs...)
+	return m
+}
+
+// WithOrgName seeds the organization display name GetOrganizationByID returns.
+func (m *MockStore) WithOrgName(name string) *MockStore {
+	m.organizationName = name
+	return m
+}
+
+// WithListEnabledChannelsError makes ListEnabledNotificationChannels fail, for
+// testing the invite-email error path.
+func (m *MockStore) WithListEnabledChannelsError(err error) *MockStore {
+	m.listEnabledChannelsErr = err
+	return m
+}
+
 // ── Pending invitations (Phase 2) ────────────────────────────────────────────
 
 // WithPendingInvitations seeds the mock with pending invitation rows for tests.
@@ -1448,6 +1468,9 @@ func (m *MockStore) ListNotificationChannels(_ context.Context) ([]model.Notific
 func (m *MockStore) ListEnabledNotificationChannels(_ context.Context) ([]model.NotificationChannel, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.listEnabledChannelsErr != nil {
+		return nil, m.listEnabledChannelsErr
+	}
 	var out []model.NotificationChannel
 	for _, ch := range m.channels {
 		if ch.Enabled {
