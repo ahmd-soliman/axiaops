@@ -1,6 +1,7 @@
 [
   {
     "service": "AmazonEC2",
+    "resource_type": "instance",
     "region": "eu-central-1",
     "resource_id": "i-0idle1",
     "monthly_cost": 189.6,
