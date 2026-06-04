@@ -59,6 +59,13 @@ type Handler struct {
 	// serverbuild always wires them). Set via WithNotificationTransports;
 	// tests inject fakes through the same seam.
 	channelTransports map[string]notifications.Transport
+
+	// inviteMailer delivers invitation redemption URLs to invitees on POST
+	// /v1/invitations. nil ⇒ no delivery attempt (EmailDelivery omitted) — the
+	// composition seam a SaaS reactivation swaps for a platform mailer. Set via
+	// WithInviteMailer; serverbuild wires the default channel-first/global-SMTP
+	// impl.
+	inviteMailer InviteMailer
 }
 
 // New creates a Handler backed by the given store and queue.
@@ -99,6 +106,15 @@ func (h *Handler) WithIngestionURL(url string) *Handler {
 // See docs/c1-hmac-plan.md §3.3.
 func (h *Handler) WithIngestionSecret(secret []byte) *Handler {
 	h.ingestionSecret = secret
+	return h
+}
+
+// WithInviteMailer wires the seam that emails invitation redemption URLs on
+// POST /v1/invitations. Not called ⇒ no delivery attempt (EmailDelivery
+// omitted). serverbuild wires the default channel-first/global-SMTP mailer;
+// tests inject a fake.
+func (h *Handler) WithInviteMailer(m InviteMailer) *Handler {
+	h.inviteMailer = m
 	return h
 }
 

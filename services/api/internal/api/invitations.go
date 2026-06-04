@@ -16,7 +16,6 @@ import (
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/shared/authz"
 	"axiaops.io/shared/model"
-	"axiaops.io/shared/notifications"
 	"axiaops.io/shared/storage"
 )
 
@@ -42,12 +41,13 @@ type invitationResponse struct {
 	RedemptionURL string `json:"redemption_url,omitempty"`
 
 	// EmailDelivery reports whether the redemption URL was emailed to the
-	// invitee via the org's email notification channel. Set only on POST
-	// /v1/invitations (omitted on list/get). One of: "sent", "failed",
-	// "skipped_no_channel" (org has no enabled email channel),
-	// "skipped_no_public_host" (PUBLIC_HOST unset → no absolute link to mail).
-	// The redemption URL is always returned regardless, so OOB sharing remains
-	// the durable fallback when delivery is skipped or fails.
+	// invitee. Set only on POST /v1/invitations (omitted on list/get), and only
+	// when an InviteMailer is wired. One of: "sent", "failed",
+	// "skipped_no_transport" (no enabled email channel and no global SMTP
+	// config), "skipped_no_public_host" (PUBLIC_HOST unset → no absolute link to
+	// mail), "error" (transient internal failure resolving the transport). The
+	// redemption URL is always returned regardless, so OOB sharing remains the
+	// durable fallback when delivery is skipped or fails.
 	EmailDelivery string `json:"email_delivery,omitempty"`
 
 	// EnforcementHint is set to "sso_required" when the inviter's org has
@@ -70,16 +70,20 @@ type invitationResponse struct {
 // frontend reference resolve through the same symbol.
 const invitationEnforcementHintRequired = "sso_required"
 
-// Invite-email delivery outcomes reported via invitationResponse.EmailDelivery.
+// Invite-email delivery outcomes reported via invitationResponse.EmailDelivery
+// and the axiaops_auth_invite_email_total{outcome} metric. Shared with the
+// default InviteMailer in invite_mailer.go (same package).
 const (
-	inviteEmailSent             = "sent"
-	inviteEmailFailed           = "failed"
-	inviteEmailSkippedNoChannel = "skipped_no_channel"
-	inviteEmailSkippedNoHost    = "skipped_no_public_host"
+	inviteEmailSent   = "sent"
+	inviteEmailFailed = "failed"
+	// inviteEmailSkippedNoTransport: the org has no enabled email channel and
+	// no global env/SSM SMTP config is set — nothing to send through.
+	inviteEmailSkippedNoTransport = "skipped_no_transport"
+	inviteEmailSkippedNoHost      = "skipped_no_public_host"
 	// inviteEmailError marks a transient internal failure while resolving the
-	// channel (e.g. the channel-list DB read errored). Distinct from
-	// skipped_no_channel so an operator reading the audit log can tell "no
-	// email channel configured" apart from "we couldn't check".
+	// transport (e.g. the channel-list DB read errored). Distinct from
+	// skipped_no_transport so an operator can tell "nothing configured" apart
+	// from "we couldn't check".
 	inviteEmailError = "error"
 )
 
@@ -183,10 +187,21 @@ func (h *Handler) createInvitation(w http.ResponseWriter, r *http.Request) {
 		resp.EnforcementHint = invitationEnforcementHintRequired
 	}
 
-	// Best-effort: email the redemption URL to the invitee via the org's email
-	// channel. Never fatal — the URL is already in the response for OOB sharing,
-	// so a missing channel or a relay failure must not fail the invitation.
-	resp.EmailDelivery = h.sendInviteEmail(ctx, tid, req.Email, req.Role, actorEmail, inv, resp.RedemptionURL)
+	// Best-effort: email the redemption URL to the invitee. Routed through the
+	// InviteMailer seam (channel-first, global-SMTP fallback). Never fatal — the
+	// URL is already in the response for OOB sharing, so a missing transport or
+	// a relay failure must not fail the invitation. nil mailer (unwired in some
+	// tests) ⇒ no delivery attempt, EmailDelivery omitted.
+	if h.inviteMailer != nil {
+		resp.EmailDelivery = h.inviteMailer.SendInvite(ctx, InviteMailRequest{
+			OrganizationID: tid,
+			Recipient:      req.Email,
+			Role:           req.Role,
+			InviterEmail:   actorEmail,
+			RedemptionURL:  resp.RedemptionURL,
+			ExpiresAt:      inv.ExpiresAt,
+		})
+	}
 
 	audit.Record(r, h.store, model.AuditEvent{
 		Action:       model.AuditActionMemberInvited,
@@ -238,96 +253,6 @@ func (h *Handler) orgHasRequiredSSO(ctx context.Context) bool {
 		}
 	}
 	return false
-}
-
-// sendInviteEmail mails the redemption URL to the invitee using the org's
-// first enabled email notification channel. Best-effort and self-contained:
-// every failure mode resolves to a descriptive EmailDelivery string rather than
-// an error, because the redemption URL is already in the response — emailing it
-// is a convenience, not a correctness requirement.
-//
-// Returns one of the inviteEmail* constants. The redemptionURL passed in is the
-// same absolute/relative URL returned to the admin; the email is only sent when
-// it is absolute (PUBLIC_HOST set), since a relative link can't be clicked from
-// an inbox.
-func (h *Handler) sendInviteEmail(ctx context.Context, organizationID, recipient, role, inviterEmail string, inv model.PendingInvitation, redemptionURL string) string {
-	if h.publicHost == "" {
-		// redemptionURL is relative — useless in an email. Admin shares OOB.
-		return inviteEmailSkippedNoHost
-	}
-
-	sender, ok, err := h.inviteEmailSender(ctx)
-	if err != nil {
-		return inviteEmailError
-	}
-	if !ok {
-		return inviteEmailSkippedNoChannel
-	}
-
-	// Org display name for the subject/body. A failure here is non-fatal — the
-	// invite builder falls back to a generic phrase on an empty name.
-	var orgName string
-	if org, err := h.store.GetOrganizationByID(ctx, organizationID); err != nil {
-		slog.Debug("invitations: org name lookup for invite email failed", "error", err, "organization_id", organizationID)
-	} else {
-		orgName = org.Name
-	}
-
-	// Detach the SMTP send from the request context: a client disconnect must
-	// not abort an in-flight relay handshake and mislabel a delivered message as
-	// failed in the audit log. The send is bounded by its own timeout (and
-	// dialingSendMail's per-connection deadline), mirroring the async-scan
-	// pattern that runs on context.Background().
-	sendCtx, cancel := context.WithTimeout(context.Background(), notifications.DefaultSendTimeout)
-	defer cancel()
-	err = sender.transport.SendInvite(sendCtx, sender.channel, recipient, notifications.InviteEmail{
-		OrganizationName: orgName,
-		Role:             role,
-		InviterEmail:     inviterEmail,
-		RedemptionURL:    redemptionURL,
-		ExpiresAt:        inv.ExpiresAt,
-	})
-	if err != nil {
-		// transport.SendInvite has already scrubbed any SMTP secret from err.
-		slog.Warn("invitations: invite email delivery failed",
-			"error", err, "organization_id", organizationID, "channel_id", sender.channel.ID)
-		return inviteEmailFailed
-	}
-	slog.Info("invitations: invite email sent", "organization_id", organizationID, "channel_id", sender.channel.ID)
-	return inviteEmailSent
-}
-
-// inviteEmailTarget pairs the org's email channel with the transport that can
-// send invites through it.
-type inviteEmailTarget struct {
-	channel   model.NotificationChannel
-	transport notifications.InviteSender
-}
-
-// inviteEmailSender resolves the first enabled email channel and confirms the
-// wired email transport can send invites.
-//
-//   - (target, true, nil)  — found an enabled email channel + invite-capable transport.
-//   - (zero, false, nil)   — org has no enabled email channel, or no invite-capable
-//     email transport is wired (DEV / misconfiguration). Caller → skipped_no_channel.
-//   - (zero, false, err)   — the channel-list read failed. Caller → error (distinct
-//     from "no channel" so the audit trail doesn't mislabel a DB blip).
-func (h *Handler) inviteEmailSender(ctx context.Context) (inviteEmailTarget, bool, error) {
-	transport, ok := h.channelTransports[model.ChannelKindEmail].(notifications.InviteSender)
-	if !ok {
-		return inviteEmailTarget{}, false, nil
-	}
-	channels, err := h.store.ListEnabledNotificationChannels(ctx)
-	if err != nil {
-		slog.Warn("invitations: list channels for invite email failed", "error", err)
-		return inviteEmailTarget{}, false, err
-	}
-	for _, ch := range channels {
-		if ch.Kind == model.ChannelKindEmail {
-			return inviteEmailTarget{channel: ch, transport: transport}, true, nil
-		}
-	}
-	return inviteEmailTarget{}, false, nil
 }
 
 // buildRedemptionURL composes the OOB URL the admin shares with the

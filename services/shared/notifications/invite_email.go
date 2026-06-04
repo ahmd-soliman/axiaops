@@ -10,17 +10,21 @@ import (
 	"axiaops.io/shared/model"
 )
 
-// InviteSender is the capability the API's invitation handler type-asserts off
-// the email transport in its channelTransports map. Keeping it a separate
-// interface (rather than widening Transport) means only the email transport
-// grows the method — Slack/Teams/Jira transports stay digest-only and the
-// handler can cleanly detect "this kind can't send invites".
+// InviteSender is the transport primitive the API's invite mailer uses to
+// deliver an invitation email. Keeping it a separate interface (rather than
+// widening Transport) means only the email transport grows the method —
+// Slack/Teams/Jira transports stay digest-only.
+//
+// It takes a plaintext EmailConfig rather than a NotificationChannel so the
+// caller owns config resolution: the api mailer sources the config from either
+// the org's email notification channel (via DecodeEmailConfig) or the global
+// env/SSM SMTP settings, then hands the resolved config here.
 type InviteSender interface {
 	// SendInvite delivers a team-invitation email to a single recipient using
-	// the channel's SMTP transport config. The channel's own Recipients list is
-	// ignored — an invite targets exactly the invitee. Best-effort: the caller
-	// logs the error and still returns the OOB redemption URL.
-	SendInvite(ctx context.Context, channel model.NotificationChannel, recipient string, inv InviteEmail) error
+	// the supplied SMTP config. cfg.Recipients (if any) is ignored — an invite
+	// targets exactly the invitee. Best-effort: the caller logs the error and
+	// still returns the OOB redemption URL.
+	SendInvite(ctx context.Context, cfg model.EmailConfig, recipient string, inv InviteEmail) error
 }
 
 // InviteEmail is the transport-agnostic content for one invitation message.
@@ -36,11 +40,11 @@ type InviteEmail struct {
 }
 
 // SendInvite implements InviteSender on the SMTP email transport. It reuses the
-// same decrypt → validate → timeout-bounded deliver path as the scan digest,
-// swapping only the message body and the recipient.
-func (t *EmailTransport) SendInvite(ctx context.Context, channel model.NotificationChannel, recipient string, inv InviteEmail) error {
-	cfg, err := decodeEmailConfig(channel)
-	if err != nil {
+// same validate → timeout-bounded deliver path as the scan digest, swapping
+// only the message body and the recipient. cfg is already-resolved plaintext
+// (the caller decrypted a channel or read the global SMTP env config).
+func (t *EmailTransport) SendInvite(ctx context.Context, cfg model.EmailConfig, recipient string, inv InviteEmail) error {
+	if err := ValidateEmailConfig(cfg); err != nil {
 		return err
 	}
 	recipient = strings.TrimSpace(recipient)

@@ -27,9 +27,8 @@ func inviteEmailCfg() model.EmailConfig {
 func TestEmailTransport_SendInvite_TargetsInviteeOnly(t *testing.T) {
 	sender := &capturedSend{}
 	tr := &EmailTransport{sendMail: sender.fn()}
-	ch := emailChannel(t, inviteEmailCfg())
 
-	err := tr.SendInvite(context.Background(), ch, "invitee@example.com", InviteEmail{
+	err := tr.SendInvite(context.Background(), inviteEmailCfg(), "invitee@example.com", InviteEmail{
 		OrganizationName: "Acme Corp",
 		Role:             "member",
 		InviterEmail:     "admin@acme.test",
@@ -70,11 +69,10 @@ func TestEmailTransport_SendInvite_TargetsInviteeOnly(t *testing.T) {
 func TestEmailTransport_SendInvite_BlankOrgAndExpiry(t *testing.T) {
 	sender := &capturedSend{}
 	tr := &EmailTransport{sendMail: sender.fn()}
-	ch := emailChannel(t, inviteEmailCfg())
 
 	// No org name, no inviter, no expiry — the generic fallbacks must hold and
 	// the message must not render "to ." or a bogus expiry line.
-	err := tr.SendInvite(context.Background(), ch, "invitee@example.com", InviteEmail{
+	err := tr.SendInvite(context.Background(), inviteEmailCfg(), "invitee@example.com", InviteEmail{
 		RedemptionURL: "https://app.example.com/accept-invite?token=z",
 	})
 	if err != nil {
@@ -92,9 +90,8 @@ func TestEmailTransport_SendInvite_BlankOrgAndExpiry(t *testing.T) {
 func TestEmailTransport_SendInvite_RequiresRecipient(t *testing.T) {
 	sender := &capturedSend{}
 	tr := &EmailTransport{sendMail: sender.fn()}
-	ch := emailChannel(t, inviteEmailCfg())
 
-	if err := tr.SendInvite(context.Background(), ch, "   ", InviteEmail{RedemptionURL: "x"}); err == nil ||
+	if err := tr.SendInvite(context.Background(), inviteEmailCfg(), "   ", InviteEmail{RedemptionURL: "x"}); err == nil ||
 		!strings.Contains(err.Error(), "recipient") {
 		t.Fatalf("want recipient-required error, got %v", err)
 	}
@@ -107,9 +104,8 @@ func TestEmailTransport_SendInvite_ScrubsPasswordFromError(t *testing.T) {
 	const pass = "secretpass"
 	sender := &capturedSend{returnErr: errStr("535 rejected pass=" + pass)}
 	tr := &EmailTransport{sendMail: sender.fn()}
-	ch := emailChannel(t, inviteEmailCfg())
 
-	err := tr.SendInvite(context.Background(), ch, "invitee@example.com", InviteEmail{RedemptionURL: "x"})
+	err := tr.SendInvite(context.Background(), inviteEmailCfg(), "invitee@example.com", InviteEmail{RedemptionURL: "x"})
 	if err == nil {
 		t.Fatal("expected send error")
 	}
