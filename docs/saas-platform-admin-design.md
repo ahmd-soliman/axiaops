@@ -10,9 +10,11 @@ inversion that the SaaS-first direction requires.
 > ADR-0001 (self-hosted-first). With ADR-0002 proposing a SaaS-first pivot, this
 > work moves from speculative to near-term: the entitlement model (§7) gates the
 > ability to charge money, and the admin/support plane (§4–6) is required the
-> moment AxiaOps custodies multiple tenants. The sections marked **[DECISION]**
-> are the ones I want refined before this leaves draft. **Validate the PLG
-> activation assumption (ADR-0002 §Risks) before committing the full build.**
+> moment AxiaOps custodies multiple tenants. Four design decisions were resolved
+> 2026-06-04 (§11.1 — staff identity, support-access transparency, entitlement
+> bootstrap, `past_due` grace); the rest remain open (§11.2, still flagged
+> **[DECISION]** inline). **Validate the PLG activation assumption (ADR-0002
+> §Risks) before committing the full build.**
 
 ## Relationship to other docs
 
@@ -76,7 +78,7 @@ The hard rule: **a principal never spans planes.** A staff member is never "also
 
 ## 4. Staff identity & RBAC
 
-### 4.1 Where staff identities live  **[DECISION]**
+### 4.1 Where staff identities live  — **decided: (A)** (§11.1)
 
 Three options:
 
@@ -84,7 +86,7 @@ Three options:
 - **(B) A reserved internal org in the tenant tables**, with staff as members holding a magic role. Reuses all existing machinery (sessions, memberships, RBAC) — cheapest to build. But it muddies RLS (the "staff org" is special-cased everywhere) and a tenant-auth bug now potentially reaches staff.
 - **(C) IdP groups only** — no AxiaOps-side staff records; authorize purely on IdP group claims at request time. Least state, but no local audit of *who is staff* independent of the IdP, and offboarding races the IdP.
 
-**Recommendation: (A).** The whole point of the platform admin plane is that it is a different trust domain. Reusing tenant tables (B) saves a few weeks now and costs a security review later. The `staff_users` table is small and the new `staff.Provider` is a third implementation of the *same* `auth.Provider` seam — the composition root already supports swapping it.
+**Decided: (A).** The whole point of the platform admin plane is that it is a different trust domain. Reusing tenant tables (B) saves a few weeks now and costs a security review later. The `staff_users` table is small and the new `staff.Provider` is a third implementation of the *same* `auth.Provider` seam — the composition root already supports swapping it.
 
 ### 4.2 Staff roles
 
@@ -113,7 +115,7 @@ This is the highest-risk surface in the entire SaaS design. The principles:
 2. **Reason required.** Every grant carries a free-text reason + an optional linked support ticket. No reason, no access.
 3. **Time-boxed.** Grants auto-expire (default 1h, max configurable). Expiry revokes the cross-tenant read.
 4. **Fully audited, in the tenant's own audit log.** A staff read/impersonation writes an `audit_log` row *in the accessed org* with `actor` = the staff principal and a `staff_access` action class — so it survives in the tenant's timeline and is visible to GDPR export. Plus a mirror row in a system `staff_access_log`.
-5. **Tenant-visible where possible.**  **[DECISION]** Do we surface "an AxiaOps support engineer accessed your account on <date> for <reason>" to the tenant (transparency, à la GitLab/Stripe), or keep it internal-audit-only? Transparency is the trust-building default; some support flows (fraud, abuse investigation) need a silent mode. Proposal: visible by default, silent mode gated behind `superadmin` + a heightened audit class.
+5. **Tenant-visible by default** (decided, §11.1). We surface "an AxiaOps support engineer accessed your account on <date> for <reason>" to the tenant (transparency, à la GitLab/Stripe) — the trust-building default regulated buyers increasingly require. A **silent mode** exists for fraud/abuse investigations but is gated behind `superadmin` + a heightened audit class, so a silent access is itself an audited, privileged act.
 6. **Impersonation ≠ read.** Read-only cross-tenant access is one capability; *acting as* a tenant user (impersonation, to reproduce a bug) is a strictly higher one — requires either tenant consent (a support-session token the customer generates) or `ops`+approval, and is always non-silent.
 
 Mechanically this rides the existing `axiaops_runtime` RLS-bypass pool, but **gated** by an active grant rather than open to any code path. A `WithStaffGrant(ctx, grant)` helper sets `app.organization_id` to the target org *and* records the access — the RLS-bypass becomes grant-scoped, not blanket.
@@ -158,7 +160,7 @@ So:
 
 - **Show a license to the customer? No — and more than that, there is no customer-facing license at all under SaaS.** The customer sees *plan* and *usage* ("Pro plan, 4/10 accounts connected, renews 2026-07-01"), never a "license". `GET /v1/version`'s `license` sub-object collapses to `state: "managed"` (or is omitted) for hosted tenants — the self-hosted license fields (`customer_id`, `expires_at`, `days_remaining`) are meaningless when entitlement is a live subscription.
 - **Keep the license machinery in the app?** Yes — *dormant*. The `shared/license` package stays compiled in; the `cmd/api-saashosted` composition root calls `license.SetEnforcementBypass()` at boot so `IsScanAllowed()` returns true regardless of any license state. This is exactly what the `IsEnforcementBypassed()` seam was reserved for. The scan-gate code does not change — it already consults a single predicate; SaaS just makes that predicate defer to entitlement instead of license.
-- **Mint a long-term license instead?** **Recommend against it as the end state.** A single long-lived platform license (like the 100-year dev fixture, `customer_id="axiaops-saas-platform"`) *works* as a one-line bootstrap — it keeps the existing gate happy with zero new code. But it gates the *platform*, not the *tenant*: it cannot express "tenant A is paid, tenant B's trial lapsed." Per-tenant gating is the entire job under SaaS, so a platform license is the wrong tool for the actual requirement. Acceptable as a **scaffolding step** on day one of reactivation (bypass not yet wired); not acceptable as the model.
+- **Mint a long-term license instead?** **Not the end state — but it is the deliberate day-one scaffold (decided, §11.1).** A single long-lived platform license (like the 100-year dev fixture, `customer_id="axiaops-saas-platform"`) *works* as a one-line bootstrap — it keeps the existing gate happy with zero new code. But it gates the *platform*, not the *tenant*: it cannot express "tenant A is paid, tenant B's trial lapsed." Per-tenant gating is the entire job under SaaS, so a platform license is the wrong tool for the *end* model. **Sequencing decision:** use the platform-license scaffold for the free validation beta (where every participant is allowed and there is nothing to bill), and build the real per-tenant `entitlements` table + bypass wiring only once the [ADR-0002](decisions/0002-saas-first-for-awareness.md) self-serve activation gate proves out and there is something to charge for. This keeps billing/entitlement plumbing off the critical path until the PLG bet is validated.
 
 ### 7.2 Recommended model: per-tenant Entitlement, billing-driven
 
@@ -179,6 +181,7 @@ entitlements
 
 - **Billing is the source of truth.** Stripe (or chosen provider) webhooks update `status` / `current_period_end`. The app never computes entitlement from payment events directly — it reads this table.
 - **One gate predicate, mirroring the license one.** `entitlement.IsScanAllowed(orgID)` returns true for `status ∈ {trialing, active}` (+ a grace window on `past_due`, exactly like the license `in_grace` philosophy in `b1.6-amendment`), false for `canceled/suspended`. Reads/dashboard stay open on lapse (same graceful-degradation posture as self-hosted) — you don't hide a customer's data because a card expired; you stop *doing new paid work* (scans).
+- **`past_due` grace window: ~14–21 days (decided, §11.1).** During the dunning window `IsScanAllowed` stays true and scans keep running while the billing provider retries the card and nags. After it, `status` flips to `suspended` and new scans stop — but **dashboard reads are never withheld for non-payment**. Far shorter than the self-hosted license's 90-day grace, because re-billing a fixed card is instant whereas re-issuing a license is a slow, high-touch operator action. The exact day count tracks the billing provider's retry schedule (Stripe Smart Retries default ≈ 3 weeks) — keep the two aligned so the app doesn't suspend before the provider has finished retrying.
 - **`max_accounts` enforced at connect-time**, the way `max_organizations` is conceptually bounded today.
 
 ### 7.3 Decision matrix
@@ -248,15 +251,20 @@ Each phase is shippable alone; (1) has standalone value even before any admin UI
 
 ---
 
-## 11. Open questions / decisions to refine  **[DECISION]**
+## 11. Decisions
 
-1. **Staff identity home (§4.1)** — separate `staff_users` + staff IdP (recommended A) vs reserved internal org (B) vs IdP-groups-only (C)?
-2. **Staff role taxonomy (§4.2)** — is support/ops/billing/superadmin the right cut, or do we need a separate "read-only auditor" / "engineering" tier?
-3. **Tenant-visible support access (§5.5)** — transparent-by-default with a gated silent mode, or internal-audit-only?
-4. **Impersonation consent model (§5.6)** — customer-generated support token vs ops-approval — which is v1?
-5. **Internal notifications storage (§6.2)** — separate table (recommended B) vs scoped column on existing channels (A)?
-6. **Entitlement bootstrap (§7.1)** — do we accept the one-line platform-license scaffold on day one, or wire the bypass + `entitlements` gate before first hosted tenant?
-7. **Grace posture on `past_due` (§7.2)** — how long after a failed payment do scans keep running? (Self-hosted license uses up to 90 days; SaaS dunning is usually shorter.)
+### 11.1 Resolved (2026-06-04)
+
+1. **Staff identity home (§4.1)** — **separate `staff_users` table + corporate IdP.** Staff and customer auth are different trust domains; the clean blast-radius separation is worth the extra auth path over the "internal org" shortcut that entangles them.
+2. **Tenant-visible support access (§5.5)** — **transparent by default, with a gated silent mode** for fraud/abuse investigations (silent access requires `superadmin` + a heightened audit class). Trust posture regulated buyers increasingly require.
+3. **Entitlement bootstrap (§7.1)** — **scaffold now, real `entitlements` before charging.** Use the one-line platform-license scaffold for the free validation beta; build the real per-tenant `entitlements` table + bypass wiring only once self-serve activation proves out (the [ADR-0002](decisions/0002-saas-first-for-awareness.md) validation gate). No billing/entitlement plumbing before the PLG bet is validated.
+4. **`past_due` grace (§7.2)** — **~14–21 days of dunning, scans keep running; then suspend new scans, never cut dashboard reads.** SaaS-standard, far shorter than the self-hosted license's 90 days (re-billing is instant; re-issuing a license is not). Reads are never withheld for non-payment — a customer's own cost data is not held hostage over an expired card.
+
+### 11.2 Still open
+
+5. **Staff role taxonomy (§4.2)** — is support/ops/billing/superadmin the right cut, or do we need a separate "read-only auditor" / "engineering" tier?
+6. **Impersonation consent model (§5.6)** — customer-generated support token vs ops-approval — which is v1?
+7. **Internal notifications storage (§6.2)** — separate table (recommended B) vs scoped column on existing channels (A)?
 8. **Admin plane hosting** — same ECS cluster behind separate ingress, or fully separate account/VPC for blast-radius isolation?
 
 ---
