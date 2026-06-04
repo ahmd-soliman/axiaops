@@ -670,6 +670,17 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		zombies = append(zombies, s3Zombies...)
 	}
 
+	// Classify each zombie into a resource sub-type from its (service, usage
+	// metric) pair. Detect() already sets this for CloudWatch-based zombies; the
+	// API-only discoverers (EIP, EBS volume/snapshot, AMI, log group, …) don't,
+	// so backfill any that are still empty. This populates zombie_records and —
+	// via the per-(service, resource_type) breakdown below — the trend filter.
+	for i := range zombies {
+		if zombies[i].ResourceType == "" {
+			zombies[i].ResourceType = analyzer.ResourceType(zombies[i].Service, zombies[i].UsageMetric)
+		}
+	}
+
 	summary := analyzer.Summarize(zombies)
 	slog.Info("analysis: detected zombie resources", "total", summary.TotalZombies, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
 	ingestionZombiesDetectedTotal.WithLabelValues(organizationID, awsClient.Name()).Set(float64(summary.TotalZombies))
@@ -698,16 +709,20 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	} else {
 		slog.Info("storage: saved zombie snapshot", "zombie_count", snap.ZombieCount, "total_monthly_cost", snap.TotalMonthlyCost)
 
-		// Persist per-service breakdown for trend filtering.
+		// Persist the per-(service, resource_type) breakdown for trend filtering.
+		// One row per sub-type (e.g. AmazonEC2/volume, AmazonEC2/instance) so the
+		// trend resource-type filter can scope a service's history to one kind;
+		// ListSnapshotsByService SUMs across sub-types when no resource_type is given.
 		var svcRows []model.SnapshotService
-		for svcName, svcData := range summary.ByService {
+		for _, b := range analyzer.SummarizeByServiceResourceType(zombies) {
 			svcRows = append(svcRows, model.SnapshotService{
-				ID:          uuid.New().String(),
-				SnapshotID:  snap.ID,
-				Service:     svcName,
-				ZombieCount: svcData.Zombies,
-				MonthlyCost: svcData.Savings,
-				Currency:    snap.Currency,
+				ID:           uuid.New().String(),
+				SnapshotID:   snap.ID,
+				Service:      b.Service,
+				ResourceType: b.ResourceType,
+				ZombieCount:  b.Zombies,
+				MonthlyCost:  b.Savings,
+				Currency:     snap.Currency,
 			})
 		}
 		if err := store.SaveSnapshotServices(ctx, svcRows); err != nil {
