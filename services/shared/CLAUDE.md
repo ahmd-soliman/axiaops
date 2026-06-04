@@ -27,6 +27,7 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 | `license/` | **Phase B1.6 (amended — see `docs/b1.6-amendment-feature-gating.md`) + B1.7 layer 4 (issue #75 — see plan §4.10.8)** — self-hosted license JWT verification. Embedded production RS256 public key (`pubkey.pem`); dev-only RS256 public key + 100-year fixture JWT in default builds (`pubkey-dev.pem` / `fixture-dev.jwt`, stripped from `-tags production` builds via `embed_{dev,production}.go`); `Load`, `CheckExpiry`, `VerifyAtBoot`, `RunTicker`, `IsScanAllowed`, `IsEnforcementBypassed`, `SetEnforcementBypass`. Both api and ingestion call `VerifyAtBoot` at startup (always returns nil now — never refuses to start except for the layer-2 anti-tamper case) and run `RunTicker`; both consult `IsScanAllowed` at their scan-gate sites. **DEV_MODE** loads the embedded fixture so dev exercises the full Load → CheckExpiry → state chain. `IsScanAllowed` returns true when state ∈ {Valid, InGrace} — including DEV_MODE (state=Valid via fixture) and real customer licenses; `StateExpired` and `StateNotLoaded` both gate. `IsEnforcementBypassed()` is the seam reserved for the future SaaS composition root (cmd/api-saashosted) — no production self-hosted path sets it post layer 4. |
 | `notifications/` | **Phase 2.15 (see `docs/notifications-plan.md`)** — outbound scan-digest channels. `Transport` interface + `Payload` (`transport.go`), `BuildPayload` (`renderer.go`), `Dispatcher`/`DispatchForScan` (`dispatcher.go` — gate on `trigger_rule`, per-transport timeout, one `notification_dispatches` row per attempt, non-fatal), and the two v1 transports `email_smtp.go` (SMTP/SES) + `slack_webhook.go` (incoming webhook). Each transport decrypts its own `config_ciphertext` (`crypto.Decrypt`) and scrubs its bearer secret from errors (`scrub.go`). Wired into ingestion's `runIngestionCore` and the api's `/v1/channels/{id}/test`. |
 | `model/audit.go` | **Phase 3.3** — `AuditEvent`, `AuditFilter`, `AuditCursor`, and the `AuditAction*` constants. Consumed by `Store.AuditLogWrite/List/AnonymiseUser` and by the `axiaops.io/api/internal/audit` helper that handlers call after mutations. |
+| `model/staff.go` + `storage/storage_staff.go` | **Platform admin plane** (see `docs/admin-portal-plan.md`) — `StaffUser`, `StaffRole` (support/ops/billing/superadmin), `StaffRoleGrant`, `StaffTenantSummary`; the `StaffStore` slice of `Store` (create/lookup staff, grant/revoke roles, cross-org `ListAllOrganizations`/`StaffTenantSummary`). All on the admin pool, org-less. Impl in `storage/postgres/staff.go`. Served by a separate binary `cmd/api-admin` via `internal/staff`. |
 
 ## Store Interface
 
@@ -91,7 +92,8 @@ The harness validates inputs first (B), so a fixture that uses an unregistered s
   `cost_records`, `zombie_records`, `resource_records`, `accounts`,
   `zombie_snapshots` (aggregate per-scan), `zombie_snapshot_services` (per-service breakdown per snapshot),
   `dismissed_zombies`, `audit_log`,
-  `notification_channels` + `notification_dispatches` (Phase 2.15 — outbound scan-digest channels + delivery log; encrypted `config_ciphertext`)
+  `notification_channels` + `notification_dispatches` (Phase 2.15 — outbound scan-digest channels + delivery log; encrypted `config_ciphertext`),
+  `staff_users` + `staff_role_grants` (platform admin plane — AxiaOps-employee identities + RBAC; **system-scoped, no RLS**, on the admin pool; see `docs/admin-portal-plan.md`)
 
 ## Adding New Tables
 
