@@ -45,7 +45,7 @@ Concrete commitments:
 2. **Build the SaaS entitlement + billing path** (Stripe → internal `entitlements` projection; see [`saas-platform-admin-design.md`](../saas-platform-admin-design.md) §7). The license JWT goes dormant under SaaS (`SetEnforcementBypass`); entitlement gates instead.
 3. **Build the platform admin/support plane** ([`saas-platform-admin-design.md`](../saas-platform-admin-design.md) §4–6): staff identity, audited break-glass cross-tenant access, internal-ops notifications. This is now near-term, not preparation.
 4. **Multi-tenant hardening + GDPR-as-controller + abuse/fraud posture** return to the near-term roadmap (the Phase 3 plumbing ADR-0001 deferred).
-5. **Pause the self-hosted SKU — freeze, do not kill.** Stop active investment: no Helm/bundle polish, drop `cmd/api-selfhosted` from the default CI matrix, no new self-hosted features. The build is frozen feature-complete-as-is and the license model stays as-is for it. It is **not deleted** — the architecture, seams, and `cmd/api-selfhosted` source remain in-tree, revived on demand for a concrete enterprise/regulated deal. The explicit trade: we accept that the paused build will **bitrot** (untested against later changes) in exchange for not spending solo-founder time keeping two SKUs green while the SaaS funnel is unproven. Revival cost is "rebuild + retest", not "redesign".
+5. **Keep the self-hosted SKU buildable and warm** — `cmd/api-selfhosted` stays green in CI; the license model stays as-is for it. Self-hosted becomes the upmarket motion for regulated buyers who can't use the cloud, sold *after* awareness exists. The CI cost of keeping a second SKU green is accepted as the price of a friction-free enterprise revival (no bitrot, revival is a flip not a rebuild).
 6. **Tenant SSO** follows the SaaS variant ([`sso-integration-design-saas.md`](../sso-integration-design-saas.md)) for the hosted SKU; native OIDC/SAML remains for self-hosted.
 
 ## Alternatives considered
@@ -56,8 +56,8 @@ Concrete commitments:
 ### Alternative B — Dual SKU, equal priority
 Ship both with equal investment. **Rejected because:** a solo founder still cannot run two equal sales motions + two support models simultaneously. The resolution is *sequencing* (SaaS-first, self-hosted follow-on), not parallel equality. One motion leads.
 
-### Alternative C — Pure SaaS, kill (delete) self-hosted
-Delete `cmd/api-selfhosted` and the self-hosted packaging from the tree. **Rejected because:** the regulated/air-gapped enterprise segment (the highest-ACV buyers) genuinely cannot use hosted, and the self-hosted SKU is already built. Deleting it forfeits the upmarket motion for near-zero saving. The chosen path **pauses** it instead (commitment #5: frozen, bitrots, revived on demand) — keeping the option alive at zero ongoing cost, short of paying CI to keep it warm.
+### Alternative C — Pure SaaS, kill self-hosted
+**Rejected because:** the regulated/air-gapped enterprise segment (the highest-ACV buyers) genuinely cannot use hosted, and the self-hosted SKU is already built. Killing it forfeits the upmarket motion for near-zero saving. Keep it warm (commitment #5: green in CI, revival is a flip not a rebuild).
 
 ## Consequences
 
@@ -72,13 +72,13 @@ Delete `cmd/api-selfhosted` and the self-hosted packaging from the tree. **Rejec
 - **Continuous solo ops / on-call** — Gate 3's "no quiet stretches." This is the dominant personal-sustainability risk.
 - **Data-custody objection returns** for regulated buyers — mitigated by keeping the self-hosted SKU as their path, but it means the SaaS funnel skews toward smaller/less-regulated orgs first (lower initial ACV).
 - **Bigger breach blast radius** — AxiaOps now custodies many tenants' read-only AWS access in one place.
-- **Paused self-hosted bitrots** — frozen out of the CI matrix, the `cmd/api-selfhosted` build drifts out of test against later changes. Reviving it for an enterprise deal costs a rebuild + retest cycle (not a redesign — the seams remain). The reversibility noted above is therefore symmetric in *architecture* but asymmetric in *immediate effort*: a self-hosted revival is days-to-weeks of un-bitrotting, not a flip.
+- **Two SKUs green in CI** — keeping `cmd/api-selfhosted` warm alongside the SaaS build is ongoing CI + maintenance cost, accepted in exchange for a friction-free enterprise revival.
 
 ### Now committed to
 - Re-status [`saas-platform-admin-design.md`](../saas-platform-admin-design.md) from "preparation / not scheduled" to near-term/scheduled.
 - Reactivate [`sso-integration-design-saas.md`](../sso-integration-design-saas.md) as the tenant-auth path for the hosted SKU.
 - Roadmap rescope in `Tasks.md`: un-defer Phase 3 #1 (Stripe), un-defer/right-scope #9p (GDPR controller) and #17 (multi-tenant SOC 2).
-- Self-hosted Helm/bundle work drops from "near-term blocker" to **paused/frozen** — removed from the default CI matrix, revived on demand for a concrete enterprise deal. Accepts bitrot as the cost (see commitment #5).
+- Self-hosted Helm/bundle work drops from "near-term blocker" to "warm, enterprise-follow-on" — stays green in CI, revived on demand for a concrete enterprise deal (see commitment #5).
 
 ### Not affected
 - Detection rules, data model, RLS, observability, CI — all deployment-agnostic (as ADR-0001 already noted).
