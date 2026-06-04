@@ -137,8 +137,8 @@ SES/Postfix relay works.
 | `SMTP_PORT` | `587` | STARTTLS submission port |
 | `SMTP_USER` | — | Relay auth user (Gmail relay: a real mailbox with 2SV + App Password) |
 | `SMTP_PASS` | — | Relay auth password / App Password |
-| `SMTP_FROM` | — | Envelope sender + `From:` address (required when `SMTP_HOST` is set) |
-| `SMTP_FROM_NAME` | `AxiaOps` | `From:` display name |
+| `SMTP_FROM` | — | Envelope sender + `From:` address (required when `SMTP_HOST` is set). Use a **generic transactional address** (`noreply@<domain>`), not `invitation@…` — the same global mailer also sends password resets (#126); per-message context lives in the subject/body/display-name. **Gmail-relay constraint:** `smtp-relay.gmail.com` accepts any user/alias in the Workspace domain, so `noreply@` need only exist as an **alias**; `smtp.gmail.com` (App-Password auth) forces `From` to the authenticated mailbox **unless** `noreply@` is a verified "Send mail as" alias — otherwise Gmail silently rewrites it to `SMTP_USER`. |
+| `SMTP_FROM_NAME` | `AxiaOps` | `From:` display name. Recipients see e.g. `AxiaOps <noreply@axiaops.io>`. |
 
 ### Observability
 
