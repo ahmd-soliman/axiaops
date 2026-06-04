@@ -143,11 +143,12 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 
 ## Security
 
-- AES-256-GCM encrypts AWS secrets before DB storage (`ENCRYPTION_KEY` env var, 32-byte hex)
+- **Customer AWS access:** cross-account `sts:AssumeRole` with a per-account `ExternalId` (confused-deputy mitigation). No long-lived customer credentials cross the trust boundary. Onboarding is role ARN + ExternalId, optionally via a one-click CloudFormation Quick-Create URL. Design: `docs/cross-account-roles-design.md`. Customer-facing flow: `docs/connect-aws-account.md`. Legacy access-key onboarding still works for pre-role customers (Phase 2 coexistence — see §7 of the design doc); new sales should be role-based.
+- AES-256-GCM (`ENCRYPTION_KEY` env var, 32-byte hex) encrypts at-rest secrets — currently: legacy AWS access-key secrets (`accounts.secret_encrypted`) and SSO ID tokens (`sessions.id_token_encrypted`). Role-based accounts store `role_arn` + `external_id` unencrypted (they are not secrets).
 - Native cookie sessions (argon2id password hashes) + OIDC SSO (per-connection JWKS, RS256 ID-token validation)
 - RLS enforces organization isolation at the DB level — never query without `app.organization_id` set
 - Never commit `.env` files, credentials, or encryption keys
-- Production: IAM roles instead of access keys
+- **AxiaOps' own AWS runtime:** IAM task roles (ECS), not access keys. (This is about AxiaOps' deployment, not how customer accounts connect — see the first bullet for that.)
 
 ## Cost Awareness (FinOps for AxiaOps itself)
 
