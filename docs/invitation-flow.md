@@ -68,6 +68,8 @@ plaintext token is returned once in the `POST /v1/invitations` response and not 
 Admin: POST /v1/invitations {email, role}
   → API writes pending_memberships row (token_hash stored, plaintext in response)
   → API returns {redemption_url} — admin shares OOB (Slack / email / password manager)
+  → API also emails redemption_url to the invitee (best-effort) via the org's
+    first enabled email notification channel; result reported as email_delivery
 
 Invitee: clicks redemption_url → dashboard AcceptInviteScreen
   → POST /v1/auth/invitations/preview {token}  — peek: returns {email, role, existing_user}
@@ -84,9 +86,33 @@ Invitee: clicks redemption_url → dashboard AcceptInviteScreen
 | Invitation redeemed | `AuditActionMemberInvited` (metadata `redeemed: true`) |
 | Invitation revoked | `AuditActionMemberRemoved` (metadata `phase: "invitation_revoked"`) |
 
+## Invite-email delivery
+
+On `POST /v1/invitations` the API also tries to email the redemption URL to the
+invitee, so the admin doesn't have to copy-paste it. This is **best-effort and
+never fatal** — the URL is always in the response, so OOB sharing stays the
+durable fallback. The response carries an `email_delivery` field:
+
+| `email_delivery` | Meaning |
+|---|---|
+| `sent` | Mailed via the org's first **enabled** email notification channel |
+| `failed` | A channel exists but the SMTP send errored (logged, scrubbed) |
+| `skipped_no_channel` | Org has no enabled email channel configured |
+| `skipped_no_public_host` | `PUBLIC_HOST` unset → no absolute link to mail |
+| `error` | Transient internal failure resolving the channel (e.g. DB read errored) — distinct from `skipped_no_channel` |
+
+The SMTP transport config (host/port/user/pass/from) is reused from the email
+**notification channel** (`notification_channels`, kind=`email`) — the same one
+that sends scan digests; the invite just overrides the recipient and body. No
+separate mailer config. The invite message body lives in
+`services/shared/notifications/invite_email.go` (`EmailTransport.SendInvite`,
+`InviteSender` interface). The send is recorded in the invitation's audit-log
+metadata (`email_delivery`), **not** in `notification_dispatches` (that table is
+scan-digest-shaped).
+
 ## Configuration
 
 | Variable | Default | Notes |
 |---|---|---|
 | `INVITATION_TTL_DAYS` | 14 | How long a `pending_memberships` row stays redeemable |
-| `PUBLIC_HOST` | — | Used to build the OOB `redemption_url`. Empty → relative URL |
+| `PUBLIC_HOST` | — | Used to build the OOB `redemption_url`. Empty → relative URL, and invite-email delivery is skipped (`skipped_no_public_host`) |
