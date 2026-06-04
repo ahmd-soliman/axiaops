@@ -604,3 +604,33 @@ func TestWorker_ProcessesJobWhenLicenseValid(t *testing.T) {
 		t.Errorf("worker did not reach runScan under valid license; gate may be inverted")
 	}
 }
+
+// StaffStore stubs (platform admin plane) — the ingestion scheduler never
+// touches the staff plane; these satisfy the widened storage.Store interface.
+func (m *mockStoreForScheduler) CreateStaffUser(context.Context, storage.CreateStaffUserInput) (model.StaffUser, error) {
+	return model.StaffUser{}, errors.New("not implemented")
+}
+func (m *mockStoreForScheduler) LookupStaffUserByEmail(context.Context, string) (model.StaffUser, []model.StaffRoleGrant, error) {
+	return model.StaffUser{}, nil, storage.ErrStaffNotFound
+}
+func (m *mockStoreForScheduler) GetStaffUserByID(context.Context, string) (model.StaffUser, []model.StaffRoleGrant, error) {
+	return model.StaffUser{}, nil, storage.ErrStaffNotFound
+}
+func (m *mockStoreForScheduler) ListStaffUsers(context.Context) ([]model.StaffUser, [][]model.StaffRoleGrant, error) {
+	return nil, nil, nil
+}
+func (m *mockStoreForScheduler) GrantStaffRole(context.Context, string, model.StaffRole, string) error {
+	return errors.New("not implemented")
+}
+func (m *mockStoreForScheduler) RevokeStaffRole(context.Context, string, model.StaffRole) error {
+	return errors.New("not implemented")
+}
+func (m *mockStoreForScheduler) CountStaffWithRole(context.Context, model.StaffRole) (int, error) {
+	return 0, nil
+}
+func (m *mockStoreForScheduler) ListAllOrganizations(context.Context) ([]model.Organization, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) StaffTenantSummary(context.Context, string) (model.StaffTenantSummary, error) {
+	return model.StaffTenantSummary{}, storage.ErrOrganizationNotFound
+}
