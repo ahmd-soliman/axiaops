@@ -66,6 +66,7 @@ type Metrics struct {
 	// blow up the series count under attack and don't help operators).
 	AuthLoginTotal              *prometheus.CounterVec // outcome (success|failure|org_selection_required), reason (bad_password|unknown_user|rate_limited|locked|internal|"" when outcome=org_selection_required)
 	AuthInvitationsTotal        *prometheus.CounterVec // outcome (created|redeemed|expired|revoked)
+	AuthInviteEmailTotal        *prometheus.CounterVec // outcome (sent|failed|skipped_no_transport|skipped_no_public_host|error), source (channel|global|none)
 	AuthSessionRevocationsTotal *prometheus.CounterVec // reason (logout|password_reset|admin_revoke|cap_exceeded|enforcement_change|org_switch)
 	BootstrapAttemptsTotal      *prometheus.CounterVec // outcome (success|sealed|invalid_token)
 	SessionCacheTotal           *prometheus.CounterVec // outcome (hit|miss|error) — cache-aside health
@@ -256,6 +257,10 @@ func newMetrics() *Metrics {
 			Name: "axiaops_auth_invitations_total",
 			Help: "Native-auth invitation lifecycle events.",
 		}, []string{"outcome"}),
+		AuthInviteEmailTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Name: "axiaops_auth_invite_email_total",
+			Help: "Best-effort invite-email delivery on POST /v1/invitations. outcome: sent (mailed), failed (transport errored), skipped_no_transport (no enabled email channel and no global SMTP config), skipped_no_public_host (PUBLIC_HOST unset → no absolute link to mail), error (transient internal failure resolving the channel, e.g. DB read). source: channel (org's email notification channel), global (env/SSM SMTP config), none (skipped before a transport was chosen).",
+		}, []string{"outcome", "source"}),
 		AuthSessionRevocationsTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_auth_session_revocations_total",
 			Help: "Session revocations broken down by reason. cap_exceeded is the per-user cap kicking in (architect C2).",

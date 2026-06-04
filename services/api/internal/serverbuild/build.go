@@ -80,6 +80,15 @@ type Config struct {
 
 	// StuckScanTimeout is the cutoff the stuck-scan recovery ticker uses.
 	StuckScanTimeout time.Duration
+
+	// TransactionalSMTP is the global env/SSM SMTP config (SMTP_HOST/PORT/…)
+	// the invite mailer falls back to when an org has no email notification
+	// channel. Zero value (empty SMTPHost) ⇒ no global mailer; invite delivery
+	// then depends solely on a per-org channel. Composition roots fill this
+	// from the environment — in prod the values come from SSM, the same way
+	// DATABASE_URL does. Recipients is unused here (an invite targets the
+	// invitee).
+	TransactionalSMTP model.EmailConfig
 }
 
 // Deps bundles the concrete services ComposeServer plugs together. Every
@@ -238,13 +247,17 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	// ── Core API handler ──────────────────────────────────────────────────
+	// One email transport instance backs both the channel /test path and the
+	// invite mailer (it's stateless — just the SMTP send seam).
+	emailTransport := notifications.NewEmailTransport()
 	apiH := api.New(deps.Store, deps.Queue).
 		WithPublicHost(cfg.PublicHost).
 		WithIngestionSecret(deps.IngestionSecret).
 		WithNotificationTransports(map[string]notifications.Transport{
-			model.ChannelKindEmail: notifications.NewEmailTransport(),
+			model.ChannelKindEmail: emailTransport,
 			model.ChannelKindSlack: notifications.NewSlackTransport(nil),
-		})
+		}).
+		WithInviteMailer(api.NewInviteMailer(deps.Store, emailTransport, cfg.TransactionalSMTP, cfg.PublicHost))
 	if cfg.RedisConfigured && deps.Cache != nil {
 		apiH = apiH.WithRedisCache(deps.Cache)
 	}

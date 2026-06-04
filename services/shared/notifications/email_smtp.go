@@ -124,7 +124,7 @@ func heloName(from string) string {
 
 // Send implements Transport. externalID is always empty for email.
 func (t *EmailTransport) Send(ctx context.Context, channel model.NotificationChannel, payload Payload) (string, error) {
-	cfg, err := decodeEmailConfig(channel)
+	cfg, err := DecodeEmailConfig(channel)
 	if err != nil {
 		return "", err
 	}
@@ -134,11 +134,13 @@ func (t *EmailTransport) Send(ctx context.Context, channel model.NotificationCha
 	return "", t.deliver(ctx, cfg, cfg.Recipients, buildEmailMessage(cfg, payload))
 }
 
-// decodeEmailConfig decrypts a channel's config blob into an EmailConfig and
+// DecodeEmailConfig decrypts a channel's config blob into an EmailConfig and
 // validates the SMTP transport fields shared by every email send (digest or
 // invite). Recipient validation is left to the caller — a digest fans out to
-// cfg.Recipients, an invite targets a single supplied address.
-func decodeEmailConfig(channel model.NotificationChannel) (model.EmailConfig, error) {
+// cfg.Recipients, an invite targets a single supplied address. Exported so the
+// api-layer invite mailer can resolve a channel into a plaintext config and
+// hand it to SendInvite, the same way the digest path does internally.
+func DecodeEmailConfig(channel model.NotificationChannel) (model.EmailConfig, error) {
 	plaintext, err := crypto.Decrypt(channel.ConfigCiphertext)
 	if err != nil {
 		return model.EmailConfig{}, fmt.Errorf("email: decrypt config: %w", err)
@@ -147,13 +149,23 @@ func decodeEmailConfig(channel model.NotificationChannel) (model.EmailConfig, er
 	if err := json.Unmarshal([]byte(plaintext), &cfg); err != nil {
 		return model.EmailConfig{}, fmt.Errorf("email: decode config: %w", err)
 	}
-	if cfg.SMTPHost == "" || cfg.SMTPPort == 0 {
-		return model.EmailConfig{}, fmt.Errorf("email: smtp_host and smtp_port are required")
-	}
-	if cfg.From == "" {
-		return model.EmailConfig{}, fmt.Errorf("email: from is required")
+	if err := ValidateEmailConfig(cfg); err != nil {
+		return model.EmailConfig{}, err
 	}
 	return cfg, nil
+}
+
+// ValidateEmailConfig checks the SMTP transport fields every email send needs.
+// Used both by DecodeEmailConfig (channel-sourced config) and directly by the
+// invite mailer when it sources config from the global env/SSM SMTP settings.
+func ValidateEmailConfig(cfg model.EmailConfig) error {
+	if cfg.SMTPHost == "" || cfg.SMTPPort == 0 {
+		return fmt.Errorf("email: smtp_host and smtp_port are required")
+	}
+	if cfg.From == "" {
+		return fmt.Errorf("email: from is required")
+	}
+	return nil
 }
 
 // deliver runs the timeout-bounded, secret-scrubbing SMTP send shared by the

@@ -95,20 +95,59 @@ durable fallback. The response carries an `email_delivery` field:
 
 | `email_delivery` | Meaning |
 |---|---|
-| `sent` | Mailed via the org's first **enabled** email notification channel |
-| `failed` | A channel exists but the SMTP send errored (logged, scrubbed) |
-| `skipped_no_channel` | Org has no enabled email channel configured |
+| `sent` | Mailed (via a per-org channel or the global SMTP config) |
+| `failed` | A transport was found but the SMTP send errored (logged, scrubbed) |
+| `skipped_no_transport` | No enabled email channel **and** no global SMTP config |
 | `skipped_no_public_host` | `PUBLIC_HOST` unset → no absolute link to mail |
-| `error` | Transient internal failure resolving the channel (e.g. DB read errored) — distinct from `skipped_no_channel` |
+| `error` | Transient internal failure resolving the transport (e.g. DB read errored) — distinct from `skipped_no_transport` |
 
-The SMTP transport config (host/port/user/pass/from) is reused from the email
-**notification channel** (`notification_channels`, kind=`email`) — the same one
-that sends scan digests; the invite just overrides the recipient and body. No
-separate mailer config. The invite message body lives in
-`services/shared/notifications/invite_email.go` (`EmailTransport.SendInvite`,
-`InviteSender` interface). The send is recorded in the invitation's audit-log
-metadata (`email_delivery`), **not** in `notification_dispatches` (that table is
-scan-digest-shaped).
+### Transport resolution (channel-first, global fallback)
+
+Delivery is routed through the **`InviteMailer` seam** (`api.InviteMailer`,
+wired in `serverbuild.ComposeServer`, swappable by a future SaaS composition
+root for a platform mailer like Resend). The default impl
+(`api.NewInviteMailer`, `invite_mailer.go`) resolves the SMTP config in order:
+
+1. **Per-org email channel** — the org's first *enabled* email
+   `notification_channel` (`notification_channels`, kind=`email`), decrypted via
+   `notifications.DecodeEmailConfig`. So an org that runs its own relay sends
+   invites from it.
+2. **Global SMTP config** — the `SMTP_*` env/SSM settings (see below), used when
+   the org has no usable email channel (none configured, or the only one is
+   disabled — which is why disabling the digest channel no longer silently kills
+   invites).
+3. Neither → `skipped_no_transport`.
+
+Only the recipient + message body differ from a scan digest; the SMTP send reuses
+the same timeout-bounded, secret-scrubbing path
+(`EmailTransport.SendInvite` / `deliver` in `services/shared/notifications/`).
+The SMTP send runs on a **detached context** so a client disconnect can't
+mislabel a delivered message as failed.
+
+### Global transactional SMTP config (env / SSM)
+
+A system-wide SMTP relay — sourced from env vars, injected from **SSM in prod**
+exactly like `DATABASE_URL` — backs the fallback. The intended target is a
+**Gmail SMTP relay** (`smtp-relay.gmail.com:587`, STARTTLS + PLAIN auth), but any
+SES/Postfix relay works.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `SMTP_HOST` | — | Relay host. **Empty ⇒ no global mailer** (invites then depend on a per-org channel) |
+| `SMTP_PORT` | `587` | STARTTLS submission port |
+| `SMTP_USER` | — | Relay auth user (Gmail relay: a real mailbox with 2SV + App Password) |
+| `SMTP_PASS` | — | Relay auth password / App Password |
+| `SMTP_FROM` | — | Envelope sender + `From:` address (required when `SMTP_HOST` is set) |
+| `SMTP_FROM_NAME` | `AxiaOps` | `From:` display name |
+
+### Observability
+
+Each attempt increments `axiaops_auth_invite_email_total{outcome, source}`
+(`source` = `channel` \| `global` \| `none`) and is recorded in the invitation's
+audit-log metadata (`email_delivery`). It is **not** written to
+`notification_dispatches` — that table is scan-digest-shaped. (A durable
+per-invite delivery log is a follow-up, tracked alongside the SaaS platform
+mailer.)
 
 ## Configuration
 
