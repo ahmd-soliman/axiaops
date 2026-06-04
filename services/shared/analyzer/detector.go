@@ -4,6 +4,7 @@ package analyzer
 
 import (
 	"fmt"
+	"sort"
 
 	"axiaops.io/shared/model"
 )
@@ -72,6 +73,7 @@ func Detect(costs []model.CostRecord, usage []UsageRecord, internalAccountID str
 				AccountID:         c.AccountID,
 				InternalAccountID: internalAccountID,
 				Service:           c.Service,
+				ResourceType:      ResourceType(c.Service, u.Metric),
 				Region:            c.Region,
 				ResourceID:        c.ResourceID,
 				ARN:               model.BuildARN(c.Provider, c.AccountID, c.Region, c.Service, c.ResourceID),
@@ -123,6 +125,54 @@ func Summarize(zombies []model.ZombieResource) Summary {
 	}
 	s.PotentialMonthlySave = round2(s.PotentialMonthlySave)
 	return s
+}
+
+// ServiceResourceBreakdown is one (service, resource_type) bucket of zombies —
+// the grain persisted to zombie_snapshot_services so the trend resource-type
+// filter can scope a service's history to a single sub-type.
+type ServiceResourceBreakdown struct {
+	Service      string
+	ResourceType string
+	Zombies      int
+	Savings      float64
+	Currency     string
+}
+
+// SummarizeByServiceResourceType buckets zombies by (service, resource_type).
+// Unlike Summarize (one bucket per service, used by /summary), this is the
+// per-snapshot breakdown that powers the trend resource-type filter. The result
+// is sorted by service then resource_type for deterministic output.
+func SummarizeByServiceResourceType(zombies []model.ZombieResource) []ServiceResourceBreakdown {
+	type key struct{ service, resourceType string }
+	buckets := make(map[key]*ServiceResourceBreakdown)
+	for _, z := range zombies {
+		k := key{z.Service, z.ResourceType}
+		b, ok := buckets[k]
+		if !ok {
+			b = &ServiceResourceBreakdown{
+				Service:      z.Service,
+				ResourceType: z.ResourceType,
+				Currency:     z.Currency,
+			}
+			buckets[k] = b
+		}
+		b.Zombies++
+		b.Savings += z.MonthlyCost
+	}
+
+	// Collect and sort deterministically (map iteration order is random).
+	out := make([]ServiceResourceBreakdown, 0, len(buckets))
+	for _, b := range buckets {
+		b.Savings = round2(b.Savings)
+		out = append(out, *b)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Service != out[j].Service {
+			return out[i].Service < out[j].Service
+		}
+		return out[i].ResourceType < out[j].ResourceType
+	})
+	return out
 }
 
 // ByAccountSummary holds per-account zombie aggregates across an organization.
@@ -226,10 +276,10 @@ func AnnotateAll(costs []model.CostRecord, usage []UsageRecord, zombies []model.
 	}
 
 	// Index zombie info by resource_id.
-	type zombieInfo struct{ reason, owner string }
+	type zombieInfo struct{ reason, owner, resourceType string }
 	zombieByID := make(map[string]zombieInfo, len(zombies))
 	for _, z := range zombies {
-		zombieByID[z.ResourceID] = zombieInfo{reason: z.Reason, owner: z.Owner}
+		zombieByID[z.ResourceID] = zombieInfo{reason: z.Reason, owner: z.Owner, resourceType: z.ResourceType}
 	}
 
 	// Track which resource IDs have a cost record so we can add zombie-only entries below.
@@ -247,11 +297,20 @@ func AnnotateAll(costs []model.CostRecord, usage []UsageRecord, zombies []model.
 		if o == "" {
 			o = owner(c.Tags)
 		}
+		// Prefer the resource_type the zombie already carries — API-only zombies
+		// (e.g. unattached EBS volumes) have no CloudWatch usage, so u.Metric is
+		// empty here and ResourceType(service, "") would yield "". The zombie was
+		// classified from its own usage metric upstream; reuse that.
+		rt := zi.resourceType
+		if rt == "" {
+			rt = ResourceType(c.Service, u.Metric)
+		}
 		resources = append(resources, model.ResourceRecord{
 			Provider:          c.Provider,
 			AccountID:         c.AccountID,
 			InternalAccountID: "", // Will be set by caller
 			Service:           c.Service,
+			ResourceType:      rt,
 			Region:            c.Region,
 			ResourceID:        c.ResourceID,
 			ARN:               model.BuildARN(c.Provider, c.AccountID, c.Region, c.Service, c.ResourceID),
@@ -281,6 +340,7 @@ func AnnotateAll(costs []model.CostRecord, usage []UsageRecord, zombies []model.
 			AccountID:         z.AccountID,
 			InternalAccountID: z.InternalAccountID,
 			Service:           z.Service,
+			ResourceType:      z.ResourceType,
 			Region:            z.Region,
 			ResourceID:        z.ResourceID,
 			ARN:               z.ARN,
