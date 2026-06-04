@@ -10,13 +10,13 @@
 
 ## Context
 
-[ADR-0001](0001-deployment-model.md) (2026-04-29) chose **self-hosted-first**: 3–5 enterprise design partners on annual contracts, running AxiaOps in their own infra, with multi-tenant SaaS deferred until ≥3 self-hosted customers pay. That work shipped: Kinde was removed, native auth (email/password + native OIDC/SAML) was built, the license-JWT entitlement model landed, and the codebase was deliberately structured for dual-SKU reactivation (five composition seams + the `cmd/api-selfhosted` / `cmd/api-saashosted` split).
+[ADR-0001](0001-deployment-model.md) (2026-04-29) chose **self-hosted-first**: 3–5 enterprise design partners on annual contracts, running AxiaOps in their own infra, with multi-tenant SaaS deferred until ≥3 self-hosted customers pay. That work shipped: Kinde was removed, native auth (email/password + native OIDC/SAML) was built, the license-JWT entitlement model landed, and the codebase was deliberately structured for dual-SKU reactivation (the `serverbuild.ComposeServer` composition-root factory + the four interface seams that cross its `Deps` boundary — `storage.Store`, `auth.Provider`, `sso.Discoverer`, `sso.Connector` — and the `cmd/api-selfhosted` / `cmd/api-saashosted` split).
 
 Two things have changed since 2026-04-29 that invert the decision:
 
 1. **The self-hosted sales motion is too cold to start from zero brand.** Enterprise self-hosted deals require security reviews, MSAs, and procurement — none of which happen with a vendor the buyer has never heard of. A solo founder with no market awareness cannot run that motion efficiently; the sales effort per deal is intense and the top-of-funnel is empty. ADR-0001 treated the enterprise sales motion as a known cost but underweighted the **cold-start / awareness** problem that precedes it.
 
-2. **The migration tax that justified ADR-0001 has already been paid.** ADR-0001's main reason to reject "SaaS-first now, self-hosted later" (its Alternative C) was that "SaaS → self-hosted is expensive (Kinde rip-out, packaging, sales-motion change)." Kinde is gone, native auth exists, and the dual-`cmd` + five-seam architecture means **both SKUs now build from one codebase**. The reverse-migration cost that dominated ADR-0001's calculus is no longer the binding constraint.
+2. **The migration tax that justified ADR-0001 has already been paid.** ADR-0001's main reason to reject "SaaS-first now, self-hosted later" (its Alternative C) was that "SaaS → self-hosted is expensive (Kinde rip-out, packaging, sales-motion change)." Kinde is gone, native auth exists, and the dual-`cmd` + composition-seam architecture (`ComposeServer` + the four `Deps` interfaces) means **both SKUs now build from one codebase**. The reverse-migration cost that dominated ADR-0001's calculus is no longer the binding constraint.
 
 This invokes ADR-0001's first review trigger ("the self-hosted thesis was wrong about GTM feasibility; reconsider SaaS") with a new, specific rationale: **lead with SaaS to build market awareness and a self-serve funnel; treat self-hosted as the enterprise/regulated follow-on motion once a brand exists.**
 
