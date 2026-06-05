@@ -120,7 +120,7 @@ The choice of hex (vs base64 / raw bytes / passphrase derived) is purely "match 
 
 Reasoning:
 - All current callers run in the same docker bridge network on the same self-hosted host → wall clock is identical (the host clock backs all containers).
-- Future cross-host shape (App Runner's api → an in-VPC ingestion) introduces real NTP-grade skew. 5 minutes accommodates typical NTP drift, brief NTP outages, and the network handler's queue+process latency without being a meaningful replay window.
+- Future cross-host shape (ECS Express's api → an in-VPC ingestion) introduces real NTP-grade skew. 5 minutes accommodates typical NTP drift, brief NTP outages, and the network handler's queue+process latency without being a meaningful replay window.
 - Too tight (60s): every transient docker-host clock jitter — `apt unattended-upgrades` triggering an NTP step — fails legitimate scans.
 - Too loose (1h): a captured request body becomes a forgable scan trigger for an hour after recording.
 
@@ -578,7 +578,7 @@ Working from least-risk to most-risk (matches the C-2 rotation playbook):
 1. `dev-1` then `dev-2` — DEV_MODE=true today, so the new code paths are exercised at composition-root level but the middleware is bypassed (§4.5). Mainly verifies the build is green and the env-var plumbing flows.
 2. `preview` — auth-on per-MR env, ideal soak target.
 3. `staging` — pre-release smoke.
-4. `production` (App Runner) — final.
+4. `production` (ECS Express) — final.
 
 Each env follows the three-step `SOFT_ENFORCE: true → false` sequence above. Total rollout calendar: ~1 week if observing one scan cycle (60 min) between steps in each env.
 
