@@ -443,13 +443,13 @@ VALUES
    'CPUUtilization', 1.2, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'primary', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'db_instance', 'eu-central-1',
    'db-prod-legacy-reporting', '{\"env\":\"prod\",\"team\":\"data\"}',
    210.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count',
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'alb', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'load_balancer', 'eu-central-1',
    'app/legacy-api/abc123prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 0, 'Count',
@@ -474,7 +474,7 @@ VALUES
    'CPUUtilization', 2.1, 'Percent',
    'Instance CPU below 5% — likely idle', 'platform', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', 'function', 'us-east-1',
    'stg-image-resizer', '{\"env\":\"staging\",\"team\":\"backend\"}',
    4.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count',
@@ -493,13 +493,13 @@ VALUES
    'CPUUtilization', 0.3, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'primary', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'db_instance', 'eu-west-1',
    'db-dev-abandoned', '{\"env\":\"dev\",\"team\":\"data\"}',
    89.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count',
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'function', 'eu-west-1',
    'dev-unused-email-sender', '{\"env\":\"dev\",\"team\":\"backend\"}',
    2.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count',
@@ -514,17 +514,17 @@ VALUES
   -- ── EKS zombies ───────────────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (control plane billed, zero nodes)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', 'cluster', 'eu-central-1',
    'prod-analytics-cluster', '{\"env\":\"prod\",\"team\":\"data\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'NodeCount', 0, 'Count',
+   'cluster_node_count', 0, 'Count',
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'data', '$NOW'),
 
   -- Account 2: empty EKS cluster
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', 'cluster', 'us-east-1',
    'stg-ml-pipeline', '{\"env\":\"staging\",\"team\":\"platform\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'NodeCount', 0, 'Count',
+   'cluster_node_count', 0, 'Count',
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'platform', '$NOW'),
 
   -- ── Tier 1 API-only zombies ────────────────────────────────────────────────
@@ -611,21 +611,21 @@ VALUES
   -- ── Orphaned RDS snapshot zombies ─────────────────────────────────────────
 
   -- Account 1: orphaned manual RDS snapshot (100 GB, source DB deleted, 45 days old)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'snapshot', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'db_snapshot', 'eu-central-1',
    'rds:prod-legacy-reporting-final-2026-02', '{}',
    9.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceDBExists', 45, 'Days',
    'Manual RDS snapshot (100 GB, 45 days old) is orphaned — source DB "prod-legacy-reporting" no longer exists, accumulating \$9.50/month in storage charges', 'unknown', '$NOW'),
 
   -- Account 2: orphaned manual RDS snapshot (200 GB, source DB deleted, 90 days old)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'snapshot', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'db_snapshot', 'us-east-1',
    'rds:stg-analytics-db-pre-migration', '{}',
    19.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceDBExists', 90, 'Days',
    'Manual RDS snapshot (200 GB, 90 days old) is orphaned — source DB "stg-analytics-db" no longer exists, accumulating \$19.00/month in storage charges', 'unknown', '$NOW'),
 
   -- Account 3: orphaned manual RDS snapshot (50 GB, source DB deleted, 60 days old)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'snapshot', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'db_snapshot', 'eu-west-1',
    'rds:dev-test-db-backup-2026-01', '{}',
    4.75, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceDBExists', 60, 'Days',
@@ -634,21 +634,21 @@ VALUES
   -- ── Stale ECR image zombies ───────────────────────────────────────────────
 
   -- Account 1: ECR repo with stale images (12 stale, 8.5 GB)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonECR', 'repository', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonECR', 'ecr_image', 'eu-central-1',
    'prod-api-service', '{}',
    0.85, 'USD', '$PERIOD_START', '$PERIOD_END',
    'StaleImageCount', 12, 'Count',
    'ECR repository has 12 untagged/stale images totaling 8.5 GB — accumulating \$0.85/month in storage', 'unknown', '$NOW'),
 
   -- Account 2: ECR repo with stale images (25 stale, 15.0 GB)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonECR', 'repository', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonECR', 'ecr_image', 'us-east-1',
    'stg-worker', '{}',
    1.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'StaleImageCount', 25, 'Count',
    'ECR repository has 25 untagged/stale images totaling 15.0 GB — accumulating \$1.50/month in storage', 'unknown', '$NOW'),
 
   -- Account 3: ECR repo with stale images (8 stale, 3.2 GB)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonECR', 'repository', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonECR', 'ecr_image', 'eu-west-1',
    'dev-frontend', '{}',
    0.32, 'USD', '$PERIOD_START', '$PERIOD_END',
    'StaleImageCount', 8, 'Count',
@@ -656,19 +656,19 @@ VALUES
 
   -- ── Unused Secrets Manager zombies ────────────────────────────────────────
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSSecretsManager', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSSecretsManager', 'secret', 'eu-central-1',
    'prod/legacy-api/db-password', '{}',
    0.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceAccess', 180, 'Days',
    'Secret not accessed for 180 days — still billing \$0.40/month', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSSecretsManager', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSSecretsManager', 'secret', 'us-east-1',
    'stg/old-service/api-key', '{}',
    0.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceAccess', 120, 'Days',
    'Secret not accessed for 120 days — still billing \$0.40/month', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSSecretsManager', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSSecretsManager', 'secret', 'eu-west-1',
    'dev/abandoned-project/token', '{}',
    0.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceAccess', 95, 'Days',
@@ -676,19 +676,19 @@ VALUES
 
   -- ── CloudFront distribution zombies (zero requests) ────────────────────────
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonCloudFront', 'global', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonCloudFront', 'distribution', 'us-east-1',
    'E1PROD0ABANDONED', '{}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Requests', 0, 'Count',
    'CloudFront distribution has zero requests — likely abandoned', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonCloudFront', 'global', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonCloudFront', 'distribution', 'us-east-1',
    'E2STG0OLDSITE', '{}',
    8.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Requests', 0, 'Count',
    'CloudFront distribution has zero requests — likely abandoned', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonCloudFront', 'global', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonCloudFront', 'distribution', 'us-east-1',
    'E3UAT0PREVIEW', '{}',
    6.25, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Requests', 0, 'Count',
@@ -696,19 +696,19 @@ VALUES
 
   -- ── Kinesis data streams (zero incoming records, provisioned mode) ────────
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonKinesis', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonKinesis', 'stream', 'eu-central-1',
    'prod-event-ingestion-v1', '{}',
    32.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'IncomingRecords', 0, 'Count',
    'Kinesis data stream has zero incoming records — likely unused', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonKinesis', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonKinesis', 'stream', 'us-east-1',
    'stg-monitoring-stream', '{}',
    10.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'IncomingRecords', 0, 'Count',
    'Kinesis data stream has zero incoming records — likely unused', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonKinesis', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonKinesis', 'stream', 'eu-west-1',
    'dev-clickstream', '{}',
    5.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'IncomingRecords', 0, 'Count',
@@ -716,19 +716,19 @@ VALUES
 
   -- ── S3 buckets (zero requests, requires request metrics enabled) ──────────
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonS3', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonS3', 'bucket', 'eu-central-1',
    'prod-old-data-export-2024', '{}',
    25.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AllRequests', 0, 'Count',
    'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonS3', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonS3', 'bucket', 'us-east-1',
    'stg-terraform-state-backup', '{}',
    8.75, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AllRequests', 0, 'Count',
    'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonS3', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonS3', 'bucket', 'eu-west-1',
    'dev-test-uploads-2023', '{}',
    4.25, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AllRequests', 0, 'Count',
@@ -762,14 +762,14 @@ VALUES
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
   -- Zombie: abandoned RDS
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'db_instance', 'eu-central-1',
    'db-prod-legacy-reporting', '{\"env\":\"prod\",\"team\":\"data\"}',
    210.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count', true,
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
   -- Zombie: unused ELB
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'load_balancer', 'eu-central-1',
    'app/legacy-api/abc123prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 0, 'Count', true,
@@ -789,13 +789,13 @@ VALUES
    'CPUUtilization', 71.5, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy RDS
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'primary', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'db_instance', 'eu-central-1',
    'db-production-main', '{\"env\":\"prod\",\"team\":\"data\"}',
    312.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 284, 'Count', false, '', 'data', '$NOW'),
 
   -- Active: healthy ELB
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'alb', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'load_balancer', 'eu-central-1',
    'app/prod-api/xyz789prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    24.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 94200, 'Count', false, '', 'platform', '$NOW'),
@@ -816,7 +816,7 @@ VALUES
    'Instance CPU below 5% — likely idle', 'platform', '$NOW'),
 
   -- Zombie: unused Lambda
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', 'function', 'us-east-1',
    'stg-image-resizer', '{\"env\":\"staging\",\"team\":\"backend\"}',
    4.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count', true,
@@ -836,7 +836,7 @@ VALUES
    'CPUUtilization', 48.2, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy RDS
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'read_replica', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'db_instance', 'us-east-1',
    'db-staging-main', '{\"env\":\"staging\",\"team\":\"data\"}',
    98.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 37, 'Count', false, '', 'data', '$NOW'),
@@ -850,14 +850,14 @@ VALUES
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
   -- Zombie: abandoned RDS
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'db_instance', 'eu-west-1',
    'db-dev-abandoned', '{\"env\":\"dev\",\"team\":\"data\"}',
    89.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count', true,
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
   -- Zombie: unused Lambda
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'function', 'eu-west-1',
    'dev-unused-email-sender', '{\"env\":\"dev\",\"team\":\"backend\"}',
    2.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count', true,
@@ -877,7 +877,7 @@ VALUES
    'CPUUtilization', 34.7, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy Lambda
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'function', 'eu-west-1',
    'dev-auth-handler', '{\"env\":\"dev\",\"team\":\"backend\"}',
    1.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 1840, 'Count', false, '', 'backend', '$NOW'),
@@ -885,24 +885,24 @@ VALUES
   -- ── EKS zombie resources ───────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (zombie)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', 'cluster', 'eu-central-1',
    'prod-analytics-cluster', '{\"env\":\"prod\",\"team\":\"data\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'NodeCount', 0, 'Count', true,
+   'cluster_node_count', 0, 'Count', true,
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'data', '$NOW'),
 
   -- Account 2: empty EKS cluster (zombie)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', 'cluster', 'us-east-1',
    'stg-ml-pipeline', '{\"env\":\"staging\",\"team\":\"platform\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'NodeCount', 0, 'Count', true,
+   'cluster_node_count', 0, 'Count', true,
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'platform', '$NOW'),
 
   -- Account 3: active EKS cluster (for contrast)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEKS', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEKS', 'cluster', 'eu-west-1',
    'dev-app-cluster', '{\"env\":\"dev\",\"team\":\"backend\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'NodeCount', 3, 'Count', false, '', 'backend', '$NOW'),
+   'cluster_node_count', 3, 'Count', false, '', 'backend', '$NOW'),
 
   -- ── Tier 1 API-only zombie resources ──────────────────────────────────────
 

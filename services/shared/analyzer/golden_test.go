@@ -35,28 +35,30 @@ const goldenDir = "testdata/golden"
 // stays small and stable. Add fields here only when a new detector
 // behaviour needs assertion coverage.
 type goldenZombie struct {
-	Service     string  `json:"service"`
-	Region      string  `json:"region"`
-	ResourceID  string  `json:"resource_id"`
-	MonthlyCost float64 `json:"monthly_cost"`
-	UsageMetric string  `json:"usage_metric"`
-	UsageAvg    float64 `json:"usage_avg"`
-	Reason      string  `json:"reason"`
-	Owner       string  `json:"owner"`
+	Service      string  `json:"service"`
+	ResourceType string  `json:"resource_type"`
+	Region       string  `json:"region"`
+	ResourceID   string  `json:"resource_id"`
+	MonthlyCost  float64 `json:"monthly_cost"`
+	UsageMetric  string  `json:"usage_metric"`
+	UsageAvg     float64 `json:"usage_avg"`
+	Reason       string  `json:"reason"`
+	Owner        string  `json:"owner"`
 }
 
 func projectZombies(zs []model.ZombieResource) []goldenZombie {
 	out := make([]goldenZombie, len(zs))
 	for i, z := range zs {
 		out[i] = goldenZombie{
-			Service:     z.Service,
-			Region:      z.Region,
-			ResourceID:  z.ResourceID,
-			MonthlyCost: z.MonthlyCost,
-			UsageMetric: z.UsageMetric,
-			UsageAvg:    z.UsageAvg,
-			Reason:      z.Reason,
-			Owner:       z.Owner,
+			Service:      z.Service,
+			ResourceType: z.ResourceType,
+			Region:       z.Region,
+			ResourceID:   z.ResourceID,
+			MonthlyCost:  z.MonthlyCost,
+			UsageMetric:  z.UsageMetric,
+			UsageAvg:     z.UsageAvg,
+			Reason:       z.Reason,
+			Owner:        z.Owner,
 		}
 	}
 	// Detect() iterates costs in input order, but tests should not depend on
