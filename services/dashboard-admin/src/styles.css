@@ -60,16 +60,18 @@ a:hover {
   /* Matches the tenant dashboard navbar logo (AppShell: 48px desktop). */
   height: 48px;
 }
-.topbar .tag {
-  color: var(--color-accent-text);
-  background: var(--color-accent-light);
-  border: 1px solid var(--color-accent-border);
-  border-radius: 999px;
-  padding: 1px 9px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+/* Plane indicator — a muted "Admin" wordmark suffix after a thin divider,
+   integrated into the brand lockup (not a filled chip, which reads as a
+   beta/status tag). The admin.axiaops.io subdomain is the primary cue; this
+   reinforces it calmly. A louder banner is reserved for genuinely privileged
+   moments (break-glass / impersonation), per the admin-portal design. */
+.topbar .plane-label {
+  padding-left: 12px;
+  border-left: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 .topbar nav {
   display: flex;
