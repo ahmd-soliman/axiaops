@@ -110,6 +110,16 @@ api-admin seed-staff --email you@axiaops.io --name "You" --password '…'
 # or: STAFF_SEED_PASSWORD=… api-admin seed-staff --email … --name …
 ```
 
+### Local dev
+
+`make start-dev` starts the admin plane alongside the tenant stack (host-mode,
+`scripts/start.sh`) on **:8090**. It boots with zero staff; mint the first
+superadmin with **`make seed-staff`** (idempotent — re-running is a no-op;
+override `STAFF_EMAIL` / `STAFF_NAME` / `STAFF_PASSWORD`). The admin plane needs
+`RUNTIME_ADMIN_DATABASE_URL` (no DEV_MODE collapse) — `start.sh` exports the
+local `axiaops_runtime` creds already. Then `POST /admin/auth/login` → cookie →
+`GET /admin/tenants`.
+
 ---
 
 ## Deliberately deferred (later phases / open decisions)
