@@ -1,5 +1,6 @@
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { hasRole, useAdminAuth } from './auth/AdminAuth.jsx';
+import { BrandLogo, ThemeToggle } from './Brand.jsx';
 import LoginScreen from './screens/LoginScreen.jsx';
 import TenantsScreen from './screens/TenantsScreen.jsx';
 import TenantDetailScreen from './screens/TenantDetailScreen.jsx';
@@ -11,7 +12,7 @@ function TopBar() {
   const { staff, logout } = useAdminAuth();
   return (
     <header className="topbar">
-      <img className="brand-logo" src="/axiaops-logo.svg" alt="AxiaOps" />
+      <BrandLogo />
       <span className="tag">admin</span>
       <nav>
         <NavLink to="/tenants" className={({ isActive }) => (isActive ? 'active' : '')}>
@@ -27,6 +28,7 @@ function TopBar() {
       <span className="who">
         {staff?.name || staff?.email} · {staff?.roles?.join(', ')}
       </span>
+      <ThemeToggle />
       <button className="secondary" onClick={logout}>
         Sign out
       </button>
