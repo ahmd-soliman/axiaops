@@ -71,10 +71,10 @@ a:hover {
 .topbar .plane-label {
   margin-left: -6px;
   color: var(--color-text);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.1em;
 }
 .topbar nav {
   display: flex;
