@@ -20,14 +20,17 @@ See [`docs/admin-portal-plan.md`](../../docs/admin-portal-plan.md).
 
 ## Run it locally
 
-The backend must be running on `:8090` (it ships in `make start-dev`; mint a
-superadmin with `make seed-staff`). Then:
+The admin backend must be running on `:8090` (it ships in `make start-dev`;
+mint a superadmin with `make seed-staff`). Then start this UI with its own
+target:
 
 ```bash
-cd services/dashboard-admin
-npm install
-npm run dev          # http://localhost:5174
+make start-admin-ui   # npm install + dev server on http://localhost:5174
 ```
+
+`start-admin-ui` is deliberately separate from `make start-dev` (the admin
+plane is opt-in). Under the hood it's just `cd services/dashboard-admin &&
+npm install && npm run dev`.
 
 In dev, Vite proxies `/admin/*` → `:8090` with no path rewrite, so the browser
 stays same-origin and the staff session cookie round-trips with no CORS. For a
