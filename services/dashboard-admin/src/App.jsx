@@ -11,9 +11,8 @@ function TopBar() {
   const { staff, logout } = useAdminAuth();
   return (
     <header className="topbar">
-      <span className="brand">
-        AxiaOps<span className="tag">admin</span>
-      </span>
+      <img className="brand-logo" src="/axiaops-logo.svg" alt="AxiaOps" />
+      <span className="tag">admin</span>
       <nav>
         <NavLink to="/tenants" className={({ isActive }) => (isActive ? 'active' : '')}>
           Tenants

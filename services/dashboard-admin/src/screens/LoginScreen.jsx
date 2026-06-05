@@ -39,10 +39,11 @@ export default function LoginScreen() {
   return (
     <div className="login-wrap">
       <div className="card">
-        <h1>
-          AxiaOps <span className="muted">admin</span>
+        <img className="brand-logo" src="/axiaops-logo.svg" alt="AxiaOps" />
+        <h1 style={{ marginTop: 0 }}>
+          Admin <span className="muted">· staff sign-in</span>
         </h1>
-        <p className="muted">Staff sign-in. This console is internal-only.</p>
+        <p className="muted">This console is internal-only.</p>
         <form onSubmit={onSubmit}>
           <label htmlFor="email">Email</label>
           <input
