@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging start-debug stop migrate seed seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging seed-remote-preview seed-remote-demo seed-remote-integration inspect-db clean-db clean-db-drop clean-db-files clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-preview clean-remote-demo clean-remote-integration clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop clean-remote-preview-drop clean-remote-demo-drop clean-remote-integration-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-staging start-debug stop migrate seed seed-staff seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging seed-remote-preview seed-remote-demo seed-remote-integration inspect-db clean-db clean-db-drop clean-db-files clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-preview clean-remote-demo clean-remote-integration clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop clean-remote-preview-drop clean-remote-demo-drop clean-remote-integration-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -107,6 +107,22 @@ seed:
 # the first owner via the dashboard before remote seeding can resolve them).
 seed-demo:
 	./scripts/seed_test_data.sh --demo
+
+# Seed the PLATFORM ADMIN PLANE's first superadmin. This is a SEPARATE plane
+# from `make seed` (which seeds tenant org/user/zombies) — staff never span
+# planes (saas-platform-admin-design §3), so they get their own seed path: the
+# `seed-staff` subcommand on the cmd/api-admin binary. Idempotent — re-running
+# with an existing email is a no-op (does NOT reset the password).
+# Override STAFF_EMAIL / STAFF_NAME / STAFF_PASSWORD as needed.
+STAFF_EMAIL ?= admin@axiaops.local
+STAFF_NAME ?= Local Admin
+STAFF_PASSWORD ?= local-admin-pass-1234
+seed-staff:
+	cd services/api && \
+		DATABASE_URL="$(DATABASE_URL)" \
+		RUNTIME_ADMIN_DATABASE_URL="postgres://axiaops_runtime:$(POSTGRES_RUNTIME_PASSWORD)@localhost:5432/axiaops?sslmode=disable" \
+		go run ./cmd/api-admin seed-staff --email "$(STAFF_EMAIL)" --name "$(STAFF_NAME)" --password "$(STAFF_PASSWORD)"
+	@echo "Admin console: http://localhost:8090 — login $(STAFF_EMAIL) / $(STAFF_PASSWORD)"
 
 # Seed remote env databases. Each env runs on its own self-hosted container —
 # postgres listens on the standard 5432 since per-host means no port
