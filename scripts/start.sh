@@ -32,7 +32,8 @@ stop() {
   fi
 
   # Kill any leftover processes still bound to the service ports
-  for port in 8080 8081 5173; do
+  # (8090 = platform admin plane, cmd/api-admin)
+  for port in 8080 8081 8090 5173; do
     local pids
     pids=$(lsof -ti :"$port" 2>/dev/null || true)
     if [[ -n "$pids" ]]; then
@@ -129,6 +130,27 @@ disown $API_PID
 
 until curl -sf http://localhost:8080/health &>/dev/null; do sleep 1; done
 
+# Start the platform admin plane (cmd/api-admin) — a SEPARATE binary on :8090.
+# Mode-agnostic: it has no DEV_MODE bypass (staff auth is always real), so it
+# just needs DATABASE_URL + RUNTIME_ADMIN_DATABASE_URL (both exported above).
+# It boots with zero staff; run `make seed-staff` to mint the first superadmin.
+echo "Starting admin plane (8090)..."
+cd "$API_DIR"
+(
+  export DATABASE_URL="$DATABASE_URL"
+  export RUNTIME_ADMIN_DATABASE_URL="$RUNTIME_ADMIN_DATABASE_URL"
+  export ADMIN_API_ADDR=":8090"
+  if [[ -f .env ]]; then
+    set -a; source .env; set +a
+  fi
+  exec go run ./cmd/api-admin
+) >> "$LOG_FILE" 2>&1 &
+ADMIN_PID=$!
+echo $ADMIN_PID >> "$PID_FILE"
+disown $ADMIN_PID
+
+until curl -sf http://localhost:8090/livez &>/dev/null; do sleep 1; done
+
 # Start Dashboard
 echo "Starting Dashboard (5173)..."
 cd "$DASHBOARD_DIR"
@@ -143,6 +165,10 @@ disown $DASHBOARD_PID
 
 echo "---------------------------------------"
 echo "All systems go."
+echo "  API           http://localhost:8080"
+echo "  Ingestion     http://localhost:8081"
+echo "  Admin plane   http://localhost:8090  (run 'make seed-staff' to mint the first superadmin)"
+echo "  Dashboard     http://localhost:5173"
 echo "Logs: tail -f .dev.log"
 echo ""
 echo "Services are running in the background. Use 'make stop' to shut them down."
