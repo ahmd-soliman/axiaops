@@ -1,6 +1,6 @@
 # Graceful Shutdown Implementation
 
-**Status:** ✅ Complete (P0 blocker for App Runner deployment)  
+**Status:** ✅ Complete (P0 blocker for ECS Express deployment)  
 **Date:** April 11, 2026  
 **Phase:** Phase 2.9 (from development_plan.md)
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-Both the **API service** (`:8080`) and **ingestion service** (`:8081`) now handle `SIGTERM` and `SIGINT` signals gracefully. When App Runner (or any container orchestrator) sends a shutdown signal, services will:
+Both the **API service** (`:8080`) and **ingestion service** (`:8081`) now handle `SIGTERM` and `SIGINT` signals gracefully. When ECS Express (or any container orchestrator) sends a shutdown signal, services will:
 
 1. **Stop accepting new requests**
 2. **Allow in-flight requests to complete** (with a 30-second timeout)
@@ -128,9 +128,9 @@ The `postgres.Pool.Close()` method gracefully closes all idle connections and ca
 
 ---
 
-## App Runner Integration
+## ECS Express Integration
 
-When AWS App Runner sends `SIGTERM` to a container:
+When AWS ECS Express sends `SIGTERM` to a container:
 
 1. ✅ Service receives signal via OS
 2. ✅ `signal.NotifyContext()` captures it
@@ -224,10 +224,10 @@ From `docs/development_plan.md` section **2.9 Graceful Shutdown**:
 
 ## Next Steps (Phase 2 Blockers)
 
-All P0 items for App Runner deployment:
+All P0 items for ECS Express deployment:
 
 - [x] 2.6 Observability (Prometheus, structured logging)
 - [ ] 2.10 GitLab CI Pipeline
-- [ ] 2.16 Deployment (App Runner, RDS, Terraform)
+- [ ] 2.16 Deployment (ECS Express, RDS, Terraform)
 
 This graceful shutdown implementation is **required before any of the above** can be fully deployed.
