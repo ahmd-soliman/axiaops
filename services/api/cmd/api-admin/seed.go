@@ -58,7 +58,10 @@ func runSeedStaff(args []string) {
 		// GrantedBy empty → bootstrap grant (no prior staff).
 	})
 	if errors.Is(err, storage.ErrStaffEmailExists) {
-		die("seed-staff: a staff user with that email already exists", "email", *email)
+		// Idempotent: re-seeding an existing staff member is a no-op success
+		// (a seed command should be safe to re-run; the password is NOT reset).
+		fmt.Printf("staff user %s already exists — leaving it unchanged\n", *email)
+		return
 	}
 	if err != nil {
 		die("seed-staff: create failed", "error", err.Error())
