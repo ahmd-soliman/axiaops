@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/admin.js';
 import { useAdminAuth } from '../auth/AdminAuth.jsx';
+import { BrandLogo, ThemeToggle } from '../Brand.jsx';
 
 export default function LoginScreen() {
   const { staff, login } = useAdminAuth();
@@ -39,8 +40,11 @@ export default function LoginScreen() {
   return (
     <div className="login-wrap">
       <div className="card">
-        <img className="brand-logo" src="/axiaops-logo.svg" alt="AxiaOps" />
-        <h1 style={{ marginTop: 0 }}>
+        <div className="login-head">
+          <BrandLogo />
+          <ThemeToggle />
+        </div>
+        <h1 style={{ marginTop: 16 }}>
           Admin <span className="muted">· staff sign-in</span>
         </h1>
         <p className="muted">This console is internal-only.</p>
