@@ -12,10 +12,8 @@ function TopBar() {
   const { staff, logout } = useAdminAuth();
   return (
     <header className="topbar">
-      <div className="brand-block">
-        <BrandLogo />
-        <span className="plane-label">Admin</span>
-      </div>
+      <BrandLogo />
+      <span className="plane-label">Admin</span>
       <nav>
         <NavLink to="/tenants" className={({ isActive }) => (isActive ? 'active' : '')}>
           Tenants
