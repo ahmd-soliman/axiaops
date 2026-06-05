@@ -1,18 +1,7 @@
-/* Minimal, self-contained styling for the admin console. Deliberately tiny —
-   no design-token system shared with the tenant dashboard (separate plane,
-   separate bundle). System font stack so there's no font dependency. */
-
-:root {
-  --bg: #0f1115;
-  --surface: #181b21;
-  --surface-2: #20242c;
-  --border: #2a2f38;
-  --text: #e6e8eb;
-  --text-dim: #9aa3af;
-  --accent: #4f86f7;
-  --danger: #e5534b;
-  --ok: #3fb950;
-}
+/* Admin console styling — consumes the AxiaOps design tokens (src/tokens.css,
+   synced from the tenant dashboard) so the staff plane shares the exact brand:
+   warm light surfaces, orange accent, Geist. Component styles only; all colors
+   come from var(--color-*). */
 
 * {
   box-sizing: border-box;
@@ -20,75 +9,98 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family:
-    system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Geist Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
 a {
-  color: var(--accent);
+  color: var(--color-accent);
   text-decoration: none;
 }
 a:hover {
   text-decoration: underline;
 }
 
+/* ── Top bar ─────────────────────────────────────────────────────────────── */
 .topbar {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 20px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
 }
-.topbar .brand {
+.topbar .brand-logo {
+  height: 26px;
+  width: auto;
+  display: block;
+}
+.topbar .tag {
+  color: var(--color-accent-text);
+  background: var(--color-accent-light);
+  border: 1px solid var(--color-accent-border);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.topbar .brand .tag {
-  color: var(--text-dim);
-  font-weight: 400;
-  margin-left: 8px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .topbar nav {
   display: flex;
-  gap: 14px;
+  gap: 6px;
+  margin-left: 8px;
+}
+.topbar nav a {
+  color: var(--color-text-muted);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.topbar nav a:hover {
+  text-decoration: none;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
 }
 .topbar nav a.active {
-  color: var(--text);
+  color: var(--color-accent-text);
+  background: var(--color-accent-light);
   font-weight: 600;
 }
 .topbar .spacer {
   flex: 1;
 }
 .topbar .who {
-  color: var(--text-dim);
+  color: var(--color-text-muted);
+  font-size: 13px;
 }
 
 .container {
   max-width: 1000px;
-  margin: 24px auto;
+  margin: 28px auto;
   padding: 0 20px;
 }
 
 h1 {
   font-size: 20px;
   margin: 0 0 16px;
+  color: var(--color-text);
 }
 h2 {
-  font-size: 15px;
+  font-size: 12px;
   margin: 24px 0 10px;
-  color: var(--text-dim);
+  color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 
+/* ── Cards / tables ──────────────────────────────────────────────────────── */
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
   padding: 20px;
 }
 
@@ -99,114 +111,144 @@ table {
 th,
 td {
   text-align: left;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--color-border);
 }
 th {
-  color: var(--text-dim);
+  color: var(--color-text-muted);
   font-weight: 500;
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 tr:last-child td {
   border-bottom: none;
 }
 tbody tr:hover {
-  background: var(--surface-2);
+  background: var(--color-surface-alt);
 }
 
+/* ── Badges ──────────────────────────────────────────────────────────────── */
 .badge {
-  display: inline-block;
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
   border-radius: 999px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: var(--color-chip-bg);
+  color: var(--color-chip-text);
+  border: 1px solid var(--color-border);
   font-size: 12px;
   margin-right: 4px;
 }
 .badge.superadmin {
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--color-accent-light);
+  border-color: var(--color-accent-border);
+  color: var(--color-accent-text);
 }
 .badge-x {
   background: none;
   border: none;
-  color: var(--text-dim);
-  padding: 0 0 0 2px;
-  font-size: 13px;
+  color: var(--color-text-sub);
+  padding: 0 0 0 4px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
 }
 .badge-x:hover:not(:disabled) {
-  color: var(--danger);
+  color: var(--color-error);
 }
 
+/* ── Forms ───────────────────────────────────────────────────────────────── */
 label {
   display: block;
   margin: 12px 0 4px;
-  color: var(--text-dim);
+  color: var(--color-text-mid);
+  font-size: 13px;
 }
 input,
 select {
   width: 100%;
-  padding: 9px 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
+  padding: 9px 11px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  color: var(--color-text);
+  font: inherit;
   font-size: 14px;
+}
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
 }
 button {
   padding: 9px 16px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-white);
   border: none;
-  border-radius: 6px;
+  border-radius: 7px;
+  font: inherit;
   font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
+}
+button:hover:not(:disabled) {
+  filter: brightness(0.95);
 }
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 button.secondary {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  color: var(--text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-mid);
 }
-button.danger {
-  background: transparent;
-  border: 1px solid var(--danger);
-  color: var(--danger);
-  padding: 4px 10px;
-  font-size: 12px;
+button.secondary:hover:not(:disabled) {
+  background: var(--color-surface-alt);
+  filter: none;
 }
 
+/* ── Misc ────────────────────────────────────────────────────────────────── */
 .error {
-  color: var(--danger);
+  color: var(--color-error);
   margin: 10px 0;
 }
 .muted {
-  color: var(--text-dim);
+  color: var(--color-text-muted);
 }
 
 .login-wrap {
-  max-width: 360px;
+  max-width: 380px;
   margin: 12vh auto;
+}
+.login-wrap .brand-logo {
+  height: 32px;
+  margin-bottom: 20px;
 }
 
 .kv {
   display: grid;
-  grid-template-columns: 200px 1fr;
-  gap: 8px 16px;
+  grid-template-columns: 220px 1fr;
+  gap: 9px 16px;
   margin-top: 12px;
 }
 .kv dt {
-  color: var(--text-dim);
+  color: var(--color-text-muted);
 }
 .kv dd {
   margin: 0;
+}
+
+pre {
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow: auto;
+  font-family: 'Geist Mono Variable', ui-monospace, monospace;
+  font-size: 12px;
 }
 
 .row-actions {
