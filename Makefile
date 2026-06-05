@@ -410,6 +410,14 @@ build-production:
 	# for the same reason.
 	cd services/api && go build -tags production -o /tmp/axiaops-api-production ./cmd/
 	cd services/ingestion && go build -tags production -o /tmp/axiaops-ingestion-production ./cmd/
+	# Admin plane binary (cmd/api-admin). Guarded by a directory check so this
+	# target stays green on branches/tags that predate the admin plane (it lands
+	# via the admin-portal MRs). It has no DEV_MODE references today, but pinning
+	# the production-tag build catches a future regression that adds one.
+	@if [ -d services/api/cmd/api-admin ]; then \
+		cd services/api && go build -tags production -o /tmp/axiaops-api-admin-production ./cmd/api-admin/ && \
+		echo "production-tagged api-admin built — /tmp/axiaops-api-admin-production"; \
+	fi
 	@echo "production-tagged binaries built — DEV_MODE is no-op in /tmp/axiaops-{api,ingestion}-production"
 
 # axiaopsctl is the operator CLI for migrate up/down/force/drift/history.
