@@ -702,7 +702,7 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 // cannot reply at all (in which case the request times out and the orchestrator
 // kills the instance — that's the only failure mode for this endpoint).
 //
-// No DB ping, no Redis ping, no cross-service check. App Runner / k8s should
+// No DB ping, no Redis ping, no cross-service check. ECS Express / k8s should
 // wire their *instance* health probe to this so a transient DB blip doesn't
 // trigger pod restarts. Deep dependency checks belong in /readyz.
 func (h *Handler) livez(w http.ResponseWriter, _ *http.Request) {
@@ -729,7 +729,7 @@ func (h *Handler) livez(w http.ResponseWriter, _ *http.Request) {
 // anyway — the answer is in CloudWatch metrics, not HTTP.
 func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
 	// Cap the deep check so a slow Postgres or Redis can't tie up readyz
-	// past what App Runner's check timeout will tolerate.
+	// past what ECS Express's check timeout will tolerate.
 	ctx, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
 	defer cancel()
 
