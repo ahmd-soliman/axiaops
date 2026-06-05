@@ -70,11 +70,12 @@ a:hover {
    Tucked close to the wordmark so it reads as part of the lockup, set apart
    from the nav links. */
 .topbar .plane-label {
-  margin-left: -2px;
+  margin-left: -8px;
   color: var(--color-accent);
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  font-style: italic;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 .topbar nav {
