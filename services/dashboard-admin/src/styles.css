@@ -49,7 +49,7 @@ a:hover {
    wordmark instead of floating in the SVG's trailing whitespace. */
 .topbar .brand-logo-wrap {
   margin-left: -8px;
-  margin-right: -36px;
+  margin-right: -28px;
 }
 .brand-logo {
   width: auto;
