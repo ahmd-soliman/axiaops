@@ -73,6 +73,8 @@ a:hover {
   color: var(--color-text);
   font-size: 15px;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .topbar nav {
   display: flex;
