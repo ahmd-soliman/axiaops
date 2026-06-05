@@ -65,13 +65,17 @@ a:hover {
    beta/status tag). The admin.axiaops.io subdomain is the primary cue; this
    reinforces it calmly. A louder banner is reserved for genuinely privileged
    moments (break-glass / impersonation), per the admin-portal design. */
+/* Plane indicator — a small orange caption next to the logo (no chip chrome,
+   just the brand accent as a subtext), reinforcing the admin.axiaops.io cue.
+   Tucked close to the wordmark so it reads as part of the lockup, set apart
+   from the nav links. */
 .topbar .plane-label {
-  padding-left: 12px;
-  border-left: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
+  margin-left: -2px;
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .topbar nav {
   display: flex;
