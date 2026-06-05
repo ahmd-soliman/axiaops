@@ -254,10 +254,8 @@ button.secondary:hover:not(:disabled) {
   max-width: 380px;
   margin: 12vh auto;
 }
-.login-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.login-wrap .brand-logo-wrap {
+  margin-bottom: 4px;
 }
 .login-wrap .brand-logo {
   /* Matches the tenant dashboard auth-screen logo (_authShell: 64px). */
