@@ -13,7 +13,7 @@ function TopBar() {
   return (
     <header className="topbar">
       <BrandLogo />
-      <span className="tag">admin</span>
+      <span className="plane-label">Admin</span>
       <nav>
         <NavLink to="/tenants" className={({ isActive }) => (isActive ? 'active' : '')}>
           Tenants
