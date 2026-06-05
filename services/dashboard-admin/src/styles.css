@@ -43,6 +43,14 @@ a:hover {
   display: inline-flex;
   align-items: center;
 }
+/* The AxiaOps SVG lockup only fills ~60% of its box — lots of transparent
+   space left + right of the wordmark. Collapse it with negative margins so the
+   logo sits near the left edge and the ADMIN eyebrow tucks against the
+   wordmark instead of floating in the SVG's trailing whitespace. */
+.topbar .brand-logo-wrap {
+  margin-left: -8px;
+  margin-right: -52px;
+}
 .brand-logo {
   width: auto;
   display: block;
