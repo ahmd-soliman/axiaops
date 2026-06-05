@@ -170,7 +170,7 @@ Notes:
 - `<AxiaOpsAccountId>` is hard-coded for the production AxiaOps AWS account. Staging gets
   a different account ID; we render whichever matches `APP_ENV`.
 - `Principal` is `AxiaOpsScanner`, an IAM role in the AxiaOps account whose name describes
-  a **capability**, not a deployment substrate. Whatever runs ingestion (today: App Runner
+  a **capability**, not a deployment substrate. Whatever runs ingestion (today: the ECS Express
   task role; potentially: Lambda execution role, ECS task role) adopts `AxiaOpsScanner`
   as its execution identity. This decouples the customer-facing trust contract from our
   compute choice — moving ingestion to Lambda later does not require any customer to
@@ -720,7 +720,7 @@ The question is across scans:
   API. Not recommended.
 - **Option C: rely on aws-sdk-go-v2's built-in `aws.CredentialsCache`.** The SDK does
   in-memory caching of AssumeRole responses inside a single process. It does not survive
-  process restarts and does not coordinate across replicas. For App Runner's scale-to-zero
+  process restarts and does not coordinate across replicas. For ECS Express's always-on
   model, this is "free" optimisation that helps within a single warm process and gracefully
   degrades to "always re-assume" otherwise.
 
@@ -931,7 +931,7 @@ These need product / GTM input before implementation starts:
       store and call.
 - [ ] **Region scope of trust policy.** §3.5 leaves region as a per-account preference.
       Confirm we never need a "this role can only be assumed from these regions" condition
-      — we currently call STS from one App Runner region, so a `aws:RequestedRegion`
+      — we currently call STS from one AWS region, so a `aws:RequestedRegion`
       condition would lock us in. Recommendation: omit, document.
 - [ ] **Multi-account customer onboarding.** A customer with 5 AWS accounts goes through
       the §4 flow 5 times. Acceptable for v1. Bulk onboarding via AWS Organizations
