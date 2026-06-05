@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/admin.js';
 import { useAdminAuth } from '../auth/AdminAuth.jsx';
-import { BrandLogo } from '../Brand.jsx';
+import { BrandLogo, ThemeToggle } from '../Brand.jsx';
 
 export default function LoginScreen() {
   const { staff, login } = useAdminAuth();
@@ -40,7 +40,10 @@ export default function LoginScreen() {
   return (
     <div className="login-wrap">
       <div className="card">
-        <BrandLogo />
+        <div className="login-head">
+          <BrandLogo />
+          <ThemeToggle />
+        </div>
         <h1 style={{ marginTop: 16 }}>
           Admin <span className="muted">· staff sign-in</span>
         </h1>
