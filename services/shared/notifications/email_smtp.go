@@ -124,25 +124,54 @@ func heloName(from string) string {
 
 // Send implements Transport. externalID is always empty for email.
 func (t *EmailTransport) Send(ctx context.Context, channel model.NotificationChannel, payload Payload) (string, error) {
-	plaintext, err := crypto.Decrypt(channel.ConfigCiphertext)
+	cfg, err := DecodeEmailConfig(channel)
 	if err != nil {
-		return "", fmt.Errorf("email: decrypt config: %w", err)
-	}
-	var cfg model.EmailConfig
-	if err := json.Unmarshal([]byte(plaintext), &cfg); err != nil {
-		return "", fmt.Errorf("email: decode config: %w", err)
-	}
-	if cfg.SMTPHost == "" || cfg.SMTPPort == 0 {
-		return "", fmt.Errorf("email: smtp_host and smtp_port are required")
-	}
-	if cfg.From == "" {
-		return "", fmt.Errorf("email: from is required")
+		return "", err
 	}
 	if len(cfg.Recipients) == 0 {
 		return "", fmt.Errorf("email: at least one recipient is required")
 	}
+	return "", t.deliver(ctx, cfg, cfg.Recipients, buildEmailMessage(cfg, payload))
+}
 
-	msg := buildEmailMessage(cfg, payload)
+// DecodeEmailConfig decrypts a channel's config blob into an EmailConfig and
+// validates the SMTP transport fields shared by every email send (digest or
+// invite). Recipient validation is left to the caller — a digest fans out to
+// cfg.Recipients, an invite targets a single supplied address. Exported so the
+// api-layer invite mailer can resolve a channel into a plaintext config and
+// hand it to SendInvite, the same way the digest path does internally.
+func DecodeEmailConfig(channel model.NotificationChannel) (model.EmailConfig, error) {
+	plaintext, err := crypto.Decrypt(channel.ConfigCiphertext)
+	if err != nil {
+		return model.EmailConfig{}, fmt.Errorf("email: decrypt config: %w", err)
+	}
+	var cfg model.EmailConfig
+	if err := json.Unmarshal([]byte(plaintext), &cfg); err != nil {
+		return model.EmailConfig{}, fmt.Errorf("email: decode config: %w", err)
+	}
+	if err := ValidateEmailConfig(cfg); err != nil {
+		return model.EmailConfig{}, err
+	}
+	return cfg, nil
+}
+
+// ValidateEmailConfig checks the SMTP transport fields every email send needs.
+// Used both by DecodeEmailConfig (channel-sourced config) and directly by the
+// invite mailer when it sources config from the global env/SSM SMTP settings.
+func ValidateEmailConfig(cfg model.EmailConfig) error {
+	if cfg.SMTPHost == "" || cfg.SMTPPort == 0 {
+		return fmt.Errorf("email: smtp_host and smtp_port are required")
+	}
+	if cfg.From == "" {
+		return fmt.Errorf("email: from is required")
+	}
+	return nil
+}
+
+// deliver runs the timeout-bounded, secret-scrubbing SMTP send shared by the
+// digest and invite paths. msg is a fully-composed RFC 5322 message; to is the
+// envelope recipient set.
+func (t *EmailTransport) deliver(ctx context.Context, cfg model.EmailConfig, to []string, msg []byte) error {
 	addr := net.JoinHostPort(cfg.SMTPHost, strconv.Itoa(cfg.SMTPPort))
 
 	var auth smtp.Auth
@@ -151,28 +180,29 @@ func (t *EmailTransport) Send(ctx context.Context, channel model.NotificationCha
 	}
 
 	// net/smtp.SendMail is blocking and ctx-unaware. Run it in a goroutine and
-	// race it against the dispatcher's deadline so a wedged relay can't stall the
-	// scan past the per-transport timeout. `done` is buffered so the goroutine
-	// can always send and exit even after we've returned on the ctx path — it
-	// outlives this call but never blocks (acceptable for v1: single attempt, no
-	// retry — see docs/notifications-plan.md "Risks + deferred → Retry / DLQ").
+	// race it against the caller's deadline so a wedged relay can't stall the
+	// scan (or the invite request) past the per-transport timeout. `done` is
+	// buffered so the goroutine can always send and exit even after we've
+	// returned on the ctx path — it outlives this call but never blocks
+	// (acceptable for v1: single attempt, no retry — see
+	// docs/notifications-plan.md "Risks + deferred → Retry / DLQ").
 	done := make(chan error, 1)
 	go func() {
-		done <- t.sendMail(addr, auth, cfg.From, cfg.Recipients, msg)
+		done <- t.sendMail(addr, auth, cfg.From, to, msg)
 	}()
 
 	select {
 	case <-ctx.Done():
 		// addr (the SMTP host) is internal infra — keep it out of the dispatch
 		// error record; ctx.Err() carries no secret and stays a %w chain.
-		return "", fmt.Errorf("email: send timed out: %w", ctx.Err())
+		return fmt.Errorf("email: send timed out: %w", ctx.Err())
 	case err := <-done:
 		if err != nil {
 			// Scrub the SMTP password in case a relay error echoes the auth line,
 			// then re-wrap so the error stays a %w chain per repo convention.
-			return "", fmt.Errorf("email: send: %w", errors.New(scrubSecrets(err.Error(), cfg.SMTPPass)))
+			return fmt.Errorf("email: send: %w", errors.New(scrubSecrets(err.Error(), cfg.SMTPPass)))
 		}
-		return "", nil
+		return nil
 	}
 }
 

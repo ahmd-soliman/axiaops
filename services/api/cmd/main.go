@@ -48,6 +48,37 @@ func die(msg string, args ...any) {
 	os.Exit(1)
 }
 
+// transactionalSMTPFromEnv reads the global SMTP relay config used as the invite
+// mailer's fallback when an org has no email notification channel. In prod the
+// values arrive from SSM exactly like DATABASE_URL. Empty SMTP_HOST ⇒ zero
+// config ⇒ no global mailer (invite delivery then depends on a per-org channel).
+// SMTP_PORT defaults to 587 (STARTTLS submission — Gmail SMTP relay, SES, etc.).
+func transactionalSMTPFromEnv() model.EmailConfig {
+	host := os.Getenv("SMTP_HOST")
+	if host == "" {
+		return model.EmailConfig{}
+	}
+	port := 587
+	if v := os.Getenv("SMTP_PORT"); v != "" {
+		// Fail fast on a typo'd port rather than silently using 587 — SMTP_HOST
+		// is set, so the operator clearly intends email and a wrong/ignored port
+		// would only surface as silent delivery failures later.
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 65535 {
+			die("smtp: invalid SMTP_PORT (must be 1–65535)", "value", v)
+		}
+		port = n
+	}
+	return model.EmailConfig{
+		SMTPHost: host,
+		SMTPPort: port,
+		SMTPUser: os.Getenv("SMTP_USER"),
+		SMTPPass: os.Getenv("SMTP_PASS"),
+		From:     os.Getenv("SMTP_FROM"),
+		FromName: os.Getenv("SMTP_FROM_NAME"),
+	}
+}
+
 func main() {
 	logging.Init("api")
 
@@ -236,6 +267,7 @@ func main() {
 		RedisConfigured:   redisConfigured,
 		RateLimitMax:      rateLimitMax,
 		StuckScanTimeout:  stuckScanTimeout,
+		TransactionalSMTP: transactionalSMTPFromEnv(),
 	}
 
 	deps := serverbuild.Deps{
