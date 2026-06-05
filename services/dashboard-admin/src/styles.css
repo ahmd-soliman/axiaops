@@ -29,14 +29,32 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 10px 20px;
+  /* 48px logo + 8px top/bottom ≈ the dashboard's 64px navbar height. */
+  padding: 8px 20px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
 }
-.topbar .brand-logo {
-  height: 26px;
+/* Theme-aware logo: render both variants, show one per data-theme. */
+.brand-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+.brand-logo {
   width: auto;
   display: block;
+}
+.brand-logo-dark {
+  display: none;
+}
+:root[data-theme='dark'] .brand-logo-light {
+  display: none;
+}
+:root[data-theme='dark'] .brand-logo-dark {
+  display: block;
+}
+.topbar .brand-logo {
+  /* Matches the tenant dashboard navbar logo (AppShell: 48px desktop). */
+  height: 48px;
 }
 .topbar .tag {
   color: var(--color-accent-text);
@@ -223,9 +241,25 @@ button.secondary:hover:not(:disabled) {
   max-width: 380px;
   margin: 12vh auto;
 }
+.login-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
 .login-wrap .brand-logo {
-  height: 32px;
-  margin-bottom: 20px;
+  /* Matches the tenant dashboard auth-screen logo (_authShell: 64px). */
+  height: 64px;
+}
+
+/* Square icon button — the theme toggle. */
+.icon-btn {
+  width: 36px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .kv {
