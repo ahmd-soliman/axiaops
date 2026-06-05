@@ -84,6 +84,21 @@ start-debug: migrate
 	@echo "Postgres up and migrated. Hit F5 in VS Code to debug Go services."
 	@echo "For dashboard: cd services/dashboard && npm run dev"
 
+# Run the platform admin UI (services/dashboard-admin) dev server on :5174.
+# Its OWN target — the admin plane is opt-in and deliberately NOT bundled into
+# `make start-dev`, so the tenant stack stays lean and nobody runs the staff
+# console who doesn't need it (plane separation, saas-platform-admin-design §3).
+# The admin BACKEND (cmd/api-admin on :8090) comes from `make start-dev`; this
+# is the staff console in front of it. Vite proxies /admin/* → :8090 so the
+# browser stays same-origin and the staff cookie round-trips. Mint a superadmin
+# with `make seed-staff` first if you haven't.
+.PHONY: start-admin-ui
+start-admin-ui:
+	@curl -sf http://localhost:8090/livez >/dev/null 2>&1 \
+		|| echo "⚠  admin backend not detected on :8090 — run 'make start-dev' (then 'make seed-staff') first"
+	@echo "Admin UI → http://localhost:5174  (login with your 'make seed-staff' superadmin)"
+	cd services/dashboard-admin && npm install && npm run dev
+
 # Run database migrations using dedicated migration container
 migrate:
 	@echo "Running database migrations..."
