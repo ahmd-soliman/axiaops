@@ -1,0 +1,216 @@
+/* Minimal, self-contained styling for the admin console. Deliberately tiny —
+   no design-token system shared with the tenant dashboard (separate plane,
+   separate bundle). System font stack so there's no font dependency. */
+
+:root {
+  --bg: #0f1115;
+  --surface: #181b21;
+  --surface-2: #20242c;
+  --border: #2a2f38;
+  --text: #e6e8eb;
+  --text-dim: #9aa3af;
+  --accent: #4f86f7;
+  --danger: #e5534b;
+  --ok: #3fb950;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .brand {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.topbar .brand .tag {
+  color: var(--text-dim);
+  font-weight: 400;
+  margin-left: 8px;
+}
+.topbar nav {
+  display: flex;
+  gap: 14px;
+}
+.topbar nav a.active {
+  color: var(--text);
+  font-weight: 600;
+}
+.topbar .spacer {
+  flex: 1;
+}
+.topbar .who {
+  color: var(--text-dim);
+}
+
+.container {
+  max-width: 1000px;
+  margin: 24px auto;
+  padding: 0 20px;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0 0 16px;
+}
+h2 {
+  font-size: 15px;
+  margin: 24px 0 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th,
+td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+th {
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+tr:last-child td {
+  border-bottom: none;
+}
+tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  margin-right: 4px;
+}
+.badge.superadmin {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.badge-x {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 0 0 0 2px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.badge-x:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+label {
+  display: block;
+  margin: 12px 0 4px;
+  color: var(--text-dim);
+}
+input,
+select {
+  width: 100%;
+  padding: 9px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+}
+button {
+  padding: 9px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+button.secondary {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+button.danger {
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.error {
+  color: var(--danger);
+  margin: 10px 0;
+}
+.muted {
+  color: var(--text-dim);
+}
+
+.login-wrap {
+  max-width: 360px;
+  margin: 12vh auto;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 8px 16px;
+  margin-top: 12px;
+}
+.kv dt {
+  color: var(--text-dim);
+}
+.kv dd {
+  margin: 0;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
