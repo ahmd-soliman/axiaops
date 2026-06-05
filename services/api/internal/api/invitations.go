@@ -21,11 +21,11 @@ import (
 
 // invitationResponse is the wire shape for one pending invitation.
 type invitationResponse struct {
-	ID             string    `json:"id"`
-	OrganizationID string    `json:"organization_id"`
-	Email          string    `json:"email"`
-	Role           string    `json:"role"`
-	Status         string    `json:"status"`
+	ID             string `json:"id"`
+	OrganizationID string `json:"organization_id"`
+	Email          string `json:"email"`
+	Role           string `json:"role"`
+	Status         string `json:"status"`
 	InvitedBy      struct {
 		UserID string `json:"user_id"`
 		Email  string `json:"email"`
@@ -39,6 +39,16 @@ type invitationResponse struct {
 	// — a previously-minted token's plaintext can't be reconstructed from
 	// the stored hash.
 	RedemptionURL string `json:"redemption_url,omitempty"`
+
+	// EmailDelivery reports whether the redemption URL was emailed to the
+	// invitee. Set only on POST /v1/invitations (omitted on list/get), and only
+	// when an InviteMailer is wired. One of: "sent", "failed",
+	// "skipped_no_transport" (no enabled email channel and no global SMTP
+	// config), "skipped_no_public_host" (PUBLIC_HOST unset → no absolute link to
+	// mail), "error" (transient internal failure resolving the transport). The
+	// redemption URL is always returned regardless, so OOB sharing remains the
+	// durable fallback when delivery is skipped or fails.
+	EmailDelivery string `json:"email_delivery,omitempty"`
 
 	// EnforcementHint is set to "sso_required" when the inviter's org has
 	// an active OIDC connection with enforcement="required". The
@@ -59,6 +69,23 @@ type invitationResponse struct {
 // pivots on. Constant rather than inlined so the test pin and the
 // frontend reference resolve through the same symbol.
 const invitationEnforcementHintRequired = "sso_required"
+
+// Invite-email delivery outcomes reported via invitationResponse.EmailDelivery
+// and the axiaops_auth_invite_email_total{outcome} metric. Shared with the
+// default InviteMailer in invite_mailer.go (same package).
+const (
+	inviteEmailSent   = "sent"
+	inviteEmailFailed = "failed"
+	// inviteEmailSkippedNoTransport: the org has no enabled email channel and
+	// no global env/SSM SMTP config is set — nothing to send through.
+	inviteEmailSkippedNoTransport = "skipped_no_transport"
+	inviteEmailSkippedNoHost      = "skipped_no_public_host"
+	// inviteEmailError marks a transient internal failure while resolving the
+	// transport (e.g. the channel-list DB read errored). Distinct from
+	// skipped_no_transport so an operator can tell "nothing configured" apart
+	// from "we couldn't check".
+	inviteEmailError = "error"
+)
 
 func toInvitationResponse(inv model.PendingInvitation) invitationResponse {
 	out := invitationResponse{
@@ -154,23 +181,41 @@ func (h *Handler) createInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	audit.Record(r, h.store, model.AuditEvent{
-		Action:       model.AuditActionMemberInvited,
-		ResourceType: "invitation",
-		ResourceID:   inv.ID,
-		Metadata: map[string]any{
-			"email":  req.Email,
-			"role":   req.Role,
-			"resent": !inserted,
-			"native": true,
-		},
-	})
-
 	resp := toInvitationResponse(inv)
 	resp.RedemptionURL = h.buildRedemptionURL(plaintext)
 	if h.orgHasRequiredSSO(ctx) {
 		resp.EnforcementHint = invitationEnforcementHintRequired
 	}
+
+	// Best-effort: email the redemption URL to the invitee. Routed through the
+	// InviteMailer seam (channel-first, global-SMTP fallback). Never fatal — the
+	// URL is already in the response for OOB sharing, so a missing transport or
+	// a relay failure must not fail the invitation. nil mailer (unwired in some
+	// tests) ⇒ no delivery attempt, EmailDelivery omitted.
+	if h.inviteMailer != nil {
+		resp.EmailDelivery = h.inviteMailer.SendInvite(ctx, InviteMailRequest{
+			OrganizationID: tid,
+			Recipient:      req.Email,
+			Role:           req.Role,
+			InviterEmail:   actorEmail,
+			RedemptionURL:  resp.RedemptionURL,
+			ExpiresAt:      inv.ExpiresAt,
+		})
+	}
+
+	audit.Record(r, h.store, model.AuditEvent{
+		Action:       model.AuditActionMemberInvited,
+		ResourceType: "invitation",
+		ResourceID:   inv.ID,
+		Metadata: map[string]any{
+			"email":          req.Email,
+			"role":           req.Role,
+			"resent":         !inserted,
+			"native":         true,
+			"email_delivery": resp.EmailDelivery,
+		},
+	})
+
 	status := http.StatusOK
 	if inserted {
 		status = http.StatusCreated
