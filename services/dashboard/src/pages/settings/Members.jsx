@@ -18,6 +18,7 @@ import { useBreakpoint } from '../../components/primitives/useBreakpoint';
 import { CardRow } from '../../components/primitives/CardRow';
 import { useDestructiveConfirm, DestructiveConfirmModal } from '../../components/DestructiveConfirm';
 import { useToast } from '../../context/ToastContext';
+import { formatDate as formatFullDate } from '../../utils/formatDate';
 
 // Role labels in the order shown in dropdowns and the matrix in the design.
 // Owner is intentionally omitted — promotion to owner happens only via the
@@ -390,7 +391,7 @@ export default function Members() {
                     }
                     body={
                       <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-                        Invited {new Date(inv.created_at).toLocaleDateString()}
+                        Invited {formatDate(inv.created_at)}
                       </span>
                     }
                     actions={canRevoke ? (
@@ -422,7 +423,7 @@ export default function Members() {
                   <tr key={inv.id} style={{ borderBottom: `1px solid var(--color-border)` }}>
                     <Td>{inv.email}</Td>
                     <Td>{inv.role}</Td>
-                    <Td>{new Date(inv.created_at).toLocaleDateString()}</Td>
+                    <Td>{formatDate(inv.created_at)}</Td>
                     <Td>
                       {canInvite && (inv.role !== 'admin' || canManageAdmin) && (
                         <button
@@ -784,12 +785,7 @@ function provenanceBadge() {
 }
 
 function formatDate(s) {
-  if (!s) return '—';
-  try {
-    return new Date(s).toLocaleDateString();
-  } catch {
-    return s;
-  }
+  return formatFullDate(s) || '—';
 }
 
 function humanize(err, fallback) {

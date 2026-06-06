@@ -46,6 +46,11 @@ const TAB_GROUPS = [
     items: [
       { label: 'Cloud Accounts', path: '/settings/cloud-accounts', requires: PERM.ACCOUNTS_READ },
       { label: 'Members',        path: '/settings/members',        requires: PERM.MEMBERS_INVITE },
+      // Integrations gated on CHANNELS_MANAGE (admin+) even though the backend
+      // grants CHANNELS_READ to viewer+ — same call as the SSO tab above: a
+      // viewer-facing read-only mode is deferred, and exposing mutation controls
+      // that 403 is worse UX than hiding the tab.
+      { label: 'Integrations',   path: '/settings/integrations',   requires: PERM.CHANNELS_MANAGE },
       { label: 'Audit Log',      path: '/settings/audit',          requires: PERM.AUDIT_READ },
       { label: 'SSO',            path: '/settings/sso',            requires: PERM.SSO_MANAGE },
       { label: 'Organization',   path: '/settings/organization',   requires: PERM.ORGANIZATION_DELETE },
@@ -121,6 +126,8 @@ export default function Settings() {
       ) : (
         <DesktopAside can={can} location={location} navigate={navigate} isDark={isDark} />
       )}
+      {/* No width cap — settings tabs are full-width like the rest of the
+          app; each tab's own padding governs its content inset. */}
       <main style={{ flex: 1, minWidth: 0 }}>
         {visible.length === 0 ? (
           <div style={{ padding: 24, color: 'var(--color-text-muted)', fontSize: 13 }}>

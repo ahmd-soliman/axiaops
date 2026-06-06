@@ -24,7 +24,7 @@ export default function SSO() {
   const tabBorder = isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb';
 
   return (
-    <div style={{ padding: 24, color: 'var(--color-text-mid)', maxWidth: 960 }}>
+    <div style={{ padding: 24, color: 'var(--color-text-mid)' }}>
       <h1 style={{ margin: 0, color: 'var(--color-text)', fontSize: 22, fontWeight: 700 }}>Single Sign-On</h1>
       <p style={{ marginTop: 4, marginBottom: 20, color: 'var(--color-text-muted)', fontSize: 13 }}>
         Configure OIDC connections, verify domains, map groups to roles, and set enforcement.

@@ -356,3 +356,74 @@ func TestSummarize_AggregatesSavings(t *testing.T) {
 		t.Errorf("expected EC2 savings 289.60, got %f", s.ByService["AmazonEC2"].Savings)
 	}
 }
+
+// ── SummarizeByAccount ─────────────────────────────────────────────────────────
+
+func TestSummarizeByAccount(t *testing.T) {
+	zombies := []model.ZombieResource{
+		// Account A (AWS 111111111111): RDS dominates → top_service AmazonRDS.
+		{InternalAccountID: "acc-a", AccountID: "111111111111", Service: "AmazonRDS", MonthlyCost: 210.00, Currency: "USD"},
+		{InternalAccountID: "acc-a", AccountID: "111111111111", Service: "AmazonEC2", MonthlyCost: 50.00, Currency: "USD"},
+		{InternalAccountID: "acc-a", AccountID: "111111111111", Service: "AmazonEC2", MonthlyCost: 40.00, Currency: "USD"},
+		// Account B (AWS 222222222222): EC2 only.
+		{InternalAccountID: "acc-b", AccountID: "222222222222", Service: "AmazonEC2", MonthlyCost: 100.00, Currency: "USD"},
+	}
+
+	got := analyzer.SummarizeByAccount(zombies)
+
+	if got.Currency != "USD" {
+		t.Errorf("expected currency USD, got %q", got.Currency)
+	}
+	if len(got.Accounts) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(got.Accounts))
+	}
+
+	byID := make(map[string]analyzer.AccountSummary, len(got.Accounts))
+	for _, a := range got.Accounts {
+		byID[a.InternalAccountID] = a
+	}
+
+	a, ok := byID["acc-a"]
+	if !ok {
+		t.Fatalf("expected acc-a in result")
+	}
+	if a.AccountID != "111111111111" {
+		t.Errorf("acc-a: expected account_id 111111111111, got %q", a.AccountID)
+	}
+	if a.TotalZombies != 3 {
+		t.Errorf("acc-a: expected 3 zombies, got %d", a.TotalZombies)
+	}
+	if a.PotentialMonthly != 300.00 {
+		t.Errorf("acc-a: expected savings 300.00, got %f", a.PotentialMonthly)
+	}
+	// EC2 sums to 90, RDS to 210 → top_service must be AmazonRDS, not the
+	// service with the most resources.
+	if a.TopService != "AmazonRDS" {
+		t.Errorf("acc-a: expected top_service AmazonRDS, got %q", a.TopService)
+	}
+
+	b, ok := byID["acc-b"]
+	if !ok {
+		t.Fatalf("expected acc-b in result")
+	}
+	if b.TotalZombies != 1 {
+		t.Errorf("acc-b: expected 1 zombie, got %d", b.TotalZombies)
+	}
+	if b.PotentialMonthly != 100.00 {
+		t.Errorf("acc-b: expected savings 100.00, got %f", b.PotentialMonthly)
+	}
+	if b.TopService != "AmazonEC2" {
+		t.Errorf("acc-b: expected top_service AmazonEC2, got %q", b.TopService)
+	}
+}
+
+func TestSummarizeByAccount_Empty(t *testing.T) {
+	got := analyzer.SummarizeByAccount(nil)
+
+	if got.Accounts == nil {
+		t.Fatal("expected non-nil Accounts slice so it serialises as [], not null")
+	}
+	if len(got.Accounts) != 0 {
+		t.Errorf("expected 0 accounts, got %d", len(got.Accounts))
+	}
+}

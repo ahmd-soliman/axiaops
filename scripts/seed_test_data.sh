@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # seed_test_data.sh — seed dev organization with dummy data for local development or remote servers
 #
+# Repo-root helper: resolves the path to the AxiaOps repo regardless of how
+# the script is invoked (from the repo root via Makefile, or from elsewhere
+# via an absolute path). Needed for the `go run ./services/api/cmd/hash-password`
+# invocation in the --demo block that mints argon2id hashes for the
+# alice/bob/carol personas — see docs/demo-setup.md for the password flow.
+#
 # Prerequisites:
 #   Requires psql. If not installed:
 #     brew install libpq
@@ -54,9 +60,12 @@ resolve_psql() {
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 REMOTE_ENV=""
 AUTO_YES=false
 DEMO_MODE=false
+BOOTSTRAP_FIRST=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -64,14 +73,21 @@ while [[ $# -gt 0 ]]; do
       shift
       REMOTE_ENV="${1:-}"
       case "$REMOTE_ENV" in
-        dev-1|dev-2|staging|preview|demo) ;;
+        dev-1|dev-2|staging|preview|demo|integration) ;;
         *)
-          echo "Error: --remote requires 'dev-1', 'dev-2', 'staging', 'preview', or 'demo', got '$REMOTE_ENV'"
+          echo "Error: --remote requires 'dev-1', 'dev-2', 'staging', 'preview', 'demo', or 'integration', got '$REMOTE_ENV'"
           exit 1
           ;;
       esac
       ;;
     --yes|-y) AUTO_YES=true ;;
+    --bootstrap-first)
+      # Skip the dashboard bootstrap ceremony on auth-on remote envs by
+      # creating the first organization + first owner (alice) + sealing
+      # bootstrap_state directly via SQL. ONLY for ephemeral demo envs.
+      # See docs/demo-setup.md for the rationale and constraints.
+      BOOTSTRAP_FIRST=true
+      ;;
     --demo)
       # Tier-1 slice of #93. Populates Acme + Globex orgs with copies of the
       # dev seed data under acme-*/globex-* account IDs so the dashboard can
@@ -87,14 +103,37 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-# --demo is allowed for local docker and --remote preview. Staging + demo
-# envs are intentionally blocked: they're the stable / stakeholder-facing
-# envs (per "preview vs staging" convention in CLAUDE.md), and overwriting
-# their org list with demo fixtures would pollute reference data.
-if [[ "$DEMO_MODE" == "true" && -n "$REMOTE_ENV" && "$REMOTE_ENV" != "preview" ]]; then
-  echo "Error: --demo only supports local docker or --remote preview." >&2
+# --demo is allowed for local docker + --remote preview + --remote demo.
+# Staging / integration / dev-* are intentionally blocked: dev-* are auth-bypass
+# envs where the persona logins wouldn't exercise anything, and staging /
+# integration are reference envs whose org list shouldn't be polluted with
+# demo fixtures. The full multi-user demo posture is tracked in #93.
+DEMO_ALLOWED_REMOTES_REGEX='^(preview|demo)$'
+if [[ "$DEMO_MODE" == "true" && -n "$REMOTE_ENV" && ! "$REMOTE_ENV" =~ $DEMO_ALLOWED_REMOTES_REGEX ]]; then
+  echo "Error: --demo only supports local docker, --remote preview, or --remote demo." >&2
   echo "       For --remote $REMOTE_ENV, the full multi-org demo posture is tracked in #93." >&2
   exit 1
+fi
+
+# --bootstrap-first preconditions: only meaningful on a fresh auth-on remote
+# env, only useful with --demo (which mints alice as the first owner), only
+# usable when DEMO_USERS_PASSWORD is set (so alice has a real hashed login).
+# Refuse loudly otherwise — silent miscombination here would either no-op or
+# create an orphan org with no owner.
+if [[ "$BOOTSTRAP_FIRST" == "true" ]]; then
+  if [[ -z "$REMOTE_ENV" ]]; then
+    echo "Error: --bootstrap-first only applies to --remote envs (local docker auto-creates the dev org)." >&2
+    exit 1
+  fi
+  if [[ "$DEMO_MODE" != "true" ]]; then
+    echo "Error: --bootstrap-first requires --demo (the alice/bob/carol personas are demo-mode only)." >&2
+    exit 1
+  fi
+  if [[ -z "${DEMO_USERS_PASSWORD:-}" ]]; then
+    echo "Error: --bootstrap-first requires DEMO_USERS_PASSWORD env var to be set so alice has a hashed login." >&2
+    echo "       See docs/demo-setup.md for the recommended workflow." >&2
+    exit 1
+  fi
 fi
 
 # ── Remote connection setup ───────────────────────────────────────────────────
@@ -125,11 +164,12 @@ if [[ -n "$REMOTE_ENV" ]]; then
   # from a LAN-attached laptop). The script itself sticks to IPs to
   # avoid the resolver-dependency surface.
   case "$REMOTE_ENV" in
-    dev-1)   HOST_IP="192.168.1.121" ;;
-    dev-2)   HOST_IP="192.168.1.123" ;;
-    staging) HOST_IP="192.168.1.122" ;;
-    preview) HOST_IP="192.168.1.124" ;;
-    demo)    HOST_IP="192.168.1.126" ;;
+    dev-1)       HOST_IP="192.168.1.121" ;;
+    dev-2)       HOST_IP="192.168.1.123" ;;
+    staging)     HOST_IP="192.168.1.122" ;;
+    preview)     HOST_IP="192.168.1.124" ;;
+    demo)        HOST_IP="192.168.1.126" ;;
+    integration) HOST_IP="192.168.1.130" ;;
   esac
   DB_PORT=5432
 
@@ -250,15 +290,55 @@ PERIOD_END="$NOW"
 # AUTH_ON_ENVS = the set where the API requires real auth and creates real
 # org rows via the native bootstrap flow. Keep in sync with DEV_MODE settings
 # in deploy/{env}.yml — if you flip an env's DEV_MODE here, mirror it there.
-AUTH_ON_ENVS_REGEX="^(staging|preview|demo)$"
+AUTH_ON_ENVS_REGEX="^(staging|preview|demo|integration)$"
 
 if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX ]]; then
   ORGANIZATION_ID=$(psql_query "SELECT id FROM organizations ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
   if [ -z "$ORGANIZATION_ID" ]; then
-    echo "Error: no organization found in $REMOTE_ENV DB — bootstrap the first owner via the dashboard at https://axiaops-$REMOTE_ENV.local first so an organization row exists, then re-run."
-    exit 1
+    if [[ "$BOOTSTRAP_FIRST" == "true" ]]; then
+      # Mint the first org + first owner (alice) directly via SQL, skipping
+      # the install-token-gated /auth/bootstrap endpoint. See docs/demo-setup.md
+      # for the security trade-off — only safe on ephemeral demo envs.
+      echo "=== --bootstrap-first: creating first org + owner (alice) directly ==="
+      ORGANIZATION_ID="org_axiaops_demo"
+      psql_exec "INSERT INTO organizations (id, org_code, name, created_at)
+        VALUES ('${ORGANIZATION_ID}', '${ORGANIZATION_ID}', 'AxiaOps Demo', NOW())
+        ON CONFLICT (org_code) DO NOTHING;"
+
+      echo "Hashing DEMO_USERS_PASSWORD for alice (first owner)..."
+      DEMO_USERS_HASH=$(printf '%s' "${DEMO_USERS_PASSWORD}" | (cd "$REPO_ROOT" && go run ./services/api/cmd/hash-password)) || {
+        echo "Error: failed to hash DEMO_USERS_PASSWORD." >&2
+        exit 1
+      }
+
+      psql_exec "INSERT INTO users (id, organization_id, external_id, email, name, password_hash, password_set_at, created_at, last_seen)
+        VALUES ('demo-user-alice', '${ORGANIZATION_ID}', 'demo:alice', 'alice@axiaops.io', 'Alice (FinOps Lead)', '${DEMO_USERS_HASH}', NOW(), NOW(), NOW())
+        ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, password_set_at = EXCLUDED.password_set_at;"
+
+      psql_exec "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at)
+        VALUES (gen_random_uuid()::text, '${ORGANIZATION_ID}', 'demo-user-alice', 'owner', NOW(), NOW())
+        ON CONFLICT (organization_id, user_id) DO NOTHING;"
+
+      # Seal /auth/bootstrap — DELETE on the singleton row makes the endpoint
+      # return 409 'already bootstrapped' for any subsequent install-token POST.
+      psql_exec "DELETE FROM bootstrap_state;"
+
+      echo "Bootstrap completed via --bootstrap-first:"
+      echo "  org      = ${ORGANIZATION_ID} (AxiaOps Demo)"
+      echo "  owner    = alice@axiaops.io (id=demo-user-alice)"
+      echo "  password = DEMO_USERS_PASSWORD"
+      echo "  /auth/bootstrap = sealed (409 on subsequent POSTs)"
+    else
+      echo "Error: no organization found in $REMOTE_ENV DB — bootstrap the first owner via the dashboard at https://axiaops-$REMOTE_ENV.local first so an organization row exists, then re-run."
+      echo "       Or, for ephemeral demo envs, pass --bootstrap-first --demo with DEMO_USERS_PASSWORD set."
+      exit 1
+    fi
+  else
+    echo "Using $REMOTE_ENV organization: ${ORGANIZATION_ID}"
+    if [[ "$BOOTSTRAP_FIRST" == "true" ]]; then
+      echo "Warning: --bootstrap-first specified but $REMOTE_ENV is already bootstrapped (org=${ORGANIZATION_ID}); skipping bootstrap step."
+    fi
   fi
-  echo "Using $REMOTE_ENV organization: ${ORGANIZATION_ID}"
 else
   ORGANIZATION_ID="$DEV_ORGANIZATION_ID_VAL"
   psql_exec "INSERT INTO organizations (id, org_code, name, created_at)
@@ -363,13 +443,13 @@ VALUES
    'CPUUtilization', 1.2, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'primary', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'db_instance', 'eu-central-1',
    'db-prod-legacy-reporting', '{\"env\":\"prod\",\"team\":\"data\"}',
    210.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count',
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'alb', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'load_balancer', 'eu-central-1',
    'app/legacy-api/abc123prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 0, 'Count',
@@ -394,7 +474,7 @@ VALUES
    'CPUUtilization', 2.1, 'Percent',
    'Instance CPU below 5% — likely idle', 'platform', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', 'function', 'us-east-1',
    'stg-image-resizer', '{\"env\":\"staging\",\"team\":\"backend\"}',
    4.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count',
@@ -413,13 +493,13 @@ VALUES
    'CPUUtilization', 0.3, 'Percent',
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'primary', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'db_instance', 'eu-west-1',
    'db-dev-abandoned', '{\"env\":\"dev\",\"team\":\"data\"}',
    89.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count',
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'function', 'eu-west-1',
    'dev-unused-email-sender', '{\"env\":\"dev\",\"team\":\"backend\"}',
    2.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count',
@@ -434,17 +514,17 @@ VALUES
   -- ── EKS zombies ───────────────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (control plane billed, zero nodes)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', 'cluster', 'eu-central-1',
    'prod-analytics-cluster', '{\"env\":\"prod\",\"team\":\"data\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'NodeCount', 0, 'Count',
+   'cluster_node_count', 0, 'Count',
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'data', '$NOW'),
 
   -- Account 2: empty EKS cluster
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', 'cluster', 'us-east-1',
    'stg-ml-pipeline', '{\"env\":\"staging\",\"team\":\"platform\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'NodeCount', 0, 'Count',
+   'cluster_node_count', 0, 'Count',
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'platform', '$NOW'),
 
   -- ── Tier 1 API-only zombies ────────────────────────────────────────────────
@@ -531,21 +611,21 @@ VALUES
   -- ── Orphaned RDS snapshot zombies ─────────────────────────────────────────
 
   -- Account 1: orphaned manual RDS snapshot (100 GB, source DB deleted, 45 days old)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'snapshot', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'db_snapshot', 'eu-central-1',
    'rds:prod-legacy-reporting-final-2026-02', '{}',
    9.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceDBExists', 45, 'Days',
    'Manual RDS snapshot (100 GB, 45 days old) is orphaned — source DB "prod-legacy-reporting" no longer exists, accumulating \$9.50/month in storage charges', 'unknown', '$NOW'),
 
   -- Account 2: orphaned manual RDS snapshot (200 GB, source DB deleted, 90 days old)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'snapshot', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'db_snapshot', 'us-east-1',
    'rds:stg-analytics-db-pre-migration', '{}',
    19.00, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceDBExists', 90, 'Days',
    'Manual RDS snapshot (200 GB, 90 days old) is orphaned — source DB "stg-analytics-db" no longer exists, accumulating \$19.00/month in storage charges', 'unknown', '$NOW'),
 
   -- Account 3: orphaned manual RDS snapshot (50 GB, source DB deleted, 60 days old)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'snapshot', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'db_snapshot', 'eu-west-1',
    'rds:dev-test-db-backup-2026-01', '{}',
    4.75, 'USD', '$PERIOD_START', '$PERIOD_END',
    'SourceDBExists', 60, 'Days',
@@ -554,21 +634,21 @@ VALUES
   -- ── Stale ECR image zombies ───────────────────────────────────────────────
 
   -- Account 1: ECR repo with stale images (12 stale, 8.5 GB)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonECR', 'repository', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonECR', 'ecr_image', 'eu-central-1',
    'prod-api-service', '{}',
    0.85, 'USD', '$PERIOD_START', '$PERIOD_END',
    'StaleImageCount', 12, 'Count',
    'ECR repository has 12 untagged/stale images totaling 8.5 GB — accumulating \$0.85/month in storage', 'unknown', '$NOW'),
 
   -- Account 2: ECR repo with stale images (25 stale, 15.0 GB)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonECR', 'repository', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonECR', 'ecr_image', 'us-east-1',
    'stg-worker', '{}',
    1.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'StaleImageCount', 25, 'Count',
    'ECR repository has 25 untagged/stale images totaling 15.0 GB — accumulating \$1.50/month in storage', 'unknown', '$NOW'),
 
   -- Account 3: ECR repo with stale images (8 stale, 3.2 GB)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonECR', 'repository', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonECR', 'ecr_image', 'eu-west-1',
    'dev-frontend', '{}',
    0.32, 'USD', '$PERIOD_START', '$PERIOD_END',
    'StaleImageCount', 8, 'Count',
@@ -576,19 +656,19 @@ VALUES
 
   -- ── Unused Secrets Manager zombies ────────────────────────────────────────
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSSecretsManager', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AWSSecretsManager', 'secret', 'eu-central-1',
    'prod/legacy-api/db-password', '{}',
    0.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceAccess', 180, 'Days',
    'Secret not accessed for 180 days — still billing \$0.40/month', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSSecretsManager', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSSecretsManager', 'secret', 'us-east-1',
    'stg/old-service/api-key', '{}',
    0.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceAccess', 120, 'Days',
    'Secret not accessed for 120 days — still billing \$0.40/month', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSSecretsManager', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSSecretsManager', 'secret', 'eu-west-1',
    'dev/abandoned-project/token', '{}',
    0.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DaysSinceAccess', 95, 'Days',
@@ -596,19 +676,19 @@ VALUES
 
   -- ── CloudFront distribution zombies (zero requests) ────────────────────────
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonCloudFront', 'global', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonCloudFront', 'distribution', 'us-east-1',
    'E1PROD0ABANDONED', '{}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Requests', 0, 'Count',
    'CloudFront distribution has zero requests — likely abandoned', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonCloudFront', 'global', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonCloudFront', 'distribution', 'us-east-1',
    'E2STG0OLDSITE', '{}',
    8.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Requests', 0, 'Count',
    'CloudFront distribution has zero requests — likely abandoned', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonCloudFront', 'global', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonCloudFront', 'distribution', 'us-east-1',
    'E3UAT0PREVIEW', '{}',
    6.25, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Requests', 0, 'Count',
@@ -616,19 +696,19 @@ VALUES
 
   -- ── Kinesis data streams (zero incoming records, provisioned mode) ────────
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonKinesis', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonKinesis', 'stream', 'eu-central-1',
    'prod-event-ingestion-v1', '{}',
    32.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'IncomingRecords', 0, 'Count',
    'Kinesis data stream has zero incoming records — likely unused', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonKinesis', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonKinesis', 'stream', 'us-east-1',
    'stg-monitoring-stream', '{}',
    10.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'IncomingRecords', 0, 'Count',
    'Kinesis data stream has zero incoming records — likely unused', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonKinesis', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonKinesis', 'stream', 'eu-west-1',
    'dev-clickstream', '{}',
    5.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'IncomingRecords', 0, 'Count',
@@ -636,19 +716,19 @@ VALUES
 
   -- ── S3 buckets (zero requests, requires request metrics enabled) ──────────
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonS3', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonS3', 'bucket', 'eu-central-1',
    'prod-old-data-export-2024', '{}',
    25.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AllRequests', 0, 'Count',
    'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonS3', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonS3', 'bucket', 'us-east-1',
    'stg-terraform-state-backup', '{}',
    8.75, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AllRequests', 0, 'Count',
    'S3 bucket has zero requests — likely abandoned (requires request metrics enabled)', 'unknown', '$NOW'),
 
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonS3', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonS3', 'bucket', 'eu-west-1',
    'dev-test-uploads-2023', '{}',
    4.25, 'USD', '$PERIOD_START', '$PERIOD_END',
    'AllRequests', 0, 'Count',
@@ -682,14 +762,14 @@ VALUES
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
   -- Zombie: abandoned RDS
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'db_instance', 'eu-central-1',
    'db-prod-legacy-reporting', '{\"env\":\"prod\",\"team\":\"data\"}',
    210.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count', true,
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
   -- Zombie: unused ELB
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'load_balancer', 'eu-central-1',
    'app/legacy-api/abc123prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    18.50, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 0, 'Count', true,
@@ -709,13 +789,13 @@ VALUES
    'CPUUtilization', 71.5, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy RDS
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'primary', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonRDS', 'db_instance', 'eu-central-1',
    'db-production-main', '{\"env\":\"prod\",\"team\":\"data\"}',
    312.80, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 284, 'Count', false, '', 'data', '$NOW'),
 
   -- Active: healthy ELB
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'alb', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'load_balancer', 'eu-central-1',
    'app/prod-api/xyz789prod', '{\"env\":\"prod\",\"team\":\"platform\"}',
    24.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'RequestCount', 94200, 'Count', false, '', 'platform', '$NOW'),
@@ -736,7 +816,7 @@ VALUES
    'Instance CPU below 5% — likely idle', 'platform', '$NOW'),
 
   -- Zombie: unused Lambda
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AWSLambda', 'function', 'us-east-1',
    'stg-image-resizer', '{\"env\":\"staging\",\"team\":\"backend\"}',
    4.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count', true,
@@ -756,7 +836,7 @@ VALUES
    'CPUUtilization', 48.2, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy RDS
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'read_replica', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonRDS', 'db_instance', 'us-east-1',
    'db-staging-main', '{\"env\":\"staging\",\"team\":\"data\"}',
    98.40, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 37, 'Count', false, '', 'data', '$NOW'),
@@ -770,14 +850,14 @@ VALUES
    'Instance CPU below 5% — likely idle', 'backend', '$NOW'),
 
   -- Zombie: abandoned RDS
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonRDS', 'db_instance', 'eu-west-1',
    'db-dev-abandoned', '{\"env\":\"dev\",\"team\":\"data\"}',
    89.10, 'USD', '$PERIOD_START', '$PERIOD_END',
    'DatabaseConnections', 0, 'Count', true,
    'Zero connections — likely abandoned', 'data', '$NOW'),
 
   -- Zombie: unused Lambda
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'function', 'eu-west-1',
    'dev-unused-email-sender', '{\"env\":\"dev\",\"team\":\"backend\"}',
    2.30, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 0, 'Count', true,
@@ -797,7 +877,7 @@ VALUES
    'CPUUtilization', 34.7, 'Percent', false, '', 'backend', '$NOW'),
 
   -- Active: healthy Lambda
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AWSLambda', 'function', 'eu-west-1',
    'dev-auth-handler', '{\"env\":\"dev\",\"team\":\"backend\"}',
    1.20, 'USD', '$PERIOD_START', '$PERIOD_END',
    'Invocations', 1840, 'Count', false, '', 'backend', '$NOW'),
@@ -805,24 +885,24 @@ VALUES
   -- ── EKS zombie resources ───────────────────────────────────────────────────
 
   -- Account 1: empty EKS cluster (zombie)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', '', 'eu-central-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT1}', '${ACCT1}', 'AmazonEKS', 'cluster', 'eu-central-1',
    'prod-analytics-cluster', '{\"env\":\"prod\",\"team\":\"data\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'NodeCount', 0, 'Count', true,
+   'cluster_node_count', 0, 'Count', true,
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'data', '$NOW'),
 
   -- Account 2: empty EKS cluster (zombie)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', '', 'us-east-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT2}', '${ACCT2}', 'AmazonEKS', 'cluster', 'us-east-1',
    'stg-ml-pipeline', '{\"env\":\"staging\",\"team\":\"platform\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'NodeCount', 0, 'Count', true,
+   'cluster_node_count', 0, 'Count', true,
    'EKS cluster has zero nodes — control plane (\$73/mo) billing with no workload', 'platform', '$NOW'),
 
   -- Account 3: active EKS cluster (for contrast)
-  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEKS', '', 'eu-west-1',
+  ('${ORGANIZATION_ID}', 'aws', '${ACCT3}', '${ACCT3}', 'AmazonEKS', 'cluster', 'eu-west-1',
    'dev-app-cluster', '{\"env\":\"dev\",\"team\":\"backend\"}',
    73.00, 'USD', '$PERIOD_START', '$PERIOD_END',
-   'NodeCount', 3, 'Count', false, '', 'backend', '$NOW'),
+   'cluster_node_count', 3, 'Count', false, '', 'backend', '$NOW'),
 
   -- ── Tier 1 API-only zombie resources ──────────────────────────────────────
 
@@ -901,7 +981,8 @@ echo ""
 # Each day's snapshot is a rollup of a scaled view of the zombie_records inserted above:
 #   - Day 1 (most recent) uses scale = 1.0, so SUM(svc.cost) on that day's services
 #     equals SUM(zombie_records.monthly_cost) per account — exactly.
-#   - Days 2..90 (older) scale per service by an upward trend × weekly sine wobble
+#   - Days 2..N (older; N = $DAYS, currently 365) scale per service by an upward
+#     trend × weekly sine wobble
 #     × per-service noise, so the time series looks plausible without inventing
 #     services that aren't in zombie_records.
 # Snapshot totals are computed as SUM of the inserted zombie_snapshot_services for
@@ -910,7 +991,7 @@ echo ""
 # production scan flow where both SaveZombies and SaveSnapshot run off one
 # analyzer.Summarize(zombies) call. See issue #91.
 
-DAYS=90
+DAYS=365
 echo "Inserting zombie snapshots derived from zombie_records (${DAYS} days × 3 accounts)..."
 
 # Clean old seed snapshot data first. The FK on zombie_snapshot_services.snapshot_id
@@ -997,7 +1078,8 @@ WITH
       snapshot_id,
       (SELECT org_id FROM params),
       account_id,
-      -- d=1 is today at noon UTC; d=90 is today − 89 days. Keeping the latest
+      -- d=1 is today at noon UTC; d=N is today − (N−1) days (N = $DAYS,
+      -- currently 365 → a full year of history). Keeping the latest
       -- snapshot dated "today" so the dashboard's trend chart's most recent
       -- point matches dev's wall-clock expectation when eyeballing fresh data.
       date_trunc('day', NOW()) - ((d - 1)::text || ' days')::interval + INTERVAL '12 hours',
@@ -1031,57 +1113,61 @@ echo ""
 # ── Cost records ──────────────────────────────────────────────────────────────
 # Seed raw cost data (Cost Explorer API records) for testing cost filtering.
 # All accounts use the same AWS account ID (111111111111) matching seed script.
-# 23 realistic daily cost records across multiple services from the last 30 days.
+# generate_series writes one row per (account × service × resource_id) per
+# day for the full DAYS window — at DAYS=365 that's 365 × 14 = 5,110 rows.
+# The chart-sampling rules these rows feed into are documented in
+# docs/chart-sampling.md (sum across days/services for amounts, never
+# average — cost_records.amount is an actual, not a rate).
 
-echo "Inserting cost records for all accounts (last 30 days of records)..."
+echo "Inserting cost records for all accounts (last ${DAYS} days of records)..."
 
 psql_exec "DELETE FROM cost_records WHERE account_id = '${AWS_ACCT_ID}' AND internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003');"
 
 psql_pipe << EOF
+-- One row per (account × service × resource_id) per day for the full
+-- DAYS-day window. Jittered amounts (±15%) around the per-resource base
+-- value so chip selections (7d / 30d / 90d / 6m / 1y) produce visibly
+-- different totals AND the chart shows a meaningful daily-spend shape
+-- end-to-end without the kink that an earlier hand-written-vs-generated
+-- split introduced at days 1..3.
+--
+-- The hand-written specific-value block this replaces had ~22 records
+-- tied to particular zombie stories (i-0abc123prod0001 etc.); those
+-- demoed resource_ids still live in zombie_records / resource_records
+-- (the cost rows were just mirror data). The story-tied values are not
+-- consumed by any test.
+--
+-- setseed makes the jitter deterministic across re-runs. The outer
+-- setseed(0.42) at the snapshot psql_pipe doesn't carry over — each
+-- psql_pipe call is a new session — so we re-seed here.
+DO \$\$ BEGIN PERFORM setseed(0.42); END \$\$;
 INSERT INTO cost_records
   (organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency, period_start, period_end, tags, fetched_at)
-VALUES
-  -- Daily EC2 costs (3 samples from last 30 days)
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 45.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 47.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonEC2', 'eu-central-1', 'i-0abc123prod0001', 46.80, 'USD', NOW() - interval '1 day', NOW(), '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonEC2', 'us-east-1', 'i-0abc123stg0001', 38.20, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonEC2', 'us-east-1', 'i-0abc123stg0001', 39.10, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AmazonEC2', 'eu-west-1', 'i-0abc123dev0001', 22.80, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- Daily RDS costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonRDS', 'eu-central-1', 'db-prod-legacy-reporting', 210.40, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonRDS', 'eu-central-1', 'db-prod-legacy-reporting', 212.10, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AmazonRDS', 'eu-west-1', 'db-dev-abandoned', 89.10, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- S3 costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonS3', 'eu-central-1', 'prod-data-lake-bucket', 23.75, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonS3', 'eu-central-1', 'prod-data-lake-bucket', 24.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonS3', 'us-east-1', 'staging-backups', 15.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- CloudFront costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonCloudFront', 'us-east-1', 'E1PROD0ABANDONED', 18.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonCloudFront', 'us-east-1', 'E1PROD0ABANDONED', 19.20, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AmazonCloudFront', 'us-east-1', 'E2STG0OLDSITE', 8.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- Lambda costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSLambda', 'us-east-1', 'stg-image-resizer', 4.10, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSLambda', 'us-east-1', 'stg-image-resizer', 4.35, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT3}', 'AWSLambda', 'eu-west-1', 'dev-unused-email-sender', 2.30, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- ELB costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod', 18.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod', 18.75, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-
-  -- VPC NAT Gateway costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonVPC', 'eu-central-1', 'nat-abc123prod', 32.40, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'AmazonVPC', 'eu-central-1', 'nat-abc123prod', 31.80, 'USD', NOW() - interval '2 days', NOW() - interval '1 day', '{}', '$NOW'),
-
-  -- Data Transfer costs
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT2}', 'AWSDataTransfer', 'us-east-1', 'data-transfer-out', 12.50, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW'),
-
-  -- Tax (simulated)
-  ('${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}', '${ACCT1}', 'Tax', 'NoRegion', 'vat', 1.42, 'USD', NOW() - interval '3 days', NOW() - interval '2 days', '{}', '$NOW')
+SELECT
+  '${ORGANIZATION_ID}', 'aws', '${AWS_ACCT_ID}',
+  src.internal_account_id, src.service, src.region, src.resource_id,
+  ROUND((src.base_amount * (0.85 + random() * 0.30))::numeric, 2),
+  'USD',
+  NOW() - (d.day || ' days')::interval,
+  NOW() - ((d.day - 1) || ' days')::interval,
+  '{}'::jsonb, '$NOW'
+FROM generate_series(1, ${DAYS}) AS d(day)
+CROSS JOIN (VALUES
+  ('${ACCT1}', 'AmazonEC2',                  'eu-central-1', 'i-0abc123prod0001',          46.50),
+  ('${ACCT1}', 'AmazonRDS',                  'eu-central-1', 'db-prod-legacy-reporting',  211.00),
+  ('${ACCT1}', 'AmazonS3',                   'eu-central-1', 'prod-data-lake-bucket',      24.00),
+  ('${ACCT1}', 'AmazonCloudFront',           'us-east-1',    'E1PROD0ABANDONED',           19.00),
+  ('${ACCT1}', 'AmazonElasticLoadBalancing', 'eu-central-1', 'app/legacy-api/abc123prod',  18.50),
+  ('${ACCT1}', 'AmazonVPC',                  'eu-central-1', 'nat-abc123prod',             32.00),
+  ('${ACCT2}', 'AmazonEC2',                  'us-east-1',    'i-0abc123stg0001',           38.50),
+  ('${ACCT2}', 'AmazonS3',                   'us-east-1',    'staging-backups',            15.50),
+  ('${ACCT2}', 'AmazonCloudFront',           'us-east-1',    'E2STG0OLDSITE',               8.50),
+  ('${ACCT2}', 'AWSLambda',                  'us-east-1',    'stg-image-resizer',           4.20),
+  ('${ACCT2}', 'AWSDataTransfer',            'us-east-1',    'data-transfer-out',          12.50),
+  ('${ACCT3}', 'AmazonEC2',                  'eu-west-1',    'i-0abc123dev0001',           22.80),
+  ('${ACCT3}', 'AmazonRDS',                  'eu-west-1',    'db-dev-abandoned',           89.10),
+  ('${ACCT3}', 'AWSLambda',                  'eu-west-1',    'dev-unused-email-sender',     2.30)
+) AS src(internal_account_id, service, region, resource_id, base_amount)
 ON CONFLICT DO NOTHING;
 EOF
 
@@ -1120,14 +1206,82 @@ if [[ "$DEMO_MODE" == "true" ]]; then
     echo "Target user: $TARGET_USER_ID (dev user)"
   fi
 
-  # Owner membership for the target user in each demo org. Idempotent via the
-  # (organization_id, user_id) unique constraint.
+  # Target-user membership in each demo org. Role depends on whether personas
+  # are also being created: the schema enforces one owner per organization
+  # (memberships_one_owner_per_organization), so giving the bootstrap user
+  # 'owner' of Acme + Globex would block bob from owning Globex and carol from
+  # owning Acme in the persona block below.
+  #
+  # When DEMO_USERS_PASSWORD is set → personas are the owners; target user
+  # becomes 'viewer' (still able to switch into those orgs, just can't
+  # administer them).
+  # When unset (no personas) → target user keeps owner of Acme + Globex
+  # (the original --demo behaviour, before this MR).
+  if [[ -n "${DEMO_USERS_PASSWORD:-}" ]]; then
+    TARGET_DEMO_ROLE='viewer'
+  else
+    TARGET_DEMO_ROLE='owner'
+  fi
   for demo_org in "$ACME_ORG_ID" "$GLOBEX_ORG_ID"; do
     psql_exec "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at)
-      VALUES (gen_random_uuid()::text, '${demo_org}', '${TARGET_USER_ID}', 'owner', NOW(), NOW())
+      VALUES (gen_random_uuid()::text, '${demo_org}', '${TARGET_USER_ID}', '${TARGET_DEMO_ROLE}', NOW(), NOW())
       ON CONFLICT (organization_id, user_id) DO NOTHING;"
   done
-  echo "Memberships wired for $TARGET_USER_ID in Acme + Globex (owner each)."
+  echo "Memberships wired for $TARGET_USER_ID in Acme + Globex (${TARGET_DEMO_ROLE} each)."
+
+  # ── Demo personas: alice / bob / carol ────────────────────────────────────
+  # Three named users with a known password (sourced from $DEMO_USERS_PASSWORD,
+  # NEVER hardcoded in this script) so prospects + walk-through demos always
+  # log in as the same identifiable personas across reseeds. Membership shape
+  # demonstrates cross-org switching:
+  #   alice → owner  in AxiaOps Dev (the bootstrap org), viewer in Acme + Globex
+  #   bob   → owner  in Globex,                          viewer in AxiaOps Dev + Acme
+  #   carol → owner  in Acme,                            viewer in AxiaOps Dev + Globex
+  #
+  # If DEMO_USERS_PASSWORD is unset, this block prints a warning and skips
+  # user creation — useful for callers that only want the data seed
+  # (cost_records, snapshots, etc.) without minting login-capable accounts.
+  # See docs/demo-setup.md for the full rationale and operator workflow.
+  if [[ -n "${DEMO_USERS_PASSWORD:-}" ]]; then
+    echo "Hashing DEMO_USERS_PASSWORD via services/api/cmd/hash-password..."
+    DEMO_USERS_HASH=$(printf '%s' "${DEMO_USERS_PASSWORD}" | (cd "$REPO_ROOT" && go run ./services/api/cmd/hash-password)) || {
+      echo "Error: failed to hash DEMO_USERS_PASSWORD." >&2
+      echo "       Confirm the password is at least 12 characters and Go is on PATH." >&2
+      exit 1
+    }
+
+    psql_exec "INSERT INTO users (id, organization_id, external_id, email, name, password_hash, password_set_at, created_at, last_seen) VALUES
+      ('demo-user-alice', '${ORGANIZATION_ID}', 'demo:alice', 'alice@axiaops.io', 'Alice (FinOps Lead)',     '${DEMO_USERS_HASH}', NOW(), NOW(), NOW()),
+      ('demo-user-bob',   '${GLOBEX_ORG_ID}',   'demo:bob',   'bob@globex.io',    'Bob (Cloud Architect)',   '${DEMO_USERS_HASH}', NOW(), NOW(), NOW()),
+      ('demo-user-carol', '${ACME_ORG_ID}',     'demo:carol', 'carol@acme.io',    'Carol (Finance Lead)',    '${DEMO_USERS_HASH}', NOW(), NOW(), NOW())
+      ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, password_set_at = EXCLUDED.password_set_at;"
+
+    psql_exec "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at) VALUES
+      -- Alice: admin in the bootstrap org (the dev user / existing bootstrap
+      -- user keeps owner — schema is one-owner-per-org). With --bootstrap-first
+      -- alice IS the bootstrap user and is already owner from the earlier
+      -- block, so this 'admin' INSERT conflicts on (org, user) and DO NOTHING
+      -- leaves the owner seat alone.
+      (gen_random_uuid()::text, '${ORGANIZATION_ID}', 'demo-user-alice', 'admin',  NOW(), NOW()),
+      (gen_random_uuid()::text, '${ACME_ORG_ID}',     'demo-user-alice', 'viewer', NOW(), NOW()),
+      (gen_random_uuid()::text, '${GLOBEX_ORG_ID}',   'demo-user-alice', 'viewer', NOW(), NOW()),
+      -- Bob: owner in Globex, viewer in AxiaOps Dev + Acme
+      (gen_random_uuid()::text, '${GLOBEX_ORG_ID}',   'demo-user-bob',   'owner',  NOW(), NOW()),
+      (gen_random_uuid()::text, '${ORGANIZATION_ID}', 'demo-user-bob',   'viewer', NOW(), NOW()),
+      (gen_random_uuid()::text, '${ACME_ORG_ID}',     'demo-user-bob',   'viewer', NOW(), NOW()),
+      -- Carol: owner in Acme, viewer in AxiaOps Dev + Globex
+      (gen_random_uuid()::text, '${ACME_ORG_ID}',     'demo-user-carol', 'owner',  NOW(), NOW()),
+      (gen_random_uuid()::text, '${ORGANIZATION_ID}', 'demo-user-carol', 'viewer', NOW(), NOW()),
+      (gen_random_uuid()::text, '${GLOBEX_ORG_ID}',   'demo-user-carol', 'viewer', NOW(), NOW())
+      ON CONFLICT (organization_id, user_id) DO NOTHING;"
+
+    echo "Created demo personas: alice@axiaops.io / bob@globex.io / carol@acme.io"
+    echo "  Password sourced from DEMO_USERS_PASSWORD (not echoed)."
+  else
+    echo "Skipping demo personas (alice/bob/carol) — DEMO_USERS_PASSWORD not set."
+    echo "  Set DEMO_USERS_PASSWORD before re-running to mint login-capable demo users."
+    echo "  See docs/demo-setup.md for the recommended workflow."
+  fi
 
   # Copy the dev seed data into Acme + Globex. INSERT...SELECT with
   # REPLACE() on the seed-account-* prefix gives us acme-account-001 /
@@ -1333,9 +1487,9 @@ SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshot_services WHERE orga
 COST_COUNT=$(psql_query "SELECT COUNT(*) FROM cost_records WHERE organization_id = '${ORGANIZATION_ID}';" 2>/dev/null || echo "n/a")
 echo "Dev organization zombie records:      $ZOMBIE_COUNT  (expected 41)"
 echo "Dev organization resource records:    $RESOURCE_COUNT  (expected 33)"
-echo "Dev organization zombie snapshots:    $SNAPSHOT_COUNT  (expected 270)"
+echo "Dev organization zombie snapshots:    $SNAPSHOT_COUNT  (expected $((DAYS * 3)))"
 echo "Dev organization snapshot services:   $SVC_COUNT"
-echo "Dev organization cost records:        $COST_COUNT  (expected 21)"
+echo "Dev organization cost records:        $COST_COUNT  (expected $((DAYS * 14)))"
 echo ""
 
 # Hard row-count gate before the gap-math invariants below. Without this, an
@@ -1345,8 +1499,9 @@ echo ""
 # silent-passing through a gap-of-\$0.00 false positive.
 SEED_SNAPSHOT_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshots WHERE id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
 SEED_SVC_COUNT=$(psql_query "SELECT COUNT(*) FROM zombie_snapshot_services WHERE snapshot_id LIKE 'snap-seed-account-%';" | tr -d '[:space:]')
-if [[ "$SEED_SNAPSHOT_COUNT" -ne 270 ]]; then
-  echo "  snapshot count: FAIL ($SEED_SNAPSHOT_COUNT seed rows, expected 270)" >&2
+EXPECTED_SNAPSHOTS=$((DAYS * 3))   # 3 dev accounts × DAYS days
+if [[ "$SEED_SNAPSHOT_COUNT" -ne "$EXPECTED_SNAPSHOTS" ]]; then
+  echo "  snapshot count: FAIL ($SEED_SNAPSHOT_COUNT seed rows, expected $EXPECTED_SNAPSHOTS)" >&2
   echo "                  Issue #91 invariant verification would silently pass with no rows; aborting." >&2
   exit 1
 fi
