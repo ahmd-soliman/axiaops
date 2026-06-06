@@ -27,6 +27,7 @@ import (
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/notifications"
 	"axiaops.io/shared/observability"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
@@ -48,7 +49,9 @@ var (
 	)
 
 	// axiaops_ingestion_records_saved_total: Total number of cost records successfully saved to the database.
-	// Labels: provider, organization_id, status (inserted/skipped).
+	// Labels: provider, organization_id, status (inserted = brand-new row,
+	// updated = existing row whose amount/tags were refreshed by the upsert).
+	// See docs/cost-records-upsert-plan.md for the discrimination via xmax.
 	ingestionRecordsSavedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "axiaops_ingestion_records_saved_total",
@@ -134,6 +137,13 @@ func main() {
 	if v := os.Getenv("COST_RECORDS_RETENTION_DAYS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			retentionDays = n
+		}
+	}
+
+	dispatchRetentionDays := 90
+	if v := os.Getenv("NOTIFICATION_DISPATCH_RETENTION_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			dispatchRetentionDays = n
 		}
 	}
 
@@ -258,7 +268,9 @@ func main() {
 		errCh <- server.ListenAndServe()
 	}()
 
-	// Daily cost_records retention cleanup — runs at midnight UTC.
+	// Daily retention cleanup — runs at midnight UTC. Sweeps cost_records and
+	// notification_dispatches in the same pass (both are global, RLS-bypass
+	// deletes keyed on an age cutoff).
 	go func() {
 		for {
 			now := time.Now().UTC()
@@ -268,13 +280,25 @@ func main() {
 				return
 			case <-time.After(time.Until(next)):
 			}
+
+			// Use sigCtx so an in-flight sweep is cancelled on shutdown rather
+			// than outliving the graceful-drain window on an uncancellable DELETE.
 			start := time.Now()
 			cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
-			deleted, err := store.DeleteOldCostRecords(context.Background(), cutoff)
+			deleted, err := store.DeleteOldCostRecords(sigCtx, cutoff)
 			if err != nil {
 				slog.Error("cost_records.cleanup failed", "error", err)
 			} else {
 				slog.Info("cost_records.cleanup", "rows_deleted", deleted, "duration_ms", time.Since(start).Milliseconds())
+			}
+
+			start = time.Now()
+			dispatchCutoff := time.Now().UTC().AddDate(0, 0, -dispatchRetentionDays)
+			dDeleted, err := store.DeleteOldNotificationDispatches(sigCtx, dispatchCutoff)
+			if err != nil {
+				slog.Error("notification_dispatches.cleanup failed", "error", err)
+			} else {
+				slog.Info("notification_dispatches.cleanup", "rows_deleted", dDeleted, "duration_ms", time.Since(start).Milliseconds())
 			}
 		}
 	}()
@@ -427,15 +451,14 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			records[i].InternalAccountID = &accountID
 		}
 
-		inserted, saveErr := store.Save(ctx, records)
+		inserted, updated, saveErr := store.Save(ctx, records)
 		if saveErr != nil {
 			return fmt.Errorf("[%s] save failed: %w", p.Name(), saveErr)
 		}
-		skipped := int64(len(records)) - inserted
-		slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted, "skipped", skipped)
+		slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted, "updated", updated)
 		ingestionRecordsFetchedTotal.WithLabelValues(p.Name(), organizationID).Add(float64(len(records)))
 		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), organizationID, "inserted").Add(float64(inserted))
-		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), organizationID, "skipped").Add(float64(skipped))
+		ingestionRecordsSavedTotal.WithLabelValues(p.Name(), organizationID, "updated").Add(float64(updated))
 
 		allRecords = append(allRecords, records...)
 	}
@@ -456,15 +479,14 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		for i := range resourceCosts {
 			resourceCosts[i].InternalAccountID = &accountID
 		}
-		inserted, saveErr := store.Save(ctx, resourceCosts)
+		inserted, updated, saveErr := store.Save(ctx, resourceCosts)
 		if saveErr != nil {
 			return fmt.Errorf("save resource costs failed: %w", saveErr)
 		}
-		skipped := int64(len(resourceCosts)) - inserted
-		slog.Info("saved resource-level costs", "total", len(resourceCosts), "inserted", inserted, "skipped", skipped)
+		slog.Info("saved resource-level costs", "total", len(resourceCosts), "inserted", inserted, "updated", updated)
 		ingestionRecordsFetchedTotal.WithLabelValues("aws", organizationID).Add(float64(len(resourceCosts)))
 		ingestionRecordsSavedTotal.WithLabelValues("aws", organizationID, "inserted").Add(float64(inserted))
-		ingestionRecordsSavedTotal.WithLabelValues("aws", organizationID, "skipped").Add(float64(skipped))
+		ingestionRecordsSavedTotal.WithLabelValues("aws", organizationID, "updated").Add(float64(updated))
 		allRecords = append(allRecords, resourceCosts...)
 	}
 
@@ -648,6 +670,17 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		zombies = append(zombies, s3Zombies...)
 	}
 
+	// Classify each zombie into a resource sub-type from its (service, usage
+	// metric) pair. Detect() already sets this for CloudWatch-based zombies; the
+	// API-only discoverers (EIP, EBS volume/snapshot, AMI, log group, …) don't,
+	// so backfill any that are still empty. This populates zombie_records and —
+	// via the per-(service, resource_type) breakdown below — the trend filter.
+	for i := range zombies {
+		if zombies[i].ResourceType == "" {
+			zombies[i].ResourceType = analyzer.ResourceType(zombies[i].Service, zombies[i].UsageMetric)
+		}
+	}
+
 	summary := analyzer.Summarize(zombies)
 	slog.Info("analysis: detected zombie resources", "total", summary.TotalZombies, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
 	ingestionZombiesDetectedTotal.WithLabelValues(organizationID, awsClient.Name()).Set(float64(summary.TotalZombies))
@@ -660,6 +693,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 	snap := model.ZombieSnapshot{
 		ID:               uuid.New().String(),
+		OrganizationID:   organizationID,
 		AccountID:        accountID,
 		SnapshotAt:       time.Now().UTC(),
 		ZombieCount:      summary.TotalZombies,
@@ -675,16 +709,20 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	} else {
 		slog.Info("storage: saved zombie snapshot", "zombie_count", snap.ZombieCount, "total_monthly_cost", snap.TotalMonthlyCost)
 
-		// Persist per-service breakdown for trend filtering.
+		// Persist the per-(service, resource_type) breakdown for trend filtering.
+		// One row per sub-type (e.g. AmazonEC2/volume, AmazonEC2/instance) so the
+		// trend resource-type filter can scope a service's history to one kind;
+		// ListSnapshotsByService SUMs across sub-types when no resource_type is given.
 		var svcRows []model.SnapshotService
-		for svcName, svcData := range summary.ByService {
+		for _, b := range analyzer.SummarizeByServiceResourceType(zombies) {
 			svcRows = append(svcRows, model.SnapshotService{
-				ID:          uuid.New().String(),
-				SnapshotID:  snap.ID,
-				Service:     svcName,
-				ZombieCount: svcData.Zombies,
-				MonthlyCost: svcData.Savings,
-				Currency:    snap.Currency,
+				ID:           uuid.New().String(),
+				SnapshotID:   snap.ID,
+				Service:      b.Service,
+				ResourceType: b.ResourceType,
+				ZombieCount:  b.Zombies,
+				MonthlyCost:  b.Savings,
+				Currency:     snap.Currency,
 			})
 		}
 		if err := store.SaveSnapshotServices(ctx, svcRows); err != nil {
@@ -692,6 +730,11 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		} else {
 			slog.Info("storage: saved snapshot services", "count", len(svcRows))
 		}
+
+		// Notify the org's enabled channels about the completed scan. Placed
+		// inside the snapshot-saved branch so the dispatch row's snapshot_id FK
+		// always resolves. Best-effort + non-fatal — see DispatchForScan.
+		dispatchNotifications(ctx, store, snap, summary, accountID)
 	}
 
 	// allRecords already contains resourceCosts (appended in the FetchResourceCosts
@@ -707,6 +750,21 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	}
 	slog.Info("storage: saved resource records", "total", len(resources), "zombies", len(zombies))
 	return nil
+}
+
+// dispatchNotifications fans a completed scan out to the org's enabled
+// notification channels. Best-effort + non-fatal: DispatchForScan logs and
+// records every error internally and never returns one, so a notification
+// problem can't fail a scan. The transports are stateless (they decrypt config
+// per-call via ENCRYPTION_KEY), so constructing them per scan is cheap.
+// PUBLIC_HOST builds the dashboard deep-link; empty omits it.
+func dispatchNotifications(ctx context.Context, store storage.Store, snap model.ZombieSnapshot, summary analyzer.Summary, accountID string) {
+	transports := map[string]notifications.Transport{
+		model.ChannelKindEmail: notifications.NewEmailTransport(),
+		model.ChannelKindSlack: notifications.NewSlackTransport(nil),
+	}
+	notifications.NewDispatcher(store, transports, os.Getenv("PUBLIC_HOST")).
+		DispatchForScan(ctx, snap, summary, accountID)
 }
 
 func newStore() storage.Store {

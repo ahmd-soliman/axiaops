@@ -18,7 +18,7 @@ Before talking about sources, anchor on the capital requirement. The business pl
 |---|---|---|
 | Holding GmbH + Operating UG setup (notary, Steuerberater) | €2,000–€4,000 | Pre-launch (target Aug 2026) |
 | UG minimum share capital | €1 (practically €500–€1,000 for buffer) | At founding |
-| Hosting (App Runner + RDS + CloudFront) | €24–€34/month | Ongoing from Phase 2 |
+| Hosting (ECS Express + RDS + CloudFront) | €24–€34/month | Ongoing from Phase 2 |
 | Tools (GitHub, monitoring, Kinde free tier, domain) | ~€50–€150/month | Ongoing |
 | SOC 2 Type II audit (Q4 2027) | €15,000–€25,000 (one-off) | Only when paying customers justify it |
 | Part-time contractor (design, content, or eng help) | €0–€2,000/month | From ~€5K MRR onward |

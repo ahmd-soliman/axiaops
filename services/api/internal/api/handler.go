@@ -23,6 +23,7 @@ import (
 	"axiaops.io/shared/crypto"
 	"axiaops.io/shared/license"
 	"axiaops.io/shared/model"
+	"axiaops.io/shared/notifications"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 )
@@ -51,6 +52,20 @@ type Handler struct {
 	// Defaults to the empty string; the handler falls back to building
 	// a relative URL when unset.
 	publicHost string
+
+	// channelTransports maps a notification channel kind (model.ChannelKind*)
+	// to its Transport, used by POST /v1/channels/{id}/test. nil ⇒ /test
+	// returns 500 (transports not wired — a server misconfiguration, since
+	// serverbuild always wires them). Set via WithNotificationTransports;
+	// tests inject fakes through the same seam.
+	channelTransports map[string]notifications.Transport
+
+	// inviteMailer delivers invitation redemption URLs to invitees on POST
+	// /v1/invitations. nil ⇒ no delivery attempt (EmailDelivery omitted) — the
+	// composition seam a SaaS reactivation swaps for a platform mailer. Set via
+	// WithInviteMailer; serverbuild wires the default channel-first/global-SMTP
+	// impl.
+	inviteMailer InviteMailer
 }
 
 // New creates a Handler backed by the given store and queue.
@@ -94,6 +109,23 @@ func (h *Handler) WithIngestionSecret(secret []byte) *Handler {
 	return h
 }
 
+// WithInviteMailer wires the seam that emails invitation redemption URLs on
+// POST /v1/invitations. Not called ⇒ no delivery attempt (EmailDelivery
+// omitted). serverbuild wires the default channel-first/global-SMTP mailer;
+// tests inject a fake.
+func (h *Handler) WithInviteMailer(m InviteMailer) *Handler {
+	h.inviteMailer = m
+	return h
+}
+
+// WithNotificationTransports wires the per-kind transports used by
+// POST /v1/channels/{id}/test. Not called ⇒ /test reports 503. Tests inject
+// fakes here to avoid real network/SMTP calls.
+func (h *Handler) WithNotificationTransports(transports map[string]notifications.Transport) *Handler {
+	h.channelTransports = transports
+	return h
+}
+
 // Register attaches the routes to the given mux. Each non-public route is
 // wrapped in middleware.Require, which 403s any caller whose role does not
 // grant the listed permission. Public routes (health, livez, readyz, version,
@@ -120,6 +152,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// Zombies / summary / costs / resources / trend.
 	mux.Handle("GET /v1/zombies", require(authz.PermZombiesRead, h.listZombies))
 	mux.Handle("GET /v1/summary", require(authz.PermZombiesRead, h.getSummary))
+	mux.Handle("GET /v1/summary/by-account", require(authz.PermZombiesRead, h.getSummaryByAccount))
 	mux.Handle("GET /v1/trend", require(authz.PermSnapshotsRead, h.getTrend))
 	mux.Handle("GET /v1/trend/services", require(authz.PermSnapshotsRead, h.getTrendServices))
 	mux.Handle("GET /v1/trend/resource-types", require(authz.PermSnapshotsRead, h.getTrendResourceTypes))
@@ -134,6 +167,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("PATCH /v1/accounts/{id}", require(authz.PermAccountsWrite, h.updateAccount))
 	mux.Handle("DELETE /v1/accounts/{id}", require(authz.PermAccountsDelete, h.deleteAccount))
 	mux.Handle("POST /v1/accounts/{id}/scan", require(authz.PermAccountsScan, h.scanAccount))
+
+	// Notification channels (docs/notifications-plan.md).
+	mux.Handle("GET /v1/channels", require(authz.PermChannelsRead, h.listChannels))
+	mux.Handle("POST /v1/channels", require(authz.PermChannelsManage, h.createChannel))
+	mux.Handle("PATCH /v1/channels/{id}", require(authz.PermChannelsManage, h.updateChannel))
+	mux.Handle("DELETE /v1/channels/{id}", require(authz.PermChannelsManage, h.deleteChannel))
+	mux.Handle("POST /v1/channels/{id}/test", require(authz.PermChannelsManage, h.testChannel))
+	mux.Handle("GET /v1/channels/{id}/dispatches", require(authz.PermChannelsRead, h.listChannelDispatches))
 
 	// Dismissals.
 	mux.Handle("POST /v1/dismissals", require(authz.PermZombiesDismiss, h.createDismissal))
@@ -390,6 +431,29 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, analyzer.Summarize(zombies))
 }
 
+// getSummaryByAccount returns per-account zombie aggregates for the organization.
+// It mirrors getSummary's dismissal-exclusion pipeline exactly (LoadZombies →
+// enrichWithDismissals with accountID="" = all org dismissals) so the two
+// endpoints never diverge on which zombies count, then groups in-memory.
+func (h *Handler) getSummaryByAccount(w http.ResponseWriter, r *http.Request) {
+	ctx := storage.WithOrganizationID(r.Context(), middleware.OrganizationID(r.Context()))
+	zombies, err := h.store.LoadZombies(ctx)
+	if err != nil {
+		slog.Error("getSummaryByAccount: load failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Exclude dismissed/snoozed resources — identical to getSummary so the two
+	// endpoints agree on which zombies count.
+	zombies, err = h.enrichWithDismissals(ctx, zombies, "", false)
+	if err != nil {
+		slog.Error("getSummaryByAccount: enrich dismissals failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, analyzer.SummarizeByAccount(zombies))
+}
+
 // getTrend returns zombie snapshots for the organization, ordered oldest-first.
 // Optional query params: ?account_id=<id>, ?service=<name>.
 // When service is set, returns per-service data from zombie_snapshot_services.
@@ -464,6 +528,21 @@ func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 	filter := storage.CostFilter{
 		Service: r.URL.Query().Get("service"),
 		Days:    days,
+	}
+
+	// Absolute calendar window. `since`/`until` are ISO dates (YYYY-MM-DD,
+	// both inclusive); when present they override the trailing `days` window
+	// so the dashboard's Custom… date picker selects a fixed range rather
+	// than silently degrading to "last N days".
+	if since := r.URL.Query().Get("since"); since != "" {
+		if t, err := time.Parse("2006-01-02", since); err == nil {
+			filter.Since = t
+		}
+	}
+	if until := r.URL.Query().Get("until"); until != "" {
+		if t, err := time.Parse("2006-01-02", until); err == nil {
+			filter.Until = t
+		}
 	}
 
 	// account_id parameter can be either the internal UUID or the AWS account ID.
@@ -623,7 +702,7 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 // cannot reply at all (in which case the request times out and the orchestrator
 // kills the instance — that's the only failure mode for this endpoint).
 //
-// No DB ping, no Redis ping, no cross-service check. App Runner / k8s should
+// No DB ping, no Redis ping, no cross-service check. ECS Express / k8s should
 // wire their *instance* health probe to this so a transient DB blip doesn't
 // trigger pod restarts. Deep dependency checks belong in /readyz.
 func (h *Handler) livez(w http.ResponseWriter, _ *http.Request) {
@@ -650,7 +729,7 @@ func (h *Handler) livez(w http.ResponseWriter, _ *http.Request) {
 // anyway — the answer is in CloudWatch metrics, not HTTP.
 func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
 	// Cap the deep check so a slow Postgres or Redis can't tie up readyz
-	// past what App Runner's check timeout will tolerate.
+	// past what ECS Express's check timeout will tolerate.
 	ctx, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
 	defer cancel()
 

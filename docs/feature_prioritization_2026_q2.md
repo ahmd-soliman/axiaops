@@ -111,7 +111,7 @@ These items are sequenced before any of the three options above because each unb
 
 ### D. Public demo deployment with nightly reseed
 
-**What:** Public URL where a prospect can explore the product without connecting AWS credentials. Pre-seeded with the existing 41 zombies, 270 zombie snapshots, and 23 cost records produced by `make seed`. Nightly cron resets state.
+**What:** Public URL where a prospect can explore the product without connecting AWS credentials. Pre-seeded with the existing 41 zombies, 1,095 zombie snapshots (365 days × 3 dev accounts), and 5,110 cost records (365 days × 14 account-service rows) produced by `make seed` — exact counts and shape documented in [`docs/chart-sampling.md`](chart-sampling.md). Nightly cron resets state.
 
 **Why:** Removes the single biggest objection in early sales conversations ("can I see what this looks like without giving you AWS credentials?"). Most prospects will not engage seriously without this.
 

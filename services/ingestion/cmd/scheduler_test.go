@@ -30,8 +30,8 @@ func (m *mockStoreForScheduler) ListAllAccounts(ctx context.Context) ([]model.Ac
 	}
 	return append([]model.Account(nil), m.accounts...), nil
 }
-func (m *mockStoreForScheduler) Save(context.Context, []model.CostRecord) (int64, error) {
-	return 0, nil
+func (m *mockStoreForScheduler) Save(context.Context, []model.CostRecord) (int64, int64, error) {
+	return 0, 0, nil
 }
 func (m *mockStoreForScheduler) SaveZombies(context.Context, []model.ZombieResource) error {
 	return nil
@@ -120,6 +120,9 @@ func (m *mockStoreForScheduler) ListActiveDismissals(context.Context, string) ([
 }
 func (m *mockStoreForScheduler) ExpireSnoozes(context.Context) (int64, error) { return 0, nil }
 func (m *mockStoreForScheduler) DeleteOldCostRecords(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+func (m *mockStoreForScheduler) DeleteOldNotificationDispatches(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }
 func (m *mockStoreForScheduler) Close() error { return nil }
@@ -303,6 +306,27 @@ func (m *mockStoreForScheduler) ListSSOGroupMappings(context.Context, string) ([
 }
 func (m *mockStoreForScheduler) ReplaceSSOGroupMappings(context.Context, string, []model.SSOGroupMapping) error {
 	return errors.New("mockStoreForScheduler.ReplaceSSOGroupMappings not implemented")
+}
+func (m *mockStoreForScheduler) SaveNotificationChannel(context.Context, model.NotificationChannel) error {
+	return nil
+}
+func (m *mockStoreForScheduler) ListNotificationChannels(context.Context) ([]model.NotificationChannel, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) ListEnabledNotificationChannels(context.Context) ([]model.NotificationChannel, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) GetNotificationChannel(context.Context, string) (model.NotificationChannel, error) {
+	return model.NotificationChannel{}, nil
+}
+func (m *mockStoreForScheduler) DeleteNotificationChannel(context.Context, string) error {
+	return nil
+}
+func (m *mockStoreForScheduler) SaveNotificationDispatch(context.Context, model.NotificationDispatch) error {
+	return nil
+}
+func (m *mockStoreForScheduler) ListNotificationDispatches(context.Context, string, int) ([]model.NotificationDispatch, error) {
+	return nil, nil
 }
 
 // captureQueue records enqueued jobs and optionally returns pre-seeded jobs
@@ -579,4 +603,34 @@ func TestWorker_ProcessesJobWhenLicenseValid(t *testing.T) {
 	if store.getAccountCalls == 0 {
 		t.Errorf("worker did not reach runScan under valid license; gate may be inverted")
 	}
+}
+
+// StaffStore stubs (platform admin plane) — the ingestion scheduler never
+// touches the staff plane; these satisfy the widened storage.Store interface.
+func (m *mockStoreForScheduler) CreateStaffUser(context.Context, storage.CreateStaffUserInput) (model.StaffUser, error) {
+	return model.StaffUser{}, errors.New("not implemented")
+}
+func (m *mockStoreForScheduler) LookupStaffUserByEmail(context.Context, string) (model.StaffUser, []model.StaffRoleGrant, error) {
+	return model.StaffUser{}, nil, storage.ErrStaffNotFound
+}
+func (m *mockStoreForScheduler) GetStaffUserByID(context.Context, string) (model.StaffUser, []model.StaffRoleGrant, error) {
+	return model.StaffUser{}, nil, storage.ErrStaffNotFound
+}
+func (m *mockStoreForScheduler) ListStaffUsers(context.Context) ([]model.StaffUser, [][]model.StaffRoleGrant, error) {
+	return nil, nil, nil
+}
+func (m *mockStoreForScheduler) GrantStaffRole(context.Context, string, model.StaffRole, string) error {
+	return errors.New("not implemented")
+}
+func (m *mockStoreForScheduler) RevokeStaffRole(context.Context, string, model.StaffRole) error {
+	return errors.New("not implemented")
+}
+func (m *mockStoreForScheduler) CountStaffWithRole(context.Context, model.StaffRole) (int, error) {
+	return 0, nil
+}
+func (m *mockStoreForScheduler) ListAllOrganizations(context.Context) ([]model.Organization, error) {
+	return nil, nil
+}
+func (m *mockStoreForScheduler) StaffTenantSummary(context.Context, string) (model.StaffTenantSummary, error) {
+	return model.StaffTenantSummary{}, storage.ErrOrganizationNotFound
 }

@@ -23,7 +23,7 @@ func TestRequest_PrefersXRealIP(t *testing.T) {
 
 // TestRequest_RightmostXForwardedFor — the security-critical case: a client
 // that sends `X-Forwarded-For: 1.2.3.4` arrives at the API as
-// `X-Forwarded-For: 1.2.3.4, <real-peer>` because nginx and App Runner both
+// `X-Forwarded-For: 1.2.3.4, <real-peer>` because nginx and the ECS Express ALB both
 // append. Taking the leftmost token returned the attacker-controlled value
 // and let an attacker rotate spoofed IPs to defeat per-IP rate limits and
 // to plant chosen IPs in audit/session forensics. We must take the rightmost.

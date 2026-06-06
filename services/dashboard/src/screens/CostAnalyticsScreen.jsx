@@ -4,6 +4,7 @@ import { fetchCosts, fetchAccounts, scanAccount } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
+import DateRangeChips, { PRESET_OPTIONS, DEFAULT_DAYS } from '../components/DateRangeChips';
 import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner } from '../components/primitives';
@@ -11,14 +12,6 @@ import { useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { MobileSheet } from '../components/primitives/MobileSheet';
 import { csvEncode, downloadCSV } from '../utils/csv';
-
-const PERIOD_OPTIONS = [
-  { label: '7d',  days: 7 },
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
-  { label: '6m',  days: 180 },
-  { label: '1y',  days: 365 },
-];
 
 // AWS Cost Explorer's GetCostAndUsageWithResources tops out at 14 days of
 // resource-level history. The drill-down panel is clamped to this window
@@ -38,22 +31,45 @@ function formatDateShort(iso) {
 
 // ─── CSV export ──────────────────────────────────────────────────────────────
 
-function exportCSV(records, { services, periodDays }, toast) {
+// Render an amount for the CSV at full fidelity. The DB stores NUMERIC and the
+// API ships the raw float, so the only place precision was being lost was the
+// old `toFixed(2)` here — which collapsed sub-cent services (S3, CloudWatch,
+// DynamoDB, …) to "0.00" and broke reconciliation against AWS CUR / Vantage.
+// We keep up to 10 decimals (CUR-grade), strip float-representation noise via
+// the fixed-point round-trip, and trim trailing zeros so whole-cent values
+// still read cleanly (0.19, not 0.1900000000). Fixed-point avoids scientific
+// notation that would confuse spreadsheet imports. On-screen display stays at
+// 2dp — this is the data-interchange path only.
+function csvAmount(n) {
+  if (typeof n !== 'number' || !isFinite(n)) return '';
+  return n.toFixed(10).replace(/\.?0+$/, '');
+}
+
+function exportCSV(records, { services }, toast) {
   const filterSlug = services.length
     ? '-' + services.map(s => s.replace(/^Amazon|^AWS/, '').toLowerCase()).join('-')
     : '';
-  const filename = `axiaops-costs${filterSlug}-${periodDays}d-${new Date().toISOString().split('T')[0]}.csv`;
 
   const headers = ['service', 'region', 'amount', 'currency', 'period_start', 'period_end', 'resource_id'];
   const rows = records.map(r => [
     r.service,
     r.region,
-    r.amount.toFixed(2),
+    csvAmount(r.amount),
     r.currency,
     new Date(r.period_start).toISOString().split('T')[0],
     new Date(r.period_end).toISOString().split('T')[0],
     r.resource_id,
   ]);
+
+  // Name the file after the actual data window (min/max period_start) rather
+  // than the requested lookback + today's date. A trailing window that ends on
+  // an unsettled day, or a custom calendar range, then labels itself honestly
+  // instead of advertising coverage the rows don't have.
+  const dayStamps = rows.map(r => r[4]).sort();
+  const windowSlug = dayStamps.length
+    ? `${dayStamps[0]}_${dayStamps[dayStamps.length - 1]}`
+    : 'empty';
+  const filename = `axiaops-costs${filterSlug}-${windowSlug}.csv`;
 
   downloadCSV(csvEncode(headers, rows), filename);
 
@@ -67,7 +83,10 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const screenWidth = useWindowWidth();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
-  const [period, setPeriod] = useState(30);
+  const [period, setPeriod] = useState(DEFAULT_DAYS);
+  // Absolute calendar window from the Custom… picker ({ sinceIso, untilIso }),
+  // or null for the trailing `period`-day window. Presets clear it back to null.
+  const [customRange, setCustomRange] = useState(null);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
   const [filterServices, setFilterServices] = useState(() => new Set());
   const [selectedService, setSelectedService] = useState(null);
@@ -81,8 +100,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   // Fetch costs and trends
   // Cost records now filter by internal_account_id directly (no resolution needed)
   const costsQuery = useQuery({
-    queryKey: ['costs', selectedAccount, period],
-    queryFn: () => fetchCosts(selectedAccount, null, period),
+    queryKey: ['costs', selectedAccount, period, customRange?.sinceIso ?? null, customRange?.untilIso ?? null],
+    queryFn: () => fetchCosts(selectedAccount, null, period, customRange?.sinceIso, customRange?.untilIso),
   });
 
   // Derive distinct services from costs
@@ -332,7 +351,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
       {/* Total cost hero */}
       <div style={{ backgroundColor: 'var(--color-surface-alt)', borderBottom: '1px solid var(--color-border)', padding: '20px 20px 16px' }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
-          Total Spend · {PERIOD_OPTIONS.find(p => p.days === period)?.label || `${period}d`}
+          Total Spend · {PRESET_OPTIONS.find(p => p.days === period)?.label || `${period}d`}
         </span>
         <span style={{ fontSize: 32, fontWeight: 800, color: 'var(--color-accent)', letterSpacing: -0.5, display: 'block' }}>
           ${totalCost.toFixed(2)}
@@ -371,28 +390,18 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {PERIOD_OPTIONS.map(p => (
-              <button
-                key={p.days}
-                onClick={() => { setPeriod(p.days); setSelectedService(null); setSelectedChartDate(null); }}
-                style={{
-                  padding: isMobile ? '7px 12px' : '4px 10px',
-                  borderRadius: 6,
-                  border: `1px solid ${period === p.days ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                  backgroundColor: period === p.days ? 'var(--color-accent)' : 'var(--color-surface-raised)',
-                  color: period === p.days ? 'var(--color-text-on-dark)' : 'var(--color-text-mid)',
-                  fontWeight: 700,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                }}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+          <DateRangeChips
+            value={period}
+            onChange={(days, range) => {
+              setPeriod(days);
+              // Presets call onChange(days) with no range → trailing window.
+              // Custom… passes { sinceIso, untilIso } → absolute window.
+              setCustomRange(range ?? null);
+              setSelectedService(null);
+              setSelectedChartDate(null);
+            }}
+            mobile={isMobile}
+          />
         </div>
 
         {/* Service filter pills */}
@@ -494,7 +503,6 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               <button
                 onClick={() => exportCSV(records, {
                   services: [...filterServices],
-                  periodDays: period,
                 }, toast)}
                 disabled={records.length === 0}
                 aria-label="Export to CSV"

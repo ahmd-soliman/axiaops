@@ -193,6 +193,119 @@ func TestGetSummary_ReturnsSavings(t *testing.T) {
 	}
 }
 
+// ── GET /summary/by-account ─────────────────────────────────────────────────────
+
+func TestGetSummaryByAccount(t *testing.T) {
+	zombieA := model.ZombieResource{
+		Provider: "aws", InternalAccountID: "acc-a", AccountID: "111111111111",
+		Service: "AmazonRDS", Region: "eu-central-1", ResourceID: "db-a",
+		MonthlyCost: 210.00, Currency: "USD",
+	}
+	zombieB := model.ZombieResource{
+		Provider: "aws", InternalAccountID: "acc-b", AccountID: "222222222222",
+		Service: "AmazonEC2", Region: "eu-central-1", ResourceID: "i-b",
+		MonthlyCost: 100.00, Currency: "USD",
+	}
+	store := NewMockStore().WithZombies([]model.ZombieResource{zombieA, zombieB})
+	h := newHandlerWith(store)
+	mux := newMux(h)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/summary/by-account"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	var got analyzer.ByAccountSummary
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(got.Accounts) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(got.Accounts))
+	}
+
+	byID := map[string]analyzer.AccountSummary{}
+	for _, a := range got.Accounts {
+		byID[a.InternalAccountID] = a
+	}
+	if byID["acc-a"].TotalZombies != 1 || byID["acc-a"].PotentialMonthly != 210.00 {
+		t.Errorf("acc-a isolation wrong: %+v", byID["acc-a"])
+	}
+	if byID["acc-a"].AccountID != "111111111111" {
+		t.Errorf("acc-a: expected AWS account 111111111111, got %q", byID["acc-a"].AccountID)
+	}
+	if byID["acc-b"].TotalZombies != 1 || byID["acc-b"].PotentialMonthly != 100.00 {
+		t.Errorf("acc-b isolation wrong: %+v", byID["acc-b"])
+	}
+}
+
+// TestGetSummaryByAccount_ExcludesDismissed is the parity guard: a dismissed
+// zombie must drop out of its account's total exactly as it does for getSummary.
+func TestGetSummaryByAccount_ExcludesDismissed(t *testing.T) {
+	zombieA := model.ZombieResource{
+		Provider: "aws", InternalAccountID: "acc-a", AccountID: "111111111111",
+		Service: "AmazonRDS", Region: "eu-central-1", ResourceID: "db-a",
+		MonthlyCost: 210.00, Currency: "USD",
+	}
+	zombieB := model.ZombieResource{
+		Provider: "aws", InternalAccountID: "acc-a", AccountID: "111111111111",
+		Service: "AmazonEC2", Region: "eu-central-1", ResourceID: "i-b",
+		MonthlyCost: 50.00, Currency: "USD",
+	}
+	// Dismissal fingerprint must match zombieB exactly (account|provider|service|region|resource).
+	store := NewMockStore().
+		WithZombies([]model.ZombieResource{zombieA, zombieB}).
+		WithDismissals([]model.DismissAction{
+			{ID: 1, AccountID: "acc-a", Provider: "aws", Service: "AmazonEC2",
+				Region: "eu-central-1", ResourceID: "i-b", Action: "dismiss", Reason: "intentional"},
+		})
+	h := newHandlerWith(store)
+	mux := newMux(h)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/summary/by-account"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	var got analyzer.ByAccountSummary
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(got.Accounts) != 1 {
+		t.Fatalf("expected 1 account, got %d", len(got.Accounts))
+	}
+	a := got.Accounts[0]
+	if a.TotalZombies != 1 {
+		t.Errorf("expected 1 zombie after dismissal exclusion, got %d", a.TotalZombies)
+	}
+	if a.PotentialMonthly != 210.00 {
+		t.Errorf("expected savings 210.00 (dismissed zombie excluded), got %f", a.PotentialMonthly)
+	}
+	if a.TopService != "AmazonRDS" {
+		t.Errorf("expected top_service AmazonRDS, got %q", a.TopService)
+	}
+}
+
+func TestGetSummaryByAccount_EmptyOrg_ReturnsEmptyArray(t *testing.T) {
+	store := NewMockStore().WithZombies([]model.ZombieResource{})
+	h := newHandlerWith(store)
+	mux := newMux(h)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/summary/by-account"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := strings.TrimSpace(w.Body.String())
+	if !strings.Contains(body, `"accounts":[]`) {
+		t.Errorf("expected accounts to serialise as [], got: %s", body)
+	}
+	if strings.Contains(body, `"accounts":null`) {
+		t.Errorf("accounts must never be null, got: %s", body)
+	}
+}
+
 // ── GET /accounts ─────────────────────────────────────────────────────────────
 
 func TestListAccounts_Returns200(t *testing.T) {
