@@ -76,9 +76,11 @@ boot, **consumed (deleted) inside the bootstrap tx**. This is what gives us:
 The tenant's `MaybeGenerateInstallToken` is **welded to `bootstrap_state` +
 `CountOrganizations`** (`install_token.go:74-92`) and is **not** reusable as-is.
 What we reuse vs. copy:
-- **Reuse (pure helpers):** `HashToken`, `writeTokenFile` (mode `0600`),
-  `removeInstallTokenFile`, `clearInstallTokenEnv`, `printInstallBanner`. Extract
-  the pure ones to a shared spot if cheap; otherwise copy (~40 lines).
+- **Reuse (pure helpers):** `HashToken` (already exported) + `writeTokenFile`
+  (mode `0600`), `removeInstallTokenFile`, `clearInstallTokenEnv`,
+  `printInstallBanner`. The admin already imports `internal/auth`, so **export
+  these four** (currently unexported) and reuse them — **no copy, no new package**
+  (Resolved §2).
 - **Copy + adapt:** a `MaybeGenerateAdminInstallToken` that gates on
   `staff_bootstrap_state` (not orgs), persists the hash via a new
   `CreateStaffBootstrapState`, and honours the same `won`-race / file / banner
@@ -235,8 +237,26 @@ the in-code controls are defence-in-depth in case it ever fails.
 
 **Effort: ~2 days** end-to-end — backend ~1 day (migration + store + handler + token + tests), the **dashboard-admin screen ~1 day** (screen + probe + redirect + error states).
 
-## Open questions
+## Resolved (answered from the tenant implementation)
 
-1. **Token TTL** — tenant install token is long-lived until redeemed; keep the same (file-deleted on use), or add `ADMIN_BOOTSTRAP_TTL`? Default: long-lived.
-2. **Shared install-token primitive** — extract the pure file/banner helpers into a small shared package, or copy? Decide based on churn cost (lean: extract the ~4 pure funcs, keep the gating logic per-plane).
-3. **Loopback-bind fallback** — worth binding bootstrap to loopback when no operator token is set, or is rate-limit + private-ingress enough? (Defence-in-depth, low effort.)
+1. **Token TTL → none.** The tenant `bootstrap_state` table has `created_at` but
+   **no `expires_at`** (`021_native_auth.up.sql`) — and that's deliberate, since
+   `sessions` and `password_resets` in the *same* migration *do* carry `expires_at`.
+   The install token's lifecycle is the **seal** (consume deletes the row), not a
+   clock. Mirror it: **no `ADMIN_BOOTSTRAP_TTL`** — long-lived until consumed, file
+   deleted on use. A sitting token is gated by file `0600` + private ingress
+   regardless, and adding an expiry would mean a sweeper for no real gain.
+2. **Pure helpers → reuse `internal/auth`, do not copy.** The admin plane **already
+   imports `internal/auth`** (`seed.go`, `staff/{handler,session,admin_handler}.go`,
+   `build_admin.go`). `HashToken` is already exported; the four file/banner helpers
+   (`writeTokenFile`/`removeInstallTokenFile`/`clearInstallTokenEnv`/`printInstallBanner`)
+   are currently unexported in `install_token.go` — **export them and reuse**. No
+   copy, no new shared package. Only the **gating** function
+   (`MaybeGenerateAdminInstallToken`) is per-plane (it keys on `staff_bootstrap_state`,
+   not `CountOrganizations`).
+3. **Loopback-bind → no.** The tenant registers bootstrap on the **main mux**
+   (`mux.HandleFunc("POST /v1/auth/bootstrap", h.bootstrap)`, `handler.go:168`) —
+   the same listener as everything else; the **token is the control**. Loopback-
+   binding would make the endpoint **unreachable from the web UI** (which arrives
+   via the edge), defeating the feature. Admin controls stay: required token +
+   rate-limit + private ingress.
