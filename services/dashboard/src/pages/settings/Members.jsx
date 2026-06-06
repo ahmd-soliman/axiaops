@@ -119,6 +119,10 @@ export default function Members() {
             // "emailed vs share-the-link" framing below. The addMember
             // fallback path has no email_delivery, so it reads as '' (neutral).
             emailDelivery: data.email_delivery || '',
+            // Invitation expiry (INVITATION_TTL_DAYS, default 14d). Surfaced in
+            // the box so the admin knows the link's shelf life — the email
+            // already states it (invite_email.go), the UI shouldn't be silent.
+            expiresAt: data.expires_at || '',
             // Tasks.md row 2.7.20: yellow callout when the org gates on
             // SSO. The URL still works for the redemption hop, but every
             // authed request afterward 403s with `sso_required` because
@@ -378,7 +382,12 @@ export default function Members() {
                   {copied ? '✓' : '⧉'}
                 </button>
               </div>
-              <p style={{ marginTop: 8, marginBottom: 0, fontSize: 11, color: 'var(--color-text-muted)' }}>
+              {lastInvite.expiresAt && (
+                <p style={{ marginTop: 8, marginBottom: 0, fontSize: 11, color: 'var(--color-text-mid)' }}>
+                  This link expires on <strong>{formatDate(lastInvite.expiresAt)}</strong>.
+                </p>
+              )}
+              <p style={{ marginTop: 6, marginBottom: 0, fontSize: 11, color: 'var(--color-text-muted)' }}>
                 Anyone with this link can redeem the invitation, so share over
                 a private channel. Revoke it from the Pending invitations table
                 below if needed.
