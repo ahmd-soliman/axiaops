@@ -671,7 +671,7 @@ func TestSetSessionTLSRequestIsSecure(t *testing.T) {
 }
 
 func TestSetSessionXForwardedProtoHTTPSIsSecure(t *testing.T) {
-	// Production shape: TLS terminator (App Runner / nginx) sets
+	// Production shape: TLS terminator (ECS Express ALB / nginx) sets
 	// X-Forwarded-Proto on the proxied request. The API container
 	// itself receives plain HTTP from the LB but knows the original
 	// edge was HTTPS — cookies must be marked Secure.

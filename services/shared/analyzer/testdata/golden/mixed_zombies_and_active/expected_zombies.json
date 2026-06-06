@@ -1,6 +1,7 @@
 [
   {
     "service": "AmazonRDS",
+    "resource_type": "db_instance",
     "region": "eu-central-1",
     "resource_id": "db-old",
     "monthly_cost": 210,
@@ -11,6 +12,7 @@
   },
   {
     "service": "AWSLambda",
+    "resource_type": "function",
     "region": "eu-central-1",
     "resource_id": "fn-deprecated",
     "monthly_cost": 12.8,

@@ -1,7 +1,7 @@
 // Package httpip extracts the client IP from an *http.Request in a way that
 // resists header-spoofing by upstream clients.
 //
-// Threat: nginx and App Runner both *append* the connecting peer's IP to
+// Threat: nginx and the ECS Express ALB both *append* the connecting peer's IP to
 // whatever X-Forwarded-For header the client sent. So a request from
 // `attacker-ip` carrying `X-Forwarded-For: 1.2.3.4` arrives at the backend
 // as `X-Forwarded-For: 1.2.3.4, attacker-ip`. Taking the leftmost token
@@ -12,15 +12,16 @@
 // We instead trust, in order:
 //  1. X-Real-IP — set by nginx via `proxy_set_header X-Real-IP $remote_addr`,
 //     which unconditionally overwrites any client-supplied value. Reliable
-//     in the staging shape; not set by App Runner.
+//     in the staging shape; not set by the ECS Express ALB.
 //  2. The rightmost token of X-Forwarded-For — the one our trusted proxy
 //     added, i.e. the actual peer that connected to it.
 //
-//     Every shipped topology funnels HTTP through the dashboard nginx
-//     before reaching this code: self-hosted is `[edge proxy(es)] → an edge proxy →
-//     dashboard nginx → api`; App Runner production is `App Runner LB →
-//     dashboard nginx (apprunner svc axiaops-dashboard) → api (apprunner
-//     svc axiaops-api)` — i.e. always at least one nginx hop, often more.
+//     Self-hosted / dev-staging funnels HTTP through the dashboard nginx:
+//     `[edge proxy(es)] → an edge proxy → dashboard nginx → api`. In ECS Express
+//     production the dashboard is static S3+CloudFront (NOT in the api path),
+//     so the api sits directly behind the shared ALB: `clients → CloudFront /
+//     ECS Express ALB → api` — no dashboard-nginx hop, so prod leans on the
+//     rightmost X-Forwarded-For token the ALB appends (X-Real-IP isn't set there).
 //
 //     Multi-hop chains are normalised at the dashboard-nginx layer via the
 //     real_ip module (`set_real_ip_from` + `real_ip_recursive` in

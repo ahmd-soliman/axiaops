@@ -164,6 +164,56 @@ func TestListCosts_DaysFilter(t *testing.T) {
 	}
 }
 
+func TestListCosts_SinceUntilFilter(t *testing.T) {
+	// The Custom… date picker sends since/until (ISO dates) — these must reach
+	// the store filter as an absolute window so a fixed calendar range no longer
+	// degrades to a trailing "last N days" fetch.
+	store := NewMockStore().WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?since=2026-05-01&until=2026-05-15"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	filter := store.GetLastCostFilter()
+	wantSince := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	wantUntil := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+	if !filter.Since.Equal(wantSince) {
+		t.Errorf("expected since %s, got %s", wantSince, filter.Since)
+	}
+	if !filter.Until.Equal(wantUntil) {
+		t.Errorf("expected until %s, got %s", wantUntil, filter.Until)
+	}
+}
+
+func TestListCosts_MalformedSinceIgnored(t *testing.T) {
+	// A garbage since= must not 500 or leak a bogus time; it's simply ignored
+	// and the request falls back to the trailing window.
+	store := NewMockStore().WithCostRecords(testCostRecords)
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?since=not-a-date&days=7"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	filter := store.GetLastCostFilter()
+	if !filter.Since.IsZero() {
+		t.Errorf("expected zero since on malformed input, got %s", filter.Since)
+	}
+	if filter.Days != 7 {
+		t.Errorf("expected fallback days 7, got %d", filter.Days)
+	}
+}
+
 func TestListCosts_AccountIDFilter_InternalUUID(t *testing.T) {
 	// When account_id matches an existing account, both internal and AWS IDs are set.
 	store := NewMockStore().

@@ -55,6 +55,13 @@ const (
 	PermSSORead         Permission = "sso:read"
 	PermSSOManage       Permission = "sso:manage"
 	PermSSODomainVerify Permission = "sso:domain_verify"
+
+	// Notification channels (docs/notifications-plan.md). Read is viewer+ so the
+	// dashboard can render the Integrations pane; manage is admin+ because a
+	// channel carries credentials (SMTP creds / webhook tokens) and triggers
+	// outbound mail/Slack — the same tier as accounts:delete.
+	PermChannelsRead   Permission = "channels:read"
+	PermChannelsManage Permission = "channels:manage"
 )
 
 // rolePermissions maps each role to its complete permission set, including
@@ -76,6 +83,7 @@ var directGrants = map[Role][]Permission{
 		PermAuditRead,
 		PermMembersRead,
 		PermSSORead,
+		PermChannelsRead,
 	},
 	RoleMember: {
 		PermAccountsWrite,
@@ -86,6 +94,7 @@ var directGrants = map[Role][]Permission{
 		PermAccountsDelete,
 		PermMembersInvite,
 		PermMembersManageBasic,
+		PermChannelsManage,
 	},
 	RoleOwner: {
 		PermMembersManageAdmin,

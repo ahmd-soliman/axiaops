@@ -3,7 +3,7 @@
 Operator-facing walkthrough for testing the Phase B1 native-auth flow
 end-to-end against `make start-staging`. Mirrors the production install
 shape *minus* edge TLS — production terminates HTTPS at the edge proxy
-(App Runner / customer ingress), this local stack runs plain HTTP and
+(ECS Express / customer ingress), this local stack runs plain HTTP and
 relies on the cookie path's `X-Forwarded-Proto` propagation to behave
 identically when there *is* an edge proxy in front.
 
@@ -249,7 +249,7 @@ is identical in both.
 
 | | Local docker-compose | Production / on-prem dev/staging |
 |---|---|---|
-| Edge TLS | none — direct HTTP at `localhost:8082` | App Runner LB / on-prem reverse proxy |
+| Edge TLS | none — direct HTTP at `localhost:8082` | ECS Express ALB / on-prem reverse proxy |
 | API protocol from edge | empty `X-Forwarded-Proto` (no edge) | `X-Forwarded-Proto: https` (set by edge) |
 | Internal API plain-HTTP | yes (over docker network) | yes (over VPC / docker network) |
 | Cookie `Secure` flag | non-Secure (header empty) | Secure (header propagated by dashboard nginx) |
