@@ -113,6 +113,12 @@ export default function Members() {
             email: data._email || data.email,
             role: data._role || data.role,
             url,
+            // Best-effort invite-email outcome (services/api invitations.go):
+            // sent | failed | skipped_no_transport | skipped_no_public_host |
+            // error, or '' when no mailer is wired. Drives the headline + the
+            // "emailed vs share-the-link" framing below. The addMember
+            // fallback path has no email_delivery, so it reads as '' (neutral).
+            emailDelivery: data.email_delivery || '',
             // Tasks.md row 2.7.20: yellow callout when the org gates on
             // SSO. The URL still works for the redemption hop, but every
             // authed request afterward 403s with `sso_required` because
@@ -262,7 +268,9 @@ export default function Members() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text)' }}>
-                  Invitation created for <strong>{lastInvite.email}</strong> ({lastInvite.role})
+                  {inviteDelivery(lastInvite.emailDelivery).tone === 'sent' && '✓ '}
+                  Invitation {inviteDelivery(lastInvite.emailDelivery).verb}{' '}
+                  <strong>{lastInvite.email}</strong> ({lastInvite.role})
                 </span>
                 <button
                   type="button"
@@ -281,6 +289,25 @@ export default function Members() {
                   ×
                 </button>
               </div>
+              {/* 3a — surface the best-effort email outcome. When the email
+                  couldn't be sent, an amber note tells the admin to fall back
+                  to sharing the link directly. */}
+              {inviteDelivery(lastInvite.emailDelivery).note && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    padding: 8,
+                    borderRadius: 4,
+                    backgroundColor: isDark ? 'rgba(234,179,8,0.12)' : '#fef9c3',
+                    border: `1px solid ${isDark ? 'rgba(234,179,8,0.35)' : '#fde047'}`,
+                    color: isDark ? '#fde68a' : '#854d0e',
+                    fontSize: 11,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {inviteDelivery(lastInvite.emailDelivery).note}
+                </div>
+              )}
               {lastInvite.enforcementHint === 'sso_required' && (
                 <div
                   style={{
@@ -302,6 +329,11 @@ export default function Members() {
                   will be blocked on the next request.
                 </div>
               )}
+              {/* 3c — when the email was sent the link is a secondary "share
+                  another way" option; otherwise it's the primary handoff. */}
+              <p style={{ marginTop: 0, marginBottom: 6, fontSize: 11, color: 'var(--color-text-mid)' }}>
+                {inviteDelivery(lastInvite.emailDelivery).linkIntro}
+              </p>
               <div style={{ position: 'relative' }}>
                 <input
                   type="text"
@@ -768,6 +800,60 @@ function provenanceLabel(via) {
     case 'bootstrap':  return 'Bootstrap';
     case 'legacy':     return 'Legacy';
     default:           return via || '—';
+  }
+}
+
+// inviteDelivery maps the API's best-effort email outcome (invitations.go) to
+// the invite-result UI: `verb` shapes the headline (3c — email is the headline
+// action), `note` is a non-empty amber line when the email did NOT go out (3a),
+// and `linkIntro` frames the copyable link as a fallback ("Or copy…") on a
+// successful send vs the primary handoff ("Share this link…") otherwise.
+function inviteDelivery(outcome) {
+  switch (outcome) {
+    case 'sent':
+      return {
+        tone: 'sent',
+        verb: 'emailed to',
+        note: '',
+        linkIntro: 'Or copy the link to share another way:',
+      };
+    case 'failed':
+      return {
+        tone: 'warn',
+        verb: 'created for',
+        note: 'The invite email couldn’t be delivered — share the link below directly.',
+        linkIntro: 'Share this link with the invitee:',
+      };
+    case 'error':
+      return {
+        tone: 'warn',
+        verb: 'created for',
+        note: 'Something went wrong sending the email — share the link below directly.',
+        linkIntro: 'Share this link with the invitee:',
+      };
+    case 'skipped_no_transport':
+      return {
+        tone: 'warn',
+        verb: 'created for',
+        note: 'Email isn’t configured for this organization, so nothing was sent — share the link below.',
+        linkIntro: 'Share this link with the invitee:',
+      };
+    case 'skipped_no_public_host':
+      return {
+        tone: 'warn',
+        verb: 'created for',
+        note: 'Email was skipped because no public host is configured — share the link below.',
+        linkIntro: 'Share this link with the invitee:',
+      };
+    default:
+      // '' / omitted — no mailer wired (or the addMember fallback). Behaves
+      // exactly like the pre-change UI: link is the primary handoff.
+      return {
+        tone: 'neutral',
+        verb: 'created for',
+        note: '',
+        linkIntro: 'Share this link with the invitee:',
+      };
   }
 }
 
