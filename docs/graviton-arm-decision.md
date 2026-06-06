@@ -1,86 +1,135 @@
-# Graviton / ARM64 for Prod Compute — Viable (the blocker was wrong)
+# Graviton / ARM64 for Prod Compute — Declined (ECS Express is x86-only, verified)
 
-**Status:** Viable — low-priority adoption | **Last Updated:** June 2026 | **Supersedes:** the earlier "Declined — ECS Express is x86-only" verdict
+**Status:** Declined — x86-only blocker confirmed | **Last Updated:** June 2026 | **Supersedes:** the June-2026 "Viable — the blocker was wrong" rewrite, which was itself wrong.
 
 ## TL;DR
 
-The previous version of this doc **declined** Graviton on the premise that **ECS
-Express is x86-only**. That premise was wrong (or has since changed): ECS Express
-Mode — the managed successor to AWS App Runner, running on Fargate — **does
-support selecting ARM/Graviton**. With the blocker gone:
+A prior rewrite of this doc **reversed** the original "declined" verdict, claiming
+ECS Express Mode supports selecting ARM/Graviton (citing a third-party blog). That
+rewrite carried its own warning — *"⚠️ Verify before implementing"* — so on
+2026-06-06 we verified it against the live AWS API on the production account. **The
+"Express supports ARM" claim does not hold.** The original verdict was right:
 
-- **The database is already on Graviton** — `db.t4g.micro` (`t4g` = Graviton2).
-  The stateful tier, the one a migration would actually have risked, needs nothing.
-- **Every service image is arm64-ready today** — no cgo, no arch pins, pure-Go DB
-  drivers, multi-arch base images.
-- The remaining work is **infra config, not code**: build multi-arch images in CI
-  and set the Express service's runtime platform to ARM64 in `aws-infra`.
-- The saving is still small (~€46/yr, compute-only) but now at **moderate effort**,
-  not the hard "migrate off Express" the prior doc assumed.
+- **The Express API has no architecture knob.** `create-express-gateway-service` /
+  `update-express-gateway-service` expose only `cpu` + `memory` — there is no
+  `runtimePlatform` / `cpuArchitecture` field anywhere in the input schema, nor on
+  the describe output of the running prod service.
+- **Fargate under Express hard-demands `linux/amd64`.** A live probe pointing an
+  Express service at an arm64-only image failed to launch with
+  `CannotPullContainerError: ... image Manifest does not contain descriptor
+  matching platform 'linux/amd64'`. Express does **not** auto-detect arch from the
+  image manifest — it requires amd64.
+- **An unofficial hack exists but is rejected for prod** (see below): manually
+  overriding the auto-generated task definition to `cpuArchitecture: ARM64`.
+  Express owns that task def via its service-revision/reconcile model, so the
+  override is liable to be reverted on the next Express deploy → exec-format crash.
+- The DB is already on Graviton (`db.t4g.micro`) and every service image is
+  arm64-ready, but none of that matters while the **compute target can't be told
+  to run ARM** through a supported path.
 
-**Recommendation: viable — adopt when next touching `aws-infra`, or alongside
-multi-arch CI work. Not urgent (~€4/mo), but no longer blocked.**
+**Recommendation: stay x86 on ECS Express. The ~€46/yr compute saving does not
+justify an unsupported, self-reverting hack. Recheck for *official* Express ARM
+support periodically (see the disclaimer below) — the app + DB are ready the day it
+lands.**
 
 This is a FinOps-for-AxiaOps decision — see the Cost Awareness section in the root
 `CLAUDE.md`.
 
 ---
 
-## What changed — the "x86-only" premise was wrong
+## ⚠️ Recheck trigger — official support may arrive
 
-The June-2026 version of this doc claimed `create-express-gateway-service` has no
-`--runtime-platform` / `--cpu-architecture` input and that Express is hardcoded to
-x86_64. The current understanding — per the [ECS Express Mode getting-started
-guide][1], and consistent with Express being the App-Runner-on-Fargate successor —
-is the opposite:
+This verdict is pinned to the AWS API as it behaved on **2026-06-06**. Re-open this
+decision the moment **either** of these becomes true:
 
-> "Or use `linux/arm64` and **select ARM/Graviton in Express Mode** for 20% cost
-> savings."
+- `aws ecs create-express-gateway-service` / `update-express-gateway-service` grows a
+  `runtimePlatform` / `cpuArchitecture` input (check `--generate-cli-skeleton`), **or**
+- the CloudFormation `AWS::ECS::ExpressGatewayService` resource gains a
+  `RuntimePlatform` property.
 
-So ARM/Graviton is a **selectable runtime platform** on Express, not a forbidden
-one. Either AWS exposed it after the original check, or that check looked at the
-wrong seam: the architecture lives on the task-definition / service runtime
-platform, which in our stack is **TF-owned in `aws-infra`** — *not* set by the CI
-`update-express-gateway-service --primary-container` call, which only carries
-image + env. CI never touching arch is not the same as Express not supporting it.
+If official support lands, adoption is cheap: the work is then just multi-arch CI
+images + setting the property. Until then, the only route to ARM is the unsupported
+hack, which we decline. **Don't re-flip this doc on the strength of a blog post —
+re-verify against the live API first, the way this revision did.**
 
-> ⚠️ **Verify before implementing.** Confirm our specific Express service accepts
-> `cpuArchitecture: ARM64` against the *current* live API
-> (`aws ecs create-express-gateway-service help`) and the `aws-infra` TF resource
-> schema. The article asserts Express supports it; the one task left is to make it
-> true for our stack.
+---
 
-## Component readiness — all green
+## How we verified (2026-06-06, prod acct `123456789012`, eu-central-1)
 
-| Component | Current arch | Graviton-ready? | Effort | Notes |
-|---|---|---|---|---|
-| Go services (api, ingestion, api-admin, migrate) | x86 (runner-default) | ✅ | trivial | No cgo, no arch pins, pure-Go pgx/pq, argon2 ships ARM64 asm |
-| `services/shared` | x86 | ✅ | trivial | — |
-| Dashboards (dashboard, dashboard-admin) | x86 / serverless | ✅ | trivial | multi-arch node/nginx bases; **prod dashboard is S3+CloudFront — arch-free** |
-| **RDS PostgreSQL** (`db.t4g.micro`) | **ARM (Graviton2)** | ✅ **already done** | none | PG17 fully supported on t4g; RLS, schema, the 3 DB roles are all arch-invisible |
-| **ECS Express compute** | x86 (TF-set) | ✅ supported | moderate | flip the service runtime platform to ARM64 in `aws-infra` |
-| CI build pipeline | x86 runner | ⚠️ partial | moderate | add `--platform` / multi-arch manifests (see below) |
-| Homelab dev/staging (self-hosted) | x86 (on-prem) | N/A | — | **not AWS** — stays x86; pulls the same images, so they must be multi-arch |
+Three independent confirmations, then immediate teardown (~zero cost):
 
-The application layer presents **zero** engineering blocker. The work is entirely
-in infra (CI + the deploy target), not code.
+1. **Input schema** — `aws ecs create-express-gateway-service --generate-cli-skeleton`
+   lists exactly: `executionRoleArn, infrastructureRoleArn, serviceName, cluster,
+   healthCheckPath, primaryContainer{…}, taskRoleArn, networkConfiguration, cpu,
+   memory, scalingTarget, tags`. **No** `cpuArchitecture` / `runtimePlatform` — not
+   top-level, not nested in `primaryContainer`. Same for `update-…`.
+2. **Live describe** — `describe-express-gateway-service` on the running
+   `axiaops-api` prod service reports no architecture field at all (only
+   `cpu`/`memory`).
+3. **arm64-image probe** — created a throwaway Express service pointing at an
+   arm64-only image (`arm64v8/nginx`). The task never started:
 
-## The work (now that it's unblocked)
+   ```
+   CannotPullContainerError: pull image manifest has been retried 7 time(s):
+   image Manifest does not contain descriptor matching platform 'linux/amd64'
+   ```
 
-1. **CI: build multi-arch images.** Today `build:images` runs plain `docker build`
-   on x86 GitLab runners → x86 images. The homelab dev/staging self-hosted hosts are
-   **x86** and pull the **same** images, so CI must build **multi-arch manifests**
-   (`docker buildx build --platform linux/amd64,linux/arm64 --push`), **not**
-   arm64-only — or dev/staging breaks. Under QEMU on the existing x86 runner this
-   adds minutes per build (Go + Vite under emulation); a native arm64 runner avoids
-   the slowdown but is new infra.
-2. **aws-infra: set the Express service runtime platform to `ARM64`.** This is the
-   change the prior doc thought impossible. Prod then pulls the arm64 image out of
-   the multi-arch manifest.
-3. **migrate one-off task** inherits the TF-set arch automatically — no separate
-   change.
+   Fargate demanded `linux/amd64` and refused the arm64 manifest → Express places
+   tasks on x86 and does not infer arch from the image. Probe + log group deleted
+   immediately afterward.
 
-## The savings math
+## The unofficial hack — and why we decline it
+
+A third-party walkthrough ([classmethod][2]) shows ARM *is* reachable by going
+**underneath** the Express API to the normal-ECS primitives it auto-creates:
+
+1. Create the Express service with a **dummy x86 image** (so it starts).
+2. `aws ecs register-task-definition` a new revision of the auto-generated task def
+   with `runtimePlatform.cpuArchitecture = "ARM64"` + the real arm64 image.
+3. `aws ecs update-service --task-definition <new-rev> --force-new-deployment` to
+   point the underlying service at it.
+
+We confirmed the precondition is real — the Express service is a standard ECS
+service (`deploymentController: ECS`) backed by an ordinary, editable task def
+(`requiresCompatibilities: [FARGATE]`, `networkMode: awsvpc`,
+`cpuArchitecture: X86_64`). We did **not** force-deploy it on prod (correctly
+gated).
+
+**Why we reject it for production:**
+
+- **Self-reverting.** Express owns the task def through its service-revision /
+  reconcile model. Any subsequent Express-level change (a normal CI image deploy via
+  `update-express-gateway-service --primary-container`, an autoscaling event, a
+  platform reconcile) regenerates the task def at the default **x86_64** — silently
+  reverting the manual ARM override. The arm64 image then can't be pulled on x86 →
+  `exec format error` crashloop in prod.
+- **Unsupported & undocumented.** The classmethod author notes the same:
+  *"Properties such as `runtimePlatform` and `capacityProviderStrategy` … do not
+  exist in Express Mode templates."* There is no official path, so AWS can change
+  the auto-managed-task-def behaviour from under us at any time.
+- **The prize is tiny.** ~€46/yr (below). Babysitting a prod hack that fights its
+  own control plane is not worth €4/mo.
+
+The supported way to get first-class ARM is to drop Express for **normal ECS** (you
+author the task def, `runtimePlatform.cpuArchitecture` is first-class) — which is the
+"rebuild off Express" cost the original doc already weighed and rejected at this
+savings level. See the comparison table below.
+
+## Component readiness — app layer is ready, the deploy target is not
+
+| Component | Current arch | Graviton-ready? | Blocker |
+|---|---|---|---|
+| Go services (api, ingestion, api-admin, migrate) | x86 | ✅ | none — no cgo, no arch pins, pure-Go pgx, argon2 ships ARM64 asm |
+| `services/shared` | x86 | ✅ | none |
+| Dashboards (dashboard, dashboard-admin) | x86 / serverless | ✅ | none — prod dashboard is S3+CloudFront (arch-free) |
+| **RDS PostgreSQL** (`db.t4g.micro`) | **ARM (Graviton2)** | ✅ already done | none |
+| CI build pipeline | x86 runner | ⚠️ partial | needs multi-arch manifests (`buildx --platform linux/amd64,linux/arm64`) |
+| **ECS Express compute** | **x86 (forced)** | ❌ **blocked** | **no supported arch selector — verified 2026-06-06** |
+
+The application layer presents zero engineering blocker. **The blocker is entirely
+the deploy target**: ECS Express won't run ARM through any supported seam.
+
+## The savings math (still small)
 
 Fargate on-demand, eu-central-1; ARM64 is ~20% cheaper per vCPU-hr and GB-hr.
 
@@ -97,54 +146,58 @@ Per task (0.25 vCPU + 0.5 GB) × 730 hr/mo, both `axiaops-api` + `axiaops-ingest
 | ARM (Graviton) | **$16.58** | $199.0 |
 | **Saving** | **$4.14 / mo** | **~$49.6 / yr (~€46)** |
 
-The ALB (~$20/mo), RDS, CloudFront, S3, and data transfer are **unchanged** by
-arch, so they never enter the delta. The DB being already-Graviton doesn't
-*increase* the prize — it confirms the prize is **only** the compute line. What
-changed versus June 2026 is the **cost to capture it**: from "rebuild off Express"
-(the old reject) down to "multi-arch CI + a TF arch flip."
-
-## When to do it
-
-- **Opportunistically / soon:** the multi-arch CI change is good hygiene on its own
-  (future-proofs the AWS arm64 target *and* any ARM dev box). Pair it with the
-  `aws-infra` arch flip and you bank ~€46/yr.
-- **Definitely** when prod task sizes grow materially: the 20% saving scales with
-  vCPU/GB (~$33/yr **per task** at 1 vCPU / 2 GB), so the case strengthens with load.
-- **Skip** only if the multi-arch build time / runner cost outweighs ~€4/mo for the
-  pipeline — a real but small consideration.
+The ALB (~$20/mo), RDS, CloudFront, S3, and data transfer are **unchanged** by arch.
+The DB being already-Graviton doesn't increase the prize — it confirms the prize is
+**only** the compute line. The 20% scales with task size (~$33/yr **per task** at
+1 vCPU / 2 GB), so the case strengthens if workloads grow.
 
 ## ECS Express vs normal ECS (for context)
 
 | | ECS Express | Normal ECS |
 |---|---|---|
-| Task definition | Auto-managed by AWS | You author it |
-| CPU architecture | **ARM64 / x86 selectable** (runtime platform) | ARM64 / x86 / Spot — first-class |
+| Task definition | Auto-managed by AWS (you can't durably override arch) | You author it |
+| CPU architecture | **x86 only via supported path** (no arch input) | ARM64 / x86 / Spot — first-class |
 | Load balancer | ALB auto-created (shared ≤25 svc) | You provision |
 | Deploy safety | Canary + rollback **built-in** | You wire it (e.g. CodeDeploy) |
 | Setup effort | Minutes | Substantial IaC |
-| Best for | Simple stateless web services | Anything needing Spot / multi-container / low-level control |
+| Best for | Simple stateless web services | Anything needing Spot / multi-container / ARM / low-level control |
 
 We're on Express because api + ingestion are two simple stateless web services and
-Express gives the ALB + canary deploys + autoscaling for near-zero config — and,
-as it turns out, **Graviton is on the menu too**, so we keep the convenience and
-the ARM saving both.
+Express gives the ALB + canary deploys + autoscaling for near-zero config. The
+trade-off is no architecture control — so prod stays x86 until either Express adds
+official ARM support or a workload justifies the move to normal ECS (at which point
+ARM comes free).
+
+## When to revisit
+
+- **Soon / opportunistically:** only the recheck above — watch for an official
+  `runtimePlatform` field on Express. The multi-arch CI change is reasonable hygiene
+  on its own (future-proofs any ARM target), but on its own it banks nothing while
+  Express can't consume an arm64 image.
+- **Definitely** when prod task sizes grow materially (e.g. an ingestion worker pool
+  at 1 vCPU / 2 GB): the 20% scales (~$33/yr per task) **and** you'll want
+  Spot/multi-container/custom scaling Express can't give — so a normal-ECS migration
+  pays for itself on multiple axes and Graviton comes free.
 
 ## History
 
 - **June 2026 (original):** Declined on the premise "ECS Express is x86-only" — no
   arch input found on `create-express-gateway-service`.
-- **June 2026 (this rewrite):** premise corrected — Express Mode supports ARM/
-  Graviton selection (the App-Runner-on-Fargate successor); the DB is already on
-  t4g Graviton; all service images are arm64-ready. Re-classified from *Declined
-  (blocked)* to **Viable (low-priority)**. Concrete next steps: verify the live
-  Express API accepts `cpuArchitecture: ARM64`, add multi-arch CI builds, flip the
-  `aws-infra` runtime platform.
+- **June 2026 (rewrite, later reverted):** premise flipped to "Express supports
+  ARM/Graviton" on the strength of a third-party blog; re-classified to *Viable*.
+- **2026-06-06 (this revision):** the rewrite's claim was **verified against the live
+  AWS API and disproven** (API schema has no arch field; Fargate refuses non-amd64
+  manifests — `CannotPullContainerError`). Restored to **Declined — x86-only**, now
+  with empirical evidence. Documented the unofficial task-def-override hack and why
+  it's unsafe for prod (Express reconcile reverts it). Added the official-support
+  recheck trigger.
 
 ## References
 
-- [AWS ECS Express Mode — getting-started guide (2026)][1] — confirms ARM/Graviton
-  is selectable in Express Mode.
 - AWS docs: [ECS task definitions for 64-bit ARM workloads](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-arm64.html),
   [Resources created by ECS Express Mode services](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-work.html).
+- [classmethod — ECS Express Mode ARM64 / Fargate Spot / exec walkthrough][2] — the
+  source of the unofficial hack; explicitly notes `runtimePlatform` is absent from
+  Express templates.
 
-[1]: https://dev.to/parag477/aws-ecs-express-mode-the-complete-getting-started-guide-2026-257j
+[2]: https://dev.classmethod.jp/en/articles/ecs-express-mode-arm64-fargate-spot-exec/
