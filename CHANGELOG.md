@@ -25,6 +25,10 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+### Changed
+
+- **Graviton/ARM64 decision corrected back to "Declined — ECS Express is x86-only."** A prior rewrite of [`docs/graviton-arm-decision.md`](docs/graviton-arm-decision.md) had flipped the verdict to "Viable — Express supports ARM" on the strength of a third-party blog. Verified against the live AWS API on the prod account (2026-06-06) and disproven: `create/update-express-gateway-service` expose no `runtimePlatform`/`cpuArchitecture` field, and an Express service pointed at an arm64-only image fails to launch (`CannotPullContainerError … does not contain descriptor matching platform 'linux/amd64'`) — Fargate under Express hard-requires amd64 and doesn't infer arch from the manifest. The doc now carries the empirical evidence, documents the unofficial task-def-override hack (and why it self-reverts under Express's reconcile model, so it's unsafe for prod), and adds a recheck trigger for if/when AWS ships official Express ARM support.
+
 ### Added
 
 - **Notification channels — email + Slack scan digests.** Admins can configure org-level outbound channels under **Settings → Integrations** (`/v1/channels`) that receive a savings digest after each scan. Email is SMTP/SES (no third-party SDK); Slack is an incoming webhook. Each channel has a trigger rule (`min_monthly_savings_usd` gate + `digest_top_n` body trim) and a **Test** button. Transport config (SMTP password / webhook URL) is AES-256-GCM encrypted at rest, masked as `***` on read, and scrubbed from delivery-error records. Dispatch is wired into the ingestion scan loop (best-effort, non-fatal) and every attempt is logged to a deliveries drawer. New permissions `channels:read` (viewer+) / `channels:manage` (admin+); migration `031_notification_channels`. Teams/Jira are pre-provisioned in the schema for follow-ups (#113/#114) but not yet shippable. See [`docs/notifications-plan.md`](docs/notifications-plan.md).
