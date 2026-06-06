@@ -942,7 +942,7 @@ Still open:
   manually uploads via dashboard form). Out-of-scope for Phase 1.
 - **KMS provider choice for SaaS keypair signing.** AWS KMS, Azure Key Vault, GCP KMS,
   HashiCorp Vault, or self-hosted Sealed Secrets. Decision depends on where AxiaOps
-  SaaS deploys (currently planning App Runner = AWS, so AWS KMS is default — but the
+  SaaS deploys (deployed on AWS (ECS Express), so AWS KMS is default — but the
   signing service interface should be cloud-agnostic).
 - **Tag redaction / PII handling default posture.** Should Phase 1 ship with
   pass-through-all-tags (today's behaviour), or default-deny with an allowlist

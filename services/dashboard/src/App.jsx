@@ -16,6 +16,7 @@ import AppShell   from './components/AppShell';
 import AppErrorBoundary from './components/AppErrorBoundary';
 import AuthGuard  from './components/AuthGuard';
 import OnboardingGate from './components/OnboardingGate';
+import OrgSummary from './pages/OrgSummary';
 import Overview   from './pages/Overview';
 import Detail     from './pages/Detail';
 import Trend      from './pages/Trend';
@@ -26,6 +27,7 @@ import CloudAccountSettings from './pages/CloudAccountSettings';
 import Profile           from './pages/Profile';
 import Settings          from './pages/Settings';
 import SettingsMembers   from './pages/settings/Members';
+import SettingsIntegrations from './pages/settings/Integrations';
 import SettingsAudit     from './pages/settings/Audit';
 import SettingsSSO       from './pages/settings/SSO';
 import SettingsOrganization from './pages/settings/Organization';
@@ -115,7 +117,8 @@ function AuthenticatedApp() {
                 <Route path="aws-account" element={<OnboardingAws />} />
               </Route>
               <Route element={<AppShell />}>
-                <Route path="/"                    element={<Overview />} />
+                <Route path="/"                    element={<OrgSummary />} />
+                <Route path="/account"             element={<Overview />} />
                 <Route path="/detail/:id"          element={<Detail />} />
                 <Route path="/trend"               element={<Trend />} />
                 <Route path="/cost"                element={<CostAnalytics />} />
@@ -132,6 +135,7 @@ function AuthenticatedApp() {
                   <Route path="cloud-accounts/:accountId"  element={<CloudAccountSettings />} />
                   <Route path="members"   element={<SettingsMembers />} />
                   <Route path="team"      element={<Navigate to="/settings/members" replace />} />
+                  <Route path="integrations" element={<SettingsIntegrations />} />
                   <Route path="audit"     element={<SettingsAudit />} />
                   <Route path="sso"       element={<SettingsSSO />} />
                   <Route path="organization" element={<SettingsOrganization />} />

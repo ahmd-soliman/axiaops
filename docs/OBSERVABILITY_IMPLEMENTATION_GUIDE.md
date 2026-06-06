@@ -173,14 +173,17 @@ func runIngestion(ctx context.Context, store storage.Store, accountID string, ke
             continue
         }
         
-        inserted, saveErr := store.Save(ctx, records)
+        inserted, updated, saveErr := store.Save(ctx, records)
         if saveErr != nil {
             observability.RecordScanError(accountID, "save_records_failed")
             return fmt.Errorf("save failed: %w", saveErr)
         }
         
-        skipped := int64(len(records)) - inserted
-        slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted)
+        // Save upserts: a row already present for the conflict key is refreshed,
+        // not skipped. inserted vs updated splits fresh discovery from
+        // steady-state late-settlement repair (see docs/cost-records-upsert-plan.md).
+        slog.Info("fetched records", "provider", p.Name(), "total", len(records),
+            "inserted", inserted, "updated", updated)
         observability.Global.CostRecordsFetched.WithLabelValues(p.Name(), organizationID).Add(float64(len(records)))
         
         allRecords = append(allRecords, records...)

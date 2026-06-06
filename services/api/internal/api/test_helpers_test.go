@@ -48,16 +48,19 @@ type MockStore struct {
 	mu sync.Mutex
 
 	// ── Data Storage (used by all tests) ──
-	zombies          []model.ZombieResource
-	accounts         []model.Account
-	snapshots        []model.ZombieSnapshot
-	resources        []model.ResourceRecord
-	costs            []model.CostRecord
-	dismissals       []model.DismissAction
-	nextDismID       int64
-	auditEvents      []model.AuditEvent
-	nextAuditID      int64
-	organizationName string
+	zombies                []model.ZombieResource
+	accounts               []model.Account
+	snapshots              []model.ZombieSnapshot
+	resources              []model.ResourceRecord
+	costs                  []model.CostRecord
+	dismissals             []model.DismissAction
+	nextDismID             int64
+	auditEvents            []model.AuditEvent
+	nextAuditID            int64
+	organizationName       string
+	channels               []model.NotificationChannel
+	listEnabledChannelsErr error
+	dispatches             []model.NotificationDispatch
 
 	// UserMembershipsByUser keys ListUserMemberships responses by user_id
 	// so a single test can drive multiple distinct users (e.g. the
@@ -314,8 +317,8 @@ func (m *MockStore) GetStatusUpdateCalls() []struct {
 
 // ── Store Interface Implementation ──
 
-func (m *MockStore) Save(_ context.Context, _ []model.CostRecord) (int64, error) {
-	return 0, nil
+func (m *MockStore) Save(_ context.Context, _ []model.CostRecord) (int64, int64, error) {
+	return 0, 0, nil
 }
 
 func (m *MockStore) SaveZombies(_ context.Context, z []model.ZombieResource) error {
@@ -652,6 +655,10 @@ func (m *MockStore) Close() error {
 }
 
 func (m *MockStore) DeleteOldCostRecords(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *MockStore) DeleteOldNotificationDispatches(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }
 
@@ -1066,6 +1073,25 @@ func (m *MockStore) MarkOnboardingComplete(_ context.Context) (time.Time, error)
 	return time.Now().UTC(), nil
 }
 
+// WithChannels seeds notification channels for tests.
+func (m *MockStore) WithChannels(chs []model.NotificationChannel) *MockStore {
+	m.channels = append(m.channels, chs...)
+	return m
+}
+
+// WithOrgName seeds the organization display name GetOrganizationByID returns.
+func (m *MockStore) WithOrgName(name string) *MockStore {
+	m.organizationName = name
+	return m
+}
+
+// WithListEnabledChannelsError makes ListEnabledNotificationChannels fail, for
+// testing the invite-email error path.
+func (m *MockStore) WithListEnabledChannelsError(err error) *MockStore {
+	m.listEnabledChannelsErr = err
+	return m
+}
+
 // ── Pending invitations (Phase 2) ────────────────────────────────────────────
 
 // WithPendingInvitations seeds the mock with pending invitation rows for tests.
@@ -1415,4 +1441,129 @@ func (m *MockStore) ListSSOGroupMappings(context.Context, string) ([]model.SSOGr
 }
 func (m *MockStore) ReplaceSSOGroupMappings(context.Context, string, []model.SSOGroupMapping) error {
 	return errors.New("MockStore.ReplaceSSOGroupMappings not implemented")
+}
+
+// ── Notification channels (in-memory, used by channel handler tests) ──
+
+func (m *MockStore) SaveNotificationChannel(_ context.Context, ch model.NotificationChannel) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.channels {
+		if m.channels[i].ID == ch.ID {
+			ch.Kind = m.channels[i].Kind // kind is immutable after insert, mirroring the DB upsert
+			m.channels[i] = ch
+			return nil
+		}
+	}
+	m.channels = append(m.channels, ch)
+	return nil
+}
+
+func (m *MockStore) ListNotificationChannels(_ context.Context) ([]model.NotificationChannel, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]model.NotificationChannel(nil), m.channels...), nil
+}
+
+func (m *MockStore) ListEnabledNotificationChannels(_ context.Context) ([]model.NotificationChannel, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.listEnabledChannelsErr != nil {
+		return nil, m.listEnabledChannelsErr
+	}
+	var out []model.NotificationChannel
+	for _, ch := range m.channels {
+		if ch.Enabled {
+			out = append(out, ch)
+		}
+	}
+	return out, nil
+}
+
+func (m *MockStore) GetNotificationChannel(_ context.Context, id string) (model.NotificationChannel, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ch := range m.channels {
+		if ch.ID == id {
+			return ch, nil
+		}
+	}
+	return model.NotificationChannel{}, storage.ErrChannelNotFound
+}
+
+func (m *MockStore) DeleteNotificationChannel(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.channels {
+		if m.channels[i].ID == id {
+			m.channels = append(m.channels[:i], m.channels[i+1:]...)
+			return nil
+		}
+	}
+	return storage.ErrChannelNotFound
+}
+
+func (m *MockStore) SaveNotificationDispatch(_ context.Context, d model.NotificationDispatch) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dispatches = append(m.dispatches, d)
+	return nil
+}
+
+func (m *MockStore) ListNotificationDispatches(_ context.Context, channelID string, limit int) ([]model.NotificationDispatch, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	var out []model.NotificationDispatch
+	// Newest-first, matching the postgres impl's ORDER BY created_at DESC.
+	for i := len(m.dispatches) - 1; i >= 0 && len(out) < limit; i-- {
+		if m.dispatches[i].ChannelID == channelID {
+			out = append(out, m.dispatches[i])
+		}
+	}
+	return out, nil
+}
+
+// MockStore implementations for the storage.StaffStore methods (platform admin
+// plane). The tenant api-handler tests never exercise the staff plane (it is a
+// separate binary + handlers in internal/staff), so each stub returns a
+// not-implemented error or zero value. Real staff behaviour is covered by
+// services/api/internal/staff/*_test.go and the postgres integration tests.
+
+func (m *MockStore) CreateStaffUser(context.Context, storage.CreateStaffUserInput) (model.StaffUser, error) {
+	return model.StaffUser{}, errors.New("MockStore.CreateStaffUser not implemented")
+}
+
+func (m *MockStore) LookupStaffUserByEmail(context.Context, string) (model.StaffUser, []model.StaffRoleGrant, error) {
+	return model.StaffUser{}, nil, storage.ErrStaffNotFound
+}
+
+func (m *MockStore) GetStaffUserByID(context.Context, string) (model.StaffUser, []model.StaffRoleGrant, error) {
+	return model.StaffUser{}, nil, storage.ErrStaffNotFound
+}
+
+func (m *MockStore) ListStaffUsers(context.Context) ([]model.StaffUser, [][]model.StaffRoleGrant, error) {
+	return nil, nil, nil
+}
+
+func (m *MockStore) GrantStaffRole(context.Context, string, model.StaffRole, string) error {
+	return errors.New("MockStore.GrantStaffRole not implemented")
+}
+
+func (m *MockStore) RevokeStaffRole(context.Context, string, model.StaffRole) error {
+	return errors.New("MockStore.RevokeStaffRole not implemented")
+}
+
+func (m *MockStore) CountStaffWithRole(context.Context, model.StaffRole) (int, error) {
+	return 0, nil
+}
+
+func (m *MockStore) ListAllOrganizations(context.Context) ([]model.Organization, error) {
+	return nil, nil
+}
+
+func (m *MockStore) StaffTenantSummary(context.Context, string) (model.StaffTenantSummary, error) {
+	return model.StaffTenantSummary{}, storage.ErrOrganizationNotFound
 }

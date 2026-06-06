@@ -34,7 +34,8 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 | GET | /metrics | No | Prometheus metrics (internal only) |
 | GET | /version | Yes | Build identifier + license summary — `{service, version, commit, env, license}`. `license` is `{state}` only when no license is loaded (SaaS / production-with-no-license-installed), otherwise `{state, customer_id, expires_at, days_remaining, max_organizations}`. State values: `valid \| in_grace \| expired \| not_loaded`. Post-B1.6-amendment, `state="expired"` carries the full claim sub-object (the snapshot is retained on past-grace so `/v1/version` stays informative). Post-B1.7-layer-4, DEV_MODE returns the full claim sub-object with `state=valid` and `customer_id="axiaops-dev-fixture"` (embedded dev fixture, not a missing-license case). Source for the LicenseBanner. |
 | GET | /zombies | Yes | List zombie resources for organization |
-| GET | /summary | Yes | Aggregate savings + per-service breakdown |
+| GET | /summary | Yes | Aggregate savings + per-service breakdown (?account_id to scope to one account) |
+| GET | /summary/by-account | Yes | Per-account waste rollup for the org dashboard (`{currency, accounts:[{internal_account_id, account_id, total_zombies, potential_monthly_savings, top_service}]}`); zero-zombie accounts omitted; dismissed excluded like /summary |
 | GET | /trend | Yes | Zombie snapshots over time (?account_id, ?service, ?resource_type) |
 | GET | /trend/services | Yes | Distinct services available in trend data |
 | GET | /trend/resource-types | Yes | Distinct resource types for a service (?service) |
@@ -44,6 +45,12 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 | PATCH | /accounts/{id} | Yes | Update label, region, secret_key, scan_interval_hours |
 | DELETE | /accounts/{id} | Yes | Remove account |
 | POST | /accounts/{id}/scan | Yes | Trigger on-demand ingestion scan |
+| GET | /channels | Yes | List notification channels (`channels:read`). `config` returns secret fields (`smtp_pass`/`webhook_url`) masked as `***`. |
+| POST | /channels | Yes | Create a channel (`channels:manage`). Body `{kind, label, enabled, trigger_rule, config}`. v1 kinds: `email`, `slack` (teams/jira pre-provisioned in the DB enum, rejected here). Config encrypted at rest. Defaults `enabled:false`. |
+| PATCH | /channels/{id} | Yes | Update label/enabled/trigger_rule/config (`channels:manage`). `kind` is immutable. A secret field sent as `***` or empty keeps the stored value; any other value re-encrypts. |
+| DELETE | /channels/{id} | Yes | Delete a channel and its dispatch rows (`channels:manage`). |
+| POST | /channels/{id}/test | Yes | Send a fixed synthetic digest via the channel's transport (`channels:manage`). 200 `{status:"sent"\|"failed", error?}` — the HTTP call succeeds even when delivery fails; records a `notification_dispatches` row. |
+| GET | /channels/{id}/dispatches | Yes | Recent delivery attempts for a channel (`channels:read`, `?limit`, default 50 / max 200). |
 | POST | /dismissals | Yes | Dismiss or snooze a zombie resource |
 | GET | /dismissals | Yes | List active dismissals (?account_id) |
 | DELETE | /dismissals/{id} | Yes | Revoke a dismissal |
@@ -51,7 +58,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 | GET | /me | Yes | Current user's role + permission set + display `name` (always present, empty string when unset) + memberships + auth provider/mode. No permission required beyond authn. Display-name editing tracked under issue #78. |
 | GET | /memberships | Yes | List organization memberships |
 | POST | /memberships | Yes | Promote an existing user (by user_id) and assign a role; admin+ only |
-| POST | /invitations | Yes | Invite by email. Writes a token-bearing `pending_memberships` row and returns `redemption_url` in the response body for OOB sharing (admin pastes into Slack/email). Admin+ for member/viewer; owner for admin. Optional `enforcement_hint: "sso_required"` (Tasks.md 2.7.20) is set when the org has at least one active OIDC connection with `enforcement="required"` — the URL still works for the redemption hop but every authed request afterward 403s with `sso_required`, so the dashboard renders a yellow callout telling the admin to route the invitee through SSO instead. |
+| POST | /invitations | Yes | Invite by email. Writes a token-bearing `pending_memberships` row and returns `redemption_url` in the response body for OOB sharing (admin pastes into Slack/email). Also **best-effort emails the redemption URL** to the invitee via the `InviteMailer` seam (per-org email channel first, then the global `SMTP_*` config) — outcome reported in `email_delivery` (`sent` \| `failed` \| `skipped_no_transport` \| `skipped_no_public_host` \| `error`) and metered via `axiaops_auth_invite_email_total{outcome,source}`; never fatal, the URL is always returned. See `docs/invitation-flow.md` → "Invite-email delivery". Admin+ for member/viewer; owner for admin. Optional `enforcement_hint: "sso_required"` (Tasks.md 2.7.20) is set when the org has at least one active OIDC connection with `enforcement="required"` — the URL still works for the redemption hop but every authed request afterward 403s with `sso_required`, so the dashboard renders a yellow callout telling the admin to route the invitee through SSO instead. |
 | GET | /invitations | Yes | List pending invitations for the current org (?status=pending\|expired\|revoked) |
 | DELETE | /invitations/{id} | Yes | Revoke a pending invitation. The OOB redemption URL becomes invalid the moment the row flips to revoked. |
 | PATCH | /memberships/{id}/role | Yes | Promote or demote a member; permission tier depends on target role |
@@ -96,6 +103,36 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 - `DEV_MODE=true` → auth chain replaced by `DevBypass`, uses `DEV_ORGANIZATION_ID` / `DEV_USER_ID` / `DEV_USER_EMAIL`.
 - OIDC SSO ceremony is wired in `serverbuild.ComposeServer` when `!cfg.DevMode`: initiate at `/v1/sso/oidc/{cid}/initiate`, callback at the cid-less `/v1/sso/oidc/callback` (state carries connection identity per Tasks.md 2.7.22). The legacy path-cid callback `/v1/sso/oidc/{cid}/callback` stays wired for one release as a deprecation window — hits surface via `axiaops_sso_legacy_callback_total{cid}`. Successful callback mints a native session via the same `SessionManager` with `auth_mode='sso'`.
 - See `docs/invitation-flow.md` for how `pending_memberships` rows get redeemed on first login.
+
+## Platform Admin Plane (`cmd/api-admin`)
+
+A **separate binary** (`services/api/cmd/api-admin`) serving the AxiaOps-staff
+admin plane — structurally isolated from the tenant API (a staff principal
+belongs to NO org and never spans planes). It is NOT internet-facing the way the
+tenant API is: run it behind VPN / SSO-only / SG-restricted ingress. Composed by
+`serverbuild.ComposeAdminServer` (a minimal sibling of `ComposeServer`), wiring
+`internal/staff`. **No DEV_MODE bypass** — staff auth is always real. Listens on
+`ADMIN_API_ADDR` (default `:8090`); shares the same RDS + image as the tenant API.
+
+- **Auth:** native staff credentials (argon2id, reusing `internal/auth`), via the
+  `staff.Provider` seam + `staff.WrapStaff` middleware. Cache-backed staff
+  sessions (`axiaops_staff_session` cookie); roles/status re-read per request.
+  The corporate-IdP end-state is a future `staff.Provider` impl behind the seam.
+- **Roles:** `support` / `ops` / `billing` / `superadmin` — orthogonal to tenant
+  roles. Read endpoints are any-role; staff management is superadmin-only.
+- **Bootstrap:** `api-admin seed-staff --email … --name … --password …` mints
+  the first superadmin (headless/CI/recovery path). A token-based **web**
+  bootstrap for the admin UI (parity with the tenant `/auth/bootstrap`) is
+  designed in `docs/admin-bootstrap-design.md` — both converge on
+  `store.CreateStaffUser`.
+- **Endpoints:** `POST /admin/auth/login|logout`, `GET /admin/me`,
+  `GET /admin/tenants`, `GET /admin/tenants/{id}` (metadata + `entitlement:null`
+  placeholder — NOT FinOps data; break-glass deferred), `GET|POST /admin/staff`,
+  `POST|DELETE /admin/staff/{id}/roles[/{role}]`.
+- **Deferred** (design §5–7): break-glass cross-tenant data reads + impersonation,
+  the per-tenant `entitlements` table, internal-ops notifications, admin UI.
+
+See `docs/admin-portal-plan.md` and `docs/saas-platform-admin-design.md`.
 
 ## Prometheus Metrics (Phase 2.6)
 
@@ -162,6 +199,12 @@ Errors are logged to stdout with structured context (JSON format in production).
 | PASSWORD_RESET_TTL_HOURS | No | 4 | Admin-issued password-reset token lifetime. Short by design — admins are expected to share the URL OOB and the user redeems promptly. |
 | PUBLIC_HOST | No | — | Externally-reachable origin (`https://app.example.com`) used to build OOB redemption URLs for invitations and password resets. Empty produces relative URLs the frontend resolves against `window.location.origin`. |
 | INVITATION_TTL_DAYS | No | 14 | How long a `pending_memberships` row stays redeemable. |
+| SMTP_HOST | No | — | Global transactional SMTP relay host for invite emails (the `InviteMailer` fallback when an org has no email notification channel). **Empty ⇒ no global mailer.** Sourced from SSM in prod like `DATABASE_URL`. Target is a Gmail SMTP relay (`smtp-relay.gmail.com`). See `docs/invitation-flow.md`. |
+| SMTP_PORT | No | 587 | STARTTLS submission port for the global relay. |
+| SMTP_USER | No | — | Global relay auth user (Gmail relay: a real mailbox with 2SV + App Password). |
+| SMTP_PASS | No | — | Global relay auth password / App Password. |
+| SMTP_FROM | When `SMTP_HOST` set | — | Envelope sender + `From:` address for invite emails. |
+| SMTP_FROM_NAME | No | AxiaOps | `From:` display name for invite emails. |
 | RATE_LIMIT_MAX | No | 1000 | Per-minute request cap per (organization, user). Only active when `REDIS_URL` is set (the limiter needs durable counters). The HTTP middleware advertises the current state via `X-RateLimit-Limit/-Remaining/-Reset` headers on every authenticated response so well-behaved clients can self-pace before earning a 429. |
 | DEV_MODE | No | false | Skip auth, use fixed organization |
 | DEV_ORGANIZATION_ID | When `DEV_MODE=true` | — | Organization ID for dev bypass. No default — startup `die()`s if unset while `DEV_MODE=true`. |

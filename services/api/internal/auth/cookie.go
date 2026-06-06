@@ -41,7 +41,7 @@ func NewCookieConfig() CookieConfig {
 // either directly (r.TLS != nil — uncommon for our deployments since
 // we sit behind a TLS terminator) or transitively via a proxy that
 // set X-Forwarded-Proto. The header is trusted because in every
-// supported deployment shape (App Runner, Docker-Compose-with-nginx,
+// supported deployment shape (ECS Express, Docker-Compose-with-nginx,
 // production behind any reverse proxy) the LB / nginx is the only
 // hop that talks to the API container — direct exposure of :8080 to
 // the public internet is unsupported and documented as such.

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { fetchSummary, fetchResources, fetchTrend, fetchCosts, fetchDismissals, scanAccount, dismissZombie, revokeDismissal } from '../api/client';
+import DateRangeChips, { DEFAULT_DAYS } from '../components/DateRangeChips';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
@@ -9,6 +10,7 @@ import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { csvEncode, downloadCSV } from '../utils/csv';
+import { formatDate } from '../utils/formatDate';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -74,34 +76,62 @@ function MonthlyWasteCard({ onShowTrend, children }) {
   );
 }
 
-function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, isMobile }) {
+function OverviewHero({ summary, totalSpend, trend, period, onPeriodChange, onShowTrend, onShowCosts, isMobile }) {
   const data = summary.data;
-  const waste = data?.potential_monthly_savings ?? 0;
+  const monthlyWaste = data?.potential_monthly_savings ?? 0;
+  // Scale the monthly waste to the chosen window so the headline number and the
+  // % ratio against the period's totalSpend stay on the same time scale.
+  // potential_monthly_savings is "monthly cost of currently-detected zombies if
+  // they persist for a month" — extrapolating linearly to other windows is the
+  // natural interpretation. period=30 collapses to the previous behaviour.
+  // The Monthly Waste label flips to "{period}-day Waste" when period !== 30 so
+  // the unit is unambiguous; the InfoTooltip body still describes the source.
+  const waste = monthlyWaste * (period / 30);
   const zombieCount = data?.total_zombies ?? 0;
   const currency = data?.currency || '$';
   const wastePercent = totalSpend > 0 ? (waste / totalSpend) * 100 : 0;
+  const wasteLabel = period === 30 ? 'Monthly Waste' : `${period}-day Waste`;
 
   // /v1/trend returns one row per (account, scan), not one row per scan day.
   // In All Accounts mode each scan day produces N rows (one per account that
   // scanned), so naively comparing the last two rows compared two arbitrary
   // accounts' totals — making the headline ▲/▼ % delta meaningless. Roll up
   // by date here so the delta compares yesterday's org-wide total to today's.
+  // Then trim to the selected window — `period` days back from the most
+  // recent snapshot — so the chip selection scopes the dailyTotals slice
+  // exactly the way it scopes the fetchCosts window in the parent component.
   const dailyTotals = useMemo(() => {
     const m = new Map();
     for (const s of trend.data ?? []) {
       const day = s.snapshot_at.slice(0, 10);
       m.set(day, (m.get(day) || 0) + s.total_monthly_cost);
     }
-    return [...m.entries()].sort();
-  }, [trend.data]);
-  const latest = dailyTotals.at(-1)?.[1];
-  const prev   = dailyTotals.at(-2)?.[1];
-  const delta  = latest != null && prev != null
-    ? ((latest - prev) / Math.max(prev, 0.01)) * 100
+    const sorted = [...m.entries()].sort();
+    return period > 0 && sorted.length > period ? sorted.slice(-period) : sorted;
+  }, [trend.data, period]);
+  // Compare today's org-wide total to the total at the WINDOW START — so the
+  // ▲/▼ headline answers "how have we trended over the last {period} days?"
+  // rather than the previous "vs yesterday" which collapses to noise when the
+  // user picks 90d / 6m. dailyTotals is already trimmed to `slice(-period)`
+  // above, so .at(0) is the oldest day in the window. When the window has
+  // only one day (Custom… same-day pick) there's no earlier point to compare
+  // to — delta is undefined and the headline omits the arrow.
+  const latest   = dailyTotals.at(-1)?.[1];
+  const earliest = dailyTotals.length > 1 ? dailyTotals.at(0)?.[1] : undefined;
+  const delta    = latest != null && earliest != null
+    ? ((latest - earliest) / Math.max(earliest, 0.01)) * 100
     : null;
 
   return (
     <div style={{ backgroundColor: 'var(--color-surface-alt)', borderBottom: '1px solid var(--color-border)', padding: isMobile ? '16px' : '20px' }}>
+      {/* Date range chips — same shared picker used on TrendScreen +
+          CostAnalyticsScreen. Right-aligned above the two-stat row so the
+          stats stay the visual anchor; on phones the chips wrap below the
+          flex row but stay tappable. */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <DateRangeChips value={period} onChange={onPeriodChange} mobile={isMobile} />
+      </div>
+
       {/* Two-stat row — stacks vertically on phones; the 28px-bold spend value
           + 11px label cluster only fits side-by-side once the viewport has
           ~440px of inner width. */}
@@ -119,7 +149,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, is
             {currency} {totalSpend.toFixed(2)}
           </span>
           <span style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2, display: 'block' }}>
-            last 30 days
+            last {period} day{period === 1 ? '' : 's'}
           </span>
         </button>
 
@@ -129,7 +159,7 @@ function OverviewHero({ summary, totalSpend, trend, onShowTrend, onShowCosts, is
         <MonthlyWasteCard onShowTrend={onShowTrend}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', letterSpacing: 1.2, textTransform: 'uppercase' }}>
-              Monthly Waste
+              {wasteLabel}
             </span>
             <InfoTooltip
               label="What does Monthly Waste mean?"
@@ -979,7 +1009,7 @@ function DismissedCard({ item, onSelect, isSelected, onToggleSelect }) {
           </span>
           {isSnoozed && item.snoozed_until && (
             <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
-              until {new Date(item.snoozed_until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+              until {formatDate(item.snoozed_until)}
             </span>
           )}
         </div>
@@ -1185,7 +1215,7 @@ function sortResources(list, sortBy) {
 
 export default function OverviewScreen({
   onShowTrend, onShowCosts, onSelectZombie, accounts = [], onConnectAccount, onEditAccount,
-  selectedAccount, onSelectAccount,
+  selectedAccount, onSelectAccount, initialServiceFilter,
 }) {
   const { isDark } = useTheme();
   const { toast }         = useToast();
@@ -1194,7 +1224,10 @@ export default function OverviewScreen({
   const { isAtMost }      = useBreakpoint();
   const isMobile          = isAtMost('xs');
 
-  const [filterSvcs, setFilterSvcs]                   = useState(() => new Set());
+  // Seed the service filter from a deep-link (org summary's "Waste by service"
+  // rows → /account?service=<svc>). Read once on mount; further toggling is the
+  // user's via the existing filter pills.
+  const [filterSvcs, setFilterSvcs]                   = useState(() => new Set(initialServiceFilter ? [initialServiceFilter] : []));
   const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
   const [filterOwner, setFilterOwner]                 = useState(null);
   const [zombieOnly, setZombieOnly]       = useState(true);
@@ -1204,11 +1237,23 @@ export default function OverviewScreen({
   const [selected, setSelected]         = useState(new Set());
   const [bulkModal, setBulkModal]       = useState(null); // 'dismiss' | 'snooze' | null
   const [hiddenFilter, setHiddenFilter] = useState('all'); // 'all' | 'dismissed' | 'snoozed'
+  // Time window applied to the hero stat block (Total Spend + Monthly Waste
+  // delta) and the underlying fetchCosts / trend trim. Default matches the
+  // previous hardcoded 30-day behaviour; the chip row in OverviewHero lets
+  // the user widen/narrow without leaving the screen.
+  const [period, setPeriod] = useState(DEFAULT_DAYS);
 
   const summary    = useQuery({ queryKey: ['summary', selectedAccount],    queryFn: () => fetchSummary(selectedAccount) });
   const resources  = useQuery({ queryKey: ['resources', selectedAccount],  queryFn: () => fetchResources(selectedAccount) });
-  const costs      = useQuery({ queryKey: ['costs', selectedAccount, 30], queryFn: () => fetchCosts(selectedAccount, null, 30) });
-  const trend      = useQuery({ queryKey: ['trend', selectedAccount],      queryFn: () => fetchTrend(selectedAccount) });
+  // placeholderData keeps the previous window's costs visible while the new
+  // window's request is in flight — chip clicks invite rapid exploration and
+  // a fresh isLoading state on every click flashes the chart on each change.
+  const costs      = useQuery({ queryKey: ['costs', selectedAccount, period], queryFn: () => fetchCosts(selectedAccount, null, period), placeholderData: (prev) => prev });
+  // placeholderData mirrors the costs query so the chart doesn't flash empty
+  // when account-switching (chip changes don't invalidate this key — period
+  // is applied client-side via dailyTotals.slice — so the placeholder only
+  // matters for the account selector path).
+  const trend      = useQuery({ queryKey: ['trend', selectedAccount],      queryFn: () => fetchTrend(selectedAccount), placeholderData: (prev) => prev });
   const dismissals = useQuery({ queryKey: ['dismissals', selectedAccount], queryFn: () => fetchDismissals(selectedAccount) });
 
   const totalSpend = useMemo(() => {
@@ -1548,7 +1593,7 @@ export default function OverviewScreen({
       </div>
 
       {/* Overview hero */}
-      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} onShowTrend={onShowTrend} onShowCosts={onShowCosts} isMobile={isMobile} />
+      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} period={period} onPeriodChange={setPeriod} onShowTrend={onShowTrend} onShowCosts={onShowCosts} isMobile={isMobile} />
 
       {/* Service breakdown */}
       <ServiceBreakdown

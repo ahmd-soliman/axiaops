@@ -159,6 +159,12 @@ export async function fetchSummary(accountId) {
   return res.json();
 }
 
+export async function fetchSummaryByAccount() {
+  const res = await ifetch(`${BASE_URL}/v1/summary/by-account`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch per-account summary');
+  return res.json();
+}
+
 export async function fetchZombies(accountId) {
   const url = accountId
     ? `${BASE_URL}/v1/zombies?account_id=${encodeURIComponent(accountId)}`
@@ -396,11 +402,20 @@ export async function fetchVersion() {
   return res.json();
 }
 
-export async function fetchCosts(accountId, service, days = 30) {
+// When `since`/`until` (ISO YYYY-MM-DD) are provided they select an absolute
+// calendar window and the server ignores `days`; otherwise `days` is a trailing
+// "last N days" window. The absolute path backs the Custom… date-range picker —
+// without it a custom range silently degrades to a trailing window.
+export async function fetchCosts(accountId, service, days = 30, since = null, until = null) {
   const params = new URLSearchParams();
   if (accountId) params.set('account_id', accountId);
   if (service) params.set('service', service);
-  params.set('days', String(days));
+  if (since && until) {
+    params.set('since', since);
+    params.set('until', until);
+  } else {
+    params.set('days', String(days));
+  }
   const qs = params.toString();
   const url = qs ? `${BASE_URL}/v1/costs?${qs}` : `${BASE_URL}/v1/costs`;
   const res = await ifetch(url, { headers: authHeaders() });
@@ -664,6 +679,43 @@ export async function replaceSSOGroupMappings(connectionId, mappings) {
     method: 'PUT',
     body: { mappings },
   });
+}
+
+// ── Notification channels ─────────────────────────────────────────────────────
+// Secret config fields (smtp_pass, webhook_url) come back masked as "***" on
+// read; a PATCH that sends "***" (or empty) keeps the stored secret.
+
+export async function listChannels() {
+  return request('/v1/channels');
+}
+
+export async function createChannel({ kind, label, enabled, triggerRule, config }) {
+  return request('/v1/channels', {
+    method: 'POST',
+    body: { kind, label, enabled, trigger_rule: triggerRule, config },
+  });
+}
+
+export async function updateChannel(id, { label, enabled, triggerRule, config }) {
+  const body = {};
+  if (label !== undefined) body.label = label;
+  if (enabled !== undefined) body.enabled = enabled;
+  if (triggerRule !== undefined) body.trigger_rule = triggerRule;
+  if (config !== undefined) body.config = config;
+  return request(`/v1/channels/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+}
+
+export async function deleteChannel(id) {
+  return request(`/v1/channels/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+// Returns {status: "sent"|"failed", error?: string}.
+export async function testChannel(id) {
+  return request(`/v1/channels/${encodeURIComponent(id)}/test`, { method: 'POST' });
+}
+
+export async function listChannelDispatches(id) {
+  return request(`/v1/channels/${encodeURIComponent(id)}/dispatches`);
 }
 
 // ── Native auth ─────────────────────────────────────────────────────────────
