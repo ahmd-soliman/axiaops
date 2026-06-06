@@ -64,33 +64,39 @@ a singleton row holding the **install-token hash** + host name, written at first
 boot, **consumed (deleted) inside the bootstrap tx**. This is what gives us:
 - a **durable token hash** (multi-replica + restart safe),
 - an **atomic single-use** seal,
-- a clean `available` predicate (`row exists && not yet consumed`).
+- a clean `available` predicate (`row exists && not yet consumed && (TTL disabled || created_at > NOW() - TTL)`).
 
 > The earlier "zero-superadmin" seal is **rejected** as the primary mechanism — it
 > forces the in-memory-token + race problems above. The **recovery** property it
 > was chosen for already lives in `seed-staff` (which is seal-independent — see §5),
 > so the web seal is the *strong*, permanent one.
 
-### 2. Install token (mirror `MaybeGenerateInstallToken`, copied — not reused)
+### 2. Install token (gating copied per-plane; FS/banner plumbing extracted to `internal/installtoken`)
 
 The tenant's `MaybeGenerateInstallToken` is **welded to `bootstrap_state` +
 `CountOrganizations`** (`install_token.go:74-92`) and is **not** reusable as-is.
-What we reuse vs. copy:
-- **Reuse (pure helpers):** `HashToken` (already exported) + `writeTokenFile`
-  (mode `0600`), `removeInstallTokenFile`, `clearInstallTokenEnv`,
-  `printInstallBanner`. The admin already imports `internal/auth`, so **export
-  these four** (currently unexported) and reuse them — **no copy, no new package**
-  (Resolved §2).
-- **Copy + adapt:** a `MaybeGenerateAdminInstallToken` that gates on
-  `staff_bootstrap_state` (not orgs), persists the hash via a new
+The split (see Resolved §2 for the reasoning the architect review settled on):
+- **Extract (pure, plane-agnostic):** the FS/banner/env plumbing —
+  `writeTokenFile(path)` (mode `0600`), `removeTokenFile(path)`,
+  `clearTokenEnv(envName)`, `printBanner(title, url, token, path)` — moves into a new
+  **`internal/installtoken`** package, **parameterized** so neither plane's env-var
+  names or banner copy are hardcoded. Both the tenant's `MaybeGenerateInstallToken`
+  and the admin's `MaybeGenerateAdminInstallToken` import it. **Do not** export these
+  from the tenant-owned `internal/auth` — that hardcodes tenant consts and couples
+  the planes (rejected; Resolved §2). `HashToken` stays in `internal/auth` (a shared
+  session primitive). *Lighter fallback if a new package feels heavy for ~40 lines:*
+  copy them into `internal/staff` — still decoupled, just duplicated.
+- **Copy + adapt (per-plane gating):** a `MaybeGenerateAdminInstallToken` that gates
+  on `staff_bootstrap_state` (not orgs), persists the hash via a new
   `CreateStaffBootstrapState`, and honours the same `won`-race / file / banner
-  logic — including `TOKEN_FILE_PATH=""` to disable the file on ECS, the
-  operator-supplied env override, and the **default-secure banner that never logs
-  the token** (`install_token.go:132-147`).
+  logic (calling into `internal/installtoken`) — including `TOKEN_FILE_PATH=""` to
+  disable the file on ECS, the operator-supplied env override, and the
+  **default-secure banner that never logs the token** (`install_token.go:132-147`).
 
 Admin-scoped env (never shared with the tenant token):
 `ADMIN_BOOTSTRAP_INSTALL_TOKEN`, `ADMIN_BOOTSTRAP_TOKEN_FILE_PATH`
-(default `/var/run/axiaops/admin_initial_setup_token`), `ADMIN_BOOTSTRAP_PRINT_BANNER`.
+(default `/var/run/axiaops/admin_initial_setup_token`), `ADMIN_BOOTSTRAP_PRINT_BANNER`,
+`ADMIN_BOOTSTRAP_TTL_HOURS` (default `72`; `0` disables the expiry — see Resolved §1).
 
 **Where it runs:** the boot-time token mint goes in **`cmd/api-admin/main.go`**
 (next to `openStore`), **not** in `ComposeAdminServer` — `build_admin.go` is
@@ -110,16 +116,20 @@ Both must be added to `publicAdminPath` (`staff/middleware.go:15`) or `WrapStaff
 ### 4. `ConsumeStaffBootstrap` (mirror `ConsumeBootstrapState`)
 
 A new store method doing, in **one tx**: compare `HashToken(token)` to the
-singleton's hash; if absent → `ErrStaffBootstrapAlreadyDone`; if mismatch →
-`ErrStaffBootstrapTokenMismatch`; insert the staff user (unique-email index is the
-race backstop, returns `ErrStaffEmailExists`); insert the staff session; delete
-the singleton. Returns the staff user + session.
+singleton's hash; if absent → `ErrStaffBootstrapAlreadyDone`; if present but
+`created_at <= NOW() - TTL` (and TTL enabled) → `ErrStaffBootstrapExpired`; if
+mismatch → `ErrStaffBootstrapTokenMismatch`; insert the staff user (unique-email
+index is the race backstop, returns `ErrStaffEmailExists`); insert the staff
+session; delete the singleton. Returns the staff user + session. The TTL clause
+lives in the SQL predicate, so there is **no background sweeper** — an expired row
+is inert and gets overwritten by the next install attempt.
 
 ### 5. Error taxonomy + metrics (mirror the tenant exactly)
 
 | Store error | HTTP | code | `AdminBootstrapAttemptsTotal{outcome}` |
 |---|---|---|---|
 | `ErrStaffBootstrapAlreadyDone` | 409 | `bootstrap_already_done` | `sealed` |
+| `ErrStaffBootstrapExpired` | 410 | `bootstrap_expired` | `expired` |
 | `ErrStaffBootstrapTokenMismatch` | 401 | `invalid_token` | `invalid_token` |
 | `ErrStaffEmailExists` | 409 | `email_taken` | `email_taken` |
 | success | 200 | — | `success` |
@@ -203,6 +213,7 @@ the in-code controls are defence-in-depth in case it ever fails.
 |---|---|---|
 | Creates | first **owner** + **organization** | first **superadmin** (org-less) |
 | Seal | `bootstrap_state` singleton | `staff_bootstrap_state` singleton (same shape) |
+| Token TTL | none (public endpoint → seal fires fast) | bounded, default 72h (private + `seed-staff`-recommended → token can sit unconsumed; Resolved §1) |
 | Reachability | public internet | private ingress only |
 | Token env/file | `BOOTSTRAP_*`, `…/initial_setup_token` | `ADMIN_BOOTSTRAP_*`, `…/admin_initial_setup_token` |
 | Session | user session | staff session (`axiaops_staff_session`) |
@@ -227,36 +238,71 @@ the in-code controls are defence-in-depth in case it ever fails.
 
 1. **Migration** — `NNN_staff_bootstrap_state.{up,down}.sql` mirroring `bootstrap_state`.
 2. **`services/shared/storage`** — `CreateStaffBootstrapState`, `ConsumeStaffBootstrap`, `StaffBootstrapState()` + the `ErrStaffBootstrap*` errors; impl in `postgres/staff.go`.
-3. **`services/api/internal/auth` (or `internal/staff`)** — `MaybeGenerateAdminInstallToken` (copy/adapt), reusing the pure file/banner helpers.
+3. **`internal/installtoken`** (new, plane-neutral) — extract parameterized `writeTokenFile`/`removeTokenFile`/`clearTokenEnv`/`printBanner`; repoint the tenant's `MaybeGenerateInstallToken` at it. Then **`internal/staff`** — `MaybeGenerateAdminInstallToken` (copy/adapt the gating, call into `internal/installtoken`). Do **not** export the helpers from `internal/auth`.
 4. **`cmd/api-admin/main.go`** — call the token mint at boot (next to `openStore`).
 5. **`serverbuild/build_admin.go`** — register the two routes; add them to `publicAdminPath`; wire the rate limiter onto the POST.
 6. **`internal/staff`** — the bootstrap handler (validation → `ConsumeStaffBootstrap` → cleanup → audit/metric → session cookie).
 7. **`services/dashboard-admin`** — Bootstrap screen + mount-time probe/redirect + error states.
-8. **Tests** — `bootstrap→200+sealed(409)`, `bad token→401`, `email_taken→409`, `state flips`, concurrent-POST → exactly one superadmin. Keep the `seed-staff` tests.
+8. **Tests** — `bootstrap→200+sealed(409)`, `bad token→401`, `email_taken→409`, `expired token→410` (+ `state` reports unavailable), `TTL=0 disables expiry`, `state flips`, concurrent-POST → exactly one superadmin. Keep the `seed-staff` tests.
 9. **Docs** — update `services/api/CLAUDE.md` (endpoints + `ADMIN_BOOTSTRAP_*` env).
 
 **Effort: ~2 days** end-to-end — backend ~1 day (migration + store + handler + token + tests), the **dashboard-admin screen ~1 day** (screen + probe + redirect + error states).
 
-## Resolved (answered from the tenant implementation)
+## Resolved (answered from the tenant implementation, then architect-reviewed)
 
-1. **Token TTL → none.** The tenant `bootstrap_state` table has `created_at` but
-   **no `expires_at`** (`021_native_auth.up.sql`) — and that's deliberate, since
-   `sessions` and `password_resets` in the *same* migration *do* carry `expires_at`.
-   The install token's lifecycle is the **seal** (consume deletes the row), not a
-   clock. Mirror it: **no `ADMIN_BOOTSTRAP_TTL`** — long-lived until consumed, file
-   deleted on use. A sitting token is gated by file `0600` + private ingress
-   regardless, and adding an expiry would mean a sweeper for no real gain.
-2. **Pure helpers → reuse `internal/auth`, do not copy.** The admin plane **already
-   imports `internal/auth`** (`seed.go`, `staff/{handler,session,admin_handler}.go`,
-   `build_admin.go`). `HashToken` is already exported; the four file/banner helpers
-   (`writeTokenFile`/`removeInstallTokenFile`/`clearInstallTokenEnv`/`printInstallBanner`)
-   are currently unexported in `install_token.go` — **export them and reuse**. No
-   copy, no new shared package. Only the **gating** function
-   (`MaybeGenerateAdminInstallToken`) is per-plane (it keys on `staff_bootstrap_state`,
-   not `CountOrganizations`).
+1. **Token TTL → a short bounded TTL (default 72h, `0` disables).** The tenant
+   `bootstrap_state` table carries no `expires_at` (`021_native_auth.up.sql`) and
+   relies on the **seal** for its lifecycle — but the admin plane should *not* copy
+   that verbatim. The tenant gets away with no TTL because its bootstrap endpoint is
+   **public**, so the seal fires promptly: the first real signup consumes the token.
+   The admin plane is the inverse — the doc itself keeps `seed-staff` as the
+   recommended ECS path, so the *expected* steady state is a **superadmin-minting
+   token sitting unconsumed** on disk + in PG indefinitely, on the highest-privilege
+   surface. The asymmetry is justified by the privilege delta. **It needs no
+   sweeper:** AND `created_at > NOW() - $ttl` into both the `ConsumeStaffBootstrap`
+   consume predicate and the `available` predicate in `GET /admin/auth/bootstrap/state`.
+   An expired row just fails the consume (new `ErrStaffBootstrapExpired`) and sits
+   inert until the next install attempt overwrites it. `ADMIN_BOOTSTRAP_TTL_HOURS`
+   defaults to `72`; `0` disables (preserving the seed-staff-only shape).
+2. **Pure helpers → extract a neutral `internal/installtoken` package; do NOT export
+   from `internal/auth`.** The "just export the four helpers and reuse" answer was
+   **rejected on review**. Two reasons:
+   - **It doesn't even cleanly work.** Two of the four helpers hardcode the
+     *tenant's* env consts — `removeInstallTokenFile`/`clearInstallTokenEnv` read
+     `BOOTSTRAP_TOKEN_FILE_PATH`/`BOOTSTRAP_INSTALL_TOKEN` (`install_token.go:40-41`),
+     and `printInstallBanner` hardcodes the tenant's `/bootstrap` URL + copy. The
+     admin uses `ADMIN_BOOTSTRAP_*`, so they must be **re-parameterized** anyway — at
+     which point most of the extraction work is already done, just in the wrong
+     package.
+   - **It couples the planes.** Exporting bootstrap-ceremony plumbing from the
+     **tenant-owned** `internal/auth` widens that package's public API with
+     two-caller logic and makes the admin's boot lifecycle move whenever the tenant
+     edits its banner/file logic. The staff plane already reuses `internal/auth`, but
+     only **plane-neutral primitives** (`Hash`/`Verify`/`CheckPolicy`/`HashToken`/
+     `IPRateLimiter`) — crypto and a limiter, not ceremony. Ceremony plumbing is a
+     different category, and cross-plane reuse of it is exactly the entanglement the
+     codebase's plane separation (`staff/session.go:18-20`, `middleware.go:25-26`)
+     guards against.
+
+   **Resolution:** extract `writeTokenFile(path)`, `removeTokenFile(path)`,
+   `clearTokenEnv(envName)`, `printBanner(title, url, token, path)` as
+   **parameterized, plane-agnostic** helpers into a new `internal/installtoken`
+   package owned by neither plane; both `internal/auth.MaybeGenerateInstallToken` and
+   `MaybeGenerateAdminInstallToken` call into it. `HashToken` stays where it is (a
+   genuinely shared session primitive). *Acceptable lighter fallback:* copy the ~40
+   lines into `internal/staff` — duplication, but it keeps the planes decoupled.
+   Either beats exporting from `internal/auth`.
 3. **Loopback-bind → no.** The tenant registers bootstrap on the **main mux**
    (`mux.HandleFunc("POST /v1/auth/bootstrap", h.bootstrap)`, `handler.go:168`) —
-   the same listener as everything else; the **token is the control**. Loopback-
-   binding would make the endpoint **unreachable from the web UI** (which arrives
-   via the edge), defeating the feature. Admin controls stay: required token +
-   rate-limit + private ingress.
+   the same listener as everything else; the **token is the control**. The admin
+   plane is the same single-listener shape: `WrapStaff` wraps the whole mux and
+   `publicAdminPath` whitelists the no-auth routes on that *same* listener
+   (`staff/middleware.go:15-26`), which is where the bootstrap routes get registered.
+   The admin SPA reaches `/admin/auth/bootstrap` through the edge like every other
+   admin request, so **loopback-binding would make the endpoint unreachable from the
+   web UI**, defeating the feature. The right control stack for a private-but-not-
+   code-enforced surface is the one already mandated: required token + transactional
+   single-use seal + rate-limit + no-DEV-bypass. The one useful residual is kept (and
+   already filed as optional in the Security model): a loopback bind *only* when
+   `ADMIN_BOOTSTRAP_INSTALL_TOKEN` is unset — i.e. the auto-generated-token path,
+   which doesn't break the operator-supplied-token web flow.
