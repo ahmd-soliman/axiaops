@@ -121,7 +121,10 @@ tenant API is: run it behind VPN / SSO-only / SG-restricted ingress. Composed by
 - **Roles:** `support` / `ops` / `billing` / `superadmin` — orthogonal to tenant
   roles. Read endpoints are any-role; staff management is superadmin-only.
 - **Bootstrap:** `api-admin seed-staff --email … --name … --password …` mints
-  the first superadmin.
+  the first superadmin (headless/CI/recovery path). A token-based **web**
+  bootstrap for the admin UI (parity with the tenant `/auth/bootstrap`) is
+  designed in `docs/admin-bootstrap-design.md` — both converge on
+  `store.CreateStaffUser`.
 - **Endpoints:** `POST /admin/auth/login|logout`, `GET /admin/me`,
   `GET /admin/tenants`, `GET /admin/tenants/{id}` (metadata + `entitlement:null`
   placeholder — NOT FinOps data; break-glass deferred), `GET|POST /admin/staff`,
