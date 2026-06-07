@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Overlay } from '../components/primitives';
 import { Spinner } from '../components/primitives';
 import { STATUS_LABEL } from '../utils/accountStatus';
@@ -7,8 +8,8 @@ export default function AccountSelector({
   accounts,
   selectedAccount,
   onSelectAccount,
-  onConnectAccount,
-  onEditAccount,
+  connectHref,
+  editAccountHref,
   onScanAccount,
 }) {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -99,21 +100,27 @@ export default function AccountSelector({
                   >
                     {account.status === 'scanning' ? <Spinner size={14} color="var(--color-accent)" /> : <span style={s.actionText}>Scan</span>}
                   </button>
-                  <button
-                    style={s.actionBtn}
-                    onClick={(e) => { e.stopPropagation(); onEditAccount(account); setShowDropdown(false); }}
+                  <Link
+                    to={editAccountHref(account)}
+                    style={{ ...s.actionBtn, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+                    aria-label={`Manage ${account.label || 'account'}`}
+                    onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }}
                   >
                     <span style={s.actionText}>⚙</span>
-                  </button>
+                  </Link>
                 </div>
               </div>
             );
           })}
 
-          {onConnectAccount && (
-            <button style={s.connectBtn} onClick={() => { onConnectAccount(); setShowDropdown(false); }}>
+          {connectHref && (
+            <Link
+              to={connectHref}
+              style={{ ...s.connectBtn, textDecoration: 'none' }}
+              onClick={() => setShowDropdown(false)}
+            >
               <span style={s.connectText}>+ Connect New Account</span>
-            </button>
+            </Link>
           )}
         </div>
       </Overlay>

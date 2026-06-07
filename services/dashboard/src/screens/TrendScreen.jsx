@@ -209,7 +209,7 @@ function HistoryRow({ item, prevItem, isSelected, onClick }) {
 }
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
-export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
+export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, connectHref, editAccountHref }) {
   const { toast } = useToast();
   const screenWidth = useWindowWidth();
   const { isAtMost } = useBreakpoint();
@@ -419,8 +419,8 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
           accounts={accounts}
           selectedAccount={selectedAccount}
           onSelectAccount={onSelectAccount}
-          onConnectAccount={onConnectAccount}
-          onEditAccount={onEditAccount}
+          connectHref={connectHref}
+          editAccountHref={editAccountHref}
         />
       </div>
 
