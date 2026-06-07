@@ -7,6 +7,7 @@ import { useToast } from '../context/ToastContext';
 import { authSwitchOrg } from '../api/client';
 import { queryClient } from '../main';
 import { MobileSheet } from './primitives/MobileSheet';
+import { LinkButton } from './primitives';
 import { NAV_ITEMS, isNavActive } from './navItems';
 
 // MobileNav — hamburger trigger that lives in the AppShell at xs/sm,
@@ -44,11 +45,6 @@ export default function MobileNav() {
     '';
 
   const close = () => setOpen(false);
-
-  const goTo = (path) => {
-    close();
-    navigate(path);
-  };
 
   const handlePick = async (orgID) => {
     if (busy || orgID === activeOrgID) {
@@ -117,10 +113,10 @@ export default function MobileNav() {
             {NAV_ITEMS.map(({ label, path }) => {
               const active = isNavActive(path, location.pathname);
               return (
-                <button
+                <LinkButton
                   key={path}
-                  type="button"
-                  onClick={() => goTo(path)}
+                  to={path}
+                  onClick={close}
                   aria-current={active ? 'page' : undefined}
                   style={navRowStyle(isDark, active)}
                 >
@@ -131,7 +127,7 @@ export default function MobileNav() {
                   }}>
                     {label}
                   </span>
-                </button>
+                </LinkButton>
               );
             })}
           </nav>

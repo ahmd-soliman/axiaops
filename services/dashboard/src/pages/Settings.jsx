@@ -1,6 +1,7 @@
-import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
+import { LinkButton } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { PERM } from '../api/permissions';
 
@@ -74,7 +75,6 @@ export default function Settings() {
   const { isDark } = useTheme();
   const { can, loading, me } = useMe();
   const location = useLocation();
-  const navigate = useNavigate();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
 
@@ -122,9 +122,9 @@ export default function Settings() {
       backgroundColor: 'var(--color-bg)',
     }}>
       {isMobile ? (
-        <MobileTabs visible={visible} location={location} navigate={navigate} isDark={isDark} />
+        <MobileTabs visible={visible} location={location} isDark={isDark} />
       ) : (
-        <DesktopAside can={can} location={location} navigate={navigate} isDark={isDark} />
+        <DesktopAside can={can} location={location} isDark={isDark} />
       )}
       {/* No width cap — settings tabs are full-width like the rest of the
           app; each tab's own padding governs its content inset. */}
@@ -141,7 +141,7 @@ export default function Settings() {
   );
 }
 
-function DesktopAside({ can, location, navigate, isDark }) {
+function DesktopAside({ can, location, isDark }) {
   // Filter each group's items by permission and drop empty groups so a
   // viewer (no admin tabs) doesn't see a "Workspace" header with nothing
   // beneath it. Same group order, item order within a group is preserved.
@@ -181,10 +181,9 @@ function DesktopAside({ can, location, navigate, isDark }) {
             {group.items.map((tab) => {
               const active = location.pathname.startsWith(tab.path);
               return (
-                <button
+                <LinkButton
                   key={tab.path}
-                  type="button"
-                  onClick={() => navigate(tab.path)}
+                  to={tab.path}
                   aria-current={active ? 'page' : undefined}
                   onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
                   onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -195,17 +194,14 @@ function DesktopAside({ can, location, navigate, isDark }) {
                     padding: '8px 10px',
                     marginBottom: 2,
                     borderRadius: 6,
-                    border: 'none',
-                    backgroundColor: 'transparent',
                     color: active ? 'var(--color-accent)' : 'var(--color-text)',
                     fontSize: 13,
                     fontWeight: active ? 700 : 550,
-                    cursor: 'pointer',
                     transition: 'background-color 120ms ease',
                   }}
                 >
                   {tab.label}
-                </button>
+                </LinkButton>
               );
             })}
           </nav>
@@ -219,7 +215,7 @@ function DesktopAside({ can, location, navigate, isDark }) {
 // Each tab is a pill with an underline-on-active visual. The strip
 // `overflow-x: auto`s when the tab labels exceed viewport width so an org
 // with every permission can still reach all 5 tabs on a 375px screen.
-function MobileTabs({ visible, location, navigate, isDark }) {
+function MobileTabs({ visible, location, isDark }) {
   return (
     <div
       style={{
@@ -244,10 +240,9 @@ function MobileTabs({ visible, location, navigate, isDark }) {
           const active = location.pathname.startsWith(tab.path);
           const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
           return (
-            <button
+            <LinkButton
               key={tab.path}
-              type="button"
-              onClick={() => navigate(tab.path)}
+              to={tab.path}
               aria-current={active ? 'page' : undefined}
               onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = active ? hoverBg : hoverBg; }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -255,18 +250,14 @@ function MobileTabs({ visible, location, navigate, isDark }) {
                 flexShrink: 0,
                 padding: '10px 14px',
                 minHeight: 44, // 44px HIG touch-target floor
-                border: 'none',
                 borderBottom: active ? `2px solid var(--color-accent)` : '2px solid transparent',
-                backgroundColor: 'transparent',
                 color: active ? 'var(--color-accent)' : 'var(--color-text)',
                 fontSize: 14,
                 fontWeight: active ? 700 : 550,
-                cursor: 'pointer',
-                fontFamily: 'inherit',
               }}
             >
               {tab.label}
-            </button>
+            </LinkButton>
           );
         })}
       </nav>

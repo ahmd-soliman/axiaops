@@ -1,8 +1,9 @@
-import { useNavigate, useSearchParams, Navigate } from 'react-router-dom';
+import { useSearchParams, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAccounts } from '../api/client';
 import OrgSummaryScreen from '../screens/OrgSummaryScreen';
 import WhatsNextPanel from '../components/onboarding/WhatsNextPanel';
+import { zombieDetailHref } from '../utils/links';
 
 // Wrapper for `/` — the read-only organization summary. Mirrors Overview.jsx's
 // account fetch + zero-accounts onboarding redirect, and adds a single-account
@@ -10,7 +11,6 @@ import WhatsNextPanel from '../components/onboarding/WhatsNextPanel';
 // landing on the actionable workbench at /account, so the org summary only ever
 // renders for orgs with 2+ accounts.
 export default function OrgSummary() {
-  const navigate = useNavigate();
   const [params] = useSearchParams();
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
 
@@ -52,14 +52,12 @@ export default function OrgSummary() {
       <WhatsNextPanel />
       <OrgSummaryScreen
         accounts={accounts.data ?? []}
-        onViewAccounts={() => navigate('/account')}
-        onSelectAccount={(id) => navigate(`/account?account=${encodeURIComponent(id)}`)}
-        onSelectZombie={(z) =>
-          navigate(`/detail/${encodeURIComponent(z.resource_id)}?account=${encodeURIComponent(z.internal_account_id)}&region=${encodeURIComponent(z.region)}&service=${encodeURIComponent(z.service)}`)
-        }
-        onSelectService={(svc) => navigate(`/account?service=${encodeURIComponent(svc)}`)}
-        onViewAudit={() => navigate('/settings/audit')}
-        onViewTrends={() => navigate('/trend')}
+        viewAccountsHref="/account"
+        accountHref={(id) => `/account?account=${encodeURIComponent(id)}`}
+        zombieHref={zombieDetailHref}
+        serviceHref={(svc) => `/account?service=${encodeURIComponent(svc)}`}
+        auditHref="/settings/audit"
+        trendsHref="/trend"
       />
     </>
   );
