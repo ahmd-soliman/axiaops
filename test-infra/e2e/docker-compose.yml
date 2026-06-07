@@ -1,0 +1,164 @@
+name: axiaops-e2e
+
+# End-to-end regression stack for the Playwright dashboard suite.
+#
+# Mirrors test-infra/integration/docker-compose.yml but adds the dashboard
+# (served by its production nginx image) and a Playwright runner, and seeds
+# dummy data so the dashboard's dynamic deep-links (account / zombie / service
+# rows, trend, cost) render. Everything runs in DEV_MODE so the crawler and
+# flow specs reach every authenticated route without a login flow.
+#
+# Topology:
+#   postgres ← migrate (one-shot) ← api + ingestion (DEV_MODE)
+#   dashboard (nginx) proxies /api/* → api:8080  (services/dashboard/nginx.conf)
+#   seed (one-shot) populates the dev org via MIGRATION_DATABASE_URL
+#   playwright runs `npm run e2e` with BASE_URL=http://dashboard
+#
+# Driven by `make test-e2e` (which also tears it down with `down -v`).
+
+services:
+
+  postgres:
+    image: postgres:17.5-alpine
+    environment:
+      POSTGRES_DB: axiaops
+      POSTGRES_USER: axiaops_owner
+      POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:-axiaops_owner}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U axiaops_owner -d axiaops"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: services/migrate/Dockerfile
+    environment:
+      DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops?sslmode=disable
+      MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops?sslmode=disable
+      # Bootstrap syncs the runtime RLS-bypass role's password so the services
+      # can connect as axiaops_runtime (parity with the integration stack).
+      RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ingestion:
+    build:
+      context: ../..
+      dockerfile: services/ingestion/Dockerfile
+    environment:
+      DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops?sslmode=disable
+      RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops?sslmode=disable
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      DEV_MODE: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: ../..
+      dockerfile: services/api/Dockerfile
+    environment:
+      DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops?sslmode=disable
+      RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops?sslmode=disable
+      INGESTION_URL: http://ingestion:8081
+      API_ADDR: ":8080"
+      DEV_MODE: "true"
+      # Must match the org id the seed script writes (its default when
+      # DEV_ORGANIZATION_ID is unset). Pin both sides to the same value.
+      DEV_ORGANIZATION_ID: "dev-organization-axiaops"
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      # CORS isn't needed (the dashboard proxies /api same-origin via nginx),
+      # but mirror the dev posture for safety.
+      CORS_ORIGIN: "*"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      ingestion:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # Dashboard served by its production nginx image. VITE_DEV_MODE=true bakes the
+  # SPA's own DEV_MODE flag (config.js) so AuthGuard doesn't bounce to /login;
+  # nginx proxies /api/* → api:8080 (services/dashboard/nginx.conf).
+  dashboard:
+    build:
+      context: ../../services/dashboard
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+        VITE_DEV_MODE: "true"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # One-shot seeder. Runs scripts/seed_test_data.sh in remote mode (it switches
+  # to direct-psql when MIGRATION_DATABASE_URL is set), pinning the same org id
+  # the api serves under DEV_MODE.
+  seed:
+    image: alpine:3.20
+    working_dir: /repo
+    environment:
+      MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops?sslmode=disable
+      DEV_ORGANIZATION_ID: "dev-organization-axiaops"
+    volumes:
+      - ../..:/repo:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache bash postgresql-client coreutils gawk >/dev/null
+        echo "y" | bash scripts/seed_test_data.sh
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Playwright runner. The official image ships chromium preinstalled (no
+  # download in CI). Installs the dashboard's node deps, then runs the suite
+  # against the nginx-served dashboard.
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.60.0-jammy
+    working_dir: /work
+    environment:
+      BASE_URL: http://dashboard
+      CI: "true"
+    # Anonymous volume shadows the host's node_modules so `npm ci` installs the
+    # linux-native binaries (incl. playwright) inside the container without
+    # clobbering the host's (macOS/arch-specific) node_modules.
+    volumes:
+      - ../../services/dashboard:/work
+      - /work/node_modules
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        npm ci
+        npm run e2e
+    depends_on:
+      dashboard:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+
+networks:
+  default:
+    enable_ipv6: false
