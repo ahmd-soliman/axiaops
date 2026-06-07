@@ -1,4 +1,5 @@
 import { useTheme } from '../../theme/ThemeContext';
+import { StretchedRowLink } from './RouterLink';
 
 // CardRow — vertical card layout for what would otherwise be a table row
 // on desktop. Phase-6+ work converts <table> elements (Team, CloudAccounts,
@@ -14,22 +15,29 @@ export function CardRow({
   header,
   body,
   actions,
+  to,
+  linkLabel,
   onClick,
   selected = false,
   style,
 }) {
   const { isDark } = useTheme();
-  const interactive = typeof onClick === 'function';
+  // `to` makes the whole card a real link (issue #130: middle/Ctrl-click opens
+  // the drill-down in a new tab) via a stretched anchor overlay, so the card's
+  // action buttons (which can't legally nest inside an <a>) stay siblings,
+  // raised above the overlay. `onClick` is the legacy imperative path for
+  // cards that toggle in-page state rather than navigate.
+  const interactive = !!to || typeof onClick === 'function';
 
   const hoverBg = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)';
   const selectedBorder = selected ? 'var(--color-accent)' : 'var(--color-border)';
 
   return (
     <div
-      role={interactive ? 'button' : undefined}
-      tabIndex={interactive ? 0 : undefined}
-      onClick={onClick}
-      onKeyDown={interactive ? (e) => {
+      role={!to && onClick ? 'button' : undefined}
+      tabIndex={!to && onClick ? 0 : undefined}
+      onClick={!to ? onClick : undefined}
+      onKeyDown={!to && onClick ? (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onClick(e);
@@ -38,6 +46,7 @@ export function CardRow({
       onMouseEnter={interactive ? (e) => { e.currentTarget.style.backgroundColor = hoverBg; } : undefined}
       onMouseLeave={interactive ? (e) => { e.currentTarget.style.backgroundColor = 'transparent'; } : undefined}
       style={{
+        position: to ? 'relative' : undefined,
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
@@ -50,6 +59,7 @@ export function CardRow({
         ...style,
       }}
     >
+      {to && <StretchedRowLink to={to} label={linkLabel} />}
       {header && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minWidth: 0 }}>
           {header}
@@ -61,7 +71,8 @@ export function CardRow({
         </div>
       )}
       {actions && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+        // Raised above the stretched link so the buttons stay clickable.
+        <div style={{ position: to ? 'relative' : undefined, zIndex: to ? 1 : undefined, display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
           {actions}
         </div>
       )}

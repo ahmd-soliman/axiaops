@@ -9,6 +9,7 @@ export function flatStyle(style) {
 export { View } from './View';
 export { Text } from './Text';
 export { Pressable } from './Pressable';
+export { LinkButton, RowLink, StretchedRowLink } from './RouterLink';
 export { Spinner } from './Spinner';
 export { Overlay } from './Overlay';
 export { InfoTooltip } from './InfoTooltip';

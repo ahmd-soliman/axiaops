@@ -76,7 +76,7 @@ function exportCSV(records, { services }, toast) {
   toast(`Exported ${records.length} cost record${records.length !== 1 ? 's' : ''} to CSV`, 'success');
 }
 
-export default function CostAnalyticsScreen({ accounts: passedAccounts, selectedAccount: passedSelectedAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
+export default function CostAnalyticsScreen({ accounts: passedAccounts, selectedAccount: passedSelectedAccount, onSelectAccount, connectHref, editAccountHref }) {
   const { toast }     = useToast();
   const { watch }     = useScanStatus();
   const queryClient   = useQueryClient();
@@ -342,8 +342,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
           accounts={accounts}
           selectedAccount={selectedAccount}
           onSelectAccount={onSelectAccount}
-          onConnectAccount={onConnectAccount}
-          onEditAccount={onEditAccount}
+          connectHref={connectHref}
+          editAccountHref={editAccountHref}
           onScanAccount={handleScanAccount}
         />
       </div>
