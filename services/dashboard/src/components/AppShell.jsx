@@ -1,7 +1,8 @@
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useTheme } from '../theme/ThemeContext';
 import { useApp } from '../context/AppContext';
 import { useMe } from '../context/MeContext';
+import { LinkButton } from './primitives';
 import { useBreakpoint } from './primitives/useBreakpoint';
 import { NAV_ITEMS, isNavActive } from './navItems';
 import AvatarMenu from './AvatarMenu';
@@ -51,7 +52,6 @@ export default function AppShell() {
   const { isDark, toggleTheme } = useTheme();
   const { orgName } = useApp();
   const { can } = useMe();
-  const navigate  = useNavigate();
   const location  = useLocation();
   const { isAtMost } = useBreakpoint();
 
@@ -111,20 +111,15 @@ export default function AppShell() {
                 const isActive = isNavActive(path, location.pathname);
                 const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
                 return (
-                  <button
+                  <LinkButton
                     key={path}
-                    onClick={() => navigate(path)}
+                    to={path}
                     aria-current={isActive ? 'page' : undefined}
                     onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
                     onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
                       padding: '5px 10px',
                       borderRadius: 7,
-                      border: 'none',
-                      backgroundColor: 'transparent',
-                      cursor: 'pointer',
                       transition: 'background-color 120ms ease',
                     }}
                   >
@@ -135,7 +130,7 @@ export default function AppShell() {
                     }}>
                       {label}
                     </span>
-                  </button>
+                  </LinkButton>
                 );
               })}
             </nav>

@@ -1,14 +1,15 @@
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMe } from '../context/MeContext';
 import { useToast } from '../context/ToastContext';
 import { fetchAccounts, scanAccount } from '../api/client';
 import { PERM } from '../api/permissions';
-import { Spinner } from '../components/primitives';
+import { Spinner, LinkButton, StretchedRowLink } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { CardRow } from '../components/primitives/CardRow';
 import { STATUS_LABEL } from '../utils/accountStatus';
 import { formatRelative } from '../utils/relativeTime';
+import { editAccountHref } from '../utils/links';
 
 // Top-level Cloud Accounts list. Companion to the navbar's AccountSelector,
 // which exists for transient context-switching ("filter dashboard data to
@@ -18,7 +19,6 @@ import { formatRelative } from '../utils/relativeTime';
 export default function CloudAccounts() {
   const { can } = useMe();
   const { toast } = useToast();
-  const navigate = useNavigate();
   const qc = useQueryClient();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
@@ -64,13 +64,12 @@ export default function CloudAccounts() {
           </p>
         </div>
         {canConnect && (
-          <button
-            type="button"
-            onClick={() => navigate('/connect')}
-            style={{ ...primaryButton(), width: isMobile ? '100%' : undefined, minHeight: isMobile ? 44 : undefined }}
+          <LinkButton
+            to="/connect"
+            style={{ ...primaryButton(), justifyContent: 'center', width: isMobile ? '100%' : undefined, minHeight: isMobile ? 44 : undefined }}
           >
             + Connect Account
-          </button>
+          </LinkButton>
         )}
       </div>
 
@@ -87,7 +86,7 @@ export default function CloudAccounts() {
         ) : accounts.isError ? (
           <div style={{ padding: 24, color: 'var(--color-error)', fontSize: 13 }}>Failed to load accounts.</div>
         ) : accounts.data?.length === 0 ? (
-          <EmptyState canConnect={canConnect} onConnect={() => navigate('/connect')} />
+          <EmptyState canConnect={canConnect} connectHref="/connect" />
         ) : isMobile ? (
           // Phone layout — six-column <table> doesn't reflow (Label, AWS
           // Account, Region, Status, Last Scan, Actions). Cards keep every
@@ -101,7 +100,8 @@ export default function CloudAccounts() {
               return (
                 <CardRow
                   key={a.id}
-                  onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
+                  to={editAccountHref(a)}
+                  linkLabel={`Manage ${a.label || 'account'}`}
                   header={
                     <>
                       <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
@@ -129,12 +129,7 @@ export default function CloudAccounts() {
                     </>
                   }
                   actions={
-                    <div
-                      style={{ display: 'flex', gap: 8, width: '100%' }}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}
-                      role="presentation"
-                    >
+                    <div style={{ display: 'flex', gap: 8, width: '100%' }}>
                       {canScan && (
                         <button
                           type="button"
@@ -145,14 +140,13 @@ export default function CloudAccounts() {
                           {isScanning ? 'Scanning…' : 'Scan'}
                         </button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
+                      <Link
+                        to={editAccountHref(a)}
                         aria-label={`Manage ${a.label || 'account'}`}
-                        style={{ ...ghostButton(), flex: 1, minHeight: 40 }}
+                        style={{ ...ghostButton(), flex: 1, minHeight: 40, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
                       >
                         Manage
-                      </button>
+                      </Link>
                     </div>
                   }
                 />
@@ -173,24 +167,28 @@ export default function CloudAccounts() {
             </thead>
             <tbody>
               {(accounts.data || []).map((a) => (
+                // `position: relative` anchors the row's stretched link
+                // (issue #130): a real <a> can't wrap <td>s, so the link lives
+                // inside the first cell and fills the row via inset:0. A
+                // middle/Ctrl/plain-click anywhere on the row hits it; the
+                // per-row Scan/Manage controls are raised above it. This also
+                // restores keyboard + screen-reader semantics for free (a real
+                // link is focusable and announced), retiring the old
+                // <tr onClick> + separate-focusable-button workaround.
                 <tr
                   key={a.id}
-                  style={{ borderBottom: `1px solid var(--color-border)`, cursor: 'pointer' }}
-                  // Row click is a mouse convenience only. The keyboard /
-                  // assistive-tech path is the focusable per-row Manage
-                  // button below — a <tr>'s implicit `row` role isn't an
-                  // interactive role, so making it tabbable would expose a
-                  // handler screen readers never fire. Keeping the accessible
-                  // action on a real <button> is the idiomatic pattern.
-                  onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
+                  style={{ borderBottom: `1px solid var(--color-border)`, position: 'relative' }}
                 >
-                  <Td><span style={{ color: 'var(--color-text)', fontWeight: 600 }}>{a.label || '—'}</span></Td>
+                  <Td>
+                    <StretchedRowLink to={editAccountHref(a)} label={`Manage ${a.label || 'account'}`} />
+                    <span style={{ color: 'var(--color-text)', fontWeight: 600 }}>{a.label || '—'}</span>
+                  </Td>
                   <Td mono>{a.account_id || '—'}</Td>
                   <Td>{a.region}</Td>
                   <Td><StatusBadge status={a.status} /></Td>
                   <Td>{formatRelative(a.last_scanned_at)}</Td>
                   <Td align="right">
-                    <div style={{ display: 'inline-flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ position: 'relative', zIndex: 1, display: 'inline-flex', gap: 6 }}>
                       {canScan && (
                         <button
                           type="button"
@@ -201,15 +199,14 @@ export default function CloudAccounts() {
                           {a.status === 'scanning' ? 'Scanning…' : 'Scan'}
                         </button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/settings/cloud-accounts/${a.id}`)}
+                      <Link
+                        to={editAccountHref(a)}
                         aria-label={`Manage ${a.label || 'account'}`}
                         title="Manage"
-                        style={{ ...ghostButton(), display: 'inline-flex', alignItems: 'center' }}
+                        style={{ ...ghostButton(), display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
                       >
                         <IconGear />
-                      </button>
+                      </Link>
                     </div>
                   </Td>
                 </tr>
@@ -222,16 +219,16 @@ export default function CloudAccounts() {
   );
 }
 
-function EmptyState({ canConnect, onConnect }) {
+function EmptyState({ canConnect, connectHref }) {
   return (
     <div style={{ padding: 48, textAlign: 'center' }}>
       <p style={{ marginTop: 0, marginBottom: 16, fontSize: 14, color: 'var(--color-text-mid)' }}>
         No cloud accounts connected yet.
       </p>
       {canConnect && (
-        <button type="button" onClick={onConnect} style={primaryButton()}>
+        <LinkButton to={connectHref} style={{ ...primaryButton(), justifyContent: 'center' }}>
           + Connect Your First Account
-        </button>
+        </LinkButton>
       )}
     </div>
   );
