@@ -367,6 +367,13 @@ test-e2e:
 	cd test-infra/e2e && docker-compose build
 	cd test-infra/e2e && docker-compose run --rm playwright; \
 		status=$$?; \
+		if [ $$status -ne 0 ]; then \
+			echo "=== e2e failed (exit $$status) — container state + logs before teardown ==="; \
+			docker-compose ps || true; \
+			for svc in migrate api ingestion dashboard playwright; do \
+				echo "--- logs $$svc ---"; docker-compose logs --no-color --tail=120 $$svc 2>&1 || true; \
+			done; \
+		fi; \
 		docker-compose down -v --remove-orphans 2>/dev/null || true; \
 		docker-compose rm -f 2>/dev/null || true; \
 		exit $$status
