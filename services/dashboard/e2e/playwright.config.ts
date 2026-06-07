@@ -2,36 +2,42 @@ import { defineConfig, devices } from '@playwright/test';
 
 // Playwright config for the AxiaOps dashboard end-to-end regression suite.
 //
-// The suite runs against a *fully running stack* (postgres + api + ingestion
-// in DEV_MODE + dashboard served by its nginx image) with seeded dummy data.
-// In CI the stack is stood up by `make test-e2e` (test-infra/e2e/docker-
-// compose.yml) and BASE_URL points at the compose `dashboard` service. Locally
-// you can point it at `make start-dev` (http://localhost:5173) after `make seed`.
+// AUTH-ON: the suite runs against a prod-like stack — postgres + api + ingestion
+// with DEV_MODE=false + the dashboard's nginx image (no VITE_DEV_MODE) — i.e. the
+// real config customers run, with real cookie auth. See docs/e2e-conventions.md.
 //
-// DEV_MODE auth bypass means there is no login flow to script: the dashboard
-// bakes VITE_DEV_MODE=true and the api/ingestion run with DEV_MODE=true, so
-// every authenticated route is reachable directly. See docs/e2e-link-check-plan.md.
+// Session model (project-dependency pattern):
+//   • the `setup` project (auth.setup.ts) drives the REAL /auth/bootstrap
+//     ceremony, then saves the owner's session to e2e/.auth/owner.json.
+//   • the `chromium` project depends on `setup` and loads that storageState, so
+//     every read/journey spec runs logged-in without scripting login each time.
+//   • the `no-auth` project depends on `setup` but uses NO stored session — for
+//     auth-lifecycle specs (e.g. "bootstrap is sealed") that need a clean visitor.
+//
+// In CI the stack is stood up by `make test-e2e` (test-infra/e2e/docker-
+// compose.yml) and BASE_URL points at the compose `dashboard` service. Locally:
+// `make start-staging` (auth-on, dashboard on :8082) against a fresh DB.
 
-const BASE_URL = process.env.BASE_URL ?? 'http://localhost:5173';
+const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8082';
+
+// Saved session from the `setup` project. Relative to this config's dir (e2e/),
+// matching __dirname/.auth/owner.json written in auth.setup.ts.
+const OWNER_STORAGE = '.auth/owner.json';
 
 export default defineConfig({
   testDir: '.',
-  // One global timeout ceiling per test; the link crawl is the long pole and
-  // bounds itself via MAX_PAGES, so 5 min is comfortable headroom.
   timeout: 5 * 60 * 1000,
   expect: { timeout: 15 * 1000 },
 
   // Never allow `test.only` to silently narrow the suite in CI.
   forbidOnly: !!process.env.CI,
 
-  // Flakiness control: one retry. Combined with `trace: 'on-first-retry'` this
-  // captures a full trace only when a test flaps, keeping green runs cheap.
+  // One retry; with trace:'on-first-retry' a full trace is captured only on a
+  // flap, keeping green runs cheap.
   retries: 1,
 
-  // The seeded data is a shared singleton (one org, one set of zombies). The
-  // mutating flow specs (dismiss/snooze, account settings) would race each
-  // other across workers, so we run serially. The read-only crawl tolerates
-  // parallelism but isn't worth special-casing.
+  // Shared bootstrapped org + seeded singleton → mutating specs would race, so
+  // run serially. Deliberate debt (see docs/e2e-conventions.md §Independence).
   workers: 1,
   fullyParallel: false,
 
@@ -45,16 +51,29 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'off',
-    // Headless chromium is the only target — the suite checks route/link
-    // health and critical journeys, not cross-browser rendering.
     actionTimeout: 15 * 1000,
     navigationTimeout: 30 * 1000,
   },
 
   projects: [
+    // Runs first: the bootstrap ceremony, and writes the owner's storageState.
+    { name: 'setup', testMatch: /auth\.setup\.ts/ },
+
+    // The bulk suite — logged-in via the saved session. Excludes the setup file
+    // and the auth-lifecycle specs (the latter run unauthenticated below).
     {
       name: 'chromium',
+      use: { ...devices['Desktop Chrome'], storageState: OWNER_STORAGE },
+      dependencies: ['setup'],
+      testIgnore: [/auth\.setup\.ts/, /auth-lifecycle\.spec\.ts/],
+    },
+
+    // Auth-lifecycle specs that must NOT inherit the owner session.
+    {
+      name: 'no-auth',
       use: { ...devices['Desktop Chrome'] },
+      dependencies: ['setup'],
+      testMatch: /auth-lifecycle\.spec\.ts/,
     },
   ],
 

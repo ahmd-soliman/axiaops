@@ -4,11 +4,15 @@ import { gotoSettled, expectNotNotFound, captureErrors } from './helpers';
 // Onboarding flow (`/onboarding` → invite / aws-account steps), gated by
 // OnboardingGate (src/components/OnboardingGate.jsx).
 //
-// IMPORTANT — seeded-org behaviour: the dev/seed org has
-// `onboarding_completed_at` set, so OnboardingGate bounces any /onboarding*
-// visit straight back to `/`. That redirect IS the contract for a completed
-// org, so these tests assert it. Exercising the wizard steps themselves needs
-// a *fresh* (un-onboarded) org fixture — see the fixme below.
+// COMPLETED-ORG behaviour: the `setup` project completes onboarding right after
+// bootstrap, so the org these specs run against has `onboarding_completed_at`
+// set and OnboardingGate bounces any /onboarding* visit back to `/`. That
+// redirect IS the contract for a completed org, so these tests assert it.
+//
+// The FRESH-org wizard case (the old fixme below) is now exercised in
+// auth.setup.ts: right after bootstrap, before onboarding is completed, setup
+// asserts the new owner is steered to /onboarding. So the wizard gate has
+// coverage; the remaining fixme is the richer per-step assertion.
 
 test.describe('onboarding', () => {
   test('completed org is redirected away from /onboarding to the dashboard', async ({ page }) => {
