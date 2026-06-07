@@ -2,8 +2,11 @@ import { type Page, expect } from '@playwright/test';
 
 // Shared helpers for the dashboard regression suite.
 //
-// The whole suite runs in DEV_MODE (auth bypassed), so there is no login step —
-// `page.goto('/')` lands straight on the org summary with seeded data.
+// The suite runs AUTH-ON (DEV_MODE=false). The `setup` project (auth.setup.ts)
+// bootstraps the first owner, completes onboarding, seeds, and saves the session;
+// most specs run in the `chromium` project which loads that session, so
+// `page.goto('/')` lands on the org summary as the logged-in owner. See
+// docs/e2e-conventions.md.
 
 export const NOT_FOUND_MARKER = "This page isn't here";
 
