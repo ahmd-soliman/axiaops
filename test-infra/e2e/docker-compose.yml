@@ -1,20 +1,22 @@
 name: axiaops-e2e
 
-# End-to-end regression stack for the Playwright dashboard suite.
+# End-to-end regression stack for the Playwright dashboard suite — AUTH-ON.
 #
-# Mirrors test-infra/integration/docker-compose.yml but adds the dashboard
-# (served by its production nginx image) and a Playwright runner, and seeds
-# dummy data so the dashboard's dynamic deep-links (account / zombie / service
-# rows, trend, cost) render. Everything runs in DEV_MODE so the crawler and
-# flow specs reach every authenticated route without a login flow.
+# Runs the prod-like config customers actually run: api + ingestion with
+# DEV_MODE=false (real cookie auth) and the dashboard's nginx image WITHOUT
+# VITE_DEV_MODE (AuthGuard active, /login + /bootstrap flow live), against a
+# FRESH, un-bootstrapped database. There is intentionally NO startup `seed`
+# service: no org exists until the Playwright `setup` project drives the real
+# /auth/bootstrap ceremony, so seeding happens from that step (it runs the
+# seeder against the org it just created). See docs/e2e-conventions.md.
 #
 # Topology:
-#   postgres ← migrate (one-shot) ← api + ingestion (DEV_MODE)
-#   dashboard (nginx) proxies /api/* → api:8080  (services/dashboard/nginx.conf)
-#   seed (one-shot) populates the dev org via MIGRATION_DATABASE_URL
-#   playwright runs `npm run e2e` with BASE_URL=http://dashboard
+#   postgres ← migrate (one-shot) ← api + ingestion (DEV_MODE=false)
+#   dashboard (nginx) proxies /api/* → api:8080
+#   playwright runs `npm run e2e`; its `setup` project bootstraps → completes
+#     onboarding → seeds → saves the owner session; the rest reuse it.
 #
-# Driven by `make test-e2e` (which also tears it down with `down -v`).
+# Driven by `make test-e2e` (which tears it down with `down -v`).
 
 services:
 
@@ -38,8 +40,7 @@ services:
     environment:
       DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops?sslmode=disable
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops?sslmode=disable
-      # Bootstrap syncs the runtime RLS-bypass role's password so the services
-      # can connect as axiaops_runtime (parity with the integration stack).
+      # Syncs the runtime RLS-bypass role password — REQUIRED since DEV_MODE is off.
       RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops?sslmode=disable
     depends_on:
       postgres:
@@ -53,7 +54,9 @@ services:
       DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops?sslmode=disable
       RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops?sslmode=disable
       ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-      DEV_MODE: "true"
+      # Required outside DEV_MODE — must match the api's value (C-1 HMAC).
+      INGESTION_SHARED_SECRET: "1111111111111111111111111111111111111111111111111111111111111111"
+      DEV_MODE: "false"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -73,14 +76,13 @@ services:
       RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops?sslmode=disable
       INGESTION_URL: http://ingestion:8081
       API_ADDR: ":8080"
-      DEV_MODE: "true"
-      # Must match the org id the seed script writes (its default when
-      # DEV_ORGANIZATION_ID is unset). Pin both sides to the same value.
-      DEV_ORGANIZATION_ID: "dev-organization-axiaops"
+      DEV_MODE: "false"
       ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-      # CORS isn't needed (the dashboard proxies /api same-origin via nginx),
-      # but mirror the dev posture for safety.
-      CORS_ORIGIN: "*"
+      INGESTION_SHARED_SECRET: "1111111111111111111111111111111111111111111111111111111111111111"
+      # Fixed install token so the bootstrap setup project types the exact value.
+      BOOTSTRAP_INSTALL_TOKEN: "e2e-bootstrap-install-token"
+      BOOTSTRAP_TOKEN_FILE_PATH: ""
+      PUBLIC_HOST: "http://dashboard"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -93,16 +95,15 @@ services:
       retries: 10
       start_period: 10s
 
-  # Dashboard served by its production nginx image. VITE_DEV_MODE=true bakes the
-  # SPA's own DEV_MODE flag (config.js) so AuthGuard doesn't bounce to /login;
-  # nginx proxies /api/* → api:8080 (services/dashboard/nginx.conf).
+  # Dashboard via its production nginx image. VITE_DEV_MODE is NOT set, so the
+  # SPA's AuthGuard is active and the /login + /bootstrap flow runs. nginx
+  # proxies /api/* → api:8080 same-origin, so the session cookie round-trips.
   dashboard:
     build:
       context: ../../services/dashboard
       dockerfile: Dockerfile
       args:
         VITE_API_URL: /api
-        VITE_DEV_MODE: "true"
     depends_on:
       api:
         condition: service_healthy
@@ -113,51 +114,32 @@ services:
       retries: 10
       start_period: 5s
 
-  # One-shot seeder. Runs scripts/seed_test_data.sh in remote mode (it switches
-  # to direct-psql when MIGRATION_DATABASE_URL is set), pinning the same org id
-  # the api serves under DEV_MODE.
-  seed:
-    image: alpine:3.20
-    working_dir: /repo
-    environment:
-      MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops?sslmode=disable
-      DEV_ORGANIZATION_ID: "dev-organization-axiaops"
-    volumes:
-      - ../..:/repo:ro
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        apk add --no-cache bash postgresql-client coreutils gawk >/dev/null
-        echo "y" | bash scripts/seed_test_data.sh
-    depends_on:
-      api:
-        condition: service_healthy
-
-  # Playwright runner. The official image ships chromium preinstalled (no
-  # download in CI). Installs the dashboard's node deps, then runs the suite
-  # against the nginx-served dashboard.
+  # Playwright runner. The `setup` project bootstraps + completes onboarding +
+  # seeds, then the rest reuse the saved session. The seeder is the canonical
+  # scripts/seed_test_data.sh, so the repo is mounted at /repo (read-only) and
+  # psql is installed; MIGRATION_DATABASE_URL + the install token are passed in.
   playwright:
     image: mcr.microsoft.com/playwright:v1.60.0-jammy
     working_dir: /work
     environment:
       BASE_URL: http://dashboard
       CI: "true"
-    # Anonymous volume shadows the host's node_modules so `npm ci` installs the
-    # linux-native binaries (incl. playwright) inside the container without
-    # clobbering the host's (macOS/arch-specific) node_modules.
+      BOOTSTRAP_INSTALL_TOKEN: "e2e-bootstrap-install-token"
+      # Direct owner connection for --seed-existing-org (run from auth.setup.ts).
+      MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops?sslmode=disable
     volumes:
       - ../../services/dashboard:/work
       - /work/node_modules
+      - ../..:/repo:ro
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
+        apt-get update -qq && apt-get install -y --no-install-recommends postgresql-client coreutils >/dev/null
         npm ci
         npm run e2e
     depends_on:
       dashboard:
         condition: service_healthy
-      seed:
-        condition: service_completed_successfully
 
 networks:
   default:

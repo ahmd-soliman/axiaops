@@ -66,9 +66,18 @@ REMOTE_ENV=""
 AUTO_YES=false
 DEMO_MODE=false
 BOOTSTRAP_FIRST=false
+SEED_EXISTING_ORG=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --seed-existing-org)
+      # Seed the NEWEST existing org via MIGRATION_DATABASE_URL, without any
+      # --remote host plumbing. For the auth-on e2e suite, which bootstraps a
+      # real org first (so it can't use the DEV_ORGANIZATION_ID path) and runs
+      # the seeder from the test runner against the compose postgres. See
+      # docs/e2e-conventions.md §"seed-after-bootstrap".
+      SEED_EXISTING_ORG=true
+      ;;
     --remote)
       shift
       REMOTE_ENV="${1:-}"
@@ -225,6 +234,13 @@ else
   # Remote mode: use direct psql connection
   MODE="remote"
   echo "MIGRATION_DATABASE_URL set — connecting to remote postgres"
+  # --remote sets $PSQL via resolve_psql; a bare MIGRATION_DATABASE_URL caller
+  # (e.g. --seed-existing-org from the e2e runner) needs it resolved too.
+  PSQL="${PSQL:-$(resolve_psql)}"
+  if [ -z "${PSQL:-}" ]; then
+    echo "Error: psql not found on PATH (needed for direct MIGRATION_DATABASE_URL mode)." >&2
+    exit 1
+  fi
 fi
 
 # ── psql helpers ──────────────────────────────────────────────────────────────
@@ -292,7 +308,7 @@ PERIOD_END="$NOW"
 # in deploy/{env}.yml — if you flip an env's DEV_MODE here, mirror it there.
 AUTH_ON_ENVS_REGEX="^(staging|preview|demo|integration)$"
 
-if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX ]]; then
+if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX || "$SEED_EXISTING_ORG" == "true" ]]; then
   ORGANIZATION_ID=$(psql_query "SELECT id FROM organizations ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
   if [ -z "$ORGANIZATION_ID" ]; then
     if [[ "$BOOTSTRAP_FIRST" == "true" ]]; then
