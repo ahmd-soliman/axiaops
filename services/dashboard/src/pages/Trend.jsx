@@ -1,10 +1,10 @@
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAccounts } from '../api/client';
 import TrendScreen from '../screens/TrendScreen';
+import { editAccountHref } from '../utils/links';
 
 export default function Trend() {
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const selectedAccountId = params.get('account');
 
@@ -16,8 +16,8 @@ export default function Trend() {
       selectedAccount={selectedAccountId}
       selectedAwsAccount={selectedAccountId}
       onSelectAccount={(id) => id ? setParams({ account: id }) : setParams({})}
-      onConnectAccount={() => navigate('/connect')}
-      onEditAccount={(acc) => navigate(`/cloud-accounts/${acc.id}`)}
+      connectHref="/connect"
+      editAccountHref={editAccountHref}
     />
   );
 }
