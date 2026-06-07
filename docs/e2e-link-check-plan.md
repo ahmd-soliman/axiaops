@@ -39,7 +39,7 @@ Current stages (`.gitlab-ci.yml`):
 test → integration → build → deploy
 ```
 
-**Recommendation: add an `e2e` stage immediately after `integration` and before `build`:**
+**Recommendation: add an `e2e` stage between `integration` and `build`:**
 
 ```
 test → integration → e2e → build → deploy
@@ -157,6 +157,18 @@ e2e:link-check:
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"'
     - if: '$CI_COMMIT_BRANCH =~ /^(feature|feat|fix|chore|bugfix|hotfix)\//'
 ```
+
+### Enabled for all pipelines? No.
+Running the full stack on every pipeline is wasteful and adds noise to changes
+that can't affect link health. The rules above scope it:
+- **Merge-request pipelines:** only when something that can change routes or the
+  data behind them changes — `services/dashboard/**`, `services/api/**`,
+  `services/ingestion/**`, `scripts/seed_test_data.sh`, or `test-infra/e2e/**`.
+  A docs-only or unrelated-backend MR skips it entirely.
+- **`develop` / `main`:** always (post-merge safety net, regardless of paths).
+- **`feat|fix|chore|…` branches:** run so authors get the signal pre-MR.
+
+So: not all pipelines — change-gated on MRs, always on the integration branches.
 
 ## Flakiness controls
 - Wait on `networkidle` + an explicit settle per route; per-route timeout.
