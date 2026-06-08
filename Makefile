@@ -370,7 +370,7 @@ test-e2e:
 		if [ $$status -ne 0 ]; then \
 			echo "=== e2e failed (exit $$status) — container state + logs before teardown ==="; \
 			docker-compose ps || true; \
-			for svc in migrate api ingestion dashboard playwright; do \
+			for svc in postgres migrate api ingestion dashboard playwright; do \
 				echo "--- logs $$svc ---"; docker-compose logs --no-color --tail=120 $$svc 2>&1 || true; \
 			done; \
 		fi; \
