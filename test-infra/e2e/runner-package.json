@@ -1,0 +1,9 @@
+{
+  "name": "axiaops-e2e-runner",
+  "private": true,
+  "type": "module",
+  "comment": "Minimal manifest for the e2e runner image: the suite imports ONLY @playwright/test (+ node builtins), so we install that one dep instead of the dashboard's full 293-package devDep tree. Pinned EXACT (no caret) to match the playwright:vX.Y.Z-jammy base image's bundled browsers and to keep `npm install` deterministic without a lockfile. Bump in lockstep with the FROM tag in Dockerfile.playwright and @playwright/test in services/dashboard/package.json.",
+  "dependencies": {
+    "@playwright/test": "1.60.0"
+  }
+}
