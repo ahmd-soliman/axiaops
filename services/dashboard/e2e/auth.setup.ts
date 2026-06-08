@@ -1,6 +1,7 @@
 import { test as setup, expect } from '@playwright/test';
-import { execSync } from 'child_process';
-import path from 'path';
+import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 // Setup project (runs before everything via project dependencies). It drives the
 // REAL first-run /auth/bootstrap ceremony against a fresh, un-bootstrapped DB —
@@ -11,7 +12,8 @@ import path from 'path';
 // to this runner under the same env var, so we type the exact value the server
 // expects.
 
-const OWNER_FILE = path.join(__dirname, '.auth', 'owner.json');
+// ESM: derive the dir from import.meta.url (no __dirname in module scope).
+const OWNER_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '.auth', 'owner.json');
 const INSTALL_TOKEN = process.env.BOOTSTRAP_INSTALL_TOKEN ?? '';
 
 const OWNER = {
