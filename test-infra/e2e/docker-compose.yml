@@ -133,15 +133,23 @@ services:
   #
   # Built from a baked image (Dockerfile.playwright) whose build does COPY-only,
   # then the network steps (psql install + `npm ci`) run HERE at container start.
-  # Two CI realities force this split: a runtime bind-mount's host path is invisible
-  # under CI's socket-mounted daemon (npm ci → ENOENT), AND the buildkit build
-  # sandbox has no DNS (apt/npm at build → "Temporary failure resolving"). The
-  # running container, however, resolves fine. See the Dockerfile header.
+  # The build must be COPY-only because the buildkit build sandbox has no public
+  # DNS; a runtime bind-mount is also out (its host path is invisible under CI's
+  # socket-mounted daemon → npm ci ENOENT). So source is baked via COPY, and the
+  # apt/npm steps run at container start where we CAN fix DNS — see `dns:` below.
   playwright:
     build:
       context: ../..
       dockerfile: test-infra/e2e/Dockerfile.playwright
     working_dir: /work
+    # The CI runner's containers inherit a resolver that can't resolve public
+    # names (archive.ubuntu.com / registry.npmjs.org → "Temporary failure
+    # resolving"); only compose-internal service DNS works. Point this container
+    # at public resolvers directly so the runtime apt + npm ci succeed. Same
+    # `dns:`-override pattern the deploy/*.yml stacks use for split-horizon DNS.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       BASE_URL: http://dashboard
       CI: "true"
