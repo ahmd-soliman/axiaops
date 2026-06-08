@@ -27,11 +27,20 @@ services:
       POSTGRES_USER: axiaops_owner
       POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:-axiaops_owner}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U axiaops_owner -d axiaops"]
-      interval: 5s
+      # -h 127.0.0.1 forces the check over TCP, NOT the default unix socket. On
+      # first boot the postgres entrypoint runs a temporary SOCKET-ONLY server to
+      # run initdb (listen_addresses=''); a socket-based pg_isready flips "healthy"
+      # while TCP 5432 is still closed, so `migrate` (depends_on: service_healthy)
+      # races in and dies with "dial tcp …:5432: connect: connection refused". On
+      # the loaded e2e runner (heavy Playwright/browser image competing for I/O)
+      # that init window is wide enough to lose the race every time, while the
+      # lighter integration stack wins it. Checking TCP makes "healthy" mean what
+      # migrate actually needs; the wider start_period/retries absorb slow CI disk.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U axiaops_owner -d axiaops"]
+      interval: 3s
       timeout: 3s
-      retries: 10
-      start_period: 10s
+      retries: 20
+      start_period: 30s
 
   migrate:
     build:
@@ -149,7 +158,7 @@ services:
         set -e
         for i in 1 2 3; do
           apt-get update -qq && apt-get install -y --no-install-recommends postgresql-client && break
-          echo "apt attempt $i failed; retrying..."; sleep 3
+          echo "apt attempt $$i failed; retrying..."; sleep 3
         done
         command -v psql >/dev/null || { echo "FATAL: postgresql-client install failed"; exit 1; }
         npm ci
