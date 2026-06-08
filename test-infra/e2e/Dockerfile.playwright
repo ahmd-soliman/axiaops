@@ -1,43 +1,42 @@
 # Playwright e2e runner image.
 #
-# WHY THIS SHAPE (build = COPY only; network steps run at container start):
-# Two CI constraints, learned the hard way, dictate this split —
+# DESIGN: bake every network-dependent step into CACHED build layers, so
+# steady-state runs need ZERO network. This matters because the runner's only
+# usable resolver is the LAN's (192.168.1.1), which is intermittently
+# unavailable — a runtime `apt`/`npm` (every run) turns any DNS blip into a red
+# build. Baked layers are pulled from the runner's persistent /var/lib/docker
+# cache instead, so only the FIRST build (or a dep change) touches the network.
 #
-#   1. A runtime BIND-MOUNT of the source (`../../services/dashboard:/work`)
-#      breaks under GitLab CI's socket-mounted HOST daemon: the compose-relative
-#      path resolves on the host, where the job checkout isn't visible, so
-#      /work/package.json goes missing and `npm ci` exits ENOENT.
-#      → Fix: bake the source into the image via COPY (build context, not a host
-#        path). COPY needs no network, so it's safe at build time.
+# The dashboard *application* is NOT needed here (it's compiled into the nginx
+# `dashboard` service already) — only package*.json (for `npm ci`) + the e2e/
+# specs. Pinned to the @playwright/test version in package.json so the image's
+# bundled browsers match (no `npx playwright install` needed).
 #
-#   2. Baking `npm ci` / `apt-get` at BUILD time also fails: CI's buildkit build
-#      sandbox has NO DNS ('Temporary failure resolving archive.ubuntu.com' /
-#      registry.npmjs.org). The api/ingestion images only build because their
-#      layers are cache-warm on the runner; a fresh RUN-with-network dies.
-#      → Fix: defer every network step (apt install of psql, `npm ci`) to
-#        container START. The RUNNING compose container resolves fine (it shares
-#        the app services' egress) — proven by the stack reaching postgres/AWS.
-#        See the `command:` in docker-compose.yml.
-#
-# Net: COPY here (hermetic, no network), install + npm ci at runtime (has DNS).
-# The dashboard *application* is NOT needed — it's compiled into the nginx
-# `dashboard` service already; only package*.json + the e2e/ specs matter here.
-# Pinned to the @playwright/test version in package.json so bundled browsers match.
+# NB: the build runs under the LEGACY builder (DOCKER_BUILDKIT=0 in the Makefile)
+# so these RUN steps resolve via the docker daemon's network (which works when
+# the LAN resolver is up) rather than buildkit's separate, DNS-less sandbox.
 FROM mcr.microsoft.com/playwright:v1.60.0-jammy
+
+# psql for the seeder (auth.setup.ts → scripts/seed_test_data.sh --seed-existing-org).
+# Own layer → cached unless this line changes. GNU `date` is already in the base.
+RUN apt-get update -qq \
+ && apt-get install -y --no-install-recommends postgresql-client \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work
 
-# Dependency manifests for the runtime `npm ci`.
+# Deps as their own cached layer — busts only when the lockfile changes.
 COPY services/dashboard/package.json services/dashboard/package-lock.json ./
+RUN npm ci
 
-# The e2e specs + playwright.config.ts. `npm run e2e` resolves
-# `playwright test -c e2e/playwright.config.ts` from /work. Strip any local run
-# artifacts that may have ridden along in the build context.
+# Specs LAST: a per-commit spec change busts only this cheap COPY, leaving the
+# apt + npm layers (the network-dependent ones) cache-warm. `npm run e2e`
+# resolves `playwright test -c e2e/playwright.config.ts` from /work.
 COPY services/dashboard/e2e ./e2e
 RUN rm -rf e2e/playwright-report e2e/test-results e2e/.auth
 
 # The canonical seeder, referenced as /repo/scripts/seed_test_data.sh by
-# auth.setup.ts. Only this script is needed for the --seed-existing-org path
-# (its sole other repo dependency — a `go run` — is in the --demo branch, which
-# the e2e flow never takes). GNU `date` for the seeder is already in the jammy base.
+# auth.setup.ts (only this script is needed for the --seed-existing-org path).
 COPY scripts/seed_test_data.sh /repo/scripts/seed_test_data.sh
+
+CMD ["npm", "run", "e2e"]

@@ -152,21 +152,9 @@ services:
       BOOTSTRAP_INSTALL_TOKEN: "e2e-bootstrap-install-token"
       # Direct owner connection for --seed-existing-org (run from auth.setup.ts).
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops?sslmode=disable
-    # Network-dependent steps run at runtime (build has no DNS): install psql for
-    # the seeder, then `npm ci`, then the suite. A short retry absorbs a transient
-    # mirror blip; a hard psql check fails loudly rather than limping to a confusing
-    # seed error later.
-    entrypoint: ["/bin/bash", "-c"]
-    command:
-      - |
-        set -e
-        for i in 1 2 3; do
-          apt-get update -qq && apt-get install -y --no-install-recommends postgresql-client && break
-          echo "apt attempt $$i failed; retrying..."; sleep 3
-        done
-        command -v psql >/dev/null || { echo "FATAL: postgresql-client install failed"; exit 1; }
-        npm ci
-        npm run e2e
+    # No entrypoint/command override: psql + node_modules are baked into the image
+    # (cached layers), so the container just runs the image's CMD (`npm run e2e`)
+    # with NO network at run time. See Dockerfile.playwright for the rationale.
     depends_on:
       dashboard:
         condition: service_healthy
