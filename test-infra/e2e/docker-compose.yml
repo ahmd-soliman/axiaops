@@ -122,11 +122,12 @@ services:
   # Playwright runner. The `setup` project bootstraps + completes onboarding +
   # seeds, then the rest reuse the saved session.
   #
-  # Built from a baked image (Dockerfile.playwright), NOT a runtime bind-mount:
-  # bind-mounting the source breaks under GitLab CI's socket-mounted host daemon
-  # (the compose-relative path resolves on the host, where the job checkout isn't
-  # visible → npm ci finds no package.json). The image bakes package*.json + the
-  # e2e/ specs + the seeder + psql. See the Dockerfile header for the full why.
+  # Built from a baked image (Dockerfile.playwright) whose build does COPY-only,
+  # then the network steps (psql install + `npm ci`) run HERE at container start.
+  # Two CI realities force this split: a runtime bind-mount's host path is invisible
+  # under CI's socket-mounted daemon (npm ci → ENOENT), AND the buildkit build
+  # sandbox has no DNS (apt/npm at build → "Temporary failure resolving"). The
+  # running container, however, resolves fine. See the Dockerfile header.
   playwright:
     build:
       context: ../..
@@ -138,6 +139,21 @@ services:
       BOOTSTRAP_INSTALL_TOKEN: "e2e-bootstrap-install-token"
       # Direct owner connection for --seed-existing-org (run from auth.setup.ts).
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops?sslmode=disable
+    # Network-dependent steps run at runtime (build has no DNS): install psql for
+    # the seeder, then `npm ci`, then the suite. A short retry absorbs a transient
+    # mirror blip; a hard psql check fails loudly rather than limping to a confusing
+    # seed error later.
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        for i in 1 2 3; do
+          apt-get update -qq && apt-get install -y --no-install-recommends postgresql-client && break
+          echo "apt attempt $i failed; retrying..."; sleep 3
+        done
+        command -v psql >/dev/null || { echo "FATAL: postgresql-client install failed"; exit 1; }
+        npm ci
+        npm run e2e
     depends_on:
       dashboard:
         condition: service_healthy
