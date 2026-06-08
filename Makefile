@@ -364,10 +364,11 @@ test-integration-ingestion:
 #   cd services/dashboard && BASE_URL=http://localhost:5173 npm run e2e
 test-e2e:
 	cd test-infra/e2e && docker-compose down -v --remove-orphans 2>/dev/null || true
-	@# DOCKER_BUILDKIT=0: the playwright image's apt/npm RUN steps need DNS, and the
-	@# legacy builder resolves via the docker daemon's network (works when the LAN
-	@# resolver is up) — buildkit's separate build sandbox has been seen DNS-less on
-	@# the CI runner. Local dev is unaffected (it has DNS either way).
+	@# DOCKER_BUILDKIT=0: the playwright image's one network RUN step (the pinned
+	@# `npm install` — psql is now COPY-only, no apt) needs DNS, and the legacy
+	@# builder resolves via the docker daemon's network (works when the LAN resolver
+	@# is up) — buildkit's separate build sandbox has been seen DNS-less on the CI
+	@# runner. Local dev is unaffected (it has DNS either way).
 	cd test-infra/e2e && DOCKER_BUILDKIT=0 docker-compose build
 	cd test-infra/e2e && docker-compose run --rm playwright; \
 		status=$$?; \
