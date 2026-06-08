@@ -120,11 +120,17 @@ services:
       start_period: 5s
 
   # Playwright runner. The `setup` project bootstraps + completes onboarding +
-  # seeds, then the rest reuse the saved session. The seeder is the canonical
-  # scripts/seed_test_data.sh, so the repo is mounted at /repo (read-only) and
-  # psql is installed; MIGRATION_DATABASE_URL + the install token are passed in.
+  # seeds, then the rest reuse the saved session.
+  #
+  # Built from a baked image (Dockerfile.playwright), NOT a runtime bind-mount:
+  # bind-mounting the source breaks under GitLab CI's socket-mounted host daemon
+  # (the compose-relative path resolves on the host, where the job checkout isn't
+  # visible → npm ci finds no package.json). The image bakes package*.json + the
+  # e2e/ specs + the seeder + psql. See the Dockerfile header for the full why.
   playwright:
-    image: mcr.microsoft.com/playwright:v1.60.0-jammy
+    build:
+      context: ../..
+      dockerfile: test-infra/e2e/Dockerfile.playwright
     working_dir: /work
     environment:
       BASE_URL: http://dashboard
@@ -132,16 +138,6 @@ services:
       BOOTSTRAP_INSTALL_TOKEN: "e2e-bootstrap-install-token"
       # Direct owner connection for --seed-existing-org (run from auth.setup.ts).
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops?sslmode=disable
-    volumes:
-      - ../../services/dashboard:/work
-      - /work/node_modules
-      - ../..:/repo:ro
-    entrypoint: ["/bin/bash", "-c"]
-    command:
-      - |
-        apt-get update -qq && apt-get install -y --no-install-recommends postgresql-client coreutils >/dev/null
-        npm ci
-        npm run e2e
     depends_on:
       dashboard:
         condition: service_healthy

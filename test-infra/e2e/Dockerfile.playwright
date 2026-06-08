@@ -1,0 +1,45 @@
+# Playwright e2e runner image.
+#
+# WHY THIS EXISTS (don't revert to a runtime bind-mount):
+# The suite previously bind-mounted the dashboard source (`../../services/
+# dashboard:/work`) and ran `npm ci` at container start. That works under a
+# local Docker daemon but BREAKS in GitLab CI: the runner talks to a
+# socket-mounted HOST daemon, so the compose-relative bind path resolves on the
+# host — where the job checkout isn't visible — and `/work/package.json` is
+# missing → `npm ci` exits ENOENT → the whole suite fails before a single test.
+#
+# Baking the specs + deps into the image via the build context is hermetic:
+# identical behaviour locally and in CI, no host-path assumptions. The dashboard
+# *application* is NOT needed here (it's already compiled into the nginx
+# `dashboard` service) — only package*.json (for `npm ci`) and the e2e/ specs.
+#
+# Pinned to the same Playwright version as `@playwright/test` in package.json so
+# the image's bundled browsers match — no `npx playwright install` needed.
+FROM mcr.microsoft.com/playwright:v1.60.0-jammy
+
+# psql: auth.setup.ts shells out to scripts/seed_test_data.sh --seed-existing-org,
+# which connects via MIGRATION_DATABASE_URL. coreutils: GNU `date` for the
+# seeder's date math (the BSD `date -v` path falls through to `date -d`).
+RUN apt-get update -qq \
+ && apt-get install -y --no-install-recommends postgresql-client coreutils \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+
+# Deps first so this layer is cached unless the lockfile changes.
+COPY services/dashboard/package.json services/dashboard/package-lock.json ./
+RUN npm ci
+
+# The e2e specs + playwright.config.ts. `npm run e2e` resolves
+# `playwright test -c e2e/playwright.config.ts` from /work. Strip any local
+# run artifacts that may have been copied in from the build context.
+COPY services/dashboard/e2e ./e2e
+RUN rm -rf e2e/playwright-report e2e/test-results e2e/.auth
+
+# The canonical seeder, referenced as /repo/scripts/seed_test_data.sh by
+# auth.setup.ts. Only this script is needed for the --seed-existing-org path
+# (its sole other repo dependency — a `go run` — is in the --demo branch, which
+# the e2e flow never takes).
+COPY scripts/seed_test_data.sh /repo/scripts/seed_test_data.sh
+
+CMD ["npm", "run", "e2e"]
