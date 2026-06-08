@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 // Playwright config for the AxiaOps dashboard end-to-end regression suite.
 //
@@ -22,7 +24,9 @@ const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8082';
 
 // Saved session from the `setup` project. Relative to this config's dir (e2e/),
 // matching __dirname/.auth/owner.json written in auth.setup.ts.
-const OWNER_STORAGE = '.auth/owner.json';
+// Absolute path so the `setup` project's write and the dependent projects' read
+// resolve to the same file regardless of cwd (auth.setup.ts writes the same).
+const OWNER_STORAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), '.auth', 'owner.json');
 
 export default defineConfig({
   testDir: '.',
