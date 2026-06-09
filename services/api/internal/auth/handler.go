@@ -287,7 +287,7 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 	if req.OrganizationName == "" {
 		req.OrganizationName = "AxiaOps"
 	}
-	if err := CheckPolicy(req.Password); err != nil {
+	if err := CheckPolicyWithIdentity(req.Password, PolicyContext{Email: req.Email, Name: req.Name}); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "weak_password", err.Error())
 		return
 	}
@@ -1064,7 +1064,7 @@ func (h *Handler) redeemInvitation(w http.ResponseWriter, r *http.Request) {
 				"name must be 1–100 characters with no control characters and not look like an email address")
 			return
 		}
-		if err := CheckPolicy(req.Password); err != nil {
+		if err := CheckPolicyWithIdentity(req.Password, PolicyContext{Email: peek.Email, Name: req.Name}); err != nil {
 			writeAuthError(w, http.StatusBadRequest, "weak_password", err.Error())
 			return
 		}
