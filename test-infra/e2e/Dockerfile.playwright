@@ -1,0 +1,55 @@
+# Playwright e2e runner image.
+#
+# DESIGN: the build must survive the CI runner's flaky resolver. The self-hosted
+# `self-hosted` group runner's only usable DNS is the LAN's (192.168.1.1), which is
+# intermittently down — and a build that resolves `archive.ubuntu.com` /
+# `registry.npmjs.org` during a cache-busting layer turns any DNS blip into a red
+# pipeline (this image churned through five "fix(e2e): …DNS…" commits before this
+# rewrite). So we minimise network to the bone:
+#
+#   • psql       → COPY-from a public postgres image (image pulls work on this
+#                  runner even when apt/npm DNS does not). NO apt. Zero network.
+#   • @playwright → a pinned ONE-dep `npm install` (~3 packages) instead of the
+#                  dashboard's 293-package `npm ci`. The only remaining network
+#                  step, and it busts only when the Playwright version changes —
+#                  so steady-state runs are a cache hit and touch nothing.
+#
+# The dashboard *application* is NOT needed here (it's compiled into the nginx
+# `dashboard` service already) — only the e2e/ specs + the seeder script. Browsers
+# come bundled in the base image (/ms-playwright); the base image does NOT bundle
+# the @playwright/test npm package, which is why the install above is unavoidable.
+#
+# NB: the build runs under the LEGACY builder (DOCKER_BUILDKIT=0 in the Makefile)
+# so the npm step resolves via the docker daemon's network (which works when the
+# LAN resolver is up) rather than buildkit's separate, DNS-less sandbox.
+FROM mcr.microsoft.com/playwright:v1.60.0-jammy
+
+# psql for the seeder (auth.setup.ts → scripts/seed_test_data.sh --seed-existing-org).
+# COPY-only from a glibc postgres image so this layer needs ZERO network — the
+# jammy base already carries every shared lib psql links against EXCEPT libpq, so
+# two files are all it takes. The arch-glob matches x86_64 (CI) and aarch64 (local).
+# Verified: bookworm's psql (glibc 2.36) runs clean on jammy (glibc 2.35).
+COPY --from=postgres:17-bookworm /usr/lib/postgresql/17/bin/psql /usr/local/bin/psql
+COPY --from=postgres:17-bookworm /usr/lib/*-linux-gnu/libpq.so.5 /usr/local/lib/
+RUN ldconfig && psql --version
+
+WORKDIR /work
+
+# Single pinned dep (@playwright/test, matching the base image's browsers) as its
+# own cached layer — busts only when runner-package.json changes (a version bump).
+COPY test-infra/e2e/runner-package.json ./package.json
+RUN npm install --no-audit --no-fund --loglevel=error
+
+# Specs LAST: a per-commit spec change busts only this cheap COPY, leaving the
+# npm layer (the only network-dependent one) cache-warm.
+COPY services/dashboard/e2e ./e2e
+RUN rm -rf e2e/playwright-report e2e/test-results e2e/.auth
+
+# The canonical seeder, referenced as /repo/scripts/seed_test_data.sh by
+# auth.setup.ts (only this script is needed for the --seed-existing-org path).
+COPY scripts/seed_test_data.sh /repo/scripts/seed_test_data.sh
+
+# Run the suite directly via the locally-installed playwright (offline — no
+# dashboard package.json / `npm run` indirection). Resolves the local
+# node_modules/.bin/playwright, reading e2e/playwright.config.ts from /work.
+CMD ["npx", "playwright", "test", "-c", "e2e/playwright.config.ts"]
