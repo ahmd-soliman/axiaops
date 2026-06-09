@@ -1,8 +1,18 @@
 # Password Breach-Corpus Screening — Design (Tasks.md 2.7.11)
 
-**Status:** designed, not yet implemented.
+**Status:** designed; implemented as a **bootstrap seed** (Tasks.md 2.7.11).
 **Supersedes:** the live-API sketch in Tasks.md 2.7.11 and plan §4.5 D6 ("top-1000 list").
 **Decision owner:** auth/native-auth path. Architect-reviewed.
+
+> **Implementation note (2026-06-10).** The shipped asset is a **bootstrap seed**
+> corpus (`services/api/internal/breachlist/breached-passwords.bin`, N ≈ a few
+> hundred), not the full HIBP top-1M — the full ordered file can't be fetched
+> from the build environment. The seam, lookup, wiring, and tests are
+> production-shape; only the *size of the embedded list* is provisional. The
+> real top-1M swap is a documented one-step regeneration (no code change) — see
+> [`docs/breachlist-provenance.md`](breachlist-provenance.md). The committed
+> asset is named **`breached-passwords.bin`** (honest about its bootstrap-seed
+> contents), not `pwned-top1m.bin`; references below use the real filename.
 
 ## Why this exists
 
@@ -123,7 +133,7 @@ link set, rather than relying on dead-code elimination to drop it (see Risks).
   Add a scoped `//nolint:gosec // G401/G505: SHA-1 is the HIBP corpus index,
   not a security primitive; storage is argon2id` at the import + `sha1.Sum`
   site, so a future gosec CI rollout doesn't trip on the blocklisted import.
-- `embed.go` — `//go:embed pwned-top1m.bin` `var corpus []byte`. **Unconditional**
+- `embed.go` — `//go:embed breached-passwords.bin` `var corpus []byte`. **Unconditional**
   — unlike the license dev-fixture (which is *stripped* from `-tags production`
   for a security boundary), the corpus must be present in *every* shipped
   build because production binaries are exactly the ones doing real signups.
@@ -180,7 +190,7 @@ verbatim.
 3. Hex-decode → **raw 20 bytes** (case-insensitive decode — this is what makes
    the asset match `sha1.Sum` output at lookup); **re-sort ascending by digest**
    (binary search needs digest order, not prevalence order); write
-   `pwned-top1m.bin` as concatenated raw 20-byte records, no delimiters.
+   `breached-passwords.bin` as concatenated raw 20-byte records, no delimiters.
 4. Commit the `.bin`. The script appends a provenance manifest (source URL,
    HIBP corpus version/date, N, SHA-256 of output) to `docs/breachlist-provenance.md`,
    and the `NOTICE` attribution is updated. Modeled on the

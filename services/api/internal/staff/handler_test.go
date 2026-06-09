@@ -241,6 +241,34 @@ func TestCreateStaff_WeakPassword(t *testing.T) {
 	}
 }
 
+// TestCreateStaff_BreachedPassword covers Tasks.md 2.7.11 at the staff-create
+// site: a 12-char password in the breach corpus is rejected even though it
+// passes the length floor.
+func TestCreateStaff_BreachedPassword(t *testing.T) {
+	h := newHarness(t)
+	h.store.addStaff("s1", "boss@axiaops.io", "Boss", mustHash(t), "active", model.StaffRoleSuperadmin)
+	cookie := h.login(t, "boss@axiaops.io", testPassword)
+	rec := h.do(http.MethodPost, "/admin/staff",
+		`{"email":"new@axiaops.io","name":"New","password":"password1234","roles":["support"]}`, cookie)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "weak_password") {
+		t.Fatalf("want 400 weak_password, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestCreateStaff_IdentityLookalikePassword covers the identity reject wired via
+// CheckPolicyWithIdentity: a long, non-breached password embedding the new
+// staffer's email local-part is rejected.
+func TestCreateStaff_IdentityLookalikePassword(t *testing.T) {
+	h := newHarness(t)
+	h.store.addStaff("s1", "boss@axiaops.io", "Boss", mustHash(t), "active", model.StaffRoleSuperadmin)
+	cookie := h.login(t, "boss@axiaops.io", testPassword)
+	rec := h.do(http.MethodPost, "/admin/staff",
+		`{"email":"newstaffer@axiaops.io","name":"New Staffer","password":"newstaffer-secret99","roles":["support"]}`, cookie)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "weak_password") {
+		t.Fatalf("want 400 weak_password, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRevokeRole_LastSuperadminGuard(t *testing.T) {
 	h := newHarness(t)
 	h.store.addStaff("s1", "boss@axiaops.io", "Boss", mustHash(t), "active", model.StaffRoleSuperadmin)
