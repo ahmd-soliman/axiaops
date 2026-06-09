@@ -1,0 +1,34 @@
+AxiaOps
+Third-Party Notices
+
+This file credits third-party data and code embedded in or distributed with the
+AxiaOps product. It is the repository's first third-party-notice file; any future
+embedded third-party asset or code appends an entry here.
+
+================================================================================
+Have I Been Pwned — Pwned Passwords
+================================================================================
+
+The embedded breached-password corpus
+(services/api/internal/breachlist/breached-passwords.bin), used by the
+password breach-corpus screen (NIST SP 800-63B §5.1.1.2), is derived from the
+breach-frequency data published by Have I Been Pwned (Pwned Passwords),
+created and maintained by Troy Hunt.
+
+    Source:  Have I Been Pwned — Pwned Passwords
+             https://haveibeenpwned.com/Passwords
+    Author:  Troy Hunt
+    Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+             https://creativecommons.org/licenses/by/4.0/
+
+Only the data (the set of compromised-password SHA-1 digests) is embedded; the
+SHA-1 digest functions purely as a lookup index, not as a password-storage
+primitive (AxiaOps stores passwords with argon2id). The
+HaveIBeenPwned/PwnedPasswordsDownloader tool is used only to *generate* the
+asset and is NOT embedded, so its separate licence does not propagate into the
+AxiaOps binaries.
+
+The currently shipped asset is a curated bootstrap seed of the most-prevalent
+breached passwords (public knowledge), not the full HIBP top-1M corpus. See
+docs/breachlist-provenance.md for the manifest (source, N, SHA-256) and the
+procedure to swap in the full HIBP corpus.
