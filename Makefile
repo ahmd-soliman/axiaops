@@ -346,6 +346,43 @@ test-integration-ingestion:
 	cd test-infra/integration && docker-compose down -v --remove-orphans
 	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
 
+# E2E regression suite — Playwright against a full DEV_MODE stack.
+#
+# Brings up postgres + migrate + api + ingestion (DEV_MODE) + the dashboard
+# (nginx image, /api proxied to api:8080), seeds dummy data, then runs the
+# Playwright suite (services/dashboard/e2e) against the nginx-served dashboard
+# at BASE_URL=http://dashboard. The compose dependency graph orders it all:
+# playwright waits on dashboard (healthy) + seed (completed). `run --rm`
+# starts those dependencies first, then runs the suite in the foreground and
+# surfaces its exit code — the same shape as test-integration-*. Using `run`
+# (not `up`) avoids the one-shot migrate/seed containers exiting 0 from tearing
+# the stack down mid-suite (which `--abort-on-container-exit` would do).
+#
+# Always tears the stack down (`down -v`) even on failure so a flaky run
+# doesn't leave volumes behind. Locally you can instead point Playwright at
+# `make start-dev` after `make seed`:
+#   cd services/dashboard && BASE_URL=http://localhost:5173 npm run e2e
+test-e2e:
+	cd test-infra/e2e && docker-compose down -v --remove-orphans 2>/dev/null || true
+	@# DOCKER_BUILDKIT=0: the playwright image's one network RUN step (the pinned
+	@# `npm install` — psql is now COPY-only, no apt) needs DNS, and the legacy
+	@# builder resolves via the docker daemon's network (works when the LAN resolver
+	@# is up) — buildkit's separate build sandbox has been seen DNS-less on the CI
+	@# runner. Local dev is unaffected (it has DNS either way).
+	cd test-infra/e2e && DOCKER_BUILDKIT=0 docker-compose build
+	cd test-infra/e2e && docker-compose run --rm playwright; \
+		status=$$?; \
+		if [ $$status -ne 0 ]; then \
+			echo "=== e2e failed (exit $$status) — container state + logs before teardown ==="; \
+			docker-compose ps || true; \
+			for svc in postgres migrate api ingestion dashboard playwright; do \
+				echo "--- logs $$svc ---"; docker-compose logs --no-color --tail=120 $$svc 2>&1 || true; \
+			done; \
+		fi; \
+		docker-compose down -v --remove-orphans 2>/dev/null || true; \
+		docker-compose rm -f 2>/dev/null || true; \
+		exit $$status
+
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
 	@echo "Cleaning up AxiaOps Docker resources..."
