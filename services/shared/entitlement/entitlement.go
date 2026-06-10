@@ -3,17 +3,19 @@
 // state instead of a signed license JWT. See
 // docs/saas-platform-admin-design.md §7.2.
 //
-// DORMANT SCAFFOLD (Phase 2A). This package is fully built and unit-tested but
-// NOT yet consulted by any scan gate. Today the api + ingestion scan gates call
-// license.IsScanAllowed (which the dev fixture / self-hosted license satisfy).
-// The wiring that makes the gates call entitlement.IsScanAllowedForOrg instead
-// — the cmd/api-saashosted + cmd/ingestion-saashosted composition roots that
-// call license.SetEnforcementBypass() at boot — is Phase 2B, deferred until
-// ADR-0002 is accepted and the activation gate proves out (design §7.1).
+// WIRED IN SAAS BUILDS (Phase 2B). In a `-tags saashosted` build the api +
+// ingestion roots call license.SetEnforcementBypass() at boot (the license JWT
+// goes dormant) and thread a Resolver into the scan gates, which then call
+// IsScanAllowedForOrg here instead of license.IsScanAllowed. In the default
+// (self-hosted) build the resolver is nil and the gates keep the license
+// predicate — this package is inert there. The selection is the compile-time
+// `saashosted` build tag (services/{api,ingestion}/cmd/saasmode_*.go), so the
+// bypass can never be reached in a self-hosted/customer binary. See
+// docs/saas-platform-admin-design.md §7.1.
 //
 // Mirrors the license package's seam shape on purpose:
 //   - IsScanAllowed is the pure policy predicate (cf. license.IsScanAllowedForState).
-//   - IsScanAllowedForOrg is the convenience wrapper the future gate sites call
+//   - IsScanAllowedForOrg is the convenience wrapper the scan-gate sites call
 //     (cf. license.IsScanAllowed), looking the row up via a Resolver.
 package entitlement
 
@@ -75,7 +77,8 @@ func IsScanAllowed(e model.Entitlement, now time.Time, grace time.Duration) bool
 }
 
 // IsScanAllowedForOrg looks up the org's entitlement and applies the predicate.
-// It is the wrapper the future scan-gate sites call.
+// It is the wrapper the scan-gate sites call (api scanAccount + the 3 ingestion
+// sites) in saashosted builds.
 //
 // Fail-closed by construction (the posture chosen for SaaS — billing is the
 // source of truth, every real tenant gets a row at signup, so absence means

@@ -82,7 +82,17 @@ export default function License() {
           Could not load license state. Check the API health and retry.
         </p>
       )}
-      {data?.license && <LicensePane lic={data.license} version={data} isDark={isDark} />}
+      {data?.license?.state === 'managed' ? (
+        // SaaS (cmd/api-saashosted): there is no customer-facing license under
+        // SaaS (design §7.4). The License tab is hidden in Settings.jsx; this
+        // note is the defensive fallback for a direct /settings/license URL.
+        // The plan/usage view (#131) is the eventual replacement surface.
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>
+          Your plan is managed by AxiaOps Cloud — there is no license to install or renew.
+        </p>
+      ) : (
+        data?.license && <LicensePane lic={data.license} version={data} isDark={isDark} />
+      )}
     </div>
   );
 }

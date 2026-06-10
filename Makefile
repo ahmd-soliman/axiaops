@@ -457,6 +457,19 @@ build-production:
 	fi
 	@echo "production-tagged binaries built — DEV_MODE is no-op in /tmp/axiaops-{api,ingestion}-production"
 
+.PHONY: build-saashosted
+build-saashosted:
+	# SaaS binaries: production (DEV_MODE stripped) + saashosted ("license
+	# removal" — the license is bypassed at boot and per-tenant entitlement
+	# gates scans instead; see docs/saas-platform-admin-design.md §7.1). The
+	# saashosted tag-seam files (cmd/saasmode_saashosted.go) compile ONLY into
+	# this build, so the bypass can never be reached in a self-hosted binary.
+	# Build-only target — there is no SaaS deploy target yet (self-hosted
+	# dev-1/2/staging/prod are unaffected). Catches tag regressions in CI.
+	cd services/api && go build -tags "production saashosted" -o /tmp/axiaops-api-saashosted ./cmd/
+	cd services/ingestion && go build -tags "production saashosted" -o /tmp/axiaops-ingestion-saashosted ./cmd/
+	@echo "saashosted binaries built — /tmp/axiaops-{api,ingestion}-saashosted (license bypassed, entitlement-gated)"
+
 # axiaopsctl is the operator CLI for migrate up/down/force/drift/history.
 # See docs/migration-history-table-design.md §Operator UX.
 .PHONY: axiaopsctl migration-history migration-history-drift
