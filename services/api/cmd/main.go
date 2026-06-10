@@ -84,6 +84,15 @@ func main() {
 
 	ctx := context.Background()
 
+	// ── SaaS mode (license removal, design §7.1) ────────────────────────
+	// In the `-tags saashosted` build this flips the license enforcement
+	// bypass BEFORE VerifyAtBoot, so the scan endpoint gates on per-tenant
+	// entitlement instead of the license JWT. In the default (self-hosted)
+	// build it is a no-op — the bypass call is compiled only into the
+	// saashosted sibling file, so a customer binary has no code path that
+	// disables its license gate.
+	bypassLicenseForSaaS()
+
 	// ── License (B1.6 amended + B1.7 layer 2) ───────────────────────────
 	// Per docs/b1.6-amendment-feature-gating.md, VerifyAtBoot logs +
 	// continues for the missing/expired cases — refuse-at-boot was retired
@@ -285,6 +294,10 @@ func main() {
 		SSOStateStore:       ssoStateStore,
 		MetricsRegistry:     metrics,
 	}
+
+	// SaaS: wire the entitlement gate (resolver + grace). Self-hosted build
+	// returns (nil, 0) — ComposeServer leaves the license gate in force.
+	deps.EntitlementResolver, cfg.EntitlementGrace = entitlementGate(store)
 
 	handler, err := serverbuild.ComposeServer(cfg, deps)
 	if err != nil {

@@ -22,6 +22,7 @@ import (
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/shared/analyzer"
+	"axiaops.io/shared/entitlement"
 	"axiaops.io/shared/errors"
 	"axiaops.io/shared/httpauth"
 	"axiaops.io/shared/license"
@@ -98,6 +99,14 @@ func die(msg string, args ...any) {
 func main() {
 	logging.Init("ingestion")
 
+	// ── SaaS mode (license removal, design §7.1) ───────────────────────────
+	// In the `-tags saashosted` build this flips the license enforcement bypass
+	// BEFORE VerifyAtBoot, so the scan gates consult per-tenant entitlement
+	// instead of the license JWT. In the default (self-hosted) build it is a
+	// no-op — the bypass call is compiled only into the saashosted sibling file,
+	// so a customer binary has no code path that disables its license gate.
+	bypassLicenseForSaaS()
+
 	// ── License (B1.6 amended + B1.7 layer 2) ──────────────────────────────
 	// Per docs/b1.6-amendment-feature-gating.md, ingestion mirrors the api's
 	// new posture: VerifyAtBoot logs + continues for missing/expired, and
@@ -132,6 +141,10 @@ func main() {
 	}
 
 	store := newStore()
+
+	// SaaS: (store-as-resolver, grace) in the saashosted build; (nil, 0) in
+	// self-hosted (the three scan gates then use the license predicate).
+	entitlementResolver, entitlementGrace := entitlementGate(store)
 
 	retentionDays := 90
 	if v := os.Getenv("COST_RECORDS_RETENTION_DAYS"); v != "" {
@@ -174,7 +187,7 @@ func main() {
 	// should explicitly opt in via protect() rather than opt out of a global
 	// allowlist. See docs/c1-hmac-plan.md §4.2.
 	protect := composeHMACProtect(ingestionSecrets, hmacMaxSkew, hmacSoftEnforce)
-	mux.Handle("POST /scan", protect(http.HandlerFunc(scanHandler(store))))
+	mux.Handle("POST /scan", protect(http.HandlerFunc(scanHandler(store, entitlementResolver, entitlementGrace))))
 
 	// Cross-account role verification — synchronous AssumeRole probe used by
 	// the dashboard's "Verify and connect" flow. Stateless: no DB writes.
@@ -199,7 +212,7 @@ func main() {
 	q := queue.New(redisURL, ingestionURL, primarySecret(ingestionSecrets))
 	defer func() { _ = q.Close() }()
 	if redisURL != "" {
-		startWorker(sigCtx, q, store, ingestionSecrets, hmacMaxSkew, hmacSoftEnforce)
+		startWorker(sigCtx, q, store, ingestionSecrets, hmacMaxSkew, hmacSoftEnforce, entitlementResolver, entitlementGrace)
 		slog.Info("worker: started")
 	} else {
 		slog.Info("worker: skipped_no_redis")
@@ -220,7 +233,7 @@ func main() {
 				scanInterval = d
 			}
 		}
-		scanScheduledAccounts(context.Background(), store, q)
+		scanScheduledAccounts(context.Background(), store, q, entitlementResolver, entitlementGrace)
 		ticker := time.NewTicker(scanInterval)
 		defer ticker.Stop()
 		for {
@@ -228,7 +241,7 @@ func main() {
 			case <-sigCtx.Done():
 				return
 			case <-ticker.C:
-				scanScheduledAccounts(context.Background(), store, q)
+				scanScheduledAccounts(context.Background(), store, q, entitlementResolver, entitlementGrace)
 			}
 		}
 	}()
@@ -808,24 +821,43 @@ func expireSnoozes(ctx context.Context, store storage.Store) {
 }
 
 // scanScheduledAccounts checks all accounts across all organizations and triggers scans for those overdue.
-func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue) {
-	// License gate (plan §4.9.2b, post-amendment). Past-grace OR not-loaded
-	// blocks every account in this pass with a single check, not a per-account
-	// one — license state is binary-wide and all accounts share its
-	// enforcement posture. Routed through license.IsScanAllowed so this gate
-	// stays in sync with the api-side scanAccount handler — single predicate
-	// owns the policy.
-	if !license.IsScanAllowed() {
-		slog.Info("scan-scheduler: skipped — license not active",
-			"state", license.SnapshotState().String(),
-		)
-		return
+//
+// resolver==nil → SELF-HOSTED: the license gate is pass-wide (binary, all
+// accounts share its posture) — one check up front short-circuits the whole
+// pass. resolver!=nil → SAAS: entitlement is PER-ORG, so the gate moves into the
+// loop. To avoid N round-trips, all entitlements are batch-loaded once into a
+// map and the per-account check is a map lookup + the pure IsScanAllowed
+// predicate. See docs/saas-platform-admin-design.md §7.1.
+func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue, resolver entitlement.Resolver, grace time.Duration) {
+	if resolver == nil {
+		// Pass-wide license gate — unchanged self-hosted behaviour.
+		if !license.IsScanAllowed() {
+			slog.Info("scan-scheduler: skipped — license not active",
+				"state", license.SnapshotState().String(),
+			)
+			return
+		}
 	}
 	accounts, err := store.ListAllAccounts(ctx)
 	if err != nil {
 		slog.Error("scan-scheduler: failed to list accounts", "error", err)
 		return
 	}
+
+	// SaaS: load every org's entitlement once for the per-account check below.
+	var entMap map[string]model.Entitlement
+	if resolver != nil {
+		ents, err := store.ListAllEntitlements(ctx)
+		if err != nil {
+			slog.Error("scan-scheduler: failed to list entitlements — skipping pass (fail closed)", "error", err)
+			return
+		}
+		entMap = make(map[string]model.Entitlement, len(ents))
+		for _, e := range ents {
+			entMap[e.OrganizationID] = e
+		}
+	}
+
 	now := time.Now()
 	for _, acc := range accounts {
 		if acc.Status == "scanning" {
@@ -847,6 +879,18 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Que
 		}
 		if !isOverdue {
 			continue
+		}
+		// SaaS per-org entitlement gate (the pass-wide license gate above is
+		// the self-hosted equivalent). Fail-closed: an org with no entitlement
+		// row (missing from the map) is skipped, exactly like a suspended one.
+		if resolver != nil {
+			ent, ok := entMap[acc.OrganizationID]
+			if !ok || !entitlement.IsScanAllowed(ent, now, grace) {
+				slog.Info("scan-scheduler: skipped_not_entitled",
+					"account_id", acc.ID, "organization_id", acc.OrganizationID,
+				)
+				continue
+			}
 		}
 		job := queue.ScanJob{
 			OrganizationID: acc.OrganizationID,

@@ -18,6 +18,10 @@ type mockStoreForScheduler struct {
 	listErr         error
 	listCalls       int
 	getAccountCalls int
+
+	// SaaS entitlement-gate fixtures (resolver != nil path).
+	entitlements         []model.Entitlement
+	listEntitlementCalls int
 }
 
 func (m *mockStoreForScheduler) ListAccounts(ctx context.Context) ([]model.Account, error) {
@@ -355,7 +359,7 @@ func (q *captureQueue) Close() error { return nil }
 func TestScanScheduledAccounts_NoAccounts(t *testing.T) {
 	store := &mockStoreForScheduler{accounts: []model.Account{}}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q)
+	scanScheduledAccounts(context.Background(), store, q, nil, 0)
 	if len(q.jobs) != 0 {
 		t.Fatalf("expected 0 jobs, got %d", len(q.jobs))
 	}
@@ -364,7 +368,7 @@ func TestScanScheduledAccounts_NoAccounts(t *testing.T) {
 func TestScanScheduledAccounts_ListError(t *testing.T) {
 	store := &mockStoreForScheduler{listErr: errors.New("db error")}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q) // should not panic
+	scanScheduledAccounts(context.Background(), store, q, nil, 0) // should not panic
 }
 
 func TestScanScheduledAccounts_SkipsAlreadyScanning(t *testing.T) {
@@ -374,7 +378,7 @@ func TestScanScheduledAccounts_SkipsAlreadyScanning(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q)
+	scanScheduledAccounts(context.Background(), store, q, nil, 0)
 	if len(q.jobs) != 0 {
 		t.Fatalf("expected 0 jobs for scanning account, got %d", len(q.jobs))
 	}
@@ -387,7 +391,7 @@ func TestScanScheduledAccounts_NeverScanned(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q)
+	scanScheduledAccounts(context.Background(), store, q, nil, 0)
 	if len(q.jobs) != 1 {
 		t.Fatalf("expected 1 job for never-scanned account, got %d", len(q.jobs))
 	}
@@ -401,12 +405,51 @@ func TestScanScheduledAccounts_Overdue(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q)
+	scanScheduledAccounts(context.Background(), store, q, nil, 0)
 	if len(q.jobs) != 1 {
 		t.Fatalf("expected 1 job for overdue account, got %d", len(q.jobs))
 	}
 	if q.jobs[0].AccountID != "acc-1" {
 		t.Errorf("expected account acc-1, got %s", q.jobs[0].AccountID)
+	}
+}
+
+// stubResolver drives the SaaS path of scanScheduledAccounts without a DB.
+type stubResolver struct{ ent model.Entitlement }
+
+func (s stubResolver) GetEntitlement(context.Context, string) (model.Entitlement, error) {
+	return s.ent, nil
+}
+
+// TestScanScheduledAccounts_SaaS_PerOrgEntitlement is the golden test for the
+// pass-wide→per-org restructure: in ONE pass, an entitled org is scanned and a
+// lapsed org is skipped, and entitlements are batch-loaded exactly once.
+func TestScanScheduledAccounts_SaaS_PerOrgEntitlement(t *testing.T) {
+	period := time.Now().Add(30 * 24 * time.Hour)
+	store := &mockStoreForScheduler{
+		accounts: []model.Account{
+			{ID: "acc-A", OrganizationID: "org-A", ScanIntervalHours: 24, LastScannedAt: nil, Status: "connected"},
+			{ID: "acc-B", OrganizationID: "org-B", ScanIntervalHours: 24, LastScannedAt: nil, Status: "connected"},
+		},
+		entitlements: []model.Entitlement{
+			{OrganizationID: "org-A", Status: model.StatusActive, CurrentPeriodEnd: &period},
+			{OrganizationID: "org-B", Status: model.StatusSuspended},
+			// org-C has no row at all — fail-closed (not scanned even if it had
+			// an account).
+		},
+	}
+	q := &captureQueue{}
+	// resolver != nil triggers the SaaS path; the per-org predicate uses the map.
+	scanScheduledAccounts(context.Background(), store, q, stubResolver{}, 21*24*time.Hour)
+
+	if len(q.jobs) != 1 {
+		t.Fatalf("expected exactly 1 job (entitled org-A), got %d", len(q.jobs))
+	}
+	if q.jobs[0].OrganizationID != "org-A" {
+		t.Errorf("expected org-A scanned, got %s", q.jobs[0].OrganizationID)
+	}
+	if store.listEntitlementCalls != 1 {
+		t.Errorf("expected ListAllEntitlements batched to 1 call, got %d", store.listEntitlementCalls)
 	}
 }
 
@@ -418,7 +461,7 @@ func TestScanScheduledAccounts_NotOverdue(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q)
+	scanScheduledAccounts(context.Background(), store, q, nil, 0)
 	if len(q.jobs) != 0 {
 		t.Fatalf("expected 0 jobs for non-overdue account, got %d", len(q.jobs))
 	}
@@ -432,7 +475,7 @@ func TestScanScheduledAccounts_ZeroInterval_AlwaysOverdue(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q)
+	scanScheduledAccounts(context.Background(), store, q, nil, 0)
 	if len(q.jobs) != 1 {
 		t.Fatalf("expected 1 job for zero-interval account, got %d", len(q.jobs))
 	}
@@ -464,7 +507,7 @@ func TestScanScheduledAccounts_SkippedWhenLicenseExpired(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q)
+	scanScheduledAccounts(context.Background(), store, q, nil, 0)
 	if len(q.jobs) != 0 {
 		t.Fatalf("license_expired should suppress all scheduled scans, got %d jobs", len(q.jobs))
 	}
@@ -500,7 +543,7 @@ func TestScanScheduledAccounts_AllowedInGrace(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q)
+	scanScheduledAccounts(context.Background(), store, q, nil, 0)
 	if len(q.jobs) != 1 {
 		t.Fatalf("in-grace must allow scheduled scans, got %d jobs", len(q.jobs))
 	}
@@ -540,7 +583,7 @@ func TestWorker_SkipsJobWhenLicenseExpired(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startWorker(ctx, q, store, nil, 5*time.Minute, false)
+	startWorker(ctx, q, store, nil, 5*time.Minute, false, nil, 0)
 
 	// Worker dequeues the seeded job, hits the gate, continues. With no
 	// further pending jobs the next Dequeue blocks on ctx — short sleep is
@@ -591,7 +634,7 @@ func TestWorker_ProcessesJobWhenLicenseValid(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startWorker(ctx, q, store, nil, 5*time.Minute, false)
+	startWorker(ctx, q, store, nil, 5*time.Minute, false, nil, 0)
 
 	// runScan path is best-effort here — it'll fail somewhere downstream
 	// (mock store returns empty accounts for various lookups) but that's
@@ -645,5 +688,6 @@ func (m *mockStoreForScheduler) UpsertEntitlement(context.Context, model.Entitle
 	return nil
 }
 func (m *mockStoreForScheduler) ListAllEntitlements(context.Context) ([]model.Entitlement, error) {
-	return nil, nil
+	m.listEntitlementCalls++
+	return append([]model.Entitlement(nil), m.entitlements...), nil
 }
