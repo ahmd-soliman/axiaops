@@ -17,7 +17,7 @@ import (
 //
 //   - resolver == nil → SELF-HOSTED: gate on the license JWT exactly as before;
 //     code is one of license_expired / license_not_loaded / license_inactive.
-//   - resolver != nil → SAAS (cmd/ingestion-saashosted): the license is bypassed
+//   - resolver != nil → SAAS (the `saashosted` build): the license is bypassed
 //     at boot, so gate on per-tenant entitlement. Fail-closed: a missing row or a
 //     lookup error denies; code is not_entitled / entitlement_lookup_error.
 //
