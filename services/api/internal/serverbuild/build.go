@@ -39,6 +39,7 @@ import (
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/api/internal/sso"
 	"axiaops.io/shared/cache"
+	"axiaops.io/shared/entitlement"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/notifications"
 	"axiaops.io/shared/observability"
@@ -89,6 +90,12 @@ type Config struct {
 	// DATABASE_URL does. Recipients is unused here (an invite targets the
 	// invitee).
 	TransactionalSMTP model.EmailConfig
+
+	// EntitlementGrace is the past_due grace window for the SaaS entitlement
+	// scan-gate. Zero in self-hosted (the license gate is used instead); the
+	// cmd/api-saashosted root reads ENTITLEMENT_GRACE_DAYS into this. The handler
+	// builder defaults a zero value to entitlement.DefaultGraceDays.
+	EntitlementGrace time.Duration
 }
 
 // Deps bundles the concrete services ComposeServer plugs together. Every
@@ -157,6 +164,13 @@ type Deps struct {
 	// calls in the same process (e.g. side-by-side smoke tests) don't
 	// fight over MustRegister. nil → defaults via prometheus.DefaultRegisterer.
 	MetricsRegistry *Metrics
+
+	// EntitlementResolver switches the scan endpoint from the license gate to
+	// the per-tenant entitlement gate (SaaS). nil ⇒ license gate (self-hosted,
+	// the default). Set only by cmd/api-saashosted, which also flips
+	// license.SetEnforcementBypass at boot. See docs/saas-platform-admin-design.md
+	// §7.1.
+	EntitlementResolver entitlement.Resolver
 }
 
 // Metrics groups the Prometheus instruments the request-logging middleware
@@ -258,6 +272,12 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 			model.ChannelKindSlack: notifications.NewSlackTransport(nil),
 		}).
 		WithInviteMailer(api.NewInviteMailer(deps.Store, emailTransport, cfg.TransactionalSMTP, cfg.PublicHost))
+	// SaaS only: when an EntitlementResolver is supplied the scan endpoint gates
+	// on per-tenant entitlement instead of the license JWT. nil ⇒ no-op (license
+	// gate stays in force for self-hosted).
+	if deps.EntitlementResolver != nil {
+		apiH = apiH.WithEntitlementResolver(deps.EntitlementResolver, cfg.EntitlementGrace)
+	}
 	if cfg.RedisConfigured && deps.Cache != nil {
 		apiH = apiH.WithRedisCache(deps.Cache)
 	}

@@ -21,8 +21,9 @@ Every site that previously read `os.Getenv("DEV_MODE")=="true"` routes through `
 Build commands:
 - `go build ./cmd/` — default (DEV_MODE honoured). Used for dev-1/dev-2 deploys + local `make start-dev`.
 - `go build -tags production ./cmd/` — customer-shipping (DEV_MODE no-op). Wired via `make build-production` and the `BUILD_TAGS` Dockerfile arg.
+- `go build -tags "production saashosted" ./cmd/` — **SaaS** ("license removal in SaaS mode", design §7.1). The `saashosted` tag selects `cmd/saasmode_saashosted.go`, which calls `license.SetEnforcementBypass()` at boot (license dormant) and supplies the store as `Deps.EntitlementResolver` so `scanAccount` gates on per-tenant entitlement; `/v1/version` collapses to `state:"managed"`. The bypass lives ONLY in the saashosted tag-seam file, so a self-hosted binary can't reach it. Wired via `make build-saashosted` + the `build:saashosted-shape` CI job. **Build-only — no SaaS deploy target yet.**
 
-Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes; CI runs `make build-production` on every pipeline so tag regressions surface in <30s.
+Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes; CI runs `make build-production` on every pipeline so tag regressions surface in <30s. The saashosted shape is pinned by `build:saashosted-shape` + the entitlement-gate / managed-version handler tests.
 
 ## Endpoints
 
@@ -32,7 +33,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes;
 | GET | /livez | No | Liveness — always 200 unless the process can't reply. Wire orchestrator instance health to this |
 | GET | /readyz | No | Readiness — pings DB (503 if down) and reports Redis status (informational; "ok" / "unreachable" / "skipped"). Wire monitoring/synthetic checks to this |
 | GET | /metrics | No | Prometheus metrics (internal only) |
-| GET | /version | Yes | Build identifier + license summary — `{service, version, commit, env, license}`. `license` is `{state}` only when no license is loaded (SaaS / production-with-no-license-installed), otherwise `{state, customer_id, expires_at, days_remaining, max_organizations}`. State values: `valid \| in_grace \| expired \| not_loaded`. Post-B1.6-amendment, `state="expired"` carries the full claim sub-object (the snapshot is retained on past-grace so `/v1/version` stays informative). Post-B1.7-layer-4, DEV_MODE returns the full claim sub-object with `state=valid` and `customer_id="axiaops-dev-fixture"` (embedded dev fixture, not a missing-license case). Source for the LicenseBanner. |
+| GET | /version | Yes | Build identifier + license summary — `{service, version, commit, env, license}`. `license` is `{state}` only when no license is loaded (SaaS / production-with-no-license-installed), otherwise `{state, customer_id, expires_at, days_remaining, max_organizations}`. State values: `valid \| in_grace \| expired \| not_loaded \| managed`. **`managed`** is the SaaS posture (`-tags saashosted` build): `licenseSummary()` branches on `license.IsEnforcementBypassed()` and collapses the sub-object to `{state:"managed"}` with no other fields — there is no customer-facing license under SaaS (design §7.4), so the dashboard hides the License banner/page (Settings tab + `LicenseBanner`). Post-B1.6-amendment, `state="expired"` carries the full claim sub-object (the snapshot is retained on past-grace so `/v1/version` stays informative). Post-B1.7-layer-4, DEV_MODE returns the full claim sub-object with `state=valid` and `customer_id="axiaops-dev-fixture"` (embedded dev fixture, not a missing-license case). Source for the LicenseBanner. |
 | GET | /zombies | Yes | List zombie resources for organization |
 | GET | /summary | Yes | Aggregate savings + per-service breakdown (?account_id to scope to one account) |
 | GET | /summary/by-account | Yes | Per-account waste rollup for the org dashboard (`{currency, accounts:[{internal_account_id, account_id, total_zombies, potential_monthly_savings, top_service}]}`); zero-zombie accounts omitted; dismissed excluded like /summary |
@@ -206,6 +207,7 @@ Errors are logged to stdout with structured context (JSON format in production).
 | SMTP_FROM | When `SMTP_HOST` set | — | Envelope sender + `From:` address for invite emails. |
 | SMTP_FROM_NAME | No | AxiaOps | `From:` display name for invite emails. |
 | RATE_LIMIT_MAX | No | 1000 | Per-minute request cap per (organization, user). Only active when `REDIS_URL` is set (the limiter needs durable counters). The HTTP middleware advertises the current state via `X-RateLimit-Limit/-Remaining/-Reset` headers on every authenticated response so well-behaved clients can self-pace before earning a 429. |
+| ENTITLEMENT_GRACE_DAYS | No | 21 | **SaaS (`-tags saashosted`) only.** Past_due grace window (days past `current_period_end`) before the entitlement scan-gate blocks. Read by the saashosted build's `entitlementGate`; ignored by the self-hosted build (license gate). |
 | DEV_MODE | No | false | Skip auth, use fixed organization |
 | DEV_ORGANIZATION_ID | When `DEV_MODE=true` | — | Organization ID for dev bypass. No default — startup `die()`s if unset while `DEV_MODE=true`. |
 | DEV_USER_ID | No | dev-user-axiaops | User ID seeded in dev mode; `EnsureDevMembership` assigns it `owner` |

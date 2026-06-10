@@ -23,8 +23,9 @@ Asymmetric stripping (api stripped, ingestion not) would still leak the bypass a
 Build commands:
 - `go build ./cmd/` — default (DEV_MODE honoured). Used for dev-1/dev-2 deploys + local `make start-dev`.
 - `go build -tags production ./cmd/` — customer-shipping (DEV_MODE no-op). Wired via `make build-production` and the `BUILD_TAGS` Dockerfile arg.
+- `go build -tags "production saashosted" ./cmd/` — **SaaS** ("license removal in SaaS mode", design §7.1). The `saashosted` tag selects `cmd/saasmode_saashosted.go`, which calls `license.SetEnforcementBypass()` at boot (license dormant) and threads the store as the entitlement `Resolver` into all 3 scan gates (`scanHandler`, the worker, `scanScheduledAccounts` — the scheduler's pass-wide license check becomes a per-org entitlement check batched via `ListAllEntitlements`). The bypass lives ONLY in the saashosted tag-seam file. Wired via `make build-saashosted` + the `build:saashosted-shape` CI job. **Build-only — no SaaS deploy target yet.**
 
-Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes; CI runs `make build-production` + `go test -tags production ./cmd/` on every pipeline so tag regressions surface in <30s.
+Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes; CI runs `make build-production` + `go test -tags production ./cmd/` on every pipeline so tag regressions surface in <30s. The saashosted shape is pinned by `build:saashosted-shape` + `TestScanScheduledAccounts_SaaS_PerOrgEntitlement`.
 
 ## Endpoints
 
@@ -178,6 +179,7 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationI
 | REDIS_URL | No | — | Connection URL for the cache + scan-queue backend (RESP wire protocol — Valkey post-migration; Redis-compatible). Empty disables the worker (`worker: skipped_no_redis` at startup). Format: `redis://:<password>@<host>:6379` with `REDIS_PASSWORD` propagated into the userinfo. |
 | REDIS_PASSWORD | When the backend is `requirepass`-protected | — | Used by the `valkey-cli` healthcheck in deploy/*.yml and propagated into REDIS_URL's userinfo. Set as a per-env CI variable. |
 | PUBLIC_HOST | No | — | Externally-reachable origin (`https://app.example.com`) used to build the dashboard deep-link in scan-digest notifications. Empty → the link is omitted. Mirrors the api's `PUBLIC_HOST`. |
+| ENTITLEMENT_GRACE_DAYS | No | 21 | **SaaS (`-tags saashosted`) only.** Past_due grace window (days past `current_period_end`) before the per-tenant entitlement gate blocks scans at all 3 ingestion sites (POST /scan, worker, scheduler). Ignored by the self-hosted build (license gate). Mirrors the api's var. |
 
 ## Testing
 
