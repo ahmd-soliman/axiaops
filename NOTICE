@@ -16,14 +16,23 @@ maintained by Troy Hunt. The attribution below is split by what is ACTUALLY
 embedded today versus the intended production corpus, because the two have
 different licensing footprints.
 
---- Currently embedded (bootstrap seed) ---
+--- Currently embedded (~10k merged seed) ---
 
-The shipped asset is a curated bootstrap seed of the most-prevalent weak/
-breached passwords. These are public-knowledge strings (e.g. "password",
-"123456", "qwerty") that appear across many public sources (RockYou, SecLists,
-NCSC lists, etc.); they were assembled by AxiaOps and are NOT mechanically
-extracted from the HIBP corpus. As public-domain plaintext, the seed itself
-carries no third-party licence or attribution obligation. See
+The shipped asset is a curated head of the most-prevalent weak/breached
+passwords (public-knowledge strings such as "password", "123456", "qwerty")
+MERGED with the xato-net top-10,000 most-common passwords, distributed via:
+
+    Source:  SecLists — Passwords/Common-Credentials/
+             xato-net-10-million-passwords-10000.txt
+             https://github.com/danielmiessler/SecLists
+    Licence: MIT (SecLists compilation). The underlying xato-net password
+             corpus was compiled and publicly released by Mark Burnett for
+             free use; it imposes no copyleft or commercial-use restriction.
+
+Only the SHA-1 digests of these plaintext passwords are embedded (not the
+plaintext, beyond the small committed seed-wordlist.txt). No CC BY 4.0 / HIBP
+attribution obligation attaches to this ~10k corpus — that obligation begins
+only if/when the full HIBP corpus is swapped in (below). See
 docs/breachlist-provenance.md for the manifest (N, SHA-256, lineage).
 
 --- Intended production corpus (future swap) ---

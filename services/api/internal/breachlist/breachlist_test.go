@@ -32,6 +32,19 @@ func TestKnownCompromisedSamples(t *testing.T) {
 	}
 }
 
+// TestMidTailCoverageBump locks in the 2026-06-10 corpus growth (338 → ~10k via
+// the xato-net top-10,000 merge). "flamingo" is rank ~3005 in the xato list and
+// was NOT in the original 338-entry bootstrap seed — so this asserting true
+// proves the embedded corpus actually carries the mid-tail body, not just the
+// headline classics. If a future regeneration drops back to a tiny seed (or the
+// xato merge is reverted) this fails, flagging the coverage regression.
+func TestMidTailCoverageBump(t *testing.T) {
+	const midTail = "flamingo" // xato-net top-10k entry, absent from the original seed
+	if !breachlist.IsCompromised(midTail) {
+		t.Fatalf("IsCompromised(%q) = false, want true — mid-tail corpus coverage regressed (xato top-10k merge missing?)", midTail)
+	}
+}
+
 // TestRandomDigestNotCompromised: a cryptographically-random string is not in
 // any practical corpus, so the lookup must miss.
 func TestRandomDigestNotCompromised(t *testing.T) {

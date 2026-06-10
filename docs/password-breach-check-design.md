@@ -44,6 +44,32 @@ Consequences of going offline:
   there is no fail-open/fail-closed question because there is no network call.
 - **Works in air-gapped installs** — the whole reason for the pivot.
 
+## Decision: corpus size — ship the ~10k merged seed, skip the full HIBP swap (2026-06-10)
+
+We deliberately ship a **~10,044-entry corpus** (`breached-passwords.bin`,
+~196 KB) and **do not** perform the full HIBP top-1M swap. Rationale:
+
+- **Cost vs coverage.** The ~10k list (curated head + xato-net top-10,000,
+  prevalence-ordered) catches the passwords that dominate real-world reuse for a
+  **~196 KB embed (~0.2 MB per binary)**. The full top-1M would add **~20 MB to
+  each of TWO shipped images** (`api` + `api-admin`) — incompressible (random
+  SHA-1 digests) — for the rarer mid/long tail. The marginal coverage isn't
+  worth ~40 MB of per-deploy image pull at this stage.
+- **Producing the full corpus is a 30–50 GB download** (you need HIBP's global
+  prevalence ordering, which means pulling the whole corpus); the ~10k list is a
+  small committed file with no ceremony. Prior art agrees: GitLab/Django bundle
+  lists of this order, not the full corpus.
+- **NIST 800-63B §5.1.1.2 mandates screening, not a corpus size.** ~10k of the
+  most-prevalent passwords satisfies the requirement; the full swap is a
+  coverage upgrade, not a compliance gate.
+- **Reversible with no code change.** If a future need arises (e.g. a
+  security-conscious customer), the swap is a turnkey regeneration — see the
+  OPTIONAL section in [`docs/breachlist-provenance.md`](breachlist-provenance.md).
+  The seam, lookup, embed, and tests are all corpus-size-agnostic.
+
+Revisit trigger: a customer/pilot security requirement explicitly asking for
+full-corpus coverage, or evidence the mid-tail gap is being exploited.
+
 ## Licence handling (embedded data)
 
 We are embedding HIBP's data into our shipped binary, so the licence matters.
