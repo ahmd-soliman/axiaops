@@ -9,11 +9,29 @@ embedded third-party asset or code appends an entry here.
 Have I Been Pwned — Pwned Passwords
 ================================================================================
 
-The embedded breached-password corpus
-(services/api/internal/breachlist/breached-passwords.bin), used by the
-password breach-corpus screen (NIST SP 800-63B §5.1.1.2), is derived from the
-breach-frequency data published by Have I Been Pwned (Pwned Passwords),
-created and maintained by Troy Hunt.
+The password breach-corpus screen
+(services/api/internal/breachlist/breached-passwords.bin, NIST SP 800-63B
+§5.1.1.2) is designed around Have I Been Pwned (Pwned Passwords), created and
+maintained by Troy Hunt. The attribution below is split by what is ACTUALLY
+embedded today versus the intended production corpus, because the two have
+different licensing footprints.
+
+--- Currently embedded (bootstrap seed) ---
+
+The shipped asset is a curated bootstrap seed of the most-prevalent weak/
+breached passwords. These are public-knowledge strings (e.g. "password",
+"123456", "qwerty") that appear across many public sources (RockYou, SecLists,
+NCSC lists, etc.); they were assembled by AxiaOps and are NOT mechanically
+extracted from the HIBP corpus. As public-domain plaintext, the seed itself
+carries no third-party licence or attribution obligation. See
+docs/breachlist-provenance.md for the manifest (N, SHA-256, lineage).
+
+--- Intended production corpus (future swap) ---
+
+The production corpus is the full HIBP top-N most-prevalent SHA-1 digest list,
+swapped in via the one-step regeneration in docs/breachlist-provenance.md. THAT
+data is licensed CC BY 4.0 and the attribution below becomes mandatory the
+moment it is embedded:
 
     Source:  Have I Been Pwned — Pwned Passwords
              https://haveibeenpwned.com/Passwords
@@ -21,14 +39,9 @@ created and maintained by Troy Hunt.
     Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
              https://creativecommons.org/licenses/by/4.0/
 
-Only the data (the set of compromised-password SHA-1 digests) is embedded; the
-SHA-1 digest functions purely as a lookup index, not as a password-storage
+In both cases only the data (compromised-password SHA-1 digests) is embedded;
+the SHA-1 digest functions purely as a lookup index, not as a password-storage
 primitive (AxiaOps stores passwords with argon2id). The
 HaveIBeenPwned/PwnedPasswordsDownloader tool is used only to *generate* the
 asset and is NOT embedded, so its separate licence does not propagate into the
 AxiaOps binaries.
-
-The currently shipped asset is a curated bootstrap seed of the most-prevalent
-breached passwords (public knowledge), not the full HIBP top-1M corpus. See
-docs/breachlist-provenance.md for the manifest (source, N, SHA-256) and the
-procedure to swap in the full HIBP corpus.
