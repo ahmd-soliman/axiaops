@@ -828,6 +828,11 @@ func expireSnoozes(ctx context.Context, store storage.Store) {
 // loop. To avoid N round-trips, all entitlements are batch-loaded once into a
 // map and the per-account check is a map lookup + the pure IsScanAllowed
 // predicate. See docs/saas-platform-admin-design.md §7.1.
+//
+// NOTE: in the SaaS path the `resolver` is used ONLY as a non-nil sentinel — the
+// per-org data comes from store.ListAllEntitlements (batched) and the pure
+// IsScanAllowed predicate, so resolver.GetEntitlement is never called here
+// (unlike the handler + worker, which look up one org at a time via the resolver).
 func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue, resolver entitlement.Resolver, grace time.Duration) {
 	if resolver == nil {
 		// Pass-wide license gate — unchanged self-hosted behaviour.
@@ -855,6 +860,17 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Que
 		entMap = make(map[string]model.Entitlement, len(ents))
 		for _, e := range ents {
 			entMap[e.OrganizationID] = e
+		}
+		// Anomaly guard: a zero-row read while accounts exist is indistinguishable
+		// from "every tenant unpaid" and would skip the whole fleet silently. A
+		// lagging read replica or a mis-granted admin pool can return 0 rows with
+		// NO error, so the per-account fail-closed below would deny everyone with
+		// only info-level skip lines. Surface it loudly so ops can tell a real
+		// data/replication problem from a legitimately-empty fleet.
+		if len(ents) == 0 && len(accounts) > 0 {
+			slog.Warn("scan-scheduler: entitlements empty while accounts exist — ALL scans will be skipped as not_entitled; check the entitlements table, the admin-pool grant, or replica lag",
+				"accounts", len(accounts),
+			)
 		}
 	}
 
@@ -886,8 +902,15 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Que
 		if resolver != nil {
 			ent, ok := entMap[acc.OrganizationID]
 			if !ok || !entitlement.IsScanAllowed(ent, now, grace) {
+				// Carry the entitlement status (or "no_row") so ops can tell a
+				// billing suspension from a missing row (data bug) from a
+				// past_due-with-no-period-anchor without a manual DB query.
+				reason := "no_row"
+				if ok {
+					reason = string(ent.Status)
+				}
 				slog.Info("scan-scheduler: skipped_not_entitled",
-					"account_id", acc.ID, "organization_id", acc.OrganizationID,
+					"account_id", acc.ID, "organization_id", acc.OrganizationID, "entitlement_status", reason,
 				)
 				continue
 			}

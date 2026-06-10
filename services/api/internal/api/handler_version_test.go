@@ -258,7 +258,7 @@ func TestVersion_LicenseExpired(t *testing.T) {
 	}
 }
 
-// TestVersion_ManagedWhenBypassed pins the SaaS posture (cmd/api-saashosted):
+// TestVersion_ManagedWhenBypassed pins the SaaS posture (the `saashosted` build):
 // when the license enforcement is bypassed, /v1/version collapses the license
 // sub-object to {state:"managed"} and emits NO license fields — there is no
 // customer-facing license under SaaS (design §7.4), so the dashboard hides the

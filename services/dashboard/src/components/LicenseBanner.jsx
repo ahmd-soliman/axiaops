@@ -64,7 +64,7 @@ export default function LicenseBanner() {
   const lic = data?.license;
   if (!lic) return null;
 
-  // SaaS (cmd/api-saashosted) reports state="managed" — there is no customer-
+  // SaaS (the `saashosted` build) reports state="managed" — there is no customer-
   // facing license under SaaS (design §7.4). Hide the banner entirely; the
   // plan/usage view replaces it (#131). severity() would already return null
   // for an unknown state, but this is the explicit, intent-revealing guard.
