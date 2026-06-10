@@ -10,6 +10,16 @@ import (
 	"axiaops.io/shared/license"
 )
 
+// selfHostedLicensePosture clears the package-wide enforcement bypass (which
+// test_main_test.go sets on by default) so a test sees the real self-hosted
+// license sub-object, then restores the default on cleanup. Needed since
+// licenseSummary now collapses to {state:"managed"} when bypass is on (SaaS).
+func selfHostedLicensePosture(t *testing.T) {
+	t.Helper()
+	license.ClearEnforcementBypass()
+	t.Cleanup(license.SetEnforcementBypass)
+}
+
 // /v1/version is auth-required (sits under /v1/) but doesn't read organization data,
 // so an organization context is enough — no zombies/dismissals fixtures needed.
 //
@@ -23,6 +33,7 @@ func TestVersion_DefaultsWhenEnvUnset(t *testing.T) {
 	t.Setenv("APP_VERSION", "")
 	t.Setenv("APP_COMMIT_SHA", "")
 	t.Setenv("APP_ENV", "")
+	selfHostedLicensePosture(t)
 	_, mux := testHandler()
 
 	w := httptest.NewRecorder()
@@ -99,6 +110,7 @@ func TestVersion_HonoursEnvVars(t *testing.T) {
 // Cleanup nils the snapshot so subsequent tests in the package see "not_loaded"
 // — package-level atomic.Pointer state would otherwise leak across tests.
 func TestVersion_LicenseLoaded(t *testing.T) {
+	selfHostedLicensePosture(t)
 	expires := time.Now().Add(45 * 24 * time.Hour).UTC().Truncate(time.Second)
 	license.SetCurrent(&license.License{
 		LicenseID:        "lic_test_2026",
@@ -160,6 +172,7 @@ func TestVersion_LicenseLoaded(t *testing.T) {
 // the banner. Days-remaining stays positive because the hard cutoff is
 // 30 days out from exp.
 func TestVersion_LicenseInGrace(t *testing.T) {
+	selfHostedLicensePosture(t)
 	expires := time.Now().Add(-10 * 24 * time.Hour).UTC().Truncate(time.Second)
 	license.SetCurrent(&license.License{
 		LicenseID:        "lic_in_grace",
@@ -205,6 +218,7 @@ func TestVersion_LicenseInGrace(t *testing.T) {
 // endpoint reports state="expired" with negative days_remaining so dashboards
 // can surface the renewal banner without reaching for /v1/me.
 func TestVersion_LicenseExpired(t *testing.T) {
+	selfHostedLicensePosture(t)
 	// exp 60 days ago, 30-day grace → 30 days past hard cutoff.
 	expires := time.Now().Add(-60 * 24 * time.Hour).UTC().Truncate(time.Second)
 	license.SetCurrent(&license.License{
@@ -241,5 +255,48 @@ func TestVersion_LicenseExpired(t *testing.T) {
 	}
 	if days >= 0 {
 		t.Errorf("license.days_remaining: got %v, want negative (past hard cutoff)", days)
+	}
+}
+
+// TestVersion_ManagedWhenBypassed pins the SaaS posture (cmd/api-saashosted):
+// when the license enforcement is bypassed, /v1/version collapses the license
+// sub-object to {state:"managed"} and emits NO license fields — there is no
+// customer-facing license under SaaS (design §7.4), so the dashboard hides the
+// License banner/page. A real license snapshot is loaded to prove bypass wins
+// over a present license.
+func TestVersion_ManagedWhenBypassed(t *testing.T) {
+	// Bypass is the package default (test_main_test.go); set it explicitly for
+	// legibility and to be robust if a prior test cleared it.
+	license.SetEnforcementBypass()
+	license.SetCurrent(&license.License{
+		CustomerID:       "acme-001",
+		ExpiresAt:        time.Now().Add(45 * 24 * time.Hour),
+		MaxOrganizations: 5,
+		GracePeriodDays:  30,
+	})
+	t.Cleanup(func() { license.SetCurrent(nil) })
+
+	_, mux := testHandler()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/version"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	lic, ok := resp["license"].(map[string]any)
+	if !ok {
+		t.Fatalf("license: missing or wrong type, got %T", resp["license"])
+	}
+	if lic["state"] != "managed" {
+		t.Errorf("license.state: got %v, want managed", lic["state"])
+	}
+	for _, k := range []string{"customer_id", "expires_at", "days_remaining", "max_organizations"} {
+		if _, present := lic[k]; present {
+			t.Errorf("license.%s must be omitted under SaaS managed state, got %v", k, lic[k])
+		}
 	}
 }
