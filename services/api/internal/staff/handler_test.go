@@ -245,6 +245,7 @@ func TestCreateStaff_WeakPassword(t *testing.T) {
 // site: a 12-char password in the breach corpus is rejected even though it
 // passes the length floor.
 func TestCreateStaff_BreachedPassword(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.store.addStaff("s1", "boss@axiaops.io", "Boss", mustHash(t), "active", model.StaffRoleSuperadmin)
 	cookie := h.login(t, "boss@axiaops.io", testPassword)
@@ -259,6 +260,7 @@ func TestCreateStaff_BreachedPassword(t *testing.T) {
 // CheckPolicyWithIdentity: a long, non-breached password embedding the new
 // staffer's email local-part is rejected.
 func TestCreateStaff_IdentityLookalikePassword(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.store.addStaff("s1", "boss@axiaops.io", "Boss", mustHash(t), "active", model.StaffRoleSuperadmin)
 	cookie := h.login(t, "boss@axiaops.io", testPassword)
