@@ -93,7 +93,7 @@ type Config struct {
 
 	// EntitlementGrace is the past_due grace window for the SaaS entitlement
 	// scan-gate. Zero in self-hosted (the license gate is used instead); the
-	// cmd/api-saashosted root reads ENTITLEMENT_GRACE_DAYS into this. The handler
+	// `saashosted` build reads ENTITLEMENT_GRACE_DAYS into this. The handler
 	// builder defaults a zero value to entitlement.DefaultGraceDays.
 	EntitlementGrace time.Duration
 }
@@ -167,7 +167,7 @@ type Deps struct {
 
 	// EntitlementResolver switches the scan endpoint from the license gate to
 	// the per-tenant entitlement gate (SaaS). nil ⇒ license gate (self-hosted,
-	// the default). Set only by cmd/api-saashosted, which also flips
+	// the default). Set only by the `saashosted` build, which also flips
 	// license.SetEnforcementBypass at boot. See docs/saas-platform-admin-design.md
 	// §7.1.
 	EntitlementResolver entitlement.Resolver
