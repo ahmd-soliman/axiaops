@@ -634,3 +634,16 @@ func (m *mockStoreForScheduler) ListAllOrganizations(context.Context) ([]model.O
 func (m *mockStoreForScheduler) StaffTenantSummary(context.Context, string) (model.StaffTenantSummary, error) {
 	return model.StaffTenantSummary{}, storage.ErrOrganizationNotFound
 }
+
+// EntitlementStore stubs (SaaS per-tenant entitlement, dormant Phase 2A
+// scaffold) — the ingestion scheduler does not consult entitlement yet; these
+// satisfy the widened storage.Store interface.
+func (m *mockStoreForScheduler) GetEntitlement(context.Context, string) (model.Entitlement, error) {
+	return model.Entitlement{}, storage.ErrEntitlementNotFound
+}
+func (m *mockStoreForScheduler) UpsertEntitlement(context.Context, model.Entitlement) error {
+	return nil
+}
+func (m *mockStoreForScheduler) ListAllEntitlements(context.Context) ([]model.Entitlement, error) {
+	return nil, nil
+}
