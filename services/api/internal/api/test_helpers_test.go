@@ -1567,3 +1567,16 @@ func (m *MockStore) ListAllOrganizations(context.Context) ([]model.Organization,
 func (m *MockStore) StaffTenantSummary(context.Context, string) (model.StaffTenantSummary, error) {
 	return model.StaffTenantSummary{}, storage.ErrOrganizationNotFound
 }
+
+// EntitlementStore stubs (SaaS per-tenant entitlement, dormant Phase 2A
+// scaffold) — no api handler consults entitlement yet; these satisfy the
+// widened storage.Store interface.
+func (m *MockStore) GetEntitlement(context.Context, string) (model.Entitlement, error) {
+	return model.Entitlement{}, storage.ErrEntitlementNotFound
+}
+func (m *MockStore) UpsertEntitlement(context.Context, model.Entitlement) error {
+	return nil
+}
+func (m *MockStore) ListAllEntitlements(context.Context) ([]model.Entitlement, error) {
+	return nil, nil
+}
