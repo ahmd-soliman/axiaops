@@ -4,6 +4,10 @@ This document covers what is required to deploy AxiaOps to production.
 Phase 1/2 dev runs on Docker Compose locally. This guide tracks the gap
 between the current state and a production-ready deployment on AWS.
 
+> **Status (2026-06):** production is **live** — ECS Express + RDS (eu-central-1), CloudFront
+> TLS, Secrets Manager. This doc now describes the deployed architecture plus remaining
+> hardening items (e.g. moving `MIGRATION_DATABASE_URL` out of runtime task definitions).
+
 ---
 
 ## Current State vs Production Requirements
