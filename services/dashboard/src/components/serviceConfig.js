@@ -69,6 +69,9 @@ export function resourceTypeConfig(rt) {
 // prefixes are unambiguous, the sub-type is derivable client-side, giving the
 // cost screen the same two-tier filter the trend screen gets from snapshot
 // data. IDs with no recognizable prefix (RDS names, ELB hashes) return null.
+// Order matters: first match wins, so `i-` must stay last — any prefix added
+// below it that also starts with "i" would be shadowed and classify as an
+// EC2 instance.
 const RESOURCE_ID_PREFIXES = [
   ['nat-',      'nat_gateway'],
   ['eipalloc-', 'eip'],
