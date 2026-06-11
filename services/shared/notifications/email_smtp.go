@@ -158,6 +158,11 @@ func DecodeEmailConfig(channel model.NotificationChannel) (model.EmailConfig, er
 // ValidateEmailConfig checks the SMTP transport fields every email send needs.
 // Used both by DecodeEmailConfig (channel-sourced config) and directly by the
 // invite mailer when it sources config from the global env/SSM SMTP settings.
+//
+// CR/LF rejection (audit N-2): From/FromName/Recipients are interpolated into
+// RFC 5322 headers. The channel CRUD already rejects newlines at create time,
+// but the global SMTP_* env path reaches this validator without ever passing
+// through that handler — so the header-injection check must live here too.
 func ValidateEmailConfig(cfg model.EmailConfig) error {
 	if cfg.SMTPHost == "" || cfg.SMTPPort == 0 {
 		return fmt.Errorf("email: smtp_host and smtp_port are required")
@@ -165,7 +170,32 @@ func ValidateEmailConfig(cfg model.EmailConfig) error {
 	if cfg.From == "" {
 		return fmt.Errorf("email: from is required")
 	}
+	if strings.ContainsAny(cfg.From, "\r\n") {
+		return fmt.Errorf("email: from must not contain newlines")
+	}
+	if strings.ContainsAny(cfg.FromName, "\r\n") {
+		return fmt.Errorf("email: from_name must not contain newlines")
+	}
+	for _, r := range cfg.Recipients {
+		if strings.ContainsAny(r, "\r\n") {
+			return fmt.Errorf("email: recipient must not contain newlines")
+		}
+	}
 	return nil
+}
+
+// headerValue makes s safe for direct interpolation into a single RFC 5322
+// header line: CR and LF collapse to spaces. Last line of defence (audit N-2)
+// — upstream validation rejects newlines in every admin-settable field, but
+// header composition must never trust that every future caller validated.
+// Values routed through net/mail.Address don't need this (it encodes); only
+// raw fmt.Fprintf interpolations do.
+func headerValue(s string) string {
+	if !strings.ContainsAny(s, "\r\n") {
+		return s
+	}
+	s = strings.ReplaceAll(s, "\r", " ")
+	return strings.ReplaceAll(s, "\n", " ")
 }
 
 // deliver runs the timeout-bounded, secret-scrubbing SMTP send shared by the
@@ -211,8 +241,8 @@ func (t *EmailTransport) deliver(ctx context.Context, cfg model.EmailConfig, to 
 func buildEmailMessage(cfg model.EmailConfig, p Payload) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", formatFromHeader(cfg))
-	fmt.Fprintf(&b, "To: %s\r\n", strings.Join(cfg.Recipients, ", "))
-	fmt.Fprintf(&b, "Subject: %s\r\n", renderEmailSubject(p))
+	fmt.Fprintf(&b, "To: %s\r\n", headerValue(strings.Join(cfg.Recipients, ", ")))
+	fmt.Fprintf(&b, "Subject: %s\r\n", headerValue(renderEmailSubject(p)))
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/plain; charset=\"utf-8\"\r\n")
 	b.WriteString("\r\n")
@@ -231,7 +261,7 @@ const defaultSenderName = "AxiaOps"
 // guaranteed even if an admin clears the field. The envelope sender (MAIL FROM)
 // always stays cfg.From — the display name is header-only.
 func formatFromHeader(cfg model.EmailConfig) string {
-	name := cfg.FromName
+	name := headerValue(cfg.FromName) // mail.Address encodes, but never hand it a newline
 	if name == "" {
 		name = defaultSenderName
 	}
