@@ -5,6 +5,13 @@
 **Scope:** Commercial readiness, positioning, and channel strategy — grounded in what is actually shipped in `main`, not what docs or pitches claim.
 **Companion docs:** `docs/market-readiness-2026-04.md` (readiness scorecard), `docs/competition.md` (competitor deep-dive), `docs/business_plan.md` (pricing + ICP + financial plan), `docs/pitch.md` (Q&A talking points), `docs/go_live_checklist.md`.
 
+> **Status update (2026-06-11):** several gaps below have since closed — production is live
+> on **ECS Express** (not App Runner; pivoted 2026-05), email + Slack scan digests shipped,
+> dismiss/snooze + audit trail shipped, GDPR deletion + export shipped, and the self-hosted
+> bundle was **deferred** in favour of SaaS-first (draft ADR-0002). Commercial items (UG
+> incorporation, Stripe, self-signup, landing page) remain open. Read the rest as an
+> April 2026 snapshot.
+
 > **April 2026 ICP refinement — addendum**
 >
 > Earlier sections of this document treat "MSPs" as a single ICP-1. After a structured review (see §4.5 below — added April 2026), this is revised. The original "MSP" label conflated three distinct buyer personas: (a) general IT MSPs (the ConnectWise/N-able/r/msp population — wrong customer for AxiaOps), (b) specialist AWS Solution Provider partners (real but hard to sell to, with strong incumbents in CloudCheckr/Spot.io and Flexera), and (c) independent FinOps consultants (real, plausible, but a tiny global segment). Revised priority order:
@@ -162,7 +169,7 @@ The original business plan and the first draft of this assessment assumed one de
 
 | Dimension | **A — SaaS multi-tenant** (current plan) | **B — Self-managed license** (customer runs it) | **C — Managed private** (we run it in their cloud) |
 |---|---|---|---|
-| Where it runs | Our App Runner / RDS / ElastiCache | Customer's infra (Docker Compose, Helm) | Customer's AWS account, via Terraform module we maintain |
+| Where it runs | Our ECS Express / RDS | Customer's infra (Docker Compose, Helm) | Customer's AWS account, via Terraform module we maintain |
 | Who holds data | Us (Frankfurt) | Customer — data never leaves their env | Customer account, we have cross-account IAM |
 | Legal posture | We are a GDPR data processor; DPA required | We are a software vendor, not a processor; no DPA needed | We are an operator of their infra; SLA required |
 | Engineering cost to ship from today | ~8 weeks (per market-readiness §7) | **~3–4 weeks** (images + Compose + install guide + license key) | 8–10 weeks (Terraform module + cross-account upgrade tooling) |
@@ -609,7 +616,7 @@ These are the *non-engineering* blockers. They must be scheduled as a project th
 **Gates (everything in A-SaaS, plus):**
 
 - [ ] Full Stripe integration: checkout, portal, webhook, plan gating, trial logic. (*~3 engineering days per market-readiness §2.4*)
-- [ ] Production environment live: Terraform, RDS, App Runner, Secrets Manager, Grafana, alerts.
+- [x] Production environment live (June 2026): Terraform, RDS, ECS Express, Secrets Manager, Grafana, alerts.
 - [ ] Email + Slack digest alerts (core retention driver). (*~2–3d*)
 - [ ] IAM cross-account role wizard (replace access-key paste). (*~2d*)
 - [ ] GDPR data export + deletion endpoints. (*~1d*)

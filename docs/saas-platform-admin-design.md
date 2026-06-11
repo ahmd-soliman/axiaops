@@ -1,8 +1,7 @@
 # SaaS Platform Admin Plane & Entitlement — Design
 
-Status: **draft for refinement — near-term / scheduled** pending acceptance of
-[ADR-0002 (SaaS-first for awareness)](decisions/0002-saas-first-for-awareness.md),
-which resequences AxiaOps to lead with a hosted SKU. This doc specifies the
+Status: **near-term / scheduled** — [ADR-0002 (SaaS-first for awareness)](decisions/0002-saas-first-for-awareness.md)
+accepted 2026-06-11, resequencing AxiaOps to lead with a hosted SKU. This doc specifies the
 staff/admin plane, internal-ops integrations, and the licensing→entitlement
 inversion that the SaaS-first direction requires.
 

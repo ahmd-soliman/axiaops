@@ -17,7 +17,7 @@ You can — and most teams do. The problem is not detection, it is everything af
 | Multi-cloud | Build each integration | AWS today; Azure/GCP roadmap 2028 |
 | Output | Raw data dump | Detection + dismiss/snooze workflow |
 | Audit trail | None | Full schema; actor attribution shipping Q2 2026 |
-| Alerting | Build it yourself | Email/Slack digest shipping Q3 2026 |
+| Alerting | Build it yourself | Email/Slack scan digests (shipped) |
 | Onboarding | Tribal knowledge | Self-service dashboard |
 
 Scripts solve the detection problem. AxiaOps solves the **workflow** problem on top of detection — what to do about each ghost, with structured dismiss reasons and snooze windows that survive across team members.
@@ -40,7 +40,7 @@ This is a valid concern. Here is the honest answer.
 **Mitigations:**
 
 - **EU data residency by default** — data processed and stored in EU (Frankfurt). German legal entity. Built-in GDPR posture.
-- **Self-hosted (roadmap, target Q3 2026)** — packaged Docker Compose + license-key gating for customers who need data to stay in their own VPC. Pilots available on request from Q2 2026 — talk to sales. *Not generally available today.*
+- **Self-hosted (deferred)** — packaged Docker Compose + license-key gating for customers who need data to stay in their own VPC. Deferred in favour of the SaaS-first launch; enterprise enquiries welcome. *Not generally available today.*
 - **Read-only IAM** — the policy only calls describe/list/get APIs. It cannot modify, delete, or provision any resource.
 - **Credential storage** — customer AWS credentials are encrypted at rest with AES-256-GCM. The IAM cross-account role onboarding flow (which removes the need to store access keys at all) is shipping Q2 2026; until then, customers paste read-only access keys.
 - **SOC 2 compliance** — Type II audit targeted Q4 2027, dependent on paying-customer revenue justifying the €15–€25K audit cost.
@@ -168,7 +168,7 @@ That is a process problem as much as a tooling problem — and the AxiaOps roadm
 - **Dismiss-with-reason** (shipped today) — every ghost can be dismissed with one of five structured reasons (intentional, scheduled deletion, false positive, cost accepted, other) plus an optional note. Forces the team to articulate *why* a ghost is acceptable rather than just ignore it.
 - **Snooze** (shipped today) — re-evaluate any ghost after 1, 7, 30, or 90 days. Avoids permanent dismissal of resources that may become wasteful again.
 - **Audit trail with actor attribution** (shipping Q2 2026 — schema exists, UI/actor hookup ~4 hours of work) — dismissed items are recorded with who acted and when, visible to management. *Ask whether this has shipped before pitching it.*
-- **Weekly email digest + Slack alerts** (shipping Q3 2026) — a summary message rather than per-resource noise.
+- **Email + Slack scan digests** (shipped) — a summary message after scans rather than per-resource noise.
 - **Owner resolution / delegation features** (not on near-term roadmap) — these were aspirational features in earlier pitch material; deferred until customer demand justifies the build. Tag-based filtering by `team` / `owner` is shipping Q3 2026 and partially addresses the same need.
 
 Ignored alerts usually mean the wrong person is getting them, or the list is too long to trust. Both are solvable, on the timeline above.
@@ -193,7 +193,7 @@ AxiaOps finds exactly those resources — the ones outside your IaC state.
 
 **2028:** Azure Cost Management and GCP Billing APIs. We don't claim multi-cloud earlier because we haven't built it.
 
-Self-hosted pilots are available on request from Q2 2026 — talk to sales.
+Self-hosted is currently deferred in favour of the SaaS-first launch — enterprise enquiries: talk to sales.
 
 ---
 
@@ -245,7 +245,7 @@ The data AxiaOps processes — cost line items, resource IDs, usage metrics — 
 
 **SaaS version:** data is stored in EU data centers (Frankfurt) and never transferred outside the EU. A Data Processing Agreement (DPA) is available on request. Right-to-erasure (full organization deletion with cascade) is shipped today; data export endpoint is shipping Q2 2026.
 
-**Self-hosted:** pilots available Q2 2026 — talk to sales. Once available, all data stays within your own infrastructure in your chosen region.
+**Self-hosted:** currently deferred (SaaS-first launch) — talk to sales for enterprise arrangements. Once available, all data stays within your own infrastructure in your chosen region.
 
 ---
 
