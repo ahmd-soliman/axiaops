@@ -1,0 +1,47 @@
+# CI-only override: REUSE the registry images that `build:images` already built
+# in the same pipeline, instead of rebuilding api/ingestion/migrate/dashboard
+# from source. Layered on top of docker-compose.yml:
+#
+#   docker-compose -f docker-compose.yml -f docker-compose.ci.yml ...
+#
+# Only used by `make test-e2e-ci` (the CI path). LOCAL `make test-e2e` uses the
+# base file alone and still builds every image from source — developers have no
+# registry images.
+#
+# ── How the reuse actually works ────────────────────────────────────────────
+# Compose MERGES (never removes) a base service's `build:` block. A service that
+# has both `build:` and `image:` will still BUILD from source on `up`/`run` if
+# the image isn't present locally — so we cannot make compose "pull instead of
+# build" just by adding `image:` here.
+#
+# The robust path (mirrors `.deploy-dev`, which `docker pull`s these same tags):
+#   1. This override pins each app service to its registry tag via `image:` and
+#      `pull_policy: always`.
+#   2. `make test-e2e-ci` runs an explicit `docker-compose pull migrate ingestion
+#      api dashboard` FIRST. That fetches the registry images and tags them
+#      locally under exactly these `image:` names.
+#   3. The later `build playwright` + `run --rm playwright` then find those four
+#      images already present locally, so compose never rebuilds them — only the
+#      playwright runner (not in build:images) is built from source.
+#
+# postgres is unchanged (public image, base file). The dashboard image from
+# build:images bakes VITE_DEV_MODE off (auth-on) — exactly what this auth-on e2e
+# stack needs, so the reuse is faithful, not merely faster.
+
+services:
+
+  migrate:
+    image: ${REGISTRY}/migrate:${IMAGE_TAG}
+    pull_policy: always
+
+  ingestion:
+    image: ${REGISTRY}/ingestion:${IMAGE_TAG}
+    pull_policy: always
+
+  api:
+    image: ${REGISTRY}/api:${IMAGE_TAG}
+    pull_policy: always
+
+  dashboard:
+    image: ${REGISTRY}/dashboard:${IMAGE_TAG}
+    pull_policy: always
