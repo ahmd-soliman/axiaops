@@ -45,4 +45,13 @@ test.describe('settings tabs', () => {
     await expect(page).toHaveURL(/\/settings\/cloud-accounts$/);
     await expectNotNotFound(page);
   });
+
+  // Regression: the SaaS "hide License" rule once lived only on the flat tab
+  // list (mobile strip + redirect), so the desktop sidebar kept rendering a
+  // dead License link that bounced to /settings. Assert no License entry shows
+  // in the Settings nav under the managed (SaaS) build.
+  test('License tab is absent from the settings sidebar under SaaS', async ({ page }) => {
+    await gotoSettled(page, '/settings/cloud-accounts');
+    await expect(page.getByRole('link', { name: 'License', exact: true })).toHaveCount(0);
+  });
 });
