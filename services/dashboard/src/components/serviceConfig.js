@@ -63,3 +63,26 @@ export const RESOURCE_TYPE_CONFIG = {
 export function resourceTypeConfig(rt) {
   return RESOURCE_TYPE_CONFIG[rt] ?? { label: rt, color: '#718096' };
 }
+
+// Cost records carry no resource_type column — only a short resource ID
+// (ingestion strips ARNs down to e.g. "nat-0abc123"). For services whose ID
+// prefixes are unambiguous, the sub-type is derivable client-side, giving the
+// cost screen the same two-tier filter the trend screen gets from snapshot
+// data. IDs with no recognizable prefix (RDS names, ELB hashes) return null.
+// Order matters: first match wins, so `i-` must stay last — any prefix added
+// below it that also starts with "i" would be shadowed and classify as an
+// EC2 instance.
+const RESOURCE_ID_PREFIXES = [
+  ['nat-',      'nat_gateway'],
+  ['eipalloc-', 'eip'],
+  ['vol-',      'volume'],
+  ['snap-',     'snapshot'],
+  ['ami-',      'ami'],
+  ['i-',        'instance'],
+];
+
+export function resourceTypeFromId(resourceId) {
+  if (!resourceId) return null;
+  const match = RESOURCE_ID_PREFIXES.find(([prefix]) => resourceId.startsWith(prefix));
+  return match ? match[1] : null;
+}
