@@ -20,12 +20,14 @@ Every site that previously read `os.Getenv("DEV_MODE")=="true"` routes through `
 
 Asymmetric stripping (api stripped, ingestion not) would still leak the bypass at the ingestion-side scan-gate (`POST /scan`, `scanScheduledAccounts`, the worker), so both binaries get the same treatment.
 
-Build commands:
-- `go build ./cmd/` — default (DEV_MODE honoured). Used for dev-1/dev-2 deploys + local `make start-dev`.
-- `go build -tags production ./cmd/` — customer-shipping (DEV_MODE no-op). Wired via `make build-production` and the `BUILD_TAGS` Dockerfile arg.
-- `go build -tags "production saashosted" ./cmd/` — **SaaS** ("license removal in SaaS mode", design §7.1). The `saashosted` tag selects `cmd/saasmode_saashosted.go`, which calls `license.SetEnforcementBypass()` at boot (license dormant) and threads the store as the entitlement `Resolver` into all 3 scan gates (`scanHandler`, the worker, `scanScheduledAccounts` — the scheduler's pass-wide license check becomes a per-org entitlement check batched via `ListAllEntitlements`). The bypass lives ONLY in the saashosted tag-seam file. Wired via `make build-saashosted` + the `build:saashosted-shape` CI job. **Deploy target: dev-1 only.** The `build:images-saashosted` CI job builds api+ingestion with `-tags saashosted` *alone* (no `production` → DEV_MODE preserved, so dev-1 stays no-auth) and pushes a `-saashosted`-suffixed image; `deploy:dev-1` pulls that variant (`SAAS_IMAGE_SUFFIX`) and seeds the dev org's `entitlements` row (the scan-gate is fail-closed). All other envs (dev-2, staging, prod) still pull the default licensed image. The canonical customer/SaaS shape remains `production saashosted`; dev-1's `saashosted`-only combo is a dev-preview build no customer ships.
+**SaaS is the DEFAULT build; self-hosted licensed is the `-tags selfhosted` opt-in** (design §7.1), mirroring the api so the bypass story is symmetric. `production` strips DEV_MODE; `selfhosted` re-enables the license gate. Build commands:
+- `go build ./cmd/` — **default = SaaS** (DEV_MODE honoured). `cmd/saasmode_saas.go` (`//go:build !selfhosted`) calls `license.SetEnforcementBypass()` at boot and threads the store as the entitlement `Resolver` into all 3 scan gates (`scanHandler`, the worker, `scanScheduledAccounts` — the scheduler's pass-wide license check becomes a per-org entitlement check batched via `ListAllEntitlements`). Used by local `make start-dev` + dev-1/dev-2.
+- `go build -tags production ./cmd/` — **SaaS, DEV_MODE stripped** (staging/prod). Wired via `make build-production` + the `BUILD_TAGS` Dockerfile arg.
+- `go build -tags "production selfhosted" ./cmd/` — **self-hosted licensed customer build** (the opt-in). `selfhosted` selects `cmd/saasmode_selfhosted.go`, which leaves the license gate in force at all 3 sites (nil entitlement resolver; the license-bypass call is compiled ONLY into the default SaaS sibling); `production` strips DEV_MODE. Wired via `make build-selfhosted`, the **manual** `build:images-selfhosted` CI job (`-selfhosted`-suffixed image, shipped pre-built), and pinned every pipeline by `build:selfhosted-shape`.
 
-Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin both shapes; CI runs `make build-production` + `go test -tags production ./cmd/` on every pipeline so tag regressions surface in <30s. The saashosted shape is pinned by `build:saashosted-shape` + `TestScanScheduledAccounts_SaaS_PerOrgEntitlement`.
+**Security note (default inverted):** forgetting the `selfhosted` tag yields a license-*bypassed* binary — the accepted SaaS-first posture. `main.go` logs `license: mode resolved mode=saas|selfhosted` at boot. No deployed env runs the licensed build.
+
+Test pairs in `cmd/devmode_{dev,production}_test.go` + `cmd/saasmode_{saas,selfhosted}_test.go` regression-pin the shapes; CI runs `make build-production` (SaaS) + `go test -tags production ./cmd/` on every pipeline, and `build:selfhosted-shape` pins the `production selfhosted` shape. `TestScanScheduledAccounts_SaaS_PerOrgEntitlement` runs in the default build.
 
 ## Endpoints
 
@@ -179,7 +181,7 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationI
 | REDIS_URL | No | — | Connection URL for the cache + scan-queue backend (RESP wire protocol — Valkey post-migration; Redis-compatible). Empty disables the worker (`worker: skipped_no_redis` at startup). Format: `redis://:<password>@<host>:6379` with `REDIS_PASSWORD` propagated into the userinfo. |
 | REDIS_PASSWORD | When the backend is `requirepass`-protected | — | Used by the `valkey-cli` healthcheck in deploy/*.yml and propagated into REDIS_URL's userinfo. Set as a per-env CI variable. |
 | PUBLIC_HOST | No | — | Externally-reachable origin (`https://app.example.com`) used to build the dashboard deep-link in scan-digest notifications. Empty → the link is omitted. Mirrors the api's `PUBLIC_HOST`. |
-| ENTITLEMENT_GRACE_DAYS | No | 21 | **SaaS (`-tags saashosted`) only.** Past_due grace window (days past `current_period_end`) before the per-tenant entitlement gate blocks scans at all 3 ingestion sites (POST /scan, worker, scheduler). Ignored by the self-hosted build (license gate). Mirrors the api's var. |
+| ENTITLEMENT_GRACE_DAYS | No | 21 | **Default (SaaS) build only.** Past_due grace window (days past `current_period_end`) before the per-tenant entitlement gate blocks scans at all 3 ingestion sites (POST /scan, worker, scheduler). Ignored by the `-tags selfhosted` build (license gate). Mirrors the api's var. |
 
 ## Testing
 

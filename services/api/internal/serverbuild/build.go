@@ -2,12 +2,13 @@
 // construction, middleware composition, ticker startup. The composition root
 // (cmd/main.go) reads env vars, builds Deps, calls ComposeServer, and runs.
 //
-// Plan §4.8.3 / D11 / architect S9: the seam that lets a SaaS-hosted variant
-// reactivate later by writing a second composition root (cmd/api-saashosted/
-// main.go) that swaps a few constructors. Every dependency that would
-// diverge between self-hosted and a hypothetical SaaS reactivation crosses
-// the Deps boundary as an interface — so neither the handler/business-logic
-// layer nor this package needs to change.
+// Plan §4.8.3 / D11 / architect S9: the seam that lets the SaaS and licensed
+// variants diverge. The realized mechanism is the build-tag seam (default=SaaS
+// via services/{api,ingestion}/cmd/saasmode_saas.go; opt-in licensed via
+// `-tags selfhosted` / saasmode_selfhosted.go), which swaps a few constructors.
+// Every dependency that would diverge between the two crosses the Deps boundary
+// as an interface — so neither the handler/business-logic layer nor this
+// package needs to change.
 //
 // Four SaaS-extension seams cross Deps:
 //   - storage.Store    — already an interface; concrete impl is postgres
@@ -92,8 +93,8 @@ type Config struct {
 	TransactionalSMTP model.EmailConfig
 
 	// EntitlementGrace is the past_due grace window for the SaaS entitlement
-	// scan-gate. Zero in self-hosted (the license gate is used instead); the
-	// `saashosted` build reads ENTITLEMENT_GRACE_DAYS into this. The handler
+	// scan-gate. Zero in the `-tags selfhosted` build (the license gate is used
+	// instead); the default (SaaS) build reads ENTITLEMENT_GRACE_DAYS into this. The handler
 	// builder defaults a zero value to entitlement.DefaultGraceDays.
 	EntitlementGrace time.Duration
 }
@@ -166,8 +167,8 @@ type Deps struct {
 	MetricsRegistry *Metrics
 
 	// EntitlementResolver switches the scan endpoint from the license gate to
-	// the per-tenant entitlement gate (SaaS). nil ⇒ license gate (self-hosted,
-	// the default). Set only by the `saashosted` build, which also flips
+	// the per-tenant entitlement gate (SaaS). nil ⇒ license gate
+	// (`-tags selfhosted`). Set by the default (SaaS) build, which also flips
 	// license.SetEnforcementBypass at boot. See docs/saas-platform-admin-design.md
 	// §7.1.
 	EntitlementResolver entitlement.Resolver
