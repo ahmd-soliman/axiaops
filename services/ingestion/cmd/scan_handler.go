@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"axiaops.io/shared/entitlement"
 	"axiaops.io/shared/httpauth"
-	"axiaops.io/shared/license"
 	"axiaops.io/shared/storage"
 )
 
@@ -22,38 +22,13 @@ import (
 // The HMAC middleware (wrapping this handler) runs BEFORE the license gate
 // here, so an unauthenticated caller cannot probe license state via the
 // 403/401 timing differential. Same ordering applies to /v1/credentials/verify.
-func scanHandler(store storage.Store) http.HandlerFunc {
+func scanHandler(store storage.Store, resolver entitlement.Resolver, grace time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// License scan-gate (plan §4.9.2b, post-amendment). Routed through
-		// IsScanAllowedForState so the predicate stays in lockstep with the
-		// api-side handler and the scheduler — single source of truth for
-		// the policy.
-		//
-		// State is read ONCE and used for both the gate predicate and the
-		// error-code branch — avoids the wall-clock-driven TOCTOU where a
-		// valid → in_grace → expired cross-tick between two consecutive
-		// reads could cross-classify the response body.
-		licState := license.SnapshotState()
-		if !license.IsScanAllowedForState(licState) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			switch licState {
-			case license.StateExpired:
-				_, _ = w.Write([]byte(`{"error":"license_expired"}`))
-			case license.StateNotLoaded:
-				_, _ = w.Write([]byte(`{"error":"license_not_loaded"}`))
-			case license.StateValid, license.StateInGrace:
-				slog.Warn("ingestion scan-gate: allow-listed state reached body builder",
-					"state", licState.String(),
-				)
-				_, _ = w.Write([]byte(`{"error":"license_inactive"}`))
-			default:
-				slog.Warn("ingestion scan-gate: unhandled license state", "state", licState.String())
-				_, _ = w.Write([]byte(`{"error":"license_inactive"}`))
-			}
-			return
-		}
-
+		// Decode BEFORE the scan-gate: the gate is now per-organization
+		// (entitlement) so it needs req.OrganizationID. This is safe — the HMAC
+		// middleware wrapping this handler runs first, so an unauthenticated
+		// caller never reaches the decode or the gate, and the org id is taken
+		// from an HMAC-verified body. No new license/entitlement-state oracle.
 		var req struct {
 			AccountID      string `json:"account_id"`
 			OrganizationID string `json:"organization_id"`
@@ -64,7 +39,16 @@ func scanHandler(store storage.Store) http.HandlerFunc {
 			return
 		}
 
+		// Scan-gate (plan §4.9.2b + SaaS §7.1). resolver==nil → license gate
+		// (self-hosted); resolver!=nil → per-tenant entitlement gate (SaaS).
+		// Single helper keeps this in lockstep with the worker + scheduler.
 		ctx := storage.WithOrganizationID(context.Background(), req.OrganizationID)
+		if ok, code := gateAllowsScan(ctx, resolver, grace, req.OrganizationID); !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":"` + code + `"}`))
+			return
+		}
 
 		if err := runScan(ctx, store, req.AccountID); err != nil {
 			slog.Error("scan: ingestion failed", "account_id", req.AccountID, "error", err)

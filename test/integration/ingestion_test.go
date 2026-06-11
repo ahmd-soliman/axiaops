@@ -12,7 +12,6 @@
 // # Running against a custom URL
 //
 //	INTEGRATION_INGESTION_URL=http://localhost:8081 make test-integration
-//
 package integration
 
 import (
@@ -56,8 +55,14 @@ func TestIngestionHealth(t *testing.T) {
 func TestIngestionScan(t *testing.T) {
 	base := ingestionURL(t)
 
-	// DEV_MODE=true should return success without real AWS credentials
-	body := `{"account_id":"","tenant_id":"ci-tenant"}`
+	// DEV_MODE=true should return success without real AWS credentials.
+	// organization_id MUST be the real field name (the handler decodes
+	// `json:"organization_id"`; the legacy `tenant_id` key was silently ignored,
+	// which left the org empty). The default (SaaS) build gates /scan on this
+	// org's entitlement (fail-closed), and init-organization.sh seeds an active
+	// entitlement for ci-tenant — so the gate passes and the DEV_MODE no-account
+	// path returns 200.
+	body := `{"account_id":"","organization_id":"ci-tenant"}`
 	resp, err := http.Post(base+"/scan", "application/json", bytes.NewBufferString(body)) //nolint:noctx
 	if err != nil {
 		t.Fatalf("POST %s/scan: %v", base, err)

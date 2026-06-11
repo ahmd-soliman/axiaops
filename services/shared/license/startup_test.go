@@ -237,7 +237,7 @@ func TestVerifyAtBoot_LoadErrorClassification(t *testing.T) {
 		},
 		{
 			name:   "wrong_audience",
-			mutate: func(c *jwt.MapClaims) { (*c)["aud"] = "axiaops-saashosted" },
+			mutate: func(c *jwt.MapClaims) { (*c)["aud"] = "axiaops-wrong-aud" },
 		},
 		{
 			name:   "future_iat",
@@ -287,3 +287,42 @@ func TestSnapshot_ConcurrentReadDuringSet(t *testing.T) {
 	<-done
 }
 
+
+// TestVerifyAtBoot_BypassSkipsLicenseLoad pins the SaaS-default posture
+// (design §7.1): cmd/saasmode_saas.go flips the enforcement bypass BEFORE
+// VerifyAtBoot, making "no license" the expected state — boot verification
+// must return nil without travelling the missing-license error path (the
+// "scans will be blocked" slog.Error + LicenseLoadErrorsTotal bump that
+// pairs with the operator alert), and must not load a configured license
+// either: /v1/version collapses to state="managed" off the bypass flag
+// alone, so a snapshot would be dead weight kept alive by the ticker.
+func TestVerifyAtBoot_BypassSkipsLicenseLoad(t *testing.T) {
+	t.Run("no license configured", func(t *testing.T) {
+		resetSnapshot(t)
+		t.Setenv("AXIAOPS_LICENSE", "")
+		t.Setenv("AXIAOPS_LICENSE_PATH", "")
+		license.SetEnforcementBypass()
+
+		if err := license.VerifyAtBoot(false); err != nil {
+			t.Fatalf("VerifyAtBoot(bypassed, no license) = %v, want nil", err)
+		}
+		if license.Snapshot() != nil {
+			t.Error("Snapshot() non-nil after bypassed boot; want nil (license dormant)")
+		}
+	})
+
+	t.Run("license configured but dormant", func(t *testing.T) {
+		resetSnapshot(t)
+		k := setupKeys(t)
+		raw := signLicense(t, k, nil, nil, nil)
+		installLicense(t, k, raw)
+		license.SetEnforcementBypass()
+
+		if err := license.VerifyAtBoot(false); err != nil {
+			t.Fatalf("VerifyAtBoot(bypassed, license present) = %v, want nil", err)
+		}
+		if license.Snapshot() != nil {
+			t.Error("Snapshot() non-nil; the SaaS build must not load the dormant license")
+		}
+	})
+}

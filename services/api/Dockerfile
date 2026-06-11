@@ -4,11 +4,16 @@ COPY services/shared/ /shared/
 COPY services/api/go.mod services/api/go.sum ./
 RUN go mod download
 COPY services/api/ .
-# BUILD_TAGS controls B1.7 layer 3 stripping. Default empty (dev image:
-# DEV_MODE honoured, full feature set for internal envs). CI sets
-# BUILD_TAGS=production for the customer-shipping image — that build's
-# devmode_production.go hard-wires devModeEnabled() to false, so DEV_MODE
-# is read but ignored regardless of how the operator sets the env.
+# BUILD_TAGS selects the license + DEV_MODE shape. Default empty = the DEFAULT
+# build: SaaS (license bypassed at boot, scans gate on per-tenant entitlement)
+# with DEV_MODE honoured — what every deployed env's image (build:images) uses.
+#   BUILD_TAGS=production            → SaaS, DEV_MODE stripped (staging/prod).
+#   BUILD_TAGS="production selfhosted" → the licensed CUSTOMER image: `selfhosted`
+#       re-enables the license JWT gate (entitlement no-op), `production` strips
+#       DEV_MODE. Built by the manual build:images-selfhosted job and shipped
+#       pre-built to self-hosted customers. (`production` hard-wires
+#       devModeEnabled() to false; `selfhosted` makes saasmode_selfhosted.go the
+#       compiled seam, so the license bypass is absent.)
 ARG BUILD_TAGS=
 # Build the package (`./cmd/`) not the single file — without this, sibling
 # build-tag-gated files (devmode_dev.go / devmode_production.go) aren't

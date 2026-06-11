@@ -134,6 +134,22 @@ func VerifyAtBoot(devMode bool) error {
 		return nil
 	}
 
+	// SaaS default build (design §7.1): cmd/saasmode_saas.go flips the
+	// enforcement bypass BEFORE this call, the license JWT is dormant, and
+	// scans gate on per-tenant entitlement instead. Running without a license
+	// is the EXPECTED posture here — falling through would log "scans will be
+	// blocked" at ERROR (false: the gates bypass the license) and bump
+	// LicenseLoadErrorsTotal{reason="missing"}, which pairs with the
+	// missing-license alert, on every SaaS boot. Skip the load entirely:
+	// /v1/version collapses to {state:"managed"} whenever the bypass is set
+	// (a snapshot would be invisible anyway) and RunTicker no-ops on a nil
+	// snapshot. The `-tags selfhosted` build never sets the bypass, so the
+	// licensed path below is unchanged for customer binaries.
+	if IsEnforcementBypassed() {
+		slog.Info("license: dormant — enforcement bypassed (SaaS build); scans gate on per-tenant entitlement")
+		return nil
+	}
+
 	lic, err := Load()
 	if err != nil {
 		// The reason label drives the alert runbook (slice 9 docs). Under

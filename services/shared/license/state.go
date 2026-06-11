@@ -7,17 +7,17 @@ import "sync/atomic"
 // re-running JWT parsing on every call. Set once during cmd/main.go startup
 // via SetCurrent. After B1.7 layer 4 (issue #75) DEV_MODE also populates
 // this with the embedded dev fixture — `current == nil` now means "no
-// license loaded in a production deployment" or "this is the SaaS binary"
-// (the latter doesn't yet exist; planned per §4.9.6).
+// license loaded in a production deployment" or "this is the default (SaaS)
+// build" (which bypasses license enforcement via the build-tag seam).
 //
 // This is the only package-level mutable state; the rest of the package is
 // pure functions (license.go) so unit tests can run without disturbing it.
 var current atomic.Pointer[License]
 
 // enforcementBypass is the explicit "this binary is exempt from license
-// enforcement" flag. Reserved for the future SaaS composition root
-// (cmd/api-saashosted, planned per §4.9.6) — no production code path in
-// the self-hosted binary sets it post B1.7 layer 4. DEV_MODE used to flip
+// enforcement" flag. Set by the default (SaaS) build via the build-tag seam
+// (services/{api,ingestion}/cmd/saasmode_saas.go); the `-tags selfhosted`
+// (opt-in) licensed build never sets it. DEV_MODE used to flip
 // this flag; layer 4 retired that shortcut by loading the embedded dev
 // fixture through the same Load → CheckExpiry chain a real customer
 // license travels, so dev exercises the full state machine.
@@ -75,8 +75,9 @@ func SnapshotState() State {
 }
 
 // SetEnforcementBypass marks this process as exempt from license enforcement.
-// Reserved for the future SaaS composition root (cmd/api-saashosted, planned
-// per §4.9.6) and for test helpers that skip license setup (`scheduler_test.go`,
+// Called by the default (SaaS) build via the build-tag seam
+// (services/{api,ingestion}/cmd/saasmode_saas.go) and by test helpers that skip
+// license setup (`scheduler_test.go`,
 // `test_main_test.go`). VerifyAtBoot used to flip this flag under DEV_MODE; B1.7
 // layer 4 retired that shortcut and dev now loads the embedded fixture
 // instead. Once set, never cleared during a real process lifetime.
@@ -138,17 +139,16 @@ func IsScanAllowedForState(state State) bool {
 }
 
 // IsEnforcementBypassed reports whether the enforcement-bypass flag is set.
-// Returns false in every self-hosted runtime path post B1.7 layer 4 — DEV_MODE
-// loads the dev fixture (state=valid drives scan-gate fall-through) and real
-// production loads a customer license. The flag remains the seam through
-// which the future SaaS composition root will exempt itself from
-// scan-gating; until cmd/api-saashosted exists, the flag is effectively
-// always false in production.
+// Returns false in every `-tags selfhosted` (opt-in licensed) runtime path
+// post B1.7 layer 4 — DEV_MODE loads the dev fixture (state=valid drives
+// scan-gate fall-through) and real production loads a customer license. The
+// flag is set in the default (SaaS) build via the build-tag seam
+// (services/{api,ingestion}/cmd/saasmode_saas.go), which exempts it from
+// scan-gating in favour of the per-tenant entitlement gate.
 //
-// The /v1/version endpoint still branches on this for forward-compatibility
-// with the SaaS reactivation, so dashboard and API agree on which "no
-// snapshot" semantics apply when SetEnforcementBypass eventually has a
-// caller.
+// The /v1/version endpoint branches on this so dashboard and API agree on
+// which "no snapshot" semantics apply when SetEnforcementBypass is in
+// effect (the default SaaS build).
 func IsEnforcementBypassed() bool {
 	return enforcementBypass.Load()
 }
