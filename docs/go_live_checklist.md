@@ -12,11 +12,11 @@
 
 | Item | Dev Plan Ref | Target |
 |------|-------------|--------|
-| Scheduled auto-scan (24h default per account) | 2.11 | June 2026 |
-| `cost_records` 90-day retention cleanup job | 2.12 | June 2026 |
-| RDS automated backups + Secrets Manager for `ENCRYPTION_KEY` | 2.13 | June 2026 |
-| Redis — JWKS cache, scan job queue, rate limiting | 2.14 | July 2026 |
-| Production deployment — ECS Express + RDS + Secrets Manager via Terraform (aws-infra) | 2.16 | August 2026 |
+| Scheduled auto-scan (24h default per account) | 2.11 | June 2026 ✅ |
+| `cost_records` 90-day retention cleanup job | 2.12 | June 2026 ✅ |
+| RDS automated backups + Secrets Manager for `ENCRYPTION_KEY` | 2.13 | June 2026 ✅ |
+| Redis — JWKS cache, scan job queue, rate limiting | 2.14 | July 2026 ✅ |
+| Production deployment — ECS Express + RDS + Secrets Manager via Terraform (aws-infra) | 2.16 | ✅ live June 2026 |
 | GitLab CI full pipeline — test → build → deploy to ECR + ECS Express | 2.10 | May 2026 ✅ |
 
 ### Product
@@ -24,8 +24,8 @@
 | Item | Dev Plan Ref | Target |
 |------|-------------|--------|
 | Stripe billing — 3 tiers (Starter €49, Growth €149, Team €399) | 3.1 | September 2026 |
-| Dismiss zombie workflow + snooze | 3.2 | September 2026 |
-| GDPR / right to erasure + data export | 3.10 | September 2026 |
+| Dismiss zombie workflow + snooze | 3.2 | ✅ shipped June 2026 |
+| GDPR / right to erasure + data export | 3.10 | ✅ shipped June 2026 |
 | Privacy policy + terms of service pages | 3.10 | September 2026 |
 
 ### Legal
@@ -46,7 +46,7 @@
 
 | Item | Why | Dev Plan Ref |
 |------|-----|-------------|
-| Weekly email digest + Slack alerts | Core retention driver; users need to know when new zombies appear | 2.15 |
+| Weekly email digest + Slack alerts | Core retention driver; users need to know when new zombies appear | 2.15 ✅ (scan digests shipped June 2026) |
 | Scan history log | Customers need to see when scans ran and what changed | 3.5 |
 | Per-account summary (`GET /summary?account_id`) | MSP use case — per-client savings breakdown | 3.8 |
 | CSV export | Required for Pro tier; common first request from paying customers | 3.7 |
@@ -68,6 +68,10 @@
 - In-memory rate limiting — per-organization token bucket ✅
 - Graceful shutdown — SIGTERM handling ✅
 - GitLab CI pipeline — test + build stages ✅
+- Production deployment — ECS Express + RDS, eu-central-1 ✅
+- Email + Slack scan digests (notification channels) ✅
+- Dismiss + snooze workflow with audit trail ✅
+- GDPR right-to-erasure + data export ✅
 
 ---
 
@@ -78,7 +82,7 @@ moat must be the **workflow layer** — not detection alone.
 
 The features that turn this from a dashboard into a product people pay for:
 
-1. **Dismiss workflow + audit trail** — without this, every scan resurfaces the same known-intentional resources. This is the #1 product gap before launch.
+1. **Dismiss workflow + audit trail** (✅ shipped June 2026) — without this, every scan resurfaces the same known-intentional resources.
 2. **Stripe billing** — obvious, but the tier structure (Starter/Growth/Team) must enforce limits (account count, scan frequency) from day one.
 3. **MSP-native multi-client view** — no direct competitor has a proper reseller tier. This is the highest-value differentiator to build toward.
 4. **EU-first GDPR compliance** — meaningful for European MSPs; German incorporation signals regulatory seriousness.

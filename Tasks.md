@@ -36,7 +36,7 @@ _Single source of truth for project work. Last updated: 2026-05-28._
 
 ---
 
-## Phase 2 — Alpha (target August 2026)
+## Phase 2 — Alpha (✅ complete June 2026 — original target August 2026; one post-deploy smoke check open below)
 
 ### ✅ Shipped
 
@@ -272,7 +272,7 @@ v2 enhancements (weekly/scheduled digest, per-zombie alerts, retry/DLQ) are trac
 
 ---
 
-## Phase 2.7 — Self-hosted v1 (per [ADR-0001](docs/decisions/0001-deployment-model.md), target Q3 2026)
+## Phase 2.7 — Self-hosted v1 (resequenced per [ADR-0002](docs/decisions/0002-saas-first-for-awareness.md): warm enterprise follow-on, `cmd/api-selfhosted` stays green in CI — original ADR-0001 target was Q3 2026)
 
 **Workstream introduced 2026-04-29** following ADR-0001 acceptance. This is the v1 GTM: package AxiaOps so 3–5 enterprise design partners can run it in their own AWS/GCP/Azure/on-prem infrastructure on annual contracts. Multi-tenant SaaS plumbing (Phase 3 #1, #17) is deferred until ≥3 self-hosted customers are paying.
 

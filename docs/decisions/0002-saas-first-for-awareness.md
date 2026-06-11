@@ -1,12 +1,10 @@
 # ADR-0002: Deployment Model — SaaS-first for awareness; self-hosted resequenced
 
 - **Date**: 2026-06-04
-- **Status**: **Proposed** — draft for refinement (not yet accepted)
+- **Status**: **Accepted** — 2026-06-11
 - **Decider**: Ahmed Soliman (founder)
-- **Supersedes**: [ADR-0001 (Self-hosted-first)](0001-deployment-model.md) *(on acceptance)*
+- **Supersedes**: [ADR-0001 (Self-hosted-first)](0001-deployment-model.md)
 - **Superseded by**: —
-
-> On acceptance, set ADR-0001's status to "Superseded by ADR-0002" and this status to "Accepted". Until then ADR-0001 remains the active decision.
 
 ## Context
 
