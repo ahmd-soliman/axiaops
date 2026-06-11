@@ -69,8 +69,8 @@ type Handler struct {
 	inviteMailer InviteMailer
 
 	// entitlementResolver gates the scan endpoint on per-tenant billing
-	// entitlement instead of the license JWT. nil ⇒ license gate (self-hosted,
-	// the default). Set only by the `saashosted` build via WithEntitlementResolver,
+	// entitlement instead of the license JWT. nil ⇒ license gate
+	// (`-tags selfhosted`). Set by the default (SaaS) build via WithEntitlementResolver,
 	// which also flips license.SetEnforcementBypass at boot. entitlementGrace is
 	// the past_due window applied past current_period_end. See
 	// docs/saas-platform-admin-design.md §7.1.
@@ -130,9 +130,9 @@ func (h *Handler) WithInviteMailer(m InviteMailer) *Handler {
 
 // WithEntitlementResolver switches the scan endpoint from the license gate to
 // the per-tenant entitlement gate (SaaS). nil resolver is a no-op — the license
-// gate stays in force (self-hosted). grace is the past_due window; a zero grace
+// gate stays in force (`-tags selfhosted`). grace is the past_due window; a zero grace
 // defaults to entitlement.DefaultGraceDays so a misconfigured root never
-// collapses the grace to nothing. Wired only by the `saashosted` build via
+// collapses the grace to nothing. Wired by the default (SaaS) build via
 // serverbuild; tests inject a stub resolver.
 func (h *Handler) WithEntitlementResolver(r entitlement.Resolver, grace time.Duration) *Handler {
 	h.entitlementResolver = r
@@ -649,7 +649,7 @@ func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
 // Returns just {state} when no license is loaded so the dashboard can branch
 // on a single field rather than infer absence from zero values.
 func licenseSummary() map[string]any {
-	// SaaS (the `saashosted` build) bypasses the license at boot
+	// SaaS (the default build) bypasses the license at boot
 	// (license.SetEnforcementBypass) and gates on entitlement instead — there is
 	// no customer-facing license under SaaS (design §7.4). Collapse the sub-object
 	// to {state:"managed"} so the dashboard hides the License banner/page rather

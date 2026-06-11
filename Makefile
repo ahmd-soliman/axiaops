@@ -457,18 +457,28 @@ build-production:
 	fi
 	@echo "production-tagged binaries built — DEV_MODE is no-op in /tmp/axiaops-{api,ingestion}-production"
 
-.PHONY: build-saashosted
-build-saashosted:
-	# SaaS binaries: production (DEV_MODE stripped) + saashosted ("license
-	# removal" — the license is bypassed at boot and per-tenant entitlement
-	# gates scans instead; see docs/saas-platform-admin-design.md §7.1). The
-	# saashosted tag-seam files (cmd/saasmode_saashosted.go) compile ONLY into
-	# this build, so the bypass can never be reached in a self-hosted binary.
-	# Build-only target — there is no SaaS deploy target yet (self-hosted
-	# dev-1/2/staging/prod are unaffected). Catches tag regressions in CI.
-	cd services/api && go build -tags "production saashosted" -o /tmp/axiaops-api-saashosted ./cmd/
-	cd services/ingestion && go build -tags "production saashosted" -o /tmp/axiaops-ingestion-saashosted ./cmd/
-	@echo "saashosted binaries built — /tmp/axiaops-{api,ingestion}-saashosted (license bypassed, entitlement-gated)"
+# SaaS is the DEFAULT build (`go build ./cmd/`): the license is bypassed at boot
+# and per-tenant entitlement gates scans instead (docs/saas-platform-admin-design.md
+# §7.1). This named target just builds that default explicitly (empty tags) — handy
+# for symmetry with build-production / build-selfhosted and for a one-shot compile
+# check of the SaaS shape.
+.PHONY: build-saas
+build-saas:
+	cd services/api && go build -o /tmp/axiaops-api-saas ./cmd/
+	cd services/ingestion && go build -o /tmp/axiaops-ingestion-saas ./cmd/
+	@echo "default (SaaS) binaries built — /tmp/axiaops-{api,ingestion}-saas (license bypassed, entitlement-gated)"
+
+.PHONY: build-selfhosted
+build-selfhosted:
+	# Self-hosted CUSTOMER binaries: production (DEV_MODE stripped) + selfhosted
+	# (the OPT-IN that re-enables license enforcement — the license JWT gates
+	# scans; per-tenant entitlement is never consulted). The selfhosted tag-seam
+	# files (cmd/saasmode_selfhosted.go) compile ONLY into this build; the default
+	# build is SaaS (license bypassed). This is the shape CI's build:selfhosted-
+	# shape pins and build:images-selfhosted ships pre-built to customers.
+	cd services/api && go build -tags "production selfhosted" -o /tmp/axiaops-api-selfhosted ./cmd/
+	cd services/ingestion && go build -tags "production selfhosted" -o /tmp/axiaops-ingestion-selfhosted ./cmd/
+	@echo "selfhosted binaries built — /tmp/axiaops-{api,ingestion}-selfhosted (license enforced)"
 
 # axiaopsctl is the operator CLI for migrate up/down/force/drift/history.
 # See docs/migration-history-table-design.md §Operator UX.
