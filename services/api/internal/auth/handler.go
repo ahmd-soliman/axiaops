@@ -65,6 +65,33 @@ func validUserName(s string) bool {
 	return true
 }
 
+// orgNameMaxLen mirrors the same const in
+// services/api/internal/api/organizations.go (the PATCH /v1/organizations/me
+// rename path). Duplicated, not imported, because internal/api → middleware →
+// auth would cycle. The two MUST stay equal so a name accepted by rename is also
+// accepted by bootstrap and vice-versa.
+const orgNameMaxLen = 120
+
+// validOrganizationName accepts the organization display name submitted at
+// bootstrap. Mirrors validOrgName in services/api/internal/api/organizations.go.
+// Audit N-2: the org name is interpolated into the invite-email Subject header,
+// so a control character here (CR/LF) is a header-injection primitive; rename
+// already rejects control characters, bootstrap must too.
+func validOrganizationName(s string) bool {
+	if s == "" {
+		return false
+	}
+	if utf8.RuneCountInString(s) > orgNameMaxLen {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
 // Handler exposes the unauthenticated POST endpoints used to acquire a
 // session: /v1/auth/bootstrap (first-owner install), /v1/auth/login
 // (email + password), /v1/auth/logout (cookie-bound but tolerant).
@@ -74,13 +101,13 @@ func validUserName(s string) bool {
 // publicPath() in middleware/auth.go matches the /v1/auth/ prefix to
 // keep them out of the WrapNative chain.
 type Handler struct {
-	store       storage.NativeAuthStore
-	sessions    *Manager
-	cookieCfg   CookieConfig
-	auditFn     AuditWriter
-	loginLimit  *LoginRateLimiter // nil → no rate limiting (dev fallback)
-	probeLimit  *IPRateLimiter    // gates the bootstrap-state probe (audit M-4)
-	ssoLogout   SSOLogoutResolver // nil → /v1/auth/logout always 204 (no SSO RP-Initiated Logout)
+	store      storage.NativeAuthStore
+	sessions   *Manager
+	cookieCfg  CookieConfig
+	auditFn    AuditWriter
+	loginLimit *LoginRateLimiter // nil → no rate limiting (dev fallback)
+	probeLimit *IPRateLimiter    // gates the bootstrap-state probe (audit M-4)
+	ssoLogout  SSOLogoutResolver // nil → /v1/auth/logout always 204 (no SSO RP-Initiated Logout)
 }
 
 // ssoLogoutResolveTimeout caps how long the logout handler waits for
@@ -286,6 +313,11 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.OrganizationName == "" {
 		req.OrganizationName = "AxiaOps"
+	}
+	if !validOrganizationName(req.OrganizationName) {
+		writeAuthError(w, http.StatusBadRequest, "invalid_organization_name",
+			"organization name must be 1–100 characters with no control characters")
+		return
 	}
 	if err := CheckPolicyWithIdentity(req.Password, PolicyContext{Email: req.Email, Name: req.Name}); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "weak_password", err.Error())

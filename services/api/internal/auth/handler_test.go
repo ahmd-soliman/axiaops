@@ -2035,3 +2035,30 @@ func TestBootstrapWithDisabledFileSkipsRemoval(t *testing.T) {
 		t.Fatalf("bootstrap status = %d / %s", w.Code, w.Body.String())
 	}
 }
+
+// TestBootstrapRejectsOrgNameWithControlChars (audit N-2): the org display name
+// is interpolated into the invite-email Subject header, so bootstrap must
+// reject control characters (CR/LF) just like the rename path does.
+func TestBootstrapRejectsOrgNameWithControlChars(t *testing.T) {
+	t.Parallel()
+	h, store, _ := newHandlerTest(t)
+	token := seedInstallToken(t, store)
+
+	w := postJSON(t, mux(h), "/v1/auth/bootstrap", map[string]string{
+		"token":             token,
+		"email":             "owner@example.com",
+		"name":              "Owner",
+		"password":          "correct horse battery staple",
+		"organization_name": "Evil\r\nBcc: attacker@evil.test",
+	}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d; want 400 on control-char org name; body = %s", w.Code, w.Body.String())
+	}
+	// The install token must NOT be consumed by a rejected bootstrap — the
+	// validation 400 fires before ConsumeBootstrapState.
+	w2 := getJSON(t, mux(h), "/v1/auth/bootstrap/state")
+	got := mustDecode[map[string]any](t, w2)
+	if got["available"] != true {
+		t.Errorf("install token should survive a rejected bootstrap; available = %v", got["available"])
+	}
+}
