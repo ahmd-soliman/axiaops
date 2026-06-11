@@ -255,7 +255,7 @@ The §3 choice is partly a function of how AxiaOps itself is deployed. Today Axi
 | Deployment model | Description | Option A (Kinde) | Option B (native) | Option C (hybrid) |
 |---|---|:-:|:-:|:-:|
 | **Multi-tenant SaaS** (current) | One stack, all customers share infra (RLS-isolated). | ✅ **best fit** | ✅ works, more code | ⚠️ no benefit |
-| **Single-tenant managed SaaS** | AxiaOps runs a dedicated stack per customer (e.g. App Runner per tenant). | ✅ works | ✅ works | ⚠️ |
+| **Single-tenant managed SaaS** | AxiaOps runs a dedicated stack per customer (e.g. a dedicated ECS Express stack per tenant). | ✅ works | ✅ works | ⚠️ |
 | **Customer-self-hosted** | Customer runs AxiaOps containers in their own AWS/GCP/Azure/on-prem. | ❌ Kinde dependency untenable | ✅ **required** | ❌ |
 | **Air-gapped self-hosted** | No outbound internet (regulated/classified networks). | ❌ Kinde unreachable | ✅ **required** + local IdP | ❌ |
 

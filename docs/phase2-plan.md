@@ -5,6 +5,8 @@
 > checkmarks in 2.12 that no longer reflect the repo state.
 >
 > **Author:** Ahmed · **Date:** 2026-04-18 · **Scope:** three tracks, deliverable end-to-end.
+>
+> **Status (2026-06):** ✅ completed — all three tracks shipped (see CLAUDE.md Current Status).
 
 ---
 
