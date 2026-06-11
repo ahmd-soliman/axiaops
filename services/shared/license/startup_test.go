@@ -237,7 +237,7 @@ func TestVerifyAtBoot_LoadErrorClassification(t *testing.T) {
 		},
 		{
 			name:   "wrong_audience",
-			mutate: func(c *jwt.MapClaims) { (*c)["aud"] = "axiaops-saashosted" },
+			mutate: func(c *jwt.MapClaims) { (*c)["aud"] = "axiaops-wrong-aud" },
 		},
 		{
 			name:   "future_iat",

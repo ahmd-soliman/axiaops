@@ -1,4 +1,4 @@
-//go:build saashosted
+//go:build !selfhosted
 
 package main
 
@@ -12,12 +12,15 @@ import (
 	"axiaops.io/shared/storage"
 )
 
-// SaaS build (`-tags saashosted`, paired with `production` for shipping). This
-// is "license removal in SaaS mode" (design §7.1): the license JWT is bypassed
-// at boot and the scan endpoint gates on per-tenant entitlement instead. /v1/version
+// SaaS build — the DEFAULT (any build without `-tags selfhosted`). This is
+// "license removal in SaaS mode" (design §7.1): the license JWT is bypassed at
+// boot and the scan endpoint gates on per-tenant entitlement instead. /v1/version
 // collapses to {state:"managed"} (handler.licenseSummary branches on
-// license.IsEnforcementBypassed). Compiled ONLY into saashosted builds, so the
-// bypass can never be reached in a self-hosted/customer binary.
+// license.IsEnforcementBypassed). The license-enforcing counterpart compiles
+// ONLY into the `selfhosted` build (saasmode_selfhosted.go); since SaaS is the
+// default, forgetting the tag yields a license-bypassed binary — the accepted
+// SaaS-first posture (self-hosted ships pre-built with the tag). The fail-loud
+// boot log in main.go records which seam compiled.
 
 // bypassLicenseForSaaS flips the license enforcement bypass so license.IsScanAllowed*
 // always returns true; the entitlement gate then owns the scan decision. Must

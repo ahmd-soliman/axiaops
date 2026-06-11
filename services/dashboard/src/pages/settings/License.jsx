@@ -83,7 +83,7 @@ export default function License() {
         </p>
       )}
       {data?.license?.state === 'managed' ? (
-        // SaaS (the `saashosted` build): there is no customer-facing license under
+        // SaaS (the default build): there is no customer-facing license under
         // SaaS (design §7.4). The License tab is hidden in Settings.jsx; this
         // note is the defensive fallback for a direct /settings/license URL.
         // The plan/usage view (#131) is the eventual replacement surface.

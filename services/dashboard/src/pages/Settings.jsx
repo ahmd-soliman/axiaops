@@ -104,7 +104,7 @@ export default function Settings() {
   // OnboardingGate.
   if (loading && !me) return null;
 
-  // SaaS (saashosted build) reports license.state="managed" — there is no
+  // SaaS (the default build) reports license.state="managed" — there is no
   // customer-facing license under SaaS (design §7.4), so hide the License tab.
   // Same cached ['api-version'] key/fn the LicenseBanner + License page use →
   // React Query dedupes, so this is a cache read, not an extra request.

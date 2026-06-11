@@ -5,7 +5,8 @@
 --
 -- DORMANT SCAFFOLD (Phase 2A): this table exists and is read/written by the
 -- `entitlement` package + cmd/entitlement-seed, but NO scan-gate consults it
--- yet — that wiring (the *-saashosted composition roots that call
+-- yet — that wiring (the default (SaaS) build's scan gates, via the build-tag
+-- seam in services/{api,ingestion}/cmd/saasmode_saas.go, which call
 -- license.SetEnforcementBypass()) is Phase 2B, deliberately deferred until
 -- ADR-0002 is accepted and the self-serve activation gate proves out
 -- (design §7.1 / §11.1 decision 3). Until then this table changes no running

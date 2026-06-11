@@ -30,7 +30,7 @@ import { shouldNagRenewal } from '../utils/license';
 //
 //  • Three non-self-hosted-license states the banner stays silent for:
 //    (a) DEV_MODE — post-B1.7-layer-4 the api emits state="valid" via the
-//    embedded dev fixture, so severity() returns null. (b) SaaS (saashosted
+//    embedded dev fixture, so severity() returns null. (b) SaaS (the default
 //    build) — the api emits state="managed" and the explicit guard below
 //    returns null (there is no customer-facing license under SaaS). (c) true
 //    production-without-a-license — state="not_loaded", which DOES show (red,
@@ -64,7 +64,7 @@ export default function LicenseBanner() {
   const lic = data?.license;
   if (!lic) return null;
 
-  // SaaS (the `saashosted` build) reports state="managed" — there is no customer-
+  // SaaS (the default build) reports state="managed" — there is no customer-
   // facing license under SaaS (design §7.4). Hide the banner entirely; the
   // plan/usage view replaces it (#131). severity() would already return null
   // for an unknown state, but this is the explicit, intent-revealing guard.

@@ -25,7 +25,7 @@ func (s stubEntitlementResolver) GetEntitlement(context.Context, string) (model.
 }
 
 // entitlementGateMux builds a handler wired with the entitlement resolver (the
-// SaaS posture: the `saashosted` build sets this; the license is bypassed). With a
+// SaaS posture: the default build sets this; the license is bypassed). With a
 // resolver present, scanAccount gates on entitlement regardless of license state.
 func entitlementGateMux(resolver stubEntitlementResolver) *http.ServeMux {
 	mux := http.NewServeMux()

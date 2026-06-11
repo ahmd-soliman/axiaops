@@ -4,7 +4,7 @@
 // Phase 2A scaffold (design §7.1) — there is no admin UI or Stripe integration
 // yet, so this CLI is how you put a tenant into trialing/active/past_due/etc. on
 // dev-1 to exercise the entitlements table (and, once Phase 2B wires the
-// *-saashosted gates, the scan-gate behaviour).
+// default (SaaS) build's scan gates, the scan-gate behaviour).
 //
 // It connects with the runtime-admin role because the `entitlements` table is
 // system-scoped and granted ONLY to axiaops_runtime (migration 033) — the app

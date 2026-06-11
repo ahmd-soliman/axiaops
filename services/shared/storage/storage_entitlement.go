@@ -10,7 +10,8 @@
 // scheduler. See docs/saas-platform-admin-design.md §7.2 / §8.
 //
 // DORMANT SCAFFOLD (Phase 2A): present and tested, but no scan gate consults it
-// until Phase 2B wires the *-saashosted composition roots (design §7.1).
+// until Phase 2B wires the default (SaaS) build's scan gates via the build-tag
+// seam (services/{api,ingestion}/cmd/saasmode_saas.go) (design §7.1).
 
 package storage
 

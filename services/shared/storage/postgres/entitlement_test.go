@@ -25,9 +25,13 @@ func TestEntitlement_UpsertGetRoundtrip(t *testing.T) {
 		t.Fatalf("UpsertOrganization: %v", err)
 	}
 
-	// Missing row → ErrEntitlementNotFound (the fail-closed signal).
-	if _, err := s.GetEntitlement(ctx, org.ID); !errors.Is(err, storage.ErrEntitlementNotFound) {
-		t.Fatalf("GetEntitlement before insert: want ErrEntitlementNotFound, got %v", err)
+	// UpsertOrganization now auto-grants a default 'internal'/'active'
+	// entitlement (migration 034 + ensureDefaultEntitlement), so the org starts
+	// scan-allowed. The billing upsert below overwrites it.
+	if def, err := s.GetEntitlement(ctx, org.ID); err != nil {
+		t.Fatalf("GetEntitlement after org create: want auto-granted row, got err %v", err)
+	} else if def.Plan != "internal" || def.Status != model.StatusActive {
+		t.Fatalf("auto-granted entitlement = %+v, want plan=internal status=active", def)
 	}
 
 	period := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)

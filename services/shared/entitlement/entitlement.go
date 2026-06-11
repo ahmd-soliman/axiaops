@@ -3,14 +3,16 @@
 // state instead of a signed license JWT. See
 // docs/saas-platform-admin-design.md §7.2.
 //
-// WIRED IN SAAS BUILDS (Phase 2B). In a `-tags saashosted` build the api +
+// WIRED IN SAAS BUILDS (Phase 2B). In the default (SaaS) build the api +
 // ingestion roots call license.SetEnforcementBypass() at boot (the license JWT
 // goes dormant) and thread a Resolver into the scan gates, which then call
-// IsScanAllowedForOrg here instead of license.IsScanAllowed. In the default
-// (self-hosted) build the resolver is nil and the gates keep the license
-// predicate — this package is inert there. The selection is the compile-time
-// `saashosted` build tag (services/{api,ingestion}/cmd/saasmode_*.go), so the
-// bypass can never be reached in a self-hosted/customer binary. See
+// IsScanAllowedForOrg here instead of license.IsScanAllowed. In the
+// `-tags selfhosted` (opt-in licensed) build the resolver is nil and the gates
+// keep the license predicate — this package is inert there. The selection is
+// the compile-time build-tag seam (default=SaaS via
+// services/{api,ingestion}/cmd/saasmode_saas.go; opt-in licensed via
+// `-tags selfhosted` / saasmode_selfhosted.go), so the bypass can never be
+// reached in a self-hosted/customer binary. See
 // docs/saas-platform-admin-design.md §7.1.
 //
 // Mirrors the license package's seam shape on purpose:
@@ -78,7 +80,7 @@ func IsScanAllowed(e model.Entitlement, now time.Time, grace time.Duration) bool
 
 // IsScanAllowedForOrg looks up the org's entitlement and applies the predicate.
 // It is the wrapper the scan-gate sites call (api scanAccount + the 3 ingestion
-// sites) in saashosted builds.
+// sites) in the default (SaaS) build.
 //
 // Fail-closed by construction (the posture chosen for SaaS — billing is the
 // source of truth, every real tenant gets a row at signup, so absence means
