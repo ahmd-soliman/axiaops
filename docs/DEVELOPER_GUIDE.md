@@ -110,7 +110,7 @@ make test-integration-ingestion    # Just the ingestion suite
 make build-production    # go build -tags production — catches DEV_MODE leak regressions
 ```
 
-**Conventions** (from [TEST_STRATEGY.md](TEST_STRATEGY.md) + [UNIT_VS_INTEGRATION_TESTS.md](UNIT_VS_INTEGRATION_TESTS.md)):
+**Conventions** (from [TEST_STRATEGY.md](TEST_STRATEGY.md)):
 
 - Standard `testing` package only — **no testify** or third-party assertion libs.
 - **Black-box tests**: `package foo_test`, not `package foo`.
