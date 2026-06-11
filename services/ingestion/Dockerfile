@@ -4,10 +4,11 @@ COPY services/shared/ /shared/
 COPY services/ingestion/go.mod services/ingestion/go.sum ./
 RUN go mod download
 COPY services/ingestion/ .
-# BUILD_TAGS — see services/api/Dockerfile for the layer-3 rationale.
-# Mirroring api's stripping for parity: an api binary that ignores
-# DEV_MODE paired with an ingestion binary that honours it would still
-# leak the bypass at the ingestion-side scan-gate.
+# BUILD_TAGS — see services/api/Dockerfile for the full matrix. Default empty =
+# SaaS (license bypassed, entitlement-gated); `production selfhosted` = the
+# licensed customer image. Mirrors api so the license + DEV_MODE shape is
+# symmetric across the two binaries: an api that bypasses the license paired with
+# an ingestion that enforced it (or vice versa) would gate scans inconsistently.
 ARG BUILD_TAGS=
 RUN go build -tags "$BUILD_TAGS" -o ingestion ./cmd/
 

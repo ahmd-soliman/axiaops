@@ -383,6 +383,42 @@ test-e2e:
 		docker-compose rm -f 2>/dev/null || true; \
 		exit $$status
 
+# E2E regression suite — CI variant that REUSES the registry images already built
+# by `build:images` in the same pipeline (api/ingestion/migrate/dashboard) instead
+# of rebuilding all four from source. ~21min → mostly the suite runtime; the four
+# from-scratch image builds are gone.
+#
+# Layers docker-compose.ci.yml over the base file: the override pins each app
+# service to ${REGISTRY}/<svc>:${IMAGE_TAG}. We `pull` those four FIRST (which
+# fetches + tags them locally under those names), then build ONLY the playwright
+# runner (it's not in build:images), then run the suite. Because the four images
+# are already present locally after the pull, compose never rebuilds them.
+#
+# Requires a prior `docker login ${CI_REGISTRY}` and REGISTRY/IMAGE_TAG set — the
+# e2e:regression job does both. Do NOT use this locally: it has a hard registry
+# dependency. Local devs use `make test-e2e` (builds everything from source).
+#
+# DOCKER_BUILDKIT=0 is scoped to the playwright build ONLY — its single network
+# `npm install` RUN needs the legacy builder's DNS (see test-e2e). The pulled
+# images don't build, so they don't need it.
+E2E_CI_COMPOSE := docker-compose -f docker-compose.yml -f docker-compose.ci.yml
+test-e2e-ci:
+	cd test-infra/e2e && $(E2E_CI_COMPOSE) down -v --remove-orphans 2>/dev/null || true
+	cd test-infra/e2e && $(E2E_CI_COMPOSE) pull migrate ingestion api dashboard
+	cd test-infra/e2e && DOCKER_BUILDKIT=0 $(E2E_CI_COMPOSE) build playwright
+	cd test-infra/e2e && $(E2E_CI_COMPOSE) run --rm playwright; \
+		status=$$?; \
+		if [ $$status -ne 0 ]; then \
+			echo "=== e2e failed (exit $$status) — container state + logs before teardown ==="; \
+			$(E2E_CI_COMPOSE) ps || true; \
+			for svc in postgres migrate api ingestion dashboard playwright; do \
+				echo "--- logs $$svc ---"; $(E2E_CI_COMPOSE) logs --no-color --tail=120 $$svc 2>&1 || true; \
+			done; \
+		fi; \
+		$(E2E_CI_COMPOSE) down -v --remove-orphans 2>/dev/null || true; \
+		$(E2E_CI_COMPOSE) rm -f 2>/dev/null || true; \
+		exit $$status
+
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
 	@echo "Cleaning up AxiaOps Docker resources..."
@@ -456,6 +492,29 @@ build-production:
 		echo "production-tagged api-admin built — /tmp/axiaops-api-admin-production"; \
 	fi
 	@echo "production-tagged binaries built — DEV_MODE is no-op in /tmp/axiaops-{api,ingestion}-production"
+
+# SaaS is the DEFAULT build (`go build ./cmd/`): the license is bypassed at boot
+# and per-tenant entitlement gates scans instead (docs/saas-platform-admin-design.md
+# §7.1). This named target just builds that default explicitly (empty tags) — handy
+# for symmetry with build-production / build-selfhosted and for a one-shot compile
+# check of the SaaS shape.
+.PHONY: build-saas
+build-saas:
+	cd services/api && go build -o /tmp/axiaops-api-saas ./cmd/
+	cd services/ingestion && go build -o /tmp/axiaops-ingestion-saas ./cmd/
+	@echo "default (SaaS) binaries built — /tmp/axiaops-{api,ingestion}-saas (license bypassed, entitlement-gated)"
+
+.PHONY: build-selfhosted
+build-selfhosted:
+	# Self-hosted CUSTOMER binaries: production (DEV_MODE stripped) + selfhosted
+	# (the OPT-IN that re-enables license enforcement — the license JWT gates
+	# scans; per-tenant entitlement is never consulted). The selfhosted tag-seam
+	# files (cmd/saasmode_selfhosted.go) compile ONLY into this build; the default
+	# build is SaaS (license bypassed). This is the shape CI's build:selfhosted-
+	# shape pins and build:images-selfhosted ships pre-built to customers.
+	cd services/api && go build -tags "production selfhosted" -o /tmp/axiaops-api-selfhosted ./cmd/
+	cd services/ingestion && go build -tags "production selfhosted" -o /tmp/axiaops-ingestion-selfhosted ./cmd/
+	@echo "selfhosted binaries built — /tmp/axiaops-{api,ingestion}-selfhosted (license enforced)"
 
 # axiaopsctl is the operator CLI for migrate up/down/force/drift/history.
 # See docs/migration-history-table-design.md §Operator UX.
