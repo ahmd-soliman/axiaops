@@ -1,6 +1,8 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
+import { fetchVersion } from '../api/client';
 import { LinkButton } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { PERM } from '../api/permissions';
@@ -78,6 +80,17 @@ export default function Settings() {
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
 
+  // Cached ['api-version'] read (same key/fn as AppShell + LicenseBanner →
+  // deduped, no extra request) so we can hide the License tab under SaaS.
+  const { data: version } = useQuery({
+    queryKey: ['api-version'],
+    queryFn: fetchVersion,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const licenseState = version?.license?.state;
+
   // Wait for /v1/me before deciding what to render. On first paint
   // `loading` is true and every `can()` returns false — without this gate
   // the user sees the empty-state flash before the redirect can fire.
@@ -91,7 +104,15 @@ export default function Settings() {
   // OnboardingGate.
   if (loading && !me) return null;
 
-  const visible = TABS.filter((tab) => !tab.requires || can(tab.requires));
+  // SaaS (the default build) reports license.state="managed" — there is no
+  // customer-facing license under SaaS (design §7.4), so hide the License tab.
+  // Same cached ['api-version'] key/fn the LicenseBanner + License page use →
+  // React Query dedupes, so this is a cache read, not an extra request.
+  const licenseManaged = licenseState === 'managed';
+  const visible = TABS.filter((tab) => {
+    if (tab.path === '/settings/license' && licenseManaged) return false;
+    return !tab.requires || can(tab.requires);
+  });
 
   // Land on first visible tab. Workspace sits above Account in TAB_GROUPS,
   // so for every current role this resolves to Cloud Accounts (or whichever
