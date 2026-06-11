@@ -186,4 +186,3 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 - **AWS Service Coverage:** See `tmp/aws-coverage-and-cost-explorer-notes.md` — Why certain services are prioritized, detection patterns
 - **Tier 2 Detections:** See `docs/tier2_detections_status.md` — ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, EKS detection status
 - **Graviton/ARM64 (declined):** See `docs/graviton-arm-decision.md` — why prod stays on ECS Express + x86, the ~€46/yr savings math, and the revisit trigger
-- **SaaS dev-1 deploy target:** See `docs/saas-dev1-deploy-target.md` — dev-1 as the first SaaS (license-removed) deploy target, built with `-tags saashosted` alone so DEV_MODE/no-auth is preserved; the `build:images-saashosted` job + `deploy:dev-1` wiring + entitlement seeding
