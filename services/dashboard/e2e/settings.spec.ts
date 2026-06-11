@@ -5,6 +5,10 @@ import { gotoSettled, expectNotNotFound, captureErrors } from './helpers';
 // cleanly. These are largely covered by the link crawl too, but having them as
 // explicit per-tab tests gives faster, named signal on a regression.
 
+// /settings/license is intentionally absent: under the SaaS build the e2e stack
+// runs (license.state="managed"), the License tab is hidden and the page redirects
+// to /settings — there is no customer-facing license under SaaS. Covered by the
+// dedicated redirect test below.
 const SETTINGS_TABS = [
   '/settings/profile',
   '/settings/cloud-accounts',
@@ -13,7 +17,6 @@ const SETTINGS_TABS = [
   '/settings/audit',
   '/settings/sso',
   '/settings/organization',
-  '/settings/license',
 ];
 
 test.describe('settings tabs', () => {
@@ -30,6 +33,14 @@ test.describe('settings tabs', () => {
   test('/settings/team redirects to /settings/members', async ({ page }) => {
     await gotoSettled(page, '/settings/team');
     await expect(page).toHaveURL(/\/settings\/members$/);
+    await expectNotNotFound(page);
+  });
+
+  // SaaS posture (the e2e build): there is no customer-facing License page —
+  // a direct /settings/license deep-link bounces back to /settings.
+  test('/settings/license redirects to /settings under SaaS', async ({ page }) => {
+    await gotoSettled(page, '/settings/license');
+    await expect(page).toHaveURL(/\/settings$/);
     await expectNotNotFound(page);
   });
 });

@@ -1,3 +1,4 @@
+import { Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../../theme/ThemeContext';
 import { fetchVersion } from '../../api/client';
@@ -48,6 +49,15 @@ export default function License() {
     retry: false,
   });
 
+  // SaaS (the default build) reports license.state="managed" — there is no
+  // customer-facing license under SaaS (design §7.4). The License tab is already
+  // hidden in Settings.jsx; this removes the page ENTIRELY on that build by
+  // bouncing a direct /settings/license deep-link back to Settings, so the page
+  // never renders under SaaS. Self-hosted (any non-managed state) renders below.
+  if (data?.license?.state === 'managed') {
+    return <Navigate to="/settings" replace />;
+  }
+
   return (
     <div style={{ padding: 24, color: 'var(--color-text-mid)' }}>
       <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 24 }}>
@@ -82,17 +92,8 @@ export default function License() {
           Could not load license state. Check the API health and retry.
         </p>
       )}
-      {data?.license?.state === 'managed' ? (
-        // SaaS (the default build): there is no customer-facing license under
-        // SaaS (design §7.4). The License tab is hidden in Settings.jsx; this
-        // note is the defensive fallback for a direct /settings/license URL.
-        // The plan/usage view (#131) is the eventual replacement surface.
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>
-          Your plan is managed by AxiaOps Cloud — there is no license to install or renew.
-        </p>
-      ) : (
-        data?.license && <LicensePane lic={data.license} version={data} isDark={isDark} />
-      )}
+      {/* Self-hosted only — the managed (SaaS) state redirects away above. */}
+      {data?.license && <LicensePane lic={data.license} version={data} isDark={isDark} />}
     </div>
   );
 }
