@@ -37,10 +37,12 @@ test.describe('settings tabs', () => {
   });
 
   // SaaS posture (the e2e build): there is no customer-facing License page —
-  // a direct /settings/license deep-link bounces back to /settings.
+  // a direct /settings/license deep-link bounces to /settings, whose
+  // first-visible-tab redirect immediately forwards to /settings/cloud-accounts
+  // (the e2e user is an owner, so Cloud Accounts is always visible[0]).
   test('/settings/license redirects to /settings under SaaS', async ({ page }) => {
     await gotoSettled(page, '/settings/license');
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/cloud-accounts$/);
     await expectNotNotFound(page);
   });
 });
