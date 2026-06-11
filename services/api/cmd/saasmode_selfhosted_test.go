@@ -1,4 +1,4 @@
-//go:build !saashosted
+//go:build selfhosted
 
 package main
 
@@ -8,10 +8,10 @@ import (
 	"axiaops.io/shared/license"
 )
 
-// Regression-pin for the self-hosted half of the saasmode build-tag seam
-// (mirrors devmode_dev_test.go). If a stale edit reintroduced the license
-// bypass into the default build, this fails. Paired with
-// saasmode_saashosted_test.go under `-tags saashosted`.
+// Regression-pin for the self-hosted (opt-in) half of the saasmode build-tag
+// seam (mirrors devmode_dev_test.go). Runs only under `-tags selfhosted`. If a
+// stale edit left the license bypass active in the selfhosted build, this fails.
+// Paired with saasmode_saas_test.go (the default build).
 
 func TestSaasMode_SelfHosted_NoBypass(t *testing.T) {
 	prev := license.IsEnforcementBypassed()

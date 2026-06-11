@@ -18,7 +18,7 @@ import (
 //   - resolver == nil → SELF-HOSTED: gate on the license JWT exactly as before
 //     (byte-identical license_expired / license_not_loaded bodies via
 //     scanGateBody in handler.go). This is the path cmd/main.go takes.
-//   - resolver != nil → SAAS (the `saashosted` build): the license is bypassed at
+//   - resolver != nil → SAAS (the default build): the license is bypassed at
 //     boot (license.SetEnforcementBypass), so gate on per-tenant entitlement
 //     instead. Fail-closed: a missing row or a lookup error denies the scan.
 //

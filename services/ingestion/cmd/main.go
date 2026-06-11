@@ -100,12 +100,21 @@ func main() {
 	logging.Init("ingestion")
 
 	// ── SaaS mode (license removal, design §7.1) ───────────────────────────
-	// In the `-tags saashosted` build this flips the license enforcement bypass
+	// SaaS is the DEFAULT build: this flips the license enforcement bypass
 	// BEFORE VerifyAtBoot, so the scan gates consult per-tenant entitlement
-	// instead of the license JWT. In the default (self-hosted) build it is a
-	// no-op — the bypass call is compiled only into the saashosted sibling file,
-	// so a customer binary has no code path that disables its license gate.
+	// instead of the license JWT. In the `-tags selfhosted` (opt-in) build it is
+	// a no-op — the bypass call is compiled only into the default SaaS sibling
+	// (saasmode_saas.go), so a self-hosted/customer binary has no code path that
+	// disables its license gate.
 	bypassLicenseForSaaS()
+
+	// Fail-loud: record which seam compiled into this binary (the safe default
+	// now depends on the *absence* of the `selfhosted` tag).
+	licenseMode := "selfhosted"
+	if license.IsEnforcementBypassed() {
+		licenseMode = "saas"
+	}
+	slog.Info("license: mode resolved", "mode", licenseMode, "license_enforced", !license.IsEnforcementBypassed())
 
 	// ── License (B1.6 amended + B1.7 layer 2) ──────────────────────────────
 	// Per docs/b1.6-amendment-feature-gating.md, ingestion mirrors the api's
@@ -142,8 +151,8 @@ func main() {
 
 	store := newStore()
 
-	// SaaS: (store-as-resolver, grace) in the saashosted build; (nil, 0) in
-	// self-hosted (the three scan gates then use the license predicate).
+	// SaaS (default): (store-as-resolver, grace); `-tags selfhosted`: (nil, 0)
+	// (the three scan gates then use the license predicate).
 	entitlementResolver, entitlementGrace := entitlementGate(store)
 
 	retentionDays := 90

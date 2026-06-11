@@ -1,4 +1,4 @@
-//go:build !saashosted
+//go:build selfhosted
 
 package main
 
@@ -9,12 +9,13 @@ import (
 	"axiaops.io/shared/storage"
 )
 
-// Self-hosted build (default — no `saashosted` tag). The license JWT gates the
-// scan endpoint; per-tenant entitlement is never consulted. This file is the
-// compile-time counterpart of saasmode_saashosted.go: the license-bypass call
-// lives ONLY in the saashosted sibling, so a self-hosted/customer binary has no
-// code path that disables its license gate (mirrors the production-tag DEV_MODE
-// strip). See docs/saas-platform-admin-design.md §7.1.
+// Self-hosted build — the OPT-IN (`-tags selfhosted`, paired with `production`
+// for the customer shipping image). The license JWT gates the scan endpoint;
+// per-tenant entitlement is never consulted. This file is the compile-time
+// counterpart of saasmode_saas.go (the default): the license-bypass call lives
+// ONLY in the default SaaS sibling, so a self-hosted/customer binary built with
+// this tag has no code path that disables its license gate (mirrors the
+// production-tag DEV_MODE strip). See docs/saas-platform-admin-design.md §7.1.
 
 // bypassLicenseForSaaS is a no-op in self-hosted builds.
 func bypassLicenseForSaaS() {}

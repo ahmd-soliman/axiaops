@@ -897,6 +897,24 @@ func (s *Store) ConsumeBootstrapState(ctx context.Context, in storage.BootstrapC
 		return storage.BootstrapResult{}, fmt.Errorf("postgres: consume bootstrap insert org: %w", err)
 	}
 
+	// 1b. Auto-entitle the new org so the default (SaaS) build's fail-closed
+	// scan-gate works without billing (see ensureDefaultEntitlement). Done
+	// inline on this tx rather than via the helper so it is ATOMIC with the org
+	// insert — bootstrap is a one-shot first-owner install, so a half-created
+	// org with no entitlement is the wrong outcome; the whole tx rolls back on
+	// failure. The entitlements table is system-scoped (no RLS) and the tx runs
+	// on adminPool, so the org GUC set later for the membership insert is
+	// irrelevant here. plan='internal'/'active'/max_accounts=1000: pre-billing
+	// full grant — see ensureDefaultEntitlement for the rationale.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO entitlements (organization_id, plan, status, max_accounts, features)
+		VALUES ($1, 'internal', 'active', 1000, '{}')
+		ON CONFLICT (organization_id) DO NOTHING`,
+		in.OrganizationID,
+	); err != nil {
+		return storage.BootstrapResult{}, fmt.Errorf("postgres: consume bootstrap insert entitlement: %w", err)
+	}
+
 	// 2. User (no RLS).
 	externalID := "native:" + in.UserID
 	var user model.User
