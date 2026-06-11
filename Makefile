@@ -383,6 +383,42 @@ test-e2e:
 		docker-compose rm -f 2>/dev/null || true; \
 		exit $$status
 
+# E2E regression suite — CI variant that REUSES the registry images already built
+# by `build:images` in the same pipeline (api/ingestion/migrate/dashboard) instead
+# of rebuilding all four from source. ~21min → mostly the suite runtime; the four
+# from-scratch image builds are gone.
+#
+# Layers docker-compose.ci.yml over the base file: the override pins each app
+# service to ${REGISTRY}/<svc>:${IMAGE_TAG}. We `pull` those four FIRST (which
+# fetches + tags them locally under those names), then build ONLY the playwright
+# runner (it's not in build:images), then run the suite. Because the four images
+# are already present locally after the pull, compose never rebuilds them.
+#
+# Requires a prior `docker login ${CI_REGISTRY}` and REGISTRY/IMAGE_TAG set — the
+# e2e:regression job does both. Do NOT use this locally: it has a hard registry
+# dependency. Local devs use `make test-e2e` (builds everything from source).
+#
+# DOCKER_BUILDKIT=0 is scoped to the playwright build ONLY — its single network
+# `npm install` RUN needs the legacy builder's DNS (see test-e2e). The pulled
+# images don't build, so they don't need it.
+E2E_CI_COMPOSE := docker-compose -f docker-compose.yml -f docker-compose.ci.yml
+test-e2e-ci:
+	cd test-infra/e2e && $(E2E_CI_COMPOSE) down -v --remove-orphans 2>/dev/null || true
+	cd test-infra/e2e && $(E2E_CI_COMPOSE) pull migrate ingestion api dashboard
+	cd test-infra/e2e && DOCKER_BUILDKIT=0 $(E2E_CI_COMPOSE) build playwright
+	cd test-infra/e2e && $(E2E_CI_COMPOSE) run --rm playwright; \
+		status=$$?; \
+		if [ $$status -ne 0 ]; then \
+			echo "=== e2e failed (exit $$status) — container state + logs before teardown ==="; \
+			$(E2E_CI_COMPOSE) ps || true; \
+			for svc in postgres migrate api ingestion dashboard playwright; do \
+				echo "--- logs $$svc ---"; $(E2E_CI_COMPOSE) logs --no-color --tail=120 $$svc 2>&1 || true; \
+			done; \
+		fi; \
+		$(E2E_CI_COMPOSE) down -v --remove-orphans 2>/dev/null || true; \
+		$(E2E_CI_COMPOSE) rm -f 2>/dev/null || true; \
+		exit $$status
+
 # Clean up Docker resources from integration tests and other AxiaOps containers
 clean-docker:
 	@echo "Cleaning up AxiaOps Docker resources..."
