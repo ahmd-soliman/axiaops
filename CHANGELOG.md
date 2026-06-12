@@ -27,6 +27,92 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.26] — 2026-06-12
+
+### Added
+
+- add license-independent build-version footer
+- add Permissions-Policy header (N-5) to SPA nginx configs
+- add resource-type sub-filter to cost screen
+- remove License page entirely under SaaS (managed state)
+- invert license build-tag model — SaaS is default, self-hosted is opt-in
+- activate dev-1 as the SaaS (license-removed) deploy target
+- gate scans on entitlement in SaaS builds (license removal, Phase 2B)
+- scaffold SaaS per-tenant entitlement (dormant Phase 2A)
+- expand breach corpus to ~10k via xato-net merge (2.7.11)
+- screen passwords against an offline breach corpus (2.7.11)
+- show invite link expiry in the result box
+- surface invite-email outcome + frame link as fallback
+
+### Changed
+
+- ci(deploy): wire prod SMTP relay password into ECS deploy from CI var
+- docs(billing-plan): correct audit.Record signature and harden migration-number examples
+- docs(billing-plan): clarify Shared-struct addition (DS9) implementation scope
+- docs(billing-plan): third-pass refinements — DS9, migration naming, index guidance
+- docs: document cross-plan interactions before billing (H-1 users-RLS, M-8 CSRF)
+- docs(billing-plan): second-pass fixes after MR !338 review
+- docs: billing plan + signup staleness refresh
+- docs(dashboard): performance & state review — 2 high, 9 medium, 17 low findings
+- ci(e2e): auto-trigger regression suite on all code-touching MRs
+- docs(dashboard): note ordering constraint on resource-id prefix map
+- docs(security): pre-billing security pass plan — close #94 remainder before Stripe
+- docs: sync stale claims with shipped state; accept ADR-0002 (SaaS-first)
+- docs: remove obsolete docs — point-in-time logs, brainstorms, superseded plans
+- ci: reuse build:images in e2e instead of rebuilding from source
+- ci: gate e2e:regression on unit+lint to skip it on fast failures
+- ci: drop e2e:regression from build:images needs (it only added latency)
+- ci: make both self-hosted CI jobs manual and independent
+- docs(tasks): update Phase 2B row to reflect inverted SaaS-default build model
+- docs: revert SaaS dev-1 deploy target (reconsidering design direction)
+- docs(index): reference SaaS dev-1 deploy target design doc
+- docs(saas): document dev-1 as the first SaaS deploy target (Phase 2B)
+- chore: restore stray repo-root cmd binary to develop's version
+- docs(tasks): sync 2.7.11 breach-corpus size with shipped ~10k corpus
+- docs(auth): design password breach-corpus screening with offline HIBP
+- ci(e2e): bake Playwright runner into hermetic image
+- ci: rename self-hosted runner tag self-hosted -> app
+- test(e2e): single auth-on lane — bootstrap ceremony + real cookie auth
+- ci(e2e): add e2e stage + e2e:regression job; broaden plan to full suite
+- test(e2e): add docker-compose e2e stack + make test-e2e
+- test(dashboard): add Playwright e2e regression suite
+- docs(e2e-plan): address !321 review — wording + "all pipelines?"
+- docs: plan for a Playwright link-check E2E pipeline stage
+- docs(rbac): design multi-owner support to remove single-owner SPOF
+- docs(api): document SMTP invite-relay + PUBLIC_HOST knobs in .env.example
+- chore(ci): set PUBLIC_HOST on dev-1/dev-2 deploys for invite emails
+- chore(deploy): wire global SMTP relay into dev-1/dev-2 for invite emails
+- docs(changelog): trim alpha.25 section to its one real entry
+
+### Fixed
+
+- enable Row-Level Security on users table (H-1)
+- close dismiss modal before opening restore-confirm to prevent overlay focus fighting
+- performance & state-management fixes across tenant + admin UIs
+- mitigate invite-email header injection (N-2)
+- hide License sidebar link under SaaS (managed state)
+- skip load when enforcement bypassed (SaaS default build)
+- gate e2e:regression on code_paths changes to unblock docs-only MRs
+- gate e2e:regression on code changes; fix SaaS license-redirect test
+- send organization_id in the ingestion scan integration test
+- seed ci-tenant entitlement for the SaaS-default scan gate
+- address code-review findings on the SaaS scan-gate
+- clarify breach-corpus licensing and password-check policy sites
+- eliminate network dependency from build and runtime
+- bake runner deps into cached image (no runtime DNS)
+- drop dns override — use runner's working default resolver
+- point playwright container at public DNS for apt/npm
+- gate postgres health on TCP to fix migrate startup race
+- defer apt/npm to container start — build sandbox has no DNS
+- make external-link liveness advisory, not fatal
+- ESM-safe paths for setup session + storageState
+- dashboard healthcheck IPv4 + dump logs on failure
+- stop leaking integration test stacks on cancelled jobs
+- scope Vitest to src/ so it ignores Playwright e2e specs
+- backfill resource_records so every seeded zombie has a resource row
+- use real anchors for in-app navigation (#130)
+
+
 ## [0.1.0-alpha.25] — 2026-06-06
 
 ### Added
@@ -731,7 +817,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.25...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.26...develop
+[0.1.0-alpha.26]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.26
 [0.1.0-alpha.25]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.25
 [0.1.0-alpha.24]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.24
 [0.1.0-alpha.23]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.23
