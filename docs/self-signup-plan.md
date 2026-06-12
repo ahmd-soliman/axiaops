@@ -46,6 +46,8 @@ Slice 6  Soft-gate email verification               (L)  ── abuse hardening
 
 **Cut-further option:** Slice 6's verification *email send* can stub to a no-op that just writes the token row, so the schema + soft-gate banner ship without the production mail relay being fully provisioned (deliverability is an ops prerequisite, not a code blocker). Slice 5 is the one piece that must not be cut for a public launch.
 
+**Sequencing vs the pre-billing security pass and billing.** The expected order is **signup beta (this plan, ADR-0002's "first build") → pre-billing security pass ([`security-before-billing-plan.md`](security-before-billing-plan.md) §2) → Stripe build ([`billing-plan.md`](billing-plan.md))**. Two of the pass's items intersect this plan and are cross-referenced where they bite: **H-1** (users-table RLS) invalidates grounding note 1's "users has no RLS" reuse assumption (see Slice 1's RLS note + Slice 6.2's sequencing note), and **M-8** (CSRF) makes register an additional CSRF-cookie-issuance site (see Slice 2). If the security pass somehow lands first, re-validate both before coding Slices 1–2.
+
 ---
 
 ## Slice 1 — `RegisterSelfService` storage method (S)
@@ -64,7 +66,7 @@ Slice 6  Soft-gate email verification               (L)  ── abuse hardening
 - Reuse the existing `storage.ErrUserEmailExists` sentinel for the unique-index collision.
 - Inside `RegisterSelfService`, after the session INSERT and within the same transaction, the default-entitlement INSERT (`ON CONFLICT (organization_id) DO NOTHING`) — copied from `ConsumeBootstrapState`'s inline form, not via the out-of-tx `ensureDefaultEntitlement` helper (`postgres.go`). In-tx makes it **fatal by construction**: a failed entitlement write rolls back the whole registration, so a missing row can't silently produce an org that can never scan.
 
-**RLS note.** Uses `s.adminPool` exactly as `ConsumeBootstrapState` (registration is pre-org-context — it *creates* the org). The membership INSERT sets `app.organization_id` via `set_config(..., true)` in-tx. `organizations`/`users`/`sessions` have no RLS; `memberships` does and is satisfied by the local GUC.
+**RLS note.** Uses `s.adminPool` exactly as `ConsumeBootstrapState` (registration is pre-org-context — it *creates* the org). The membership INSERT sets `app.organization_id` via `set_config(..., true)` in-tx. `organizations`/`users`/`sessions` have no RLS today; `memberships` does and is satisfied by the local GUC. **If the H-1 users-RLS migration ([`security-before-billing-plan.md`](security-before-billing-plan.md) §2) lands before this slice, the `users` INSERT additionally relies on the `axiaops_runtime` bypass policy covering `users` — verify that policy exists before reusing the transaction wholesale (see grounding note 1).**
 
 **Test plan** (`postgres_test.go`, integration — `make test-storage`):
 - Happy path: user+session returned; org/user/membership/session rows present; role `owner`; `auth_mode='password'`.
@@ -93,7 +95,7 @@ Slice 6  Soft-gate email verification               (L)  ── abuse hardening
 - `Hash(password)`; mint session token; build `RegisterSelfServiceInput` with pre-generated UUIDs.
 - Call `h.store.RegisterSelfService`.
 - Errors: `ErrUserEmailExists` → **409 `email_taken`** (DS6 — must tell the user to log in; do NOT collapse to a generic error); other → 500.
-- Success: pre-warm session cache, write audit `AuditActionUserRegisteredSelf`, `SetSession`, 200 `{user{…,role:"owner"}, organization{…}}`.
+- Success: pre-warm session cache, write audit `AuditActionUserRegisteredSelf`, `SetSession`, 200 `{user{…,role:"owner"}, organization{…}}`. **M-8 forward note:** the planned CSRF system ([`security-before-billing-plan.md`](security-before-billing-plan.md) §2) issues its CSRF cookie *at session-mint* — register is another session-mint site, so whichever lands second must add the CSRF-cookie issuance here too, or a freshly-registered user's first state-changing POST 403s. (Register itself stays CSRF-exempt — it's pre-auth; only the cookie *issuance* is needed.)
 - Leave a `// TODO slice 6` seam after the audit write for the verification-email mint.
 
 **Seams filled by later slices** (nil-tolerant hooks, before any DB work): `if h.registerLimit != nil {…}` (Slice 3), `if h.captcha != nil {…}` (Slice 5).
@@ -206,7 +208,7 @@ GRANT SELECT, INSERT, UPDATE ON email_verifications TO axiaops_runtime;
 `storage_native_auth.go` (interface) + `postgres/native_auth.go` (impl):
 - `CreateEmailVerification(ctx, id, userID, organizationID, tokenHash, expiresAt)` — mirrors `CreatePasswordReset`.
 - `RedeemEmailVerification(ctx, tokenHash) (userID, organizationID, error)` — atomic `SELECT … FOR UPDATE`, check not-redeemed + not-expired, `UPDATE users SET email_verified_at = NOW()`, `UPDATE email_verifications SET redeemed_at = NOW()`. Mirrors `RedeemPasswordReset` minus the password write. New sentinels collapse to 410.
-- `model.User` gains `EmailVerifiedAt *time.Time` — **propagate the new column to every `SELECT … FROM users` that scans into `model.User`** (`CreateUserWithPassword`, `LookupUserByEmail`, `LookupInvitationByToken`, `RedeemNativeInvitation`, `ConsumeBootstrapState`) or the scans break. Highest-churn risk in this slice; enumerate them.
+- `model.User` gains `EmailVerifiedAt *time.Time` — **propagate the new column to every `SELECT … FROM users` that scans into `model.User`** (`CreateUserWithPassword`, `LookupUserByEmail`, `LookupInvitationByToken`, `RedeemNativeInvitation`, `ConsumeBootstrapState`) or the scans break. Highest-churn risk in this slice; enumerate them. **Sequencing note:** the H-1 users-RLS work ([`security-before-billing-plan.md`](security-before-billing-plan.md) §2) refactors the *same family* of users-scan sites (`GetUserByID`/`UpsertUser`/`EnsureUser` move to the app pool) — land the two changes sequenced, not blind to each other, or the merge conflict will be semantic rather than textual.
 
 ### 6.3 Mint + redeem
 - **Mint** (fill the Slice-2 seam): after register succeeds, mint token, `CreateEmailVerification(TTL=EMAIL_VERIFICATION_TTL_HOURS)`, send email (6.4). **Non-fatal** — a send failure must NOT fail registration (soft-gate). Log + counter.
@@ -290,5 +292,5 @@ Dashboard build envs: `VITE_SIGNUP_ENABLED`, `VITE_TURNSTILE_SITE_KEY`.
 
 ## Two grounding notes (verified in source)
 
-1. `users` has **no RLS** and a **global** `lower(email)` unique index (`021_native_auth.up.sql` line 36, `CREATE UNIQUE INDEX users_email_lower_unique`) — which is why `RegisterSelfService` reuses the bootstrap admin-pool transaction wholesale and `23505 → ErrUserEmailExists` is the concurrent-same-email guarantee.
+1. `users` has **no RLS** and a **global** `lower(email)` unique index (`021_native_auth.up.sql` line 36, `CREATE UNIQUE INDEX users_email_lower_unique`) — which is why `RegisterSelfService` reuses the bootstrap admin-pool transaction wholesale and `23505 → ErrUserEmailExists` is the concurrent-same-email guarantee. **Forward caveat (H-1):** [`security-before-billing-plan.md`](security-before-billing-plan.md) §2 commits to adding an RLS policy to `users` (plus an app-pool refactor of `GetUserByID`/`UpsertUser`/`EnsureUser`) *before* the Stripe build. Once H-1 lands, the "no RLS" half of this note is stale: re-validate `RegisterSelfService`'s admin-pool reuse and ensure the `axiaops_runtime` per-table bypass policy (migration-029 pattern) explicitly covers `users` SELECT/INSERT, or the pre-auth register/login paths break. The unique-index guarantee is unaffected.
 2. System mail already has a shipped seam: `EmailTransport.SendInvite` + the api's `InviteMailer` (`invite_mailer.go`) resolve a plaintext `model.EmailConfig` (per-org channel via `notifications.DecodeEmailConfig`, else global `SMTP_*` env) and send via the transport's injectable `sendMail` field — `EmailTransport.Send` is the channel/`config_ciphertext`-coupled path the verification mail must NOT reuse. Add a verification-mail method beside `SendInvite`, don't introduce a parallel `transactional.go`.

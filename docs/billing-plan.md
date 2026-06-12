@@ -519,6 +519,12 @@ external pen-test (security-before-billing-plan §4 — one spend, covers the pa
 first live invoice
 ```
 
+The companion signup beta ([`self-signup-plan.md`](self-signup-plan.md)) is expected to land
+*before* the security pass (ADR-0002 sequences it as the first build). Note the pass's **H-1**
+(users-table RLS) invalidates that plan's "users has no RLS" grounding — the cross-references
+live in that doc's grounding note 1 and in `security-before-billing-plan.md` §2's interaction
+note; nothing in *this* plan reads the `users` table pre-auth, so billing is unaffected.
+
 ---
 
 ## Testing strategy
