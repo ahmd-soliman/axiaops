@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { getToken, saveToken, clearToken } from './auth/storage';
 import {
@@ -60,7 +60,10 @@ function parseJwt(token) {
 
 function AuthenticatedApp() {
   const navigate = useNavigate();
-  const claims  = parseJwt(getToken() ?? '');
+  // The token is written once at mount (DEV_MODE) and never changes after —
+  // under native auth getToken() is always null. Parse it once rather than
+  // re-reading localStorage + base64-decoding on every render.
+  const claims  = useMemo(() => parseJwt(getToken() ?? ''), []);
   const orgName = claims.org_name || claims.org_code || '';
 
   // Navigate first, revoke the session after. Doing it the other way
@@ -70,7 +73,7 @@ function AuthenticatedApp() {
   // refetched again, and Chrome eventually throttled the navigate
   // flood. The navigate-first version unmounts AuthenticatedApp before
   // the cookie dies, so no in-flight request ever sees a 401.
-  function handleLogout() {
+  const handleLogout = useCallback(() => {
     navigate('/login', { replace: true });
     // Navigate-first protects against the 401-cascade described in the
     // comment above. If logout returns an SSO logout_url (server has an
@@ -88,7 +91,7 @@ function AuthenticatedApp() {
       .catch(() => { /* tolerant — server returns 204 on the native path anyway */ });
     clearToken();
     setAuthToken(null);
-  }
+  }, [navigate]);
 
   // Authentication lost mid-session (cookie expired or revoked
   // server-side): api/client.js fires UNAUTHORIZED_EVENT and we bounce
@@ -200,14 +203,20 @@ export default function App() {
   // of in-flight requests all returning 503 doesn't fire a navigate
   // loop. The page itself has a "Try again" button that reloads —
   // that's the recovery path once the API is back.
+  //
+  // The current path is read through a ref so the listener can stay mounted
+  // for App's lifetime — depending on location.pathname directly would tear
+  // down and re-add the listener on every navigation.
+  const pathRef = useRef(location.pathname);
+  pathRef.current = location.pathname;
   useEffect(() => {
     const handler = () => {
-      if (location.pathname === '/service-unavailable') return;
+      if (pathRef.current === '/service-unavailable') return;
       navigate('/service-unavailable', { replace: true });
     };
     window.addEventListener(SERVICE_UNAVAILABLE_EVENT, handler);
     return () => window.removeEventListener(SERVICE_UNAVAILABLE_EVENT, handler);
-  }, [navigate, location.pathname]);
+  }, [navigate]);
 
   if (!ready) return null;
 

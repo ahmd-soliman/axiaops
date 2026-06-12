@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAccounts, listMemberships, listInvitations } from '../../api/client';
 import { useMe } from '../../context/MeContext';
@@ -26,11 +26,19 @@ function writeFlag(key, userID) {
 // auto-hides once every visible tile is complete. See docs/onboarding-wizard.md
 // §8.3.
 export default function WhatsNextPanel() {
-  const navigate = useNavigate();
   const { me, can } = useMe();
   const userID = me?.user_id ?? '';
 
   const [dismissed, setDismissed] = useState(() => readFlag(DISMISSED_KEY, userID));
+
+  // The initializer may have run while `me` was still loading (userID ''),
+  // which reads the un-namespaced miss and returns false. Re-read the
+  // per-user flag once userID resolves so a previously-dismissed checklist
+  // doesn't reappear. Only flips to true (never un-dismisses an in-session
+  // dismissal), so it can't clobber a live × click.
+  useEffect(() => {
+    if (userID && readFlag(DISMISSED_KEY, userID)) setDismissed(true);
+  }, [userID]);
 
   const canInvite = can(PERM.MEMBERS_INVITE);
   const canRead   = can(PERM.MEMBERS_READ) || canInvite;
@@ -64,21 +72,21 @@ export default function WhatsNextPanel() {
       key: 'connect',
       label: 'Connect AWS account',
       done: accountsArr.length > 0,
-      onClick: () => navigate('/connect'),
+      href: '/connect',
       show: true,
     },
     {
       key: 'invite',
       label: 'Invite members',
       done: membershipsArr.length > 1 || invitationsArr.length > 0,
-      onClick: () => navigate('/settings/members'),
+      href: '/settings/members',
       show: canInvite,
     },
     {
       key: 'scan',
       label: 'Run your first scan',
       done: accountsArr.some((a) => a.last_scanned_at),
-      onClick: () => navigate('/settings/cloud-accounts'),
+      href: '/settings/cloud-accounts',
       show: true,
     },
   ].filter((tile) => tile.show);
@@ -155,7 +163,7 @@ export default function WhatsNextPanel() {
             key={tile.key}
             label={tile.label}
             done={tile.done}
-            onClick={tile.onClick}
+            href={tile.href}
           />
         ))}
       </div>
@@ -163,23 +171,21 @@ export default function WhatsNextPanel() {
   );
 }
 
-function Tile({ label, done, onClick }) {
+function Tile({ label, done, href }) {
   // Per docs/ui-color-system-review.md §5: strikethrough reads as "removed",
   // not "done" — use a muted-gray label + green check icon for done state.
   // Pending items: neutral text + arrow in brand orange (the arrow is the
   // only brand-accent surface, so the label doesn't read as a hot CTA).
+  // Real <Link> so the checklist steps support new-tab open (issue #130).
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={done}
+    <Link
+      to={href}
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: 8,
         padding: '4px 0',
-        background: 'none',
-        border: 'none',
+        textDecoration: 'none',
         cursor: 'pointer',
         textAlign: 'left',
       }}
@@ -202,7 +208,7 @@ function Tile({ label, done, onClick }) {
           →
         </span>
       )}
-    </button>
+    </Link>
   );
 }
 

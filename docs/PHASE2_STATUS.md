@@ -1,4 +1,4 @@
-# AxiaOps Phase 2 Status — Updated April 19, 2026
+# AxiaOps Phase 2 Status — Updated June 11, 2026 (originally April 19, 2026)
 
 > Source of truth for the Phase 2 roadmap lives in `Tasks.md` (section 2.x) and
 > the detailed execution plan in `docs/phase2-plan.md`. This file is the at-a-glance
@@ -55,7 +55,7 @@ All May 2026 milestone items and most June 2026 items are in `main`.
 ### GitLab CI Pipeline (2.11)
 - `.gitlab-ci.yml` with `test` → `build` → `deploy` stages.
 - Test runs `go test ./...` + `golangci-lint` on every branch.
-- `main` builds Docker images for api / ingestion / dashboard, pushes to ECR, and runs `aws apprunner update-service`.
+- `main` builds Docker images for api / ingestion / dashboard, pushes to ECR, and deploys to ECS Express (architecture pivoted from App Runner — see `Tasks.md` §2.16 pivot note).
 - CloudFront invalidation for dashboard assets.
 
 ### Scheduled Auto-Scan (2.12)
@@ -119,7 +119,9 @@ All May 2026 milestone items and most June 2026 items are in `main`.
 - `POST /v1/settings/notifications` to toggle digest + webhook per tenant.
 - Post Slack message when ghost count changes after a scan.
 
-### Production Deployment (2.16) — August 2026
+### Production Deployment (2.16) — ✅ shipped June 2026 on ECS Express
+
+> **Pivot note:** the plan below predates the App Runner → ECS Express pivot (2026-05); App Runner references are historical.
 
 **IAM**
 - `AxiaOpsAppRunnerRole` — ECR / Secrets Manager / RDS access.
@@ -135,7 +137,7 @@ All May 2026 milestone items and most June 2026 items are in `main`.
 - Daily snapshots, 7-day retention. CloudWatch log retention 7 days.
 
 **Secrets Manager**
-- Store `ENCRYPTION_KEY`, `REDIS_URL`, `RESEND_API_KEY`, `KINDE_ISSUER`, `KINDE_CLIENT_ID`.
+- Store `ENCRYPTION_KEY`, `REDIS_URL`, `RESEND_API_KEY`. (Kinde variables removed with Kinde — 2026-05.)
 - Document `ENCRYPTION_KEY` rotation procedure in `docs/ops.md` (re-encrypt `secret_encrypted` before rotating).
 
 **Database Password Management**

@@ -159,12 +159,12 @@ loss, regulatory change, supply-chain compromise.
 
 | Sub-criterion | Status | Gap |
 |---|---|---|
-| CC6.1 Logical access — security software | Strong | Kinde, JWT, RLS, MFA on Kinde |
+| CC6.1 Logical access — security software | Strong | Native auth (argon2id + cookie sessions), per-org OIDC SSO, RLS |
 | CC6.2 Logical access — registers/auths | Partial | User onboarding/offboarding runbook missing |
 | CC6.3 Logical access — modifies/removes | Partial | Quarterly access review missing |
 | CC6.4 Physical access | N/A | All cloud — document AWS reliance |
 | CC6.5 Logical access — disposes assets | Partial | Hardware disposal policy (laptops) |
-| CC6.6 Logical access — boundary protection | Strong | Security groups, App Runner, no NAT |
+| CC6.6 Logical access — boundary protection | Strong | Security groups, ECS Express, no NAT |
 | CC6.7 Restricts data movement | Partial | DLP not in place; document why proportional |
 | CC6.8 Prevents unauthorised software | Partial | Endpoint policy on developer laptops |
 
@@ -173,7 +173,7 @@ loss, regulatory change, supply-chain compromise.
 - `docs/compliance/policies/access_control.md`
 - `docs/compliance/policies/asset_management.md` (laptop encryption, disposal)
 - Quarterly access review job + audit log
-- Mandatory MFA on all SaaS (Kinde, AWS, GitLab, Stripe, Resend, Drata)
+- Mandatory MFA on all SaaS (AWS, GitLab, Stripe, Resend, Drata)
 - Hardware-key (YubiKey) for AWS root + GitLab admin
 
 ### CC7 — System Operations
@@ -286,7 +286,7 @@ running when the window opens. This is the bulk of the work.
 - IAM user/role inventory + last-used timestamp
 - GitLab project settings (branch protection, code-review enforcement)
 - GitLab CI runs (security scans must pass)
-- Kinde MFA enforcement state
+- SSO/MFA enforcement state (native auth + per-org OIDC)
 - SaaS account inventory (with MFA flags)
 - Endpoint security state (laptops — Drata Agent or similar)
 
@@ -315,7 +315,7 @@ running when the window opens. This is the bulk of the work.
 - [ ] Document data classification (free; 4 hours)
 - [ ] Stand up status page (Instatus, ~€20/mo)
 - [ ] Quarterly access review process — even when there's only one user, build the muscle
-- [ ] Hardware key on AWS root, GitLab admin, Kinde admin
+- [ ] Hardware key on AWS root, GitLab admin
 - [ ] CloudWatch alarms: failed-auth spike, secret-access pattern, off-hours deploys
 
 ### Phase 3 (Sep–Dec 2026) — operational baseline
@@ -389,4 +389,4 @@ running when the window opens. This is the bulk of the work.
 - `docs/production.md` — hosting topology, IAM, secrets
 - `docs/rls.md` — organization isolation (CC6.1)
 - `docs/auth.md` — authentication design (CC6.1)
-- `docs/improvement.md` — broader security improvement backlog
+- `docs/security-audit-2026-05-09.md` — security audit findings + resolution status

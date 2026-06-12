@@ -120,3 +120,80 @@ var _ InviteSender = (*EmailTransport)(nil)
 type errStr string
 
 func (e errStr) Error() string { return string(e) }
+
+// TestEmailTransport_SendInvite_OrgNameHeaderInjection (audit N-2): the org
+// display name is interpolated into the Subject header. A CRLF-bearing name —
+// possible if any org-name write path forgets the control-character check —
+// must NOT yield an injected header; headerValue collapses the newlines so the
+// Subject stays one line.
+func TestEmailTransport_SendInvite_OrgNameHeaderInjection(t *testing.T) {
+	sender := &capturedSend{}
+	tr := &EmailTransport{sendMail: sender.fn()}
+
+	err := tr.SendInvite(context.Background(), inviteEmailCfg(), "invitee@example.com", InviteEmail{
+		OrganizationName: "Evil Corp\r\nBcc: attacker@evil.test\r\nX-Injected: 1",
+		RedemptionURL:    "https://app.example.com/accept-invite?token=abc123",
+	})
+	if err != nil {
+		t.Fatalf("SendInvite: %v", err)
+	}
+
+	msg := string(sender.msg)
+	headers, _, found := strings.Cut(msg, "\r\n\r\n")
+	if !found {
+		t.Fatalf("message has no header/body separator:\n%s", msg)
+	}
+	for _, line := range strings.Split(headers, "\r\n") {
+		if strings.HasPrefix(line, "Bcc:") || strings.HasPrefix(line, "X-Injected:") {
+			t.Errorf("org name injected a header line %q:\n%s", line, msg)
+		}
+	}
+	// Exactly one Subject line, and the hostile text survives only as flattened
+	// content within it (the attacker string ends up inside the Subject value,
+	// not promoted to its own header). Splitting on \r\n already guarantees no
+	// embedded newline per line; the load-bearing checks are "no injected
+	// header lines" (above) and "exactly one Subject carrying the content".
+	var subjectLines int
+	for _, line := range strings.Split(headers, "\r\n") {
+		if strings.HasPrefix(line, "Subject:") {
+			subjectLines++
+			if !strings.Contains(line, "attacker@evil.test") {
+				t.Errorf("attacker text should be flattened into the Subject value, got %q", line)
+			}
+		}
+	}
+	if subjectLines != 1 {
+		t.Errorf("want exactly 1 Subject header, got %d:\n%s", subjectLines, headers)
+	}
+}
+
+// TestValidateEmailConfig_RejectsCRLF (audit N-2): the global SMTP_* env path
+// reaches ValidateEmailConfig without passing the channel handler's create-time
+// CRLF checks, so the shared validator must reject newlines itself.
+func TestValidateEmailConfig_RejectsCRLF(t *testing.T) {
+	base := func() model.EmailConfig {
+		return model.EmailConfig{SMTPHost: "smtp.example.com", SMTPPort: 587, From: "ops@example.com"}
+	}
+	if err := ValidateEmailConfig(base()); err != nil {
+		t.Fatalf("base config should validate: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*model.EmailConfig)
+	}{
+		{"from with CRLF", func(c *model.EmailConfig) { c.From = "ops@example.com\r\nBcc: x@evil.test" }},
+		{"from with bare LF", func(c *model.EmailConfig) { c.From = "ops@example.com\nBcc: x@evil.test" }},
+		{"from_name with CRLF", func(c *model.EmailConfig) { c.FromName = "Ops\r\nBcc: x@evil.test" }},
+		{"recipient with CRLF", func(c *model.EmailConfig) { c.Recipients = []string{"a@b.test\r\nBcc: x@evil.test"} }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := base()
+			tc.mutate(&cfg)
+			if err := ValidateEmailConfig(cfg); err == nil {
+				t.Fatal("config with newline must be rejected")
+			}
+		})
+	}
+}

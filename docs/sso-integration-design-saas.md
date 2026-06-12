@@ -1,6 +1,6 @@
 # Enterprise SSO Integration — SaaS / Managed-hosted Variant
 
-Status: **design preserved, not currently scheduled.** Sibling to [`sso-integration-design.md`](sso-integration-design.md) (the self-hosted v1 path).
+Status: **reactivated 2026-06-11** — tenant-auth path for the hosted SKU per [ADR-0002](decisions/0002-saas-first-for-awareness.md) commitment #6 (acceptance flipped the deployment posture to SaaS-first). Sibling to [`sso-integration-design.md`](sso-integration-design.md) (the self-hosted path). Note: body below predates Kinde removal (2026-05) — the brokered-IdP role Kinde played now maps to the native OIDC connector layer.
 
 > **2026-04-29.** This document captures the **Option A (Kinde-brokered, multi-tenant SaaS)** path that was rejected as v1 by [ADR-0001 (Deployment Model — Self-hosted-first)](decisions/0001-deployment-model.md). It is preserved here because the work to design Option A had already been done, and the ADR-0001 review trigger (≥3 self-hosted customers paying → re-evaluate adding a managed-hosted SKU) makes this design likely to be reactivated. Future engineers picking this up should not have to re-derive it.
 >

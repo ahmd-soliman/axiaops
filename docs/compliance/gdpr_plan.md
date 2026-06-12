@@ -19,7 +19,7 @@ AxiaOps processes two distinct categories of data:
 
 | Category | Examples | GDPR role |
 |---|---|---|
-| **Customer (organization) account data** | Email, name, Kinde `sub`, org code, billing details, audit log entries | We are the **data controller** for AxiaOps's own customer relationship |
+| **Customer (organization) account data** | Email, name, SSO subject identifier (`sso_external_id`), org code, billing details, audit log entries | We are the **data controller** for AxiaOps's own customer relationship |
 | **Customer cloud telemetry** | AWS account IDs, ARNs, resource IDs, tags (which may contain employee names/emails), Cost Explorer line items | We are the **data processor** acting on the customer's instructions |
 
 This dual role drives most of the work below. Anything that touches *organization
@@ -190,8 +190,8 @@ legal hold is active. Privacy lead reviews retention quarterly.
 
 | Sub-processor | Purpose | Region | DPA in place |
 |---|---|---|---|
-| AWS (App Runner, RDS, ElastiCache, S3, CloudWatch, Secrets Manager) | Hosting, storage, secrets | eu-central-1 | AWS DPA + EU SCCs |
-| Kinde | Authentication (OAuth/OIDC) | EU | DPA on file (TODO — verify) |
+| AWS (ECS Express, RDS, S3, CloudWatch, Secrets Manager) | Hosting, storage, secrets | eu-central-1 | AWS DPA + EU SCCs |
+<!-- Kinde removed 2026-05 (chore/remove-kinde-auth) — auth is native; no auth sub-processor. -->
 | Stripe | Billing (Phase 3.1) | IE / global | Stripe DPA + SCCs |
 | Resend | Transactional email (Phase 2.15) | US (data minimised — only email + subject + body) | Resend DPA + SCCs |
 | GitLab.com | Source hosting, CI | US (or EU if we move to gitlab.com EU region) | DPA + SCCs |
@@ -220,9 +220,9 @@ The list below is the GDPR-specific subset; SOC 2 expands it.
 ### 7.1 Technical measures already in place
 
 - Encryption at rest: AES-256-GCM on customer secrets in DB (`crypto/`), RDS storage encryption, EBS encryption.
-- Encryption in transit: TLS 1.2+ everywhere (App Runner managed certs, RDS SSL).
+- Encryption in transit: TLS 1.2+ everywhere (CloudFront-managed certs, RDS SSL).
 - Organization isolation: PostgreSQL Row-Level Security on every table (`docs/rls.md`).
-- Auth: Kinde OAuth 2.0 PKCE, RS256 JWTs, JWKS rotation cached with 1h TTL.
+- Auth: native cookie sessions (argon2id) + per-org OIDC SSO (RS256 ID-token validation, per-connection JWKS cached with 1h TTL).
 - Audit trail: `audit_log` table (Phase 3.3) — every mutation logged with user, organization, action, resource.
 - Backups: 7-day RDS automated snapshots; tested restore drill scheduled quarterly (deliverable).
 - Secrets management: AWS Secrets Manager in production; no `.env` files committed.
@@ -313,7 +313,7 @@ paperwork" wrapper.
 - [ ] CloudWatch log redaction for `tags` field (§7.2)
 - [ ] Quarterly restore drill #0 (one before launch)
 - [ ] Sub-processors list page (§6.2) — even if empty, scaffold the page
-- [ ] DPA reviews for AWS, Kinde, Stripe (signature-on-file check)
+- [ ] DPA reviews for AWS, Stripe (signature-on-file check)
 
 ### Phase 3 — Sep 2026 (concurrent with §3.10 task)
 

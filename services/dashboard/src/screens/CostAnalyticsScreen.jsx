@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { fetchCosts, fetchAccounts, scanAccount } from '../api/client';
-import { serviceConfig } from '../components/serviceConfig';
+import { serviceConfig, resourceTypeConfig, resourceTypeFromId } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
 import DateRangeChips, { PRESET_OPTIONS, DEFAULT_DAYS } from '../components/DateRangeChips';
@@ -45,10 +45,10 @@ function csvAmount(n) {
   return n.toFixed(10).replace(/\.?0+$/, '');
 }
 
-function exportCSV(records, { services }, toast) {
-  const filterSlug = services.length
-    ? '-' + services.map(s => s.replace(/^Amazon|^AWS/, '').toLowerCase()).join('-')
-    : '';
+function exportCSV(records, { services, resourceTypes = [] }, toast) {
+  const slugParts = services.map(s => s.replace(/^Amazon|^AWS/, '').toLowerCase());
+  if (resourceTypes.length) slugParts.push(resourceTypes.map(rt => rt.toLowerCase()).join('-'));
+  const filterSlug = slugParts.length ? '-' + slugParts.join('-') : '';
 
   const headers = ['service', 'region', 'amount', 'currency', 'period_start', 'period_end', 'resource_id'];
   const rows = records.map(r => [
@@ -76,7 +76,7 @@ function exportCSV(records, { services }, toast) {
   toast(`Exported ${records.length} cost record${records.length !== 1 ? 's' : ''} to CSV`, 'success');
 }
 
-export default function CostAnalyticsScreen({ accounts: passedAccounts, selectedAccount: passedSelectedAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
+export default function CostAnalyticsScreen({ accounts: passedAccounts, selectedAccount: passedSelectedAccount, onSelectAccount, connectHref, editAccountHref }) {
   const { toast }     = useToast();
   const { watch }     = useScanStatus();
   const queryClient   = useQueryClient();
@@ -89,6 +89,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const [customRange, setCustomRange] = useState(null);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
   const [filterServices, setFilterServices] = useState(() => new Set());
+  const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
   const [selectedService, setSelectedService] = useState(null);
   const [selectedChartDate, setSelectedChartDate] = useState(null);
 
@@ -114,12 +115,38 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
     return Array.from(services).sort();
   }, [costsQuery.data]);
 
-  // Filter records client-side by selected services
+  // Resource-type sub-filter — only meaningful under a single service,
+  // mirroring the trend screen's two-tier filter. Types are derived from
+  // resource ID prefixes (resourceTypeFromId), so only services with
+  // resource-level cost data and recognizable prefixes grow the second row.
+  const singleService = filterServices.size === 1 ? [...filterServices][0] : null;
+
+  const availableResourceTypes = useMemo(() => {
+    if (!costsQuery.data || !singleService) return [];
+    const types = new Set();
+    for (const r of costsQuery.data) {
+      if (r.service !== singleService) continue;
+      const rt = resourceTypeFromId(r.resource_id);
+      if (rt) types.add(rt);
+    }
+    return [...types].sort();
+  }, [costsQuery.data, singleService]);
+
+  // Filter records client-side by selected services, then by resource type.
+  // An active type filter keeps only records whose ID derives to a selected
+  // type — records without resource-level data (no resource_id) drop out,
+  // which is why the chip row carries the 14-day resource-data caveat.
   const filteredCosts = useMemo(() => {
     if (!costsQuery.data) return [];
-    if (filterServices.size === 0) return costsQuery.data;
-    return costsQuery.data.filter(r => filterServices.has(r.service));
-  }, [costsQuery.data, filterServices]);
+    let records = costsQuery.data;
+    if (filterServices.size > 0) {
+      records = records.filter(r => filterServices.has(r.service));
+    }
+    if (singleService && filterResourceTypes.size > 0) {
+      records = records.filter(r => filterResourceTypes.has(resourceTypeFromId(r.resource_id)));
+    }
+    return records;
+  }, [costsQuery.data, filterServices, singleService, filterResourceTypes]);
 
   // Calculate totals
   const totalCost = useMemo(() => {
@@ -135,9 +162,12 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
     if (filteredCosts.length === 0) return [];
     const byKey = new Map();
     for (const r of filteredCosts) {
+      // period_start is a UTC RFC3339 string (Z-suffixed) from the Go API, so
+      // a raw slice is equivalent to parse→toISOString and skips the per-record
+      // Date allocation.
       const key = effectiveGranularity === 'monthly'
-        ? new Date(r.period_start).toISOString().slice(0, 7)
-        : new Date(r.period_start).toISOString().slice(0, 10);
+        ? r.period_start.slice(0, 7)
+        : r.period_start.slice(0, 10);
       const entry = byKey.get(key);
       if (entry) {
         entry.total_monthly_cost += r.amount || 0;
@@ -289,11 +319,15 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
   const handleScanAccount = (accountId) => scanMutation.mutate(accountId);
 
-  // Reset the drill-down panel when the account changes — the selected
-  // service may not exist on the new account, and even when it does
-  // by name, the data behind it has changed.
+  // Reset the drill-down panel AND the service filter when the account
+  // changes — a service selected on the old account may not exist on the new
+  // one (its chip wouldn't even render, leaving an empty chart with no visible
+  // active filter), and even when it does by name the data behind it has
+  // changed.
   useEffect(() => {
     setSelectedService(null);
+    setFilterServices(new Set());
+    setFilterResourceTypes(new Set());
   }, [selectedAccount]);
 
   // Toggle service filter. Only close the drill-down panel if the
@@ -302,6 +336,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
     const next = new Set(filterServices);
     next.has(svc) ? next.delete(svc) : next.add(svc);
     setFilterServices(next);
+    // Sub-types only make sense under a single service; clear them otherwise.
+    if (next.size !== 1) setFilterResourceTypes(new Set());
     if (selectedService && next.size > 0 && !next.has(selectedService)) {
       setSelectedService(null);
     }
@@ -309,6 +345,19 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
   const clearServiceFilter = () => {
     setFilterServices(new Set());
+    setFilterResourceTypes(new Set());
+  };
+
+  const toggleResourceTypeFilter = (rt) => {
+    setFilterResourceTypes(prev => {
+      const next = new Set(prev);
+      next.has(rt) ? next.delete(rt) : next.add(rt);
+      return next;
+    });
+  };
+
+  const clearResourceTypeFilter = () => {
+    setFilterResourceTypes(new Set());
   };
 
   const records = filteredCosts;
@@ -342,8 +391,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
           accounts={accounts}
           selectedAccount={selectedAccount}
           onSelectAccount={onSelectAccount}
-          onConnectAccount={onConnectAccount}
-          onEditAccount={onEditAccount}
+          connectHref={connectHref}
+          editAccountHref={editAccountHref}
           onScanAccount={handleScanAccount}
         />
       </div>
@@ -399,6 +448,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               setCustomRange(range ?? null);
               setSelectedService(null);
               setSelectedChartDate(null);
+              setFilterResourceTypes(new Set());
             }}
             mobile={isMobile}
           />
@@ -455,6 +505,62 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
           </div>
         )}
 
+        {/* Resource type sub-filter pills (shown when exactly one service is selected and has derivable sub-types) */}
+        {singleService && availableResourceTypes.length > 0 && (
+          <div
+            role="group"
+            aria-label="Filter by resource type"
+            style={{ display: 'flex', gap: 6, padding: '0 16px 12px', overflowX: 'auto' }}
+          >
+            <button
+              onClick={clearResourceTypeFilter}
+              aria-pressed={filterResourceTypes.size === 0}
+              style={{
+                padding: isMobile ? '7px 12px' : '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
+                backgroundColor: filterResourceTypes.size === 0 ? 'var(--color-text-mid)' : 'var(--color-surface-raised)',
+                border: `1px solid ${filterResourceTypes.size === 0 ? 'var(--color-text-mid)' : 'var(--color-border)'}`,
+                fontSize: 11, fontWeight: 600,
+                color: filterResourceTypes.size === 0 ? '#fff' : 'var(--color-text-muted)',
+              }}
+            >
+              All Types
+            </button>
+            {availableResourceTypes.map(rt => {
+              const cfg = resourceTypeConfig(rt);
+              const active = filterResourceTypes.has(rt);
+              return (
+                <button
+                  key={rt}
+                  onClick={() => toggleResourceTypeFilter(rt)}
+                  aria-pressed={active}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: isMobile ? '7px 12px' : '3px 8px', borderRadius: 14, cursor: 'pointer', flexShrink: 0,
+                    backgroundColor: active ? 'var(--color-text-mid)' : 'var(--color-surface-raised)',
+                    border: `1px solid ${active ? 'var(--color-text-mid)' : 'var(--color-border)'}`,
+                  }}
+                >
+                  <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: active ? '#fff' : cfg.color }} />
+                  <span style={{ fontSize: 11, fontWeight: 600, color: active ? '#fff' : 'var(--color-text-muted)' }}>{cfg.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* An active type filter narrows to records that have resource-level
+            cost data, which AWS only provides for the trailing 14 days —
+            longer windows will look truncated without this explanation. */}
+        {singleService && filterResourceTypes.size > 0 && (customRange
+          ? (new Date(customRange.untilIso) - new Date(customRange.sinceIso)) / 86400000 >= PANEL_MAX_DAYS
+          : period > PANEL_MAX_DAYS) && (
+          <div style={{ padding: '0 16px 12px' }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+              Type filters use resource-level cost data, which AWS caps at the last {PANEL_MAX_DAYS} days — earlier records are excluded.
+            </span>
+          </div>
+        )}
+
         {costChartData.length < 2 ? (
           <div style={{ padding: '24px 16px', textAlign: 'center' }}>
             <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
@@ -503,6 +609,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               <button
                 onClick={() => exportCSV(records, {
                   services: [...filterServices],
+                  resourceTypes: [...filterResourceTypes],
                 }, toast)}
                 disabled={records.length === 0}
                 aria-label="Export to CSV"
@@ -673,21 +780,24 @@ function ServiceDetailPanelBody({ selectedService, panelStats, panelClamped, sel
           Resources · {selectedServiceBreakdown.length}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
-          {selectedServiceBreakdown.map((e, i) => (
+          {selectedServiceBreakdown.map((e, i) => {
+            const resourceType = resourceTypeFromId(e.resourceId);
+            return (
             <div key={e.resourceId ?? `__none__${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: i < selectedServiceBreakdown.length - 1 ? `1px solid var(--color-border)` : 'none' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 11, color: 'var(--color-text)', fontFamily: e.resourceId ? '"Geist Mono Variable", monospace' : 'inherit', fontStyle: e.resourceId ? 'normal' : 'italic', wordBreak: 'break-all' }}>
                   {e.resourceId ?? 'No resource ID'}
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                  {e.count} record{e.count !== 1 ? 's' : ''} · {e.regions.join(', ')}
+                  {resourceType ? `${resourceTypeConfig(resourceType).label} · ` : ''}{e.count} record{e.count !== 1 ? 's' : ''} · {e.regions.join(', ')}
                 </div>
               </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-accent)', flexShrink: 0 }}>
                 ${formatCost(e.total)}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </>

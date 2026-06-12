@@ -2,6 +2,7 @@ import { useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAccounts } from '../api/client';
 import OverviewScreen from '../screens/OverviewScreen';
+import { zombieDetailHref, editAccountHref } from '../utils/links';
 
 export default function Overview() {
   const navigate = useNavigate();
@@ -21,14 +22,19 @@ export default function Overview() {
       accounts={accounts.data ?? []}
       selectedAccount={selectedAccount}
       initialServiceFilter={serviceFilter}
+      // Account filter toggles the in-page ?account= param (it doesn't route
+      // to a new screen), so it stays an imperative callback, not an href.
       onSelectAccount={(id) => id ? setParams({ account: id }) : setParams({})}
-      onSelectZombie={(z) =>
-        navigate(`/detail/${encodeURIComponent(z.resource_id)}?account=${encodeURIComponent(z.internal_account_id)}&region=${encodeURIComponent(z.region)}&service=${encodeURIComponent(z.service)}`)
-      }
+      // Resource detail + connect/manage are real route changes → real
+      // anchors (issue #130: middle-click / Ctrl-click / "open in new tab").
+      zombieHref={zombieDetailHref}
+      connectHref="/connect"
+      editAccountHref={editAccountHref}
+      // The two hero stat tiles drill down imperatively: the waste tile wraps
+      // an InfoTooltip <button>, and an <a> can't legally contain a button, so
+      // these stay callbacks rather than anchors.
       onShowTrend={() => navigate('/trend')}
       onShowCosts={() => navigate(selectedAccount ? `/cost?account=${encodeURIComponent(selectedAccount)}` : '/cost')}
-      onConnectAccount={() => navigate('/connect')}
-      onEditAccount={(acc) => navigate(`/cloud-accounts/${acc.id}`)}
     />
   );
 }

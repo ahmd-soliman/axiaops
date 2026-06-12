@@ -7,6 +7,10 @@
 
 > **TL;DR** — The product is technically ~85% shippable. The detection engine, multi-tenancy, dashboard, and remediation workflow are genuinely good. What's blocking a paid launch is **commercial plumbing** (Stripe, invoicing, trial gating) and **production deployment** (App Runner + RDS + Secrets Manager), not the product itself. Realistic paid-launch window: **8 weeks from today** (mid-June 2026) for a soft launch to 10 design-partner MSPs; **12 weeks (mid-July 2026)** for a public pricing-page launch. The pricing tiers in the business plan are close, but on review are likely **underpriced by ~30–50%** for the MSP and Team tiers relative to Vantage, nOps, and CloudZero benchmarks — detail in §6.
 
+> **Status update (2026-06-11):** production has since shipped on **ECS Express** (the App
+> Runner plan below is historical), and email/Slack scan digests, dismiss/snooze, and GDPR
+> deletion + export are live. Stripe, self-signup, and the landing page remain open.
+
 ---
 
 ## 1. Executive Verdict

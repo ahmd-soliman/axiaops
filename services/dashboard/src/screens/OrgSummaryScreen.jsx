@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchSummary, fetchCosts, fetchSummaryByAccount, fetchTrend, fetchZombies, fetchAuditEvents } from '../api/client';
 import { serviceConfig } from '../components/serviceConfig';
-import { Spinner, useWindowWidth } from '../components/primitives';
+import { Spinner, useWindowWidth, LinkButton, RowLink } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import AreaChart from '../components/AreaChart';
 
@@ -17,7 +17,7 @@ import AreaChart from '../components/AreaChart';
 //
 // This screen only ever renders for orgs with 2+ accounts — the zero-account
 // and single-account cases are handled by redirects in pages/OrgSummary.jsx.
-export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSelectAccount, onSelectZombie, onSelectService, onViewAudit, onViewTrends }) {
+export default function OrgSummaryScreen({ accounts = [], viewAccountsHref, accountHref, zombieHref, serviceHref, auditHref, trendsHref }) {
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
   const windowWidth = useWindowWidth();
@@ -83,6 +83,15 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
       .sort((a, b) => (b.w?.potential_monthly_savings ?? 0) - (a.w?.potential_monthly_savings ?? 0));
   }, [accounts, byAccount.data]);
 
+  // Per-service savings breakdown, sorted high→low. Memoized (and placed with
+  // the other derivations, above the early returns) so it isn't rebuilt on
+  // every re-render.
+  const byService = useMemo(
+    () => Object.entries(summary.data?.by_service ?? {})
+      .sort((a, b) => b[1].savings - a[1].savings),
+    [summary.data],
+  );
+
   // The per-account section loads independently — it must NOT gate the whole
   // page (the tiles + by-service shouldn't wait on it, and a transient error on
   // this secondary endpoint shouldn't blank a page whose core data loaded fine).
@@ -115,9 +124,6 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
   const zombieCount = summary.data?.total_zombies ?? 0;
   const wasteRatio = totalSpend > 0 ? (monthlyWaste / totalSpend) * 100 : 0;
 
-  const byService = Object.entries(summary.data?.by_service ?? {})
-    .sort((a, b) => b[1].savings - a[1].savings);
-
   // Scans-pending: accounts are connected but nothing has been detected yet
   // (no zombies AND no cost data). Render a clear "results appear after the
   // first scan" state instead of a misleading all-zeros page.
@@ -134,14 +140,11 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
             Waste and spend across {accounts.length} connected account{accounts.length === 1 ? '' : 's'}.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onViewAccounts}
+        <LinkButton
+          to={viewAccountsHref}
           style={{
-            cursor: 'pointer',
             background: 'var(--color-accent)',
             color: 'var(--color-text-on-dark)',
-            border: 'none',
             borderRadius: 8,
             padding: '10px 16px',
             fontSize: 13,
@@ -149,7 +152,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
           }}
         >
           View resources →
-        </button>
+        </LinkButton>
       </header>
 
       {scansPending ? (
@@ -170,16 +173,16 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
             ]}
           />
 
-          <TrendChart days={trendDays} pending={trend.isPending} error={trend.isError} screenWidth={windowWidth - (isMobile ? 32 : 48)} onViewTrends={onViewTrends} />
+          <TrendChart days={trendDays} pending={trend.isPending} error={trend.isError} screenWidth={windowWidth - (isMobile ? 32 : 48)} trendsHref={trendsHref} />
 
-          <ByServiceBreakdown currency={currency} byService={byService} onSelectService={onSelectService} />
+          <ByServiceBreakdown currency={currency} byService={byService} serviceHref={serviceHref} />
 
           <TopZombies
             rows={topZombies}
             currency={currency}
             pending={zombies.isPending}
             error={zombies.isError}
-            onSelectZombie={onSelectZombie}
+            zombieHref={zombieHref}
           />
         </>
       )}
@@ -191,7 +194,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
         rows={accountRows}
         currency={currency}
         isMobile={isMobile}
-        onSelectAccount={onSelectAccount}
+        accountHref={accountHref}
         wastePending={byAccount.isPending}
         wasteError={byAccount.isError}
       />
@@ -200,7 +203,7 @@ export default function OrgSummaryScreen({ accounts = [], onViewAccounts, onSele
         events={activity.data?.events ?? []}
         pending={activity.isPending}
         error={activity.isError}
-        onViewAll={onViewAudit}
+        auditHref={auditHref}
       />
     </div>
   );
@@ -241,7 +244,7 @@ function TileGrid({ tiles, isMobile }) {
   );
 }
 
-function ByServiceBreakdown({ byService, currency, onSelectService }) {
+function ByServiceBreakdown({ byService, currency, serviceHref }) {
   const totalSavings = byService.reduce((s, [, d]) => s + (d.savings || 0), 0);
 
   return (
@@ -271,13 +274,11 @@ function ByServiceBreakdown({ byService, currency, onSelectService }) {
             const pct = totalSavings > 0 ? (data.savings / totalSavings) * 100 : 0;
             return (
               <li key={svc} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)' }}>
-                <button
-                  type="button"
-                  onClick={() => onSelectService?.(svc)}
+                <RowLink
+                  to={serviceHref(svc)}
                   title={`View ${cfg.label} resources`}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
-                    background: 'transparent', border: 'none', cursor: 'pointer', padding: '12px 20px', fontFamily: 'inherit',
+                    alignItems: 'center', gap: 12, textAlign: 'left', padding: '12px 20px',
                   }}
                   onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-bg)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -294,7 +295,7 @@ function ByServiceBreakdown({ byService, currency, onSelectService }) {
                     <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', marginLeft: 6 }}>· {pct.toFixed(1)}%</span>
                   </span>
                   <span aria-hidden style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>›</span>
-                </button>
+                </RowLink>
               </li>
             );
           })}
@@ -304,7 +305,7 @@ function ByServiceBreakdown({ byService, currency, onSelectService }) {
   );
 }
 
-function TrendChart({ days, pending, error, screenWidth, onViewTrends }) {
+function TrendChart({ days, pending, error, screenWidth, trendsHref }) {
   let body;
   if (pending) {
     body = <div style={{ padding: 32, textAlign: 'center' }}><Spinner size={24} color={'var(--color-accent)'} /></div>;
@@ -318,14 +319,13 @@ function TrendChart({ days, pending, error, screenWidth, onViewTrends }) {
   // This chart is a glanceable org-wide summary; the filterable trend view
   // (by service / resource-type / account + date ranges) is the dedicated
   // /trend screen. Link to it rather than duplicating its filters here.
-  const action = onViewTrends && (
-    <button
-      type="button"
-      onClick={onViewTrends}
-      style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--color-accent)' }}
+  const action = trendsHref && (
+    <LinkButton
+      to={trendsHref}
+      style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-accent)' }}
     >
       View trends →
-    </button>
+    </LinkButton>
   );
   // Range caption — only when there's a chartable series. `days` is
   // oldest-first (one point per day), so [0] is the start and [last] the end.
@@ -335,7 +335,7 @@ function TrendChart({ days, pending, error, screenWidth, onViewTrends }) {
   return <SectionShell title="Waste over time" subtitle={rangeLabel} action={action}>{body}</SectionShell>;
 }
 
-function TopZombies({ rows, currency, pending, error, onSelectZombie }) {
+function TopZombies({ rows, currency, pending, error, zombieHref }) {
   let body;
   if (pending) {
     body = <div style={{ padding: 32, textAlign: 'center' }}><Spinner size={24} color={'var(--color-accent)'} /></div>;
@@ -350,12 +350,10 @@ function TopZombies({ rows, currency, pending, error, onSelectZombie }) {
           const cfg = serviceConfig(z.service);
           return (
             <li key={`${z.internal_account_id}:${z.service}:${z.region}:${z.resource_id}`} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)' }}>
-              <button
-                type="button"
-                onClick={() => onSelectZombie?.(z)}
+              <RowLink
+                to={zombieHref(z)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
-                  background: 'transparent', border: 'none', cursor: 'pointer', padding: '12px 20px', fontFamily: 'inherit',
+                  alignItems: 'center', gap: 12, textAlign: 'left', padding: '12px 20px',
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-bg)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -373,7 +371,7 @@ function TopZombies({ rows, currency, pending, error, onSelectZombie }) {
                   {currency} {(z.monthly_cost ?? 0).toFixed(2)}
                 </span>
                 <span aria-hidden style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>›</span>
-              </button>
+              </RowLink>
             </li>
           );
         })}
@@ -383,7 +381,7 @@ function TopZombies({ rows, currency, pending, error, onSelectZombie }) {
   return <SectionShell title="Top zombies by cost">{body}</SectionShell>;
 }
 
-function MemberActivity({ events, pending, error, onViewAll }) {
+function MemberActivity({ events, pending, error, auditHref }) {
   let body;
   if (pending) {
     body = <div style={{ padding: 32, textAlign: 'center' }}><Spinner size={24} color={'var(--color-accent)'} /></div>;
@@ -421,14 +419,13 @@ function MemberActivity({ events, pending, error, onViewAll }) {
   }
   // The whole audit log is the drill-down for activity — link the section, not
   // each (heterogeneous, often target-less) row.
-  const action = onViewAll && (
-    <button
-      type="button"
-      onClick={onViewAll}
-      style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--color-accent)' }}
+  const action = auditHref && (
+    <LinkButton
+      to={auditHref}
+      style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-accent)' }}
     >
       View all →
-    </button>
+    </LinkButton>
   );
   return <SectionShell title="Recent activity" action={action}>{body}</SectionShell>;
 }
@@ -502,7 +499,7 @@ function formatRangeLabel(startIso, endIso) {
 
 const sectionMuted = { fontSize: 13, color: 'var(--color-text-muted)', margin: 0, padding: '20px' };
 
-function AccountsSection({ rows, currency, isMobile, onSelectAccount, wastePending, wasteError }) {
+function AccountsSection({ rows, currency, isMobile, accountHref, wastePending, wasteError }) {
   return (
     <section
       style={{
@@ -533,20 +530,13 @@ function AccountsSection({ rows, currency, isMobile, onSelectAccount, wastePendi
         <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {rows.map(({ acc, w }, idx) => (
             <li key={acc.id} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)' }}>
-              <button
-                type="button"
-                onClick={() => onSelectAccount?.(acc.id)}
+              <RowLink
+                to={accountHref(acc.id)}
                 style={{
-                  display: 'flex',
                   alignItems: 'center',
                   gap: 12,
-                  width: '100%',
                   textAlign: 'left',
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
                   padding: '12px 20px',
-                  fontFamily: 'inherit',
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-bg)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -592,7 +582,7 @@ function AccountsSection({ rows, currency, isMobile, onSelectAccount, wastePendi
                 </div>
 
                 <span aria-hidden style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>›</span>
-              </button>
+              </RowLink>
             </li>
           ))}
         </ul>

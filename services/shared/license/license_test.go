@@ -256,7 +256,7 @@ func TestLoad_WrongIssuer(t *testing.T) {
 func TestLoad_WrongAudience(t *testing.T) {
 	k := setupKeys(t)
 	raw := signLicense(t, k, func(c *jwt.MapClaims) {
-		(*c)["aud"] = "axiaops-saashosted"
+		(*c)["aud"] = "axiaops-wrong-aud"
 	}, nil, nil)
 	installLicense(t, k, raw)
 

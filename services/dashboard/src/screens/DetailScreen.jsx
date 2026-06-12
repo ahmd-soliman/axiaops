@@ -152,6 +152,9 @@ export default function DetailScreen({ zombie, onBack, onDismissed }) {
         // Server says a dismissal already exists for this fingerprint but the
         // local resource list doesn't carry its id (stale or race). Open the
         // restore confirm modal which fetches the dismissal id and revokes.
+        // Close the dismiss modal first — two overlapping Overlays would both
+        // react to a single Escape and fight over focus restore.
+        setModalVisible(false);
         setRestoreConfirmVisible(true);
       } else {
         toast('Something went wrong. Please try again.', 'error');

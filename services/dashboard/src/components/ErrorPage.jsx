@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useTheme } from '../theme/ThemeContext';
 
 // ErrorPage — reusable full-screen layout for HTTP-style failure states
@@ -10,8 +11,12 @@ import { useTheme } from '../theme/ThemeContext';
 //                 here", not "404 Not Found").
 //   description — 1–2 sentences explaining what happened and, if useful,
 //                 what to do next.
-//   actions     — array of { label, onClick, primary }. Primary renders as
-//                 the brand-coloured solid button; secondaries as outlined.
+//   actions     — array of { label, onClick, to, primary }. An action with a
+//                 `to` renders as a real <Link> (issue #130: in-app
+//                 destinations open in a new tab on middle/Ctrl-click);
+//                 otherwise it's a <button> driven by `onClick` (e.g. "Go
+//                 back" → history). Primary renders as the brand-coloured
+//                 solid button; secondaries as outlined.
 //   reference   — optional small monospaced support reference. Show only
 //                 when there's something useful to quote (request id,
 //                 trace id). Don't fabricate one.
@@ -122,38 +127,38 @@ export default function ErrorPage({ code, title, description, actions = [], refe
                 marginBottom: reference ? 24 : 0,
               }}
             >
-              {actions.map((a, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={a.onClick}
-                  style={
-                    a.primary
-                      ? {
-                          padding: '11px 22px',
-                          borderRadius: 10,
-                          backgroundColor: 'var(--color-accent)',
-                          color: 'var(--color-text-on-dark)',
-                          border: 'none',
-                          cursor: 'pointer',
-                          fontWeight: 700,
-                          fontSize: 14,
-                        }
-                      : {
-                          padding: '11px 22px',
-                          borderRadius: 10,
-                          backgroundColor: 'transparent',
-                          color: 'var(--color-text-mid)',
-                          border: '1px solid var(--color-border)',
-                          cursor: 'pointer',
-                          fontWeight: 600,
-                          fontSize: 14,
-                        }
-                  }
-                >
-                  {a.label}
-                </button>
-              ))}
+              {actions.map((a, i) => {
+                const btnStyle = a.primary
+                  ? {
+                      padding: '11px 22px',
+                      borderRadius: 10,
+                      backgroundColor: 'var(--color-accent)',
+                      color: 'var(--color-text-on-dark)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontWeight: 700,
+                      fontSize: 14,
+                    }
+                  : {
+                      padding: '11px 22px',
+                      borderRadius: 10,
+                      backgroundColor: 'transparent',
+                      color: 'var(--color-text-mid)',
+                      border: '1px solid var(--color-border)',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: 14,
+                    };
+                return a.to ? (
+                  <Link key={i} to={a.to} onClick={a.onClick} style={{ ...btnStyle, textDecoration: 'none', display: 'inline-block' }}>
+                    {a.label}
+                  </Link>
+                ) : (
+                  <button key={i} type="button" onClick={a.onClick} style={btnStyle}>
+                    {a.label}
+                  </button>
+                );
+              })}
             </div>
           )}
 

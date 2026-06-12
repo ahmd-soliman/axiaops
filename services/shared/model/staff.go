@@ -64,8 +64,11 @@ type StaffRoleGrant struct {
 // StaffTenantSummary is the read-only, NON-tenant-data view of one org the
 // admin console surfaces (design §7.5 — reading this summary is NOT a tenant
 // FinOps-data read and needs no break-glass grant). It is computed from
-// existing tables only; the per-tenant `entitlements` table is deferred
-// (design §11.1 decision 3), so there is no plan/status/limits here yet.
+// existing tables only. The per-tenant `entitlements` table now exists as a
+// dormant Phase 2A scaffold (migration 033, model.Entitlement), but its
+// plan/status/limits are NOT surfaced here yet — wiring entitlement into the
+// admin console is part of the deferred Phase 2B (design §7.1 / §11.1
+// decision 3).
 type StaffTenantSummary struct {
 	OrganizationID         string
 	OrgCode                string

@@ -28,13 +28,15 @@ import { shouldNagRenewal } from '../utils/license';
 //    matches the api's distinct error-code shape (license_not_loaded vs
 //    license_expired) — the dashboard reads the state, not the code.
 //
-//  • DEV_MODE / SaaS bypass: the api emits state="not_loaded" in both
-//    cases, but in DEV_MODE the api also flips IsEnforcementBypassed (no
-//    403 from the scan-gate). The banner has no way to distinguish those
-//    two from /v1/version today, so it relies on VITE_DEV_MODE being a
-//    build-time bake — when the dashboard is built for a non-dev env,
-//    VITE_DEV_MODE is "false" and the banner shows for not_loaded. Local
-//    `npm run dev` sets VITE_DEV_MODE=true and we suppress the banner.
+//  • Three non-self-hosted-license states the banner stays silent for:
+//    (a) DEV_MODE — post-B1.7-layer-4 the api emits state="valid" via the
+//    embedded dev fixture, so severity() returns null. (b) SaaS (the default
+//    build) — the api emits state="managed" and the explicit guard below
+//    returns null (there is no customer-facing license under SaaS). (c) true
+//    production-without-a-license — state="not_loaded", which DOES show (red,
+//    install CTA). The VITE_DEV_MODE build-time bake below is a legacy belt-
+//    and-braces for not_loaded in local dev; with the dev fixture it rarely
+//    fires, but it's harmless.
 //
 //  • days_remaining semantics: per services/shared/license/license.go's
 //    DaysRemaining(), this is whole days from now until exp + grace_period
@@ -62,6 +64,12 @@ export default function LicenseBanner() {
   const lic = data?.license;
   if (!lic) return null;
 
+  // SaaS (the default build) reports state="managed" — there is no customer-
+  // facing license under SaaS (design §7.4). Hide the banner entirely; the
+  // plan/usage view replaces it (#131). severity() would already return null
+  // for an unknown state, but this is the explicit, intent-revealing guard.
+  if (lic.state === 'managed') return null;
+
   const tone = severity(lic);
   if (!tone) return null;
 
@@ -74,13 +82,14 @@ export default function LicenseBanner() {
     <div
       role="alert"
       style={{
-        // Sticky under the AppShell header (which is sticky at top: 0 with
-        // height: 52). Without this, the banner scrolls out of view on long
-        // pages and the user loses the renewal context exactly when they're
-        // most likely to click the (now-403ing) Scan Now button. z-index
-        // sits below the header (100) so the header always wins on overlap.
+        // Sticky directly under the AppShell header (sticky at top: 0,
+        // height: var(--navbar-height) = 64px). Without this, the banner
+        // scrolls out of view on long pages and the user loses the renewal
+        // context exactly when they're most likely to click the (now-403ing)
+        // Scan Now button. z-index sits below the header (100) so the header
+        // always wins on overlap.
         position: 'sticky',
-        top: 52,
+        top: 'var(--navbar-height)',
         zIndex: 99,
         backgroundColor: palette.bg,
         borderBottom: `1px solid ${palette.border}`,

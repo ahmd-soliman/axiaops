@@ -27,5 +27,12 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.js'],
+    // Vitest unit tests live under src/. Scope collection there so the
+    // Playwright end-to-end specs in e2e/*.spec.ts (which import
+    // @playwright/test and call test.describe at module load) are NOT picked
+    // up by Vitest — otherwise `npm run test:run` errors with "Playwright Test
+    // did not expect test.describe() to be called here". Playwright runs e2e/
+    // via its own runner (npm run e2e).
+    include: ['src/**/*.{test,spec}.{js,jsx,ts,tsx}'],
   },
 });

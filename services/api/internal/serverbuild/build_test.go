@@ -5,9 +5,9 @@ package serverbuild_test
 //
 // The test boots ComposeServer with mock impls of all four seams and
 // asserts an HTTP request gets a sane response. It proves the seams hold
-// without shipping the SaaS binary: a future cmd/api-saashosted/main.go
-// will substitute different concrete types for the same four interfaces
-// and call the same ComposeServer.
+// regardless of build variant: the default (SaaS) build's saasmode_saas.go
+// substitutes different concrete types for the same four interfaces
+// and calls the same ComposeServer.
 //
 // What the test does NOT do (deliberately):
 //   - Spin up Postgres / Redis. The Store/Cache fields take any impl;
