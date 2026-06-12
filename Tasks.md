@@ -337,6 +337,8 @@ v2 enhancements (weekly/scheduled digest, per-zombie alerts, retry/DLQ) are trac
 
 #### 3.1 Pricing & Billing — Stripe (September 2026)
 
+**Note:** This section is superseded by [`docs/billing-plan.md`](docs/billing-plan.md) — the canonical Stripe implementation plan per ADR-0002 commitment #2. The task list below is stale (references `tenants` table + `007_add_billing_fields.sql` migration, which do not match the shipped `entitlements` model).
+
 - [ ] Sign up for Stripe; get API keys (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`)
 - [ ] Migration `007_add_billing_fields.sql` — add `plan TEXT DEFAULT 'free'`, `stripe_customer_id TEXT`, `stripe_subscription_id TEXT` to `tenants`
 - [ ] Define products in Stripe dashboard: Free, Starter (€49/mo), Growth (€149/mo), Team (€399/mo)

@@ -45,6 +45,11 @@ the billing surface.
 
 **Total: ~3–4 days.**
 
+**Interaction with the self-signup plan** ([`self-signup-plan.md`](self-signup-plan.md), expected to land *before* this pass per ADR-0002's sequencing):
+
+- **H-1 (users RLS)** invalidates that plan's grounding note 1 ("`users` has no RLS"), which its `RegisterSelfService` admin-pool reuse is built on. The policy migration must ensure the `axiaops_runtime` per-table bypass (migration-029 pattern) explicitly covers `users` SELECT/INSERT, or the pre-auth register/login paths break. The app-pool refactor (`GetUserByID`/`UpsertUser`/`EnsureUser`) also touches the same users-scan sites that signup Slice 6.2 enumerates for `email_verified_at` propagation — sequence the two, don't do them blind to each other.
+- **M-8 (CSRF)** issues the CSRF cookie at session-mint. Register (signup Slice 2) is an additional session-mint site: whichever lands second must add the cookie issuance there, or a freshly-registered user's first state-changing POST 403s. Register itself stays CSRF-exempt (pre-auth) — only the issuance is needed.
+
 Explicitly **out of scope**: M-10 audit-log hash chain (deferred by the audit itself until
 SOC 2/ISO becomes a customer ask), L-1..L-9 (cosmetic or paired with H-2), and any new
 audit sweep.
