@@ -1,6 +1,6 @@
 # Self-Signup Implementation Plan — Minimal Validation-Beta Cut
 
-Status: **draft for refinement.** Implements the critical-path + soft-gate items
+Status: **draft for refinement** (refreshed 2026-06-12 against the codebase; none of Slices 1–6 implemented yet — `RegisterSelfService`, `/auth/register`, `RegisterScreen`, `email_verifications`, `SIGNUP_ENABLED`, Turnstile all absent). Implements the critical-path + soft-gate items
 from [`self-signup-gap.md`](self-signup-gap.md) under
 [ADR-0002 (SaaS-first)](decisions/0002-saas-first-for-awareness.md). Slice style
 matches [`sso-implementation-plan.md`](sso-implementation-plan.md): numbered,
@@ -19,7 +19,7 @@ acceptance criteria.
 
 | # | Decision | Rationale |
 |---|---|---|
-| **DS1** | **`SIGNUP_ENABLED` env flag, default `false`.** Self-hosted installs are unaffected (single-tenant bootstrap stays the only org-creation path). The SaaS build sets `SIGNUP_ENABLED=true`. The `/v1/auth/register` route is only registered, and the `RegisterScreen` only reachable, when the flag is on. | Resolves coexistence. Self-hosted = bootstrap-only (one org per install); SaaS = open signup (many orgs). A flag — not a build tag — because both SKUs build from the same `cmd/api-selfhosted` today; the SaaS composition root (`cmd/api-saashosted`, ADR-0002 #5) defaults the flag on. No second binary needed for the beta. |
+| **DS1** | **`SIGNUP_ENABLED` env flag, default `false`.** Self-hosted installs are unaffected (single-tenant bootstrap stays the only org-creation path). The SaaS build sets `SIGNUP_ENABLED=true`. The `/v1/auth/register` route is only registered, and the `RegisterScreen` only reachable, when the flag is on. | Resolves coexistence. Self-hosted = bootstrap-only (one org per install); SaaS = open signup (many orgs). A flag — not a build tag — because there is no separate SaaS binary: the build-tag model was inverted (Tasks.md 2.7.5a), so **SaaS is the default build** (`go build ./cmd/`) and self-hosted licensed is the `-tags selfhosted` opt-in. There is **no `cmd/api-saashosted` / `cmd/api-selfhosted` directory** — the SKU seam is the `cmd/saasmode_{saas,selfhosted}.go` build-tag pair (selected by the `selfhosted` tag), not a composition-root directory. The default (SaaS) build should default `SIGNUP_ENABLED=true`; any `-tags selfhosted` build keeps it `false`. No second binary needed for the beta. |
 | **DS2** | **`devModeEnabled()` does NOT gate signup.** Signup is a production feature, wired only in the `!cfg.DevMode` branch (mirrors how `auth.Handler` is registered). `DEV_MODE` replaces the whole auth chain with `DevBypass`, so register is meaningless there. Test via `make start-staging` + `SIGNUP_ENABLED=true`. | Consistent with login/bootstrap being `!cfg.DevMode`-only. |
 | **DS3** | **Soft-gate email verification only.** A registered user gets a session + full dashboard immediately; `users.email_verified_at` stays null until they click the link. Unverified banner shows; **nothing restricted**. | ADR-0002 "validate before heavy plumbing." Hard-gating risks killing the activation measurement before deliverability ops are solid. |
 | **DS4** | **CAPTCHA = Cloudflare Turnstile.** | Free, no per-request cost, privacy-friendly (no Google reCAPTCHA cookie baggage — EU posture), trivial server-side `siteverify`. hCaptcha is the equivalent fallback. Server-side token verification mandatory. |
@@ -44,7 +44,7 @@ Slice 6  Soft-gate email verification               (L)  ── abuse hardening
 
 **True critical path** (stranger signs up → dashboard): Slices **1–4**. Slices 5–6 are abuse hardening — a *public* endpoint must not ship to real strangers without at least Slice 5 (CAPTCHA) + Slice 3 (rate-limit), but the four-slice core is demoable behind `SIGNUP_ENABLED` for internal activation dry-runs.
 
-**Cut-further option:** Slice 6's verification *email send* can stub to a no-op that just writes the token row, so the schema + soft-gate banner ship without SES being out of sandbox (deliverability is an ops prerequisite, not a code blocker). Slice 5 is the one piece that must not be cut for a public launch.
+**Cut-further option:** Slice 6's verification *email send* can stub to a no-op that just writes the token row, so the schema + soft-gate banner ship without the production mail relay being fully provisioned (deliverability is an ops prerequisite, not a code blocker). Slice 5 is the one piece that must not be cut for a public launch.
 
 ---
 
@@ -56,12 +56,13 @@ Slice 6  Soft-gate email verification               (L)  ── abuse hardening
 - `services/shared/storage/storage_native_auth.go` — interface method + input/output structs (interface-first).
 - `services/shared/storage/postgres/native_auth.go` — impl.
 
-**Net-new vs reused.** ~90% reused. `ConsumeBootstrapState` (native_auth.go ~lines 848–981) is the template. `RegisterSelfService` is that transaction **minus** the `bootstrap_state` lookup + `ConstantTimeCompare` token check, **minus** the `DELETE FROM bootstrap_state` seal, **minus** the advisory lock; and the org-empty guard is simply never invoked (it lives in `CreateBootstrapState`, not in the consume path). The 5-step body — INSERT organization → INSERT user (catch `23505` → `ErrUserEmailExists`) → `set_config('app.organization_id', …, true)` → INSERT owner membership → INSERT session — is lifted verbatim. `auth_mode='password'` (migration-021 CHECK already permits it).
+**Net-new vs reused.** ~90% reused. `ConsumeBootstrapState` (`native_auth.go`, function `ConsumeBootstrapState`) is the template. `RegisterSelfService` is that transaction **minus** the `bootstrap_state` lookup + `ConstantTimeCompare` token check, **minus** the `DELETE FROM bootstrap_state` seal, **minus** the advisory lock; and the org-empty guard is simply never invoked (it lives in `CreateBootstrapState`, not in the consume path). The 5-step body — INSERT organization → INSERT user (catch `23505` → `ErrUserEmailExists`) → `set_config('app.organization_id', …, true)` → INSERT owner membership → INSERT session — is lifted verbatim, **plus a 6th step: write the org's default `entitlements` row inside the same transaction** — `ConsumeBootstrapState` does this with an inline INSERT in its tx (the `ensureDefaultEntitlement` helper in `postgres.go` is the out-of-tx equivalent used by `UpsertOrganization`/`EnsureOrganization`); copy the inline-INSERT form so the row is atomic with the org. Without it the new org has no `entitlements` row and the default-build fail-closed scan gate (`entitlement.IsScanAllowedForOrg` — missing row denies) blocks every self-signup org's scans. This is the single forward seam the companion billing plan ([`billing-plan.md`](billing-plan.md)) will repoint from the current `active`/`internal` default to a trial — name it explicitly so billing changes one function, not every chokepoint. `auth_mode='password'` (migration-021 line 60 CHECK permits `'password'`, `'sso'`, `'bootstrap'`).
 
 **Additions**
 - `RegisterSelfService(ctx, in RegisterSelfServiceInput) (RegisterSelfServiceResult, error)` on `NativeAuthStore`.
 - `RegisterSelfServiceInput{ OrganizationID, OrganizationName, UserID, UserEmail, UserName, UserPasswordHash, SessionID, SessionTokenHash, SessionUserAgentHash, SessionIP string; SessionExpiresAt time.Time }`; `RegisterSelfServiceResult{ User model.User; Session model.Session }`.
 - Reuse the existing `storage.ErrUserEmailExists` sentinel for the unique-index collision.
+- Inside `RegisterSelfService`, after the session INSERT and within the same transaction, the default-entitlement INSERT (`ON CONFLICT (organization_id) DO NOTHING`) — copied from `ConsumeBootstrapState`'s inline form, not via the out-of-tx `ensureDefaultEntitlement` helper (`postgres.go`). In-tx makes it **fatal by construction**: a failed entitlement write rolls back the whole registration, so a missing row can't silently produce an org that can never scan.
 
 **RLS note.** Uses `s.adminPool` exactly as `ConsumeBootstrapState` (registration is pre-org-context — it *creates* the org). The membership INSERT sets `app.organization_id` via `set_config(..., true)` in-tx. `organizations`/`users`/`sessions` have no RLS; `memberships` does and is satisfied by the local GUC.
 
@@ -70,6 +71,7 @@ Slice 6  Soft-gate email verification               (L)  ── abuse hardening
 - **Repeatable:** two calls, different emails → two distinct orgs (proves the single-tenant seal is gone — the multi-tenancy assertion).
 - **Concurrent same-email:** two goroutines, same email → exactly one succeeds, the other `ErrUserEmailExists` (`users_email_lower_unique`, migration 021 line 36, `23505`). Verify the losing tx rolls back its org INSERT (no orphan org).
 - **RLS bypass:** succeeds with no `app.organization_id` set.
+- **Entitlement row present:** after a happy-path register, the org has an `entitlements` row (plan `internal`, status `active`) so the fail-closed scan gate passes. Regression-pins the chokepoint.
 
 **Effort: S** — copy-and-strip of a tested transaction.
 
@@ -172,8 +174,8 @@ Slice 6  Soft-gate email verification               (L)  ── abuse hardening
 
 **Goal.** Schema for verification state + token; mint-on-register + redeem + verification email (reusing the SMTP layer); unverified banner. **Soft-gate: user is let in; nothing restricted.**
 
-### 6.1 Migration — `032_email_verification.up.sql` / `.down.sql`
-Next number is **032** (highest is `031_notification_channels`). `users` has **no RLS** and a **global** `lower(email)` unique index (migration 021), so verification state lives on `users` and the token in a sibling capability table (no RLS, like `password_resets`/`sessions`).
+### 6.1 Migration — `035_email_verification.up.sql` / `.down.sql`
+Next free number is **035** (highest applied is `034_entitlement_internal_plan`; `032` is `staff_identity`, `033` is `entitlements`). Confirm the next free number at implementation time. `users` has **no RLS** and a **global** `lower(email)` unique index (migration 021), so verification state lives on `users` and the token in a sibling capability table (no RLS, like `password_resets`/`sessions`).
 
 ```sql
 SET search_path TO axiaops;
@@ -194,8 +196,9 @@ CREATE INDEX IF NOT EXISTS email_verifications_user_idx    ON email_verification
 CREATE INDEX IF NOT EXISTS email_verifications_expires_idx ON email_verifications (expires_at) WHERE redeemed_at IS NULL;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON email_verifications TO axiaops;
+GRANT SELECT, INSERT, UPDATE ON email_verifications TO axiaops_runtime;
 ```
-- **Runtime-admin grant:** verify against `029_runtime_admin_role.up.sql` — if that role's grants are table-enumerated rather than schema-wide, add the equivalent grant to `axiaops_runtime` (the capability-table reads run on the admin pool, like `sessions`/`password_resets`).
+- **Runtime-admin grant (resolved):** the redeem lookup is pre-auth (public `/v1/auth/` endpoint, no org context) so it runs on the admin pool like `sessions`/`password_resets` — hence the explicit `axiaops_runtime` grant above. The `029_runtime_admin_role` bypass-policy loop only covers RLS-enabled tables and skips this one, so the grant must be in this migration.
 - **Down:** `DROP TABLE email_verifications;` then `ALTER TABLE users DROP COLUMN email_verified_at;`.
 - **RLS-aware test:** redeem lookup succeeds with no `app.organization_id` set; a regression that adds RLS must fail it.
 
@@ -210,8 +213,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON email_verifications TO axiaops;
 - **Redeem:** `POST /v1/auth/verify-email/redeem` (public, `/v1/auth/` prefix). `{token}` → 204; 410 `verification_invalid` on unknown/expired. Audit `AuditActionUserEmailVerified`.
 - **Resend (recommend include):** `POST /v1/auth/verify-email/resend` — session-authed, rate-limited via the register budget. Mints + re-sends.
 
-### 6.4 Verification email — reuse the SMTP layer
-The channel `EmailTransport.Send` (email_smtp.go ~line 126) is coupled to the notification-channel `Payload` + encrypted `config_ciphertext` — **not** directly reusable. The reusable seam is the lower-level **`dialingSendMail(addr, auth, from, to, msg)`** (email_smtp.go ~line 45). Add `services/shared/notifications/transactional.go` with `SendTransactionalEmail(ctx, smtpCfg, to, subject, body)` building an RFC-5322 message and calling `dialingSendMail`. SMTP config from **env** (`SMTP_HOST/PORT/USER/PASS/FROM`) — there is no per-org channel for system mail. **This same helper is what the deferred mail-invite system uses (do it once.)** If SES is still sandboxed, wire a no-op/log sender behind an interface so schema + redeem + banner ship and activation stays measurable.
+### 6.4 Verification email — reuse the shipped invite-mail seam
+System (transactional) email has **already shipped** for invitations: `services/shared/notifications/invite_email.go` defines the `InviteSender` interface and `EmailTransport.SendInvite(ctx, cfg model.EmailConfig, recipient, InviteEmail)`, which builds an RFC-5322 message and sends via the transport's injectable `sendMail` seam (default `dialingSendMail`, `email_smtp.go`). The api owns config resolution through its `InviteMailer` seam (`services/api/internal/api/invite_mailer.go`), which sources a plaintext `model.EmailConfig` from either the org's email notification channel (`notifications.DecodeEmailConfig`) or the global `SMTP_*` env config. **Do NOT add a new `transactional.go` helper** — follow the same pattern: add a `SendVerification`-style method (or a small generic `SendTransactional(ctx, cfg model.EmailConfig, to, subject, body)`) alongside `SendInvite`, taking an already-resolved `model.EmailConfig`, and resolve that config in the api the way `InviteMailer` already does (per-org channel → global `SMTP_*`). The deliverability deferral still holds: if the prod relay isn't ready, wire a no-op/log sender behind the `InviteSender`-style interface so schema + redeem + banner ship and activation stays measurable.
 
 ### 6.5 Unverified banner (frontend)
 - `/v1/me` returns `email_verified: bool`.
@@ -228,11 +231,11 @@ The channel `EmailTransport.Send` (email_smtp.go ~line 126) is coupled to the no
 
 | Variable | Required | Default | Notes |
 |----------|----------|---------|-------|
-| SIGNUP_ENABLED | No | `false` | Master switch for open self-registration. `false` → self-hosted single-tenant (bootstrap only); `/v1/auth/register` not registered (404). `true` → SaaS. `cmd/api-saashosted` defaults it on. |
+| SIGNUP_ENABLED | No | `false` | Master switch for open self-registration. `false` → self-hosted single-tenant (bootstrap only); `/v1/auth/register` not registered (404). `true` → SaaS. The default (non-`selfhosted`) build should default it on; the `-tags selfhosted` build leaves it off. |
 | SIGNUP_RATE_LIMIT_PER_IP | No | `5` | Per-IP-per-minute cap on register. Separate `IPRateLimiter` budget (`"auth:register"`) from `/login`. |
 | TURNSTILE_SECRET_KEY | When `SIGNUP_ENABLED=true` (prod) | — | Turnstile secret for `siteverify`. Unset → CAPTCHA skipped (dev/staging only; **must** be set for public launch). |
 | EMAIL_VERIFICATION_TTL_HOURS | No | `48` | Verification-token lifetime. Generous (soft-gate). |
-| SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM | When verification email is live | — | System (transactional) SMTP for verification + (deferred) invite mail. Distinct from per-org notification-channel SMTP. |
+| SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM / SMTP_FROM_NAME | Already documented api env vars (see `services/api/CLAUDE.md`) | — | Global transactional SMTP relay (Gmail relay `smtp-relay.gmail.com` in prod). **Already used by the shipped invite mailer** — verification email reuses the same vars and `InviteMailer` resolution, no new env. |
 
 Dashboard build envs: `VITE_SIGNUP_ENABLED`, `VITE_TURNSTILE_SITE_KEY`.
 
@@ -242,8 +245,8 @@ Dashboard build envs: `VITE_SIGNUP_ENABLED`, `VITE_TURNSTILE_SITE_KEY`.
 
 - **Mutually exclusive by default, co-existing on one binary.** Bootstrap is gated by the `bootstrap_state` singleton + org-empty guard (seals after first org). Signup is gated by `SIGNUP_ENABLED`. Same `RegisterSelfService`-shaped transaction, different entry points + guards.
 - **Self-hosted (`SIGNUP_ENABLED=false`, default):** only bootstrap creates the one org; `/v1/auth/register` → 404. Single-tenant fully preserved. **No self-hosted install is affected by this work.**
-- **SaaS (`SIGNUP_ENABLED=true`, set by `cmd/api-saashosted`):** open signup live; bootstrap is irrelevant and harmless (409s forever once an org exists).
-- **Flag, not build tag:** the `production` build tag is the DEV_MODE-bypass seam — orthogonal to the SKU axis. SKU = composition root (`cmd/api-selfhosted` vs `cmd/api-saashosted`) + `SIGNUP_ENABLED`. A customer-shipping self-hosted binary (`-tags production`) must have signup **off**; the SaaS binary **on**.
+- **SaaS (`SIGNUP_ENABLED=true`, the default build's default):** open signup live; bootstrap is irrelevant and harmless (409s forever once an org exists).
+- **Flag, not build tag:** the `production` build tag is the DEV_MODE-bypass seam; the `selfhosted` tag is the SKU seam (default = SaaS, `-tags selfhosted` = licensed self-hosted). Both are orthogonal to `SIGNUP_ENABLED`, which is the runtime switch. A `-tags selfhosted` build must default signup **off**; the default SaaS build **on**. There is no `cmd/api-saashosted`/`cmd/api-selfhosted` — the seam is `cmd/saasmode_{saas,selfhosted}.go`.
 
 ---
 
@@ -279,13 +282,13 @@ Dashboard build envs: `VITE_SIGNUP_ENABLED`, `VITE_TURNSTILE_SITE_KEY`.
 - **Hard-gating on unverified email** — would block dashboard access before deliverability is proven; soft-gate first (ADR-0002).
 - **Org-name dedup / suggest-variant** — UUID is the identifier; duplicate display names are harmless (gap §8).
 - **"Existing user starts another org" UX** — B1.5 model allows it, but the UX is non-minimal; existing users log in + use invites (DS6).
-- **SES-out-of-sandbox / SPF / DKIM / bounce handling** — an **ops prerequisite, not code**: the transactional-email code (6.4) exists, but a verified sending domain + SES production access must be provisioned before the verification email is enabled in prod. Shared with the deferred mail-invite system — do it once.
+- **Sending-domain deliverability (SPF / DKIM / DMARC / bounce handling)** — an **ops prerequisite, not code**: the transactional-email seam already ships (invite mail), but a verified sending domain on the global relay (Gmail SMTP relay in prod) must be provisioned before the verification email is enabled in prod. The mail-invite system is no longer deferred — it shipped — so this is purely a domain/deliverability provisioning item.
 - **Self-service forgot-password** — admin-issued reset already ships (`/v1/auth/password-reset/redeem`); self-service is a separate later item.
-- **Stripe/billing, free-tier shape, card-required trial** — ADR-0002 open follow-ups; not part of the activation-validation cut.
+- **Stripe/billing, free-tier shape, card-required trial** — now planned in [`billing-plan.md`](billing-plan.md) (DS3 there: reverse trial, card-not-required; its Slice 6 repoints this plan's `ensureDefaultEntitlement` seam to `trialing`); not part of the activation-validation cut.
 
 ---
 
 ## Two grounding notes (verified in source)
 
-1. `users` has **no RLS** and a **global** `lower(email)` unique index (`021_native_auth.up.sql` line 36; comment in `postgres/native_auth.go` ~lines 48–52) — which is why `RegisterSelfService` reuses the bootstrap admin-pool transaction wholesale and `23505 → ErrUserEmailExists` is the concurrent-same-email guarantee.
-2. The channel `EmailTransport.Send` is coupled to the encrypted notification-channel config (`email_smtp.go` ~line 126), so the verification email reuses the lower-level `dialingSendMail` (~line 45), not `Send`.
+1. `users` has **no RLS** and a **global** `lower(email)` unique index (`021_native_auth.up.sql` line 36, `CREATE UNIQUE INDEX users_email_lower_unique`) — which is why `RegisterSelfService` reuses the bootstrap admin-pool transaction wholesale and `23505 → ErrUserEmailExists` is the concurrent-same-email guarantee.
+2. System mail already has a shipped seam: `EmailTransport.SendInvite` + the api's `InviteMailer` (`invite_mailer.go`) resolve a plaintext `model.EmailConfig` (per-org channel via `notifications.DecodeEmailConfig`, else global `SMTP_*` env) and send via the transport's injectable `sendMail` field — `EmailTransport.Send` is the channel/`config_ciphertext`-coupled path the verification mail must NOT reuse. Add a verification-mail method beside `SendInvite`, don't introduce a parallel `transactional.go`.
