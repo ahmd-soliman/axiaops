@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTheme } from '../../theme/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
@@ -42,6 +42,17 @@ export default function Organization() {
 function RenameOrganizationSection({ isDark, currentName, toast, refresh }) {
   const [name, setName] = useState(currentName);
   const [saving, setSaving] = useState(false);
+
+  // Adopt a new server value (e.g. after this rename's refresh(), or an
+  // external change) without clobbering an in-progress edit: only re-sync
+  // when the field still holds the previous server value.
+  const prevServerName = useRef(currentName);
+  useEffect(() => {
+    if (currentName !== prevServerName.current) {
+      setName((cur) => (cur === prevServerName.current ? currentName : cur));
+      prevServerName.current = currentName;
+    }
+  }, [currentName]);
   const trimmed = name.trim();
   const dirty = trimmed !== currentName && trimmed.length > 0 && trimmed.length <= 120;
 

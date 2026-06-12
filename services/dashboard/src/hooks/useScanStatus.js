@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { fetchAccounts } from '../api/client';
 import { useToast } from '../context/ToastContext';
@@ -39,22 +39,22 @@ export function useScanStatus() {
     };
   }, []);
 
-  function stop(accountId) {
+  const stop = useCallback((accountId) => {
     const p = pollers.current.get(accountId);
     if (!p) return;
     clearInterval(p.interval);
     clearTimeout(p.timeout);
     pollers.current.delete(accountId);
     p.onEnd?.();
-  }
+  }, []);
 
-  function refetchAll() {
+  const refetchAll = useCallback(() => {
     for (const key of STALE_QUERY_KEYS) {
       queryClient.invalidateQueries({ queryKey: [key] });
     }
-  }
+  }, [queryClient]);
 
-  function watch(accountId, { label, onEnd } = {}) {
+  const watch = useCallback((accountId, { label, onEnd } = {}) => {
     if (pollers.current.has(accountId)) return;
     const displayLabel = label || accountId.slice(0, 8);
 
@@ -85,7 +85,9 @@ export function useScanStatus() {
     }, MAX_POLL_DURATION_MS);
 
     pollers.current.set(accountId, { interval, timeout, onEnd });
-  }
+  }, [toast, refetchAll, stop]);
 
-  return { watch };
+  // Stable identity so callers can safely use `watch` as an effect/callback
+  // dependency without re-subscribing every render.
+  return useMemo(() => ({ watch }), [watch]);
 }

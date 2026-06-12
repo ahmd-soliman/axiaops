@@ -82,13 +82,14 @@ export default function LicenseBanner() {
     <div
       role="alert"
       style={{
-        // Sticky under the AppShell header (which is sticky at top: 0 with
-        // height: 52). Without this, the banner scrolls out of view on long
-        // pages and the user loses the renewal context exactly when they're
-        // most likely to click the (now-403ing) Scan Now button. z-index
-        // sits below the header (100) so the header always wins on overlap.
+        // Sticky directly under the AppShell header (sticky at top: 0,
+        // height: var(--navbar-height) = 64px). Without this, the banner
+        // scrolls out of view on long pages and the user loses the renewal
+        // context exactly when they're most likely to click the (now-403ing)
+        // Scan Now button. z-index sits below the header (100) so the header
+        // always wins on overlap.
         position: 'sticky',
-        top: 52,
+        top: 'var(--navbar-height)',
         zIndex: 99,
         backgroundColor: palette.bg,
         borderBottom: `1px solid ${palette.border}`,

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { adminApi, ApiError } from '../api/admin.js';
 
 // AdminAuthContext holds the resolved staff principal (or null). On mount it
@@ -41,12 +41,20 @@ export function AdminAuthProvider({ children }) {
   const logout = useCallback(async () => {
     try {
       await adminApi.logout();
+    } catch (err) {
+      // The UI logs out regardless; swallow a failed logout request (e.g. a
+      // network blip) so the click handler doesn't leave an unhandled
+      // rejection.
+      console.error('admin: logout request failed', err);
     } finally {
       setStaff(null);
     }
   }, []);
 
-  const value = { staff, loading, login, logout, refresh };
+  const value = useMemo(
+    () => ({ staff, loading, login, logout, refresh }),
+    [staff, loading, login, logout, refresh],
+  );
   return <AdminAuthContext.Provider value={value}>{children}</AdminAuthContext.Provider>;
 }
 
