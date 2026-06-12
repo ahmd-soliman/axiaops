@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../../theme/ThemeContext';
 import { useMe } from '../../context/MeContext';
@@ -56,6 +56,12 @@ export default function Members() {
     qc.invalidateQueries({ queryKey: ['invitations'] });
     refresh();
   };
+
+  // Synchronous double-submit guard. `addMutation.isPending` only flips after
+  // the dispatch + a re-render, so two Enter presses in the same tick could
+  // both fire createInvitation before the button disables. This ref is set
+  // synchronously in the submit handler and cleared in onSettled.
+  const invitingRef = useRef(false);
 
   // Email-first invite. Tries POST /v1/invitations, falls back to
   // POST /v1/memberships if the API reports the user already exists without
@@ -140,6 +146,7 @@ export default function Members() {
       invalidate();
     },
     onError: (err) => setAddError(humanize(err, 'Failed to invite user')),
+    onSettled: () => { invitingRef.current = false; },
   });
 
   const revokeInvitationMutation = useMutation({
@@ -156,21 +163,14 @@ export default function Members() {
 
   // Destructive-action confirm modals — type-to-confirm UX shared with other
   // pages (org delete, account delete, user delete). Replaces three earlier
-  // window.confirm() sites (per issue #84).
-  //
-  // The onSuccess callbacks below reference `removeCtrl` / `transferCtrl` —
-  // the very const they're being assigned to. JS closures resolve by name at
-  // call time (against the enclosing scope), and onSuccess only runs after a
-  // mutation completes, by which point the const has been initialised on at
-  // least one render. Safe in practice; the alternative (the hook auto-closes
-  // on success) would require a primitive change in DestructiveConfirm.jsx.
+  // window.confirm() sites (per issue #84). The hook auto-closes itself on
+  // success, so onSuccess here only clears the page-local target state.
   const removeCtrl = useDestructiveConfirm({
     target: removeTarget?.isSelf ? 'leave' : (removeTarget?.email || ''),
     mutationFn: () => removeMember(removeTarget?.id),
     successMessage: removeTarget?.isSelf ? 'Left the organization' : 'Member removed',
     onSuccess: () => {
       setRemoveTarget(null);
-      removeCtrl.close();
       invalidate();
     },
     toast,
@@ -183,7 +183,6 @@ export default function Members() {
     successMessage: 'Ownership transferred',
     onSuccess: () => {
       setTransferTo('');
-      transferCtrl.close();
       invalidate();
     },
     toast,
@@ -229,6 +228,8 @@ export default function Members() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!addEmail.trim()) return;
+              if (invitingRef.current) return; // already submitting this tick
+              invitingRef.current = true;
               addMutation.mutate({ email: addEmail.trim(), role: addRole });
             }}
             style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
@@ -553,6 +554,7 @@ export default function Members() {
                           </span>
                           <select
                             value={m.role}
+                            disabled={updateMutation.isPending}
                             onChange={(e) => updateMutation.mutate({ id: m.id, role: e.target.value })}
                             style={{ ...inputStyle(), width: '100%', minHeight: 40 }}
                           >
@@ -612,6 +614,7 @@ export default function Members() {
                       {allowEdit ? (
                         <select
                           value={m.role}
+                          disabled={updateMutation.isPending}
                           onChange={(e) => updateMutation.mutate({ id: m.id, role: e.target.value })}
                           style={inputStyle()}
                         >

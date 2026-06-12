@@ -1433,11 +1433,11 @@ export default function OverviewScreen({
     );
   }
 
-  const activeFilters = [
+  const activeFilters = useMemo(() => [
     ...[...filterSvcs].map(svc => ({ key: `svc:${svc}`, label: serviceConfig(svc).label })),
     ...[...filterResourceTypes].map(rt => ({ key: `rt:${rt}`, label: resourceTypeConfig(rt).label })),
     filterOwner && { key: 'owner', label: filterOwner },
-  ].filter(Boolean);
+  ].filter(Boolean), [filterSvcs, filterResourceTypes, filterOwner]);
 
   function clearFilter(key) {
     if (key === 'owner') setFilterOwner(null);
@@ -1457,6 +1457,47 @@ export default function OverviewScreen({
       });
     }
   }
+
+  // ── Compute list ───────────────────────────────────────────────────────────
+  // Memoized so unrelated state changes — selecting a row, opening the bulk
+  // bar, typing in search — don't re-run the full filter+sort pipeline over
+  // the (potentially several-hundred-row) resource list. Lives above the
+  // loading/error early-returns to keep hook order stable.
+  const listData = useMemo(() => {
+    if (showDismissed) {
+      let list = dismissals.data ?? [];
+      if (hiddenFilter === 'dismissed') list = list.filter(d => d.action === 'dismiss');
+      if (hiddenFilter === 'snoozed')   list = list.filter(d => d.action === 'snooze');
+      // Snoozed-only view: sort soonest-returning first so the user sees what's
+      // about to come back at the top. Other views keep server order.
+      if (hiddenFilter === 'snoozed') {
+        list = [...list]
+          .map(d => ({ d, t: d.snoozed_until ? new Date(d.snoozed_until).getTime() : Infinity }))
+          .sort((a, b) => a.t - b.t)
+          .map(x => x.d);
+      }
+      return list;
+    }
+    let list = resources.data ?? [];
+    if (zombieOnly) list = list.filter(r => r.is_zombie);
+    list = list.filter(r => !dismissedSet.has(r.resource_id));
+    if (filterSvcs.size > 0)          list = list.filter(r => filterSvcs.has(r.service));
+    if (filterResourceTypes.size > 0) list = list.filter(r => filterResourceTypes.has(r.resource_type));
+    if (filterOwner)                  list = list.filter(r => r.owner === filterOwner);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(r =>
+        r.resource_id.toLowerCase().includes(q) ||
+        (r.owner ?? '').toLowerCase().includes(q) ||
+        r.service.toLowerCase().includes(q) ||
+        r.region.toLowerCase().includes(q)
+      );
+    }
+    return sortResources(list, sortBy);
+  }, [
+    showDismissed, hiddenFilter, dismissals.data, resources.data, zombieOnly,
+    dismissedSet, filterSvcs, filterResourceTypes, filterOwner, search, sortBy,
+  ]);
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoading) {
@@ -1485,41 +1526,6 @@ export default function OverviewScreen({
       </div>
     );
   }
-
-  // ── Compute list ───────────────────────────────────────────────────────────
-  const listData = (() => {
-    if (showDismissed) {
-      let list = dismissals.data ?? [];
-      if (hiddenFilter === 'dismissed') list = list.filter(d => d.action === 'dismiss');
-      if (hiddenFilter === 'snoozed')   list = list.filter(d => d.action === 'snooze');
-      // Snoozed-only view: sort soonest-returning first so the user sees what's
-      // about to come back at the top. Other views keep server order.
-      if (hiddenFilter === 'snoozed') {
-        list = [...list].sort((a, b) => {
-          if (!a.snoozed_until) return 1;
-          if (!b.snoozed_until) return -1;
-          return new Date(a.snoozed_until) - new Date(b.snoozed_until);
-        });
-      }
-      return list;
-    }
-    let list = resources.data ?? [];
-    if (zombieOnly) list = list.filter(r => r.is_zombie);
-    list = list.filter(r => !dismissedSet.has(r.resource_id));
-    if (filterSvcs.size > 0)          list = list.filter(r => filterSvcs.has(r.service));
-    if (filterResourceTypes.size > 0) list = list.filter(r => filterResourceTypes.has(r.resource_type));
-    if (filterOwner)                  list = list.filter(r => r.owner === filterOwner);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(r =>
-        r.resource_id.toLowerCase().includes(q) ||
-        (r.owner ?? '').toLowerCase().includes(q) ||
-        r.service.toLowerCase().includes(q) ||
-        r.region.toLowerCase().includes(q)
-      );
-    }
-    return sortResources(list, sortBy);
-  })();
 
   // Visible IDs depend on the active tab: dismissal-row ids in Hidden, resource
   // ids elsewhere. The `selected` Set always holds whichever shape matches the
