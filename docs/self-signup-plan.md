@@ -71,7 +71,7 @@ Slice 6  Soft-gate email verification               (L)  ── abuse hardening
 - **Repeatable:** two calls, different emails → two distinct orgs (proves the single-tenant seal is gone — the multi-tenancy assertion).
 - **Concurrent same-email:** two goroutines, same email → exactly one succeeds, the other `ErrUserEmailExists` (`users_email_lower_unique`, migration 021 line 36, `23505`). Verify the losing tx rolls back its org INSERT (no orphan org).
 - **RLS bypass:** succeeds with no `app.organization_id` set.
-- **Entitlement row present:** after a happy-path register, the org has an `entitlements` row (plan `internal`, status `active`) so the fail-closed scan gate passes. Regression-pins the chokepoint.
+- **Entitlement row present:** after a happy-path register, the org has an `entitlements` row (plan `internal`, status `active`) so the fail-closed scan gate passes. Regression-pins the chokepoint. *(Forward note: [`billing-plan.md`](billing-plan.md) Slice 6 repoints this default to `trialing` — that MR must update this assertion, expected breakage.)*
 
 **Effort: S** — copy-and-strip of a tested transaction.
 
