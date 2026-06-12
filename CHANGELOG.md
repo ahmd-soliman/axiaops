@@ -27,135 +27,97 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.26] — 2026-06-12
+
+### Added
+
+- add license-independent build-version footer
+- add Permissions-Policy header (N-5) to SPA nginx configs
+- add resource-type sub-filter to cost screen
+- remove License page entirely under SaaS (managed state)
+- invert license build-tag model — SaaS is default, self-hosted is opt-in
+- activate dev-1 as the SaaS (license-removed) deploy target
+- gate scans on entitlement in SaaS builds (license removal, Phase 2B)
+- scaffold SaaS per-tenant entitlement (dormant Phase 2A)
+- expand breach corpus to ~10k via xato-net merge (2.7.11)
+- screen passwords against an offline breach corpus (2.7.11)
+- show invite link expiry in the result box
+- surface invite-email outcome + frame link as fallback
+
+### Changed
+
+- ci(deploy): wire prod SMTP relay password into ECS deploy from CI var
+- docs(billing-plan): correct audit.Record signature and harden migration-number examples
+- docs(billing-plan): clarify Shared-struct addition (DS9) implementation scope
+- docs(billing-plan): third-pass refinements — DS9, migration naming, index guidance
+- docs: document cross-plan interactions before billing (H-1 users-RLS, M-8 CSRF)
+- docs(billing-plan): second-pass fixes after MR !338 review
+- docs: billing plan + signup staleness refresh
+- docs(dashboard): performance & state review — 2 high, 9 medium, 17 low findings
+- ci(e2e): auto-trigger regression suite on all code-touching MRs
+- docs(dashboard): note ordering constraint on resource-id prefix map
+- docs(security): pre-billing security pass plan — close #94 remainder before Stripe
+- docs: sync stale claims with shipped state; accept ADR-0002 (SaaS-first)
+- docs: remove obsolete docs — point-in-time logs, brainstorms, superseded plans
+- ci: reuse build:images in e2e instead of rebuilding from source
+- ci: gate e2e:regression on unit+lint to skip it on fast failures
+- ci: drop e2e:regression from build:images needs (it only added latency)
+- ci: make both self-hosted CI jobs manual and independent
+- docs(tasks): update Phase 2B row to reflect inverted SaaS-default build model
+- docs: revert SaaS dev-1 deploy target (reconsidering design direction)
+- docs(index): reference SaaS dev-1 deploy target design doc
+- docs(saas): document dev-1 as the first SaaS deploy target (Phase 2B)
+- chore: restore stray repo-root cmd binary to develop's version
+- docs(tasks): sync 2.7.11 breach-corpus size with shipped ~10k corpus
+- docs(auth): design password breach-corpus screening with offline HIBP
+- ci(e2e): bake Playwright runner into hermetic image
+- ci: rename self-hosted runner tag self-hosted -> app
+- test(e2e): single auth-on lane — bootstrap ceremony + real cookie auth
+- ci(e2e): add e2e stage + e2e:regression job; broaden plan to full suite
+- test(e2e): add docker-compose e2e stack + make test-e2e
+- test(dashboard): add Playwright e2e regression suite
+- docs(e2e-plan): address !321 review — wording + "all pipelines?"
+- docs: plan for a Playwright link-check E2E pipeline stage
+- docs(rbac): design multi-owner support to remove single-owner SPOF
+- docs(api): document SMTP invite-relay + PUBLIC_HOST knobs in .env.example
+- chore(ci): set PUBLIC_HOST on dev-1/dev-2 deploys for invite emails
+- chore(deploy): wire global SMTP relay into dev-1/dev-2 for invite emails
+- docs(changelog): trim alpha.25 section to its one real entry
+
+### Fixed
+
+- enable Row-Level Security on users table (H-1)
+- close dismiss modal before opening restore-confirm to prevent overlay focus fighting
+- performance & state-management fixes across tenant + admin UIs
+- mitigate invite-email header injection (N-2)
+- hide License sidebar link under SaaS (managed state)
+- skip load when enforcement bypassed (SaaS default build)
+- gate e2e:regression on code_paths changes to unblock docs-only MRs
+- gate e2e:regression on code changes; fix SaaS license-redirect test
+- send organization_id in the ingestion scan integration test
+- seed ci-tenant entitlement for the SaaS-default scan gate
+- address code-review findings on the SaaS scan-gate
+- clarify breach-corpus licensing and password-check policy sites
+- eliminate network dependency from build and runtime
+- bake runner deps into cached image (no runtime DNS)
+- drop dns override — use runner's working default resolver
+- point playwright container at public DNS for apt/npm
+- gate postgres health on TCP to fix migrate startup race
+- defer apt/npm to container start — build sandbox has no DNS
+- make external-link liveness advisory, not fatal
+- ESM-safe paths for setup session + storageState
+- dashboard healthcheck IPv4 + dump logs on failure
+- stop leaking integration test stacks on cancelled jobs
+- scope Vitest to src/ so it ignores Playwright e2e specs
+- backfill resource_records so every seeded zombie has a resource row
+- use real anchors for in-app navigation (#130)
+
+
 ## [0.1.0-alpha.25] — 2026-06-06
 
 ### Added
 
-- add light/dark theme toggle to native login screen
-- wire admin plane into staging/preview/demo/integration composes
-- containerize dashboard-admin + wire admin plane into dev envs
-- dark mode theme toggle + logo sizing alignment
-- introduce platform admin UI for staff access to tenants and entitlements
-- staff identity + read-only tenant console (slices 1–7)
-- best-effort email delivery via notification channels
-- classify zombies by resource sub-type for trend filtering
-- optional From: display name in email channels
-- responsive waste-over-time chart with clearer time axis
-- full-width settings tabs
-- daily retention sweep for notification_dispatches
-- email-channel provider presets (SES / Workspace relay / Custom)
-- 'View trends ->' on Waste over time -> /trend
-- 'View all ->' on Recent activity -> /settings/audit
-- make org-summary 'Waste by service' rows drill into the workbench
-- nav 'Resources' entry + docs for org dashboard (slice 5)
-- recent-activity tile on org summary (slice 4)
-- org-wide trend chart + top zombies on org summary (slice 3)
-- per-account breakdown + account health strip on org summary (slice 2)
-- org summary screen at / + move account workbench to /account (slice 1)
-- add GET /v1/summary/by-account endpoint (org dashboard slice 0)
-- implement email and Slack notification channels
-- label Custom date-range chip with the selected window
-- upsert on conflict, split inserted/updated metrics
-- named demo personas (alice/bob/carol) + --bootstrap-first flag
-- add integration env to all remote targets
-- honor 'daily' on Trend + chart-sampling developer doc
-- trend seed 365d + downsample multi-account-safe
-- TrendScreen headline = average over picked window
-- date range filter on every chart screen
-
-### Changed
-
-- docs(changelog): rotate for 0.1.0-alpha.24
-- docs(graviton): correct decision back to "Declined — ECS Express is x86-only" with empirical verification
-- docs(admin-bootstrap): resolve architect review of 3 design decisions
-- docs(admin-bootstrap): resolve the 3 open questions from tenant code
-- docs(admin-bootstrap): redesign as a faithful tenant-bootstrap clone
-- docs(api): point Admin Plane bootstrap bullet at the web-bootstrap design
-- docs: design for token-based admin-plane web bootstrap
-- ci(deploy): pull/tag admin images + wait on build:admin-images
-- docs: rewrite Graviton decision (Express DOES support ARM) + scrub stale App Runner refs
-- chore(ci): wire admin-plane production deployment
-- style(dashboard-admin): revert logo pull back to -28px
-- style(dashboard-admin): tighten logo pull to -36px
-- style(dashboard-admin): back off logo pull so ADMIN no longer overlaps wordmark
-- style(dashboard-admin): collapse logo whitespace so ADMIN tucks to the wordmark
-- style(dashboard-admin): bump Admin eyebrow to 12px
-- style(dashboard-admin): refine Admin label to a small uppercase eyebrow
-- style(dashboard-admin): uppercase the Admin plane label
-- style(dashboard-admin): bold Admin suffix in text colour, tucked to logo
-- style(dashboard-admin): stack ADMIN sub-label under the logo in text colour
-- style(dashboard-admin): tuck plane label to the logo, italic bold
-- style(dashboard-admin): restyle plane indicator to orange accent caption
-- style(dashboard-admin): replace orange admin pill with muted plane indicator
-- style(dashboard-admin): restore theme toggle on login screen
-- style(dashboard-admin): remove theme toggle from pre-auth login screen
-- style(dashboard-admin): align navbar and theme toggle to tenant dashboard UX
-- style(dashboard-admin): adopt AxiaOps brand design tokens and typography
-- chore(dashboard-admin): add dedicated make target for local admin UI dev
-- chore(ci): wire admin-plane dashboard and api-admin into CI
-- chore(admin-portal): add dev-loop ergonomics for seed-staff + start-dev wiring
-- docs(invitations): recommend generic noreply sender + Gmail-relay alias constraint for SMTP_FROM
-- refactor(invitations): route invite email through an InviteMailer seam with global SMTP fallback
-- docs(saas): map self-signup gap + minimal validation-beta implementation plan
-- docs: correct seam architecture (no auth.Inviter; four Deps seams + ComposeServer)
-- docs(saas): resolve staff-identity, support-transparency, entitlement-bootstrap and grace decisions
-- docs(adr): keep self-hosted SKU warm in CI
-- docs(adr): pause self-hosted SKU instead of keeping it warm
-- docs(adr): propose ADR-0002 SaaS-first pivot + platform admin design
-- chore(seed): align resource_type vocabulary to analyzer ResourceType()
-- docs(security): clarify customer AWS access pattern in CLAUDE.md
-- chore(deploy): remove unread MIGRATION_DATABASE_URL from prod runtime services
-- docs(tasks): record prod smoke verification, defer self-hosted bundle
-- docs(deploy): record Graviton/ARM64 evaluation and decline for prod
-- style(dashboard): add --color-info token and refactor cloud accounts UX
-- docs(notifications): step-by-step Slack webhook creation + direct verify curl
-- docs(notifications): real-mailbox App Password + EOF troubleshooting for Workspace relay
-- docs(notifications): document the Provider preset in the runbook + mark §3.17 item shipped
-- docs(notifications): simplify Workspace relay setup with worked examples
-- docs(tasks): track SES system-email infra (#14) + email-channel provider-preset UX (§3.17)
-- docs(notifications): expand Workspace SMTP relay setup into a step-by-step guide
-- docs(notifications): add Security model section to runbook
-- docs(notifications): add SES-vs-relay-vs-mailbox decision section to runbook
-- docs(notifications): add email deliverability section to runbook
-- docs(dashboard): plan org-level summary dashboard (Phase 3 #15)
-- docs(notifications): add Google Workspace (axiaops.io) email setup to runbook
-- docs(notifications): move v2 digest/alert enhancements to §3.17
-- docs(cost-records): add parked store-both design + refresh observability guide
-- ci: retry script_failure on the infra-backed flaky suites only
-- ci: auto-retry transient infra failures (clone blips, runner loss)
-- test(cost-records): fix Save arity in absolute-window test after develop merge
-- refactor(dashboard): unify displayed dates on "29 May 2026" via shared formatDate
-- docs: reconcile stale status markers with shipped features
-- docs(cost-records): resolve fetched_at reviewer question (overwrite on upsert)
-- docs(cost-records): revise plan after independent design review
-- docs(cost-records): plan switching SaveCostRecords to ON CONFLICT DO UPDATE
-- address review pass 2: seed-cost-timeline, OverviewScreen delta, polish
-- address review on !XXX: scale savings + a11y + polish
-
-### Fixed
-
-- correct admin-plane deployment contract after api-admin merge
-- cancel retention sweeps on shutdown via sigCtx
-- reject CRLF in email headers + clamp dispatch error length
-- EHLO sender domain + best-effort QUIT for SMTP relay
-- slice-4 review — system-action attribution + audit queryKey
-- slice-3 review fixes — chart click crash, tz-safe trend dates, sizing, dedup key
-- decouple per-account section loading from page; mobile status cue; date format
-- handle accounts load error in OrgSummary; use isPending (TQ v5)
-- gate OrgSummary on account-list load to avoid single-account redirect flash
-- label notification channel 'Type' not 'Kind' in Integrations UI
-- export cost CSV at full precision for AWS reconciliation
-- bash 3.2-safe empty-array expansion in aws-prod-sql
-- backfill historical Cost Explorer service names to internal ids
-- map CloudFront/Kinesis/ECS Cost Explorer service names
-- normalize ECR Cost Explorer service names to AmazonECR
-- honor absolute Custom date range instead of degrading to trailing window
-- unify cost-records seed across the full DAYS window
-- tighten TrendScreen headline sub-label
-- group trend headline by day before averaging
-- TrendScreen filter trend by wall-clock days, not entry count
-- make date filter visibly affect Overview
-- drop dead CUSTOM_DAYS reference on DateRangeChips
+- **Light/dark theme toggle on the native login screen.** The multi-tenant sign-in screen now carries a sun/moon toggle, matching the admin console. The shared pre-auth card styles gained a light palette alongside the existing dark one; the login screen follows the app theme — swapping the logo asset and persisting the choice via the existing `theme` localStorage key. The other four pre-auth screens are unchanged.
 
 
 ## [0.1.0-alpha.24] — 2026-06-06
@@ -855,7 +817,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.25...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.26...develop
+[0.1.0-alpha.26]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.26
 [0.1.0-alpha.25]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.25
 [0.1.0-alpha.24]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.24
 [0.1.0-alpha.23]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.23

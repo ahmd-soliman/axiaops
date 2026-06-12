@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { fetchTrend, fetchTrendServices, fetchTrendResourceTypes } from '../api/client';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
@@ -209,7 +209,7 @@ function HistoryRow({ item, prevItem, isSelected, onClick }) {
 }
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
-export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, onConnectAccount, onEditAccount }) {
+export default function TrendScreen({ accounts, selectedAccount, selectedAwsAccount, onSelectAccount, connectHref, editAccountHref }) {
   const { toast } = useToast();
   const screenWidth = useWindowWidth();
   const { isAtMost } = useBreakpoint();
@@ -233,7 +233,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   //  - nothing selected            → one query, no filter (all services)
   //  - N services, no sub-types    → N queries, one per service
   //  - 1 service, M sub-types      → M queries, one per service/sub-type combo
-  const filterBuckets = (() => {
+  const filterBuckets = useMemo(() => {
     if (filterServices.size === 0) {
       return [{ service: null, resourceType: null }];
     }
@@ -242,7 +242,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
       return [...filterResourceTypes].map(rt => ({ service: svc, resourceType: rt }));
     }
     return [...filterServices].map(svc => ({ service: svc, resourceType: null }));
-  })();
+  }, [filterServices, filterResourceTypes]);
 
   const trendQueries = useQueries({
     queries: filterBuckets.map(b => ({
@@ -255,7 +255,21 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const trendIsLoading = trendQueries.some(q => q.isLoading);
   const trendIsError   = trendQueries.length > 0 && trendQueries.every(q => q.isError);
   const trendHasData   = trendQueries.some(q => Array.isArray(q.data));
-  const mergedSnaps    = mergeSnapshotSeries(trendQueries.map(q => q.data));
+  // Merge the per-bucket series once per actual data change. The signature
+  // pairs each bucket's identity (account + service + sub-type) with its
+  // dataUpdatedAt, which bumps only when that query's data is replaced — so it
+  // is stable across the many re-renders driven by unrelated state (scroll
+  // button, window width) yet always changes when the selected buckets or
+  // their data change. Including the bucket identity (not just the timestamp)
+  // avoids a stale-merge if two different bucket sets ever share a timestamp.
+  const dataSignature  = trendQueries
+    .map((q, i) => `${selectedAwsAccount ?? ''}|${filterBuckets[i]?.service ?? ''}|${filterBuckets[i]?.resourceType ?? ''}|${q.dataUpdatedAt}`)
+    .join(',');
+  const mergedSnaps    = useMemo(
+    () => mergeSnapshotSeries(trendQueries.map(q => q.data)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dataSignature],
+  );
   const [selectedSnap, setSelectedSnap] = useState(null);
   const [period, setPeriod]             = useState(DEFAULT_DAYS);
   const [granularity, setGranularity]   = useState('daily');
@@ -284,13 +298,17 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   // i.e. period=7 picked the most recent 7 scans rather than the last
   // 7 days, and 6m/1y both collapsed to "all entries". Computing a
   // wall-clock cutoff keeps the chip labels honest end-to-end.
-  const allSnaps      = mergedSnaps;
-  const cutoffMs      = Date.now() - period * 24 * 60 * 60 * 1000;
-  const filteredSnaps = allSnaps.filter(s => new Date(s.snapshot_at).getTime() >= cutoffMs);
-  const chartSnaps    = effectiveGranularity === 'monthly'
-    ? downsampleByMonth(filteredSnaps)
-    : aggregateToDays(filteredSnaps);
-  const reversedSnaps = [...filteredSnaps].reverse();
+  // Window + shape the snaps once per (data, period, granularity) change
+  // rather than on every render. The wall-clock cutoff is computed inside so a
+  // mid-second re-render can't shift a boundary point in or out.
+  const { filteredSnaps, chartSnaps, reversedSnaps } = useMemo(() => {
+    const cutoffMs = Date.now() - period * 24 * 60 * 60 * 1000;
+    const filtered = mergedSnaps.filter(s => new Date(s.snapshot_at).getTime() >= cutoffMs);
+    const chart = effectiveGranularity === 'monthly'
+      ? downsampleByMonth(filtered)
+      : aggregateToDays(filtered);
+    return { filteredSnaps: filtered, chartSnaps: chart, reversedSnaps: [...filtered].reverse() };
+  }, [mergedSnaps, period, effectiveGranularity]);
 
   // Total CSV rows across all buckets (one row per snap per bucket, period-windowed).
   const exportRowCount = filterBuckets.reduce(
@@ -312,7 +330,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
 
     const el = listRef.current?.querySelectorAll('[data-snap]')?.[idx];
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [selectedSnap, listPage]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedSnap, listPage, reversedSnaps]);
 
   function changePeriod(days) {
     setPeriod(days);
@@ -419,8 +437,8 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
           accounts={accounts}
           selectedAccount={selectedAccount}
           onSelectAccount={onSelectAccount}
-          onConnectAccount={onConnectAccount}
-          onEditAccount={onEditAccount}
+          connectHref={connectHref}
+          editAccountHref={editAccountHref}
         />
       </div>
 
@@ -644,7 +662,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 16px 48px' }}>
           {visibleRows.map((item, idx) => (
             <HistoryRow
-              key={item.snapshot_at + idx}
+              key={item.snapshot_at}
               item={item}
               prevItem={reversedSnaps[idx + 1]}
               isSelected={selectedSnap?.snapshot_at === item.snapshot_at}

@@ -1,6 +1,9 @@
-import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
+import { fetchVersion } from '../api/client';
+import { LinkButton } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { PERM } from '../api/permissions';
 
@@ -70,13 +73,34 @@ const TAB_GROUPS = [
 // first item on the page (Profile, for any signed-in user).
 const TABS = TAB_GROUPS.flatMap((g) => g.items);
 
+// Single source of truth for tab visibility. Both the flat `visible` list
+// (mobile strip + first-tab redirect) and the desktop aside's per-group
+// filter run through this so they can never disagree — they did once: the
+// SaaS "hide License" rule lived only on the flat list, so the desktop
+// sidebar kept rendering a dead License link that just bounced back to
+// /settings under the managed (SaaS) build.
+function tabVisible(tab, can, licenseManaged) {
+  if (tab.path === '/settings/license' && licenseManaged) return false;
+  return !tab.requires || can(tab.requires);
+}
+
 export default function Settings() {
   const { isDark } = useTheme();
   const { can, loading, me } = useMe();
   const location = useLocation();
-  const navigate = useNavigate();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
+
+  // Cached ['api-version'] read (same key/fn as AppShell + LicenseBanner →
+  // deduped, no extra request) so we can hide the License tab under SaaS.
+  const { data: version } = useQuery({
+    queryKey: ['api-version'],
+    queryFn: fetchVersion,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const licenseState = version?.license?.state;
 
   // Wait for /v1/me before deciding what to render. On first paint
   // `loading` is true and every `can()` returns false — without this gate
@@ -91,7 +115,18 @@ export default function Settings() {
   // OnboardingGate.
   if (loading && !me) return null;
 
-  const visible = TABS.filter((tab) => !tab.requires || can(tab.requires));
+  // SaaS (the default build) reports license.state="managed" — there is no
+  // customer-facing license under SaaS (design §7.4), so hide the License tab.
+  // Same cached ['api-version'] key/fn the LicenseBanner + License page use →
+  // React Query dedupes, so this is a cache read, not an extra request.
+  //
+  // Fail-closed while the version query is still resolving (cold-cache direct
+  // load of /settings): treat unknown state as managed so we never flash the
+  // dead License link before the query lands. Self-hosted (state≠"managed")
+  // surfaces the tab a beat later, which is strictly better than briefly
+  // showing a link that just bounces back to /settings under SaaS.
+  const licenseManaged = version === undefined || licenseState === 'managed';
+  const visible = TABS.filter((tab) => tabVisible(tab, can, licenseManaged));
 
   // Land on first visible tab. Workspace sits above Account in TAB_GROUPS,
   // so for every current role this resolves to Cloud Accounts (or whichever
@@ -122,9 +157,9 @@ export default function Settings() {
       backgroundColor: 'var(--color-bg)',
     }}>
       {isMobile ? (
-        <MobileTabs visible={visible} location={location} navigate={navigate} isDark={isDark} />
+        <MobileTabs visible={visible} location={location} isDark={isDark} />
       ) : (
-        <DesktopAside can={can} location={location} navigate={navigate} isDark={isDark} />
+        <DesktopAside can={can} licenseManaged={licenseManaged} location={location} isDark={isDark} />
       )}
       {/* No width cap — settings tabs are full-width like the rest of the
           app; each tab's own padding governs its content inset. */}
@@ -141,12 +176,14 @@ export default function Settings() {
   );
 }
 
-function DesktopAside({ can, location, navigate, isDark }) {
-  // Filter each group's items by permission and drop empty groups so a
-  // viewer (no admin tabs) doesn't see a "Workspace" header with nothing
-  // beneath it. Same group order, item order within a group is preserved.
+function DesktopAside({ can, licenseManaged, location, isDark }) {
+  // Filter each group's items by permission (and the SaaS License-tab hide)
+  // and drop empty groups so a viewer (no admin tabs) doesn't see a
+  // "Workspace" header with nothing beneath it. Same group order, item order
+  // within a group is preserved. Goes through the shared tabVisible() so the
+  // sidebar can't drift from the flat `visible` list the redirect uses.
   const visibleGroups = TAB_GROUPS
-    .map((g) => ({ ...g, items: g.items.filter((tab) => !tab.requires || can(tab.requires)) }))
+    .map((g) => ({ ...g, items: g.items.filter((tab) => tabVisible(tab, can, licenseManaged)) }))
     .filter((g) => g.items.length > 0);
 
   const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
@@ -181,10 +218,9 @@ function DesktopAside({ can, location, navigate, isDark }) {
             {group.items.map((tab) => {
               const active = location.pathname.startsWith(tab.path);
               return (
-                <button
+                <LinkButton
                   key={tab.path}
-                  type="button"
-                  onClick={() => navigate(tab.path)}
+                  to={tab.path}
                   aria-current={active ? 'page' : undefined}
                   onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
                   onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -195,17 +231,14 @@ function DesktopAside({ can, location, navigate, isDark }) {
                     padding: '8px 10px',
                     marginBottom: 2,
                     borderRadius: 6,
-                    border: 'none',
-                    backgroundColor: 'transparent',
                     color: active ? 'var(--color-accent)' : 'var(--color-text)',
                     fontSize: 13,
                     fontWeight: active ? 700 : 550,
-                    cursor: 'pointer',
                     transition: 'background-color 120ms ease',
                   }}
                 >
                   {tab.label}
-                </button>
+                </LinkButton>
               );
             })}
           </nav>
@@ -219,7 +252,7 @@ function DesktopAside({ can, location, navigate, isDark }) {
 // Each tab is a pill with an underline-on-active visual. The strip
 // `overflow-x: auto`s when the tab labels exceed viewport width so an org
 // with every permission can still reach all 5 tabs on a 375px screen.
-function MobileTabs({ visible, location, navigate, isDark }) {
+function MobileTabs({ visible, location, isDark }) {
   return (
     <div
       style={{
@@ -244,29 +277,24 @@ function MobileTabs({ visible, location, navigate, isDark }) {
           const active = location.pathname.startsWith(tab.path);
           const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
           return (
-            <button
+            <LinkButton
               key={tab.path}
-              type="button"
-              onClick={() => navigate(tab.path)}
+              to={tab.path}
               aria-current={active ? 'page' : undefined}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = active ? hoverBg : hoverBg; }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = hoverBg; }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
               style={{
                 flexShrink: 0,
                 padding: '10px 14px',
                 minHeight: 44, // 44px HIG touch-target floor
-                border: 'none',
                 borderBottom: active ? `2px solid var(--color-accent)` : '2px solid transparent',
-                backgroundColor: 'transparent',
                 color: active ? 'var(--color-accent)' : 'var(--color-text)',
                 fontSize: 14,
                 fontWeight: active ? 700 : 550,
-                cursor: 'pointer',
-                fontFamily: 'inherit',
               }}
             >
               {tab.label}
-            </button>
+            </LinkButton>
           );
         })}
       </nav>

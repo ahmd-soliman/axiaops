@@ -20,11 +20,15 @@ export default function StaffScreen() {
     }
   }, []);
 
+  // Key on the resolved boolean, not the `me` object reference, so a routine
+  // auth-context refresh that returns an equivalent staff principal doesn't
+  // re-fire the staff list load.
+  const isSuperadmin = hasRole(me, 'superadmin');
   useEffect(() => {
-    if (hasRole(me, 'superadmin')) load();
-  }, [me, load]);
+    if (isSuperadmin) load();
+  }, [isSuperadmin, load]);
 
-  if (!hasRole(me, 'superadmin')) {
+  if (!isSuperadmin) {
     return (
       <>
         <h1>Staff</h1>
@@ -153,7 +157,9 @@ function StaffRow({ staff, onChange }) {
     setError('');
     try {
       await adminApi.grantRole(staff.staff_user_id, role);
-      onChange();
+      // Await the list reload so the row's controls stay disabled until the
+      // refetch settles — otherwise a second click could act on stale roles.
+      await onChange();
     } catch (err) {
       setError(messageFor(err));
     } finally {
@@ -166,7 +172,7 @@ function StaffRow({ staff, onChange }) {
     setError('');
     try {
       await adminApi.revokeRole(staff.staff_user_id, role);
-      onChange();
+      await onChange();
     } catch (err) {
       setError(messageFor(err));
     } finally {

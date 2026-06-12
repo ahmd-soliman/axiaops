@@ -86,6 +86,22 @@ services:
       # the manifest when they flip DEV_MODE.
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       APP_ENV: ${DEPLOY_ENV}
+      # ── Invite-email relay (global SMTP fallback for the InviteMailer) ──
+      # Project-level CI variables (environment_scope: *), NOT per-env: the
+      # same relay mailbox serves every env including prod, so they're set
+      # once at the project level. Only SMTP_PASS is masked; the rest are
+      # non-secret. Empty SMTP_HOST ⇒ no global mailer (invite delivery then
+      # falls back to a per-org email channel) — so this block is a safe no-op
+      # until the CI variables are populated. Wired into deploy/dev.yml first
+      # to validate deliverability on dev-1/dev-2 before preview/staging/demo
+      # + prod adopt the same block. Needs PUBLIC_HOST set on the env for the
+      # redemption URL to be absolute (else email_delivery=skipped_no_public_host).
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-AxiaOps}
     # The api writes the first-owner install token to /var/run/axiaops/
     # on first boot (BOOTSTRAP_TOKEN_FILE_PATH default). Without a named
     # volume the file lives on the container's writable layer and dies

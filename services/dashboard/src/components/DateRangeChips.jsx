@@ -27,6 +27,23 @@ function daysBetween(startIso, endIso) {
   return Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)));
 }
 
+// Module-level chip style — only depends on its two boolean args, so it
+// needn't be redefined as a closure on every render.
+function chipStyle(mobile, active) {
+  return {
+    padding: mobile ? '7px 12px' : '4px 10px',
+    borderRadius: 6,
+    border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
+    backgroundColor: active ? 'var(--color-accent)' : 'var(--color-surface-raised)',
+    color: active ? 'var(--color-text-on-dark)' : 'var(--color-text-mid)',
+    fontWeight: 700,
+    fontSize: 12,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  };
+}
+
 // DateRangeChips
 //
 // Preset chips (7d / 30d / 90d / 6m / 1y) + a Custom… trigger that opens a
@@ -74,19 +91,6 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
     setOpen(false);
   }
 
-  const chipStyle = (active) => ({
-    padding: mobile ? '7px 12px' : '4px 10px',
-    borderRadius: 6,
-    border: `1px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
-    backgroundColor: active ? 'var(--color-accent)' : 'var(--color-surface-raised)',
-    color: active ? 'var(--color-text-on-dark)' : 'var(--color-text-mid)',
-    fontWeight: 700,
-    fontSize: 12,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-    flexShrink: 0,
-  });
-
   return (
     <div role="group" aria-label="Select time period" style={{ display: 'flex', gap: 4, position: 'relative' }}>
       {presets.map(p => {
@@ -97,7 +101,7 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
             type="button"
             onClick={() => onChange(p.days)}
             aria-pressed={active}
-            style={chipStyle(active)}
+            style={chipStyle(mobile, active)}
           >
             {p.label}
           </button>
@@ -109,7 +113,7 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
         aria-pressed={isCustom}
         aria-haspopup="dialog"
         aria-expanded={open}
-        style={chipStyle(isCustom)}
+        style={chipStyle(mobile, isCustom)}
       >
         {/* Once a Custom range is applied, label the chip with the selected
             window in the app's locale-unambiguous "1–15 May 2026" form, so the
