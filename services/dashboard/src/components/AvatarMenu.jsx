@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
 import { useApp } from '../context/AppContext';
@@ -17,7 +17,6 @@ export default function AvatarMenu({ compact = false }) {
   const { isDark } = useTheme();
   const { me } = useMe();
   const { onLogout } = useApp();
-  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef(null);
 
@@ -46,7 +45,6 @@ export default function AvatarMenu({ compact = false }) {
   const label = pickLabel();
   const initial = (label[0] || '?').toUpperCase();
 
-  const go = (path) => { setOpen(false); navigate(path); };
   const signOut = () => { setOpen(false); onLogout(); };
 
   return (
@@ -129,7 +127,7 @@ export default function AvatarMenu({ compact = false }) {
           */}
           <IdentityHeader name={me?.name || ''} email={me?.email || ''} />
           <div style={{ height: 1, backgroundColor: 'var(--color-border)', margin: '4px 0' }} />
-          <MenuItem onClick={() => go('/settings')}>Settings</MenuItem>
+          <MenuItem to="/settings" onClick={() => setOpen(false)}>Settings</MenuItem>
           <div style={{ height: 1, backgroundColor: 'var(--color-border)', margin: '4px 0' }} />
           <MenuItem onClick={signOut}>Sign Out</MenuItem>
         </div>
@@ -185,28 +183,39 @@ function IdentityHeader({ name, email }) {
   );
 }
 
-function MenuItem({ onClick, children }) {
+// MenuItem — a dropdown row. Navigation items pass `to` and render as a real
+// <Link> (issue #130: so Ctrl/middle-click "Settings" opens it in a new tab);
+// action items (Sign Out) omit `to` and render as a <button>. Both share the
+// same chrome and still run `onClick` on plain activation to close the menu.
+function MenuItem({ to, onClick, children }) {
+  const style = {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    padding: '7px 10px',
+    borderRadius: 6,
+    border: 'none',
+    backgroundColor: 'transparent',
+    color: 'var(--color-text)',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    boxSizing: 'border-box',
+  };
+  const hover = {
+    onMouseEnter: (e) => { e.currentTarget.style.backgroundColor = 'var(--color-surface-raised)'; },
+    onMouseLeave: (e) => { e.currentTarget.style.backgroundColor = 'transparent'; },
+  };
+  if (to) {
+    return (
+      <Link to={to} role="menuitem" onClick={onClick} style={style} {...hover}>
+        {children}
+      </Link>
+    );
+  }
   return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onClick}
-      style={{
-        display: 'block',
-        width: '100%',
-        textAlign: 'left',
-        padding: '7px 10px',
-        borderRadius: 6,
-        border: 'none',
-        backgroundColor: 'transparent',
-        color: 'var(--color-text)',
-        fontSize: 13,
-        fontWeight: 500,
-        cursor: 'pointer',
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-surface-raised)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-    >
+    <button type="button" role="menuitem" onClick={onClick} style={style} {...hover}>
       {children}
     </button>
   );

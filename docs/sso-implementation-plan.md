@@ -807,7 +807,7 @@ Threat surface by deployment shape:
 | Internal dev-1 / dev-2 (VPN) | SSH on dev host | Low — throwaway data |
 | Staging (same host, ingress-reachable) | SSH or CI runner compromise | Medium — real-shape data, real cookies |
 | Production self-hosted (customer on-prem) | The customer themselves, plus anyone with shell on their box | **High — defeats B1.6 license enforcement entirely** |
-| Production SaaS (App Runner) | IAM principals with task-definition update | Medium-low — IAM-governed, CloudTrail-audited |
+| Production SaaS (ECS Express) | IAM principals with task-definition update | Medium-low — IAM-governed, CloudTrail-audited |
 
 The third row is the load-bearing one: a churned customer who keeps the binary running indefinitely (the exact scenario B1.6 was scoped against — see §4.9 rationale on D12 / ADR-0001) can simply flip `DEV_MODE=true` and the license refusal is bypassed silently. This is the gap.
 
@@ -875,7 +875,7 @@ CI matrix:
 | Image tag | Build tags | DEV_MODE works? | Distribution |
 |---|---|---|---|
 | `axiaops-api:dev-{commit}` | none | yes | GitLab Container Registry, internal namespace, dev-1/dev-2 deploys |
-| `axiaops-api:{semver}` | `production` | **no — env var read but ignored** | Customer-shipping image (self-hosted release) and SaaS App Runner |
+| `axiaops-api:{semver}` | `production` | **no — env var read but ignored** | Customer-shipping image (self-hosted release) and SaaS ECS Express |
 
 A customer-shipping binary with `DEV_MODE=true` set is a no-op: the code that interprets the flag isn't compiled in. Closes the threat model row 3 entirely.
 

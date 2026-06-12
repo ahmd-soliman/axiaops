@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { fetchAuditEvents } from '../api/client';
 import { Spinner } from '../components/primitives';
@@ -352,7 +352,12 @@ export default function AuditScreen() {
     getNextPageParam: (last) => last.next_cursor || undefined,
   });
 
-  const events = (query.data?.pages ?? []).flatMap((p) => p.events || []);
+  // Flatten the accumulated cursor pages once per data change rather than on
+  // every render (filter/breakpoint/theme changes re-render this component).
+  const events = useMemo(
+    () => (query.data?.pages ?? []).flatMap((p) => p.events || []),
+    [query.data],
+  );
   const hasNext = query.hasNextPage;
 
   return (

@@ -1,10 +1,10 @@
 # ADR-0001: Deployment Model — Self-hosted-first
 
 - **Date**: 2026-04-29
-- **Status**: **Accepted** — 2026-04-29
+- **Status**: **Superseded by [ADR-0002](0002-saas-first-for-awareness.md)** — 2026-06-11 (was: Accepted 2026-04-29)
 - **Decider**: Ahmed Soliman (founder)
 - **Supersedes**: —
-- **Superseded by**: —
+- **Superseded by**: [ADR-0002 (SaaS-first for awareness)](0002-saas-first-for-awareness.md)
 
 ## Context
 

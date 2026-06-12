@@ -38,6 +38,11 @@ func runSeedStaff(args []string) {
 	if !model.ValidStaffRole(staffRole) {
 		die("seed-staff: invalid --role", "role", *role)
 	}
+	// CLI path — no identity context (email/name) available here, so this
+	// deliberately stays on plain CheckPolicy rather than CheckPolicyWithIdentity.
+	// Length + breach screening is sufficient for the operator-run seed path; the
+	// asymmetry vs the HTTP set-password sites is intentional (see
+	// docs/password-breach-check-design.md).
 	if err := auth.CheckPolicy(*password); err != nil {
 		die("seed-staff: weak password", "error", err.Error())
 	}
