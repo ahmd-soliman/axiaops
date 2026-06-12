@@ -1,5 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../theme/ThemeContext';
+import { fetchVersion } from '../api/client';
 import { useApp } from '../context/AppContext';
 import { useMe } from '../context/MeContext';
 import { LinkButton } from './primitives';
@@ -57,6 +59,22 @@ export default function AppShell() {
 
   const isMobile = isAtMost('sm');
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.requires || can(item.requires));
+
+  // Backend build identifier — same ['api-version'] cache entry (key + fn +
+  // staleTime) that LicenseBanner, Settings, and the License page read, so
+  // React Query dedupes and this hook adds ZERO network requests. The footer
+  // uses only the license-free fields (version / commit / env) — it's a
+  // license-INDEPENDENT surface and must never couple to `license` (which
+  // collapses to {state:"managed"} under SaaS). Failures are silently
+  // absorbed (`build` stays undefined → no footer) so a momentarily
+  // unreachable API doesn't break the shell.
+  const { data: build } = useQuery({
+    queryKey: ['api-version'],
+    queryFn: fetchVersion,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
 
   return (
     // --navbar-height: read by descendant pages that need to size relative
@@ -180,6 +198,56 @@ export default function AppShell() {
       <main id="main-content" style={{ flex: 1, overflowY: 'auto' }}>
         <Outlet />
       </main>
+
+      {/* ── Build footer ── */}
+      {/* Tiny, dim, monospace — identity lives here per docs/versioning.md;
+          license STATE stays in LicenseBanner. The dashboard and api ship
+          from the same release tag/pipeline and the dashboard has no
+          independent bundle version (the VITE_APP_VERSION wiring was dropped
+          in cc196b2 — traceability is Path-A-only, via the api's
+          /v1/version). So this renders ONE product identity, not a fabricated
+          "dashboard X · api X" pair.
+
+          A release tag is immutable and 1:1 with its commit (versioning.md:
+          "don't retag"), so it fully pins the build on its own — showing the
+          commit alongside would be redundant. Hence the rule is simply: use
+          the tag when `version` is a real semver tag, and fall back to the
+          commit only when there isn't one (branch/local builds, where
+          `version` is a meaningless slug like `develop`/`main`/`dev` and the
+          commit is the only unique pin). Production always deploys from a tag
+          (deploy:production is semver-gated), so this is tag-only there — the
+          commit is never surfaced to customers, which is the intended posture
+          (no special-casing needed). Non-prod gets a `· <env>` suffix to
+          disambiguate staging/dev from a prod tag. No "v" prefix (tags already
+          carry their own shape). userSelect:'all' lets one click highlight the
+          whole identifier — paste straight into a support ticket. Renders
+          nothing until the query resolves: no "undefined" flash. */}
+      {build && (() => {
+        const isReleaseTag = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(build.version || '');
+        const identifier = isReleaseTag
+          ? `AxiaOps ${build.version}`
+          : `AxiaOps ${build.commit}`;
+        const env = build.env && build.env !== 'production' ? ` · ${build.env}` : '';
+        return (
+          <footer
+            aria-label="Build version"
+            title="Click to select build identifier"
+            style={{
+              padding: '6px 12px',
+              textAlign: 'center',
+              fontSize: 10,
+              fontFamily: '"Geist Mono Variable", monospace',
+              color: 'var(--color-text-muted)',
+              opacity: 0.7,
+              flexShrink: 0,
+              letterSpacing: 0.3,
+              lineHeight: '14px',
+            }}
+          >
+            <span style={{ userSelect: 'all' }}>{identifier + env}</span>
+          </footer>
+        );
+      })()}
 
     </div>
   );
