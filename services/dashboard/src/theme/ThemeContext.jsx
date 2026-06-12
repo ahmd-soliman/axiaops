@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 
 // Theme is a simple two-state preference (light or dark) stored under the
 // 'theme' localStorage key. On cold load with no saved value we fall back to
@@ -68,16 +68,20 @@ export function ThemeProvider({ children }) {
     root.style.colorScheme = isDark ? 'dark' : 'light';
   }, [isDark]);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setIsDark((prev) => {
       const next = !prev;
       writeSavedDark(next);
       return next;
     });
-  };
+  }, []);
+
+  // Stable value object so the (few) JS consumers of the boolean only
+  // re-render when isDark actually flips, not on every provider render.
+  const value = useMemo(() => ({ isDark, toggleTheme }), [isDark, toggleTheme]);
 
   return (
-    <ThemeContext.Provider value={{ isDark, toggleTheme }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );

@@ -83,6 +83,15 @@ export default function OrgSummaryScreen({ accounts = [], viewAccountsHref, acco
       .sort((a, b) => (b.w?.potential_monthly_savings ?? 0) - (a.w?.potential_monthly_savings ?? 0));
   }, [accounts, byAccount.data]);
 
+  // Per-service savings breakdown, sorted high→low. Memoized (and placed with
+  // the other derivations, above the early returns) so it isn't rebuilt on
+  // every re-render.
+  const byService = useMemo(
+    () => Object.entries(summary.data?.by_service ?? {})
+      .sort((a, b) => b[1].savings - a[1].savings),
+    [summary.data],
+  );
+
   // The per-account section loads independently — it must NOT gate the whole
   // page (the tiles + by-service shouldn't wait on it, and a transient error on
   // this secondary endpoint shouldn't blank a page whose core data loaded fine).
@@ -114,9 +123,6 @@ export default function OrgSummaryScreen({ accounts = [], viewAccountsHref, acco
   const monthlyWaste = summary.data?.potential_monthly_savings ?? 0;
   const zombieCount = summary.data?.total_zombies ?? 0;
   const wasteRatio = totalSpend > 0 ? (monthlyWaste / totalSpend) * 100 : 0;
-
-  const byService = Object.entries(summary.data?.by_service ?? {})
-    .sort((a, b) => b[1].savings - a[1].savings);
 
   // Scans-pending: accounts are connected but nothing has been detected yet
   // (no zombies AND no cost data). Render a clear "results appear after the

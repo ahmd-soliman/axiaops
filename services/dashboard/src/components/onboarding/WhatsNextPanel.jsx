@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAccounts, listMemberships, listInvitations } from '../../api/client';
@@ -30,6 +30,15 @@ export default function WhatsNextPanel() {
   const userID = me?.user_id ?? '';
 
   const [dismissed, setDismissed] = useState(() => readFlag(DISMISSED_KEY, userID));
+
+  // The initializer may have run while `me` was still loading (userID ''),
+  // which reads the un-namespaced miss and returns false. Re-read the
+  // per-user flag once userID resolves so a previously-dismissed checklist
+  // doesn't reappear. Only flips to true (never un-dismisses an in-session
+  // dismissal), so it can't clobber a live × click.
+  useEffect(() => {
+    if (userID && readFlag(DISMISSED_KEY, userID)) setDismissed(true);
+  }, [userID]);
 
   const canInvite = can(PERM.MEMBERS_INVITE);
   const canRead   = can(PERM.MEMBERS_READ) || canInvite;

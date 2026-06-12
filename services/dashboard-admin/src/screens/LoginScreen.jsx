@@ -23,6 +23,8 @@ export default function LoginScreen() {
     setSubmitting(true);
     try {
       await login(email, password);
+      // Success navigates away and unmounts this screen — leave `submitting`
+      // true rather than resetting state on a component that's going away.
       navigate('/tenants', { replace: true });
     } catch (err) {
       // The backend collapses every auth failure to one shape — don't try to
@@ -32,7 +34,6 @@ export default function LoginScreen() {
       } else {
         setError('Invalid email or password.');
       }
-    } finally {
       setSubmitting(false);
     }
   }

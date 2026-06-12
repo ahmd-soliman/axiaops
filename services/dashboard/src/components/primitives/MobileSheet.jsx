@@ -21,10 +21,24 @@ import { useTheme } from '../../theme/ThemeContext';
 // transitions don't fire on first mount, so we render the sheet at
 // translate-100% on the very first frame and switch to translate-0 the
 // next tick — that's what the requestAnimationFrame dance does.
+//
+// The slide-up keyframes are injected once at module load (see below) rather
+// than rendered inside the sheet JSX, so opening the sheet doesn't re-insert
+// the rule into the document on every open.
+injectSheetKeyframes();
+
 export function MobileSheet({ visible, onClose, ariaLabel, children }) {
   const { isDark } = useTheme();
   const sheetRef = useRef(null);
   const previousActiveRef = useRef(null);
+
+  // Hold onClose in a ref so the lifecycle effect can depend on [visible]
+  // alone. Callers commonly pass a fresh closure each render (e.g.
+  // `onClose={() => setOpen(false)}`); if that identity were an effect dep,
+  // any parent re-render while the sheet is open would tear down and rebuild
+  // the scroll-lock + focus management mid-interaction.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -36,7 +50,7 @@ export function MobileSheet({ visible, onClose, ariaLabel, children }) {
     const previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') onCloseRef.current?.(); };
     document.addEventListener('keydown', onKey);
 
     // Defer focus until the slide-up transition has started; the sheet
@@ -55,7 +69,7 @@ export function MobileSheet({ visible, onClose, ariaLabel, children }) {
       document.body.style.overflow = previousBodyOverflow;
       previousActiveRef.current?.focus?.();
     };
-  }, [visible, onClose]);
+  }, [visible]);
 
   if (!visible) return null;
 
@@ -107,12 +121,18 @@ export function MobileSheet({ visible, onClose, ariaLabel, children }) {
         />
         {children}
       </div>
-      <style>{`
-        @keyframes axia-sheet-up {
-          from { transform: translateY(100%); }
-          to   { transform: translateY(0); }
-        }
-      `}</style>
     </div>
   );
+}
+
+// Inject the slide-up keyframes once, at module load. Idempotent — guarded by
+// an id so hot-reload / repeated imports don't stack duplicate rules.
+function injectSheetKeyframes() {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('axia-sheet-keyframes')) return;
+  const style = document.createElement('style');
+  style.id = 'axia-sheet-keyframes';
+  style.textContent =
+    '@keyframes axia-sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }';
+  document.head.appendChild(style);
 }
