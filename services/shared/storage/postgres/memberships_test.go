@@ -294,6 +294,48 @@ func TestListMemberships_JoinsUserEmail(t *testing.T) {
 	}
 }
 
+// TestListMemberships_CrossOrgMemberEmailResolves is the H-1 regression guard
+// (migration 035 enabled RLS on users). A user's `users.organization_id` is
+// their HOME org; a B1.5 cross-org member listed in another org has a users row
+// whose organization_id ≠ the listed org. If ListMemberships read on the app
+// pool, the users_organization_isolation policy would filter that row out of
+// the LEFT JOIN and COALESCE the member's email/name to "" — a silent blank,
+// not an error. Running on the runtime-bypass pool with an explicit
+// `WHERE m.organization_id` keeps the join correct.
+//
+// The rlsEnforced() guard makes the assertion load-bearing: without RLS the
+// test would pass even on a regression back to the app pool.
+func TestListMemberships_CrossOrgMemberEmailResolves(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("requires DATABASE_URL (app user) for RLS — see test comment")
+	}
+	s := newTestStore(t)
+	_, homeOrg := newOrgCtx(t, s)
+	ctxB, orgB := newOrgCtx(t, s)
+
+	// User's home org is homeOrg; they are listed as a member of orgB.
+	u := seedUserWithName(t, s, homeOrg.ID, "guest@x.com", "Cross Org Guest")
+	if err := s.SaveMembership(ctxB, model.Membership{
+		ID: uuid.NewString(), OrganizationID: orgB.ID, UserID: u.ID, Role: "viewer",
+	}); err != nil {
+		t.Fatalf("save orgB membership: %v", err)
+	}
+
+	rows, err := s.ListMemberships(ctxB)
+	if err != nil {
+		t.Fatalf("ListMemberships: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row in orgB, got %d", len(rows))
+	}
+	if rows[0].Email != "guest@x.com" {
+		t.Errorf("cross-org member email blanked by users RLS: got %q", rows[0].Email)
+	}
+	if rows[0].Name != "Cross Org Guest" {
+		t.Errorf("cross-org member name blanked by users RLS: got %q", rows[0].Name)
+	}
+}
+
 // TestListUserMemberships_ReturnsAllOrgsForUser is the B1.5 multi-org case:
 // one user holds memberships in two orgs with different roles, and
 // ListUserMemberships returns both rows joined with org metadata. RLS is
