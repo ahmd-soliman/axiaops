@@ -1,6 +1,11 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 
 const ToastContext = createContext(null);
+
+// Monotonic toast id — collision-free without depending on Date.now()
+// resolution (two toasts enqueued in the same millisecond used to lean on
+// Math.random() to disambiguate).
+let nextToastId = 0;
 
 const ICONS = {
   success: '✓',
@@ -60,19 +65,46 @@ function ToastItem({ toast, onDismiss }) {
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
-
-  const toast = useCallback((message, type = 'success', duration = 4000) => {
-    const id = Date.now() + Math.random();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration);
-  }, []);
+  // id → auto-dismiss timer handle. Tracked so dismiss() can cancel a pending
+  // timer (else a manually-dismissed-then-recreated toast could be removed
+  // early by its predecessor's orphaned timer) and so the provider can clear
+  // every outstanding timer on unmount.
+  const timersRef = useRef(new Map());
 
   const dismiss = useCallback((id) => {
+    const timers = timersRef.current;
+    const timerId = timers.get(id);
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+      timers.delete(id);
+    }
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
+  const toast = useCallback((message, type = 'success', duration = 4000) => {
+    const id = ++nextToastId;
+    setToasts(prev => [...prev, { id, message, type }]);
+    const timerId = setTimeout(() => {
+      timersRef.current.delete(id);
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, duration);
+    timersRef.current.set(id, timerId);
+    return id;
+  }, []);
+
+  // Cancel any pending auto-dismiss timers if the provider ever unmounts.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const timerId of timers.values()) clearTimeout(timerId);
+      timers.clear();
+    };
+  }, []);
+
+  const value = useMemo(() => ({ toast }), [toast]);
+
   return (
-    <ToastContext.Provider value={{ toast }}>
+    <ToastContext.Provider value={value}>
       {children}
       {toasts.length > 0 && (
         <div

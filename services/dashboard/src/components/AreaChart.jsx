@@ -1,4 +1,4 @@
-import { useState, useRef, useId, useEffect } from 'react';
+import { useState, useRef, useId, useEffect, useMemo } from 'react';
 
 const CHART_HEIGHT = 200;
 // Default desktop margins. The 56px left gutter holds 5-character y-axis
@@ -69,69 +69,83 @@ export default function AreaChart({ data, selectedId, onSelect, screenWidth }) {
     return () => ro.disconnect();
   }, []);
 
-  if (!data || data.length < 2) return null;
+  // All chart geometry derives from (data, measuredWidth) only — never from
+  // hoverIdx. Memoize the whole block so a mousemove (which only flips
+  // hoverIdx) doesn't re-run the scales, path string-joins, and per-point
+  // date parsing. On a 1-year view (365 points) this is the difference
+  // between smooth hovering and frame-rate jank. Returns null for the
+  // too-little-data case so the early-return stays a single seam.
+  const geometry = useMemo(() => {
+    if (!data || data.length < 2) return null;
 
-  const width = measuredWidth;
-  const marginLeft = width < 480 ? MARGIN_LEFT_NARROW : MARGIN.left;
-  const plotW = width - marginLeft - MARGIN.right;
-  const plotH = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
+    const width = measuredWidth;
+    const marginLeft = width < 480 ? MARGIN_LEFT_NARROW : MARGIN.left;
+    const plotW = width - marginLeft - MARGIN.right;
+    const plotH = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
 
-  const values = data.map(s => s.total_monthly_cost);
-  const rawMax = Math.max(...values);
-  const rawMin = Math.min(...values);
-  const range = rawMax - rawMin || rawMax * 0.1 || 1;
-  const maxVal = rawMax + range * 0.08;
-  const minVal = Math.max(0, rawMin - range * 0.05);
-  const valRange = maxVal - minVal || 1;
+    const values = data.map(s => s.total_monthly_cost);
+    const rawMax = Math.max(...values);
+    const rawMin = Math.min(...values);
+    const range = rawMax - rawMin || rawMax * 0.1 || 1;
+    const maxVal = rawMax + range * 0.08;
+    const minVal = Math.max(0, rawMin - range * 0.05);
+    const valRange = maxVal - minVal || 1;
 
-  // Map data to pixel coordinates
-  const points = data.map((s, i) => ({
-    x: marginLeft + (i / (data.length - 1)) * plotW,
-    y: MARGIN.top + plotH - ((s.total_monthly_cost - minVal) / valRange) * plotH,
-  }));
+    // Map data to pixel coordinates
+    const points = data.map((s, i) => ({
+      x: marginLeft + (i / (data.length - 1)) * plotW,
+      y: MARGIN.top + plotH - ((s.total_monthly_cost - minVal) / valRange) * plotH,
+    }));
 
-  // SVG paths
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-  const areaPath = linePath
-    + ` L${points[points.length - 1].x},${MARGIN.top + plotH}`
-    + ` L${points[0].x},${MARGIN.top + plotH} Z`;
+    // SVG paths
+    const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+    const areaPath = linePath
+      + ` L${points[points.length - 1].x},${MARGIN.top + plotH}`
+      + ` L${points[0].x},${MARGIN.top + plotH} Z`;
 
-  // Y-axis: 4 ticks
-  const yTicks = [0, 1, 2, 3].map(i => {
-    const val = minVal + valRange * (i / 3);
-    const y = MARGIN.top + plotH - (i / 3) * plotH;
-    return { val, y };
-  });
+    // Y-axis: 4 ticks
+    const yTicks = [0, 1, 2, 3].map(i => {
+      const val = minVal + valRange * (i / 3);
+      const y = MARGIN.top + plotH - (i / 3) * plotH;
+      return { val, y };
+    });
 
-  // X-axis labels — first-of-month ticks so the cadence reads as calendar
-  // months. Width-aware: show every month when the plot is wide enough, then
-  // thin to every Nth month as space tightens so labels never collide (a full
-  // year shows all ~12 months on desktop, ~4 on a phone). Falls back to
-  // evenly-spaced date ticks when the range is shorter than two months.
-  const MIN_LABEL_PX = 64;
-  const monthBoundaries = [];
-  let prevMonthKey = null;
-  data.forEach((s, i) => {
-    const d = new Date(s.snapshot_at);
-    const key = `${d.getFullYear()}-${d.getMonth()}`;
-    if (key !== prevMonthKey) { monthBoundaries.push(i); prevMonthKey = key; }
-  });
+    // X-axis labels — first-of-month ticks so the cadence reads as calendar
+    // months. Width-aware: show every month when the plot is wide enough, then
+    // thin to every Nth month as space tightens so labels never collide (a full
+    // year shows all ~12 months on desktop, ~4 on a phone). Falls back to
+    // evenly-spaced date ticks when the range is shorter than two months.
+    const MIN_LABEL_PX = 64;
+    const monthBoundaries = [];
+    let prevMonthKey = null;
+    data.forEach((s, i) => {
+      const d = new Date(s.snapshot_at);
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      if (key !== prevMonthKey) { monthBoundaries.push(i); prevMonthKey = key; }
+    });
 
-  let xLabels;
-  if (monthBoundaries.length >= 2) {
-    const maxLabels = Math.max(2, Math.floor(plotW / MIN_LABEL_PX));
-    const stride = Math.ceil(monthBoundaries.length / maxLabels);
-    xLabels = monthBoundaries
-      .filter((_, i) => i % stride === 0)
-      .map((idx) => ({ x: points[idx].x, label: formatMonth(data[idx].snapshot_at) }));
-  } else {
-    const xLabelCount = Math.min(6, data.length);
-    xLabels = [];
-    for (let i = 0; i < xLabelCount; i++) {
-      const idx = Math.round(i * (data.length - 1) / (xLabelCount - 1));
-      xLabels.push({ x: points[idx].x, label: formatDate(data[idx].snapshot_at) });
+    let xLabels;
+    if (monthBoundaries.length >= 2) {
+      const maxLabels = Math.max(2, Math.floor(plotW / MIN_LABEL_PX));
+      const stride = Math.ceil(monthBoundaries.length / maxLabels);
+      xLabels = monthBoundaries
+        .filter((_, i) => i % stride === 0)
+        .map((idx) => ({ x: points[idx].x, label: formatMonth(data[idx].snapshot_at) }));
+    } else {
+      const xLabelCount = Math.min(6, data.length);
+      xLabels = [];
+      for (let i = 0; i < xLabelCount; i++) {
+        const idx = Math.round(i * (data.length - 1) / (xLabelCount - 1));
+        xLabels.push({ x: points[idx].x, label: formatDate(data[idx].snapshot_at) });
+      }
     }
-  }
+
+    return { width, marginLeft, plotH, points, linePath, areaPath, yTicks, xLabels };
+  }, [data, measuredWidth]);
+
+  if (!geometry) return null;
+
+  const { width, marginLeft, plotH, points, linePath, areaPath, yTicks, xLabels } = geometry;
 
   // Find nearest data point to cursor
   function handleMouseMove(e) {
