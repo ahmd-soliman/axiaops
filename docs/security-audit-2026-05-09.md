@@ -25,7 +25,7 @@ Branch `security/hardening-2026-05` (13 commits on top of `origin/develop` at `d
 | **C-1** | Critical | ✅ Resolved on branch `security/c1-ingestion-hmac-impl` (HMAC + Redis envelope + `requirepass`). Pending merge of the linked MR. | — |
 | **C-2** | Critical | ✅ Resolved | `541d7c1` |
 | **C-3** | Critical | ✅ Resolved | `c5d6467` |
-| H-1 | High | Open — needs prerequisite app-pool refactor | — |
+| **H-1** | High | ✅ Resolved — migration 035 enables RLS on `users` (org-isolation + `users_runtime_bypass`); app-pool `users` callsites moved to the runtime pool / org-scoped tx (`EnsureUser`, `UpsertUser`, `GetUserByID`, `GetUserByEmail`, `SetUserSSOConnection`, `GetUserSSOConnectionID`, `ListMemberships`). | branch `docs/billing-plan-and-signup-refresh` |
 | H-2 | High | Open — pending decision on bearer-token vs separate listener | — |
 | **H-3** | High | ✅ Resolved | `e7337d8` (+ `01ad35d` test refactor) |
 | **H-4** | High | ✅ Resolved | `579f103` |
@@ -295,7 +295,7 @@ Operators using read-only-root images must set `BOOTSTRAP_TOKEN_FILE_PATH=""`. D
 
 ## Executive summary
 
-AxiaOps's authentication and tenant-isolation foundations are well-designed: argon2id with proper PHC encoding; AES-256-GCM with per-call CSPRNG nonces; RLS on every multi-tenant data table (one omission — H-1); organization-scoped sessions with capacity limits and write-through cache invalidation; OIDC with PKCE + per-connection JWKS + alg-confusion guards; and a thoughtful B1.7 build-tag posture that strips DEV_MODE from customer binaries. The codebase shows strong security-engineering culture (timing-equalised login, public-suffix-list domain rejection, idempotent state-store consume, provenance-aware JIT).
+AxiaOps's authentication and tenant-isolation foundations are well-designed: argon2id with proper PHC encoding; AES-256-GCM with per-call CSPRNG nonces; RLS on every multi-tenant data table (the one omission, `users` — H-1 — closed by migration 035); organization-scoped sessions with capacity limits and write-through cache invalidation; OIDC with PKCE + per-connection JWKS + alg-confusion guards; and a thoughtful B1.7 build-tag posture that strips DEV_MODE from customer binaries. The codebase shows strong security-engineering culture (timing-equalised login, public-suffix-list domain rejection, idempotent state-store consume, provenance-aware JIT).
 
 Three issues need urgent fixes:
 
@@ -337,7 +337,7 @@ A handful of high-severity hardening gaps follow: missing RLS on `users`, public
 
 ### Do soon (next sprint — defence-in-depth gaps)
 
-4. **H-1** — Add RLS to `users` (mirrors memberships).
+4. ~~**H-1** — Add RLS to `users` (mirrors memberships).~~ ✅ Done — migration 035.
 5. **H-2** — Auth-gate `/metrics` (bearer token or separate listener).
 6. **H-3** — Reject non-HTTPS `oidc_discovery_url` / `idp_metadata_url`.
 7. **H-4** — Promote `decodeJSON` to a shared helper; apply 64 KiB cap + DisallowUnknownFields globally.

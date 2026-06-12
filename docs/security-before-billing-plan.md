@@ -38,7 +38,7 @@ the billing surface.
 | Item | Finding | Work | Estimate |
 |---|---|---|---|
 | CSRF token system | M-8 | Origin-bound `X-CSRF-Token` + second non-HttpOnly cookie issued at session-mint; enforced on state-changing routes. **Hard prerequisite for billing endpoints.** | ~1–2d |
-| `users` table RLS | H-1 | Prerequisite app-pool refactor (`GetUserByID` / `UpsertUser` / `EnsureUser` in `services/shared/storage/postgres/postgres.go`), then policy migration mirroring `memberships`. | ~1d |
+| ~~`users` table RLS~~ ✅ | H-1 | **Done** — migration 035 enables RLS on `users` (org-isolation + `users_runtime_bypass`). App-pool callsites moved to the runtime pool / org-scoped tx: `GetUserByID`, `UpsertUser`, `EnsureUser`, `GetUserByEmail`, `SetUserSSOConnection`, `GetUserSSOConnectionID`, and `ListMemberships` (the cross-org member JOIN, which would otherwise blank a B1.5 cross-org member's email/name). | ~1d |
 | `/metrics` auth-gate | H-2 | External exposure already closed at nginx (2.7.18 `return 404`); decide bearer-token (`METRICS_BEARER_TOKEN`) vs separate `:9090` listener and implement. | ~½d |
 | SSRF guard on `oidc_discovery_url` | #94 addendum | H-3 enforces scheme but not destination IP range; reject private/link-local ranges (with test override). | ~½d |
 | Kinde residue (code/env) | #95 | `.env.example` `KINDE_*` vars, `scripts/start.sh` `VITE_KINDE_*` exports, `deploy/README.md` required-vars list, remaining unstamped docs. Docs-side residue in compliance docs already cleaned 2026-06-11. | ~½d |
