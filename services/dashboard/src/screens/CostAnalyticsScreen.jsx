@@ -162,9 +162,12 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
     if (filteredCosts.length === 0) return [];
     const byKey = new Map();
     for (const r of filteredCosts) {
+      // period_start is a UTC RFC3339 string (Z-suffixed) from the Go API, so
+      // a raw slice is equivalent to parse→toISOString and skips the per-record
+      // Date allocation.
       const key = effectiveGranularity === 'monthly'
-        ? new Date(r.period_start).toISOString().slice(0, 7)
-        : new Date(r.period_start).toISOString().slice(0, 10);
+        ? r.period_start.slice(0, 7)
+        : r.period_start.slice(0, 10);
       const entry = byKey.get(key);
       if (entry) {
         entry.total_monthly_cost += r.amount || 0;
@@ -316,11 +319,14 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
   const handleScanAccount = (accountId) => scanMutation.mutate(accountId);
 
-  // Reset the drill-down panel when the account changes — the selected
-  // service may not exist on the new account, and even when it does
-  // by name, the data behind it has changed.
+  // Reset the drill-down panel AND the service filter when the account
+  // changes — a service selected on the old account may not exist on the new
+  // one (its chip wouldn't even render, leaving an empty chart with no visible
+  // active filter), and even when it does by name the data behind it has
+  // changed.
   useEffect(() => {
     setSelectedService(null);
+    setFilterServices(new Set());
     setFilterResourceTypes(new Set());
   }, [selectedAccount]);
 

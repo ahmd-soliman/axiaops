@@ -166,7 +166,10 @@ export default function Integrations() {
         <ChannelModal mode="create" onClose={() => setAdding(false)} onSaved={() => { setAdding(false); invalidate(); }} isDark={isDark} />
       )}
       {editing && (
-        <ChannelModal mode="edit" existing={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); invalidate(); }} isDark={isDark} />
+        // key by channel id so switching which channel is being edited
+        // remounts the modal and re-initialises its form-from-props state,
+        // rather than leaving the previous channel's values in the inputs.
+        <ChannelModal key={editing.id} mode="edit" existing={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); invalidate(); }} isDark={isDark} />
       )}
       {deliveriesFor && (
         <DeliveriesModal channel={deliveriesFor} onClose={() => setDeliveriesFor(null)} isDark={isDark} />
