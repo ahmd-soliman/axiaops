@@ -43,8 +43,15 @@ func (s *Store) CreatePendingInvitation(ctx context.Context, inv model.PendingIn
 		return model.PendingInvitation{}, false, err
 	}
 
-	// Pre-check: is this email already a member or a known user?
-	// users has no RLS; scope explicitly with organization_id.
+	// Pre-check: is this email already a member or a known user IN THIS ORG?
+	// Deliberately org-local — a cross-org existing user (home org ≠ this org)
+	// is intentionally treated as a fresh invitee here; the existing-user case
+	// is resolved at redeem time (RedeemNativeInvitation looks the email up
+	// globally on the runtime pool). App-pool read under org context
+	// (setOrganization above): the explicit organization_id filter and the
+	// users_organization_isolation policy (migration 035) agree — both keyed on
+	// the request org, which the handler sources identically for ctx and
+	// inv.OrganizationID.
 	var existingUserID, existingRole string
 	err = tx.QueryRow(ctx, `
 		SELECT u.id, COALESCE(m.role, '')
