@@ -45,10 +45,11 @@ const sessionMintAdvisoryLockClass = int32(0x4D696E74) // "Mint" as int32
 // keeps the external_id UNIQUE constraint usable for non-SSO users (real
 // SSO users get the IdP-issued `sub` claim instead).
 //
-// Bypasses RLS via the admin pool because the bootstrap and invitation-redeem
-// callers may be running before any organization context exists, and the
-// users table itself has no RLS policy (it is org-scoped via the
-// users.organization_id FK only).
+// Bypasses RLS via the runtime-bypass pool because the bootstrap and
+// invitation-redeem callers may be running before any organization context
+// exists. Since migration 035 the users table is RLS-scoped
+// (users_organization_isolation); this path relies on the runtime role's
+// users_runtime_bypass policy, not on users being unprotected.
 //
 // Returns storage.ErrUserEmailExists when email_lower collides.
 func (s *Store) CreateUserWithPassword(ctx context.Context, u model.User) (model.User, error) {
@@ -96,7 +97,9 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, u model.User) (model
 }
 
 // UpdateUserPassword sets users.password_hash + users.password_set_at = NOW().
-// Bypasses RLS — users has no RLS policy and the userID is the capability.
+// Runs on the runtime-bypass pool: a by-PK write where the userID is the
+// capability and no request org context is set (the users RLS WITH CHECK from
+// migration 035 would otherwise reject an app-pool UPDATE with no GUC).
 func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
 	if userID == "" || passwordHash == "" {
 		return fmt.Errorf("postgres: update user password: userID and passwordHash required")
@@ -915,7 +918,8 @@ func (s *Store) ConsumeBootstrapState(ctx context.Context, in storage.BootstrapC
 		return storage.BootstrapResult{}, fmt.Errorf("postgres: consume bootstrap insert entitlement: %w", err)
 	}
 
-	// 2. User (no RLS).
+	// 2. User — runtime-bypass tx, no org GUC set; the users_runtime_bypass
+	//    policy (migration 035) permits the insert.
 	externalID := "native:" + in.UserID
 	var user model.User
 	err = tx.QueryRow(ctx, `
