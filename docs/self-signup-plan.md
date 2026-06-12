@@ -176,8 +176,8 @@ Slice 6  Soft-gate email verification               (L)  ── abuse hardening
 
 **Goal.** Schema for verification state + token; mint-on-register + redeem + verification email (reusing the SMTP layer); unverified banner. **Soft-gate: user is let in; nothing restricted.**
 
-### 6.1 Migration — `035_email_verification.up.sql` / `.down.sql`
-Next free number is **035** (highest applied is `034_entitlement_internal_plan`; `032` is `staff_identity`, `033` is `entitlements`). Confirm the next free number at implementation time. `users` has **no RLS** and a **global** `lower(email)` unique index (migration 021), so verification state lives on `users` and the token in a sibling capability table (no RLS, like `password_resets`/`sessions`).
+### 6.1 Migration — `NNN_email_verification.up.sql` / `.down.sql`
+`NNN` is the next free number at implementation time — **035** today (highest applied is `034_entitlement_internal_plan`; `032` is `staff_identity`, `033` is `entitlements`), but the companion [`billing-plan.md`](billing-plan.md) Slice 1 also claims `035`, so **do NOT copy `035` verbatim** — `ls migrations/ | tail` and take the next free number; whichever plan lands second renumbers. `users` has **no RLS** and a **global** `lower(email)` unique index (migration 021), so verification state lives on `users` and the token in a sibling capability table (no RLS, like `password_resets`/`sessions`).
 
 ```sql
 SET search_path TO axiaops;
