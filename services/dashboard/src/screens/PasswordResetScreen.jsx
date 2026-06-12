@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Spinner } from '../components/primitives';
 import { authRedeemPasswordReset } from '../api/client';
@@ -27,12 +27,17 @@ export default function PasswordResetScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  const redirectTimerRef = useRef(null);
 
   useEffect(() => {
     if (!tokenFromUrl) {
       setError('This reset link is missing its token. Ask your administrator to re-issue it.');
     }
   }, [tokenFromUrl]);
+
+  // Cancel the post-success redirect timer if the user navigates away before
+  // it fires, so navigate() never runs against an unmounted screen.
+  useEffect(() => () => clearTimeout(redirectTimerRef.current), []);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -53,7 +58,7 @@ export default function PasswordResetScreen() {
       await authRedeemPasswordReset({ token: token.trim(), newPassword: password });
       setDone(true);
       // Brief pause so the user sees the success message before redirect.
-      setTimeout(() => navigate('/login', { replace: true }), loginRedirectDelayMs);
+      redirectTimerRef.current = setTimeout(() => navigate('/login', { replace: true }), loginRedirectDelayMs);
     } catch (e2) {
       if (e2.code === 'reset_invalid') {
         setError('This reset link is invalid, expired, or has already been used. Ask for a fresh one.');

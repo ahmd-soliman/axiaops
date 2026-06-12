@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 // Lightweight theme state for the admin console. The palette (light + dark)
 // lives in tokens.css under :root / :root[data-theme="dark"]; this just toggles
@@ -32,7 +32,8 @@ export function ThemeProvider({ children }) {
     }
   }, [isDark]);
 
-  const value = { isDark, toggleTheme: () => setIsDark((d) => !d) };
+  const toggleTheme = useCallback(() => setIsDark((d) => !d), []);
+  const value = useMemo(() => ({ isDark, toggleTheme }), [isDark, toggleTheme]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
