@@ -47,6 +47,7 @@ dependency-ordered, each independently shippable + testable.
 | **DS6** | **Billing code is INERT in the `-tags selfhosted` build via the existing `saasmode_*.go` build-tag seam — not a runtime flag.** The webhook route, checkout/portal handlers, and the Stripe client are constructed in `saasmode_saas.go`'s wiring and passed through `Deps`; `saasmode_selfhosted.go` supplies nil, so `ComposeServer` registers no billing routes when the resolver-style billing dep is nil. The `stripe-go` dependency lives only in the api module's `billing` package (Slice 2 placement) — it never reaches shared or the ingestion binary; in a `-tags selfhosted` api binary the package still compiles but **no billing handler is ever wired**. | Mirrors exactly how `EntitlementResolver` already flips license-vs-entitlement at the same seam (`entitlementGate(store)` returns `(store, grace)` in saas, `(nil, 0)` in selfhosted). Billing is the SaaS analogue and rides the same compile-time guarantee — a selfhosted/customer binary has no code path that registers `/v1/webhooks/stripe`. Self-hosted keeps the license gate untouched. |
 | **DS7** | **Bootstrap/self-hosted orgs keep `internal`/`active`; only the SaaS signup path mints a trial.** The bootstrap chokepoint keeps its current default-entitlement write (`ConsumeBootstrapState` does the INSERT inline in its transaction; `UpsertOrganization`/`EnsureOrganization` call the `ensureDefaultEntitlement` helper in `postgres.go`); the signup chokepoint gets a `trialing` variant. The two are distinguished by which org-create path runs, NOT by build tag (both could in principle run in one binary, but signup is `SIGNUP_ENABLED`-gated per the companion plan). | Self-hosted single-tenant must never enter a trial it can't exit (no Stripe). `internal`/`active` is the deliberate "entitled forever, billing-irrelevant" marker (migration 034). The seam is the org-create chokepoint, consistent with how `self-signup-plan.md` Slice 1 already forks bootstrap vs register. |
 | **DS8** | **Restricted Stripe keys, two of them.** The handler that creates Checkout/Portal sessions uses a **restricted key** scoped to Checkout + Billing Portal + Customers (no full secret key in that path). The webhook needs only the **webhook signing secret** (`STRIPE_WEBHOOK_SECRET`) for `ConstructEvent` — it does NOT need a secret key to *verify*; it needs a read-capable key only if it *re-fetches* an object (we avoid that — see Slice 4). Live/test keys are separate per env. | Security req §3.5 (C-2 lesson: no broad secret in a narrow service). Stored in SSM/CI variables, never in compose files. |
+| **DS9** | **Persist the Stripe `price_id` on the entitlements row; derive the display tier from it — never reverse-map from `plan`.** Slice 1's migration adds a nullable `entitlements.price_id`; the webhook projection (Slice 2/3) writes it; Slice 8's `plan_display` is `PlanForPrice(price_id).DisplayTier`. Trial / `internal` rows have a NULL `price_id` → display "Trial" / "Internal" from `status`+`plan`. | **`plan` alone is ambiguous and cannot source `plan_display`.** Starter and Growth both map to `plan='pro'` (DS2), and Trial and Starter collide on `(pro, max_accounts=1)` — so a read-time reverse-lookup over the pricing map is not uniquely invertible, and DS4/DS8 forbid re-fetching the price from Stripe at read time. Persisting the price id makes the tier a direct, stable lookup. The no-migration fallback (reverse-map on `(plan, max_accounts, is-trialing)`) works *only* while every non-trial `PlanMapping` has a unique `(plan, max_accounts)` pair — a fragile invariant a future tier rename can silently break; rejected for the durable column. |
 
 ---
 
@@ -121,10 +122,10 @@ to entitlement shape. No deploy.
 
 ## Slice 1 — `processed_stripe_events` idempotency migration + storage (S)
 
-**Goal.** A dedupe table so replayed/retried webhooks are no-ops (security req §3.3). Migration `035` (highest existing is `034`) — **number-collision warning:** the companion [`self-signup-plan.md`](self-signup-plan.md) Slice 6.1 also claims the next free number for `email_verification`. Whichever plan lands second takes the then-next free number; confirm at implementation time.
+**Goal.** A dedupe table so replayed/retried webhooks are no-ops (security req §3.3), plus two `entitlements` schema additions the later slices depend on: the `price_id` display-tier source (DS9) and an index backing the webhook's customer-ref lookup. Migration `035` (highest existing is `034`) — **number-collision warning:** the companion [`self-signup-plan.md`](self-signup-plan.md) Slice 6.1 also claims `035` for `email_verification`. These are not reservations — **`ls services/shared/storage/postgres/migrations/ | tail` at implementation time** and take the next free number; whichever plan lands second renumbers.
 
 **Files**
-- `services/shared/storage/postgres/migrations/035_stripe_events.up.sql` / `.down.sql` — **new**.
+- `services/shared/storage/postgres/migrations/035_stripe_billing_wiring.up.sql` / `.down.sql` — **new** (dedupe table + the `entitlements` `price_id`/index additions; see the naming note below).
 - `services/shared/storage/storage_entitlement.go` — extend the `EntitlementStore` slice with the dedupe methods (interface-first).
 - `services/shared/storage/postgres/entitlement.go` (or the existing entitlement impl file) — impl.
 
@@ -146,10 +147,25 @@ CREATE INDEX IF NOT EXISTS processed_stripe_events_received_idx
     ON processed_stripe_events (received_at);
 
 GRANT SELECT, INSERT, DELETE ON processed_stripe_events TO axiaops_runtime;
+
+-- (a) Display-tier source (DS9). plan='pro' is ambiguous — Starter and Growth
+--     both map to it, and Trial and Starter collide on (pro, max_accounts=1) —
+--     so the marketing tier cannot be reverse-derived from the row. Persist the
+--     Stripe price id and let Slice 8 resolve it via PlanForPrice(). NULL for
+--     trial / internal rows (display falls back to status+plan).
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS price_id TEXT;
+
+-- (b) Webhook lookup index. Every non-checkout event (customer.subscription.*)
+--     resolves the org via GetEntitlementByCustomerRef → WHERE billing_customer_ref = $1
+--     (Slice 2). migration 033 only indexes organization_id (the UNIQUE), so
+--     this hot path is otherwise a seq-scan. Partial — only set rows matter.
+CREATE INDEX IF NOT EXISTS entitlements_billing_customer_ref_idx
+    ON entitlements (billing_customer_ref) WHERE billing_customer_ref IS NOT NULL;
 ```
 
-- **No grant to `axiaops` app role** — defence-in-depth, exactly as `entitlements` withholds it (migration 033). The `029_runtime_admin_role` per-table bypass-policy loop only touches RLS-enabled tables and correctly skips this one (same as `entitlements`; `TestRuntimeAdmin_PolicyCoversAllRLSTables` asserts only over RLS tables).
-- **Down:** `DROP TABLE processed_stripe_events;`.
+- **No grant to `axiaops` app role** — defence-in-depth, exactly as `entitlements` withholds it (migration 033). The `029_runtime_admin_role` per-table bypass-policy loop only touches RLS-enabled tables and correctly skips this one (same as `entitlements`; `TestRuntimeAdmin_PolicyCoversAllRLSTables` asserts only over RLS tables). The two `entitlements` additions need no new grant — `axiaops_runtime` already holds full DML on that table (migration 033).
+- **Down:** `DROP INDEX entitlements_billing_customer_ref_idx; ALTER TABLE entitlements DROP COLUMN price_id; DROP TABLE processed_stripe_events;`.
+- **Naming:** the migration touches two tables (the new dedupe table + the `entitlements` ALTER/index) — name it for its theme (e.g. `035_stripe_billing_wiring`) rather than `035_stripe_events`, or split the `entitlements` additions into a sibling migration if you prefer one-table-per-file hygiene.
 
 **additions** (on `EntitlementStore`):
 - `MarkStripeEventProcessed(ctx, eventID, eventType string) (firstTime bool, err error)` — `INSERT … ON CONFLICT (event_id) DO NOTHING`; `firstTime` is true iff a row was inserted (use `RowsAffected()`). This is the atomic claim — the handler skips processing when `firstTime == false`.
@@ -177,8 +193,8 @@ so it is exhaustively table-testable against real fixture JSON with zero network
 
 | Stripe event | Resulting `BillingEvent` |
 |---|---|
-| `checkout.session.completed` | Look up org by `client_reference_id` (the org ID we set at checkout creation — Slice 4). Set `Status=active` (or `trialing` if the subscription is in trial), `Plan`/`MaxAccounts`/`Features` from the line-item price via `PlanForPrice`, `BillingCustomerRef`/`BillingSubscriptionRef`, `CurrentPeriodEnd`. |
-| `customer.subscription.updated` | Org found by stored `BillingCustomerRef`. Map Stripe sub status → entitlement status: `active`→`active`, `trialing`→`trialing`, `past_due`→`past_due`, `canceled`→`canceled`, `unpaid`→`suspended`, `incomplete*`→ ignore (not yet paid). Plan/limits from the current price. `CurrentPeriodEnd` from the sub. |
+| `checkout.session.completed` | Look up org by `client_reference_id` (the org ID we set at checkout creation — Slice 4). Set `Status=active` (or `trialing` if the subscription is in trial), `Plan`/`MaxAccounts`/`Features`/`PriceID` from the line-item price via `PlanForPrice`, `BillingCustomerRef`/`BillingSubscriptionRef`, `CurrentPeriodEnd`. |
+| `customer.subscription.updated` | Org found by stored `BillingCustomerRef`. Map Stripe sub status → entitlement status: `active`→`active`, `trialing`→`trialing`, `past_due`→`past_due`, `canceled`→`canceled`, `unpaid`→`suspended`, `incomplete*`→ ignore (not yet paid). `Plan`/limits/`PriceID` from the current price. `CurrentPeriodEnd` from the sub. |
 | `customer.subscription.deleted` | `Status=canceled`. Keep `BillingCustomerRef` so a re-subscribe can be matched. |
 | anything else | `handled=false` (ignored, handler 200s). |
 
@@ -186,7 +202,9 @@ so it is exhaustively table-testable against real fixture JSON with zero network
 - **Org lookup is a Resolver concern, not the decoder's** — the decoder emits the `BillingCustomerRef`/`client_reference_id` it found; the handler (Slice 3) resolves that to an `organization_id` (a store lookup `GetEntitlementByCustomerRef`, added to `EntitlementStore`). This keeps the decoder pure.
 
 **additions** (on `EntitlementStore`, used by the handler):
-- `GetEntitlementByCustomerRef(ctx, customerRef string) (model.Entitlement, error)` — for the non-checkout events that carry only the Stripe customer id. `ErrEntitlementNotFound` when no match.
+- `GetEntitlementByCustomerRef(ctx, customerRef string) (model.Entitlement, error)` — for the non-checkout events that carry only the Stripe customer id. `ErrEntitlementNotFound` when no match. Backed by the `entitlements_billing_customer_ref_idx` partial index added in Slice 1.
+
+**Shared-struct addition (DS9).** `entitlement.BillingEvent` (`services/shared/entitlement/billing.go`) gains a `PriceID string` field, and `ApplyBillingEvent` persists it to the new `entitlements.price_id` column (extend the `Writer` upsert + `model.Entitlement` with the matching field). This is the one cross-cutting touch beyond the api `billing` package — it is what makes Slice 8's `plan_display` a direct `PlanForPrice(price_id)` lookup instead of a fragile reverse-map. Trial/internal rows leave it empty.
 
 **Test plan** (`stripe_decode_test.go`, unit, **real fixture payloads** captured from `stripe trigger`):
 - One golden fixture per handled event type → asserted `BillingEvent` fields (status, plan, max_accounts, refs, period end).
@@ -394,7 +412,7 @@ page** under SaaS: current plan, status, renewal/trial date, usage vs limit,
 upgrade CTA → Checkout, manage → Portal. The word "license" never appears.
 
 **Files**
-- `services/api/internal/api/handler.go` — `GET /v1/billing/entitlement` (authenticated, any role): returns `{plan_display, status, trial_ends_at, current_period_end, max_accounts, accounts_used, manage_available}` derived from the org's `entitlements` row + account count. **Never returns billing refs or any token** (design §7.4/§7.5 — customer sees plan + usage, never an internal handle).
+- `services/api/internal/api/handler.go` — `GET /v1/billing/entitlement` (authenticated, any role): returns `{plan_display, status, trial_ends_at, current_period_end, max_accounts, accounts_used, manage_available}` derived from the org's `entitlements` row + account count. **`plan_display` is `PlanForPrice(row.price_id).DisplayTier`** (DS9) — NOT reverse-mapped from `plan`, which is ambiguous (Starter and Growth are both `pro`; Trial and Starter collide on `(pro, 1)`). A NULL `price_id` (trial / `internal` rows) falls back to a status/plan label ("Trial" when `status=trialing`, "Internal" for `plan=internal`). `manage_available` is `billing_customer_ref != ""` (drives whether the "Manage billing" button shows — Slice 5 409s without it). **Never returns billing refs, `price_id`, or any token** (design §7.4/§7.5 — customer sees plan + usage, never an internal handle).
 - `services/dashboard/src/screens/BillingScreen.jsx` — **new**, route `/billing`. Renders current plan + status + renewal date + usage bar; "Upgrade"/"Choose plan" → POST `/v1/billing/checkout-session` then `window.location = url`; "Manage billing" → POST `/v1/billing/portal-session` then redirect. Handles the `?checkout=success` return by polling `GET /v1/billing/entitlement` until status flips (DS4 — entitlement is webhook-driven, so the success page waits for the projection).
 - `services/dashboard/src/pages/settings/License.jsx` + `components/LicenseBanner.jsx` + `utils/license.js` — **already hidden under SaaS** (the `managed` `/v1/version` state collapses them, per Tasks.md 2.7.5a + `services/api/CLAUDE.md` `/version` row). #131 is the *replacement*: wire the Settings nav to `BillingScreen` instead of the hidden `License` page when `/v1/version` reports `state:"managed"`. Leave `License.jsx` intact for the selfhosted build (it shows the real license there).
 - `services/dashboard/src/api/client.js` — `getEntitlement()`, `createCheckoutSession(priceID)`, `createPortalSession()`.
@@ -410,6 +428,7 @@ already has for hiding the License banner.
 - Manage click → posts portal-session, redirects.
 - `?checkout=success` → polls entitlement, shows "active" once status flips.
 - Trial state → shows "Trial — N days left" + a prominent upgrade CTA.
+- **Tier disambiguation (DS9):** two `plan='pro'` entitlements with the Starter vs Growth `price_id` render **distinct** `plan_display` ("Starter" vs "Growth") — pins that the display tier comes from `price_id`, not `plan`. Handler-side: assert `GET /v1/billing/entitlement` returns the right `plan_display` for each, and a NULL-`price_id` trial row returns "Trial".
 - License nav shows BillingScreen when `state:"managed"`; License page when not (selfhosted).
 
 **Effort: L.**
@@ -552,7 +571,7 @@ note; nothing in *this* plan reads the `users` table pre-auth, so billing is una
 
 ## Grounding notes (verified in source)
 
-1. **Highest migration is `034`** (`034_entitlement_internal_plan`), so this plan's idempotency table is `035` and any audit-actor fix the next number after it — **but** `self-signup-plan.md` Slice 6.1 also claims the next free number (`email_verification`); whichever plan's migration lands second renumbers. All migration numbers in both plans are "next free at implementation time", not reservations.
+1. **Highest migration is `034`** (`034_entitlement_internal_plan`), so this plan's `035` adds the `processed_stripe_events` dedupe table **plus** the `entitlements.price_id` column + `billing_customer_ref` index (DS9 / Slice 1), with any audit-actor fix (Slice 9) the next number after it — **but** `self-signup-plan.md` Slice 6.1 also claims the next free number (`email_verification`); whichever plan's migration lands second renumbers. All migration numbers in both plans are "next free at implementation time" (`ls migrations/ | tail` first), not reservations.
 2. **`publicPath` does NOT cover `/v1/webhooks/`** — verified at `services/api/internal/middleware/auth.go` line 46: it matches infra paths, `/v1/sso/oidc/` ceremony, and `strings.HasPrefix(p, "/v1/auth/")`. `/v1/webhooks/stripe` matches none, so Slice 3 MUST add a `/v1/webhooks/` prefix case or every Stripe delivery 401s.
 3. **`entitlements` is system-scoped, no RLS, `axiaops_runtime`-only** (migration 033, lines 15–30 + the `GRANT … TO axiaops_runtime` at line 70). `processed_stripe_events` (Slice 1) copies that posture exactly and for the same reason (webhook has no org context at parse time).
 4. **The `ApplyBillingEvent` projection already exists and is already idempotent + order-tolerant** (`services/shared/entitlement/billing.go` — keyed on the migration-033 `organization_id` UNIQUE). This plan only adds the Stripe→`BillingEvent` decoder (Slice 2) and the HTTP shell (Slice 3) in front of it; the gate (`entitlement.IsScanAllowed` / `gateAllowsScan` in `services/api/internal/api/scangate.go`) is untouched.
