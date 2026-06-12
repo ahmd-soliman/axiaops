@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../../../theme/ThemeContext';
 import {
@@ -78,19 +78,27 @@ function Editor({ connectionId, isDark, onSaved }) {
   const [rows, setRows] = useState([]);
   const [error, setError] = useState('');
   const [savedTick, setSavedTick] = useState(false);
+  const hydratedRef = useRef(false);
 
-  // Hydrate local state from the server response. Each row gets a stable
-  // local key so React doesn't reorder inputs on edit; existing rows reuse
-  // their server ID, new rows mint a uuid-ish.
+  // Hydrate local state from the server response ONCE per mount. Each row gets
+  // a stable local key so React doesn't reorder inputs on edit; existing rows
+  // reuse their server ID, new rows mint a uuid-ish.
+  //
+  // Hydrate-once (not on every mappings.data change): after a save, onSaved
+  // invalidates the query and the background refetch returns a fresh array
+  // reference. Re-running this on that reference would overwrite any edits the
+  // user typed between pressing Save and the refetch resolving. The Editor is
+  // keyed by connectionId upstream, so switching connections remounts it and
+  // re-hydrates from the new connection's data.
   useEffect(() => {
-    if (mappings.data) {
-      setRows((mappings.data || []).map((m) => ({
-        _key:               m.id,
-        group_external_id:  m.group_external_id || '',
-        group_display_name: m.group_display_name || '',
-        role:               m.role,
-      })));
-    }
+    if (hydratedRef.current || !mappings.data) return;
+    hydratedRef.current = true;
+    setRows((mappings.data || []).map((m) => ({
+      _key:               m.id,
+      group_external_id:  m.group_external_id || '',
+      group_display_name: m.group_display_name || '',
+      role:               m.role,
+    })));
   }, [mappings.data]);
 
   const replaceMutation = useMutation({

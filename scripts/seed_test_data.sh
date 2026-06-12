@@ -66,9 +66,18 @@ REMOTE_ENV=""
 AUTO_YES=false
 DEMO_MODE=false
 BOOTSTRAP_FIRST=false
+SEED_EXISTING_ORG=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --seed-existing-org)
+      # Seed the NEWEST existing org via MIGRATION_DATABASE_URL, without any
+      # --remote host plumbing. For the auth-on e2e suite, which bootstraps a
+      # real org first (so it can't use the DEV_ORGANIZATION_ID path) and runs
+      # the seeder from the test runner against the compose postgres. See
+      # docs/e2e-conventions.md §"seed-after-bootstrap".
+      SEED_EXISTING_ORG=true
+      ;;
     --remote)
       shift
       REMOTE_ENV="${1:-}"
@@ -225,6 +234,13 @@ else
   # Remote mode: use direct psql connection
   MODE="remote"
   echo "MIGRATION_DATABASE_URL set — connecting to remote postgres"
+  # --remote sets $PSQL via resolve_psql; a bare MIGRATION_DATABASE_URL caller
+  # (e.g. --seed-existing-org from the e2e runner) needs it resolved too.
+  PSQL="${PSQL:-$(resolve_psql)}"
+  if [ -z "${PSQL:-}" ]; then
+    echo "Error: psql not found on PATH (needed for direct MIGRATION_DATABASE_URL mode)." >&2
+    exit 1
+  fi
 fi
 
 # ── psql helpers ──────────────────────────────────────────────────────────────
@@ -292,7 +308,7 @@ PERIOD_END="$NOW"
 # in deploy/{env}.yml — if you flip an env's DEV_MODE here, mirror it there.
 AUTH_ON_ENVS_REGEX="^(staging|preview|demo|integration)$"
 
-if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX ]]; then
+if [[ "$REMOTE_ENV" =~ $AUTH_ON_ENVS_REGEX || "$SEED_EXISTING_ORG" == "true" ]]; then
   ORGANIZATION_ID=$(psql_query "SELECT id FROM organizations ORDER BY created_at LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
   if [ -z "$ORGANIZATION_ID" ]; then
     if [[ "$BOOTSTRAP_FIRST" == "true" ]]; then
@@ -975,6 +991,35 @@ VALUES
    'AMI is 180 days old and not referenced by any instance — backing snapshots (60 GB) accumulate storage charges', 'platform', '$NOW')
 ;"
 echo "  Inserted 33 resource records (22 zombies, 11 active) across 3 accounts."
+
+# ── Backfill: every zombie must also be a resource record ─────────────────────
+# Invariant from the real scan path: ingestion runs SaveResources for ALL
+# discovered resources and SaveZombies for the idle subset, so resource_records
+# is always a superset of zombie_records. The hand-written resource block above
+# drifted from the zombie block — it omits whole services (CloudFront,
+# CloudWatch, ECR, SecretsManager, S3, Kinesis), so the dashboard listed those
+# zombies on "/" yet Detail.jsx (which looks the resource up in /v1/resources)
+# rendered NotFound — a 404 on a link the UI itself produced. Rather than keep
+# two hand-lists in sync, copy any zombie that lacks a matching resource row
+# into resource_records (is_zombie=true). Idempotent: resource_records is
+# DELETEd + rebuilt on every seed run, and the NOT EXISTS guard skips zombies
+# the explicit block already covers.
+psql_exec "INSERT INTO resource_records
+  (organization_id, provider, account_id, internal_account_id, service, resource_type, region, resource_id, tags, monthly_cost, currency,
+   period_start, period_end, usage_metric, usage_avg, usage_unit, is_zombie, reason, owner, detected_at)
+SELECT
+   zr.organization_id, zr.provider, zr.account_id, zr.internal_account_id, zr.service, zr.resource_type, zr.region, zr.resource_id, zr.tags, zr.monthly_cost, zr.currency,
+   zr.period_start, zr.period_end, zr.usage_metric, zr.usage_avg, zr.usage_unit, true, zr.reason, zr.owner, zr.detected_at
+FROM zombie_records zr
+WHERE zr.internal_account_id IN ('seed-account-001','seed-account-002','seed-account-003')
+  AND NOT EXISTS (
+    SELECT 1 FROM resource_records rr
+    WHERE rr.internal_account_id = zr.internal_account_id
+      AND rr.service     = zr.service
+      AND rr.region      = zr.region
+      AND rr.resource_id = zr.resource_id
+  );"
+echo "  Backfilled resource_records from any zombie missing a matching resource row."
 echo ""
 
 # ── Zombie snapshots — derived from zombie_records ───────────────────────────

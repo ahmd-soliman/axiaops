@@ -14,9 +14,15 @@ export function useDestructiveConfirm({ target, mutationFn, successMessage, onSu
   const [confirmText, setConfirmText] = useState('');
   const [error, setError] = useState('');
 
+  const reset = () => { setOpen(false); setConfirmText(''); setError(''); };
+
   const mutation = useMutation({
     mutationFn,
     onSuccess: () => {
+      // Auto-close on success so callers don't have to call close() from
+      // their own onSuccess (which forced a fragile self-reference to the
+      // very ctrl const being assigned).
+      reset();
       toast(successMessage, 'success');
       onSuccess?.();
     },
@@ -33,7 +39,7 @@ export function useDestructiveConfirm({ target, mutationFn, successMessage, onSu
     target,
     open,
     openModal: () => setOpen(true),
-    close: () => { setOpen(false); setConfirmText(''); setError(''); },
+    close: reset,
     confirmText,
     setConfirmText,
     matches: target !== '' && confirmText === target,

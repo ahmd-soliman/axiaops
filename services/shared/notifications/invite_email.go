@@ -61,7 +61,11 @@ func buildInviteMessage(cfg model.EmailConfig, recipient string, inv InviteEmail
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", formatFromHeader(cfg))
 	fmt.Fprintf(&b, "To: %s\r\n", (&mail.Address{Address: recipient}).String())
-	fmt.Fprintf(&b, "Subject: %s\r\n", renderInviteSubject(inv))
+	// headerValue (audit N-2): the subject interpolates the org display name —
+	// admin-controlled, and under self-serve signup attacker-controlled. The
+	// creation paths reject newlines, but the Subject line must be safe even if
+	// a future org-name write path forgets that check.
+	fmt.Fprintf(&b, "Subject: %s\r\n", headerValue(renderInviteSubject(inv)))
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/plain; charset=\"utf-8\"\r\n")
 	b.WriteString("\r\n")

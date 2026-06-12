@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 	"time"
@@ -321,6 +322,19 @@ func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (m
 	if err != nil {
 		return model.Organization{}, fmt.Errorf("postgres: fetch organization: %w", err)
 	}
+
+	// Auto-entitle so the default (SaaS) fail-closed scan-gate works without
+	// billing. Non-fatal: this runs on the first-login / SSO-JIT hot path, so a
+	// transient entitlement-write hiccup must not break login. Idempotent + DO
+	// NOTHING, so re-running is harmless. Note the gap this leaves: if the write
+	// fails for a BRAND-NEW org, that org has no entitlement row until something
+	// re-triggers a create/upsert for it (the 034 backfill only covers orgs that
+	// existed at migration time) — its scans are denied (fail-closed) until then.
+	// Accepted as a low-probability transient case; the warn log is the signal.
+	if err := s.ensureDefaultEntitlement(ctx, t.ID); err != nil {
+		slog.WarnContext(ctx, "postgres: upsert organization: default entitlement write failed",
+			"organization_id", t.ID, "error", err)
+	}
 	return t, nil
 }
 
@@ -407,6 +421,46 @@ func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string
 	if err != nil {
 		return fmt.Errorf("postgres: ensure organization: %w", err)
 	}
+	if err := s.ensureDefaultEntitlement(ctx, id); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureDefaultEntitlement auto-grants a default entitlement row for an org if
+// one does not already exist, so the default (SaaS) build's fail-closed scan-gate
+// (entitlement.IsScanAllowedForOrg — a missing row denies) lets a freshly-created
+// org scan without billing wired up. Called at every org-creation chokepoint
+// (UpsertOrganization, EnsureOrganization, ConsumeBootstrapState).
+//
+// Runs on s.adminPool: the `entitlements` table is system-scoped with NO RLS and
+// is GRANTed only to axiaops_runtime (migration 033), not the `axiaops` app role
+// — so a write via s.pool would be a hard permission error. (In DEV_MODE the two
+// pools collapse to one, so this still works in dev.)
+//
+// ON CONFLICT (organization_id) DO NOTHING is load-bearing: a real billing-set
+// row (plan free/pro/enterprise, set via UpsertEntitlement) must win and never be
+// clobbered by this default grant. The single INSERT is idempotent and race-safe
+// — two concurrent creation paths converge on one row with no error.
+//
+// plan='internal' marks the row as an auto-granted pre-billing grant (distinct
+// from billing-set plans, and the marker migration 034's backfill/cleanup keys
+// off). status='active' is exactly what the fail-closed gate treats as
+// scan-allowed. max_accounts=1000 is a high cap so onboarding is not artificially
+// limited before billing assigns a real plan limit.
+func (s *Store) ensureDefaultEntitlement(ctx context.Context, organizationID string) error {
+	if organizationID == "" {
+		return fmt.Errorf("postgres: ensure default entitlement: organization_id required")
+	}
+	_, err := s.adminPool.Exec(ctx, `
+		INSERT INTO entitlements (organization_id, plan, status, max_accounts, features)
+		VALUES ($1, 'internal', 'active', 1000, '{}')
+		ON CONFLICT (organization_id) DO NOTHING`,
+		organizationID,
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: ensure default entitlement: %w", err)
+	}
 	return nil
 }
 
@@ -424,14 +478,31 @@ func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string
 // stored organization_id would silently diverge from the organization id DevBypass injects
 // onto every request.
 //
-// NOTE: this method uses the raw pool and does NOT set app.organization_id. Safe here
-// only because `users` has no RLS policy and this is a startup bootstrap call.
-// Do NOT copy this pattern for handler-path writes to RLS-scoped tables —
-// those must use storage.WithOrganizationID and the transaction pattern.
+// Runs on the runtime-bypass pool inside a transaction that also sets
+// app.organization_id from u.OrganizationID (migration 035 put RLS on users).
+// Two configs to satisfy: (a) deployed/start-dev where adminPool is a bypass
+// role (axiaops_runtime / owner) — the users_runtime_bypass policy permits the
+// write and lets the ON CONFLICT DO UPDATE self-correct a rotated
+// DEV_ORGANIZATION_ID across orgs; (b) the degenerate single-pool DEV_MODE
+// (RUNTIME_ADMIN_DATABASE_URL unset → adminPool falls back to the RLS-bound app
+// role) where the GUC is what satisfies the WITH CHECK on a first insert. The
+// cross-org self-correct only works in config (a); single-pool DEV_MODE cannot
+// rotate an existing user across orgs without a DB reset, which is acceptable
+// for that degenerate path.
 func (s *Store) EnsureUser(ctx context.Context, u model.User) error {
 	now := time.Now().UTC()
 	externalID := "dev:" + u.ID
-	_, err := s.pool.Exec(ctx, `
+	tx, err := s.adminPool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: ensure user begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// EnsureUser runs before any request context exists, so it sets the GUC from
+	// the model rather than via ctx (setOrganization reads ctx).
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.organization_id', $1, true)`, u.OrganizationID); err != nil {
+		return fmt.Errorf("postgres: ensure user set org: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
 		INSERT INTO users (id, organization_id, external_id, email, name, created_at, last_seen)
 		VALUES ($1, $2, $3, $4, $5, $6, $6)
 		ON CONFLICT (id) DO UPDATE SET
@@ -444,15 +515,22 @@ func (s *Store) EnsureUser(ctx context.Context, u model.User) error {
 	if err != nil {
 		return fmt.Errorf("postgres: ensure user: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // UpsertUser creates a user on first login or updates email, name, and last_seen.
+//
+// Runs on the runtime-bypass pool (adminPool): this is the SSO-callback first-
+// login write, which runs before the request has a DB org context set and keys
+// the row by external_id (the IdP `sub`), not by the request org. Under the
+// users RLS policy (migration 035) an app-pool INSERT with no GUC set would be
+// rejected by the WITH CHECK clause; the runtime role's users_runtime_bypass
+// policy lets this through. DEV_MODE never reaches here (auth is bypassed).
 func (s *Store) UpsertUser(ctx context.Context, organizationID, externalID, email, name string) (model.User, error) {
 	now := time.Now().UTC()
 	id := uuid.New().String()
 
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.adminPool.Exec(ctx, `
 		INSERT INTO users (id, organization_id, external_id, email, name, created_at, last_seen)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (external_id) DO UPDATE SET
@@ -466,7 +544,7 @@ func (s *Store) UpsertUser(ctx context.Context, organizationID, externalID, emai
 	}
 
 	var u model.User
-	err = s.pool.QueryRow(ctx,
+	err = s.adminPool.QueryRow(ctx,
 		`SELECT id, organization_id, external_id, email, name, created_at, last_seen FROM users WHERE external_id = $1`, externalID,
 	).Scan(&u.ID, &u.OrganizationID, &u.ExternalID, &u.Email, &u.Name, &u.CreatedAt, &u.LastSeen)
 	if err != nil {
@@ -1682,23 +1760,29 @@ func (s *Store) RoleOf(ctx context.Context, organizationID, userID string) (stri
 }
 
 // ListMemberships returns memberships in the organization in ctx joined with users.
+//
+// Runs on the runtime-bypass pool with an explicit organization_id filter,
+// mirroring LookupMembership. It cannot use the app pool: a cross-org member's
+// users row carries their HOME organization_id (the multi-org B1.5 model), so
+// the users_organization_isolation policy (migration 035) would filter that row
+// out of the LEFT JOIN and silently blank the member's email/name. The explicit
+// `WHERE m.organization_id = $1` enforces org scoping in place of RLS.
 func (s *Store) ListMemberships(ctx context.Context) ([]model.MembershipWithUser, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("postgres: list memberships begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := setOrganization(ctx, tx); err != nil {
-		return nil, err
+	organizationID := storage.OrganizationIDFromCtx(ctx)
+	if organizationID == "" {
+		return nil, fmt.Errorf("postgres: list memberships: organization_id missing from context")
 	}
 
-	rows, err := tx.Query(ctx, `
+	rows, err := s.adminPool.Query(ctx, `
 		SELECT m.id, m.organization_id, m.user_id, m.role, COALESCE(m.invited_by, ''),
 		       m.provisioned_via, m.created_at, m.updated_at,
 		       COALESCE(u.email, ''), COALESCE(u.name, '')
 		FROM memberships m
 		LEFT JOIN users u ON u.id = m.user_id
-		ORDER BY m.created_at ASC, m.id ASC`)
+		WHERE m.organization_id = $1
+		ORDER BY m.created_at ASC, m.id ASC`,
+		organizationID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: list memberships query: %w", err)
 	}
@@ -1718,7 +1802,7 @@ func (s *Store) ListMemberships(ctx context.Context) ([]model.MembershipWithUser
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("postgres: list memberships rows: %w", err)
 	}
-	return out, tx.Commit(ctx)
+	return out, nil
 }
 
 // ListUserMemberships returns every active membership for the given user
@@ -2062,17 +2146,22 @@ func (s *Store) EnsureDevMembership(ctx context.Context, organizationID, userID,
 	return tx.Commit(ctx)
 }
 
-// GetUserByID looks up a user by internal UUID, org-agnostic. The users
-// table is global; users.organization_id tracks the user's primary org and
-// is intentionally NOT used in the WHERE clause so a cross-org member can
-// read their own row from any org context (e.g. /v1/me). RLS doesn't cover
-// the users table; scoping happens on the caller side.
+// GetUserByID looks up a user by internal UUID, org-agnostic. users.organization_id
+// tracks the user's primary org and is intentionally NOT used in the WHERE clause
+// so a cross-org member can read their own row from any org context (e.g. /v1/me).
+// users IS RLS-scoped (migration 035), so this read runs on the runtime-bypass
+// pool — the org-isolation policy would otherwise filter a cross-org member's row.
 func (s *Store) GetUserByID(ctx context.Context, id string) (model.User, error) {
 	if id == "" {
 		return model.User{}, storage.ErrUserNotFound
 	}
 	var u model.User
-	err := s.pool.QueryRow(ctx, `
+	// Runtime-bypass pool: a by-PK lookup that legitimately spans orgs — /v1/me
+	// must resolve a cross-org member's own row regardless of the request's org
+	// context, so the users_organization_isolation policy (migration 035) would
+	// wrongly filter it on the app pool. Isolation here is the PK + the
+	// authenticated caller's identity, not RLS.
+	err := s.adminPool.QueryRow(ctx, `
 		SELECT id, organization_id, external_id, email, name, created_at, last_seen
 		FROM users
 		WHERE id = $1`,
@@ -2098,7 +2187,10 @@ func (s *Store) SetUserSSOConnection(ctx context.Context, userID, connectionID s
 	// NULLIF($, '') maps the empty-string sentinel to a SQL NULL so the
 	// `ON DELETE SET NULL` foreign-key invariant on users.sso_connection_id
 	// stays uniform: every "no connection" row holds NULL, never ''.
-	tag, err := s.pool.Exec(ctx, `
+	// Runtime-bypass pool (by-PK write, runs in the SSO callback before a request
+	// org context exists). The users RLS WITH CHECK (migration 035) would reject
+	// an app-pool UPDATE with no GUC set.
+	tag, err := s.adminPool.Exec(ctx, `
 		UPDATE users
 		SET sso_connection_id = NULLIF($2, '')
 		WHERE id = $1`,
@@ -2121,7 +2213,9 @@ func (s *Store) GetUserSSOConnectionID(ctx context.Context, userID string) (stri
 		return "", storage.ErrUserNotFound
 	}
 	var connID *string
-	err := s.pool.QueryRow(ctx, `
+	// Runtime-bypass pool: by-PK read in the RP-Initiated Logout resolver, which
+	// runs without a request org context (mirrors GetUserByID).
+	err := s.adminPool.QueryRow(ctx, `
 		SELECT sso_connection_id
 		FROM users
 		WHERE id = $1`,
@@ -2147,8 +2241,12 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, e
 		return model.User{}, fmt.Errorf("postgres: organization_id missing from context")
 	}
 	var u model.User
-	// users has no RLS; organization scoping is explicit in the WHERE clause.
-	err := s.pool.QueryRow(ctx, `
+	// Runtime-bypass pool with explicit organization_id scoping in the WHERE
+	// clause: the lookup is org-scoped, but it runs before a DB org context is
+	// set, so the explicit filter — not RLS — enforces isolation (the
+	// users_organization_isolation policy from migration 035 is the fail-closed
+	// backstop for any future app-pool regression).
+	err := s.adminPool.QueryRow(ctx, `
 		SELECT id, organization_id, external_id, email, name, created_at, last_seen
 		FROM users
 		WHERE organization_id = $1 AND lower(email) = lower($2)`,

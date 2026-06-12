@@ -77,7 +77,7 @@ func (h *Handler) createStaff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "email required")
 		return
 	}
-	if err := auth.CheckPolicy(req.Password); err != nil {
+	if err := auth.CheckPolicyWithIdentity(req.Password, auth.PolicyContext{Email: req.Email, Name: req.Name}); err != nil {
 		writeError(w, http.StatusBadRequest, "weak_password", err.Error())
 		return
 	}

@@ -6,10 +6,11 @@
 // registration, middleware composition, and ticker startup are
 // ComposeServer's responsibility.
 //
-// SaaS reactivation will add cmd/api-saashosted/main.go alongside this
-// file; that variant will swap a few constructors (a remote-IdP auth
-// provider, a SaaS-specific Discoverer/Connector pair) and call the
-// same ComposeServer.
+// SaaS vs self-hosted is selected at compile time by the saasmode build-tag
+// seam (saasmode_saas.go is the default; saasmode_selfhosted.go is `-tags
+// selfhosted`); both call the same ComposeServer. A future SaaS-specific
+// composition root could still swap a few constructors (a remote-IdP auth
+// provider, a SaaS Discoverer/Connector pair) the same way.
 
 package main
 
@@ -83,6 +84,24 @@ func main() {
 	logging.Init("api")
 
 	ctx := context.Background()
+
+	// ── SaaS mode (license removal, design §7.1) ────────────────────────
+	// SaaS is the DEFAULT build: this flips the license enforcement bypass
+	// BEFORE VerifyAtBoot, so the scan endpoint gates on per-tenant entitlement
+	// instead of the license JWT. In the `-tags selfhosted` (opt-in) build it
+	// is a no-op — the bypass call is compiled only into the default SaaS
+	// sibling (saasmode_saas.go), so a self-hosted/customer binary has no code
+	// path that disables its license gate.
+	bypassLicenseForSaaS()
+
+	// Fail-loud: record which seam compiled into this binary. Because the safe
+	// default now depends on the *absence* of the `selfhosted` tag, this line
+	// makes "is this container SaaS or self-hosted?" answerable from the logs.
+	licenseMode := "selfhosted"
+	if license.IsEnforcementBypassed() {
+		licenseMode = "saas"
+	}
+	slog.Info("license: mode resolved", "mode", licenseMode, "license_enforced", !license.IsEnforcementBypassed())
 
 	// ── License (B1.6 amended + B1.7 layer 2) ───────────────────────────
 	// Per docs/b1.6-amendment-feature-gating.md, VerifyAtBoot logs +
@@ -246,7 +265,7 @@ func main() {
 
 	// RATE_LIMIT_MAX overrides middleware.DefaultRateLimitMax. 0 / unset /
 	// malformed → fall back to the default. Composition root parses here so
-	// every binary (api / future api-saashosted) reads the same env name.
+	// every build shape (default SaaS / `-tags selfhosted`) reads the same env name.
 	rateLimitMax := 0
 	if v := os.Getenv("RATE_LIMIT_MAX"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -285,6 +304,10 @@ func main() {
 		SSOStateStore:       ssoStateStore,
 		MetricsRegistry:     metrics,
 	}
+
+	// SaaS: wire the entitlement gate (resolver + grace). Self-hosted build
+	// returns (nil, 0) — ComposeServer leaves the license gate in force.
+	deps.EntitlementResolver, cfg.EntitlementGrace = entitlementGate(store)
 
 	handler, err := serverbuild.ComposeServer(cfg, deps)
 	if err != nil {

@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"axiaops.io/shared/circuitbreaker"
+	"axiaops.io/shared/entitlement"
 	scanerrors "axiaops.io/shared/errors"
 	"axiaops.io/shared/httpauth"
-	"axiaops.io/shared/license"
 	"axiaops.io/shared/observability"
 	"axiaops.io/shared/queue"
 	redisqueue "axiaops.io/shared/queue/redis"
@@ -33,6 +33,8 @@ func startWorker(
 	secrets [][]byte,
 	maxSkew time.Duration,
 	softEnforce bool,
+	resolver entitlement.Resolver,
+	grace time.Duration,
 ) {
 	cb := circuitbreaker.New(circuitbreaker.DefaultConfig())
 
@@ -87,20 +89,20 @@ func startWorker(
 				"circuit_breaker_state", cb.State().String(),
 			)
 
-			// License scan-gate (plan §4.9.2b, post-amendment). The api-side
-			// gate catches most jobs at trigger time, but a job enqueued
-			// before a state transition (valid → expired or, post-amendment,
-			// not_loaded after a license-removal restart) and dequeued after
-			// would otherwise sneak past — the scan-gate must be evaluated
-			// at execution time, not just trigger time. Dropping the job is
-			// safe: scheduled scans get re-evaluated on the next ticker
-			// pass; user-triggered scans are infrequent enough that a
-			// delayed retry is preferable to an unauthorized scan running.
-			if !license.IsScanAllowed() {
-				slog.Info("worker: scan.skipped_license_inactive",
+			// Scan-gate (plan §4.9.2b + SaaS §7.1). The api-side gate catches
+			// most jobs at trigger time, but a job enqueued before a state
+			// transition (license valid → expired, or entitlement active →
+			// suspended) and dequeued after would otherwise sneak past — the
+			// gate must be evaluated at execution time, not just trigger time.
+			// Dropping the job is safe: scheduled scans get re-evaluated next
+			// pass; user-triggered scans are infrequent enough that a delayed
+			// retry beats an unauthorized scan. resolver==nil → license gate
+			// (self-hosted); resolver!=nil → per-tenant entitlement gate (SaaS).
+			if ok, code := gateAllowsScan(ctx, resolver, grace, job.OrganizationID); !ok {
+				slog.Info("worker: scan.skipped_gate",
 					"account_id", job.AccountID,
 					"organization_id", job.OrganizationID,
-					"state", license.SnapshotState().String(),
+					"reason", code,
 				)
 				continue
 			}

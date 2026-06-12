@@ -1,4 +1,3 @@
-import { useNavigate } from 'react-router-dom';
 import ErrorPage from '../components/ErrorPage';
 
 // ServiceUnavailable — 503-specific page for runtime "API reachable but
@@ -12,7 +11,6 @@ import ErrorPage from '../components/ErrorPage';
 // on every 503 response, and the App-level listener navigates here.
 // The error boundary uses ServerError (500) for uncaught render errors.
 export default function ServiceUnavailable({ reference }) {
-  const navigate = useNavigate();
   return (
     <ErrorPage
       code="503"
@@ -20,7 +18,7 @@ export default function ServiceUnavailable({ reference }) {
       description="AxiaOps is temporarily unavailable. No action is needed on your side — your data is safe. Try again in a moment."
       actions={[
         { label: 'Try again', primary: true, onClick: () => window.location.reload() },
-        { label: 'Go to overview',           onClick: () => navigate('/') },
+        { label: 'Go to overview',           to: '/' },
       ]}
       reference={reference}
     />

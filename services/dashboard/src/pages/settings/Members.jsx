@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../../theme/ThemeContext';
 import { useMe } from '../../context/MeContext';
@@ -57,6 +57,12 @@ export default function Members() {
     refresh();
   };
 
+  // Synchronous double-submit guard. `addMutation.isPending` only flips after
+  // the dispatch + a re-render, so two Enter presses in the same tick could
+  // both fire createInvitation before the button disables. This ref is set
+  // synchronously in the submit handler and cleared in onSettled.
+  const invitingRef = useRef(false);
+
   // Email-first invite. Tries POST /v1/invitations, falls back to
   // POST /v1/memberships if the API reports the user already exists without
   // a membership (the user logged in once but was never added).
@@ -113,6 +119,16 @@ export default function Members() {
             email: data._email || data.email,
             role: data._role || data.role,
             url,
+            // Best-effort invite-email outcome (services/api invitations.go):
+            // sent | failed | skipped_no_transport | skipped_no_public_host |
+            // error, or '' when no mailer is wired. Drives the headline + the
+            // "emailed vs share-the-link" framing below. The addMember
+            // fallback path has no email_delivery, so it reads as '' (neutral).
+            emailDelivery: data.email_delivery || '',
+            // Invitation expiry (INVITATION_TTL_DAYS, default 14d). Surfaced in
+            // the box so the admin knows the link's shelf life — the email
+            // already states it (invite_email.go), the UI shouldn't be silent.
+            expiresAt: data.expires_at || '',
             // Tasks.md row 2.7.20: yellow callout when the org gates on
             // SSO. The URL still works for the redemption hop, but every
             // authed request afterward 403s with `sso_required` because
@@ -130,6 +146,7 @@ export default function Members() {
       invalidate();
     },
     onError: (err) => setAddError(humanize(err, 'Failed to invite user')),
+    onSettled: () => { invitingRef.current = false; },
   });
 
   const revokeInvitationMutation = useMutation({
@@ -146,21 +163,14 @@ export default function Members() {
 
   // Destructive-action confirm modals — type-to-confirm UX shared with other
   // pages (org delete, account delete, user delete). Replaces three earlier
-  // window.confirm() sites (per issue #84).
-  //
-  // The onSuccess callbacks below reference `removeCtrl` / `transferCtrl` —
-  // the very const they're being assigned to. JS closures resolve by name at
-  // call time (against the enclosing scope), and onSuccess only runs after a
-  // mutation completes, by which point the const has been initialised on at
-  // least one render. Safe in practice; the alternative (the hook auto-closes
-  // on success) would require a primitive change in DestructiveConfirm.jsx.
+  // window.confirm() sites (per issue #84). The hook auto-closes itself on
+  // success, so onSuccess here only clears the page-local target state.
   const removeCtrl = useDestructiveConfirm({
     target: removeTarget?.isSelf ? 'leave' : (removeTarget?.email || ''),
     mutationFn: () => removeMember(removeTarget?.id),
     successMessage: removeTarget?.isSelf ? 'Left the organization' : 'Member removed',
     onSuccess: () => {
       setRemoveTarget(null);
-      removeCtrl.close();
       invalidate();
     },
     toast,
@@ -173,7 +183,6 @@ export default function Members() {
     successMessage: 'Ownership transferred',
     onSuccess: () => {
       setTransferTo('');
-      transferCtrl.close();
       invalidate();
     },
     toast,
@@ -219,6 +228,8 @@ export default function Members() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!addEmail.trim()) return;
+              if (invitingRef.current) return; // already submitting this tick
+              invitingRef.current = true;
               addMutation.mutate({ email: addEmail.trim(), role: addRole });
             }}
             style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
@@ -262,7 +273,9 @@ export default function Members() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text)' }}>
-                  Invitation created for <strong>{lastInvite.email}</strong> ({lastInvite.role})
+                  {inviteDelivery(lastInvite.emailDelivery).tone === 'sent' && '✓ '}
+                  Invitation {inviteDelivery(lastInvite.emailDelivery).verb}{' '}
+                  <strong>{lastInvite.email}</strong> ({lastInvite.role})
                 </span>
                 <button
                   type="button"
@@ -281,6 +294,25 @@ export default function Members() {
                   ×
                 </button>
               </div>
+              {/* 3a — surface the best-effort email outcome. When the email
+                  couldn't be sent, an amber note tells the admin to fall back
+                  to sharing the link directly. */}
+              {inviteDelivery(lastInvite.emailDelivery).note && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    padding: 8,
+                    borderRadius: 4,
+                    backgroundColor: isDark ? 'rgba(234,179,8,0.12)' : '#fef9c3',
+                    border: `1px solid ${isDark ? 'rgba(234,179,8,0.35)' : '#fde047'}`,
+                    color: isDark ? '#fde68a' : '#854d0e',
+                    fontSize: 11,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {inviteDelivery(lastInvite.emailDelivery).note}
+                </div>
+              )}
               {lastInvite.enforcementHint === 'sso_required' && (
                 <div
                   style={{
@@ -302,6 +334,11 @@ export default function Members() {
                   will be blocked on the next request.
                 </div>
               )}
+              {/* 3c — when the email was sent the link is a secondary "share
+                  another way" option; otherwise it's the primary handoff. */}
+              <p style={{ marginTop: 0, marginBottom: 6, fontSize: 11, color: 'var(--color-text-mid)' }}>
+                {inviteDelivery(lastInvite.emailDelivery).linkIntro}
+              </p>
               <div style={{ position: 'relative' }}>
                 <input
                   type="text"
@@ -346,7 +383,12 @@ export default function Members() {
                   {copied ? '✓' : '⧉'}
                 </button>
               </div>
-              <p style={{ marginTop: 8, marginBottom: 0, fontSize: 11, color: 'var(--color-text-muted)' }}>
+              {lastInvite.expiresAt && (
+                <p style={{ marginTop: 8, marginBottom: 0, fontSize: 11, color: 'var(--color-text-mid)' }}>
+                  This link expires on <strong>{formatDate(lastInvite.expiresAt)}</strong>.
+                </p>
+              )}
+              <p style={{ marginTop: 6, marginBottom: 0, fontSize: 11, color: 'var(--color-text-muted)' }}>
                 Anyone with this link can redeem the invitation, so share over
                 a private channel. Revoke it from the Pending invitations table
                 below if needed.
@@ -512,6 +554,7 @@ export default function Members() {
                           </span>
                           <select
                             value={m.role}
+                            disabled={updateMutation.isPending}
                             onChange={(e) => updateMutation.mutate({ id: m.id, role: e.target.value })}
                             style={{ ...inputStyle(), width: '100%', minHeight: 40 }}
                           >
@@ -571,6 +614,7 @@ export default function Members() {
                       {allowEdit ? (
                         <select
                           value={m.role}
+                          disabled={updateMutation.isPending}
                           onChange={(e) => updateMutation.mutate({ id: m.id, role: e.target.value })}
                           style={inputStyle()}
                         >
@@ -768,6 +812,60 @@ function provenanceLabel(via) {
     case 'bootstrap':  return 'Bootstrap';
     case 'legacy':     return 'Legacy';
     default:           return via || '—';
+  }
+}
+
+// inviteDelivery maps the API's best-effort email outcome (invitations.go) to
+// the invite-result UI: `verb` shapes the headline (3c — email is the headline
+// action), `note` is a non-empty amber line when the email did NOT go out (3a),
+// and `linkIntro` frames the copyable link as a fallback ("Or copy…") on a
+// successful send vs the primary handoff ("Share this link…") otherwise.
+function inviteDelivery(outcome) {
+  switch (outcome) {
+    case 'sent':
+      return {
+        tone: 'sent',
+        verb: 'emailed to',
+        note: '',
+        linkIntro: 'Or copy the link to share another way:',
+      };
+    case 'failed':
+      return {
+        tone: 'warn',
+        verb: 'created for',
+        note: 'The invite email couldn’t be delivered — share the link below directly.',
+        linkIntro: 'Share this link with the invitee:',
+      };
+    case 'error':
+      return {
+        tone: 'warn',
+        verb: 'created for',
+        note: 'Something went wrong sending the email — share the link below directly.',
+        linkIntro: 'Share this link with the invitee:',
+      };
+    case 'skipped_no_transport':
+      return {
+        tone: 'warn',
+        verb: 'created for',
+        note: 'Email isn’t configured for this organization, so nothing was sent — share the link below.',
+        linkIntro: 'Share this link with the invitee:',
+      };
+    case 'skipped_no_public_host':
+      return {
+        tone: 'warn',
+        verb: 'created for',
+        note: 'Email was skipped because no public host is configured — share the link below.',
+        linkIntro: 'Share this link with the invitee:',
+      };
+    default:
+      // '' / omitted — no mailer wired (or the addMember fallback). Behaves
+      // exactly like the pre-change UI: link is the primary handoff.
+      return {
+        tone: 'neutral',
+        verb: 'created for',
+        note: '',
+        linkIntro: 'Share this link with the invitee:',
+      };
   }
 }
 

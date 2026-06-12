@@ -5,7 +5,7 @@ import DateRangeChips, { DEFAULT_DAYS } from '../components/DateRangeChips';
 import { serviceConfig, resourceTypeConfig } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import { useTheme } from '../theme/ThemeContext';
-import { Spinner, InfoTooltip } from '../components/primitives';
+import { Spinner, InfoTooltip, LinkButton, RowLink } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
@@ -775,7 +775,7 @@ function FilterPills({
 
 // ─── Resource card ────────────────────────────────────────────────────────────
 
-function ResourceCard({ item, onSelect, isSelected, onToggleSelect }) {
+function ResourceCard({ item, href, isSelected, onToggleSelect }) {
   const cfg  = serviceConfig(item.service);
   const env  = item.tags?.env ?? 'unknown';
   const envVariant = ['prod', 'production'].includes(env) ? 'prod' : ['staging', 'stg'].includes(env) ? 'stag' : null;
@@ -815,15 +815,16 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect }) {
         />
       </div>
 
-      {/* Main content */}
-      <button
-        onClick={() => onSelect(item)}
+      {/* Main content — a real anchor so middle/Ctrl-click opens the resource
+          detail in a new tab. The checkbox column above is a sibling, not a
+          child, so it stays independently clickable (no nested interactives). */}
+      <RowLink
+        to={href}
         style={{
           flex: 1,
+          flexDirection: 'column',
+          width: 'auto',
           padding: '12px 14px 12px 10px',
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
           textAlign: 'left',
           minWidth: 0,
         }}
@@ -901,14 +902,14 @@ function ResourceCard({ item, onSelect, isSelected, onToggleSelect }) {
             </span>
           </div>
         )}
-      </button>
+      </RowLink>
     </div>
   );
 }
 
 // ─── Dismissed resource card ──────────────────────────────────────────────────
 
-function DismissedCard({ item, onSelect, isSelected, onToggleSelect }) {
+function DismissedCard({ item, href, isSelected, onToggleSelect }) {
   const cfg = serviceConfig(item.service);
   const reasonLabel = {
     intentional: 'Intentional', scheduled_deletion: 'Scheduled', false_positive: 'False positive',
@@ -917,18 +918,9 @@ function DismissedCard({ item, onSelect, isSelected, onToggleSelect }) {
   const isSnoozed = item.action === 'snooze';
   const [focused, setFocused] = useState(false);
 
-  const handleSelect = () => {
-    onSelect?.({
-      resource_id: item.resource_id,
-      internal_account_id: item.account_id,
-      region: item.region,
-      service: item.service,
-    });
-  };
-
-  // Same shape as ResourceCard — outer is a <div>, NOT a button, so the
+  // Same shape as ResourceCard — outer is a <div>, NOT an anchor, so the
   // checkbox column can be clickable independently of the row body. The body
-  // (cost / metadata) is a <button> that opens the detail view.
+  // (cost / metadata) is a <RowLink> that opens the detail view (issue #130).
   return (
     <div
       style={{
@@ -962,20 +954,16 @@ function DismissedCard({ item, onSelect, isSelected, onToggleSelect }) {
       </div>
 
       {/* Main content — opens detail view on click. */}
-      <button
-        type="button"
-        onClick={handleSelect}
+      <RowLink
+        to={href}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         style={{
           flex: 1,
+          flexDirection: 'column',
+          width: 'auto',
           padding: '12px 14px 12px 10px',
-          background: 'none',
-          border: 'none',
-          cursor: onSelect ? 'pointer' : 'default',
           textAlign: 'left',
-          font: 'inherit',
-          color: 'inherit',
           minWidth: 0,
           outline: focused ? `2px solid var(--color-accent)` : 'none',
           outlineOffset: -2,
@@ -1016,7 +1004,7 @@ function DismissedCard({ item, onSelect, isSelected, onToggleSelect }) {
         {item.note ? (
           <span style={{ fontSize: 12, color: 'var(--color-text-mid)', fontStyle: 'italic', display: 'block', marginTop: 4 }}>&ldquo;{item.note}&rdquo;</span>
         ) : null}
-      </button>
+      </RowLink>
     </div>
   );
 }
@@ -1214,7 +1202,7 @@ function sortResources(list, sortBy) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function OverviewScreen({
-  onShowTrend, onShowCosts, onSelectZombie, accounts = [], onConnectAccount, onEditAccount,
+  onShowTrend, onShowCosts, zombieHref, accounts = [], connectHref, editAccountHref,
   selectedAccount, onSelectAccount, initialServiceFilter,
 }) {
   const { isDark } = useTheme();
@@ -1445,11 +1433,11 @@ export default function OverviewScreen({
     );
   }
 
-  const activeFilters = [
+  const activeFilters = useMemo(() => [
     ...[...filterSvcs].map(svc => ({ key: `svc:${svc}`, label: serviceConfig(svc).label })),
     ...[...filterResourceTypes].map(rt => ({ key: `rt:${rt}`, label: resourceTypeConfig(rt).label })),
     filterOwner && { key: 'owner', label: filterOwner },
-  ].filter(Boolean);
+  ].filter(Boolean), [filterSvcs, filterResourceTypes, filterOwner]);
 
   function clearFilter(key) {
     if (key === 'owner') setFilterOwner(null);
@@ -1469,6 +1457,47 @@ export default function OverviewScreen({
       });
     }
   }
+
+  // ── Compute list ───────────────────────────────────────────────────────────
+  // Memoized so unrelated state changes — selecting a row, opening the bulk
+  // bar, typing in search — don't re-run the full filter+sort pipeline over
+  // the (potentially several-hundred-row) resource list. Lives above the
+  // loading/error early-returns to keep hook order stable.
+  const listData = useMemo(() => {
+    if (showDismissed) {
+      let list = dismissals.data ?? [];
+      if (hiddenFilter === 'dismissed') list = list.filter(d => d.action === 'dismiss');
+      if (hiddenFilter === 'snoozed')   list = list.filter(d => d.action === 'snooze');
+      // Snoozed-only view: sort soonest-returning first so the user sees what's
+      // about to come back at the top. Other views keep server order.
+      if (hiddenFilter === 'snoozed') {
+        list = [...list]
+          .map(d => ({ d, t: d.snoozed_until ? new Date(d.snoozed_until).getTime() : Infinity }))
+          .sort((a, b) => a.t - b.t)
+          .map(x => x.d);
+      }
+      return list;
+    }
+    let list = resources.data ?? [];
+    if (zombieOnly) list = list.filter(r => r.is_zombie);
+    list = list.filter(r => !dismissedSet.has(r.resource_id));
+    if (filterSvcs.size > 0)          list = list.filter(r => filterSvcs.has(r.service));
+    if (filterResourceTypes.size > 0) list = list.filter(r => filterResourceTypes.has(r.resource_type));
+    if (filterOwner)                  list = list.filter(r => r.owner === filterOwner);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(r =>
+        r.resource_id.toLowerCase().includes(q) ||
+        (r.owner ?? '').toLowerCase().includes(q) ||
+        r.service.toLowerCase().includes(q) ||
+        r.region.toLowerCase().includes(q)
+      );
+    }
+    return sortResources(list, sortBy);
+  }, [
+    showDismissed, hiddenFilter, dismissals.data, resources.data, zombieOnly,
+    dismissedSet, filterSvcs, filterResourceTypes, filterOwner, search, sortBy,
+  ]);
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoading) {
@@ -1497,41 +1526,6 @@ export default function OverviewScreen({
       </div>
     );
   }
-
-  // ── Compute list ───────────────────────────────────────────────────────────
-  const listData = (() => {
-    if (showDismissed) {
-      let list = dismissals.data ?? [];
-      if (hiddenFilter === 'dismissed') list = list.filter(d => d.action === 'dismiss');
-      if (hiddenFilter === 'snoozed')   list = list.filter(d => d.action === 'snooze');
-      // Snoozed-only view: sort soonest-returning first so the user sees what's
-      // about to come back at the top. Other views keep server order.
-      if (hiddenFilter === 'snoozed') {
-        list = [...list].sort((a, b) => {
-          if (!a.snoozed_until) return 1;
-          if (!b.snoozed_until) return -1;
-          return new Date(a.snoozed_until) - new Date(b.snoozed_until);
-        });
-      }
-      return list;
-    }
-    let list = resources.data ?? [];
-    if (zombieOnly) list = list.filter(r => r.is_zombie);
-    list = list.filter(r => !dismissedSet.has(r.resource_id));
-    if (filterSvcs.size > 0)          list = list.filter(r => filterSvcs.has(r.service));
-    if (filterResourceTypes.size > 0) list = list.filter(r => filterResourceTypes.has(r.resource_type));
-    if (filterOwner)                  list = list.filter(r => r.owner === filterOwner);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(r =>
-        r.resource_id.toLowerCase().includes(q) ||
-        (r.owner ?? '').toLowerCase().includes(q) ||
-        r.service.toLowerCase().includes(q) ||
-        r.region.toLowerCase().includes(q)
-      );
-    }
-    return sortResources(list, sortBy);
-  })();
 
   // Visible IDs depend on the active tab: dismissal-row ids in Hidden, resource
   // ids elsewhere. The `selected` Set always holds whichever shape matches the
@@ -1566,17 +1560,17 @@ export default function OverviewScreen({
             accounts={accounts}
             selectedAccount={selectedAccount}
             onSelectAccount={onSelectAccount}
-            onConnectAccount={onConnectAccount}
-            onEditAccount={onEditAccount}
+            connectHref={connectHref}
+            editAccountHref={editAccountHref}
             onScanAccount={handleScan}
           />
         ) : (
-          <button
-            onClick={onConnectAccount}
-            style={{ border: `1px dashed var(--color-accent)`, borderRadius: 8, padding: '6px 14px', background: 'none', cursor: 'pointer' }}
+          <LinkButton
+            to={connectHref}
+            style={{ border: `1px dashed var(--color-accent)`, borderRadius: 8, padding: '6px 14px' }}
           >
             <span style={{ color: 'var(--color-accent)', fontSize: 13, fontWeight: 600 }}>+ Connect AWS Account</span>
-          </button>
+          </LinkButton>
         )}
         <div style={{ flex: 1 }} />
         {isRefreshing && <Spinner size={14} color={'var(--color-accent)'} />}
@@ -1763,14 +1757,14 @@ export default function OverviewScreen({
           ? <DismissedCard
               key={String(item.id)}
               item={item}
-              onSelect={onSelectZombie}
+              href={zombieHref({ resource_id: item.resource_id, internal_account_id: item.account_id, region: item.region, service: item.service })}
               isSelected={selected.has(item.id)}
               onToggleSelect={toggleSelect}
             />
           : <ResourceCard
               key={item.resource_id}
               item={item}
-              onSelect={onSelectZombie}
+              href={zombieHref(item)}
               isSelected={selected.has(item.resource_id)}
               onToggleSelect={toggleSelect}
             />
