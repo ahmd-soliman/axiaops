@@ -1,7 +1,7 @@
 # Runtime RLS-bypass role (`axiaops_runtime`)
 
 **Status:** code + self-hosted non-dev envs shipped (2026-05-29 on preview, then staging/demo/integration); production (ECS Express) pending the aws-infra apply per §"Deployed-env wiring" below.
-**Drives:** Tasks.md §2.16 — *"Remove `MIGRATION_DATABASE_URL` from the runtime services."*
+**Drives:** *"Remove `MIGRATION_DATABASE_URL` from the runtime services."*
 **Related:** `TODO(#107)` (the `NewWithOwner` seam), security finding **H-1** (#94, app-pool RLS refactor).
 
 ## Problem
@@ -69,7 +69,7 @@ Wiring is identical to a `BYPASSRLS` role except the migration creates **policie
 4. **Service main.go** (api `:72-96`, ingestion `:718-731`): read `RUNTIME_ADMIN_DATABASE_URL`, call `NewWithRuntimeAdmin`, update `die()` messages, repoint `ResetStuckScans` to the runtime URL. DEV_MODE keeps the single-pool collapse. The migrate binaries keep reading `MIGRATION_DATABASE_URL` — now the only legitimate owner-connection consumers.
 5. **Local + test wiring** (sensible defaults / test paths only): `docker-compose.yml:51,108`, `test-infra/integration/docker-compose.yml:25,56` + `docker-compose.test.yml:42`, `scripts/start.sh` (DEV_MODE=false host launches), `scripts/migrate.sh`, `Makefile` test targets + the CI **test** variable block (`.gitlab-ci.yml:234`). Runtime services → `RUNTIME_ADMIN_DATABASE_URL`; migrate service keeps owner + gains the runtime URL so Bootstrap can sync the role password.
 6. **Integration test** `runtime_admin_test.go`: bypass works (two orgs, no org context, runtime sees both); DDL denied (`CREATE/DROP/ALTER/TRUNCATE/CREATE ROLE` → `42501`); required DML succeeds (incl. `audit_log` DELETE); the readiness-probe constructor; **plus the per-RLS-table policy-coverage invariant**.
-7. **Docs:** root + `services/{shared,api,ingestion}/CLAUDE.md` (three roles: `axiaops_owner` migrate-only, `axiaops_runtime` RLS-bypass-no-DDL, `axiaops` app), `docs/audit_trail_plan.md §7`, Tasks.md §2.16, this file.
+7. **Docs:** root + `services/{shared,api,ingestion}/CLAUDE.md` (three roles: `axiaops_owner` migrate-only, `axiaops_runtime` RLS-bypass-no-DDL, `axiaops` app), `docs/audit_trail_plan.md §7`, this file.
 
 ### Deployed-env wiring — self-hosted non-dev envs DONE (this MR); prod pending aws-infra
 **Shipped in this MR** (verified on preview 2026-05-29 — role flipped to LOGIN, API healthy):

@@ -116,7 +116,6 @@ The invariant assert at `seed_test_data.sh:1385` computes the expected snapshot 
 
 When you bump `DAYS`, also:
 - Update this doc's table.
-- Update `docs/feature_prioritization_2026_q2.md` if it cites the totals.
 - Re-run `make seed` to verify the chart screens still render cleanly across the full new window.
 
 ## See also

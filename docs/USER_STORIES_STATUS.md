@@ -128,7 +128,7 @@ Total: **~30 stories planned** for May 2026 → Q4 2027
 | CI/CD budget gate (MR comment) | Q4 2027 | 5.4 | backend, cicd |
 | `axiaops` CLI via Homebrew | Q4 2027 | 5.5 | backend, cli |
 
-### Tracked in Tasks.md only (not user stories)
+### Tracked in the roadmap only (not user stories)
 
 - CI runner containerization (pure infra refactor)
 - Operating entity registration / VAT (legal)
@@ -200,7 +200,7 @@ curl -H "PRIVATE-TOKEN: <token>" "https://gitlab.com/api/v4/projects/axiaops%2Fa
 
 When shipping a new feature:
 
-- [ ] Update `Tasks.md` (root) — move row from 🔲 Remaining to ✅ Done with implementation notes
+- [ ] Update the roadmap tracker — move the item from 🔲 Remaining to ✅ Done with implementation notes
 - [ ] Add story title + completion note to `COMPLETED_STORIES` in `scripts/update_user_stories.py`
 - [ ] Run `python3 scripts/update_user_stories.py --dry-run` to preview, then without `--dry-run` to apply
 - [ ] Verify the issue is closed in GitLab with "done" label + completion comment
