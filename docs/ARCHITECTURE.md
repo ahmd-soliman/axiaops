@@ -169,13 +169,13 @@ flowchart LR
     end
 
     subgraph hosts["self-hosted hosts"]
-        subgraph d1["dev-1<br/>192.168.1.121"]
+        subgraph d1["dev-1<br/>192.0.2.121"]
             d1stack["docker-compose stack:<br/>nginx + api + ingestion +<br/>postgres + redis"]
         end
-        subgraph d2["dev-2<br/>192.168.1.123"]
+        subgraph d2["dev-2<br/>192.0.2.123"]
             d2stack["docker-compose stack"]
         end
-        subgraph stg["staging<br/>192.168.1.122"]
+        subgraph stg["staging<br/>192.0.2.122"]
             stgstack["docker-compose stack<br/>(DEV_MODE=false,<br/>real license JWT)"]
         end
     end
