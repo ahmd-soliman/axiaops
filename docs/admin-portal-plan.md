@@ -4,8 +4,7 @@ Status: **Slices 1–7 implemented** (backend + staff management). Slice 8 (admi
 UI) deferred — the JSON surface is curl-demoable behind restricted ingress.
 
 Implements §10 step 2 of [`saas-platform-admin-design.md`](saas-platform-admin-design.md)
-— *staff identity + read-only admin console*, the foundation only. Slice style
-mirrors [`self-signup-plan.md`](self-signup-plan.md). Sits under
+— *staff identity + read-only admin console*, the foundation only. Sits under
 [ADR-0002 (SaaS-first)](decisions/0002-saas-first-for-awareness.md), which is
 **Proposed, not Accepted** — this foundation is self-hosted-safe (a separate
 binary self-hosted simply never deploys), so it does not force the ADR.
