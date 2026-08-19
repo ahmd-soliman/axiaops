@@ -26,7 +26,7 @@
 >
 > - `docs/rbac-design.md` — the Phase 3 #14 callout previously at the top of that doc has been removed.
 > - `docs/user_onboarding.md` — the "next-phase rewrite" status block and the "What the next phase changes" section have been removed; that doc now describes the actual current + near-term flow.
-> - `Tasks.md` — the Phase 3 #14 entry and related "Invite-by-email deferred to Phase 3 #14" notes have been redirected to `docs/invitation-flow.md`.
+> - The Phase 3 #14 tracking entry and related "Invite-by-email deferred to Phase 3 #14" notes have been redirected to `docs/invitation-flow.md`.
 > - `docs/refactor-tenant-to-organization.md` — historical "unblocks Phase 3 #14, #15, #16" reference is left untouched (it's an immutable shipped-work record).
 >
 > The original plan is preserved below for reference. Do not implement from this doc.
@@ -51,7 +51,7 @@ Today's auth model couples organisation identity to Kinde:
   `user_id`. Chicken-and-egg.
 
 This setup does not scale to paid self-serve and it actively blocks
-the self-managed-license GTM path (`docs/gtm_assessment.md` Model B),
+the self-managed-license GTM path (Model B),
 where the customer's IT team is not going to provision a Kinde org
 for our SaaS. The "vetting checkpoint" value of the current manual
 step is real but unrelated to *which auth pattern we're on* — closed
@@ -353,8 +353,7 @@ along with the auth migration.
   link only).
 - **Self-serve abuse.** `POST /v1/organizations` without rate-limiting
   is spam-bait. Apply the existing rate limiter at 1 org / user / 24h.
-- **MSP-style nested orgs.** A future feature in
-  `docs/gtm_assessment.md` Model A. Pattern B makes this *easier*
+- **MSP-style nested orgs.** A future feature (Model A). Pattern B makes this *easier*
   (the `organizations` table can grow a `parent_organization_id`
   nullable FK without touching auth) but is out of scope for this
   ticket.
@@ -363,7 +362,7 @@ along with the auth migration.
 
 - **Resend / DKIM setup at the domain level** — ops, not engineering.
 - **Kinde org-roles claim mapping** — explicitly rejected in `rbac-design.md §3`. Stay rejected.
-- **Soft-delete with grace window for orgs** — `Tasks.md` 3.10, separate.
+- **Soft-delete with grace window for orgs** — roadmap item 3.10, separate.
 - **MSP-style nested orgs / parent-child organisations** — Phase 4+.
 - **Domain-based auto-join** ("anyone with @acme.com can join Acme org") — nice-to-have, separate.
 - **Customer-supplied OIDC (BYO IdP)** — unblocked by this work but

@@ -1,12 +1,11 @@
 # Audit Trail — Implementation Plan
 
-> Source tasks: `Tasks.md` **3.3 Remediation Actions** (migration `009_add_audit_log.sql`)
+> Source: roadmap item **3.3 Remediation Actions** (migration `009_add_audit_log.sql`)
 > and `docs/development_plan.md` **3.3 Remediation Actions** + **3.10 GDPR / Data Deletion**
 > (user deletion must anonymise audit entries, not hard-delete).
 >
-> Business driver: `docs/business_plan.md` calls out **"Remediation workflow with audit
-> trail"** as a primary differentiator (Tier 2 competitors Vantage/Unusd have no workflow,
-> no audit). No paying customer ships without it.
+> Business driver: a remediation workflow with audit trail is a primary differentiator
+> against competitors that have no workflow/audit story. No paying customer ships without it.
 
 ---
 
