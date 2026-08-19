@@ -476,7 +476,7 @@ Logs go through `slog` configured by `logging.Init(service)`. JSON in production
 
 ## 10. CI/CD
 
-GitLab pipeline. Stages defined in `.gitlab-ci.yml`. Per [ci.md](ci.md) and [gitlab_ci_pipeline.md](gitlab_ci_pipeline.md).
+GitLab pipeline. Stages defined in `.gitlab-ci.yml`. Per [ci.md](ci.md).
 
 ```mermaid
 flowchart LR
