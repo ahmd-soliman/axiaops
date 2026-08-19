@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-11
 - **Status:** proposed
-- **Owner:** Ahmed
+- **Owner:** AxiaOps Maintainers
 - **Context:** [ADR-0002](decisions/0002-saas-first-for-awareness.md) (accepted 2026-06-11) makes
   Stripe billing the next major build. This doc sequences the residual security work from the
   2026-05-09 audit *before* that build, and pins the security requirements the billing surface
