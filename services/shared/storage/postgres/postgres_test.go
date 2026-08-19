@@ -1415,7 +1415,8 @@ func TestDeleteOldCostRecords_DeletesExpiredRows(t *testing.T) {
 	old.PeriodStart = old.PeriodEnd.AddDate(0, 0, -30)
 
 	recent := costRecord("AmazonRDS", "eu-central-1", 20.00)
-	// recent uses default PeriodEnd (2026-03-31) which is within 90 days
+	recent.PeriodEnd = time.Now().UTC().AddDate(0, 0, -10)
+	recent.PeriodStart = recent.PeriodEnd.AddDate(0, 0, -30)
 
 	if _, _, err := s.Save(ctx, []model.CostRecord{old, recent}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -1436,6 +1437,8 @@ func TestDeleteOldCostRecords_KeepsRecentRows(t *testing.T) {
 	ctx, _ := newOrgCtx(t, s)
 
 	recent := costRecord("AmazonEC2", "eu-central-1", 50.00)
+	recent.PeriodEnd = time.Now().UTC().AddDate(0, 0, -10)
+	recent.PeriodStart = recent.PeriodEnd.AddDate(0, 0, -30)
 	if _, _, err := s.Save(ctx, []model.CostRecord{recent}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
