@@ -4,7 +4,7 @@
 
 - **Scheme:** [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 - **Format:** `MAJOR.MINOR.PATCH[-PRERELEASE]` — **no `v` prefix** (the git tag *is* the version string; matches the `APP_VERSION=2.6.0`-style examples in service `CLAUDE.md` files).
-- **Current line:** pre-1.0. The first cut is `0.1.0-alpha.1`. `1.0.0` is reserved for GA (first paying customer per [`business_plan.md`](business_plan.md)).
+- **Current line:** pre-1.0. The first cut is `0.1.0-alpha.1`. `1.0.0` is reserved for GA (first paying customer / production-ready milestone).
 - **Phase numbers are NOT version numbers.** `Phase 2` (Tasks.md) is a planning bucket; versions track release artefacts. See [§Phases vs versions](#phases-vs-versions).
 
 ---
@@ -41,7 +41,7 @@ Semver §4: while `MAJOR` is `0`, "anything MAY change at any time." We use this
 - **`0.Y.Z`** — bump on bug fixes / additive changes inside the current `0.Y` line.
 - **Pre-release suffix** is independent of the number. `0.1.0-alpha.7` and `0.2.0-alpha.1` are both legal — the suffix says "lifecycle stage," the number says "change delta."
 
-**`1.0.0` is reserved.** Per the docs, it lines up with first paying customer / GA, which requires MSA + DPA + SOC 2 commitment (`business_plan.md`). Don't burn `1.0.0` on a routine bump.
+**`1.0.0` is reserved.** It lines up with first paying customer / GA, which requires the production-readiness bar (security, compliance, and support commitments) to be met. Don't burn `1.0.0` on a routine bump.
 
 ---
 
@@ -51,7 +51,7 @@ Easy trap to fall into: "we're in Phase 2, so the version should be `0.2.x`." Do
 
 | Axis            | What it tracks                       | Where it lives                |
 | --------------- | ------------------------------------ | ----------------------------- |
-| **Phase**       | Project-planning scope (what work is in flight) | `Tasks.md`, `docs/phase2-plan.md` |
+| **Phase**       | Project-planning scope (what work is in flight) | `Tasks.md` |
 | **Version tag** | Release artefact (what got cut)      | `git tag`, `APP_VERSION`, `/v1/version` |
 
 A phase produces many releases (probably 10+ pre-release cuts before Phase 2 finishes). Phase numbers and version-minor numbers will drift apart on the first patch release inside a phase. The lifecycle **suffix** (`-alpha` / `-beta`) is the right place to encode phase-correlated maturity — not the number.

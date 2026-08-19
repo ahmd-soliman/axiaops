@@ -264,7 +264,7 @@ What you actually need to remember:
 | "How does invite-flow redemption work?" | [invitation-flow.md](invitation-flow.md), [invitations-manual-test.md](invitations-manual-test.md) |
 | "Why was decision X made?" | `docs/decisions/` ADRs + `docs/change_list_2026_*.md` |
 | "What's the CI pipeline doing?" | [ci.md](ci.md), [ci_cd_quick_reference.md](ci_cd_quick_reference.md) |
-| "Phase 2 status?" | [phase2-plan.md](phase2-plan.md), [PHASE2_STATUS.md](PHASE2_STATUS.md) |
+| "Phase 2 status?" | [PHASE2_STATUS.md](PHASE2_STATUS.md) |
 | "Tasks.md vs ARCHITECTURE — which is canonical?" | Tasks.md tracks open work; ARCHITECTURE describes shipped state. |
 
 If a doc disagrees with the code, **the code wins** — file an MR to update the doc.
