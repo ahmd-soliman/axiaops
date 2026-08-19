@@ -27,6 +27,12 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.27] — 2026-08-19
+
+### Fixed
+
+- stop cost-record retention tests from rotting on a hardcoded fixture date
+
 ## [0.1.0-alpha.26] — 2026-06-12
 
 ### Added
@@ -817,7 +823,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.26...develop
+[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.27...develop
+[0.1.0-alpha.27]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.27
 [0.1.0-alpha.26]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.26
 [0.1.0-alpha.25]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.25
 [0.1.0-alpha.24]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.24
