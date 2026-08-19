@@ -1,7 +1,7 @@
 # Playwright e2e runner image.
 #
 # DESIGN: the build must survive the CI runner's flaky resolver. The self-hosted
-# `self-hosted` group runner's only usable DNS is the LAN's (192.168.1.1), which is
+# `self-hosted` group runner's only usable DNS is the LAN's (192.0.2.1), which is
 # intermittently down — and a build that resolves `archive.ubuntu.com` /
 # `registry.npmjs.org` during a cache-busting layer turns any DNS blip into a red
 # pipeline (this image churned through five "fix(e2e): …DNS…" commits before this

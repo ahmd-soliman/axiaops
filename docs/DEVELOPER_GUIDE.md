@@ -217,7 +217,7 @@ Conventions:
 
 What you actually need to remember:
 
-- **Each env runs on its own self-hosted host.** Dev-1, dev-2, staging are separate physical hosts at `192.168.1.121` / `.123` / `.122`. Production is AWS ECS Express Mode (account `123456789012`, `eu-central-1`), fronted by CloudFront.
+- **Each env runs on its own self-hosted host.** Dev-1, dev-2, staging are separate physical hosts at `192.0.2.121` / `.123` / `.122`. Production is AWS ECS Express Mode (account `123456789012`, `eu-central-1`), fronted by CloudFront.
 - **an edge proxy (an edge proxy)** is the edge. Browser hits `https://axiaops-<env>.local`, an edge proxy terminates TLS and reverse-proxies to the host's docker-compose stack on plain HTTP. The dashboard's nginx propagates `X-Forwarded-Proto` so the API's session cookie correctly toggles `Secure`.
 - **CI deploys via SSH-as-Docker-context.** `DOCKER_HOST: ssh://deploy@${DEPLOY_HOST_IP}` lets the CI runner's `docker compose up` execute on the per-env host's daemon. `DEPLOY_SSH_PRIVATE_KEY` **must** be a File-type CI variable.
 - **All `deploy:*` jobs are manual gates.** They never auto-trigger. If one is running, an operator clicked it.

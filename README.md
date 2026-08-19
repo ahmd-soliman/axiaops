@@ -387,13 +387,12 @@ axiaops/
 - [x] Production deployment (ECS Express + RDS + Valkey via Terraform)
 
 ### Phase 3 — Beta / Launch (target December 2026)
-- [ ] Stripe billing — (pricing removed)
+- [ ] Subscription billing
 - [x] GDPR / right to erasure + data export
 - [ ] Remediation CLI commands per resource type
 - [ ] Scan history log + tag/team filtering + CSV export
 - [x] Expanded detection rules (EBS, S3, CloudFront, Redshift, ElastiCache)
 - [x] User management + roles (admin/viewer)
-- [ ] Operating entity — (legal entity) + (operating entity) (target August 2026)
 
 ### Phase 4 — Scale (2027)
 - [ ] Multi-cloud (Azure, GCP)
@@ -426,8 +425,6 @@ axiaops/
 | [docs/middleware.md](docs/middleware.md) | API middleware chain — auth, rate limiting, request ID, metrics |
 | [docs/production.md](docs/production.md) | Production setup — IAM, ECS Express, RDS, Secrets Manager, CloudFront; IaC in `axiaops/aws-infra` |
 | [docs/deployment.md](docs/deployment.md) | Deployment options, cost estimates by phase |
-| [docs/business_plan.md](docs/business_plan.md) | Business model, pricing, GTM strategy, competitive landscape |
-| [docs/tax_strategy.md](docs/tax_strategy.md) | German tax structure, VAT, exit planning |
 
 ---
 
