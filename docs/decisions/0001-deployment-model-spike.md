@@ -79,7 +79,7 @@ Concrete bets:
 ## What this changes (if accepted)
 
 - **SSO doc** §3.4 recommendation flips to Option B. §3.6.3 becomes the canonical answer. Phase B effort grows from L (4–6w) to XL (8–12w) but no Phase F (cutover) is ever needed.
-- **Tasks.md Phase 3** rescoped:
+- **Phase 3 roadmap** rescoped:
   - #1 (Stripe) — defer.
   - #9p (GDPR controller paperwork) — narrow to processor-of-our-own-product.
   - #17 (SOC 2) — narrow to in-house systems only, not customer-data systems.
@@ -119,5 +119,5 @@ Recommend deciding within **2 weeks**. Both paths can be wrong; staying undecide
 
 When decided, the next steps are:
 - Update `docs/sso-integration-design.md` §3 to reflect the chosen path.
-- Add/remove Tasks.md items per the "What this changes" list.
+- Add/remove roadmap items per the "What this changes" list.
 - Delete this spike doc or move it to `docs/decisions/2026-Q2-deployment-model.md` as an ADR.

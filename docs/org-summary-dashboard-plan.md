@@ -6,7 +6,7 @@ actual code, not the spec's stale names.
 
 ## Reality reconciliation (the spec is stale)
 
-Tasks.md #15 says "split `DashboardScreen.jsx` into `OrgSummaryScreen.jsx` +
+The original spec said "split `DashboardScreen.jsx` into `OrgSummaryScreen.jsx` +
 `AccountDetailScreen.jsx`." None of those files exist. What's actually there:
 
 - `screens/OverviewScreen.jsx` (~1800 lines) is the main screen, rendered by the
@@ -60,7 +60,7 @@ zombies is microseconds.
 `TestGetSummaryByAccount` (handler — two-account isolation, **dismissed zombie excluded
 from its account total** = the parity guard, empty→`{"accounts":[]}`).
 
-> Tasks.md 3.8's "`?account_id=` on `/v1/summary`" is **already implemented** (`getSummary`
+> The spec item "`?account_id=` on `/v1/summary`" is **already implemented** (`getSummary`
 > filters in-memory). Mark it done in passing; don't redo it.
 
 ## Part 2 — The 7 widgets & their data sources
@@ -165,7 +165,7 @@ check lives in the new `/` wrapper alongside the existing zero-accounts →
    `fetchZombies()` sorted top-N → `/detail/:id`.
 4. **(nice-to-have) Member activity (#7)**: `fetchAuditEvents({limit:5})`, action+time+type,
    no name resolution. Ship or defer.
-5. **Polish/docs**: `services/api/CLAUDE.md` endpoint table, Tasks.md #15 → ✅ + 3.8 boxes,
+5. **Polish/docs**: `services/api/CLAUDE.md` endpoint table, mark this spec item done,
    nav labels, responsive (`useBreakpoint`), empty/loading/error states.
 
 ## Part 5 — Risks / cuts / defer
@@ -205,10 +205,10 @@ endpoint (data is already cheap).
 ingestion change.
 **Frontend:** `api/client.js`, new `screens/OrgSummaryScreen.jsx`, `pages/Overview.jsx`,
 `App.jsx` (route `/account`), `components/navItems.jsx`, maybe extract `ServiceBreakdown`.
-**Tracking:** `Tasks.md` (#15 → ✅, 3.8 boxes), this plan.
+**Tracking:** this plan.
 
 ## References
-- Spec: `Tasks.md` Phase 3 #15 (+ 3.8 per-account summary).
+- Spec: Phase 3 #15 (+ 3.8 per-account summary).
 - Existing patterns: `getSummary` + `enrichWithDismissals` + `analyzer.Summarize`
   (`services/api/internal/api/handler.go`, `services/shared/analyzer/detector.go`).
 - Frontend: `screens/OverviewScreen.jsx`, `pages/Overview.jsx`, `components/AreaChart.jsx`,

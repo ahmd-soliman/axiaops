@@ -1,7 +1,7 @@
 # Breached-password corpus — provenance & regeneration runbook
 
 Provenance manifest and regeneration ceremony for the embedded breached-password
-corpus the `breachlist` package screens against (Tasks.md 2.7.11). For the design
+corpus the `breachlist` package screens against. For the design
 rationale — why offline-embedded instead of the live HIBP k-anonymity API — see
 [`docs/password-breach-check-design.md`](password-breach-check-design.md).
 

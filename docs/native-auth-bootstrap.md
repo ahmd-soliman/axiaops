@@ -100,7 +100,7 @@ docker compose logs api 2>&1 | grep -A 8 "first-run setup"
 
 Open **`http://localhost:8082`** in a browser. On a fresh install with no
 organizations yet, the dashboard probes `GET /v1/auth/bootstrap/state`
-at mount time and auto-redirects to `/bootstrap` (Tasks.md row 2.7.16) —
+at mount time and auto-redirects to `/bootstrap` —
 older docs and the install banner still name `/bootstrap` directly, and
 both paths land in the same place. Quick CLI probe before opening a
 browser:
