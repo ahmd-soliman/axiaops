@@ -5,7 +5,7 @@ UI) deferred — the JSON surface is curl-demoable behind restricted ingress.
 
 Implements §10 step 2 of [`saas-platform-admin-design.md`](saas-platform-admin-design.md)
 — *staff identity + read-only admin console*, the foundation only. Sits under
-[ADR-0002 (SaaS-first)](decisions/0002-saas-first-for-awareness.md), which is
+ADR-0002 (SaaS-first), which is
 **Proposed, not Accepted** — this foundation is self-hosted-safe (a separate
 binary self-hosted simply never deploys), so it does not force the ADR.
 
@@ -27,7 +27,7 @@ binary self-hosted simply never deploys), so it does not force the ADR.
   This is the decisive reason the admin console is a **separate binary**, not a
   handler-group bolted into `ComposeServer`.
 - **R4 — Migration number:** this work took **032** (highest was 031). If
-  `self-signup-plan.md` slice 6 lands, it rebases to 033.
+  the self-signup email-verification migration lands, it rebases to 033.
 - **R5 — RLS-bypass grants:** the staff tables have **no RLS** (system tables
   like `users`/`sessions`). Migration 029's blanket `GRANT ... ON ALL TABLES` +
   `ALTER DEFAULT PRIVILEGES` already covers them on the `axiaops_runtime` admin

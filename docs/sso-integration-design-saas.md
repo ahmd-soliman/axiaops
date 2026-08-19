@@ -1,6 +1,6 @@
 # Enterprise SSO Integration — SaaS / Managed-hosted Variant
 
-Status: **reactivated 2026-06-11** — tenant-auth path for the hosted SKU per [ADR-0002](decisions/0002-saas-first-for-awareness.md) commitment #6 (acceptance flipped the deployment posture to SaaS-first). Sibling to [`sso-integration-design.md`](sso-integration-design.md) (the self-hosted path). Note: body below predates Kinde removal (2026-05) — the brokered-IdP role Kinde played now maps to the native OIDC connector layer.
+Status: **reactivated 2026-06-11** — tenant-auth path for the hosted SKU per ADR-0002 commitment #6 (acceptance flipped the deployment posture to SaaS-first). Sibling to [`sso-integration-design.md`](sso-integration-design.md) (the self-hosted path). Note: body below predates Kinde removal (2026-05) — the brokered-IdP role Kinde played now maps to the native OIDC connector layer.
 
 > **2026-04-29.** This document captures the **Option A (Kinde-brokered, multi-tenant SaaS)** path that was rejected as v1 by [ADR-0001 (Deployment Model — Self-hosted-first)](decisions/0001-deployment-model.md). It is preserved here because the work to design Option A had already been done, and the ADR-0001 review trigger (≥3 self-hosted customers paying → re-evaluate adding a managed-hosted SKU) makes this design likely to be reactivated. Future engineers picking this up should not have to re-derive it.
 >
@@ -291,7 +291,7 @@ Same as sibling, except all references to "AxiaOps must..." become "Kinde must..
 
 The only delta: the JIT hook fires **after Kinde JWT validation** in the SaaS auth middleware (Kinde-specific middleware composed into `cmd/api-saashosted/main.go`), rather than after a native session is minted.
 
-`pending_memberships` invitation flow takes precedence over JIT — same as sibling §10.4. The invitation flow under SaaS is **the original Kinde Mgmt API path** (sibling Tasks.md #14 pre-2026-04-29 design — Kinde sends the invite email). Under self-hosted it is the **rescoped token-based OOB path** (D3 in the implementation plan): admin generates a one-time invite link, shares it out-of-band — no SMTP. SaaS reactivation switches the underlying delivery mechanism via the `auth.Inviter` interface (implementation plan §4.2 seam S1) — handler code is unchanged; only the constructor in `cmd/api-saashosted/main.go` swaps in a Kinde-Mgmt-API-backed implementation.
+`pending_memberships` invitation flow takes precedence over JIT — same as sibling §10.4. The invitation flow under SaaS is **the original Kinde Mgmt API path** (the pre-2026-04-29 design — Kinde sends the invite email). Under self-hosted it is the **rescoped token-based OOB path** (D3 in the implementation plan): admin generates a one-time invite link, shares it out-of-band — no SMTP. SaaS reactivation switches the underlying delivery mechanism via the `auth.Inviter` interface (implementation plan §4.2 seam S1) — handler code is unchanged; only the constructor in `cmd/api-saashosted/main.go` swaps in a Kinde-Mgmt-API-backed implementation.
 
 ---
 
@@ -336,7 +336,7 @@ Different shape from sibling §11.8 because we re-process customer billing/usage
 - **GDPR Art. 32**: encryption at rest of IdP secrets satisfies the technical-measures clause; multi-tenant RLS provides organizational isolation.
 - **CC7.x (system operations)**: now in scope because we operate customer billing-data infrastructure (ECS Express, RDS).
 
-The SaaS SKU's SOC 2 scope is **wider** than self-hosted — because we hold customer data, we evidence more controls. Reactivate `Tasks.md` Phase 3 #17 (multi-tenant SOC 2 Type II) when this doc is reactivated.
+The SaaS SKU's SOC 2 scope is **wider** than self-hosted — because we hold customer data, we evidence more controls. Reactivate the multi-tenant SOC 2 Type II work when this doc is reactivated.
 
 ### 11.9 SOC 2 sub-processor disclosure (load-bearing under SaaS)
 
@@ -348,7 +348,7 @@ Required disclosures:
 - Resend / Postmark / SendGrid (whichever picked) — transactional email.
 - Sentry / similar — error monitoring.
 
-DPA template, sub-processors list, RoPA all need a SaaS-specific revision when this doc is reactivated. The narrowed-scope GDPR work under self-hosted (Tasks.md Phase 3 #9p) is insufficient for SaaS — full controller-with-Kinde-sub-processor scope returns.
+DPA template, sub-processors list, RoPA all need a SaaS-specific revision when this doc is reactivated. The narrowed-scope GDPR work under self-hosted is insufficient for SaaS — full controller-with-Kinde-sub-processor scope returns.
 
 ---
 
@@ -378,7 +378,7 @@ Steps when the managed-hosted SKU is committed:
 2. Add `services/api/internal/middleware/auth_kinde.go` (Kinde JWT validation — a thin wrapper around `services/shared/jwks/`, which was already lifted out of `auth.go` in B2 per architect S3). Wire it from `cmd/api-saashosted/main.go` via the `auth.Provider` interface (implementation plan §4.2 seam S9). The self-hosted `auth_native.go` is untouched.
 3. Re-add Kinde environment variables (`KINDE_ISSUER`, `KINDE_M2M_CLIENT_ID`, `KINDE_M2M_CLIENT_SECRET`, `KINDE_WEBHOOK_SECRET`) to the SaaS deployment config.
 4. In `cmd/api-saashosted/main.go`'s `ComposeServer` invocation (implementation plan §4.2 seam S6), swap in Kinde-backed implementations of the `auth.Inviter` (S1), `sso.Discoverer` (S4), and `sso.Connector` (S8) interfaces. Self-hosted continues to use the native implementations of all three.
-5. Update `Tasks.md` Phase 3 #1 (Stripe), #9p (GDPR — full scope), #14 (invitations — Kinde Mgmt API path), #17 (SOC 2 — multi-tenant) to reactivated.
+5. Mark the deferred Phase 3 items reactivated: Stripe billing, GDPR (full scope), invitations (Kinde Mgmt API path), SOC 2 (multi-tenant).
 6. Spin up internal AxiaOps Cloud tenant in Kinde with the SOC 2 + GDPR posture documented.
 7. First design partner onboarding via Kinde Hosted Login.
 
@@ -393,7 +393,7 @@ Fresh SaaS install ships with:
 - Kinde social login (Google/Microsoft personal/GitHub) enabled by default.
 - No SSO connection — first owner can configure post-signup.
 - Enforcement = `optional`.
-- Email-invitation flow enabled (Kinde Mgmt API path via the `auth.Inviter` interface — Tasks.md Phase 3 #14 pre-2026-04 design). Self-hosted's token-OOB delivery (D3 in implementation plan) is replaced at composition time by the Kinde-backed implementation.
+- Email-invitation flow enabled (Kinde Mgmt API path via the `auth.Inviter` interface — the pre-2026-04 design). Self-hosted's token-OOB delivery (D3 in implementation plan) is replaced at composition time by the Kinde-backed implementation.
 
 ---
 
@@ -458,7 +458,7 @@ These should be revisited at the moment of reactivation, not before:
 
 1. **Kinde Pro/Enterprise tier pricing.** ≤€500/mo was the working assumption pre-2026-04. Re-quote at reactivation; pricing may have changed.
 2. **Single Kinde tenant for all SaaS customers vs Kinde-org-per-customer?** Original Phase 1 design used Kinde-org-per-AxiaOps-org (1:1). Confirm this still holds; alternative (one Kinde org, AxiaOps-side org isolation only) reduces Kinde-side complexity but worsens blast radius if a Kinde-side misconfiguration leaks across customers.
-3. **Stripe tier gating** (Tasks.md Phase 3 #1 — reactivated under SaaS). What tiers (Starter/Growth/Team/Enterprise) and which features gate which tier? SSO is typically Team-tier+ in B2B SaaS; ratify when reactivating.
+3. **Stripe tier gating** (reactivated under SaaS). What tiers (Starter/Growth/Team/Enterprise) and which features gate which tier? SSO is typically Team-tier+ in B2B SaaS; ratify when reactivating.
 4. **Cross-SKU customer migration** — if a self-hosted customer wants to "upgrade" to AxiaOps Cloud (we run it for them), what does that look like? Out of scope for v1 SaaS but worth scoping if 1+ customer asks.
 5. **Kinde SCIM support** — Kinde may or may not have shipped SCIM brokering by reactivation date. Determines Phase E scope.
 6. **Existing self-hosted customers and SaaS** — does AxiaOps Cloud onboarding require a fresh org, or can a self-hosted customer "import" their existing org? Likely fresh-org-only for v1; document as such.
@@ -511,9 +511,6 @@ Dockerfile                                        # multi-target: api-selfhosted
 docs/compliance/gdpr_plan.md                      # un-narrowed (full controller scope)
 docs/compliance/soc2_plan.md                      # multi-tenant scope re-enabled
 deploy/sub-processors-public.md                   # add Kinde
-
-# Tasks.md
-Tasks.md                                          # reactivate Phase 3 #1, #9p, #14, #17 for SaaS
 ```
 
 ### 16.3 Files NOT modified

@@ -4,7 +4,7 @@
 >
 > **Status**: B1 / B1.5 / B1.6 / B1.7 / B2 shipped (MR !85). Phase C (SAML SP) pending.
 >
-> **⚠ Kinde removal completed (2026-05-06).** The `AUTH_PROVIDER` strangler tier (D1/D2) is **executed** — the kinde Go package, dashboard surface, deploy YAML wiring, and CI strangler gates were deleted in `chore/remove-kinde-auth`. References below to `AUTH_PROVIDER=kinde\|both`, the strangler-gate deploy job, and the `kinde_invitation_id` / `kinde_user_id` columns are **historical**; treat them as past-tense. The migration originally proposed as 023 (tighten `pending_memberships`) shipped as **024_drop_kinde_residue** in the same MR. The `auth.Provider` interface, `Discoverer` / `Connector` SSO seams, and `serverbuild.ComposeServer` composition root are preserved — a future SaaS reactivation swaps a few constructors and reuses the same chain. See `docs/kinde-removal-plan.md` for the deletion playbook.
+> **⚠ Kinde removal completed (2026-05-06).** The `AUTH_PROVIDER` strangler tier (D1/D2) is **executed** — the kinde Go package, dashboard surface, deploy YAML wiring, and CI strangler gates were deleted in `chore/remove-kinde-auth`. References below to `AUTH_PROVIDER=kinde\|both`, the strangler-gate deploy job, and the `kinde_invitation_id` / `kinde_user_id` columns are **historical**; treat them as past-tense. The migration originally proposed as 023 (tighten `pending_memberships`) shipped as **024_drop_kinde_residue** in the same MR. The `auth.Provider` interface, `Discoverer` / `Connector` SSO seams, and `serverbuild.ComposeServer` composition root are preserved — a future SaaS reactivation swaps a few constructors and reuses the same chain.
 
 ---
 
@@ -37,7 +37,7 @@ These are settled before implementation starts. Flip explicitly via this doc if 
 | # | Decision | Rationale |
 |---|---|---|
 | D1 | **Strangler pattern** for Kinde removal. Both auth paths ship in B1; `AUTH_PROVIDER=native\|kinde` env var selects at startup. Native is default. | Reversible during the high-risk transition window; rollback is a config flip, not a redeploy. |
-| D2 | **Hard deprecation date**: 2026-10-30 (B1 ship + 6 months). After that, the Kinde code path is deleted in a single PR. Tasks.md item dated for it. | Without a deletion date, the strangler turns into permanent dual-path. |
+| D2 | **Hard deprecation date**: 2026-10-30 (B1 ship + 6 months). After that, the Kinde code path is deleted in a single PR, tracked as a dated deprecation item. | Without a deletion date, the strangler turns into permanent dual-path. |
 | D3 | **Token-based invitations, OOB delivery** — no SMTP. Admin POSTs an invite, gets a one-time URL containing the token, shares it via Slack/password manager/whatever. Invitee clicks → sets password → membership created. | No SMTP infrastructure required for self-hosted; matches GitLab/Mattermost/Outline self-hosted patterns. |
 | D4 | **Admin-mediated password reset** for v1. No self-service "forgot password" page. Admin POSTs `/v1/users/{id}/password-reset`, gets a one-time URL, shares OOB. | No SMTP means no link to email; self-service requires SMTP or in-app secondary channel. Revisit when SMTP is added. |
 | D5 | **First-owner bootstrap — GitLab-shaped install-token flow.** On first startup, if no organizations exist, the server generates a 32-byte hex install token, prints it to stdout, and writes it to `/var/run/axiaops/initial_setup_token`. Operator visits `/bootstrap`, supplies the token plus their own email/name/password via POST form (token in body, never in URL). Single-use; consumed and wiped from memory + disk after redemption. Endpoint returns 409 forever after. Optional `BOOTSTRAP_INSTALL_TOKEN` env var for unattended installs (suppresses log banner; same flow). | Server generates the entropy (operator doesn't have to know to run `openssl rand`). Token-in-POST-body avoids the URL leak channels (browser history, access logs, Referer headers). Matches the install-time UX of GitLab, Vault, Forgejo. The token gates the bootstrap *action* — it is **not** the user's password. The user picks their own password during the same form submission. |
@@ -359,17 +359,17 @@ The banner is also suppressed when `BOOTSTRAP_INSTALL_TOKEN` is set (operator al
 |---|---|
 | B1 ship +14d | Staging `AUTH_PROVIDER` set to `native` (CI deploy job rejects `kinde` in staging values from this date forward). |
 | B1 ship +60d | Internal AxiaOps Cloud dogfood production set to `native`. |
-| B1 ship +150d | Tasks.md deletion MR opened (draft) referencing the strangler telemetry dashboard. |
+| B1 ship +150d | Deletion MR opened (draft) referencing the strangler telemetry dashboard. |
 | B1 ship +180d (2026-10-30) | If `axiaops_auth_provider_last_seen_seconds{provider="kinde"} > 30 days` across all environments, deletion MR merges. Otherwise blocked, ADR-0001 review trigger evaluated (the strangler turning permanent is itself a signal). |
 
-These gates are wired into `.gitlab-ci.yml` as date-conditional job rules — not Tasks.md notes alone.
+These gates are wired into `.gitlab-ci.yml` as date-conditional job rules — not tracked in prose alone.
 
 **Deprecation tracking:**
-- New entry in `Tasks.md`: "**[DEPRECATION 2026-10-30]** Delete Kinde auth path." Stub MR drafted on B1 ship day; merges on the deprecation date if telemetry shows zero Kinde traffic.
+- A dated deprecation item: "**[DEPRECATION 2026-10-30]** Delete Kinde auth path." Stub MR drafted on B1 ship day; merges on the deprecation date if telemetry shows zero Kinde traffic.
 
 ### 4.6 Acceptance criteria — B1
 
-> **Shipped via MR !69 → `feat/sso`.** Tasks.md row 2.7.2 carries the as-shipped breakdown (native cookie auth, sessions table, JWKS lift, strangler `AUTH_PROVIDER=native|both|kinde`, bootstrap install token, sweep ticker, cache-aside session validation). Boxes flipped below are paper-trail confirmations against the as-shipped state — individual criterion verification lives in the corresponding sub-MR's test suite. Any regression should be re-opened here as a fresh `[ ]`.
+> **Shipped via MR !69 → `feat/sso`.** As-shipped breakdown: native cookie auth, sessions table, JWKS lift, strangler `AUTH_PROVIDER=native|both|kinde`, bootstrap install token, sweep ticker, cache-aside session validation. Boxes flipped below are paper-trail confirmations against the as-shipped state — individual criterion verification lives in the corresponding sub-MR's test suite. Any regression should be re-opened here as a fresh `[ ]`.
 
 - [x] `make start-dev` boots with `AUTH_PROVIDER=native` and a fresh DB; the server prints the install-token banner to stdout; visiting `/bootstrap`, pasting the token + email/password, lands the operator in the dashboard as owner.
 - [x] Token is also present at `/var/run/axiaops/initial_setup_token` with mode `0600`; deleted after successful bootstrap.
@@ -397,7 +397,7 @@ These gates are wired into `.gitlab-ci.yml` as date-conditional job rules — no
 - [x] **`last_seen_at` write amplification check** (architect N3): test issues 100 successive requests with the same valid session within the cache TTL; asserts `last_seen_at` was updated at most once (only on the first PG miss), not 100 times.
 - [x] **Failure-mode observability** (architect N5): for each labeled failure outcome (`bad_password`, `unknown_user`, `rate_limited`, `locked`, cache `error`), there is a test that triggers the failure and asserts the corresponding counter increments by exactly 1. For each warning slog path (Redis miss, cache deserialise error), there is a test that captures slog output and asserts the warning was emitted.
 - [x] OpenAPI / API docs updated for the new `/v1/auth/*` routes.
-- [x] `Tasks.md` deprecation entry filed; `.gitlab-ci.yml` deploy gates configured (architect S7).
+- [x] Deprecation entry filed; `.gitlab-ci.yml` deploy gates configured (architect S7).
 - [x] **Single-org-per-session constraint enforced explicitly.** A user with >1 active membership originally returned 409; B1.5 (§4.7) supersedes this — multi-membership users now get the org-picker flow. The 409 path is gone but the spirit (no implicit org selection) is preserved.
 
 ### 4.7 Phase B1.5 — Multi-org access (1w follow-up)
@@ -432,7 +432,7 @@ These gates are wired into `.gitlab-ci.yml` as date-conditional job rules — no
 
 #### 4.7.4 Acceptance criteria — B1.5
 
-> **Shipped on `feat/sso/b1.5-multi-org` → `feat/sso`.** Tasks.md row 2.7.2 carries the as-shipped breakdown (`Store.ListUserMemberships`, `/v1/auth/{login,select-org,switch-org}` flow, `OrgPickerScreen`, `OrgSwitcher` dropdown, `AcceptInvite` cross-org handling, `session.org_switched` audit, observability counters per criteria below). Boxes flipped below are paper-trail confirmations against the as-shipped state. Any regression should be re-opened here as a fresh `[ ]`.
+> **Shipped on `feat/sso/b1.5-multi-org` → `feat/sso`.** As-shipped breakdown: `Store.ListUserMemberships`, `/v1/auth/{login,select-org,switch-org}` flow, `OrgPickerScreen`, `OrgSwitcher` dropdown, `AcceptInvite` cross-org handling, `session.org_switched` audit, observability counters per criteria below. Boxes flipped below are paper-trail confirmations against the as-shipped state. Any regression should be re-opened here as a fresh `[ ]`.
 
 - [x] Login with one membership → straight to dashboard (B1 behaviour preserved).
 - [x] Login with two memberships → `needs_org_selection: true`, no session minted.
@@ -1054,7 +1054,7 @@ PermSSODomainVerify Permission = "sso:domain_verify" // owner only
 ### 5.5 Acceptance criteria — B2
 
 - [x] Migration 022 applies cleanly on a wiped DB and rolls back cleanly.
-- [x] Owner can create an OIDC connection, verify a domain, configure group mappings, and set enforcement = `optional`. Shipped as B2 slice 5 — `services/dashboard/src/screens/SettingsScreen.jsx` Settings tab with tabbed Connections/Domains/GroupMappings/Enforcement panes, owner-only gated on `PERM.SSO_MANAGE`. Backend endpoints landed in B2 slice 3 (handler CRUD, domain verification, JIT provisioning, sweep ticker — see Tasks.md row 2.7.2).
+- [x] Owner can create an OIDC connection, verify a domain, configure group mappings, and set enforcement = `optional`. Shipped as B2 slice 5 — `services/dashboard/src/screens/SettingsScreen.jsx` Settings tab with tabbed Connections/Domains/GroupMappings/Enforcement panes, owner-only gated on `PERM.SSO_MANAGE`. Backend endpoints landed in B2 slice 3 (handler CRUD, domain verification, JIT provisioning, sweep ticker).
 - [x] Mock-OIDC integration test passes end-to-end (login → JIT → membership row). Shipped as `services/api/internal/sso/oidc_integration_test.go` (build tag `integration`); driven via `make test-integration-sso` against the lightweight `test-infra/integration/docker-compose.test.yml` (Postgres-only) stack. Mock IdP is in-process (custom minimal RS256 issuer with `/.well-known/openid-configuration`, `/jwks`, `/authorize`, `/token` and PKCE S256 verification) so signing-key rotation is deterministic.
 - [x] Internal Entra OIDC test (against AxiaOps Inc's own Entra tenant) passes from a `start-staging` deployment. Validated 2026-05-07 against a free `*.onmicrosoft.com` test tenant (acceptable substitute — same iss shape, same JWKS, same group claims behaviour as a corporate Entra tenant). Round-trip: email-blur → /v1/sso/discover (`has_sso:true`) → /v1/sso/oidc/{cid}/initiate → Entra authorize+MFA → /v1/sso/oidc/{cid}/callback → JIT-provisioned user with `external_id` = Entra `oid` (NOT `sub`, per `docs/sso-integration-design.md` line 726) → session minted with `auth_mode='sso'` → `/dashboard`. First login: role=viewer from `default_role` (no group mapping yet); after configuring an Engineering→admin mapping and re-logging in, role flipped to admin via `JITOutcomeUpdated` and `sso_jit_role_updated` audit fired. Walkthrough captured in `docs/sso-local-entra.md` including the secret-id-vs-client-id confusion, the `oidc_tenant_id` standalone-field requirement, the Authentication-blade redirect-URI registration step, the "Emit groups as role claims" gotcha (routes IDs to `roles` not `groups`, breaks JIT silently), and an AADSTS error decoder ring (700016 / 50011 / 50105 / 50058 / no_tokens_found).
 - [x] Group mapping precedence (`admin > member > viewer`) verified by table-driven test, including: (d) zero mapped groups → falls through to `default_role`. The other precedence shapes (a/b/c) are covered by `jit_test.go` (B2 slice 4); the `oidc_integration_test.go` happy-path covers the JIT-from-mapping arm and `_DefaultRoleFallback` covers (d) end-to-end.
@@ -1186,9 +1186,8 @@ AuthProviderLastSeen        prometheus.GaugeVec     // provider — Unix-seconds
 | `services/api/CLAUDE.md` | Endpoint table — replace Kinde-specific notes with native auth + SSO. Env var section rewrite. |
 | `services/shared/CLAUDE.md` | Tables list adds `sessions`, `password_resets`, `sso_*`. |
 | `CLAUDE.md` (root) | "Security" section: AES-256-GCM line stays; replace Kinde JWT line with "argon2id password hashing + native session cookies." |
-| `Tasks.md` | Add Phase B1/B2/C entries with acceptance criteria pointers; add deprecation entry. |
-| `docs/auth.md` | Mark as historical (Kinde evaluation predates ADR-0001). |
-| `docs/auth_flow.md` | Rewrite for native + SSO flows. |
+| `docs/historical/auth.md` | Mark as historical (Kinde evaluation predates ADR-0001). |
+| `docs/historical/auth_flow.md` | Rewrite for native + SSO flows. |
 | `docs/invitation-flow.md` | Add the token-based redemption path; keep the Kinde path for the strangler window. |
 | `docs/sso-integration-design.md` | Cross-reference this plan as the implementation roadmap. |
 
@@ -1229,7 +1228,7 @@ For each impl branch:
 
 When all three phases land in `feat/sso`:
 - Final integration test pass on `feat/sso`.
-- Update Tasks.md with the deprecation date entry.
+- Record the deprecation date entry.
 - Single MR `feat/sso` → `develop` with all three phases.
 
 ---
@@ -1271,7 +1270,7 @@ These are **not blockers for B1**. Resolve at the boundaries indicated.
 | Sessions table grows unbounded over time. | Per-user cap (`SESSIONS_PER_USER_CAP=10` default) bounds concurrent sessions; oldest-active is revoked on cap exceed. Hourly sweep ticker deletes rows where `expires_at < NOW() - 7d` OR `(revoked_at IS NOT NULL AND revoked_at < NOW() - 7d)`. Acceptance test seeds 11 sessions for one user and verifies cap enforcement + sweep behaviour (architect C2). |
 | Rolling deploy from `AUTH_PROVIDER=kinde` to `=native` causes auth flapping (some replicas validate JWTs, others validate cookies; load balancer routes mid-flight). | Three-state machine: deploy must move `kinde` → `both` → `native` in that order. `both` mode accepts either cookie or Bearer JWT — no auth flapping during the rolling restart. Documented in deploy runbook (architect S1). |
 | Bootstrap token leaked via stdout / log aggregator (CI logs forwarded to a third-party log service). | Default-secure: `BOOTSTRAP_PRINT_BANNER=false` writes only the file path to stdout, never the token value. Operator must `cat` the token file. Banner with token value is opt-in via `BOOTSTRAP_PRINT_BANNER=true` for local dev (architect S8). |
-| Multi-org gap: B1 ships before B1.5; a design partner with users belonging to multiple orgs can't log in until B1.5 lands (~1w later). | B1 returns a clear `409 multi_org_not_supported` with `b15_pending: true` so the frontend can show a helpful message ("contact your admin to consolidate, or wait for the next release"). B1.5 cuts off `feat/sso/b1-native-auth` immediately on merge — calendar reminder + Tasks.md item. Workaround: customer can have the user's other-org memberships temporarily revoked + restored after B1.5. |
+| Multi-org gap: B1 ships before B1.5; a design partner with users belonging to multiple orgs can't log in until B1.5 lands (~1w later). | B1 returns a clear `409 multi_org_not_supported` with `b15_pending: true` so the frontend can show a helpful message ("contact your admin to consolidate, or wait for the next release"). B1.5 cuts off `feat/sso/b1-native-auth` immediately on merge — calendar reminder + a tracked item. Workaround: customer can have the user's other-org memberships temporarily revoked + restored after B1.5. |
 | Redis outage degrades performance silently. | Cache errors increment `axiaops_session_cache_errors_total` and log at `slog.Warn`. Alert rule fires when error rate > 1/min for 5 min. Auth still works on PG-only path during the outage. |
 | Customer churns but keeps running yesterday's binary indefinitely. | License-file TTL enforcement (D12 / §4.9). Binary refuses to start past `expires_at + grace_period_days`. Registry-access expiry blocks new versions; license expiry blocks the old one too. Grace period (default 30d) softens the cliff for accidental non-renewals. |
 | AxiaOps's license signing key leaks. | Compromise procedure: rotate the embedded public key in the next binary release; force re-issuance of every customer's license under the new key; revoke the old signing key. Documented in `docs/license-issuance.md`. Detection: any new license issued after the leak that was not signed in 1Password's audit log → assume compromised. |

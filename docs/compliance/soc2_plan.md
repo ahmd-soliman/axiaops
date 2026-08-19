@@ -7,7 +7,7 @@ _Last updated: 2026-04-25_
 > Art. 32 controls and SOC 2 Common Criteria overlap heavily; this plan owns
 > the SOC 2 frame.
 >
-> **Targets** (aligned with `docs/business_plan.md`):
+> **Targets**:
 > - **SOC 2 Type I:** Q2 2027 — to unlock mid-market deals that ask for
 >   "any SOC 2 report"
 > - **SOC 2 Type II:** Q4 2027 — required to seriously sell to MSPs running
@@ -23,7 +23,7 @@ _Last updated: 2026-04-25_
 
 ### 1.1 Sales gating
 
-From `docs/business_plan.md` and `docs/gtm_assessment.md`:
+Sales gating observations:
 
 - MSPs and Team-tier customers (>€399/mo) routinely block on a security
   questionnaire that asks for "SOC 2 Type II report or equivalent." A "we're
@@ -107,7 +107,7 @@ Below: each Common Criteria area, what we have today, and what's missing.
 | CC1.1 Integrity & ethical values | Partial | Code of conduct doc; founder-only company so light |
 | CC1.2 Board/management oversight | N/A (founder-led); revisit when first employee joins | Document founder-as-management explicitly |
 | CC1.3 Org structure, authorities | N/A → light | Org chart in `docs/compliance/org.md` |
-| CC1.4 Commitment to competence | Partial | Hiring rubric (`docs/hiring.md` exists) |
+| CC1.4 Commitment to competence | Partial | Hiring rubric exists |
 | CC1.5 Accountability | Partial | RACI for incidents — see breach runbook |
 
 **Deliverables:** `docs/compliance/policies/code_of_conduct.md`, `org.md`.
@@ -116,7 +116,7 @@ Below: each Common Criteria area, what we have today, and what's missing.
 
 | Sub-criterion | Status | Gap |
 |---|---|---|
-| CC2.1 Internal information quality | Partial | `CLAUDE.md`s + Tasks.md cover it; formalise in policy |
+| CC2.1 Internal information quality | Partial | `CLAUDE.md`s + the roadmap tracker cover it; formalise in policy |
 | CC2.2 Internal communications | Partial | Slack/email; document channels |
 | CC2.3 External communications | Partial | Status page (Phase 3 deliverable) |
 
@@ -383,7 +383,6 @@ running when the window opens. This is the bulk of the work.
 ## 9. References
 
 - `docs/compliance/gdpr_plan.md` — companion plan; Art. 32 ↔ CC6/CC7 overlap
-- `docs/business_plan.md` — Q4 2027 Type II commitment
 - `docs/development_plan.md` — phase timing
 - `docs/audit_trail_plan.md` — audit log feeds CC7.3 evidence
 - `docs/production.md` — hosting topology, IAM, secrets

@@ -1,8 +1,8 @@
 # Go-Live Checklist — AxiaOps
 
 > What must be complete before the first paying customer is billed.
-> Derived from `development_plan.md` and `business_plan.md`.
-> Target: first invoice **October 2026** (after Operating UG incorporated August 2026).
+> Derived from `development_plan.md`.
+> Target: first invoice **October 2026**.
 
 ---
 
@@ -95,6 +95,5 @@ long-term moat but is Phase 5 (2027+) — it doesn't block launch.
 ## Related
 
 - [development_plan.md](development_plan.md) — full phase-by-phase breakdown
-- [business_plan.md](business_plan.md) — competitive landscape, pricing, GTM
 - [production.md](production.md) — infrastructure setup for production deployment
 - [deployment.md](deployment.md) — deployment environments, cost estimates by phase

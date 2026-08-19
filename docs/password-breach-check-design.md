@@ -1,7 +1,7 @@
-# Password Breach-Corpus Screening — Design (Tasks.md 2.7.11)
+# Password Breach-Corpus Screening — Design
 
-**Status:** designed; implemented as a **bootstrap seed** (Tasks.md 2.7.11).
-**Supersedes:** the live-API sketch in Tasks.md 2.7.11 and plan §4.5 D6 ("top-1000 list").
+**Status:** designed; implemented as a **bootstrap seed**.
+**Supersedes:** the original live-API sketch and plan §4.5 D6 ("top-1000 list").
 **Decision owner:** auth/native-auth path. Architect-reviewed.
 
 > **Implementation note (2026-06-10).** The shipped asset is a **bootstrap seed**
@@ -23,7 +23,7 @@ standard requires screening new passwords against a known-compromised corpus.
 
 ## The decision: embed an offline HIBP subset, do NOT call the live API
 
-The original plan (and Tasks.md 2.7.11) called the live HaveIBeenPwned
+The original plan called the live HaveIBeenPwned
 k-anonymity API (`api.pwnedpasswords.com/range/`) at signup. **We rejected
 that** for one reason: **AxiaOps is self-hosted.** A customer instance may be
 egress-restricted or air-gapped, so a live external call is unreliable or
