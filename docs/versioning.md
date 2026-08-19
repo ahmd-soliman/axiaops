@@ -5,7 +5,7 @@
 - **Scheme:** [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 - **Format:** `MAJOR.MINOR.PATCH[-PRERELEASE]` — **no `v` prefix** (the git tag *is* the version string; matches the `APP_VERSION=2.6.0`-style examples in service `CLAUDE.md` files).
 - **Current line:** pre-1.0. The first cut is `0.1.0-alpha.1`. `1.0.0` is reserved for GA (first paying customer / production-ready milestone).
-- **Phase numbers are NOT version numbers.** `Phase 2` (Tasks.md) is a planning bucket; versions track release artefacts. See [§Phases vs versions](#phases-vs-versions).
+- **Phase numbers are NOT version numbers.** `Phase 2` is a planning bucket; versions track release artefacts. See [§Phases vs versions](#phases-vs-versions).
 
 ---
 
@@ -51,7 +51,7 @@ Easy trap to fall into: "we're in Phase 2, so the version should be `0.2.x`." Do
 
 | Axis            | What it tracks                       | Where it lives                |
 | --------------- | ------------------------------------ | ----------------------------- |
-| **Phase**       | Project-planning scope (what work is in flight) | `Tasks.md` |
+| **Phase**       | Project-planning scope (what work is in flight) | GitLab issue tracker |
 | **Version tag** | Release artefact (what got cut)      | `git tag`, `APP_VERSION`, `/v1/version` |
 
 A phase produces many releases (probably 10+ pre-release cuts before Phase 2 finishes). Phase numbers and version-minor numbers will drift apart on the first patch release inside a phase. The lifecycle **suffix** (`-alpha` / `-beta`) is the right place to encode phase-correlated maturity — not the number.
