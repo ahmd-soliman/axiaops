@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"time"
 
-	"axiaops.io/shared/license"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
 )
@@ -47,14 +46,6 @@ func runStuckScanTicker(ctx context.Context, runtimeAdminURL string, timeout tim
 			}
 		}
 	}
-}
-
-// runLicenseTicker re-classifies the loaded license at the package's
-// configured cadence. No-op under DEV_MODE (no license loaded) — the
-// package short-circuits internally. Process is never killed by this
-// ticker; transitions are observability events only.
-func runLicenseTicker(ctx context.Context) {
-	license.RunTicker(ctx, license.DefaultTickerInterval)
 }
 
 // runSessionSweepTicker hard-deletes sessions older than the retention

@@ -36,11 +36,6 @@ export default function CloudAccounts() {
         toast('Scan already in progress.', 'warning');
         return;
       }
-      // B1.6 slice 8 — license scan-gate (plan §4.9.2b).
-      if (err.code === 'license_expired') {
-        toast('License expired — scans paused. Contact sales@axiaops.io to renew.', 'error');
-        return;
-      }
       toast(err.body || err.message || 'Failed to start scan.', 'error');
     },
   });

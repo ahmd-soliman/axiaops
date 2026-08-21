@@ -72,13 +72,6 @@ services:
       # the Go side handles the userinfo parse. Empty REDIS_PASSWORD falls
       # back to the unauthenticated default — fine for local dev.
       REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379}
-      # AXIAOPS_LICENSE — `make start-staging` injects the dev fixture so
-      # the api boots into state="valid" and the scan-gate falls through.
-      # Empty default is fine: a `docker compose up` invoked directly (not
-      # via the Makefile) lands in state="not_loaded" and scans are gated,
-      # which is the correct posture without an explicit license. See
-      # Makefile start-staging target + issue #76 for the Tier-1 follow-up.
-      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE:-}
       # C-1: shared-secret HMAC for the api → ingestion hop. Empty default
       # is intentional — DEV_MODE bypasses HMAC verification. Production
       # deploys MUST set this (see deploy/*.yml). Optional `_NEXT` slot
@@ -132,8 +125,6 @@ services:
       LOG_OUTPUT: ${LOG_OUTPUT:-text}
       # REDIS_URL carries the password — see ingestion service comment.
       REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379}
-      # See ingestion service above for the dev-fixture-injection story.
-      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE:-}
       # C-1: shared-secret HMAC for outbound api → ingestion calls. Same
       # value as the ingestion side (the api signs with current; rotation
       # is verifier-side only). Empty default ⇒ DEV_MODE no-sign.

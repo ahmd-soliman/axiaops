@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"axiaops.io/shared/license"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
@@ -18,10 +17,6 @@ type mockStoreForScheduler struct {
 	listErr         error
 	listCalls       int
 	getAccountCalls int
-
-	// SaaS entitlement-gate fixtures (resolver != nil path).
-	entitlements         []model.Entitlement
-	listEntitlementCalls int
 }
 
 func (m *mockStoreForScheduler) ListAccounts(ctx context.Context) ([]model.Account, error) {
@@ -359,7 +354,7 @@ func (q *captureQueue) Close() error { return nil }
 func TestScanScheduledAccounts_NoAccounts(t *testing.T) {
 	store := &mockStoreForScheduler{accounts: []model.Account{}}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q, nil, 0)
+	scanScheduledAccounts(context.Background(), store, q)
 	if len(q.jobs) != 0 {
 		t.Fatalf("expected 0 jobs, got %d", len(q.jobs))
 	}
@@ -368,7 +363,7 @@ func TestScanScheduledAccounts_NoAccounts(t *testing.T) {
 func TestScanScheduledAccounts_ListError(t *testing.T) {
 	store := &mockStoreForScheduler{listErr: errors.New("db error")}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q, nil, 0) // should not panic
+	scanScheduledAccounts(context.Background(), store, q) // should not panic
 }
 
 func TestScanScheduledAccounts_SkipsAlreadyScanning(t *testing.T) {
@@ -378,7 +373,7 @@ func TestScanScheduledAccounts_SkipsAlreadyScanning(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q, nil, 0)
+	scanScheduledAccounts(context.Background(), store, q)
 	if len(q.jobs) != 0 {
 		t.Fatalf("expected 0 jobs for scanning account, got %d", len(q.jobs))
 	}
@@ -391,7 +386,7 @@ func TestScanScheduledAccounts_NeverScanned(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q, nil, 0)
+	scanScheduledAccounts(context.Background(), store, q)
 	if len(q.jobs) != 1 {
 		t.Fatalf("expected 1 job for never-scanned account, got %d", len(q.jobs))
 	}
@@ -405,51 +400,12 @@ func TestScanScheduledAccounts_Overdue(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q, nil, 0)
+	scanScheduledAccounts(context.Background(), store, q)
 	if len(q.jobs) != 1 {
 		t.Fatalf("expected 1 job for overdue account, got %d", len(q.jobs))
 	}
 	if q.jobs[0].AccountID != "acc-1" {
 		t.Errorf("expected account acc-1, got %s", q.jobs[0].AccountID)
-	}
-}
-
-// stubResolver drives the SaaS path of scanScheduledAccounts without a DB.
-type stubResolver struct{ ent model.Entitlement }
-
-func (s stubResolver) GetEntitlement(context.Context, string) (model.Entitlement, error) {
-	return s.ent, nil
-}
-
-// TestScanScheduledAccounts_SaaS_PerOrgEntitlement is the golden test for the
-// pass-wide→per-org restructure: in ONE pass, an entitled org is scanned and a
-// lapsed org is skipped, and entitlements are batch-loaded exactly once.
-func TestScanScheduledAccounts_SaaS_PerOrgEntitlement(t *testing.T) {
-	period := time.Now().Add(30 * 24 * time.Hour)
-	store := &mockStoreForScheduler{
-		accounts: []model.Account{
-			{ID: "acc-A", OrganizationID: "org-A", ScanIntervalHours: 24, LastScannedAt: nil, Status: "connected"},
-			{ID: "acc-B", OrganizationID: "org-B", ScanIntervalHours: 24, LastScannedAt: nil, Status: "connected"},
-		},
-		entitlements: []model.Entitlement{
-			{OrganizationID: "org-A", Status: model.StatusActive, CurrentPeriodEnd: &period},
-			{OrganizationID: "org-B", Status: model.StatusSuspended},
-			// org-C has no row at all — fail-closed (not scanned even if it had
-			// an account).
-		},
-	}
-	q := &captureQueue{}
-	// resolver != nil triggers the SaaS path; the per-org predicate uses the map.
-	scanScheduledAccounts(context.Background(), store, q, stubResolver{}, 21*24*time.Hour)
-
-	if len(q.jobs) != 1 {
-		t.Fatalf("expected exactly 1 job (entitled org-A), got %d", len(q.jobs))
-	}
-	if q.jobs[0].OrganizationID != "org-A" {
-		t.Errorf("expected org-A scanned, got %s", q.jobs[0].OrganizationID)
-	}
-	if store.listEntitlementCalls != 1 {
-		t.Errorf("expected ListAllEntitlements batched to 1 call, got %d", store.listEntitlementCalls)
 	}
 }
 
@@ -461,7 +417,7 @@ func TestScanScheduledAccounts_NotOverdue(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q, nil, 0)
+	scanScheduledAccounts(context.Background(), store, q)
 	if len(q.jobs) != 0 {
 		t.Fatalf("expected 0 jobs for non-overdue account, got %d", len(q.jobs))
 	}
@@ -475,100 +431,17 @@ func TestScanScheduledAccounts_ZeroInterval_AlwaysOverdue(t *testing.T) {
 		}},
 	}
 	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q, nil, 0)
+	scanScheduledAccounts(context.Background(), store, q)
 	if len(q.jobs) != 1 {
 		t.Fatalf("expected 1 job for zero-interval account, got %d", len(q.jobs))
 	}
 }
 
-// TestScanScheduledAccounts_SkippedWhenLicenseExpired — Phase B1.6 slice 5c.
-// Past-grace boots block scheduled scans wholesale. Single check at the top
-// of the pass, not per-account — license state is binary-wide.
-func TestScanScheduledAccounts_SkippedWhenLicenseExpired(t *testing.T) {
-	// Clear TestMain's package-default bypass so the gate evaluates the
-	// snapshot we set up below. Cleanup restores the default for any
-	// subsequent test.
-	license.ClearEnforcementBypass()
-	license.SetCurrent(&license.License{
-		LicenseID:       "lic_test",
-		CustomerID:      "test-001",
-		ExpiresAt:       time.Now().Add(-60 * 24 * time.Hour),
-		GracePeriodDays: 30,
-	})
-	t.Cleanup(func() {
-		license.SetCurrent(nil)
-		license.SetEnforcementBypass()
-	})
-
-	now := time.Now()
-	store := &mockStoreForScheduler{
-		accounts: []model.Account{{
-			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
-		}},
-	}
-	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q, nil, 0)
-	if len(q.jobs) != 0 {
-		t.Fatalf("license_expired should suppress all scheduled scans, got %d jobs", len(q.jobs))
-	}
-	// Defensive: also confirm ListAllAccounts was NOT called — the gate
-	// short-circuits before any DB read so an expired license also stops
-	// burning DB load on every tick.
-	if store.listCalls > 0 {
-		t.Errorf("expected ListAllAccounts to be skipped under expired license, got %d calls", store.listCalls)
-	}
-}
-
-// TestScanScheduledAccounts_AllowedInGrace — in-grace deliberately keeps
-// scans running (plan §4.9 Option-3 scope). The dashboard banner + slog
-// warns are the renewal-pressure mechanism for grace; only past-grace
-// silences the scheduler.
-func TestScanScheduledAccounts_AllowedInGrace(t *testing.T) {
-	license.ClearEnforcementBypass()
-	license.SetCurrent(&license.License{
-		LicenseID:       "lic_test",
-		CustomerID:      "test-001",
-		ExpiresAt:       time.Now().Add(-2 * 24 * time.Hour),
-		GracePeriodDays: 30,
-	})
-	t.Cleanup(func() {
-		license.SetCurrent(nil)
-		license.SetEnforcementBypass()
-	})
-
-	now := time.Now()
-	store := &mockStoreForScheduler{
-		accounts: []model.Account{{
-			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 0, LastScannedAt: &now, Status: "connected",
-		}},
-	}
-	q := &captureQueue{}
-	scanScheduledAccounts(context.Background(), store, q, nil, 0)
-	if len(q.jobs) != 1 {
-		t.Fatalf("in-grace must allow scheduled scans, got %d jobs", len(q.jobs))
-	}
-}
-
-// TestWorker_SkipsJobWhenLicenseExpired closes the gap a holistic review of
-// MR !71 caught: the api-side scan-gate catches most jobs at trigger time,
-// but a job enqueued before expiry and dequeued AFTER would otherwise sneak
-// past. The worker must re-evaluate the gate at execution time. Asserts the
-// worker drops the job (logs + continue) without ever calling GetAccount —
-// runScan's first store touch is a useful "did we run any scan code at all"
-// signal.
-func TestWorker_SkipsJobWhenLicenseExpired(t *testing.T) {
-	license.ClearEnforcementBypass()
-	license.SetCurrent(&license.License{
-		LicenseID:       "lic_test",
-		CustomerID:      "test-001",
-		ExpiresAt:       time.Now().Add(-60 * 24 * time.Hour),
-		GracePeriodDays: 30,
-	})
-	t.Cleanup(func() {
-		license.SetCurrent(nil)
-		license.SetEnforcementBypass()
-	})
-
+// TestWorker_ProcessesJob is the worker's basic control case: dequeue a
+// pending job and reach runScan (signalled by GetAccount being called). No
+// gate sits between dequeue and runScan any more — license/entitlement
+// removed — so this just pins that the worker still drives a job through.
+func TestWorker_ProcessesJob(t *testing.T) {
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{
 			ID: "acc-1", OrganizationID: "organization-1", Status: "connected",
@@ -583,68 +456,17 @@ func TestWorker_SkipsJobWhenLicenseExpired(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startWorker(ctx, q, store, nil, 5*time.Minute, false, nil, 0)
+	startWorker(ctx, q, store, nil, 5*time.Minute, false)
 
-	// Worker dequeues the seeded job, hits the gate, continues. With no
-	// further pending jobs the next Dequeue blocks on ctx — short sleep is
-	// enough wall-clock for the loop to spin once. 50ms is generous given
-	// the gate path is purely in-memory; tighten only if this becomes flaky.
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-	// Brief drain window for the worker goroutine to observe ctx.Done.
-	time.Sleep(20 * time.Millisecond)
-
-	if store.getAccountCalls != 0 {
-		t.Errorf("worker called GetAccount %d times under expired license; gate should short-circuit before runScan", store.getAccountCalls)
-	}
-	if len(q.pending) != 0 {
-		t.Errorf("worker did not consume the seeded job: %d pending", len(q.pending))
-	}
-}
-
-// TestWorker_ProcessesJobWhenLicenseValid is the control case. Without it,
-// a regression that flipped the gate sense (e.g. `if IsScanAllowed()` →
-// `if !IsScanAllowed()` inverted) would only be caught by the expired test
-// trivially passing — the gate-fired path looks identical to the
-// gate-never-checked path from the outside.
-func TestWorker_ProcessesJobWhenLicenseValid(t *testing.T) {
-	license.ClearEnforcementBypass()
-	license.SetCurrent(&license.License{
-		LicenseID:       "lic_test",
-		CustomerID:      "test-001",
-		ExpiresAt:       time.Now().Add(365 * 24 * time.Hour),
-		GracePeriodDays: 30,
-	})
-	t.Cleanup(func() {
-		license.SetCurrent(nil)
-		license.SetEnforcementBypass()
-	})
-
-	store := &mockStoreForScheduler{
-		accounts: []model.Account{{
-			ID: "acc-1", OrganizationID: "organization-1", Status: "connected",
-		}},
-	}
-	q := &captureQueue{
-		pending: []queue.ScanJob{{
-			AccountID:      "acc-1",
-			OrganizationID: "organization-1",
-			EnqueuedAt:     time.Now().Add(-1 * time.Hour),
-		}},
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	startWorker(ctx, q, store, nil, 5*time.Minute, false, nil, 0)
-
-	// runScan path is best-effort here — it'll fail somewhere downstream
-	// (mock store returns empty accounts for various lookups) but that's
-	// orthogonal to the gate. The gate-passed signal is GetAccount > 0.
+	// Worker dequeues the seeded job and calls into runScan. With no further
+	// pending jobs the next Dequeue blocks on ctx — short sleep is enough
+	// wall-clock for the loop to spin once.
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	time.Sleep(20 * time.Millisecond)
 
 	if store.getAccountCalls == 0 {
-		t.Errorf("worker did not reach runScan under valid license; gate may be inverted")
+		t.Errorf("worker did not reach runScan")
 	}
 }
 
@@ -676,18 +498,4 @@ func (m *mockStoreForScheduler) ListAllOrganizations(context.Context) ([]model.O
 }
 func (m *mockStoreForScheduler) StaffTenantSummary(context.Context, string) (model.StaffTenantSummary, error) {
 	return model.StaffTenantSummary{}, storage.ErrOrganizationNotFound
-}
-
-// EntitlementStore stubs (SaaS per-tenant entitlement, dormant Phase 2A
-// scaffold) — the ingestion scheduler does not consult entitlement yet; these
-// satisfy the widened storage.Store interface.
-func (m *mockStoreForScheduler) GetEntitlement(context.Context, string) (model.Entitlement, error) {
-	return model.Entitlement{}, storage.ErrEntitlementNotFound
-}
-func (m *mockStoreForScheduler) UpsertEntitlement(context.Context, model.Entitlement) error {
-	return nil
-}
-func (m *mockStoreForScheduler) ListAllEntitlements(context.Context) ([]model.Entitlement, error) {
-	m.listEntitlementCalls++
-	return append([]model.Entitlement(nil), m.entitlements...), nil
 }

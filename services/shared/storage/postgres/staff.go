@@ -342,10 +342,9 @@ func (s *Store) ListAllOrganizations(ctx context.Context) ([]model.Organization,
 }
 
 // StaffTenantSummary returns one org's non-FinOps summary: metadata + account
-// count + latest-snapshot aggregates. Computed from existing tables (no
-// entitlements table — deferred). Returns storage.ErrOrganizationNotFound when
-// the org id is unknown. The latest-snapshot fields are zero/nil when the org
-// has never been scanned.
+// count + latest-snapshot aggregates. Returns storage.ErrOrganizationNotFound
+// when the org id is unknown. The latest-snapshot fields are zero/nil when the
+// org has never been scanned.
 func (s *Store) StaffTenantSummary(ctx context.Context, organizationID string) (model.StaffTenantSummary, error) {
 	if organizationID == "" {
 		return model.StaffTenantSummary{}, storage.ErrOrganizationNotFound
