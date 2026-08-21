@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"axiaops.io/shared/entitlement"
 	"axiaops.io/shared/httpauth"
 	"axiaops.io/shared/storage"
 )
@@ -18,17 +17,8 @@ import (
 // closure in main.go so the route registration cleanly wraps in
 // httpauth.Middleware (the wrap is a per-handler shape, not a per-mux shape;
 // see docs/c1-hmac-plan.md §4.2).
-//
-// The HMAC middleware (wrapping this handler) runs BEFORE the license gate
-// here, so an unauthenticated caller cannot probe license state via the
-// 403/401 timing differential. Same ordering applies to /v1/credentials/verify.
-func scanHandler(store storage.Store, resolver entitlement.Resolver, grace time.Duration) http.HandlerFunc {
+func scanHandler(store storage.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Decode BEFORE the scan-gate: the gate is now per-organization
-		// (entitlement) so it needs req.OrganizationID. This is safe — the HMAC
-		// middleware wrapping this handler runs first, so an unauthenticated
-		// caller never reaches the decode or the gate, and the org id is taken
-		// from an HMAC-verified body. No new license/entitlement-state oracle.
 		var req struct {
 			AccountID      string `json:"account_id"`
 			OrganizationID string `json:"organization_id"`
@@ -39,16 +29,7 @@ func scanHandler(store storage.Store, resolver entitlement.Resolver, grace time.
 			return
 		}
 
-		// Scan-gate (plan §4.9.2b + SaaS §7.1). resolver==nil → license gate
-		// (self-hosted); resolver!=nil → per-tenant entitlement gate (SaaS).
-		// Single helper keeps this in lockstep with the worker + scheduler.
 		ctx := storage.WithOrganizationID(context.Background(), req.OrganizationID)
-		if ok, code := gateAllowsScan(ctx, resolver, grace, req.OrganizationID); !ok {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"error":"` + code + `"}`))
-			return
-		}
 
 		if err := runScan(ctx, store, req.AccountID); err != nil {
 			slog.Error("scan: ingestion failed", "account_id", req.AccountID, "error", err)

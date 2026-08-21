@@ -172,16 +172,6 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
         watch(accountId, { label: account.label, onEnd: () => onAccountUpdated(account) });
         return;
       }
-      // B1.6 slice 8 — license scan-gate. Roll back the optimistic 'scanning'
-      // status (the scan never actually started) and surface a toast that
-      // names the renewal contact. Per plan §4.9.2b the button stays
-      // clickable so the user gets a clear explanation rather than a
-      // mystery-disabled control.
-      if (err?.code === 'license_expired') {
-        if (ctx?.previous) queryClient.setQueryData(['accounts'], ctx.previous);
-        toast('License expired — scans paused. Contact sales@axiaops.io to renew.', 'error');
-        return;
-      }
       if (ctx?.previous) queryClient.setQueryData(['accounts'], ctx.previous);
       toast(`Couldn't start scan for ${ctx?.displayLabel ?? 'account'}`, 'error');
     },

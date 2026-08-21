@@ -37,10 +37,8 @@ func (h *Handler) listTenants(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tenants": items})
 }
 
-// tenantDetail is GET /admin/tenants/{id}. `entitlement` is an explicit null
-// placeholder: the per-tenant entitlements table is deferred (design §11.1
-// decision 3), so there is no plan/status/limits to show yet. Surfacing the
-// field as null (rather than omitting it) documents that absence to the UI.
+// tenantDetail is GET /admin/tenants/{id}. Metadata only — NOT tenant FinOps
+// data (design §7.5: the summary is not a break-glass read).
 type tenantDetail struct {
 	OrganizationID         string     `json:"organization_id"`
 	OrgCode                string     `json:"org_code"`
@@ -51,7 +49,6 @@ type tenantDetail struct {
 	LastScanAt             *time.Time `json:"last_scan_at"`
 	LatestTotalZombies     int        `json:"latest_total_zombies"`
 	LatestPotentialSavings float64    `json:"latest_potential_savings"`
-	Entitlement            *struct{}  `json:"entitlement"` // always null — see doc comment
 }
 
 func (h *Handler) getTenant(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +77,5 @@ func summaryToDetail(s model.StaffTenantSummary) tenantDetail {
 		LastScanAt:             s.LastScanAt,
 		LatestTotalZombies:     s.LatestTotalZombies,
 		LatestPotentialSavings: s.LatestPotentialSavings,
-		Entitlement:            nil,
 	}
 }

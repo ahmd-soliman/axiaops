@@ -9,10 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"axiaops.io/shared/entitlement"
 	"axiaops.io/shared/httpauth"
-	"axiaops.io/shared/license"
-	"axiaops.io/shared/model"
 )
 
 var hmacSecret = []byte("0123456789abcdef0123456789abcdef")
@@ -22,77 +19,11 @@ func newProtectedScanMux(t *testing.T, secrets [][]byte) http.Handler {
 	store := &mockStoreForScheduler{}
 	protect := composeHMACProtect(secrets, 5*time.Minute, false)
 	mux := http.NewServeMux()
-	mux.Handle("POST /scan", protect(http.HandlerFunc(scanHandler(store, nil, 0))))
+	mux.Handle("POST /scan", protect(http.HandlerFunc(scanHandler(store))))
 	return mux
-}
-
-// withValidLicense installs a valid in-process license so the scan-gate
-// fall-through is enabled while the test exercises the auth path. The
-// scan-gate is a sibling check, not the focus of these tests.
-func withValidLicense(t *testing.T) {
-	t.Helper()
-	license.ClearEnforcementBypass()
-	license.SetCurrent(&license.License{
-		LicenseID:       "lic_scan_test",
-		CustomerID:      "scan-test-001",
-		ExpiresAt:       time.Now().Add(365 * 24 * time.Hour),
-		GracePeriodDays: 30,
-	})
-	t.Cleanup(func() {
-		license.SetCurrent(nil)
-		license.SetEnforcementBypass()
-	})
-}
-
-// newProtectedScanMuxWithResolver wires the SaaS scan-gate path (non-nil
-// entitlement resolver). The license is irrelevant on this path.
-func newProtectedScanMuxWithResolver(t *testing.T, secrets [][]byte, resolver entitlement.Resolver) http.Handler {
-	t.Helper()
-	store := &mockStoreForScheduler{}
-	protect := composeHMACProtect(secrets, 5*time.Minute, false)
-	mux := http.NewServeMux()
-	mux.Handle("POST /scan", protect(http.HandlerFunc(scanHandler(store, resolver, 21*24*time.Hour))))
-	return mux
-}
-
-func signedScanRequest(body []byte) *http.Request {
-	now := time.Now()
-	req := httptest.NewRequest(http.MethodPost, "/scan", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(httpauth.HeaderTimestamp, strconv.FormatInt(now.Unix(), 10))
-	req.Header.Set(httpauth.HeaderSignature, httpauth.Sign(hmacSecret, now, http.MethodPost, "/scan", body))
-	return req
-}
-
-// TestScanRoute_SaaS_EntitlementGate covers the ingestion POST /scan SaaS path:
-// a suspended org is blocked with not_entitled (gate fires before runScan); an
-// active org passes the gate (no 403/401). HMAC still runs first, so this only
-// reaches the gate because the request is signed.
-func TestScanRoute_SaaS_EntitlementGate(t *testing.T) {
-	body := []byte(`{"account_id":"acc-1","organization_id":"org-A"}`)
-
-	suspended := newProtectedScanMuxWithResolver(t, [][]byte{hmacSecret},
-		stubResolver{ent: model.Entitlement{Status: model.StatusSuspended}})
-	rr := httptest.NewRecorder()
-	suspended.ServeHTTP(rr, signedScanRequest(body))
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("suspended org: status %d, want 403; body=%s", rr.Code, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "not_entitled") {
-		t.Fatalf("suspended org: body %q missing not_entitled", rr.Body.String())
-	}
-
-	active := newProtectedScanMuxWithResolver(t, [][]byte{hmacSecret},
-		stubResolver{ent: model.Entitlement{Status: model.StatusActive}})
-	rr2 := httptest.NewRecorder()
-	active.ServeHTTP(rr2, signedScanRequest(body))
-	if rr2.Code == http.StatusForbidden || rr2.Code == http.StatusUnauthorized {
-		t.Fatalf("active org: gate should pass, got %d; body=%s", rr2.Code, rr2.Body.String())
-	}
 }
 
 func TestScanRoute_Unsigned_401(t *testing.T) {
-	withValidLicense(t)
 	mux := newProtectedScanMux(t, [][]byte{hmacSecret})
 
 	rr := httptest.NewRecorder()
@@ -110,7 +41,6 @@ func TestScanRoute_Unsigned_401(t *testing.T) {
 }
 
 func TestScanRoute_Signed_PassesAuth(t *testing.T) {
-	withValidLicense(t)
 	mux := newProtectedScanMux(t, [][]byte{hmacSecret})
 
 	body := []byte(`{"account_id":"acc-1","organization_id":"organization-1"}`)
@@ -132,8 +62,7 @@ func TestScanRoute_Signed_PassesAuth(t *testing.T) {
 
 func TestScanRoute_DevMode_Passthrough(t *testing.T) {
 	// DEV_MODE: no secret configured → PassthroughWithWarning. Unsigned
-	// requests reach the inner handler (license gate then runScan).
-	withValidLicense(t)
+	// requests reach the inner handler.
 	mux := newProtectedScanMux(t, nil)
 
 	rr := httptest.NewRecorder()
@@ -148,7 +77,6 @@ func TestScanRoute_DevMode_Passthrough(t *testing.T) {
 }
 
 func TestScanRoute_WrongSecret_401(t *testing.T) {
-	withValidLicense(t)
 	mux := newProtectedScanMux(t, [][]byte{hmacSecret})
 
 	body := []byte(`{"account_id":"acc-1","organization_id":"organization-1"}`)
@@ -167,7 +95,6 @@ func TestScanRoute_WrongSecret_401(t *testing.T) {
 }
 
 func TestScanRoute_RotationSecondSecretAccepts(t *testing.T) {
-	withValidLicense(t)
 	// Verifier has [current=A, next=B] — request signed with B should verify.
 	current := hmacSecret
 	next := []byte("ffffffffffffffffffffffffffffffff")
