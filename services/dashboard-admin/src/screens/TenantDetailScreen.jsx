@@ -5,8 +5,7 @@ import { formatDate } from '../utils.js';
 
 // TenantDetailScreen shows one org's summary: metadata + account count +
 // last-scan aggregates. It deliberately surfaces NO zombie/cost detail rows —
-// that is the break-glass surface (design §5), deferred. The `entitlement`
-// field is always null today (per-tenant entitlements table deferred, §11.1).
+// that is the break-glass surface (design §5), deferred.
 export default function TenantDetailScreen() {
   const { id } = useParams();
   const [tenant, setTenant] = useState(null);
@@ -56,18 +55,6 @@ export default function TenantDetailScreen() {
           <dt>Latest potential savings</dt>
           <dd>{tenant.latest_potential_savings}</dd>
         </dl>
-      </div>
-
-      <h2>Entitlement</h2>
-      <div className="card">
-        {tenant.entitlement == null ? (
-          <p className="muted">
-            No entitlement data. Per-tenant billing entitlement is deferred until the SaaS
-            billing path lands; plan/status/limits will appear here then.
-          </p>
-        ) : (
-          <pre>{JSON.stringify(tenant.entitlement, null, 2)}</pre>
-        )}
       </div>
 
       <h2>Tenant data</h2>

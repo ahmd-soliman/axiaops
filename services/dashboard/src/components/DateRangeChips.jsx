@@ -139,8 +139,8 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
             // 150: same tier as AvatarMenu / OrgSwitcher (anchored panel opened
             // by a button click) — sits above InfoTooltip (z=50) so a tooltip
             // rendered behind a nearby chart can't float over the open popover,
-            // and below LicenseBanner (z=99) / AppShell (z=100) so global
-            // banners still occlude correctly.
+            // and below AppShell (z=100) so global banners still occlude
+            // correctly.
             zIndex: 150,
             display: 'flex',
             flexDirection: 'column',

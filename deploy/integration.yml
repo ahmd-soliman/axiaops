@@ -28,10 +28,10 @@ services:
       RUNTIME_ADMIN_DATABASE_URL: ${RUNTIME_ADMIN_DATABASE_URL}
       SCAN_INTERVAL: ${SCAN_INTERVAL:-60s}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      # 30-day non-prod license minted by mint:license:integration (CI). Required
-      # for pre-release scan smoke; without it the post-amendment scan-gate
-      # 403s license_not_loaded.
-      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
+      # Audit H-2: bearer token gating GET /metrics outside DEV_MODE. Empty ⇒
+      # /metrics rejects all requests (deny-by-default). Set per env in CI when
+      # Prometheus scraping is wanted.
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
       REDIS_URL: ${REDIS_URL}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       # C-1: ingestion-side HMAC verifier. Required on integration (pre-release
@@ -55,7 +55,10 @@ services:
       INGESTION_URL: http://axiaops-ingestion-integration:8081
       API_ADDR: ":8080"
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
+      # Audit H-2: bearer token gating GET /metrics outside DEV_MODE. Empty ⇒
+      # /metrics rejects all requests (deny-by-default). Set per env in CI when
+      # Prometheus scraping is wanted.
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
       REDIS_URL: ${REDIS_URL}
       # C-1: api-side HMAC signer. Same value as ingestion's current slot.
       INGESTION_SHARED_SECRET: ${INGESTION_SHARED_SECRET}
