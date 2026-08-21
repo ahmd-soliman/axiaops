@@ -1,8 +1,7 @@
--- 039_drop_entitlements.down.sql — reverse of 039 up.
--- Recreates entitlements + processed_stripe_events in their final pre-039
--- shape (033 base + 034's widened plan CHECK + 038's price_id column and
--- indexes). Does NOT restore data — only schema. A real rollback that needs
--- the data back must restore from a pre-039 backup.
+-- 036_drop_entitlements.down.sql — reverse of 036 up.
+-- Recreates entitlements in its pre-036 shape (033 base + 034's widened plan
+-- CHECK). Does NOT restore data — only schema. A real rollback that needs the
+-- data back must restore from a pre-036 backup.
 
 SET search_path TO axiaops;
 
@@ -21,22 +20,7 @@ CREATE TABLE IF NOT EXISTS entitlements (
     billing_customer_ref     TEXT,
     billing_subscription_ref TEXT,
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    price_id                 TEXT
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS entitlements_billing_customer_ref_idx
-    ON entitlements (billing_customer_ref) WHERE billing_customer_ref IS NOT NULL;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON entitlements TO axiaops_runtime;
-
-CREATE TABLE IF NOT EXISTS processed_stripe_events (
-    event_id     TEXT        PRIMARY KEY,
-    event_type   TEXT        NOT NULL,
-    received_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS processed_stripe_events_received_idx
-    ON processed_stripe_events (received_at);
-
-GRANT SELECT, INSERT, DELETE ON processed_stripe_events TO axiaops_runtime;
