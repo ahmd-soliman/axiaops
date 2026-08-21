@@ -58,10 +58,8 @@ func TestIngestionScan(t *testing.T) {
 	// DEV_MODE=true should return success without real AWS credentials.
 	// organization_id MUST be the real field name (the handler decodes
 	// `json:"organization_id"`; the legacy `tenant_id` key was silently ignored,
-	// which left the org empty). The default (SaaS) build gates /scan on this
-	// org's entitlement (fail-closed), and init-organization.sh seeds an active
-	// entitlement for ci-tenant — so the gate passes and the DEV_MODE no-account
-	// path returns 200.
+	// which left the org empty). No gate on /scan any more — the DEV_MODE
+	// no-account path returns 200 unconditionally.
 	body := `{"account_id":"","organization_id":"ci-tenant"}`
 	resp, err := http.Post(base+"/scan", "application/json", bytes.NewBufferString(body)) //nolint:noctx
 	if err != nil {

@@ -106,10 +106,6 @@ type Store interface {
 	// read methods for the admin console). See storage_staff.go.
 	StaffStore
 
-	// EntitlementStore — SaaS per-tenant entitlement (dormant Phase 2A
-	// scaffold; no scan gate consults it yet). See storage_entitlement.go.
-	EntitlementStore
-
 	// Save upserts a batch of cost records, refreshing amount/currency/tags/
 	// fetched_at/internal_account_id when an existing conflict-key row is
 	// touched. Returns (inserted, updated) counts so callers can split

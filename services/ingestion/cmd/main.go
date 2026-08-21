@@ -22,10 +22,8 @@ import (
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/shared/analyzer"
-	"axiaops.io/shared/entitlement"
 	"axiaops.io/shared/errors"
 	"axiaops.io/shared/httpauth"
-	"axiaops.io/shared/license"
 	"axiaops.io/shared/logging"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/notifications"
@@ -99,39 +97,6 @@ func die(msg string, args ...any) {
 func main() {
 	logging.Init("ingestion")
 
-	// ── SaaS mode (license removal, design §7.1) ───────────────────────────
-	// SaaS is the DEFAULT build: this flips the license enforcement bypass
-	// BEFORE VerifyAtBoot, so the scan gates consult per-tenant entitlement
-	// instead of the license JWT. In the `-tags selfhosted` (opt-in) build it is
-	// a no-op — the bypass call is compiled only into the default SaaS sibling
-	// (saasmode_saas.go), so a self-hosted/customer binary has no code path that
-	// disables its license gate.
-	bypassLicenseForSaaS()
-
-	// Fail-loud: record which seam compiled into this binary (the safe default
-	// now depends on the *absence* of the `selfhosted` tag).
-	licenseMode := "selfhosted"
-	if license.IsEnforcementBypassed() {
-		licenseMode = "saas"
-	}
-	slog.Info("license: mode resolved", "mode", licenseMode, "license_enforced", !license.IsEnforcementBypassed())
-
-	// ── License (B1.6 amended + B1.7 layer 2) ──────────────────────────────
-	// Per docs/b1.6-amendment-feature-gating.md, ingestion mirrors the api's
-	// new posture: VerifyAtBoot logs + continues for missing/expired, and
-	// the scan-path predicates (license.IsScanAllowed) gate scans when the
-	// binary is running without a valid/in-grace license. DEV_MODE flips
-	// the enforcement-bypass flag so dev slots fall through unchanged.
-	// Layer 2 anti-tamper (plan §4.10.2) is the one case where this call
-	// returns an error — DEV_MODE=true on a host that has a license
-	// configured — and we die() loudly to surface it.
-	//
-	// **Runs before storage init by design** — operator-facing log lines must
-	// land even when the database is unreachable.
-	if err := license.VerifyAtBoot(devModeEnabled()); err != nil {
-		die("license: refusing to start", "error", err.Error())
-	}
-
 	// ── Ingestion shared-secret HMAC (C-1, plan §3.4) ─────────────────────
 	// Two-secret slot list (current + previous) from day 1 — the operator
 	// can stage a `_NEXT` value on ingestion before flipping api over.
@@ -150,10 +115,6 @@ func main() {
 	}
 
 	store := newStore()
-
-	// SaaS (default): (store-as-resolver, grace); `-tags selfhosted`: (nil, 0)
-	// (the three scan gates then use the license predicate).
-	entitlementResolver, entitlementGrace := entitlementGate(store)
 
 	retentionDays := 90
 	if v := os.Getenv("COST_RECORDS_RETENTION_DAYS"); v != "" {
@@ -196,7 +157,7 @@ func main() {
 	// should explicitly opt in via protect() rather than opt out of a global
 	// allowlist. See docs/c1-hmac-plan.md §4.2.
 	protect := composeHMACProtect(ingestionSecrets, hmacMaxSkew, hmacSoftEnforce)
-	mux.Handle("POST /scan", protect(http.HandlerFunc(scanHandler(store, entitlementResolver, entitlementGrace))))
+	mux.Handle("POST /scan", protect(http.HandlerFunc(scanHandler(store))))
 
 	// Cross-account role verification — synchronous AssumeRole probe used by
 	// the dashboard's "Verify and connect" flow. Stateless: no DB writes.
@@ -221,18 +182,11 @@ func main() {
 	q := queue.New(redisURL, ingestionURL, primarySecret(ingestionSecrets))
 	defer func() { _ = q.Close() }()
 	if redisURL != "" {
-		startWorker(sigCtx, q, store, ingestionSecrets, hmacMaxSkew, hmacSoftEnforce, entitlementResolver, entitlementGrace)
+		startWorker(sigCtx, q, store, ingestionSecrets, hmacMaxSkew, hmacSoftEnforce)
 		slog.Info("worker: started")
 	} else {
 		slog.Info("worker: skipped_no_redis")
 	}
-
-	// Background ticker: re-classify the loaded license every hour. Mirrors
-	// the api binary's ticker — both run independently so each binary's
-	// Prometheus gauges advance with the wall clock, and slog.Warn fires on
-	// transitions in both processes. No-op under DEV_MODE. Bound to sigCtx
-	// for clean SIGTERM behaviour.
-	go license.RunTicker(sigCtx, license.DefaultTickerInterval)
 
 	// Background ticker: trigger scheduled auto-scans across all organizations.
 	go func() {
@@ -242,7 +196,7 @@ func main() {
 				scanInterval = d
 			}
 		}
-		scanScheduledAccounts(context.Background(), store, q, entitlementResolver, entitlementGrace)
+		scanScheduledAccounts(context.Background(), store, q)
 		ticker := time.NewTicker(scanInterval)
 		defer ticker.Stop()
 		for {
@@ -250,7 +204,7 @@ func main() {
 			case <-sigCtx.Done():
 				return
 			case <-ticker.C:
-				scanScheduledAccounts(context.Background(), store, q, entitlementResolver, entitlementGrace)
+				scanScheduledAccounts(context.Background(), store, q)
 			}
 		}
 	}()
@@ -829,58 +783,14 @@ func expireSnoozes(ctx context.Context, store storage.Store) {
 	}
 }
 
-// scanScheduledAccounts checks all accounts across all organizations and triggers scans for those overdue.
-//
-// resolver==nil → SELF-HOSTED: the license gate is pass-wide (binary, all
-// accounts share its posture) — one check up front short-circuits the whole
-// pass. resolver!=nil → SAAS: entitlement is PER-ORG, so the gate moves into the
-// loop. To avoid N round-trips, all entitlements are batch-loaded once into a
-// map and the per-account check is a map lookup + the pure IsScanAllowed
-// predicate. See docs/saas-platform-admin-design.md §7.1.
-//
-// NOTE: in the SaaS path the `resolver` is used ONLY as a non-nil sentinel — the
-// per-org data comes from store.ListAllEntitlements (batched) and the pure
-// IsScanAllowed predicate, so resolver.GetEntitlement is never called here
-// (unlike the handler + worker, which look up one org at a time via the resolver).
-func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue, resolver entitlement.Resolver, grace time.Duration) {
-	if resolver == nil {
-		// Pass-wide license gate — unchanged self-hosted behaviour.
-		if !license.IsScanAllowed() {
-			slog.Info("scan-scheduler: skipped — license not active",
-				"state", license.SnapshotState().String(),
-			)
-			return
-		}
-	}
+// scanScheduledAccounts checks all accounts across all organizations and
+// triggers scans for those overdue. No license or entitlement gate — every
+// connected account is scanned on schedule, unconditionally.
+func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue) {
 	accounts, err := store.ListAllAccounts(ctx)
 	if err != nil {
 		slog.Error("scan-scheduler: failed to list accounts", "error", err)
 		return
-	}
-
-	// SaaS: load every org's entitlement once for the per-account check below.
-	var entMap map[string]model.Entitlement
-	if resolver != nil {
-		ents, err := store.ListAllEntitlements(ctx)
-		if err != nil {
-			slog.Error("scan-scheduler: failed to list entitlements — skipping pass (fail closed)", "error", err)
-			return
-		}
-		entMap = make(map[string]model.Entitlement, len(ents))
-		for _, e := range ents {
-			entMap[e.OrganizationID] = e
-		}
-		// Anomaly guard: a zero-row read while accounts exist is indistinguishable
-		// from "every tenant unpaid" and would skip the whole fleet silently. A
-		// lagging read replica or a mis-granted admin pool can return 0 rows with
-		// NO error, so the per-account fail-closed below would deny everyone with
-		// only info-level skip lines. Surface it loudly so ops can tell a real
-		// data/replication problem from a legitimately-empty fleet.
-		if len(ents) == 0 && len(accounts) > 0 {
-			slog.Warn("scan-scheduler: entitlements empty while accounts exist — ALL scans will be skipped as not_entitled; check the entitlements table, the admin-pool grant, or replica lag",
-				"accounts", len(accounts),
-			)
-		}
 	}
 
 	now := time.Now()
@@ -904,25 +814,6 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Que
 		}
 		if !isOverdue {
 			continue
-		}
-		// SaaS per-org entitlement gate (the pass-wide license gate above is
-		// the self-hosted equivalent). Fail-closed: an org with no entitlement
-		// row (missing from the map) is skipped, exactly like a suspended one.
-		if resolver != nil {
-			ent, ok := entMap[acc.OrganizationID]
-			if !ok || !entitlement.IsScanAllowed(ent, now, grace) {
-				// Carry the entitlement status (or "no_row") so ops can tell a
-				// billing suspension from a missing row (data bug) from a
-				// past_due-with-no-period-anchor without a manual DB query.
-				reason := "no_row"
-				if ok {
-					reason = string(ent.Status)
-				}
-				slog.Info("scan-scheduler: skipped_not_entitled",
-					"account_id", acc.ID, "organization_id", acc.OrganizationID, "entitlement_status", reason,
-				)
-				continue
-			}
 		}
 		job := queue.ScanJob{
 			OrganizationID: acc.OrganizationID,

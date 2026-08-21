@@ -17,8 +17,8 @@ import (
 // every binary's `/metrics` endpoint relies on. The shared observability
 // package binds Global.* to a package-private registry; promhttp.Handler()
 // reads only the default registry. A binary that wires `/metrics` with the
-// bare promhttp.Handler() silently drops every license/auth_provider/http_*/
-// db_*/aws_*/scan_* metric — the regression caught on MR !85's preview env.
+// bare promhttp.Handler() silently drops every auth_provider/http_*/db_*/
+// aws_*/scan_* metric — the regression caught on MR !85's preview env.
 //
 // MetricsHandler is the single seam every binary now uses. This test pins
 // both directions: a metric registered to the default registry AND a metric
@@ -56,8 +56,8 @@ func TestMetricsHandler_MergesDefaultAndPrivateRegistries(t *testing.T) {
 	wantPrivate := []string{
 		"axiaops_http_requests_total",        // §2.6 HTTP observability
 		"axiaops_db_connections_active",      // §2.6 DB observability
-		"axiaops_license_expires_at_seconds", // §4.9.4 license observability
-		"axiaops_license_days_remaining",     // §4.9.4 license observability
+		"axiaops_application_uptime_seconds", // application observability
+		"axiaops_session_cache_errors_total", // session cache observability
 	}
 	for _, name := range wantPrivate {
 		if !strings.Contains(body, name) {
