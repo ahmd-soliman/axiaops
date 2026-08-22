@@ -54,8 +54,6 @@ const SEED_ROUTES = [
   '/settings/audit',
   '/settings/sso',
   '/settings/organization',
-  // '/settings/license' omitted — under the SaaS e2e build it redirects to
-  // /settings (no customer-facing license); crawling it just re-crawls /settings.
   '/onboarding',
 ];
 
