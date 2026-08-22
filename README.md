@@ -431,3 +431,15 @@ axiaops/
 ## Status
 
 **Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow. Remaining: email/Slack alerts. Target first paying customer: October 2026.
+
+---
+
+## License
+
+AxiaOps is licensed under the [Apache License, Version 2.0](LICENSE). See [`NOTICE`](NOTICE) for third-party attributions.
+
+"AxiaOps" and the AxiaOps logo are trademarks of the AxiaOps project. The license grants no trademark rights (Apache-2.0 §6) — you're free to use, modify, and redistribute the code, including for a competing product, but forks and derivative works should use their own name and branding rather than "AxiaOps."
+
+## Contributing
+
+Contributions are welcome. By submitting a pull/merge request, you agree that your contribution is licensed under the same Apache-2.0 terms as the rest of the project.
