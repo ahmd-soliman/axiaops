@@ -28,9 +28,14 @@ services:
       RUNTIME_ADMIN_DATABASE_URL: ${RUNTIME_ADMIN_DATABASE_URL}
       SCAN_INTERVAL: ${SCAN_INTERVAL:-60s}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      # Audit H-2: bearer token gating GET /metrics outside DEV_MODE. Empty ⇒
-      # /metrics rejects all requests (deny-by-default). Set per env in CI when
-      # Prometheus scraping is wanted.
+      # Audit H-2 (tracked, NOT yet implemented): METRICS_BEARER_TOKEN is
+      # currently a no-op. GET /metrics has no runtime auth check today —
+      # it's still listed in publicPath() (services/api/internal/middleware/
+      # auth.go) and registered unauthenticated in services/ingestion/cmd/
+      # main.go. Setting this variable does NOT gate the endpoint yet; the
+      # slot exists so the follow-up that adds real bearer-token enforcement
+      # doesn't also need a CI-variable change. Until then, /metrics is
+      # reachable without auth in every env, including this one.
       METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
       REDIS_URL: ${REDIS_URL}
       AWS_REGION: ${AWS_REGION:-us-east-1}
@@ -55,9 +60,14 @@ services:
       INGESTION_URL: http://axiaops-ingestion-integration:8081
       API_ADDR: ":8080"
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      # Audit H-2: bearer token gating GET /metrics outside DEV_MODE. Empty ⇒
-      # /metrics rejects all requests (deny-by-default). Set per env in CI when
-      # Prometheus scraping is wanted.
+      # Audit H-2 (tracked, NOT yet implemented): METRICS_BEARER_TOKEN is
+      # currently a no-op. GET /metrics has no runtime auth check today —
+      # it's still listed in publicPath() (services/api/internal/middleware/
+      # auth.go) and registered unauthenticated in services/ingestion/cmd/
+      # main.go. Setting this variable does NOT gate the endpoint yet; the
+      # slot exists so the follow-up that adds real bearer-token enforcement
+      # doesn't also need a CI-variable change. Until then, /metrics is
+      # reachable without auth in every env, including this one.
       METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
       REDIS_URL: ${REDIS_URL}
       # C-1: api-side HMAC signer. Same value as ingestion's current slot.
