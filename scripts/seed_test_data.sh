@@ -17,11 +17,11 @@
 #
 # Usage:
 #   ./scripts/seed_test_data.sh                                    # Local docker
-#   ./scripts/seed_test_data.sh --remote dev-1                     # Remote dev-1   (192.0.2.121:5432)
-#   ./scripts/seed_test_data.sh --remote dev-2                     # Remote dev-2   (192.0.2.123:5432)
-#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (192.0.2.122:5432)
-#   ./scripts/seed_test_data.sh --remote preview                   # Remote preview (192.0.2.124:5432)
-#   ./scripts/seed_test_data.sh --remote demo                      # Remote demo    (192.0.2.126:5432)
+#   ./scripts/seed_test_data.sh --remote dev-1                     # Remote dev-1   (192.168.1.121:5432)
+#   ./scripts/seed_test_data.sh --remote dev-2                     # Remote dev-2   (192.168.1.123:5432)
+#   ./scripts/seed_test_data.sh --remote staging                   # Remote staging (192.168.1.122:5432)
+#   ./scripts/seed_test_data.sh --remote preview                   # Remote preview (192.168.1.124:5432)
+#   ./scripts/seed_test_data.sh --remote demo                      # Remote demo    (192.168.1.126:5432)
 #   MIGRATION_DATABASE_URL="postgres://..." ./scripts/seed_test_data.sh      # Custom connection (owner user, bypasses RLS)
 #
 # Each env runs on its own self-hosted container with hostname axiaops-<env>; the
@@ -173,12 +173,12 @@ if [[ -n "$REMOTE_ENV" ]]; then
   # from a LAN-attached laptop). The script itself sticks to IPs to
   # avoid the resolver-dependency surface.
   case "$REMOTE_ENV" in
-    dev-1)       HOST_IP="192.0.2.121" ;;
-    dev-2)       HOST_IP="192.0.2.123" ;;
-    staging)     HOST_IP="192.0.2.122" ;;
-    preview)     HOST_IP="192.0.2.124" ;;
-    demo)        HOST_IP="192.0.2.126" ;;
-    integration) HOST_IP="192.0.2.130" ;;
+    dev-1)       HOST_IP="192.168.1.121" ;;
+    dev-2)       HOST_IP="192.168.1.123" ;;
+    staging)     HOST_IP="192.168.1.122" ;;
+    preview)     HOST_IP="192.168.1.124" ;;
+    demo)        HOST_IP="192.168.1.126" ;;
+    integration) HOST_IP="192.168.1.130" ;;
   esac
   DB_PORT=5432
 
