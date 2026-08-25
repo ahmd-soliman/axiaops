@@ -23,8 +23,8 @@ done
 
 # ── Connection setup ──────────────────────────────────────────────────────────
 
-psql_exec()  { docker-compose exec -T postgres psql -U axiaops_owner -d axiaops -c "$1"; }
-psql_super() { docker-compose exec -T postgres psql -U axiaops_owner -d axiaops -c "$1"; }
+psql_exec()  { docker compose exec -T postgres psql -U axiaops_owner -d axiaops -c "$1"; }
+psql_super() { docker compose exec -T postgres psql -U axiaops_owner -d axiaops -c "$1"; }
 
 if [[ "$DROP_SCHEMA" == "true" ]]; then
   echo "=== DROPPING local AxiaOps schema ==="
