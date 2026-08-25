@@ -62,6 +62,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
+          cache-dependency-path: |
+            services/shared/go.sum
+            services/api/go.sum
+            services/ingestion/go.sum
       - run: cd services/shared && go test ./cache ./queue -count=1 -v
 
   test-dashboard:
@@ -99,6 +103,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
+          cache-dependency-path: |
+            services/shared/go.sum
+            services/api/go.sum
+            services/ingestion/go.sum
       - run: cd services/shared && go test ./storage/postgres/... -count=1 -v -p=1
 
   lint:
@@ -108,15 +116,19 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
-      - uses: golangci/golangci-lint-action@v6
+          cache-dependency-path: |
+            services/shared/go.sum
+            services/api/go.sum
+            services/ingestion/go.sum
+      - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.11.4
           working-directory: services/shared
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.11.4
           working-directory: services/api
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.11.4
           working-directory: services/ingestion
@@ -175,6 +187,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
+          cache-dependency-path: |
+            services/shared/go.sum
+            services/api/go.sum
+            services/ingestion/go.sum
       - run: make build-production
       - run: cd services/api && go test -tags production ./cmd/
       - run: cd services/ingestion && go test -tags production ./cmd/
