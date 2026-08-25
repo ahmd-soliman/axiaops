@@ -1,0 +1,25 @@
+# The repo-root .gitignore line `data/` (test fixtures) catches our
+# modules/data Terraform module — re-allow it here.
+!modules/data/
+!modules/data/**
+
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+backend.hcl
+
+# tfvars are env-specific and hold real account/domain identity; only
+# example/template files are committed.
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
