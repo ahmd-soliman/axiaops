@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "axiaops.fullname" . }}-dashboard-admin
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "dashboard-admin") | nindent 4 }}
+spec:
+  replicas: {{ .Values.dashboardAdmin.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "dashboard-admin") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "dashboard-admin") | nindent 8 }}
+      {{- with .Values.dashboardAdmin.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: dashboard-admin
+          image: {{ include "axiaops.dashboardAdminImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: ADMIN_API_HOST
+              value: {{ include "axiaops.apiAdminHost" . }}
+          {{- with .Values.dashboardAdmin.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "axiaops.fullname" . }}-dashboard-admin
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "dashboard-admin") | nindent 4 }}
+spec:
+  selector:
+    {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "dashboard-admin") | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
