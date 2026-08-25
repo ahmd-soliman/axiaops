@@ -387,13 +387,12 @@ axiaops/
 - [x] Production deployment (ECS Express + RDS + Valkey via Terraform)
 
 ### Phase 3 — Beta / Launch (target December 2026)
-- [ ] Stripe billing — (pricing removed)
+- [ ] Subscription billing
 - [x] GDPR / right to erasure + data export
 - [ ] Remediation CLI commands per resource type
 - [ ] Scan history log + tag/team filtering + CSV export
 - [x] Expanded detection rules (EBS, S3, CloudFront, Redshift, ElastiCache)
 - [x] User management + roles (admin/viewer)
-- [ ] Operating entity — (legal entity) + (operating entity) (target August 2026)
 
 ### Phase 4 — Scale (2027)
 - [ ] Multi-cloud (Azure, GCP)
@@ -426,11 +425,21 @@ axiaops/
 | [docs/middleware.md](docs/middleware.md) | API middleware chain — auth, rate limiting, request ID, metrics |
 | [docs/production.md](docs/production.md) | Production setup — IAM, ECS Express, RDS, Secrets Manager, CloudFront; IaC in `axiaops/aws-infra` |
 | [docs/deployment.md](docs/deployment.md) | Deployment options, cost estimates by phase |
-| [docs/business_plan.md](docs/business_plan.md) | Business model, pricing, GTM strategy, competitive landscape |
-| [docs/tax_strategy.md](docs/tax_strategy.md) | German tax structure, VAT, exit planning |
 
 ---
 
 ## Status
 
 **Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow. Remaining: email/Slack alerts. Target first paying customer: October 2026.
+
+---
+
+## License
+
+AxiaOps is licensed under the [Apache License, Version 2.0](LICENSE). See [`NOTICE`](NOTICE) for third-party attributions.
+
+"AxiaOps" and the AxiaOps logo are trademarks of the AxiaOps project. The license grants no trademark rights (Apache-2.0 §6) — you're free to use, modify, and redistribute the code, including for a competing product, but forks and derivative works should use their own name and branding rather than "AxiaOps."
+
+## Contributing
+
+Contributions are welcome. By submitting a pull/merge request, you agree that your contribution is licensed under the same Apache-2.0 terms as the rest of the project.

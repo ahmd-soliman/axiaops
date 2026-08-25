@@ -169,13 +169,13 @@ flowchart LR
     end
 
     subgraph hosts["self-hosted hosts"]
-        subgraph d1["dev-1<br/>192.168.1.121"]
+        subgraph d1["dev-1<br/>192.0.2.121"]
             d1stack["docker-compose stack:<br/>nginx + api + ingestion +<br/>postgres + redis"]
         end
-        subgraph d2["dev-2<br/>192.168.1.123"]
+        subgraph d2["dev-2<br/>192.0.2.123"]
             d2stack["docker-compose stack"]
         end
-        subgraph stg["staging<br/>192.168.1.122"]
+        subgraph stg["staging<br/>192.0.2.122"]
             stgstack["docker-compose stack<br/>(DEV_MODE=false,<br/>real license JWT)"]
         end
     end
@@ -366,7 +366,7 @@ flowchart TB
 
 - **Native auth**: argon2id hashes, constant-time compared at `services/api/internal/auth/password.go:104` (`Verify`). Sessions in the `sessions` table; cookie name `axiaops_session`; lookup at `auth/session.go:185` (`Manager.ValidateSession`) which checks the cache first then falls through to the DB.
 - **Multi-membership** (B1.5) takes a two-step path: `/v1/auth/login` returns `needs_org_selection`, frontend collects choice, posts to `/v1/auth/select-org` which **re-validates the password** (defence in depth — never trust the frontend to remember step 1). 401 `invalid_credentials` collapses wrong-password / unknown-email / org-not-in-set into one shape so the no-creds membership-probe channel narrows.
-- **OIDC SSO**: per-connection JWKS, RS256 ID-token validation. State carries the connection ID per Tasks.md 2.7.22; the legacy path-cid callback `/v1/sso/oidc/{cid}/callback` stays wired one release as a deprecation window. Session minting at `services/api/internal/sso/oidc_callback.go:317` with `auth_mode='sso'`.
+- **OIDC SSO**: per-connection JWKS, RS256 ID-token validation. State carries the connection ID; the legacy path-cid callback `/v1/sso/oidc/{cid}/callback` stays wired one release as a deprecation window. Session minting at `services/api/internal/sso/oidc_callback.go:317` with `auth_mode='sso'`.
 - **Sessions cap**: `SESSIONS_PER_USER_CAP` (default 10). The (cap+1)th login revokes the oldest.
 - **In-app org switcher** (B1.5): `/v1/auth/switch-org` revokes the current session, mints a fresh one bound to the target org, audits the switch as `session.org_switched`.
 - `DEV_MODE` is bypassed by the `production` build tag — see § 7.
@@ -476,7 +476,7 @@ Logs go through `slog` configured by `logging.Init(service)`. JSON in production
 
 ## 10. CI/CD
 
-GitLab pipeline. Stages defined in `.gitlab-ci.yml`. Per [ci.md](ci.md) and [gitlab_ci_pipeline.md](gitlab_ci_pipeline.md).
+GitLab pipeline. Stages defined in `.gitlab-ci.yml`. Per [ci.md](ci.md).
 
 ```mermaid
 flowchart LR

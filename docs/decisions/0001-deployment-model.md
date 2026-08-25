@@ -1,10 +1,10 @@
 # ADR-0001: Deployment Model — Self-hosted-first
 
 - **Date**: 2026-04-29
-- **Status**: **Superseded by [ADR-0002](0002-saas-first-for-awareness.md)** — 2026-06-11 (was: Accepted 2026-04-29)
-- **Decider**: Ahmed Soliman (founder)
+- **Status**: **Superseded by ADR-0002 (SaaS-first for awareness)** — 2026-06-11 (was: Accepted 2026-04-29)
+- **Decider**: AxiaOps Maintainers
 - **Supersedes**: —
-- **Superseded by**: [ADR-0002 (SaaS-first for awareness)](0002-saas-first-for-awareness.md)
+- **Superseded by**: ADR-0002 (SaaS-first for awareness)
 
 ## Context
 
@@ -142,8 +142,8 @@ Stay SaaS, add self-hosted in Phase 5+.
 
 ### Now committed to
 - SSO design doc §3 recommendation flips from Option A to Option B (native). The §4 data model is unchanged — already portable.
-- Phase 3 task rescoping in `Tasks.md` (#1, #9p, #17 — all defer or narrow).
-- New Phase items needed in `Tasks.md`:
+- Phase 3 roadmap rescoping (#1, #9p, #17 — all defer or narrow).
+- New Phase items needed:
   - Helm chart + docker-compose bundle, on-host install runbook
   - Native auth replacing Kinde (email/password + SSO Option B) — scoped in `docs/sso-implementation-plan.md` Phases B1/B1.5/B2/C
   - License / entitlement model — **scoped in `docs/sso-implementation-plan.md` D12 / Phase B1.6 (advanced from this ADR's "deferred to 6+ customers" follow-up; see follow-ups section below)**

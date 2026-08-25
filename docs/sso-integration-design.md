@@ -694,7 +694,7 @@ Document as a non-goal (§2.2 update); revisit if 3+ customers ask.
 
 Step 6g is the bridge between SSO and the rest of the product: SSO authenticates the user, then we mint a native session that the rest of the app (handlers, RBAC, audit) consumes uniformly — same shape as a session minted by native email/password login. This is what makes auth code single-pathed (§3.4 reasoning #2).
 
-**Dependency on native auth design**: the `sessions` row, the JWT shape, and the cookie format are owned by **Phase B1 native auth** (§14) — see the forthcoming `docs/native-auth-design.md` (must exist before B1 starts). This SSO doc consumes them as primitives. If `native-auth-design.md` lands later than expected, B2 blocks on it — record that dependency in Tasks.md when the entry is created.
+**Dependency on native auth design**: the `sessions` row, the JWT shape, and the cookie format are owned by **Phase B1 native auth** (§14) — see the forthcoming `docs/native-auth-design.md` (must exist before B1 starts). This SSO doc consumes them as primitives. If `native-auth-design.md` lands later than expected, B2 blocks on it — record that dependency when the tracking item is created.
 
 ---
 
@@ -1148,7 +1148,6 @@ services/api/internal/api/handler.go            # /v1/me returns has_sso + auth_
 services/dashboard/src/pages/settings/Team.jsx  # provisioned_via column
 services/api/CLAUDE.md                          # endpoint table + auth section rewrite
 services/shared/CLAUDE.md                       # tables list
-Tasks.md                                        # rescoped Phase 3 (Stripe / SOC 2 deferred), new self-hosted phase items
 docs/decisions/0001-deployment-model.md         # ADR (already accepted)
 ```
 

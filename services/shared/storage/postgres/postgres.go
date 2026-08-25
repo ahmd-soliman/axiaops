@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"strings"
 	"time"
@@ -323,18 +322,6 @@ func (s *Store) UpsertOrganization(ctx context.Context, orgCode, name string) (m
 		return model.Organization{}, fmt.Errorf("postgres: fetch organization: %w", err)
 	}
 
-	// Auto-entitle so the default (SaaS) fail-closed scan-gate works without
-	// billing. Non-fatal: this runs on the first-login / SSO-JIT hot path, so a
-	// transient entitlement-write hiccup must not break login. Idempotent + DO
-	// NOTHING, so re-running is harmless. Note the gap this leaves: if the write
-	// fails for a BRAND-NEW org, that org has no entitlement row until something
-	// re-triggers a create/upsert for it (the 034 backfill only covers orgs that
-	// existed at migration time) — its scans are denied (fail-closed) until then.
-	// Accepted as a low-probability transient case; the warn log is the signal.
-	if err := s.ensureDefaultEntitlement(ctx, t.ID); err != nil {
-		slog.WarnContext(ctx, "postgres: upsert organization: default entitlement write failed",
-			"organization_id", t.ID, "error", err)
-	}
 	return t, nil
 }
 
@@ -420,46 +407,6 @@ func (s *Store) EnsureOrganization(ctx context.Context, id, orgCode, name string
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: ensure organization: %w", err)
-	}
-	if err := s.ensureDefaultEntitlement(ctx, id); err != nil {
-		return err
-	}
-	return nil
-}
-
-// ensureDefaultEntitlement auto-grants a default entitlement row for an org if
-// one does not already exist, so the default (SaaS) build's fail-closed scan-gate
-// (entitlement.IsScanAllowedForOrg — a missing row denies) lets a freshly-created
-// org scan without billing wired up. Called at every org-creation chokepoint
-// (UpsertOrganization, EnsureOrganization, ConsumeBootstrapState).
-//
-// Runs on s.adminPool: the `entitlements` table is system-scoped with NO RLS and
-// is GRANTed only to axiaops_runtime (migration 033), not the `axiaops` app role
-// — so a write via s.pool would be a hard permission error. (In DEV_MODE the two
-// pools collapse to one, so this still works in dev.)
-//
-// ON CONFLICT (organization_id) DO NOTHING is load-bearing: a real billing-set
-// row (plan free/pro/enterprise, set via UpsertEntitlement) must win and never be
-// clobbered by this default grant. The single INSERT is idempotent and race-safe
-// — two concurrent creation paths converge on one row with no error.
-//
-// plan='internal' marks the row as an auto-granted pre-billing grant (distinct
-// from billing-set plans, and the marker migration 034's backfill/cleanup keys
-// off). status='active' is exactly what the fail-closed gate treats as
-// scan-allowed. max_accounts=1000 is a high cap so onboarding is not artificially
-// limited before billing assigns a real plan limit.
-func (s *Store) ensureDefaultEntitlement(ctx context.Context, organizationID string) error {
-	if organizationID == "" {
-		return fmt.Errorf("postgres: ensure default entitlement: organization_id required")
-	}
-	_, err := s.adminPool.Exec(ctx, `
-		INSERT INTO entitlements (organization_id, plan, status, max_accounts, features)
-		VALUES ($1, 'internal', 'active', 1000, '{}')
-		ON CONFLICT (organization_id) DO NOTHING`,
-		organizationID,
-	)
-	if err != nil {
-		return fmt.Errorf("postgres: ensure default entitlement: %w", err)
 	}
 	return nil
 }

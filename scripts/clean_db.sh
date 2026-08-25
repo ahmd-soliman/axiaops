@@ -4,12 +4,12 @@
 # Usage:
 #   ./scripts/clean_db.sh                                  # Local docker (truncate)
 #   ./scripts/clean_db.sh --drop-schema                    # Local docker (drop schema)
-#   ./scripts/clean_db.sh --remote dev-1                   # Remote dev-1   (192.168.1.121:5432)
-#   ./scripts/clean_db.sh --remote dev-2                   # Remote dev-2   (192.168.1.123:5432)
-#   ./scripts/clean_db.sh --remote staging --drop-schema   # Remote staging (192.168.1.122:5432)
-#   ./scripts/clean_db.sh --remote preview                 # Remote preview (192.168.1.124:5432)
-#   ./scripts/clean_db.sh --remote demo                    # Remote demo    (192.168.1.126:5432)
-#   ./scripts/clean_db.sh --remote integration             # Remote integ.  (192.168.1.130:5432)
+#   ./scripts/clean_db.sh --remote dev-1                   # Remote dev-1   (192.0.2.121:5432)
+#   ./scripts/clean_db.sh --remote dev-2                   # Remote dev-2   (192.0.2.123:5432)
+#   ./scripts/clean_db.sh --remote staging --drop-schema   # Remote staging (192.0.2.122:5432)
+#   ./scripts/clean_db.sh --remote preview                 # Remote preview (192.0.2.124:5432)
+#   ./scripts/clean_db.sh --remote demo                    # Remote demo    (192.0.2.126:5432)
+#   ./scripts/clean_db.sh --remote integration             # Remote integ.  (192.0.2.130:5432)
 #
 # Each env runs on its own self-hosted container — postgres listens on the
 # standard 5432 since per-host means no port collision. Static IPs
@@ -88,12 +88,12 @@ if [[ -n "$REMOTE_ENV" ]]; then
   # routing where mDNS doesn't traverse. See seed_test_data.sh for the
   # full rationale.
   case "$REMOTE_ENV" in
-    dev-1)       HOST_IP="192.168.1.121" ;;
-    dev-2)       HOST_IP="192.168.1.123" ;;
-    staging)     HOST_IP="192.168.1.122" ;;
-    preview)     HOST_IP="192.168.1.124" ;;
-    demo)        HOST_IP="192.168.1.126" ;;
-    integration) HOST_IP="192.168.1.130" ;;
+    dev-1)       HOST_IP="192.0.2.121" ;;
+    dev-2)       HOST_IP="192.0.2.123" ;;
+    staging)     HOST_IP="192.0.2.122" ;;
+    preview)     HOST_IP="192.0.2.124" ;;
+    demo)        HOST_IP="192.0.2.126" ;;
+    integration) HOST_IP="192.0.2.130" ;;
   esac
   DB_PORT=5432
 
