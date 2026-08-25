@@ -1,0 +1,144 @@
+# Default values for the axiaops chart. One Helm release = one environment,
+# same as one self-hosted host = one environment in deploy/{dev,staging,preview,
+# demo,integration}.yml today.
+#
+# No environment identity (hostnames, real secret values, real domains)
+# belongs in this file or anywhere else in this chart -- that's what makes
+# it a template. A deployer supplies all of that via -f/--set (e.g. the
+# inline `helm.values` block of an ArgoCD Application in a separate,
+# private ops repo). This file only sets safe, generic defaults.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: registry.gitlab.com/axiaops/axiaops
+  # Empty resolves to .Chart.AppVersion (see templates/_helpers.tpl
+  # axiaops.imageTag) -- set explicitly to pin a commit-slug or release tag.
+  tag: ""
+  pullPolicy: IfNotPresent
+  # api/ingestion only. Empty pulls the DEV_MODE-honouring image; set to
+  # "-production" to pull the DEV_MODE-hardwired-off sibling build:images
+  # also pushes. Mirrors API_IMAGE_TAG_SUFFIX in .gitlab-ci.yml -- see that
+  # file's .deploy-dev template and fix(ci) 3fdc45b6/f90a9736 for why this
+  # distinction exists (a misconfigured DEV_MODE CI var must not be able to
+  # flip auth off on a real environment).
+  apiSuffix: ""
+
+imagePullSecrets: []
+
+# APP_ENV baked into every pod (shows up in /v1/version, logs, metrics
+# labels). Free text -- the chart makes no live/dev assumption based on it.
+env: dev
+
+devMode:
+  # DEV_MODE=true bypasses auth entirely (see services/api/cmd/main.go) --
+  # only ever appropriate for a throwaway/personal environment. Sets
+  # DEV_MODE, DEV_ORGANIZATION_ID, DEV_ORG_NAME on api/ingestion/dashboard
+  # the same way deploy/dev.yml does.
+  enabled: true
+  organizationId: dev-organization-axiaops
+  orgName: "AxiaOps Dev"
+
+# Real domains are environment identity, not chart content -- leave these
+# empty by default so `helm template`/`helm lint` never renders a stray
+# hostname. ingress.enabled: false skips the Ingress resource entirely.
+ingress:
+  enabled: false
+  # e.g. traefik.ingress.kubernetes.io/router.entrypoints: web. Nothing
+  # Traefik-specific is assumed by the templates themselves -- this chart
+  # renders a plain networking.k8s.io/v1 Ingress, portable to any
+  # controller.
+  className: ""
+  annotations: {}
+  host: ""       # dashboard (tenant UI + /api proxy)
+  adminHost: ""  # dashboard-admin (staff console + /admin proxy)
+  tls:
+    enabled: false
+    secretName: ""
+
+# The chart never bundles Postgres. Every existing axiaops environment runs
+# it as a standalone process outside the app's own deploy unit (see
+# apps/axiaops-<env>-db in the homelab repo) rather than as part of the
+# thing being deployed -- this chart keeps that separation. existingSecret
+# must provide three postgres:// DSNs as keys: database-url,
+# migration-database-url, runtime-admin-database-url.
+postgres:
+  existingSecret: ""
+
+redis:
+  enabled: true
+  image:
+    repository: valkey/valkey
+    tag: "8.1-alpine"
+  auth:
+    # requirepass closes the intra-cluster trust gap flagged in
+    # docs/c1-hmac-plan.md §12 Q7 -- any pod on the namespace's network
+    # could otherwise LPUSH a forged scan job. Empty password only belongs
+    # on a DEV_MODE environment. When set, this Secret must provide BOTH:
+    #   password   -- passed to valkey-server --requirepass
+    #   redis-url  -- the full redis://:<password>@<host>:6379 DSN, since
+    #                 api/ingestion/api-admin each read REDIS_URL as one
+    #                 string and a plain env var can't interpolate a
+    #                 second Secret's value into it.
+    existingSecret: ""
+    secretKey: password
+  resources: {}
+
+# Name of a pre-existing Secret (created out-of-band -- this cluster has no
+# sealed-secrets/external-secrets operator, see self-hosted-infra's
+# gitops/README.md "Explicitly not planned") holding the values that must
+# never be chart content: encryption-key, ingestion-shared-secret,
+# ingestion-shared-secret-next, metrics-bearer-token, smtp-pass.
+secrets:
+  existingSecret: ""
+
+corsOrigin: ""
+publicHost: ""
+
+smtp:
+  host: ""
+  port: 587
+  user: ""
+  from: ""
+  fromName: "AxiaOps"
+
+api:
+  replicaCount: 1
+  resources: {}
+  podAnnotations: {}
+
+ingestion:
+  replicaCount: 1
+  resources: {}
+  scanInterval: 60s
+  podAnnotations: {}
+
+dashboard:
+  replicaCount: 1
+  resources: {}
+  # AWS account ID shown in the dashboard's "connect an account" flow --
+  # cosmetic, not a secret. See deploy/dev.yml AXIAOPS_AWS_ACCOUNT_ID.
+  awsAccountId: ""
+  podAnnotations: {}
+
+apiAdmin:
+  replicaCount: 1
+  resources: {}
+  podAnnotations: {}
+
+dashboardAdmin:
+  replicaCount: 1
+  resources: {}
+  podAnnotations: {}
+
+migrate:
+  # Free-text actor recorded in migration_history.applied_by_actor --
+  # mirrors MIGRATION_ACTOR_LABEL in .gitlab-ci.yml's deploy jobs.
+  actorLabel: "helm"
+  # Job resource, not a Deployment -- Helm pre-install/pre-upgrade hook,
+  # deleted+recreated on every install/upgrade so migrations run exactly
+  # once per release before any app Pod using the new schema starts.
+  # Mirrors the "migrate before app code" ordering .gitlab-ci.yml's deploy
+  # jobs already enforce (docker run migrate, THEN docker rm/run api).
+  backoffLimit: 1
