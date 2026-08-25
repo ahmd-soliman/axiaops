@@ -214,8 +214,7 @@ func (t *EmailTransport) deliver(ctx context.Context, cfg model.EmailConfig, to 
 	// scan (or the invite request) past the per-transport timeout. `done` is
 	// buffered so the goroutine can always send and exit even after we've
 	// returned on the ctx path — it outlives this call but never blocks
-	// (acceptable for v1: single attempt, no retry — see
-	// docs/notifications-plan.md "Risks + deferred → Retry / DLQ").
+	// (acceptable for v1: single attempt, no retry — DLQ/retry deferred).
 	done := make(chan error, 1)
 	go func() {
 		done <- t.sendMail(addr, auth, cfg.From, to, msg)

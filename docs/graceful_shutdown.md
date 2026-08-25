@@ -1,8 +1,9 @@
 # Graceful Shutdown Implementation
 
-**Status:** ✅ Complete (P0 blocker for ECS Express deployment)  
-**Date:** April 11, 2026  
-**Phase:** Phase 2.9 (from development_plan.md)
+How `api` and `ingestion` handle `SIGTERM`/`SIGINT` — connection draining,
+in-flight scan completion, and pool teardown order. Relevant to anyone
+running this behind an orchestrator that sends a term signal before killing
+the process (ECS, Kubernetes, systemd).
 
 ---
 
@@ -210,9 +211,7 @@ sleep 2 && kill -SIGTERM <INGESTION_PID>
 
 ---
 
-## Phase 2 Checklist Status
-
-From `docs/development_plan.md` section **2.9 Graceful Shutdown**:
+## Checklist
 
 - [x] Listen for `SIGTERM` / `SIGINT` via `signal.NotifyContext`
 - [x] API: call `server.Shutdown(ctx)` with a 30-second drain timeout

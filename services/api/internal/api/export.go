@@ -2,8 +2,7 @@
 //
 // Implements the GDPR Art. 15 (access) and Art. 20 (portability) right by
 // returning a single JSON document containing every per-organization row the
-// calling organization owns. See docs/compliance/gdpr_plan.md §4.1 for the full
-// product surface and acceptance criteria.
+// calling organization owns.
 //
 // Gated by PermDataExport (owner-only). The export bundles billing data,
 // the full audit_log of every member, and account configurations — granting
@@ -154,7 +153,7 @@ func (h *Handler) buildOrgExport(ctx context.Context, organizationID string) (*o
 		SchemaVersion:  exportSchemaVersion,
 		GeneratedAt:    time.Now().UTC(),
 		OrganizationID: organizationID,
-		Notes:          "Encrypted account credentials, internal-only audit fields, and Stripe billing records (held by Stripe under §147 AO) are excluded. See docs/compliance/gdpr_plan.md §4.2.",
+		Notes:          "Encrypted account credentials, internal-only audit fields, and Stripe billing records (held by Stripe under §147 AO) are excluded.",
 	}
 
 	g, gctx := errgroup.WithContext(ctx)

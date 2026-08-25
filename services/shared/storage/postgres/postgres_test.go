@@ -621,8 +621,8 @@ func TestUpsertOrganization_ReturnsSameIDOnSecondCall(t *testing.T) {
 	}
 }
 
-// TestUpsertOrganization_PreservesLocalName is the regression guard for the
-// name-clobber bug fixed in docs/onboarding-wizard.md §3. Once an organization
+// TestUpsertOrganization_PreservesLocalName is the regression guard for a
+// name-clobber bug: once an organization
 // row exists, AxiaOps owns the `name` field — subsequent UpsertOrganization
 // calls (which run on every authenticated request via the auth middleware)
 // must not overwrite a local rename with whatever org_name claim Kinde sent.

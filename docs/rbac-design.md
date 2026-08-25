@@ -439,8 +439,6 @@ Partial unique index on `(organization_id, lower(email)) WHERE status='pending'`
 
 Permission tiers mirror `POST /v1/memberships`: `members:invite` for `member`/`viewer` targets, `members:manage_admin` for `admin` targets. Revocation (`DELETE /v1/invitations/{id}`) calls Kinde's `DELETE .../organizations/{org_code}/users/{kinde_user_id}` first, then flips the local row to `revoked`.
 
-See `docs/invitation-flow.md` for the full design contract — middleware hook, Kinde Mgmt API client, dashboard UX, edge cases, and testing plan.
-
 ### Deleted user with valid JWT
 
 A user whose membership row was deleted still has their JWT until it expires. Next request:
@@ -564,12 +562,12 @@ Drop migration 015. Remove `Require` wrappers. Since the backfill defaults every
 
 ### Phase 2 (post-MVP)
 
-- ~~Audit log (new `audit_log` table, written from mutation handlers)~~ — **shipped**. Migration 014, `Store.AuditLogWrite/List/AnonymiseUser`, `services/api/internal/audit` helper, `GET /v1/audit` with cursor pagination, dashboard `AuditScreen.jsx`. See `docs/audit_trail_plan.md`.
+- ~~Audit log (new `audit_log` table, written from mutation handlers)~~ — **shipped**. Migration 014, `Store.AuditLogWrite/List/AnonymiseUser`, `services/api/internal/audit` helper, `GET /v1/audit` with cursor pagination, dashboard `AuditScreen.jsx`.
 - **GDPR — right to erasure** (`DELETE /v1/users/me`, `DELETE /v1/organizations/me`) — owner-only `organization:delete` permission, `Store.DeleteUser`/`DeleteOrganizationCascade` (admin-pool, FK-safe order), audit_log purge baked into the organization cascade. Sole-owner guard on user delete. Prometheus counters `axiaops_user_deletions_total` / `axiaops_organization_deletions_total` are the durable ops trail (the audit row gets purged with the rest). Out of scope here: `GET /v1/export` (data portability), Stripe cancellation hook, dashboard UI for organization deletion.
 - API keys / service-account memberships
 - Per-cloud-account scoping (`membership_account_scopes` table + handler filtering)
 - SSO-driven default-role mapping (Kinde org-role → AxiaOps role on first login)
-- ~~Invite-by-email (before first login)~~ — **shipped**. `POST /v1/invitations`, `pending_memberships` table, Kinde Mgmt API integration, middleware redemption hook. See §8 "Invitations (current scope)" and `docs/invitation-flow.md`.
+- ~~Invite-by-email (before first login)~~ — **shipped**. `POST /v1/invitations`, `pending_memberships` table, middleware redemption hook. See §8 "Invitations (current scope)".
 - Billing admin role (ships alongside the subscription/billing feature)
 - Internal / staff roles — see §11 (triggered by second hire, first paying customer, or billing system shipping)
 
@@ -607,7 +605,7 @@ The Kinde free tier caps custom RBAC at **2 roles and 10 permissions** (per busi
 - **4 roles** (`owner`, `admin`, `member`, `viewer`)
 - **~14 permissions** (`accounts:read`, `accounts:write`, `accounts:delete`, `accounts:scan`, `zombies:read`, `zombies:dismiss`, `snapshots:read`, `costs:read`, `resources:read`, `members:read`, `members:invite`, `members:manage_basic`, `members:manage_admin`, `organization:transfer`, plus `organization:delete` already shipped)
 
-Both numbers are over the free-tier cap. Adopting Kinde RBAC natively forces us onto **Pro at $25/mo day one**, which contradicts the Phase 2 €24–34/mo total infra envelope (`docs/development_plan.md`).
+Both numbers are over the free-tier cap. Adopting Kinde RBAC natively forces us onto **Pro at $25/mo day one**, which contradicts the target infra cost envelope.
 
 ### Decision: stay internal for now
 
@@ -627,7 +625,7 @@ The migration is additive, not destructive:
 
 1. Define the 4 roles in Kinde with the same key strings used in `authz` (`owner`, `admin`, `member`, `viewer`). Define a single permission per role at first (or none — we don't need Kinde to model permissions if we keep the matrix in Go).
 2. Enable the `roles` JWT claim in Kinde token customization.
-3. Extend `auth.go` after `EnsureFirstMembership` / `RedeemPendingInvitation` (see `docs/invitation-flow.md`): read `roles` from the JWT, call a new `Store.SyncMembershipRole(ctx, userID, orgID, roleKey)` that updates the `memberships.role` column to match the Kinde claim. The `memberships` table becomes a **derived projection** of Kinde state.
+3. Extend `auth.go` after `EnsureFirstMembership` / `RedeemPendingInvitation`: read `roles` from the JWT, call a new `Store.SyncMembershipRole(ctx, userID, orgID, roleKey)` that updates the `memberships.role` column to match the Kinde claim. The `memberships` table becomes a **derived projection** of Kinde state.
 4. Membership-management endpoints (`POST /v1/memberships`, `PATCH /v1/memberships/{id}/role`, `DELETE /v1/memberships/{id}`, `POST /v1/invitations`) call Kinde Mgmt API instead of writing the local row directly. The local row is updated when Kinde fires a webhook or on the user's next login.
 5. Permission decorators (`Require(perm, ...)`) are unchanged — they still consult the local `memberships.role` and the `rolePermissions` map.
 
