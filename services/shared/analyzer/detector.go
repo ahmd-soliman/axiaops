@@ -124,6 +124,10 @@ func Summarize(zombies []model.ZombieResource) Summary {
 		s.ByService[z.Service] = svc
 	}
 	s.PotentialMonthlySave = round2(s.PotentialMonthlySave)
+	for svc, summary := range s.ByService {
+		summary.Savings = round2(summary.Savings)
+		s.ByService[svc] = summary
+	}
 	return s
 }
 
