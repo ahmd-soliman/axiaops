@@ -1,9 +1,8 @@
 {{/*
-Plain networking.k8s.io/v1 Ingress -- portable to any controller. This
-cluster's ingress controller (Traefik, see self-hosted-infra's gitops/README.md)
-does plain-HTTP Host-based routing only; TLS termination happens at the
-edge (an edge proxy), outside the cluster entirely. If pointed at a controller that
-DOES want in-cluster TLS, set ingress.tls.enabled + ingress.tls.secretName.
+Plain networking.k8s.io/v1 Ingress -- portable to any controller. Assumes
+TLS termination happens at an edge proxy outside the cluster and this does
+plain-HTTP Host-based routing only. If pointed at a controller that DOES
+want in-cluster TLS, set ingress.tls.enabled + ingress.tls.secretName.
 */}}
 {{- if .Values.ingress.enabled }}
 apiVersion: networking.k8s.io/v1

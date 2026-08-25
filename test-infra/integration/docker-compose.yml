@@ -25,7 +25,7 @@ services:
       MIGRATION_DATABASE_URL: postgres://axiaops_owner:${POSTGRES_OWNER_PASSWORD:-axiaops_owner}@postgres:5432/axiaops?sslmode=disable
       # Bootstrap syncs the runtime RLS-bypass role's password from this URL so
       # the ingestion service can connect as axiaops_runtime (migration 029 adds
-      # its grants + per-table bypass policies). See docs/runtime-admin-db-role.md.
+      # its grants + per-table bypass policies). See docs/AUTHENTICATION.md (§5).
       RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops?sslmode=disable
     depends_on:
       postgres:
@@ -58,7 +58,7 @@ services:
     environment:
       DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops?sslmode=disable
       # Cross-org scheduled-scan enumeration (ListAllAccounts) runs on the
-      # RLS-bypass role. See docs/runtime-admin-db-role.md.
+      # RLS-bypass role. See docs/AUTHENTICATION.md (§5).
       RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops?sslmode=disable
       REDIS_URL: redis://redis:6379
       SCAN_INTERVAL: 10s
@@ -86,7 +86,7 @@ services:
       # Parity with the ingestion service + the production two-pool path. Under
       # DEV_MODE this collapses to the app pool, but it's wired so a future
       # non-DEV_MODE integration test doesn't silently break. See
-      # docs/runtime-admin-db-role.md.
+      # docs/AUTHENTICATION.md (§5).
       RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops?sslmode=disable
       REDIS_URL: redis://redis:6379
       INGESTION_URL: http://ingestion:8081

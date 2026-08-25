@@ -6,12 +6,13 @@ This is the navigable hub for engineers working on AxiaOps. Read this first, the
 > - [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) — onboarding, env setup, common workflows
 > - [/CLAUDE.md](../CLAUDE.md) — project-level conventions, commands, dev workflow
 > - Per-service: [api/CLAUDE.md](../services/api/CLAUDE.md), [ingestion/CLAUDE.md](../services/ingestion/CLAUDE.md), [shared/CLAUDE.md](../services/shared/CLAUDE.md) — dashboard has no per-service CLAUDE.md yet, see [DEVELOPER_GUIDE.md § 3](DEVELOPER_GUIDE.md#3-code-conventions-youll-want-to-absorb) for dashboard conventions
-> - Auth: [native-auth-bootstrap.md](native-auth-bootstrap.md)
-> - Detection: [aws-coverage.md](aws-coverage.md)
+> - Auth: [AUTHENTICATION.md](AUTHENTICATION.md)
+> - Operations: [OPERATIONS.md](OPERATIONS.md) — connecting an AWS account, notification channels
+> - Testing: [TEST_STRATEGY.md](TEST_STRATEGY.md)
 
 ## TL;DR
 
-AxiaOps is a FinOps SaaS that detects idle/zombie cloud resources still incurring cost. The MVP targets AWS; multi-cloud is on the Phase 4 roadmap. Three Go services communicate via HTTP — `api` (`:8080`) reads from PostgreSQL and exposes a REST surface to a Vite/React dashboard; `ingestion` (`:8081`) fetches AWS data and writes to PostgreSQL; `shared` is a library, not a process. Multi-tenancy is enforced at the database level via Postgres Row-Level Security keyed on `app.organization_id`. Self-hosted licenses gate scan execution; DEV_MODE bypasses auth and uses an embedded license fixture.
+AxiaOps is a FinOps SaaS that detects idle/zombie cloud resources still incurring cost. The MVP targets AWS; multi-cloud is on the Phase 4 roadmap. Three Go services communicate via HTTP — `api` (`:8080`) reads from PostgreSQL and exposes a REST surface to a Vite/React dashboard; `ingestion` (`:8081`) fetches AWS data and writes to PostgreSQL; `shared` is a library, not a process. Multi-tenancy is enforced at the database level via Postgres Row-Level Security keyed on `app.organization_id`. DEV_MODE bypasses auth for local development.
 
 ---
 
@@ -79,7 +80,7 @@ The `shared` module is the boundary between "domain logic that runs anywhere" an
 
 ### `api` — read path + control plane
 
-REST server on `:8080`. Exposes the dashboard's full surface (zombies, summary, trends, costs, accounts CRUD, dismissals, audit log, memberships, invitations, native auth, SSO ceremony, license/version metadata, observability metrics). Reads from PostgreSQL, never calls AWS directly. Triggers scans by HTTP POST to ingestion. See [api/CLAUDE.md](../services/api/CLAUDE.md) for the full endpoint table.
+REST server on `:8080`. Exposes the dashboard's full surface (zombies, summary, trends, costs, accounts CRUD, dismissals, audit log, memberships, invitations, native auth, SSO ceremony, version metadata, observability metrics). Reads from PostgreSQL, never calls AWS directly. Triggers scans by HTTP POST to ingestion. See [api/CLAUDE.md](../services/api/CLAUDE.md) for the full endpoint table.
 
 Notable patterns:
 - Go 1.22+ `mux.HandleFunc("METHOD /path", fn)` route registration
@@ -93,7 +94,7 @@ Long-lived HTTP server on `:8081`. Receives `POST /scan` with `{account_id, orga
 
 ### `shared` — domain library
 
-Domain models, the `Store` interface (single contract for all data access), PostgreSQL implementation with RLS, the analyzer (pure detection functions), AES-256-GCM crypto, structured logging via `log/slog`, Prometheus observability helpers, cache + queue abstractions, license verification, audit-log helpers. See [shared/CLAUDE.md](../services/shared/CLAUDE.md).
+Domain models, the `Store` interface (single contract for all data access), PostgreSQL implementation with RLS, the analyzer (pure detection functions), AES-256-GCM crypto, structured logging via `log/slog`, Prometheus observability helpers, cache + queue abstractions, audit-log helpers. See [shared/CLAUDE.md](../services/shared/CLAUDE.md).
 
 ### `dashboard` — Vite + React (web)
 
@@ -154,60 +155,39 @@ The dashboard renders the last two with the `theme.warning` (yellow) callout in 
 
 ## 4. Deployment Topology
 
-The deployment shape is non-obvious — easy to misread from `.gitlab-ci.yml`. Each deployed env runs on its **own** self-hosted host (not a shared Docker host), with **an edge proxy (an edge proxy)** as the edge TLS terminator.
+Three supported paths — pick whichever fits your infrastructure:
 
-```mermaid
-flowchart LR
-    subgraph user_browser["User"]
-        ub["Browser"]
-    end
+| Path | What it is | Where |
+|---|---|---|
+| `docker compose` | Single host, one `docker-compose.yml` | Repo root — `make start-dev` / `make start-staging` |
+| Kubernetes (Helm) | One `helm install` per environment, bring your own Postgres | [`deploy/helm/axiaops/`](../deploy/helm/axiaops/) |
+| AWS (Terraform) | ECS Express (Fargate) + RDS | [`terraform/`](../terraform/) |
 
-    subgraph npm_layer["an edge proxy (an edge proxy)"]
-        npm["TLS termination<br/>+ hostname routing"]
-    end
+All three sit behind an edge TLS terminator you provide (a reverse proxy, an
+ingress controller, or CloudFront in front of ECS Express) — the services
+themselves speak plain HTTP internally and rely on `X-Forwarded-Proto` to decide
+whether to set the session cookie's `Secure` flag.
 
-    subgraph hosts["self-hosted hosts"]
-        subgraph d1["dev-1<br/>192.0.2.121"]
-            d1stack["docker-compose stack:<br/>nginx + api + ingestion +<br/>postgres + redis"]
-        end
-        subgraph d2["dev-2<br/>192.0.2.123"]
-            d2stack["docker-compose stack"]
-        end
-        subgraph stg["staging<br/>192.0.2.122"]
-            stgstack["docker-compose stack<br/>(DEV_MODE=false,<br/>real license JWT)"]
-        end
-    end
+**Two env vars matter regardless of which path you pick:**
 
-    subgraph ci["GitLab CI runner"]
-        runner["docker:24 alpine<br/>DOCKER_HOST=ssh://deploy@HOST_IP<br/>(SSH-as-Docker-context)"]
-    end
+- **`PUBLIC_HOST`** — the externally-reachable hostname (e.g.
+  `https://axiaops.example.com`), not an internal host/IP. Empty → SSO ceremonies
+  fail at the IdP redirect.
+- **`INTERNAL_DNS`** — needed only if your IdP has split-horizon DNS. Without it the
+  API resolves the IdP via public DNS, hits whatever WAF fronts it (Cloudflare Bot
+  Fight Mode, for instance, rejects Go's default UA on
+  `/.well-known/openid-configuration`), and OIDC discovery fails.
 
-    subgraph aws_prod["AWS (production)"]
-        ecs["ECS Express<br/>(Fargate, always-on)"]
-        rds[("RDS db.t4g.micro")]
-    end
+### Graceful shutdown
 
-    ub -->|"https://axiaops-<env>.local"| npm
-    ub -->|"https://axiaops-<env>.local"| npm
-    npm -->|HTTP :80/:8080<br/>X-Forwarded-Proto| d1stack
-    npm -->|HTTP :80/:8080| d2stack
-    npm -->|HTTP :80/:8080| stgstack
-    runner -.->|"docker pull / compose up<br/>over SSH tunnel"| d1stack
-    runner -.->|over SSH| d2stack
-    runner -.->|over SSH| stgstack
-    ecs -->|VPC| rds
+Both `api` (`:8080`) and `ingestion` (`:8081`) handle `SIGTERM`/`SIGINT` via `signal.NotifyContext`, matters for any orchestrator that sends a term signal before killing the process (ECS, Kubernetes, systemd):
 
-    classDef host fill:#F5F5F4,stroke:#D6D3D1
-    class d1,d2,stg host
-```
+1. Stop accepting new requests
+2. Drain in-flight requests / the current scan, up to a 30s timeout (`server.Shutdown(ctx)`)
+3. Close the Postgres pool (`pool.Close()`)
+4. Exit
 
-**Footguns that have bitten before**:
-
-- `DEPLOY_SSH_PRIVATE_KEY` must be a **File-type** GitLab CI variable. Variable-type strips PEM newlines and silently corrupts the key.
-- The CI runner uses raw IPs because the Alpine `docker:24` image's musl libc has no mDNS resolution — humans use `axiaops-<env>.local`, CI can't.
-- `PUBLIC_HOST` per env should be the externally-reachable an edge proxy hostname (`https://axiaops-<env>.local`), not host IP+port. Empty → SSO ceremonies fail at the IdP redirect.
-- `INTERNAL_DNS` per env is needed for self-hosted IdP setups with split-horizon DNS — without it the API tries to resolve the IdP via public DNS, hits whatever WAF fronts it (Cloudflare Bot Fight Mode rejects Go's default UA on `/.well-known/openid-configuration`), and OIDC discovery fails.
-- All `deploy:*` jobs are **manual gates** — never auto-triggered. If one is running, an operator clicked it.
+A shutdown that hits the timeout logs and exits anyway rather than hanging — existing connections may be cut, but the process won't wedge a rolling deploy. Test locally with `make start-dev` in one terminal and `kill -SIGTERM <pid>` in another; expect `shutdown signal received, draining requests` then `shutdown complete, duration_seconds=…` in the logs.
 
 ---
 
@@ -300,17 +280,48 @@ erDiagram
 
 ### Migration system
 
-Versioned SQL files, run on service startup using `MIGRATION_DATABASE_URL` (owner role). Naming: `NNN_description.up.sql` / `NNN_description.down.sql`. As of 2026-05, the migration count is in the high 050s — see [docs/migrations.md](migrations.md) for the workflow when adding one.
+Tool: [golang-migrate/migrate v4](https://github.com/golang-migrate/migrate) — versioned SQL files, run on service startup using `MIGRATION_DATABASE_URL` (owner role). Naming: `NNN_description.up.sql` / `NNN_description.down.sql`, embedded via `//go:embed`.
 
-`postgres.Migrate` is a wrapper, not a thin call to golang-migrate. On every boot it:
+**The five rules that keep upgrades safe** (a customer can skip minor versions —
+every release replays whatever migrations are missing since their last upgrade):
 
-1. Pins a `*sql.Conn` and acquires a wrapper-level session advisory lock (`AxiaOpsM`).
-2. Runs **orphan recovery** — finalises any `axiaops.migration_history` row whose post-step UPDATE was lost to a crash (per the §Failure modes truth table in `docs/migration-history-table-design.md`).
-3. Runs **backfill** if `migration_history` is empty but `migration_state` is non-empty (first deploy).
-4. Runs **drift detection** — compares the on-disk SHA-256 of every embedded `.up.sql` against the recorded SHA. Mismatch → `slog.Warn` (log-only; `Migrate` runs in short-lived migrate / axiaopsctl binaries that have no `/metrics` endpoint, so a Prometheus counter would be unobservable). `MIGRATION_HISTORY_STRICT=true` flips to refuse-to-start.
-5. Drives `m.Steps(1)` in a loop. Each step gets a pre-INSERT 'started' row (committed before the DDL) and a post-step UPDATE to `succeeded`/`failed`.
+1. **Never delete or edit a released migration.** Once a `.up.sql` ships in a tagged
+   release it's immutable — fix forward with a new migration.
+2. **Never reuse a migration number.** Gaps are fine; reuse breaks golang-migrate's
+   version tracking.
+3. **`.down.sql` is for local dev only** — there's no promise of a production
+   downgrade path via `down`; production downgrade is "restore from backup."
+4. **Renames/drops are a two-release dance** — release N adds the new column +
+   dual-writes, release N+1 removes the old one. Never drop in one step if there's
+   prod data on the column.
+5. **Migrations should be fast** — single-digit seconds on a 100k-row table; anything
+   potentially long-running needs an operator runbook entry, not just a `.up.sql`.
 
-`migration_state` is still owned by golang-migrate as before. `migration_history` layers on top — every event (up / down / force) lands a forensic row keyed by `id BIGSERIAL`. Operators inspect via `bin/axiaopsctl migrate history` or directly from `axiaops.migration_history`. DML on the table is owner-only; the app user has `SELECT` only.
+`postgres.Migrate` is a wrapper around golang-migrate, not a thin passthrough. On every boot it:
+
+1. Pins a `*sql.Conn` and acquires a wrapper-level session advisory lock.
+2. Runs **orphan recovery** — finalises any `axiaops.migration_history` row whose post-step UPDATE was lost to a crash mid-run.
+3. Runs **backfill** if `migration_history` is empty but `migration_state` is non-empty (first deploy onto an existing DB).
+4. Runs **drift detection** — compares the on-disk SHA-256 of every embedded `.up.sql` against the most recent recorded SHA. Mismatch → `slog.Warn` (log-only by default — `Migrate` runs in short-lived migrate/`axiaopsctl` binaries with no `/metrics` endpoint, so a Prometheus counter would be incremented and lost before any scraper reached it; the signal instead flows through the same log pipeline as everything else). `MIGRATION_HISTORY_STRICT=true` flips the posture to refuse-to-start (default-on for CI/staging/dev, default-off for self-hosted installs).
+5. Drives `m.Steps(1)` in a loop. Each step gets a pre-INSERT `started` row (committed before the DDL) and a post-step UPDATE to `succeeded`/`failed`.
+
+Two tables: **`migration_state`** (golang-migrate's own bookkeeping — current
+`version` + `dirty` flag; `dirty=true` means the last migration failed mid-run and
+needs manual intervention) and **`migration_history`** (a forensic audit table the
+wrapper writes on every up/down/force event — *when* a version applied, *which
+build* ran it, *which file bytes* were applied, whether it ever rolled back and
+reapplied). `migration_history` is owned by `axiaops_owner`; the app role has
+`SELECT` only. Inspect via `bin/axiaopsctl migrate history`, `bin/axiaopsctl migrate
+drift` (prints on-disk-vs-recorded SHA mismatches on demand), or query the table
+directly. Truncating `migration_history` is allowed but acts as a re-baseline — the
+next boot backfills from the live files as ground truth, and whatever you wanted to
+forensically catch is gone.
+
+**Operator escape hatch**: `bin/axiaopsctl migrate force N` writes a `force` history
+row (`file_sha256=NULL` — no file is applied, only `migration_state` is rewritten).
+Prefer this over the raw `migrate force` binary so the event lands in
+`migration_history`. There is no supported bastion-`migrate`-binary workflow — the
+legitimate channel is always `axiaopsctl`.
 
 ---
 
@@ -350,12 +361,42 @@ flowchart TB
 
 `services/api/internal/serverbuild/build.go:285-340` (`ComposeServer`):
 
-1. **CORS** (line 340) — outermost; reflects allowlisted origins, emits `Access-Control-Allow-Credentials: true` for non-`*` configs.
-2. **Request-ID + structured logging + Prometheus metrics** (line 310) — every request gets a request_id; HTTP histograms recorded automatically.
+```
+CORS → request-logging + metrics → request-id → auth (DevBypass OR WrapNative→EnforceSSO) → rate-limiter → mux
+```
+
+CORS sits outermost so preflight `OPTIONS` and rejection responses still carry
+`Access-Control-Allow-*` headers; the rate-limiter sits closest to the mux because it
+buckets by `(organization, user)`, which auth has to resolve first.
+
+1. **CORS** (line 340) — outermost; reads `CORS_ORIGIN` (`*` for legacy/no-credentials,
+   or a comma-separated allowlist that reflects `Origin` and emits
+   `Access-Control-Allow-Credentials: true` so the session cookie round-trips
+   cross-origin). Short-circuits `OPTIONS` preflights with `204`.
+2. **Request-ID + structured logging + Prometheus metrics** (line 310) — outermost
+   *behind* CORS so every request is counted, including auth failures. Injects
+   `X-Request-ID` (uses the incoming header if present, else a fresh UUIDv4;
+   retrievable via `middleware.RequestIDFromCtx(ctx)`) and records
+   `axiaops_api_requests_total` / `axiaops_api_request_duration_seconds`, labelled
+   by the matched **route pattern** (never a raw ID) to avoid cardinality blowup.
 3. **Auth** — branches on DEV_MODE:
-   - `DevBypass` (line 299, definition `middleware/auth.go:129`) injects `DEV_USER_ID` / `DEV_ORGANIZATION_ID` / `DEV_USER_EMAIL` onto the request context without a DB lookup.
-   - **OR** `WrapNative + EnforceSSO` (lines 304–305) — cookie session lookup against the `sessions` table, role + org resolved via `MembershipLookup`. SSO enforcement applies on top per-org.
-4. **Rate limit** (line 292) — login endpoints share a single budget so an attacker can't double the cap by alternating `/auth/login` and `/auth/select-org`.
+   - `DevBypass` (line 299, definition `middleware/auth.go:129`) injects `DEV_USER_ID` / `DEV_ORGANIZATION_ID` / `DEV_USER_EMAIL` onto the request context without a DB lookup or cookie.
+   - **OR** `WrapNative + EnforceSSO` (lines 304–305) — reads the `axiaops_session`
+     HttpOnly cookie, looks it up in the `sessions` table (via Redis cache when
+     available), resolves `OrganizationID`/`UserID`/`Email`/`Role`/`AuthMode` onto
+     the context. A failed lookup returns `401 unauthenticated` without echoing the
+     internal reason. `EnforceSSO` then rejects (`403 sso_required`) a
+     `auth_mode="password"` request against an org with SSO enforcement `required`
+     — except `/v1/auth/logout`, always allowed. Context accessors:
+     `middleware.OrganizationID/UserID/UserEmail/UserName/Role/AuthMode(ctx)`.
+   - **Public paths** bypassing auth entirely: `/health`, `/livez`, `/readyz`,
+     `/metrics`, every `/v1/auth/*`, `/v1/sso/discover`, the OIDC initiate/callback paths.
+4. **Rate limit** (line 292) — Redis-backed token bucket per `(organization, user)`,
+   only active when `REDIS_URL` is set (an in-memory fallback would be
+   per-replica and meaningless under autoscaling). Default `RATE_LIMIT_MAX`/minute
+   (1000); `429` with `Retry-After` + `X-RateLimit-*` headers; disabled in
+   `DEV_MODE=true`. Login endpoints share a single budget so an attacker can't
+   double the cap by alternating `/auth/login` and `/auth/select-org`.
 5. **HTTP mux / handlers** (innermost).
 
 **Public paths** (no auth required) are listed in `middleware/auth.go:45-60` (`publicPath`): `/health`, `/livez`, `/readyz`, `/metrics`, every `/v1/auth/*`, `/v1/sso/discover`, and the OIDC initiate/callback paths.
@@ -367,7 +408,6 @@ flowchart TB
 - **OIDC SSO**: per-connection JWKS, RS256 ID-token validation. State carries the connection ID; the legacy path-cid callback `/v1/sso/oidc/{cid}/callback` stays wired one release as a deprecation window. Session minting at `services/api/internal/sso/oidc_callback.go:317` with `auth_mode='sso'`.
 - **Sessions cap**: `SESSIONS_PER_USER_CAP` (default 10). The (cap+1)th login revokes the oldest.
 - **In-app org switcher** (B1.5): `/v1/auth/switch-org` revokes the current session, mints a fresh one bound to the target org, audits the switch as `session.org_switched`.
-- `DEV_MODE` is bypassed by the `production` build tag — see § 7.
 
 ### Right-to-erasure paths
 
@@ -376,47 +416,62 @@ flowchart TB
 
 ---
 
-## 7. License Verification (B1.6 + B1.7)
+## 7. Detection Engine
 
-The self-hosted distribution gates scan execution behind a license JWT. Both binaries call `license.VerifyAtBoot` at startup and run `license.RunTicker`; both consult `license.IsScanAllowed` at every scan-gate.
+26 detection rules across 18 AWS services, two tiers depending on the data source:
 
-**Call sites** (verified):
-- `VerifyAtBoot`: API at `services/api/cmd/main.go:62`, ingestion at `services/ingestion/cmd/main.go:110`
-- `IsScanAllowed` (via `IsScanAllowedForState`): API handler at `services/api/internal/api/handler.go:1004`, ingestion handler at `services/ingestion/cmd/main.go:157`, ingestion background worker at `services/ingestion/cmd/worker.go:55`
+- **Tier 1 (CloudWatch-based)** — joins Cost Explorer billing data with a
+  CloudWatch metric; cost with usage at/below threshold ⇒ flagged.
+- **Tier 2 (API-only)** — Describe-API state alone determines waste (e.g. an
+  unattached EBS volume is always waste, no metric needed).
 
-```mermaid
-stateDiagram-v2
-    [*] --> NotLoaded
-    NotLoaded --> Valid: Load(JWT)<br/>signature OK<br/>+ in-window
-    NotLoaded --> InGrace: Load(JWT)<br/>past expiry<br/>but within 14d grace
-    NotLoaded --> Expired: Load(JWT)<br/>past expiry + grace
-    Valid --> InGrace: ticker tick<br/>past expiry
-    InGrace --> Expired: ticker tick<br/>past grace
-    Valid --> [*]: scan ALLOWED
-    InGrace --> [*]: scan ALLOWED<br/>(with warning banner)
-    Expired --> [*]: scan BLOCKED<br/>(IsScanAllowed=false)
-    NotLoaded --> [*]: scan BLOCKED
+### Tier 1 — CloudWatch-based
+
+| AWS service | Metric (namespace) | Threshold | Verdict |
+|---|---|---|---|
+| EC2 | CPUUtilization (AWS/EC2) | ≤ 5% | Idle instance |
+| RDS | DatabaseConnections (AWS/RDS) | = 0 | Abandoned database |
+| Lambda | Invocations (AWS/Lambda) | = 0 | Unused function |
+| ELB | RequestCount (AWS/ApplicationELB) | = 0 | Abandoned load balancer |
+| NAT Gateway | BytesOutToDestination (AWS/NATGateway) | = 0 | Unused NAT Gateway |
+| ElastiCache | CurrConnections (AWS/ElastiCache) | = 0 | Idle cache cluster |
+| OpenSearch | SearchRate (AWS/ES) | = 0 | Unused search cluster |
+| Redshift | DatabaseConnections (AWS/Redshift) | = 0 | Abandoned data warehouse |
+| SageMaker | Invocations (AWS/SageMaker) | = 0 | Forgotten endpoint |
+| DynamoDB | ConsumedReadCapacityUnits (AWS/DynamoDB) | = 0 | Unused table (provisioned mode) |
+| EKS | cluster_node_count (ContainerInsights) | = 0 | Empty cluster (requires Container Insights) |
+| CloudFront | Requests (AWS/CloudFront) | = 0 | Abandoned distribution |
+| Kinesis | IncomingRecords (AWS/Kinesis) | = 0 | Unused data stream |
+| S3 | AllRequests (AWS/S3) | = 0 | Abandoned bucket (requires request metrics enabled) |
+
+### Tier 2 — API-only
+
+| Resource | AWS API | Condition | Verdict |
+|---|---|---|---|
+| Elastic IP | `ec2:DescribeAddresses` | Not attached to any ENI | Unattached EIP |
+| EBS Volume | `ec2:DescribeVolumes` | `state = "available"` | Unattached volume |
+| EBS Snapshot | `ec2:DescribeSnapshots`+`DescribeImages` | Source volume gone, not backing any AMI | Orphaned snapshot |
+| EC2 Instance | `ec2:DescribeInstances` | Stopped > 30 days | Long-stopped instance |
+| AMI | `ec2:DescribeImages`+`DescribeInstances` | Age > 90d, unreferenced | Unused AMI |
+| CloudWatch Log Group | `logs:DescribeLogGroups` | No retention policy | Wasteful log group |
+| RDS Snapshot (manual) | `rds:DescribeDBSnapshots` | Age > 30d, source DB deleted | Orphaned RDS snapshot |
+| ECR Repository | `ecr:DescribeRepositories`+`ListImages` | Untagged or age > 90d | Stale container images |
+| Secrets Manager | `secretsmanager:ListSecrets` | `LastAccessedDate` > 90d | Unused secret |
+
+The full read-only IAM permission list these calls require is in
+[OPERATIONS.md § 1](OPERATIONS.md) — one source of truth shared by the
+CloudFormation template, the Terraform snippet, and that doc.
+
+### Detection flow
+
 ```
-
-Build-tag split (`services/shared/license/embed_{dev,production}.go`):
-
-- **`embed_dev.go`** (default builds) — `devEmbeddedPubKeyPEM` and `devFixtureJWT` are populated. The dev RS256 public key + a 100-year fixture JWT signed by the matching dev keypair are bundled. DEV_MODE Loads this fixture so dev exercises the full Load → CheckExpiry → state chain (state=Valid, customer_id="axiaops-dev-fixture").
-- **`embed_production.go`** (`-tags production`) — both `devEmbeddedPubKeyPEM` and `devFixtureJWT` are nil. The production binary literally has no dev pubkey to verify the fixture against, so even a planted dev JWT can't load. Only a real production-signed JWT works.
-
-`IsScanAllowed` returns true only when state ∈ {Valid, InGrace}. `IsEnforcementBypassed()` is a seam reserved for the future SaaS composition root — no production self-hosted path sets it post-layer-4.
-
-See [b1.6-amendment-feature-gating.md](b1.6-amendment-feature-gating.md).
-
----
-
-## 8. Detection Engine
-
-Two tiers depending on the data source:
-
-| Tier | Signal | Examples |
-|---|---|---|
-| **Tier 1** | API-only — state derived from Describe calls, no CloudWatch | Unattached EBS volumes, orphaned snapshots, long-stopped EC2, unused AMIs, retention=null log groups, untagged ECR images, never-accessed Secrets |
-| **Tier 2** | CloudWatch metric below threshold | Idle EC2 (CPUUtilization ≤ 5%), abandoned RDS (DatabaseConnections = 0), unused Lambda (Invocations = 0), idle ELB, unused NAT GW, etc. |
+POST /scan → Fetch costs (Cost Explorer)
+           → Discover resources (per-service Describe APIs)
+           → Fetch usage (CloudWatch GetMetricStatistics)
+           → Detect Tier 1 zombies (cost + usage join, apply thresholds)
+           → Discover Tier 2 zombies (API-only state checks)
+           → Combine, summarize, save to PostgreSQL
+```
 
 Detection lives in `services/shared/analyzer/`:
 
@@ -437,15 +492,13 @@ The `serviceRules` map lives in `analyzer/rules.go:17` — each entry is `rule{m
 3. **Tier 1** (API-only): add a `DiscoverXxxZombies()` function in `services/ingestion/internal/provider/aws/discover_*.go` and call it from `runIngestionCore()` in `services/ingestion/cmd/main.go` (the orchestrator loop, around the existing Discover* calls between lines 544–685)
 4. `services/shared/analyzer/testdata/golden/<scenario>/` — add the golden fixtures (input_costs.json, input_usage.json, expected_zombies.json)
 5. Unit test for the threshold in `services/shared/analyzer/`
-6. Update the IAM read-only policy list in [connect-aws-account.md](connect-aws-account.md)
-
-See [aws-coverage.md](aws-coverage.md) and the [detection-rule skill](../.claude/skills/detection-rule/) (auto-loaded when adding detection support).
+6. Update the IAM read-only policy list in [OPERATIONS.md § 1](OPERATIONS.md)
 
 ---
 
-## 9. Observability
+## 8. Observability
 
-Phase 2.6 added Prometheus + structured logging across the stack. See [OBSERVABILITY.md](OBSERVABILITY.md) for the full guide.
+Prometheus metrics + structured logging across the stack. See [OBSERVABILITY.md](OBSERVABILITY.md) for the full guide.
 
 ```mermaid
 flowchart LR
@@ -466,45 +519,54 @@ flowchart LR
 
 **Use `observability.MetricsHandler()`** to expose the endpoint, **not** `promhttp.Handler()`. The helper merges the package-private registry that holds `Global.*` with `prometheus.DefaultGatherer`. Wiring `promhttp.Handler()` directly only scrapes the default registry — every metric in `observability/` silently vanishes. (Caught on MR !85; the helper is now the single seam.)
 
-Logs go through `slog` configured by `logging.Init(service)`. JSON in production (`LOG_OUTPUT=json`), text in dev. Auto-attaches `service`, `env`, `version`, `commit_sha`.
+Logs go through Go's standard `log/slog`, configured by `logging.Init(service)` (`services/shared/logging/logging.go`) called before any other init. Auto-attaches `service`, `env`, `version`, `commit_sha`. Use the global `slog` functions directly (`slog.Info("server started", "addr", addr)`) — never log raw secret values.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `DEV_MODE` | `false` | `true` → text log output |
+| `LOG_OUTPUT` | `json` | `text` for human-readable output without full dev mode |
+| `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
 
 ---
 
-## 10. CI/CD
+## 9. CI/CD
 
-GitLab pipeline. Stages defined in `.gitlab-ci.yml`. Per [ci.md](ci.md).
+GitHub Actions. Workflow defined in `.github/workflows/ci.yml`.
 
 ```mermaid
 flowchart LR
-    push[git push] --> test["test stage<br/>(go test, vet, lint,<br/>test-storage, test-integration)"]
-    test --> build_check["build stage<br/>(go build -tags production)"]
-    build_check --> images["build:images<br/>(docker push to registry)"]
-    images --> mint["mint:license:* (per env)<br/>signs license JWT for that host"]
-    mint --> gate["gate:devmode:* (manual)<br/>safety check"]
-    gate --> deploy_jobs["deploy:dev-1 / dev-2 /<br/>preview / staging /<br/>production (manual)"]
+    push[push / PR] --> test["test-unit, test-redis,<br/>test-dashboard, test-storage,<br/>lint"]
+    test --> integ["test-integration-api,<br/>test-integration-ingestion"]
+    integ --> build["build-production-shape<br/>(go build -tags production)"]
+    build --> images["build-images<br/>(push to GHCR)"]
+    images --> e2e["e2e-regression<br/>(Playwright, non-blocking)"]
 ```
 
-Two specifics worth knowing:
+CI covers test, build, and e2e only — there is no deploy stage in this repo's
+workflow. Deploying to your own infrastructure (Kubernetes via
+[`deploy/helm/`](../deploy/helm/axiaops/), AWS via [`terraform/`](../terraform/), or
+plain `docker compose`) is a separate step you run yourself; see
+[OPERATIONS.md](OPERATIONS.md) and each path's own README.
 
-- **Production-build smoke test** — `make build-production` runs `go build -tags production` on every pipeline. If a new feature reads `os.Getenv("DEV_MODE")` directly instead of going through `cmd/devmode_*.go`, the regression-pin tests in `cmd/devmode_{dev,production}_test.go` catch it in <30s.
-- **`gate:devmode:<env>` jobs** are the layer-1 safety gate. Manual click required before deploy.
+**Production-build smoke test** — `make build-production` runs `go build -tags
+production` in CI. If a new feature reads `os.Getenv("DEV_MODE")` directly instead
+of going through `cmd/devmode_*.go`, the regression-pin tests in
+`cmd/devmode_{dev,production}_test.go` catch it in <30s.
 
 ---
 
-## 11. Security Posture
+## 10. Security Posture
 
 - **Secrets at rest** — AWS account secrets are AES-256-GCM encrypted with `ENCRYPTION_KEY` (32-byte hex) before DB storage. Never commit `.env` or credentials.
 - **Multi-tenancy** — RLS-enforced at the DB level. Application bug ≠ tenant data leak (the DB refuses to return out-of-tenant rows).
-- **Production IAM** — use roles, not access keys. Customer-onboarding cross-account-role flow documented in [connect-aws-account.md](connect-aws-account.md).
+- **Production IAM** — use roles, not access keys. Customer-onboarding cross-account-role flow documented in [OPERATIONS.md § 1](OPERATIONS.md).
 - **Build-tag hardening** — `production` build tag strips DEV_MODE from customer binaries. The lint job `test:lint:no-direct-devmode` rejects any new `os.Getenv("DEV_MODE")` reads outside `cmd/devmode_*.go`.
 - **Native auth** — argon2id password hashes; cookie sessions; per-connection OIDC JWKS for SSO; rate limits on login + select-org sharing one budget so an attacker can't double the cap.
 - **Audit log** — every privileged mutation writes a row via the `audit` helper in `services/api/internal/audit/`. Right-to-erasure paths anonymise audit_log instead of dropping it.
 
-See `docs/compliance/` and `docs/decisions/` for governance decisions.
-
 ---
 
-## 12. Where to find things
+## 11. Where to find things
 
 | Looking for... | Start at |
 |---|---|
@@ -521,7 +583,6 @@ See `docs/compliance/` and `docs/decisions/` for governance decisions.
 | Store interface | `services/shared/storage/storage.go` |
 | Postgres impl | `services/shared/storage/postgres/postgres.go` |
 | Migrations | `services/shared/storage/postgres/migrations/` |
-| License lib | `services/shared/license/` |
 | Observability helpers | `services/shared/observability/` |
 | Theme tokens (dashboard) | `services/dashboard/src/theme/ThemeContext.jsx` |
 | Dashboard route shell | `services/dashboard/src/components/AppShell.jsx` |
@@ -529,7 +590,7 @@ See `docs/compliance/` and `docs/decisions/` for governance decisions.
 
 ---
 
-## 13. Glossary
+## 12. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -538,7 +599,7 @@ See `docs/compliance/` and `docs/decisions/` for governance decisions.
 | **Scan** | The full pipeline: fetch costs + usage, run detection, persist results, snapshot. |
 | **Snapshot** | A dated aggregate row in `zombie_snapshots` written at scan-end; powers the trend chart. |
 | **RLS** | Postgres Row-Level Security; the multi-tenancy enforcement mechanism. |
-| **DEV_MODE** | Auth-bypass + dev-fixture-license env. Used by `make start-dev` and the `deploy:dev-*` jobs. Stripped from `-tags production` binaries. |
+| **DEV_MODE** | Auth-bypass dev env. Used by `make start-dev` and the `deploy:dev-*` jobs. Stripped from `-tags production` binaries. |
 | **start-dev** | `make start-dev` — host-mode Go services + Postgres container. |
 | **start-staging** | `make start-staging` — full docker-compose stack with native auth on (DEV_MODE=false). |
 | **an edge proxy** | an edge proxy — edge TLS terminator in front of every deployed env. |
