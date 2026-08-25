@@ -45,8 +45,7 @@ var verifyHTTPClient = &http.Client{Timeout: verifyTimeout}
 // status='pending_role_setup', and returns it (with external_id JSON-visible
 // so the dashboard can render the trust policy template).
 //
-// The customer-facing flow is described in
-// docs/cross-account-roles-design.md §4.3.
+// The customer-facing flow is described in docs/connect-aws-account.md.
 func (h *Handler) createDraftAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Provider string `json:"provider"`

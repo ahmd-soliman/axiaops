@@ -15,8 +15,7 @@ import (
 
 // scanHandler is the extracted POST /scan handler. Pulled out of the inline
 // closure in main.go so the route registration cleanly wraps in
-// httpauth.Middleware (the wrap is a per-handler shape, not a per-mux shape;
-// see docs/c1-hmac-plan.md §4.2).
+// httpauth.Middleware (the wrap is a per-handler shape, not a per-mux shape).
 func scanHandler(store storage.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {

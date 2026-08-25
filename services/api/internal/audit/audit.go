@@ -1,5 +1,5 @@
 // Package audit writes user-initiated mutations to audit_log. One Record call
-// per mutating handler — see docs/audit_trail_plan.md.
+// per mutating handler.
 //
 // Best-effort: if the write fails the user operation still succeeds; the
 // axiaops_audit_writes_total{status="failed"} counter is bumped so ops can
