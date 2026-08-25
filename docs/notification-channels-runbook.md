@@ -1,7 +1,7 @@
 # Runbook — Add a Slack or Email notification channel
 
 Audience: an AxiaOps **admin or owner** of an organization who wants scan results
-delivered to Slack or email. Background/design: [`notifications-plan.md`](notifications-plan.md).
+delivered to Slack or email.
 
 ## What a channel does
 

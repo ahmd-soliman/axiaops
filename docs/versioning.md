@@ -171,5 +171,4 @@ The five rules bind the engineer cutting the release more than they bind the cus
 
 ## Open follow-ups
 
-- **`docs/USER_STORIES_STATUS.md` cross-link** — when a version ships, mark the relevant user stories with the tag they landed in.
 - **Consider tag-only staging deploys.** Today `deploy:staging` fires on both `main` pushes (auto) and tag pushes (auto). That gives you a continuous "merge → staging" verification loop at the cost of (a) one wasted deploy per release cut and (b) a window where `/v1/version` on staging reports `APP_VERSION=main` instead of a labelled release. Flip to tag-only when any of these become true: (1) design partners hit staging and shouldn't see untagged builds, (2) compliance requires every change on a prod-like environment to be a named release, (3) staging starts being treated like production (long-running sessions you don't want disrupted by main pushes). The change is a single-line edit — remove the `- if: '$CI_COMMIT_BRANCH == "main"'` rule from `deploy:staging`.
