@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars and fill in. This example file is committed; your
+# real terraform.tfvars is NOT (terraform/.gitignore's `*.tfvars` rule, with
+# `!*.tfvars.example` re-allowing only this file). Never put secrets in
+# either one regardless — secrets are TF-generated or supplied via TF_VAR_*
+# at apply time; see README.md "Sensitive inputs".
+
+env_name   = "prod"
+region     = "eu-central-1"
+account_id = "<your-12-digit-aws-account-id>"
+
+# Must already be a Route 53 hosted zone in this account — module.edge looks
+# it up, it doesn't create one.
+domain_name = "example.com"
+
+# S3 bucket names are globally unique across all of AWS — pick one that
+# isn't taken.
+dashboard_bucket_name = "<your-org>-axiaops-dashboard-prod"
+
+# From `terraform/bootstrap`'s output "state_bucket_name".
+state_bucket_name = "<your-state-bucket-name>"
+
+# owner/repo of the application repository whose CI is allowed to assume the
+# app-deploy role (see modules/iam's github_ci_deploy trust policy).
+github_repository = "<your-org>/<your-repo>"
