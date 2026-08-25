@@ -1,0 +1,262 @@
+name: ci
+
+# Converted from .gitlab-ci.yml's test/integration/e2e/build stages for the
+# open-source release. Deliberately excludes:
+#   - the deploy stage (deploy:dev-1/dev-2/preview/demo/staging/integration/
+#     production, gate:devmode:*) — internal SaaS deploy targets, not
+#     applicable to an OSS repo with no equivalent infrastructure here.
+#   - test:dashboard-admin and build:admin-images — the admin plane
+#     (api-admin/dashboard-admin, staff console) is SaaS-operator tooling,
+#     out of scope for a self-hosted single-org install. See
+#     docs (Architecture guide) for the reasoning.
+# Everything else keeps the same shape: same Makefile targets, same service
+# containers, same Go/Node versions. Images build and push to GHCR instead
+# of the GitLab Container Registry.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/${{ github.repository }}
+  POSTGRES_PASSWORD: axiaops
+  POSTGRES_OWNER_PASSWORD: axiaops_owner
+
+jobs:
+  test-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: |
+            services/shared/go.sum
+            services/api/go.sum
+            services/ingestion/go.sum
+      - run: cd services/shared && go test ./... -count=1 -v -p=4
+      - run: cd services/api && go test ./... -count=1 -v -p=4
+      - run: cd services/ingestion && go test ./... -count=1 -v -p=4
+
+  test-redis:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: valkey/valkey:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_REDIS_URL: "redis://localhost:6379"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - run: cd services/shared && go test ./cache ./queue -count=1 -v
+
+  test-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/dashboard/package-lock.json
+      - run: cd services/dashboard && npm ci && npm run test:run
+
+  test-storage:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.5-alpine
+        env:
+          POSTGRES_DB: axiaops
+          POSTGRES_USER: axiaops_owner
+          POSTGRES_PASSWORD: axiaops_owner
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      MIGRATION_DATABASE_URL: "postgres://axiaops_owner:axiaops_owner@localhost:5432/axiaops?sslmode=disable"
+      DATABASE_URL: "postgres://axiaops:axiaops@localhost:5432/axiaops?sslmode=disable"
+      RUNTIME_ADMIN_DATABASE_URL: "postgres://axiaops_runtime:axiaops_runtime@localhost:5432/axiaops?sslmode=disable"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - run: cd services/shared && go test ./storage/postgres/... -count=1 -v -p=1
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.11.4
+          working-directory: services/shared
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.11.4
+          working-directory: services/api
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.11.4
+          working-directory: services/ingestion
+      - name: DEV_MODE convention guard
+        run: |
+          hits=$(grep -rn 'os\.Getenv("DEV_MODE")' services/ --include="*.go" \
+            | grep -vE '^services/(api|ingestion)/cmd/devmode_dev\.go:' || true)
+          if [ -n "$hits" ]; then
+            echo "DEV_MODE convention violation — direct os.Getenv read outside the helper:" >&2
+            echo "$hits" >&2
+            exit 1
+          fi
+      - run: ./scripts/check-migration-search-path.sh
+
+  test-integration-api:
+    runs-on: ubuntu-latest
+    needs: [test-unit, test-redis, test-storage, lint]
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test-integration-api
+      - if: failure()
+        run: |
+          cd test-infra/integration
+          for svc in migrate init-organization api ingestion; do
+            echo "--- logs $svc ---"
+            docker compose logs --no-color --tail=200 "$svc" || true
+          done
+      - if: always()
+        run: |
+          cd test-infra/integration
+          docker compose down -v --remove-orphans || true
+
+  test-integration-ingestion:
+    runs-on: ubuntu-latest
+    needs: [test-unit, test-redis, test-storage, lint]
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test-integration-ingestion
+      - if: failure()
+        run: |
+          cd test-infra/integration
+          for svc in migrate init-organization api ingestion; do
+            echo "--- logs $svc ---"
+            docker compose logs --no-color --tail=200 "$svc" || true
+          done
+      - if: always()
+        run: |
+          cd test-infra/integration
+          docker compose down -v --remove-orphans || true
+
+  build-production-shape:
+    runs-on: ubuntu-latest
+    needs: [test-unit, lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - run: make build-production
+      - run: cd services/api && go test -tags production ./cmd/
+      - run: cd services/ingestion && go test -tags production ./cmd/
+
+  build-images:
+    runs-on: ubuntu-latest
+    needs:
+      - test-unit
+      - test-redis
+      - test-storage
+      - lint
+      - test-integration-api
+      - test-integration-ingestion
+    # Only build+push on main — PR builds compile-check via build-production-shape
+    # instead, same split as the GitLab pipeline (build:images excluded feature
+    # branches there too).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        run: |
+          TAG="main-${GITHUB_SHA::8}"
+          for svc in api ingestion; do
+            docker build -t ${IMAGE_BASE}/${svc}:${TAG} \
+              -f services/${svc}/Dockerfile \
+              --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
+            docker build -t ${IMAGE_BASE}/${svc}:${TAG}-production \
+              -f services/${svc}/Dockerfile \
+              --build-arg BUILD_TAGS=production \
+              --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
+          done
+          docker build -t ${IMAGE_BASE}/migrate:${TAG} \
+            -f services/migrate/Dockerfile \
+            --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
+          docker build -t ${IMAGE_BASE}/dashboard:${TAG} \
+            -f services/dashboard/Dockerfile services/dashboard
+          docker push ${IMAGE_BASE}/api:${TAG}
+          docker push ${IMAGE_BASE}/api:${TAG}-production
+          docker push ${IMAGE_BASE}/ingestion:${TAG}
+          docker push ${IMAGE_BASE}/ingestion:${TAG}-production
+          docker push ${IMAGE_BASE}/migrate:${TAG}
+          docker push ${IMAGE_BASE}/dashboard:${TAG}
+
+  e2e-regression:
+    runs-on: ubuntu-latest
+    needs: [test-unit, lint, test-integration-api, test-integration-ingestion, build-images]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    continue-on-error: true # non-blocking while the suite matures, same as GitLab
+    permissions:
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: make test-e2e-ci
+      - if: failure()
+        run: |
+          cd test-infra/e2e
+          for svc in migrate api ingestion dashboard playwright; do
+            echo "--- logs $svc ---"
+            docker compose logs --no-color --tail=200 "$svc" || true
+          done
+      - if: always()
+        run: |
+          cd test-infra/e2e
+          docker compose down -v --remove-orphans || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            services/dashboard/playwright-report/
+            services/dashboard/test-results/
+          retention-days: 7
