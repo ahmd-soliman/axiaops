@@ -6,7 +6,7 @@ import (
 	"axiaops.io/shared/authz"
 )
 
-// The capability matrix from docs/rbac-design.md §2 expressed as a single
+// The capability matrix from docs/AUTHENTICATION.md (§2) expressed as a single
 // table. Rows: permissions. Columns: which roles must grant the permission.
 // Anything outside the column set must fail-closed.
 func TestAllows_CapabilityMatrix(t *testing.T) {

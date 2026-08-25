@@ -50,7 +50,7 @@ make test-integration   # Spins up an isolated docker-compose stack (postgres, r
 - `start-dev` requires AWS credentials in `services/*/.env` or environment.
 - `start-staging` needs no extra env beyond what `make start-dev` requires; no local TLS setup is needed.
 - In `start-dev` the dashboard proxies `/api/*` through Vite → API on 8080. In `start-staging` nginx serves the built bundle on HTTP and proxies `/api/*` to the containerised API, propagating `X-Forwarded-Proto` from the request — non-Secure cookie under direct-HTTP access (correct), Secure cookie when an edge proxy terminates TLS in front of this stack.
-- **Native-auth first-run** (bootstrap → login → dashboard) is documented in [`docs/native-auth-bootstrap.md`](docs/native-auth-bootstrap.md).
+- **Native-auth first-run** (bootstrap → login → dashboard) is documented in [`docs/AUTHENTICATION.md`](docs/AUTHENTICATION.md) § 3.
 
 ## Deployment
 
@@ -73,7 +73,7 @@ Two env vars are worth knowing about regardless of platform:
 
 - **Runtime:** PostgreSQL 17 with Row-Level Security (organization isolation via `SET app.organization_id`)
 - **Migrations:** `services/shared/storage/postgres/migrations/` — versioned SQL, run on startup
-- **Three DB roles** (see `docs/runtime-admin-db-role.md`):
+- **Three DB roles** (see `docs/AUTHENTICATION.md` § 5):
   - `DATABASE_URL` → `axiaops` app user, RLS-enforced — the request-path pool.
   - `RUNTIME_ADMIN_DATABASE_URL` → `axiaops_runtime`, a least-privilege RLS-bypass role (DML + per-table bypass policies, **no DDL / no ownership**) used for pre-auth / cross-org reads (native login, scheduled-scan enumeration, GDPR purge). Required outside DEV_MODE.
   - `MIGRATION_DATABASE_URL` → `axiaops_owner` schema owner — **migrate task only**; no longer read by the api/ingestion runtime.
@@ -131,7 +131,7 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 
 ## Security
 
-- **Customer AWS access:** cross-account `sts:AssumeRole` with a per-account `ExternalId` (confused-deputy mitigation). No long-lived customer credentials cross the trust boundary. Onboarding is role ARN + ExternalId, optionally via a one-click CloudFormation Quick-Create URL. Customer-facing flow: `docs/connect-aws-account.md`. Legacy access-key onboarding still works for pre-role customers (Phase 2 coexistence — see §7 of the design doc); new sales should be role-based.
+- **Customer AWS access:** cross-account `sts:AssumeRole` with a per-account `ExternalId` (confused-deputy mitigation). No long-lived customer credentials cross the trust boundary. Onboarding is role ARN + ExternalId, optionally via a one-click CloudFormation Quick-Create URL. Customer-facing flow: `docs/OPERATIONS.md` § 1. Legacy access-key onboarding still works for pre-role customers; new sales should be role-based.
 - AES-256-GCM (`ENCRYPTION_KEY` env var, 32-byte hex) encrypts at-rest secrets — currently: legacy AWS access-key secrets (`accounts.secret_encrypted`) and SSO ID tokens (`sessions.id_token_encrypted`). Role-based accounts store `role_arn` + `external_id` unencrypted (they are not secrets).
 - Native cookie sessions (argon2id password hashes) + OIDC SSO (per-connection JWKS, RS256 ID-token validation)
 - RLS enforces organization isolation at the DB level — never query without `app.organization_id` set
@@ -163,4 +163,4 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 
 ## Design & Decision Docs
 
-- **AWS Service Coverage:** See `docs/aws-coverage.md` — the living list of detection rules per service
+- **AWS Service Coverage:** See `docs/ARCHITECTURE.md` § 7 — the living list of detection rules per service

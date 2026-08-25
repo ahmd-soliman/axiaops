@@ -4,13 +4,13 @@ All notable changes to AxiaOps are documented in this file.
 
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
-under the conventions captured in [`docs/versioning.md`](docs/versioning.md).
+under the conventions captured in [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md) § 8.
 
 ## How to update
 
-When opening a `release: X.Y.Z` MR from `develop` into `main`, move entries from
+When opening a `release: X.Y.Z` PR from `develop` into `main`, move entries from
 `## [Unreleased]` into a new section headed `## [X.Y.Z] — YYYY-MM-DD` and rotate
-the compare links at the bottom of the file. Day-to-day MRs into `develop` add
+the compare links at the bottom of the file. Day-to-day PRs into `develop` add
 entries under `## [Unreleased]` only — never edit a published version section
 after its tag is cut.
 
@@ -823,30 +823,30 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://gitlab.com/axiaops/axiaops/-/compare/0.1.0-alpha.27...develop
-[0.1.0-alpha.27]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.27
-[0.1.0-alpha.26]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.26
-[0.1.0-alpha.25]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.25
-[0.1.0-alpha.24]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.24
-[0.1.0-alpha.23]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.23
-[0.1.0-alpha.22]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.22
-[0.1.0-alpha.21]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.21
-[0.1.0-alpha.20]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.20
-[0.1.0-alpha.19]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.19
-[0.1.0-alpha.18]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.18
-[0.1.0-alpha.17]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.17
-[0.1.0-alpha.16]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.16
-[0.1.0-alpha.15]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.15
-[0.1.0-alpha.14]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.14
-[0.1.0-alpha.13]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.13
-[0.1.0-alpha.12]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.12
-[0.1.0-alpha.11]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.11
-[0.1.0-alpha.10]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.10
-[0.1.0-alpha.9]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.9
-[0.1.0-alpha.7]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.7
-[0.1.0-alpha.6]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.6
-[0.1.0-alpha.5]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.5
-[0.1.0-alpha.4]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.4
-[0.1.0-alpha.3]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.3
-[0.1.0-alpha.2]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.2
-[0.1.0-alpha.1]: https://gitlab.com/axiaops/axiaops/-/tags/0.1.0-alpha.1
+[Unreleased]: https://github.com/ahmd-soliman/axiaops/compare/0.1.0-alpha.27...develop
+[0.1.0-alpha.27]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.27
+[0.1.0-alpha.26]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.26
+[0.1.0-alpha.25]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.25
+[0.1.0-alpha.24]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.24
+[0.1.0-alpha.23]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.23
+[0.1.0-alpha.22]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.22
+[0.1.0-alpha.21]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.21
+[0.1.0-alpha.20]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.20
+[0.1.0-alpha.19]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.19
+[0.1.0-alpha.18]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.18
+[0.1.0-alpha.17]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.17
+[0.1.0-alpha.16]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.16
+[0.1.0-alpha.15]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.15
+[0.1.0-alpha.14]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.14
+[0.1.0-alpha.13]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.13
+[0.1.0-alpha.12]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.12
+[0.1.0-alpha.11]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.11
+[0.1.0-alpha.10]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.10
+[0.1.0-alpha.9]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.9
+[0.1.0-alpha.7]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.7
+[0.1.0-alpha.6]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.6
+[0.1.0-alpha.5]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.5
+[0.1.0-alpha.4]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.4
+[0.1.0-alpha.3]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.3
+[0.1.0-alpha.2]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.2
+[0.1.0-alpha.1]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.1

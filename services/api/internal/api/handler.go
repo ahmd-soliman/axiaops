@@ -208,7 +208,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// session is the capability.
 	mux.HandleFunc("PATCH /v1/users/me", h.updateCurrentUser)
 
-	// GDPR — right to erasure (see docs/rbac-design.md §10).
+	// GDPR — right to erasure (see docs/ARCHITECTURE.md (§6, Right-to-erasure paths)).
 	// /users/me is authn-only: any logged-in user can delete themselves
 	// (subject to the sole-owner guard enforced by the store).
 	mux.HandleFunc("DELETE /v1/users/me", h.deleteCurrentUser)
