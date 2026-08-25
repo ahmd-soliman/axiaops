@@ -293,7 +293,7 @@ API is available at `http://localhost/api/` when running with Docker Compose.
 | **Stopped EC2 Instance** | `ec2:DescribeInstances` | `ebsGB × $0.08/month` | Stopped > 30 days |
 | **Old AMI** | `ec2:DescribeImages` | `snapshotGB × $0.05/month` | Age > 90 days + not in use |
 
-> **Tier 1 detections** are API-only (no CloudWatch needed) and typically surface the largest savings in real-world FinOps audits. See `docs/tier1_detections_status.md` for implementation details.
+> **Tier 1 detections** are API-only (no CloudWatch needed) and typically surface the largest savings in real-world FinOps audits.
 
 ### CloudWatch-Based Detection (Tier 2) ✅
 
@@ -419,12 +419,9 @@ axiaops/
 
 | File | Description |
 |------|-------------|
-| [docs/development_plan.md](docs/development_plan.md) | Architecture decisions, data model, DB schema, phase plans |
 | [docs/error_handling.md](docs/error_handling.md) | Comprehensive error handling, retry logic, circuit breaker, UI status indicators |
-| [docs/go_live_checklist.md](docs/go_live_checklist.md) | Hard blockers and recommendations before first paying customer |
 | [docs/middleware.md](docs/middleware.md) | API middleware chain — auth, rate limiting, request ID, metrics |
-| [docs/production.md](docs/production.md) | Production setup — IAM, ECS Express, RDS, Secrets Manager, CloudFront; IaC in `axiaops/aws-infra` |
-| [docs/deployment.md](docs/deployment.md) | Deployment options, cost estimates by phase |
+| [docs/connect-aws-account.md](docs/connect-aws-account.md) | Connecting an AWS account — IAM setup, read-only permission list |
 
 ---
 

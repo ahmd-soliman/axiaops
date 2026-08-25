@@ -10,7 +10,7 @@ FinOps SaaS that detects idle/zombie cloud resources still incurring costs despi
 Phase 1 (MVP) complete. Phase 2 complete — AWS integration, observability, scheduled
 scans, Redis/Valkey, dismiss/snooze, audit trail, GDPR deletion, data export, production
 deployment (ECS Express + RDS), and outbound notification channels (email + Slack scan
-digests — see `docs/notifications-plan.md`) all shipped.
+digests) all shipped.
 
 ## Architecture
 
@@ -143,7 +143,7 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 
 ## Security
 
-- **Customer AWS access:** cross-account `sts:AssumeRole` with a per-account `ExternalId` (confused-deputy mitigation). No long-lived customer credentials cross the trust boundary. Onboarding is role ARN + ExternalId, optionally via a one-click CloudFormation Quick-Create URL. Design: `docs/cross-account-roles-design.md`. Customer-facing flow: `docs/connect-aws-account.md`. Legacy access-key onboarding still works for pre-role customers (Phase 2 coexistence — see §7 of the design doc); new sales should be role-based.
+- **Customer AWS access:** cross-account `sts:AssumeRole` with a per-account `ExternalId` (confused-deputy mitigation). No long-lived customer credentials cross the trust boundary. Onboarding is role ARN + ExternalId, optionally via a one-click CloudFormation Quick-Create URL. Customer-facing flow: `docs/connect-aws-account.md`. Legacy access-key onboarding still works for pre-role customers (Phase 2 coexistence — see §7 of the design doc); new sales should be role-based.
 - AES-256-GCM (`ENCRYPTION_KEY` env var, 32-byte hex) encrypts at-rest secrets — currently: legacy AWS access-key secrets (`accounts.secret_encrypted`) and SSO ID tokens (`sessions.id_token_encrypted`). Role-based accounts store `role_arn` + `external_id` unencrypted (they are not secrets).
 - Native cookie sessions (argon2id password hashes) + OIDC SSO (per-connection JWKS, RS256 ID-token validation)
 - RLS enforces organization isolation at the DB level — never query without `app.organization_id` set
@@ -158,7 +158,7 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 - Clean up old ECR images (€0.10/GB)
 - RDS Multi-AZ doubles cost — defer until necessary
 - ECS Express runs always-on Fargate tasks (no scale-to-zero) — keep task CPU/memory minimal to cap idle compute cost
-- Graviton/ARM64 was evaluated and **declined** (June 2026) — ECS Express is x86-only and the ~€46/yr saving doesn't justify the migration. See `docs/graviton-arm-decision.md` for the math + revisit trigger
+- Graviton/ARM64 was evaluated and **declined** (June 2026) — ECS Express is x86-only and the ~€46/yr saving doesn't justify the migration
 
 ## Source Control
 
@@ -182,7 +182,4 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 
 ## Design & Decision Docs
 
-- **CloudTrail Integration:** See `docs/cloudtrail-analysis.md` — Why CloudTrail detection was deferred to Phase 4+, ROI analysis, when to reconsider
-- **AWS Service Coverage:** See `tmp/aws-coverage-and-cost-explorer-notes.md` — Why certain services are prioritized, detection patterns
-- **Tier 2 Detections:** See `docs/tier2_detections_status.md` — ElastiCache, OpenSearch, Redshift, SageMaker, DynamoDB, EKS detection status
-- **Graviton/ARM64 (declined):** See `docs/graviton-arm-decision.md` — why prod stays on ECS Express + x86, the ~€46/yr savings math, and the revisit trigger
+- **AWS Service Coverage:** See `docs/aws-coverage.md` — the living list of detection rules per service
