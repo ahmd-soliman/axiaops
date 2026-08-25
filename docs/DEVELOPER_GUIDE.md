@@ -258,12 +258,7 @@ What you actually need to remember:
 |---|---|
 | "How does X work?" | [ARCHITECTURE.md](ARCHITECTURE.md) → linked CLAUDE.md → grep |
 | "What's the AWS service rule for..." | [aws-coverage.md](aws-coverage.md) |
-| "Is Tier 2 detection done for X?" | [tier2_detections_status.md](tier2_detections_status.md) |
-| "Why isn't CloudTrail wired in?" | [cloudtrail-analysis.md](cloudtrail-analysis.md) — RoI deferral doc |
 | "How does first-run install work?" | [native-auth-bootstrap.md](native-auth-bootstrap.md) |
-| "How does invite-flow redemption work?" | [invitation-flow.md](invitation-flow.md), [invitations-manual-test.md](invitations-manual-test.md) |
-| "Why was decision X made?" | `docs/decisions/` ADRs + `docs/change_list_2026_*.md` |
-| "What's the CI pipeline doing?" | [ci.md](ci.md), [ci_cd_quick_reference.md](ci_cd_quick_reference.md) |
 
 If a doc disagrees with the code, **the code wins** — file an MR to update the doc.
 

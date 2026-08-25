@@ -50,10 +50,59 @@ A single IAM role, `AxiaOpsIntegrationRole`:
   presents *your* ExternalId. This blocks confused-deputy access from any other
   tenant.
 - **Permissions policy:** read-only `Describe*`/`List*` + Cost Explorer +
-  CloudWatch read. No write, modify, or delete actions. The exact action list is
-  in [`docs/production.md`](./production.md) (kept identical to the template).
+  CloudWatch read. No write, modify, or delete actions — the exact list is
+  below, kept identical to the CloudFormation template.
 
 Nothing else is created; the stack is free (IAM-only).
+
+### The permission list (`AxiaOpsReadOnly`)
+
+Enumerated from the actual `Describe`/`List`/`Get` calls in
+`services/ingestion/internal/provider/aws/`. This is the single source of
+truth the CloudFormation template, the Terraform manual-setup snippet (Option
+2), and this doc all mirror — read-only, no write actions, ever.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "AxiaOpsReadOnlyScan",
+    "Effect": "Allow",
+    "Action": [
+      "sts:GetCallerIdentity",
+      "ce:GetCostAndUsage",
+      "ce:GetCostAndUsageWithResources",
+      "cloudwatch:GetMetricStatistics",
+      "ec2:DescribeInstances",
+      "ec2:DescribeVolumes",
+      "ec2:DescribeSnapshots",
+      "ec2:DescribeImages",
+      "ec2:DescribeAddresses",
+      "ec2:DescribeNatGateways",
+      "rds:DescribeDBInstances",
+      "rds:DescribeDBSnapshots",
+      "lambda:ListFunctions",
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "logs:DescribeLogGroups",
+      "ecr:DescribeRepositories",
+      "ecr:DescribeImages",
+      "secretsmanager:ListSecrets",
+      "elasticache:DescribeCacheClusters",
+      "es:ListDomainNames",
+      "redshift:DescribeClusters",
+      "sagemaker:ListEndpoints",
+      "dynamodb:ListTables",
+      "kinesis:ListStreams",
+      "kinesis:DescribeStreamSummary",
+      "cloudfront:ListDistributions",
+      "eks:ListClusters",
+      "s3:ListAllMyBuckets",
+      "s3:GetBucketLocation"
+    ],
+    "Resource": "*"
+  }]
+}
+```
 
 ---
 
@@ -98,9 +147,3 @@ stack is created in — the role works regardless.
 Delete the `AxiaOps-Integration` CloudFormation stack in your AWS account (this
 deletes the role), and remove the account from AxiaOps. For access-key
 connections, delete the IAM user's key and remove the account in AxiaOps.
-
----
-
-See also: [`docs/cross-account-roles-design.md`](./cross-account-roles-design.md)
-(design + security rationale), [`docs/production.md`](./production.md) (canonical
-IAM permission list).
