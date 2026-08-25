@@ -1,8 +1,7 @@
 # AxiaOps Helm chart
 
 A generic, environment-agnostic Helm chart for one AxiaOps environment:
-`api`, `ingestion`, `dashboard`, `api-admin`, `dashboard-admin`, and an
-in-cluster Valkey. One `helm install` = one environment, same relationship
+`api`, `ingestion`, `dashboard`, and an in-cluster Valkey. One `helm install` = one environment, same relationship
 as one self-hosted host = one environment in `../dev.yml` / `../staging.yml` /
 `../preview.yml` / `../demo.yml` / `../integration.yml`.
 

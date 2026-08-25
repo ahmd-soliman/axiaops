@@ -1,8 +1,8 @@
 apiVersion: v2
 name: axiaops
 description: >-
-  AxiaOps tenant stack (api, ingestion, dashboard, api-admin, dashboard-admin,
-  valkey) for a single environment. Mirrors the shape of deploy/dev.yml,
+  AxiaOps tenant stack (api, ingestion, dashboard, valkey) for a single
+  environment. Mirrors the shape of deploy/dev.yml,
   deploy/staging.yml, deploy/preview.yml, deploy/demo.yml, and
   deploy/integration.yml — one chart install per environment, same as one
   self-hosted host per environment today. Postgres is external (see

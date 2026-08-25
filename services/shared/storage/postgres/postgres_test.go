@@ -71,8 +71,6 @@ func setup(t *testing.T) *pgx.Conn {
 		axiaops.sessions,
 		axiaops.password_resets,
 		axiaops.bootstrap_state,
-		axiaops.staff_role_grants,
-		axiaops.staff_users,
 		axiaops.users,
 		axiaops.organizations
 	CASCADE`
