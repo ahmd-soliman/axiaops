@@ -16,7 +16,7 @@ INTEGRATION_INGESTION_URL ?= http://localhost:8081
 
 # Stop local processes, free ports, and stop the Docker stack.
 # Kills host-mode Go services from `start-dev` AND brings down any
-# docker-compose services from `start-staging`.
+# docker compose services from `start-staging`.
 # Both axiaops-dev-redis (legacy name) and axiaops-dev-valkey (post-migration
 # name) are listed so a checkout that straddles the Redis→Valkey swap leaves
 # no stranded container behind. Drop the redis-named line after two release
@@ -78,9 +78,9 @@ start-debug: migrate
 # Run database migrations using dedicated migration container
 migrate:
 	@echo "Running database migrations..."
-	docker-compose up -d postgres
+	docker compose up -d postgres
 	@echo "Waiting for PostgreSQL to be ready..."
-	@until docker-compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
+	@until docker compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
 	./scripts/migrate.sh
 
 # Seed the dev tenant with dummy zombie + resource records.
@@ -184,20 +184,20 @@ test-all: test test-storage
 
 # Integration tests - self-contained (starts Docker Compose stack)
 test-integration:
-	cd test-infra/integration && docker-compose up --build --exit-code-from tests tests
-	cd test-infra/integration && docker-compose down -v --remove-orphans
-	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
+	cd test-infra/integration && docker compose up --build --exit-code-from tests tests
+	cd test-infra/integration && docker compose down -v --remove-orphans
+	cd test-infra/integration && docker compose rm -f 2>/dev/null || true
 
 # API integration tests only
 test-integration-api:
-	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
-	cd test-infra/integration && docker-compose build migrate init-organization api ingestion api-tests
-	cd test-infra/integration && docker-compose up -d postgres redis && \
-		docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
-		(for i in {1..30}; do docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)
-	cd test-infra/integration && docker-compose run --rm api-tests
-	cd test-infra/integration && docker-compose down -v --remove-orphans
-	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
+	cd test-infra/integration && docker compose down -v --remove-orphans 2>/dev/null || true
+	cd test-infra/integration && docker compose build migrate init-organization api ingestion api-tests
+	cd test-infra/integration && docker compose up -d postgres redis && \
+		docker compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
+		(for i in {1..30}; do docker compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)
+	cd test-infra/integration && docker compose run --rm api-tests
+	cd test-infra/integration && docker compose down -v --remove-orphans
+	cd test-infra/integration && docker compose rm -f 2>/dev/null || true
 
 # SSO OIDC ceremony integration tests (services/api/internal/sso/oidc_integration_test.go).
 # Drives a full authorization-code + PKCE round-trip against an in-process
@@ -206,28 +206,28 @@ test-integration-api:
 # or mock-IdP container needed (the test stands the API up in-process for
 # httptest control over signing keys).
 test-integration-sso:
-	cd test-infra/integration && docker-compose -f docker-compose.test.yml down -v --remove-orphans 2>/dev/null || true
-	cd test-infra/integration && docker-compose -f docker-compose.test.yml up -d postgres
+	cd test-infra/integration && docker compose -f docker-compose.test.yml down -v --remove-orphans 2>/dev/null || true
+	cd test-infra/integration && docker compose -f docker-compose.test.yml up -d postgres
 	cd test-infra/integration && for i in {1..30}; do \
-		docker-compose -f docker-compose.test.yml exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; \
+		docker compose -f docker-compose.test.yml exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; \
 		sleep 1; \
 	done
 	cd services/api && \
 		INTEGRATION_DATABASE_URL='postgres://axiaops:axiaops@localhost:5532/axiaops?sslmode=disable' \
 		INTEGRATION_DATABASE_OWNER_URL='postgres://axiaops_owner:axiaops_owner@localhost:5532/axiaops?sslmode=disable' \
 		go test -tags=integration -count=1 -run TestOIDC -v ./internal/sso/...
-	cd test-infra/integration && docker-compose -f docker-compose.test.yml down -v --remove-orphans
+	cd test-infra/integration && docker compose -f docker-compose.test.yml down -v --remove-orphans
 
 # Ingestion integration tests only
 test-integration-ingestion:
-	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
-	cd test-infra/integration && docker-compose build migrate init-organization ingestion
-	cd test-infra/integration && docker-compose up -d postgres redis && \
-		docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
-		(for i in {1..30}; do docker-compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)
-	cd test-infra/integration && docker-compose run --rm ingestion-tests
-	cd test-infra/integration && docker-compose down -v --remove-orphans
-	cd test-infra/integration && docker-compose rm -f 2>/dev/null || true
+	cd test-infra/integration && docker compose down -v --remove-orphans 2>/dev/null || true
+	cd test-infra/integration && docker compose build migrate init-organization ingestion
+	cd test-infra/integration && docker compose up -d postgres redis && \
+		docker compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 || \
+		(for i in {1..30}; do docker compose exec -T postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1 && break; sleep 1; done)
+	cd test-infra/integration && docker compose run --rm ingestion-tests
+	cd test-infra/integration && docker compose down -v --remove-orphans
+	cd test-infra/integration && docker compose rm -f 2>/dev/null || true
 
 # E2E regression suite — Playwright against a full DEV_MODE stack.
 #
@@ -246,24 +246,24 @@ test-integration-ingestion:
 # `make start-dev` after `make seed`:
 #   cd services/dashboard && BASE_URL=http://localhost:5173 npm run e2e
 test-e2e:
-	cd test-infra/e2e && docker-compose down -v --remove-orphans 2>/dev/null || true
+	cd test-infra/e2e && docker compose down -v --remove-orphans 2>/dev/null || true
 	@# DOCKER_BUILDKIT=0: the playwright image's one network RUN step (the pinned
 	@# `npm install` — psql is now COPY-only, no apt) needs DNS, and the legacy
 	@# builder resolves via the docker daemon's network (works when the LAN resolver
 	@# is up) — buildkit's separate build sandbox has been seen DNS-less on the CI
 	@# runner. Local dev is unaffected (it has DNS either way).
-	cd test-infra/e2e && DOCKER_BUILDKIT=0 docker-compose build
-	cd test-infra/e2e && docker-compose run --rm playwright; \
+	cd test-infra/e2e && DOCKER_BUILDKIT=0 docker compose build
+	cd test-infra/e2e && docker compose run --rm playwright; \
 		status=$$?; \
 		if [ $$status -ne 0 ]; then \
 			echo "=== e2e failed (exit $$status) — container state + logs before teardown ==="; \
-			docker-compose ps || true; \
+			docker compose ps || true; \
 			for svc in postgres migrate api ingestion dashboard playwright; do \
-				echo "--- logs $$svc ---"; docker-compose logs --no-color --tail=120 $$svc 2>&1 || true; \
+				echo "--- logs $$svc ---"; docker compose logs --no-color --tail=120 $$svc 2>&1 || true; \
 			done; \
 		fi; \
-		docker-compose down -v --remove-orphans 2>/dev/null || true; \
-		docker-compose rm -f 2>/dev/null || true; \
+		docker compose down -v --remove-orphans 2>/dev/null || true; \
+		docker compose rm -f 2>/dev/null || true; \
 		exit $$status
 
 # E2E regression suite — CI variant that REUSES the registry images already built
@@ -284,7 +284,7 @@ test-e2e:
 # DOCKER_BUILDKIT=0 is scoped to the playwright build ONLY — its single network
 # `npm install` RUN needs the legacy builder's DNS (see test-e2e). The pulled
 # images don't build, so they don't need it.
-E2E_CI_COMPOSE := docker-compose -f docker-compose.yml -f docker-compose.ci.yml
+E2E_CI_COMPOSE := docker compose -f docker-compose.yml -f docker-compose.ci.yml
 test-e2e-ci:
 	cd test-infra/e2e && $(E2E_CI_COMPOSE) down -v --remove-orphans 2>/dev/null || true
 	cd test-infra/e2e && $(E2E_CI_COMPOSE) pull migrate ingestion api dashboard
@@ -310,7 +310,7 @@ clean-docker:
 # Clean up integration test resources specifically
 clean-integration:
 	@echo "Cleaning up integration test resources..."
-	cd test-infra/integration && docker-compose down -v --remove-orphans 2>/dev/null || true
+	cd test-infra/integration && docker compose down -v --remove-orphans 2>/dev/null || true
 	docker network prune -f --filter label=com.docker.compose.project=integration-test 2>/dev/null || true
 
 # Test graceful shutdown: start services, send SIGTERM, verify clean exit.
