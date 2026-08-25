@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "axiaops.fullname" . }}-dashboard
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "dashboard") | nindent 4 }}
+spec:
+  replicas: {{ .Values.dashboard.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "dashboard") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "dashboard") | nindent 8 }}
+      {{- with .Values.dashboard.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: dashboard
+          image: {{ include "axiaops.dashboardImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: API_HOST
+              value: {{ include "axiaops.apiHost" . }}
+            - name: DEV_MODE
+              value: {{ .Values.devMode.enabled | quote }}
+            {{- if .Values.devMode.enabled }}
+            - name: DEV_ORG_NAME
+              value: {{ .Values.devMode.orgName | quote }}
+            {{- end }}
+            - name: AXIAOPS_AWS_ACCOUNT_ID
+              value: {{ .Values.dashboard.awsAccountId | quote }}
+          {{- with .Values.dashboard.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "axiaops.fullname" . }}-dashboard
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "dashboard") | nindent 4 }}
+spec:
+  selector:
+    {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "dashboard") | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
