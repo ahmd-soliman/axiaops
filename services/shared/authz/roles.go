@@ -56,7 +56,7 @@ const (
 	PermSSOManage       Permission = "sso:manage"
 	PermSSODomainVerify Permission = "sso:domain_verify"
 
-	// Notification channels (docs/notifications-plan.md). Read is viewer+ so the
+	// Notification channels. Read is viewer+ so the
 	// dashboard can render the Integrations pane; manage is admin+ because a
 	// channel carries credentials (SMTP creds / webhook tokens) and triggers
 	// outbound mail/Slack — the same tier as accounts:delete.

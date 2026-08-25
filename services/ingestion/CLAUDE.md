@@ -36,7 +36,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin the DEV_MODE
 | POST | /v1/credentials/verify | HMAC | sts:AssumeRole probe for role-onboarding |
 
 Both POST endpoints are authenticated via shared-secret HMAC-SHA256 over the
-api → ingestion hop (C-1, `docs/c1-hmac-plan.md`). User-level authz is
+api → ingestion hop. User-level authz is
 enforced upstream at the api hop (`authz.PermAccountsScan` + audit_log write);
 ingestion trusts that gate and only verifies "is this caller part of our
 deployment?" via the `X-AxiaOps-Ingestion-{Timestamp,Signature}` headers.
@@ -79,7 +79,7 @@ and storage layers are provider-agnostic.
 2. Add the Describe API call to the per-service file in `internal/provider/aws/` (e.g. `discover_ec2.go`, `discover_rds.go`); create a new `discover_<service>.go` if no file exists for that service
 3. Add CloudWatch metric mapping in `internal/provider/aws/cloudwatch.go`
 4. Add unit test in `shared/analyzer/` covering the new threshold
-5. Update IAM policy docs in `docs/production.md`
+5. Update the IAM read-only policy list in `docs/connect-aws-account.md`
 
 ## Observability (Phase 2.6)
 
@@ -172,7 +172,7 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationI
 | INGESTION_PORT | No | 8081 | HTTP listen port |
 | RUN_ONCE | No | false | One-shot mode (run once and exit) |
 | INGESTION_SHARED_SECRET | Yes outside DEV_MODE | — | 32-byte hex (`openssl rand -hex 32`). Verifier-side shared secret for C-1 HMAC. DEV_MODE allows empty (passthrough with one-shot warning on inbound signed traffic). |
-| INGESTION_SHARED_SECRET_NEXT | No | — | Optional verifier-side staging slot for zero-downtime rotation. Set on ingestion before flipping api over; clear after rotation. See `docs/c1-hmac-plan.md` §5. |
+| INGESTION_SHARED_SECRET_NEXT | No | — | Optional verifier-side staging slot for zero-downtime rotation. Set on ingestion before flipping api over; clear after rotation. |
 | INGESTION_HMAC_MAX_SKEW_SECONDS | No | 300 | Replay window in seconds. Widen only when an NTP fix is in flight; never permanently. |
 | INGESTION_HMAC_SOFT_ENFORCE | No | false | Transition-only: when `true`, HMAC failures are logged + counted but NOT rejected. Used for the initial rollout's ingestion-before-api gap. Flip to `false` after one stable cycle per env; the `axiaops_ingestion_hmac_enforce_mode{mode="soft"}` alert fires if left on. |
 | REDIS_URL | No | — | Connection URL for the cache + scan-queue backend (RESP wire protocol — Valkey post-migration; Redis-compatible). Empty disables the worker (`worker: skipped_no_redis` at startup). Format: `redis://:<password>@<host>:6379` with `REDIS_PASSWORD` propagated into the userinfo. |

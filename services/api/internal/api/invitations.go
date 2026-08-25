@@ -103,7 +103,7 @@ func toInvitationResponse(inv model.PendingInvitation) invitationResponse {
 	return out
 }
 
-// createInvitation handles POST /v1/invitations. See docs/invitation-flow.md §4.
+// createInvitation handles POST /v1/invitations.
 //
 // Generates a token, persists its hash via Store.CreateNativeInvitation,
 // and returns the redemption URL in the response body. The plaintext
