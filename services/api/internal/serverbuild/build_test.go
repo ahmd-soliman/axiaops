@@ -1,13 +1,12 @@
 package serverbuild_test
 
-// build_test.go — drop-in smoke test for the SaaS-extension seams (D11
+// build_test.go — drop-in smoke test for the pluggable extension seams (D11
 // / plan §4.8.6 acceptance).
 //
 // The test boots ComposeServer with mock impls of all four seams and
-// asserts an HTTP request gets a sane response. It proves the seams hold
-// regardless of build variant: the default (SaaS) build's saasmode_saas.go
-// substitutes different concrete types for the same four interfaces
-// and calls the same ComposeServer.
+// asserts an HTTP request gets a sane response. It proves the seams hold —
+// a future implementation swap for any of Store/AuthProvider/Discoverer/
+// Connector only needs to satisfy the same four interfaces.
 //
 // What the test does NOT do (deliberately):
 //   - Spin up Postgres / Redis. The Store/Cache fields take any impl;
@@ -203,15 +202,15 @@ func TestComposeServer_MetricsExposesSharedRegistry(t *testing.T) {
 
 	// Shared-registry sentinels: bare (non-Vec) metrics, which Prometheus
 	// emits at zero before any sample is observed. Vec metrics (e.g.
-	// license_state_info, auth_provider_active) only emit after a label-set
-	// is observed — useless as a registry-wiring canary because they're
-	// silent on a freshly-booted process. Pinning one bare metric per
-	// surface keeps the failure message specific when the merge regresses.
+	// auth_provider_active) only emit after a label-set is observed — useless
+	// as a registry-wiring canary because they're silent on a freshly-booted
+	// process. Pinning one bare metric per surface keeps the failure message
+	// specific when the merge regresses.
 	wantShared := []string{
-		"axiaops_http_requests_total",         // §2.6 HTTP observability (Counter)
-		"axiaops_db_connections_active",       // §2.6 DB observability (Gauge)
-		"axiaops_license_expires_at_seconds",  // §4.9.4 license observability (Gauge)
-		"axiaops_license_days_remaining",      // §4.9.4 license observability (Gauge)
+		"axiaops_http_requests_total",        // §2.6 HTTP observability (Counter)
+		"axiaops_db_connections_active",      // §2.6 DB observability (Gauge)
+		"axiaops_application_uptime_seconds", // application observability (Gauge)
+		"axiaops_session_cache_errors_total", // session cache observability (Counter)
 	}
 	for _, name := range wantShared {
 		if !strings.Contains(body, name) {

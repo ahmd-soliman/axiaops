@@ -2,15 +2,12 @@
 // construction, middleware composition, ticker startup. The composition root
 // (cmd/main.go) reads env vars, builds Deps, calls ComposeServer, and runs.
 //
-// Plan §4.8.3 / D11 / architect S9: the seam that lets the SaaS and licensed
-// variants diverge. The realized mechanism is the build-tag seam (default=SaaS
-// via services/{api,ingestion}/cmd/saasmode_saas.go; opt-in licensed via
-// `-tags selfhosted` / saasmode_selfhosted.go), which swaps a few constructors.
-// Every dependency that would diverge between the two crosses the Deps boundary
-// as an interface — so neither the handler/business-logic layer nor this
-// package needs to change.
+// Plan §4.8.3 / D11 / architect S9: every dependency that could plausibly
+// diverge between deployment shapes crosses the Deps boundary as an
+// interface — so neither the handler/business-logic layer nor this package
+// needs to change to swap an implementation.
 //
-// Four SaaS-extension seams cross Deps:
+// Four such extension seams cross Deps:
 //   - storage.Store    — already an interface; concrete impl is postgres
 //   - auth.Provider    — pluggable auth (today: native cookie sessions only;
 //     the interface stays so a SaaS reactivation can
@@ -40,7 +37,6 @@ import (
 	"axiaops.io/api/internal/middleware"
 	"axiaops.io/api/internal/sso"
 	"axiaops.io/shared/cache"
-	"axiaops.io/shared/entitlement"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/notifications"
 	"axiaops.io/shared/observability"
@@ -91,12 +87,6 @@ type Config struct {
 	// DATABASE_URL does. Recipients is unused here (an invite targets the
 	// invitee).
 	TransactionalSMTP model.EmailConfig
-
-	// EntitlementGrace is the past_due grace window for the SaaS entitlement
-	// scan-gate. Zero in the `-tags selfhosted` build (the license gate is used
-	// instead); the default (SaaS) build reads ENTITLEMENT_GRACE_DAYS into this. The handler
-	// builder defaults a zero value to entitlement.DefaultGraceDays.
-	EntitlementGrace time.Duration
 }
 
 // Deps bundles the concrete services ComposeServer plugs together. Every
@@ -165,13 +155,6 @@ type Deps struct {
 	// calls in the same process (e.g. side-by-side smoke tests) don't
 	// fight over MustRegister. nil → defaults via prometheus.DefaultRegisterer.
 	MetricsRegistry *Metrics
-
-	// EntitlementResolver switches the scan endpoint from the license gate to
-	// the per-tenant entitlement gate (SaaS). nil ⇒ license gate
-	// (`-tags selfhosted`). Set by the default (SaaS) build, which also flips
-	// license.SetEnforcementBypass at boot. See docs/saas-platform-admin-design.md
-	// §7.1.
-	EntitlementResolver entitlement.Resolver
 }
 
 // Metrics groups the Prometheus instruments the request-logging middleware
@@ -233,7 +216,7 @@ func (sw *statusWriter) WriteHeader(code int) {
 //	        → rate-limiter
 //	          → mux (handlers)
 //
-// Tickers (stuck-scan, license, session-sweep, sso-sweep) are NOT started
+// Tickers (stuck-scan, session-sweep, sso-sweep) are NOT started
 // here — composition roots own goroutine lifecycle so a test can build
 // the handler without spawning long-lived background work. See
 // StartTickers below for the production wiring.
@@ -273,12 +256,6 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 			model.ChannelKindSlack: notifications.NewSlackTransport(nil),
 		}).
 		WithInviteMailer(api.NewInviteMailer(deps.Store, emailTransport, cfg.TransactionalSMTP, cfg.PublicHost))
-	// SaaS only: when an EntitlementResolver is supplied the scan endpoint gates
-	// on per-tenant entitlement instead of the license JWT. nil ⇒ no-op (license
-	// gate stays in force for self-hosted).
-	if deps.EntitlementResolver != nil {
-		apiH = apiH.WithEntitlementResolver(deps.EntitlementResolver, cfg.EntitlementGrace)
-	}
 	if cfg.RedisConfigured && deps.Cache != nil {
 		apiH = apiH.WithRedisCache(deps.Cache)
 	}
@@ -356,7 +333,7 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	// doesn't need a session. observability.MetricsHandler merges the
 	// default registry (request-logging counters MustRegister'd in
 	// cmd/main.go) with the observability package's private registry
-	// (Global.* — HTTP, DB, AWS, scan, license, auth_provider). See the
+	// (Global.* — HTTP, DB, AWS, scan, auth_provider). See the
 	// helper's doc for why promhttp.Handler() alone is wrong.
 	mux.Handle("/metrics", observability.MetricsHandler())
 
@@ -436,8 +413,6 @@ type TickerOptions struct {
 // StartTickers spins up the long-lived background goroutines:
 //   - Stuck-scan recovery (every 5 minutes): resets accounts left in
 //     status='scanning' for longer than StuckScanTimeout.
-//   - License re-classification (hourly): keeps Prometheus license-state
-//     gauges fresh so a grace/expired transition isn't masked.
 //   - Session sweep (hourly, only when NativeAuthActive): hard-deletes
 //     sessions where expires_at OR revoked_at is older than 7 days.
 //   - SSO sweep (24h): marks expired verified sso_domains as stale.
@@ -452,10 +427,6 @@ func StartTickers(ctx context.Context, store storage.Store, opts TickerOptions) 
 	if opts.RuntimeAdminDatabaseURL != "" && opts.StuckScanTimeout > 0 {
 		go runStuckScanTicker(ctx, opts.RuntimeAdminDatabaseURL, opts.StuckScanTimeout)
 	}
-
-	// License ticker: re-classify every hour. No-op under DEV_MODE (no
-	// license loaded) — the package itself short-circuits.
-	go runLicenseTicker(ctx)
 
 	if opts.NativeAuthActive {
 		go runSessionSweepTicker(ctx, store)

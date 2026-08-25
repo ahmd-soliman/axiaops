@@ -180,7 +180,7 @@ Result: even if you adopt one of these emulators, the operator must manually kee
 
 ## 6. Forward-looking — CUR (Phase 3+)
 
-Cost and Usage Reports (`docs/CUR_EXTENSION_PLAN.md`, Tasks.md row 13) replace Cost Explorer as the cost data feed once a customer enables CUR delivery. The testing implications are different:
+Cost and Usage Reports (`docs/CUR_EXTENSION_PLAN.md`) replace Cost Explorer as the cost data feed once a customer enables CUR delivery. The testing implications are different:
 
 - CUR data lives in S3 as Parquet files, not behind an API. There is no CE-style rate limit or per-call cost.
 - CUR ingestion is testable against a small **synthetic Parquet file** committed to the repo — much cheaper than CE testing, no emulator needed for the cost path at all.
@@ -194,7 +194,7 @@ CUR does **not** change the §1 decision: emulators stay non-load-bearing. The f
 
 ## 7. Operational follow-ups
 
-These are the concrete tasks this decision unblocks. None are in flight yet — track in `Tasks.md`:
+These are the concrete tasks this decision unblocks. None are in flight yet — track as follow-up items:
 
 - Provision the test fleet via Terraform (~½ day; lives in a separate repo or `infra/` subdirectory, not in the main app repo).
 - Build `tools/capture-aws-fixtures` to snapshot real AWS responses into `testdata/` (~1 day).

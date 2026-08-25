@@ -432,14 +432,22 @@ var ceServiceToInternal = map[string]string{
 	"AWS Cost Explorer":                      "AWSCostExplorer",
 	"AWS Data Transfer":                      "AWSDataTransfer",
 	"Amazon CloudWatch":                      "AmazonCloudWatch",
-	"Amazon Simple Storage Service":          "AmazonS3",
-	"AWS Glue":                               "AWSGlue",
-	"Amazon Simple Notification Service":     "AmazonSNS",
-	"Amazon Simple Queue Service":            "AmazonSQS",
-	"AWS Secrets Manager":                    "AWSSecretsManager",
-	"AWS Key Management Service":             "AWSKms",
-	"Amazon Glacier":                         "AmazonGlacier",
-	"AWS CloudFormation":                     "AWSCloudFormation",
+	// GetCostAndUsage (regular, non-resource-level) returns this service's
+	// name WITHOUT the space that GetCostAndUsageWithResources uses above —
+	// confirmed live: SERVICE-dimension cost records came back as
+	// "AmazonCloudWatch", not "Amazon CloudWatch", causing every CloudWatch
+	// cost row to fall through normalizeService's unknown-service warning
+	// path. Both spellings map to the same internal name.
+	"AmazonCloudWatch":                   "AmazonCloudWatch",
+	"AWS Step Functions":                 "AWSStepFunctions",
+	"Amazon Simple Storage Service":      "AmazonS3",
+	"AWS Glue":                           "AWSGlue",
+	"Amazon Simple Notification Service": "AmazonSNS",
+	"Amazon Simple Queue Service":        "AmazonSQS",
+	"AWS Secrets Manager":                "AWSSecretsManager",
+	"AWS Key Management Service":         "AWSKms",
+	"Amazon Glacier":                     "AmazonGlacier",
+	"AWS CloudFormation":                 "AWSCloudFormation",
 }
 
 // normalizeService maps Cost Explorer service names to internal names.

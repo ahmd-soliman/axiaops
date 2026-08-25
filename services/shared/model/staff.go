@@ -9,13 +9,14 @@ import "time"
 type StaffRole string
 
 const (
-	// StaffRoleSupport reads tenant entitlement summaries and (later, via a
-	// break-glass grant) tenant data. No money, no mutations.
+	// StaffRoleSupport reads tenant summaries and (later, via a break-glass
+	// grant) tenant data. No money, no mutations.
 	StaffRoleSupport StaffRole = "support"
-	// StaffRoleOps handles tenant lifecycle + platform health. No billing PII.
+	// StaffRoleOps handles tenant lifecycle + platform health.
 	StaffRoleOps StaffRole = "ops"
-	// StaffRoleBilling owns entitlement + plan writes and billing PII. No
-	// tenant FinOps-data reads.
+	// StaffRoleBilling is reserved for a future billing-adjacent staff
+	// function. No billing system exists today (AxiaOps' hosted instance is
+	// free — see docs/open-source-decision.md); no tenant FinOps-data reads.
 	StaffRoleBilling StaffRole = "billing"
 	// StaffRoleSuperadmin manages staff_users + grants. The only role that
 	// can mint other staff.
@@ -63,12 +64,8 @@ type StaffRoleGrant struct {
 
 // StaffTenantSummary is the read-only, NON-tenant-data view of one org the
 // admin console surfaces (design §7.5 — reading this summary is NOT a tenant
-// FinOps-data read and needs no break-glass grant). It is computed from
-// existing tables only. The per-tenant `entitlements` table now exists as a
-// dormant Phase 2A scaffold (migration 033, model.Entitlement), but its
-// plan/status/limits are NOT surfaced here yet — wiring entitlement into the
-// admin console is part of the deferred Phase 2B (design §7.1 / §11.1
-// decision 3).
+// FinOps-data read and needs no break-glass grant). Computed from existing
+// tables only.
 type StaffTenantSummary struct {
 	OrganizationID         string
 	OrgCode                string

@@ -91,29 +91,9 @@ async function ifetch(url, opts) {
   // Chrome's navigation throttle catches.
   if (res.status === 401 && !url.endsWith('/v1/me')) notifyUnauthorized({ path: url });
   if (res.status === 503) notifyServiceUnavailable({ path: url });
-  // 403s split into two categories:
-  //   • Capability/role 403 (membership removed, role demoted) — fire
-  //     FORBIDDEN_EVENT so MeContext re-fetches /v1/me and the UI re-gates.
-  //   • Feature-gate 403 (B1.6 license scan-gate, body.error === "license_expired")
-  //     — the user's role hasn't changed; firing FORBIDDEN_EVENT would burn a
-  //     spurious /v1/me round-trip and mislead any future RBAC-refresh telemetry.
-  // Body-peek (clone so the caller can still read the body once) is the
-  // cheapest way to discriminate. Future feature-gate codes can be added to
-  // the switch without disturbing the role-revocation path.
-  if (res.status === 403) {
-    let isFeatureGate = false;
-    try {
-      const peek = await res.clone().json();
-      switch (peek?.error) {
-        case 'license_expired':
-          isFeatureGate = true;
-          break;
-        default:
-          break;
-      }
-    } catch { /* non-JSON 403 → fall through to default capability handling */ }
-    if (!isFeatureGate) notifyForbidden({ path: url });
-  }
+  // Capability/role 403 (membership removed, role demoted) — fire
+  // FORBIDDEN_EVENT so MeContext re-fetches /v1/me and the UI re-gates.
+  if (res.status === 403) notifyForbidden({ path: url });
   return res;
 }
 
@@ -272,19 +252,6 @@ export async function scanAccount(id) {
     const err = new Error('Scan already in progress');
     err.code = 'already_scanning';
     throw err;
-  }
-  // B1.6 slice 8 — the license scan-gate (services/api/internal/api/handler.go
-  // §4.9.2b) returns 403 with body {"error":"license_expired", ...} once the
-  // license is past grace. Surface this as a structured error so the
-  // AccountSettingsScreen toast can carry the renewal contact instead of a
-  // generic "Failed to trigger scan" string.
-  if (res.status === 403) {
-    const body = await res.json().catch(() => ({}));
-    if (body?.error === 'license_expired') {
-      const err = new Error(body.detail || 'License past grace period');
-      err.code = 'license_expired';
-      throw err;
-    }
   }
   if (!res.ok) throw new Error('Failed to trigger scan');
   return res.json();
