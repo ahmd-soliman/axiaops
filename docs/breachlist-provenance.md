@@ -17,9 +17,8 @@ concatenated stream of **raw 20-byte SHA-1 digests**, no delimiters, binary-
 searched by `breachlist.IsCompromised`. SHA-1 is the **corpus index only**; AxiaOps
 stores passwords with argon2id (`auth.Hash`), never SHA-1.
 
-The blob is linked into **two** shipped images — the tenant `api` binary
-(`cmd/`) and the `api-admin` staff-plane binary (`cmd/api-admin/`) — because both
-call `auth.CheckPolicy`. `cmd/hash-password` links it too (operator tooling, not
+The blob is linked into the tenant `api` binary (`cmd/`), which calls
+`auth.CheckPolicy`. `cmd/hash-password` links it too (operator tooling, not
 a pulled service image). Ingestion does **not** link it: `breachlist` lives under
 `services/api/internal`, which ingestion's import graph never references, so the
 blob is structurally absent from ingestion's link set (not a dead-code-elimination
@@ -108,19 +107,19 @@ diff ARE the human-reviewable record of what changed.
    to raw 20 bytes, **re-sorts ascending by raw digest** (binary search needs
    digest order, not prevalence order), dedupes, and writes the `.bin`.
 
-   - **Size knob:** 1,000,000 → ~20 MB (paid in *both* the api and api-admin
-     images). The 500k fallback (`… 500000` → ~10 MB) is the same code with a
-     smaller N if the 20 MB image bump proves heavy — see the design doc.
+   - **Size knob:** 1,000,000 → ~20 MB (paid in the api image). The 500k
+     fallback (`… 500000` → ~10 MB) is the same code with a smaller N if the
+     20 MB image bump proves heavy — see the design doc.
 
 3. **Update this manifest** — Source row → "HIBP Pwned Passwords, ordered,
    version/date <X>"; N; size; the new SHA-256; date. Update `NOTICE` with the
    HIBP corpus version/date.
 
-4. **Re-run the size diff** on both binaries and note the delta:
+4. **Re-run the size diff** and note the delta:
 
    ```bash
-   make build-production   # builds ./cmd/ and ./cmd/api-admin/ with -tags production
-   ls -l /tmp/axiaops-api-production /tmp/axiaops-api-admin-production
+   make build-production   # builds ./cmd/ with -tags production
+   ls -l /tmp/axiaops-api-production
    ```
 
 5. Commit the `.bin` + manifest + `NOTICE` together. Re-screening cadence:

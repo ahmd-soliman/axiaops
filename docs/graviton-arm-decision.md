@@ -119,9 +119,9 @@ savings level. See the comparison table below.
 
 | Component | Current arch | Graviton-ready? | Blocker |
 |---|---|---|---|
-| Go services (api, ingestion, api-admin, migrate) | x86 | ✅ | none — no cgo, no arch pins, pure-Go pgx, argon2 ships ARM64 asm |
+| Go services (api, ingestion, migrate) | x86 | ✅ | none — no cgo, no arch pins, pure-Go pgx, argon2 ships ARM64 asm |
 | `services/shared` | x86 | ✅ | none |
-| Dashboards (dashboard, dashboard-admin) | x86 / serverless | ✅ | none — prod dashboard is S3+CloudFront (arch-free) |
+| Dashboard | x86 / serverless | ✅ | none — prod dashboard is S3+CloudFront (arch-free) |
 | **RDS PostgreSQL** (`db.t4g.micro`) | **ARM (Graviton2)** | ✅ already done | none |
 | CI build pipeline | x86 runner | ⚠️ partial | needs multi-arch manifests (`buildx --platform linux/amd64,linux/arm64`) |
 | **ECS Express compute** | **x86 (forced)** | ❌ **blocked** | **no supported arch selector — verified 2026-06-06** |

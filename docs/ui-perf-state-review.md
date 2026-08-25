@@ -1,9 +1,10 @@
-# UI Performance & State Review — tenant dashboard + admin dashboard
+# UI Performance & State Review — tenant dashboard
 
 **Date:** 2026-06-11
-**Scope:** `services/dashboard/src` (tenant dashboard, ~17.7k lines) and
-`services/dashboard-admin/src` (admin console, ~1k lines). Review focused on
-performance and state-management defects plus minor easy wins — not style.
+**Scope:** `services/dashboard/src` (tenant dashboard, ~17.7k lines). Review
+focused on performance and state-management defects plus minor easy wins —
+not style. (Originally also covered `services/dashboard-admin` — that section
+is removed along with the admin plane itself.)
 **Method:** four parallel review passes (core infra / large screens /
 settings+auth screens / shared components), every High and Medium finding
 re-verified against the source before inclusion. Line numbers are as of
@@ -212,21 +213,6 @@ early by the orphaned timer of its predecessor).
 
 ---
 
-## Admin dashboard (`services/dashboard-admin`)
-
-No High or Medium findings. The screens are small, fetch with `live`-flag
-cleanup, and have no polling or charting. Minor items:
-
-| # | Location | Issue | Fix |
-|---|----------|-------|-----|
-| A-1 | `src/screens/StaffScreen.jsx:156, 169` | `grant`/`revoke` call `onChange()` (async `load`) without awaiting, so `finally { setBusy(false) }` re-enables the row's controls while the staff list refetch is still in flight — a second click acts on stale roles. (`CreateStaffForm` gets this right: `await onCreated()`.) | `await onChange()` before the `finally`. |
-| A-2 | `src/auth/AdminAuth.jsx:49`, `src/theme.jsx:35` | Context values rebuilt per render (same pattern as L-3). Tiny tree, so impact is negligible — fix for consistency. | `useMemo` the value objects. |
-| A-3 | `src/App.jsx:32` | `onClick={logout}` — `logout` re-throws network failures (`try/finally`, no catch), leaving an unhandled rejection; UI still logs out. | Swallow-and-log in `logout`. |
-| A-4 | `src/screens/LoginScreen.jsx:36` | `setSubmitting(false)` in `finally` runs after `navigate('/tenants')` unmounts the screen. Harmless in React 18; reorder for cleanliness. | Skip the reset on the success path. |
-| A-5 | `src/screens/StaffScreen.jsx:23–25` | Effect keyed on the `me` object reference re-fires `load` whenever the auth context refreshes. Currently `refresh()` only runs at mount, so dormant. | Key on `hasRole(me, 'superadmin')` (boolean). |
-
----
-
 ## Claims investigated and rejected
 
 For the record, three findings surfaced during review did **not** hold up
@@ -248,4 +234,4 @@ and are excluded above:
 2. **M-1, M-2, M-4** — the memoization batch; M-2 first since resize churn amplifies the others.
 3. **M-5, M-6, M-7** — state-correctness fixes (stale filter, double-submit, lost edits).
 4. **M-3, M-8, M-9** — overlay behavior, banner offset, toast timers.
-5. Low items opportunistically when touching the files; L-8 (dead code) and A-1 any time.
+5. Low items opportunistically when touching the files; L-8 (dead code) any time.
