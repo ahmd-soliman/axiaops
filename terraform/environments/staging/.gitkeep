@@ -1,0 +1,3 @@
+# Reserved for the future staging environment (design §3.1).
+# Not provisioned in v1 — keep the directory so the module shape stays
+# discoverable in code review.

@@ -1,0 +1,10 @@
+# Copy to backend.hcl (gitignored — holds real bucket/table identity) and
+# fill in the values `terraform/bootstrap` output. Used with:
+#   terraform init -backend-config=backend.hcl
+# from either environments/reference/init/ or environments/reference/main/ —
+# both `versions.tf` files declare a partial `backend "s3"` block (just
+# `key` + `encrypt`) that this fills in the rest of.
+
+bucket         = "<your-state-bucket-name>"
+region         = "eu-central-1"
+dynamodb_table = "<your-lock-table-name>"
