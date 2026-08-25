@@ -102,10 +102,6 @@ type Store interface {
 	// storage_native_auth.go for the full method set.
 	NativeAuthStore
 
-	// StaffStore — platform admin plane (staff identity + RBAC + cross-org
-	// read methods for the admin console). See storage_staff.go.
-	StaffStore
-
 	// Save upserts a batch of cost records, refreshing amount/currency/tags/
 	// fetched_at/internal_account_id when an existing conflict-key row is
 	// touched. Returns (inserted, updated) counts so callers can split
