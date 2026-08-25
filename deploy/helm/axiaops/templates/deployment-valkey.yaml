@@ -1,0 +1,74 @@
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "axiaops.redisHost" . }}
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "valkey") | nindent 4 }}
+spec:
+  # Single replica, no PVC -- matches deploy/*.yml today (no named volume
+  # for redis/valkey there either). Used as an ephemeral scan-job queue /
+  # cache, not a store of record; losing it on pod restart is an accepted
+  # trade-off already made by the compose deploys this mirrors, not a new
+  # one introduced here.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "valkey") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "valkey") | nindent 8 }}
+    spec:
+      containers:
+        - name: valkey
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.redis.auth.existingSecret }}
+          command:
+            - sh
+            - -c
+            - 'exec valkey-server --requirepass "$REDIS_PASSWORD"'
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.auth.existingSecret }}
+                  key: {{ .Values.redis.auth.secretKey }}
+          {{- end }}
+          ports:
+            - name: valkey
+              containerPort: 6379
+          livenessProbe:
+            exec:
+              command:
+                {{- if .Values.redis.auth.existingSecret }}
+                - sh
+                - -c
+                - 'valkey-cli -a "$REDIS_PASSWORD" --no-auth-warning ping'
+                {{- else }}
+                - valkey-cli
+                - ping
+                {{- end }}
+            initialDelaySeconds: 5
+          {{- with .Values.redis.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "axiaops.redisHost" . }}
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "valkey") | nindent 4 }}
+spec:
+  selector:
+    {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "valkey") | nindent 4 }}
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: valkey
+{{- end }}
