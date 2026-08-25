@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging start-debug stop migrate seed seed-staff seed-remote-dev-1 seed-remote-dev-2 seed-remote-staging seed-remote-preview seed-remote-demo seed-remote-integration inspect-db clean-db clean-db-drop clean-db-files clean-remote-dev-1 clean-remote-dev-2 clean-remote-staging clean-remote-preview clean-remote-demo clean-remote-integration clean-remote-dev-1-drop clean-remote-dev-2-drop clean-remote-staging-drop clean-remote-preview-drop clean-remote-demo-drop clean-remote-integration-drop test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-staging start-debug stop migrate seed seed-staff inspect-db clean-db clean-db-drop clean-db-files test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -105,12 +105,9 @@ migrate:
 seed:
 	./scripts/seed_test_data.sh
 
-# Multi-org demo seed (Tier-1 slice of #93). On top of `seed`, populates the
-# Acme + Globex orgs with copies of the dev seed data and wires the dev user
-# as owner of all three so the B1.5 org switcher exercises end-to-end against
-# the local stack. For preview, run `./scripts/seed_test_data.sh --remote
-# preview --demo` directly (skipped here because the user needs to bootstrap
-# the first owner via the dashboard before remote seeding can resolve them).
+# Multi-org demo seed. On top of `seed`, populates the Acme + Globex orgs
+# with copies of the dev seed data and wires the dev user as owner of all
+# three so the org switcher exercises end-to-end against the local stack.
 seed-demo:
 	./scripts/seed_test_data.sh --demo
 
@@ -129,33 +126,6 @@ seed-staff:
 		RUNTIME_ADMIN_DATABASE_URL="postgres://axiaops_runtime:$(POSTGRES_RUNTIME_PASSWORD)@localhost:5432/axiaops?sslmode=disable" \
 		go run ./cmd/api-admin seed-staff --email "$(STAFF_EMAIL)" --name "$(STAFF_NAME)" --password "$(STAFF_PASSWORD)"
 	@echo "Admin console: http://localhost:8090 — login $(STAFF_EMAIL) / $(STAFF_PASSWORD)"
-
-# Seed remote env databases. Each env runs on its own self-hosted container —
-# postgres listens on the standard 5432 since per-host means no port
-# collision. Hostnames resolve via mDNS (Avahi on the LAN).
-#
-#   dev-1    → axiaops-<env>.local:5432   (auth-bypass; uses DEV_ORGANIZATION_ID)
-#   dev-2    → axiaops-<env>.local:5432   (auth-bypass; uses DEV_ORGANIZATION_ID)
-#   staging  → axiaops-<env>.local:5432 (auth-on; bootstrap an owner first)
-#   preview  → axiaops-<env>.local:5432 (auth-on; bootstrap an owner first)
-#   demo     → axiaops-<env>.local:5432    (auth-on; bootstrap an owner first)
-seed-remote-dev-1:
-	./scripts/seed_test_data.sh --remote dev-1
-
-seed-remote-dev-2:
-	./scripts/seed_test_data.sh --remote dev-2
-
-seed-remote-staging:
-	./scripts/seed_test_data.sh --remote staging
-
-seed-remote-preview:
-	./scripts/seed_test_data.sh --remote preview
-
-seed-remote-demo:
-	./scripts/seed_test_data.sh --remote demo
-
-seed-remote-integration:
-	./scripts/seed_test_data.sh --remote integration
 
 inspect-db:
 	./scripts/inspect_db.sh
@@ -183,53 +153,6 @@ clean-db-drop:
 clean-db-files: stop
 	@echo "Deleting pg_data… Postgres will create a fresh database on next start."
 	rm -rf pg_data
-
-# ── Remote Database Cleanup ───────────────────────────────────────────────────
-# Per-host self-hosted design: each env runs on its own container, postgres on the
-# standard 5432, hostnames via mDNS:
-#   dev-1   → axiaops-<env>.local:5432
-#   dev-2   → axiaops-<env>.local:5432
-#   staging → axiaops-<env>.local:5432
-#   preview → axiaops-<env>.local:5432
-#   demo    → axiaops-<env>.local:5432
-
-# Truncate tables (preserve schema).
-clean-remote-dev-1:
-	./scripts/clean_db.sh --remote dev-1
-
-clean-remote-dev-2:
-	./scripts/clean_db.sh --remote dev-2
-
-clean-remote-staging:
-	./scripts/clean_db.sh --remote staging
-
-clean-remote-preview:
-	./scripts/clean_db.sh --remote preview
-
-clean-remote-demo:
-	./scripts/clean_db.sh --remote demo
-
-clean-remote-integration:
-	./scripts/clean_db.sh --remote integration
-
-# Drop schema and user (destructive — requires re-running migrations).
-clean-remote-dev-1-drop:
-	./scripts/clean_db.sh --remote dev-1 --drop-schema
-
-clean-remote-dev-2-drop:
-	./scripts/clean_db.sh --remote dev-2 --drop-schema
-
-clean-remote-staging-drop:
-	./scripts/clean_db.sh --remote staging --drop-schema
-
-clean-remote-preview-drop:
-	./scripts/clean_db.sh --remote preview --drop-schema
-
-clean-remote-demo-drop:
-	./scripts/clean_db.sh --remote demo --drop-schema
-
-clean-remote-integration-drop:
-	./scripts/clean_db.sh --remote integration --drop-schema
 
 # Per-service test targets — each mirrors the matching CI job (test:shared, test:api, test:ingestion).
 # Running one target locally reproduces exactly what CI runs for that job.
