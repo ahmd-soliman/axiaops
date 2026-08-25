@@ -52,7 +52,6 @@ ingress:
   className: ""
   annotations: {}
   host: ""       # dashboard (tenant UI + /api proxy)
-  adminHost: ""  # dashboard-admin (staff console + /admin proxy)
   tls:
     enabled: false
     secretName: ""
@@ -78,7 +77,7 @@ redis:
     # on a DEV_MODE environment. When set, this Secret must provide BOTH:
     #   password   -- passed to valkey-server --requirepass
     #   redis-url  -- the full redis://:<password>@<host>:6379 DSN, since
-    #                 api/ingestion/api-admin each read REDIS_URL as one
+    #                 api/ingestion each read REDIS_URL as one
     #                 string and a plain env var can't interpolate a
     #                 second Secret's value into it.
     existingSecret: ""
@@ -120,16 +119,6 @@ dashboard:
   # AWS account ID shown in the dashboard's "connect an account" flow --
   # cosmetic, not a secret. See deploy/dev.yml AXIAOPS_AWS_ACCOUNT_ID.
   awsAccountId: ""
-  podAnnotations: {}
-
-apiAdmin:
-  replicaCount: 1
-  resources: {}
-  podAnnotations: {}
-
-dashboardAdmin:
-  replicaCount: 1
-  resources: {}
   podAnnotations: {}
 
 migrate:
