@@ -357,6 +357,26 @@ func TestSummarize_AggregatesSavings(t *testing.T) {
 	}
 }
 
+// TestSummarize_ByServiceRoundedToCents guards against ByService entries
+// leaking raw binary floating-point residue into the API response — e.g.
+// summing 0.1 + 0.2 gives 0.30000000000000004, not 0.3. PotentialMonthlySave
+// was already rounded; ByService's per-service Savings was not, so a client
+// summing MonthlyCost values that don't round cleanly in binary could see a
+// long trailing-digit float like 0.0000013639591634273529 instead of a clean
+// two-decimal amount.
+func TestSummarize_ByServiceRoundedToCents(t *testing.T) {
+	zombies := []model.ZombieResource{
+		{Service: "AmazonCloudWatch", MonthlyCost: 0.1, Currency: "USD"},
+		{Service: "AmazonCloudWatch", MonthlyCost: 0.2, Currency: "USD"},
+	}
+
+	s := analyzer.Summarize(zombies)
+
+	if got := s.ByService["AmazonCloudWatch"].Savings; got != 0.3 {
+		t.Errorf("expected AmazonCloudWatch savings rounded to 0.3, got %v", got)
+	}
+}
+
 // ── SummarizeByAccount ─────────────────────────────────────────────────────────
 
 func TestSummarizeByAccount(t *testing.T) {
