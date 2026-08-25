@@ -2,8 +2,7 @@
 //
 // Implements the GDPR Art. 15 (access) and Art. 20 (portability) right by
 // returning a single JSON document containing every per-organization row the
-// calling organization owns. See docs/compliance/gdpr_plan.md §4.1 for the full
-// product surface and acceptance criteria.
+// calling organization owns.
 //
 // Gated by PermDataExport (owner-only). The export bundles account configurations, cost/resource/zombie records, and the full audit_log of every member — granting
 // a less-privileged role would broaden a single click into a download of
@@ -153,7 +152,7 @@ func (h *Handler) buildOrgExport(ctx context.Context, organizationID string) (*o
 		SchemaVersion:  exportSchemaVersion,
 		GeneratedAt:    time.Now().UTC(),
 		OrganizationID: organizationID,
-		Notes:          "Encrypted account credentials and internal-only audit fields are excluded. See docs/compliance/gdpr_plan.md §4.2.",
+		Notes:          "Encrypted account credentials and internal-only audit fields are excluded.",
 	}
 
 	g, gctx := errgroup.WithContext(ctx)

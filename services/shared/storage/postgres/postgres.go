@@ -114,7 +114,7 @@ func setOrganization(ctx context.Context, tx pgx.Tx) error {
 // fetched_at, and internal_account_id refreshed from the incoming payload —
 // this is how AWS Cost Explorer's late-settled NetAmortizedCost for day-1 of a
 // billing period reaches the database under the rolling 30-day re-fetch
-// window. See docs/cost-records-upsert-plan.md.
+// window.
 //
 // The internal_account_id column uses COALESCE so a re-fetch that omits the
 // field never clobbers a populated legacy value (the column was added in
@@ -2215,7 +2215,7 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, e
 //     locks down purges to the owner role on purpose.
 //   * the operations span organizations (anonymising audit entries elsewhere when a
 //     user is deleted), so RLS would block half the work.
-// See docs/rbac-design.md §10 and docs/audit_trail_plan.md §7.
+// See docs/rbac-design.md §10.
 
 // DeleteUser hard-deletes a user as part of right-to-erasure. Anonymises
 // the user's audit footprint across all organizations, then deletes the user row;
@@ -2264,8 +2264,8 @@ func (s *Store) DeleteUser(ctx context.Context, userID string) error {
 }
 
 // DeleteOrganizationCascade purges every row scoped to organizationID in FK-safe order
-// and then drops the organization row itself. See docs/audit_trail_plan.md §7
-// — this is the one path that purges audit_log.
+// and then drops the organization row itself — this is the one path that
+// purges audit_log.
 func (s *Store) DeleteOrganizationCascade(ctx context.Context, organizationID string) error {
 	if organizationID == "" {
 		return fmt.Errorf("postgres: delete organization: organizationID required")

@@ -1,10 +1,9 @@
 # User Onboarding (current state)
 
-> **Status:** describes the native-auth flow as shipped post-ADR-0001 (2026-05).
-> The Kinde-coupled Pattern A flow (manual org creation in Kinde dashboard,
-> `org_code` JWT, Kinde Management API invitations) is replaced. See the
-> [historical version in git](https://gitlab.com/axiaops/axiaops) for the
-> Kinde-era flow.
+> **Status:** describes the native-auth flow as shipped (2026-05 onward).
+> An earlier Kinde-brokered flow (manual org creation in Kinde's dashboard,
+> `org_code` JWT, Kinde Management API invitations) has been fully replaced —
+> auth is native (email/password + native SSO) throughout.
 
 ## The current flow (self-hosted, native auth)
 
@@ -31,8 +30,6 @@ The owner invites teammates by email from Settings → Team:
 4. Invitee opens the URL → AcceptInviteScreen:
    - `POST /v1/auth/invitations/preview {token}` — previews email/role.
    - `POST /v1/auth/invitations/redeem {token, password[, name]}` — creates account + membership + mints session.
-
-See [`docs/invitation-flow.md`](./invitation-flow.md) for the table schema and audit events.
 
 ### SSO-based onboarding
 

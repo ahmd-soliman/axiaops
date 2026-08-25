@@ -17,12 +17,11 @@ import (
 // (Verify returning an error the label-switch doesn't recognise) so a
 // future sentinel addition shows up rather than panicking.
 //
-// Mirrors the shape of axiaops_session_revocations_total. See
-// docs/c1-hmac-plan.md §4.3.
+// Mirrors the shape of axiaops_session_revocations_total.
 var hmacFailuresTotal = promauto.With(registry).NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "axiaops_ingestion_hmac_failures_total",
-		Help: "Total ingestion HMAC verification failures, labelled by reason. Alert on > 1/min for > 5min in any hard-enforce env (docs/c1-hmac-plan.md §7).",
+		Help: "Total ingestion HMAC verification failures, labelled by reason. Alert on > 1/min for > 5min in any hard-enforce env.",
 	},
 	[]string{"reason"},
 )

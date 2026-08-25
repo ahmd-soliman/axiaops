@@ -35,7 +35,7 @@
 // This is the single seam every package uses (auth rate-limiter, audit log,
 // SSO callback session row). Duplicating the logic per-caller previously
 // caused regressions: the auth package was fixed but audit and sso kept the
-// broken leftmost-token form — see docs/security-audit-2026-05-09.md (C-3).
+// broken leftmost-token form.
 package httpip
 
 import (

@@ -60,8 +60,8 @@ type Metrics struct {
 	UserDeletionsTotal         *prometheus.CounterVec // Per-user hard deletes by status (ok|failed|conflict)
 	DataExportsTotal           *prometheus.CounterVec // GDPR data exports (GET /v1/export) by status (ok|failed)
 
-	// Native-auth (Phase B1) — see docs/sso-implementation-plan.md §4.5.
-	// Used by services/api/internal/auth and the auth middleware. Cardinality
+	// Native-auth metrics. Used by services/api/internal/auth and the auth
+	// middleware. Cardinality
 	// is bounded by the labels — no user_id / org_id labels (those would
 	// blow up the series count under attack and don't help operators).
 	AuthLoginTotal              *prometheus.CounterVec // outcome (success|failure|org_selection_required), reason (bad_password|unknown_user|rate_limited|locked|internal|"" when outcome=org_selection_required)
@@ -74,7 +74,6 @@ type Metrics struct {
 	AuthProviderActive          *prometheus.CounterVec // provider label ("native" | "unknown")
 	AuthProviderLastSeen        *prometheus.GaugeVec   // provider — Unix-seconds gauge for low-traffic SLO queries (architect N1)
 
-	// SSO callback shape — see Tasks.md 2.7.22 / docs/sso-implementation-plan.md.
 	// Increments on every hit to the legacy `/v1/sso/oidc/{cid}/callback` route
 	// (the path-cid form retired in favour of the standard `/v1/sso/oidc/callback`
 	// shape). Drives the deprecation runbook: when the rate over the last day
@@ -230,7 +229,6 @@ func newMetrics() *Metrics {
 			Help: "Total GDPR data exports served via GET /v1/export, labelled by outcome (ok|failed).",
 		}, []string{"status"}),
 
-		// Native-auth metrics — see docs/sso-implementation-plan.md §4.5/§7.2.
 		AuthLoginTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "axiaops_auth_login_total",
 			Help: "Native-auth login attempts. Outcome is one of: success (session minted), failure (auth rejected), org_selection_required (B1.5 multi-org user redirected to /select-org — no session minted but the password check passed). Reason narrows the failure mode for runbooks: bad_password, unknown_user, rate_limited, locked, internal (DB error). Empty reason is the documented shape when outcome=success or outcome=org_selection_required.",

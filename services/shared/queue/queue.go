@@ -15,7 +15,7 @@ import (
 // ScanJob represents a single scan request enqueued by the API.
 //
 // Timestamp and Signature are populated by the Redis backend at Enqueue
-// time (envelope-signing; see docs/c1-hmac-plan.md §4.4) so a worker that
+// time (envelope-signing) so a worker that
 // dequeues the job can verify the envelope was minted by an authorised
 // caller. They are JSON-omitted when empty so the sync queue's HTTP
 // payload stays terse (its signing surface is the HTTP headers, not the
@@ -38,7 +38,7 @@ type Queue interface {
 
 // toRedis / fromRedis use keyed field conversion so a future field addition
 // to either struct surfaces as a named-field compile error rather than a
-// confusing positional one. See docs/c1-hmac-plan.md §9 "lockstep" note.
+// confusing positional one.
 func toRedis(j ScanJob) redisqueue.ScanJob {
 	return redisqueue.ScanJob{
 		OrganizationID: j.OrganizationID,

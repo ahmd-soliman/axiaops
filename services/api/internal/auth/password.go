@@ -1,7 +1,6 @@
-// Package auth — Phase B1 native auth primitives.
+// Package auth — native auth primitives.
 //
-// password.go: argon2id password hashing and verification. Defaults match
-// docs/sso-implementation-plan.md decision D6.
+// password.go: argon2id password hashing and verification.
 package auth
 
 import (

@@ -178,20 +178,6 @@ Result: even if you adopt one of these emulators, the operator must manually kee
 
 ---
 
-## 6. Forward-looking — CUR (Phase 3+)
-
-Cost and Usage Reports (`docs/CUR_EXTENSION_PLAN.md`) replace Cost Explorer as the cost data feed once a customer enables CUR delivery. The testing implications are different:
-
-- CUR data lives in S3 as Parquet files, not behind an API. There is no CE-style rate limit or per-call cost.
-- CUR ingestion is testable against a small **synthetic Parquet file** committed to the repo — much cheaper than CE testing, no emulator needed for the cost path at all.
-- Resource-level attribution that the CE path infers from `GetCostAndUsageWithResources` becomes the *literal content* of every CUR line item — `lineItem/ResourceId` is a string we read, not something we have to ask for.
-
-The implication: the real-AWS test fleet outlined in §4.2 will need a CUR delivery configured (S3 bucket, IAM role for AWS to write to it, customer-side `cur:PutReportDefinition`). When CUR ingestion ships, the unit-test path becomes "synthetic Parquet → reader → analyzer," and the staging canary additionally exercises real CUR file delivery and the Athena query path (Pattern A in the CUR plan).
-
-CUR does **not** change the §1 decision: emulators stay non-load-bearing. The fleet just grows by one S3 bucket and one CUR delivery configuration.
-
----
-
 ## 7. Operational follow-ups
 
 These are the concrete tasks this decision unblocks. None are in flight yet — track as follow-up items:
