@@ -26,13 +26,13 @@ var migrationsFS embed.FS
 //     here, before 000_init.up.sql, because the ALTER DEFAULT PRIVILEGES in
 //     000_init applies only to tables created after that statement runs —
 //     migration_history pre-dates it and therefore needs an explicit GRANT.
-//     See docs/migration-history-table-design.md §Bootstrap.)
+//     See docs/ARCHITECTURE.md (§5, Migration system).)
 //
 // Must be called before Migrate on every startup. Connects as the owner
 // (ownerURL) to create/update the user and schema, then syncs the password
 // from DATABASE_URL — enabling credential rotation without manual steps.
 // runtimeAdminURL is the least-privilege RLS-bypass role connection
-// (axiaops_runtime, see docs/runtime-admin-db-role.md); when non-empty its
+// (axiaops_runtime, see docs/AUTHENTICATION.md (§5)); when non-empty its
 // LOGIN + password are synced here the same way (the role's privileges +
 // per-table bypass policies live in migration 029). Empty skips the sync.
 // Uses advisory lock to prevent concurrent bootstrap calls.
@@ -217,7 +217,7 @@ func Bootstrap(ownerURL, appURL, runtimeAdminURL string) error {
 }
 
 // Migrate applies all pending up migrations one step at a time, recording each
-// in axiaops.migration_history (see docs/migration-history-table-design.md).
+// in axiaops.migration_history (see docs/ARCHITECTURE.md (§5, Migration system)).
 // Safe to call on every startup — already-applied migrations are skipped.
 // A wrapper-level session advisory lock serialises concurrent wrappers; the
 // orphan-recovery / backfill / drift-detection passes run inside that lock.

@@ -14,7 +14,7 @@ import (
 )
 
 // These tests pin the least-privilege runtime RLS-bypass role (axiaops_runtime,
-// migration 029 + docs/runtime-admin-db-role.md): it must bypass RLS across
+// migration 029 + docs/AUTHENTICATION.md (§5)): it must bypass RLS across
 // organizations (via per-table permissive policies, NOT the BYPASSRLS attribute
 // — which RDS cannot grant), but must NOT be able to do DDL or own objects.
 //

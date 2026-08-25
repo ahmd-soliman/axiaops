@@ -94,7 +94,7 @@ func main() {
 		// design; refuse to start in any other build rather than serve
 		// silently-broken auth. The schema-owner connection
 		// (MIGRATION_DATABASE_URL) is the migrate task's alone now — see
-		// docs/runtime-admin-db-role.md.
+		// docs/AUTHENTICATION.md (§5).
 		if !devModeEnabled() {
 			die("storage: RUNTIME_ADMIN_DATABASE_URL is required outside DEV_MODE — without the RLS-bypass connection the pool falls back to the app pool and native login silently fails for all users")
 		}

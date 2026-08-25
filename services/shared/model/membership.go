@@ -4,7 +4,7 @@ import "time"
 
 // Membership joins a User to an Organization with a specific role. A user can
 // belong to multiple organizations; the (organization_id, user_id) pair is
-// unique. See docs/rbac-design.md §4 for the data model rationale.
+// unique. See docs/AUTHENTICATION.md (§2) for the role model rationale.
 type Membership struct {
 	ID             string
 	OrganizationID string

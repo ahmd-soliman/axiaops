@@ -1,13 +1,13 @@
 // Package breachlist screens candidate passwords against an embedded corpus of
 // known-compromised passwords (HIBP Pwned Passwords, a bootstrap seed for now —
-// see docs/breachlist-provenance.md), implementing the NIST SP 800-63B §5.1.1.2
+// see docs/AUTHENTICATION.md (§4)), implementing the NIST SP 800-63B §5.1.1.2
 // compromised-credential screen for AxiaOps' self-hosted native-auth path.
 //
 // Why offline-embedded and not the live HIBP k-anonymity API: AxiaOps ships
 // self-hosted, possibly egress-restricted or air-gapped, so a live external
 // call is unavailable by design and a "soft warning / fail-open" degradation
 // silently no-ops. We follow GitLab/Django prior art and bundle the corpus.
-// See docs/password-breach-check-design.md.
+// See docs/AUTHENTICATION.md (§4).
 //
 // # SHA-1 is the corpus INDEX, never storage
 //

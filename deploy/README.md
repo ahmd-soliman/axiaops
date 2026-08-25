@@ -1,54 +1,29 @@
-# Deployment Files
+# Deployment
 
-This directory contains Docker Compose files for different environments.
+Three real deployment paths for AxiaOps:
 
-## Files
+| Path | Where | Use for |
+|---|---|---|
+| `docker-compose.yml` (repo root) | Local dev | `make start-dev` / `make start-staging` |
+| `deploy/helm/axiaops/` | Kubernetes | Self-hosting on any k8s cluster |
+| `terraform/` (repo root) | AWS | ECS Express + RDS |
 
-### `dev.yml` — Development Environment
-- **DEV_MODE**: `true` (auth bypassed)
-- **Image tags**: `:${DEPLOY_ENV}` (e.g. `:dev-1`, `:dev-2`)
-- **Restart policy**: `unless-stopped`
-- **Network**: Uses external GitLab runner network
-- **Usage**: GitLab CI builds and runs this. The CI deploy jobs (`deploy:dev-1`, `deploy:dev-2`) supply `DEPLOY_ENV`, `API_HOST_PORT`, `DASHBOARD_HOST_PORT` so multiple dev slots can run on the same host.
+## `helm/`
 
-```bash
-DEPLOY_ENV=dev-1 API_HOST_PORT=30031 DASHBOARD_HOST_PORT=30032 \
-  docker-compose -f deploy/dev.yml up -d
-```
+A generic, environment-agnostic Helm chart — see [`helm/axiaops/README.md`](helm/axiaops/README.md)
+for the minimum-viable install and the full values reference.
 
-### `staging.yml` — Staging Environment
-- **DEV_MODE**: `false` (native cookie-session auth + OIDC SSO required)
-- **Image tags**: `:staging`
-- **Restart policy**: `unless-stopped`
-- **Network**: Uses external GitLab runner network
-- **Usage**: GitLab CI builds and runs this
+## `certs/`
+
+Vendored TLS trust anchors needed by the services themselves (e.g. the AWS RDS
+global CA bundle, required for `sslmode=verify-full` against RDS) — see
+[`certs/README.md`](certs/README.md).
+
+## Local development
 
 ```bash
-docker-compose -f deploy/staging.yml up -d
-```
-
-## Local Development
-
-For local development (macOS/Linux), use the root `docker-compose.yml` with `make` commands:
-
-```bash
-make start-dev    # Uses root docker-compose.yml + .env files
+make start-dev    # root docker-compose.yml + .env files, DEV_MODE=true
+make start-staging  # full stack, native auth
 make stop
 make test
 ```
-
-## GitLab CI
-
-CI builds and deploys via `.gitlab-ci.yml`. Dev and staging are deployed manually on `main`/`develop` branches. Production is deployed to AWS ECS Express via ECR — no compose file is used for production.
-
-## Environment Variables
-
-### Required in Staging/Production
-- `DATABASE_URL`
-- `MIGRATION_DATABASE_URL`
-- `ENCRYPTION_KEY` (32-byte hex)
-
-### Optional (have defaults)
-- `SCAN_INTERVAL` (default: `60s` for dev, `1h` for staging)
-- `DEV_MODE` (default: `true` for dev, `false` for staging)
-- `LOG_LEVEL` (default: `info`)

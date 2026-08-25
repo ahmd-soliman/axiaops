@@ -14,7 +14,7 @@ How to be productive in this codebase, ranked roughly first-day → first-month.
 | Node | 20+ | Dashboard build (Vite + React). |
 | Docker + Compose | recent | Postgres, Redis, full-stack `start-staging`. |
 | `make` | any | Workflow entry point. |
-| `glab` | recent | GitLab CLI. **Not `gh`** — this repo lives on GitLab. |
+| `gh` | recent | GitHub CLI, for opening PRs. |
 | AWS account | — | For real scans. Use a personal sandbox account or read-only role. |
 | `psql` | 16+ | Optional but useful for poking the DB directly. |
 
@@ -28,7 +28,7 @@ Optional but nice:
 
 ```bash
 # Clone
-git clone git@gitlab.com:axiaops/axiaops.git
+git clone git@github.com:ahmd-soliman/axiaops.git
 cd axiaops
 
 # AWS credentials — put in services/ingestion/.env or export in your shell.
@@ -70,7 +70,26 @@ To shut everything down: `make stop` (kills the host-mode Go processes AND `dock
 
 Spend most of your time in `start-dev`. Reach for `start-staging` only when you're debugging something that requires the full stack (cookie `Secure` flag, X-Forwarded-Proto handling, Redis-backed sessions, etc.).
 
-`start-dev` first-run is documented in [docs/native-auth-bootstrap.md](native-auth-bootstrap.md) — but you won't hit it because DEV_MODE skips bootstrap.
+`start-dev` first-run is documented in [AUTHENTICATION.md § 3](AUTHENTICATION.md) — but you won't hit it because DEV_MODE skips bootstrap.
+
+### Fake-data scenarios (`DEV_SCENARIO`)
+
+In `DEV_MODE=true`, ingestion runs against a fake AWS provider (`services/ingestion/internal/provider/fake`) instead of real AWS calls — same `runPipeline()` used in production, just a different data source, selected via `DEV_SCENARIO`:
+
+| Scenario | Resources | Zombies | Use for |
+|---|---|---|---|
+| `startup` (default) | 4 | 2 | General dev work |
+| `enterprise` | 12 | 6 | Demos, realistic multi-service mix |
+| `all-zombies` | 3 | 3 | Dismiss/snooze workflow testing |
+| `no-zombies` | 2 | 0 | Empty-state testing |
+
+```bash
+DEV_MODE=true DEV_SCENARIO=enterprise make start-dev
+```
+
+`make seed` instead loads persistent fixture data (12 zombies, 19 resources, 90 days of trend snapshots) for regular dev work. `make test-scenarios` unit-tests the fake provider itself — no DB/Docker/AWS required.
+
+To add a scenario, add a case in `services/ingestion/internal/provider/fake/scenarios.go` (cost + usage records, joined on `ResourceID`) — zombie thresholds live in the detector (e.g. EC2 CPU ≤5% avg, RDS/Lambda/ELB 0 usage).
 
 ---
 
@@ -120,7 +139,7 @@ make build-production    # go build -tags production — catches DEV_MODE leak r
 - **No real network calls** in unit tests.
 - **Always** run `make test` before committing.
 
-Detection rule changes have a special test workflow — see § 6 below.
+Detection rule changes have a special test workflow — see § 5.3 below.
 
 ---
 
@@ -128,7 +147,7 @@ Detection rule changes have a special test workflow — see § 6 below.
 
 ### 5.1 Adding an API endpoint
 
-The full play is documented in the [api-endpoint skill](../.claude/skills/api-endpoint/) — auto-loads when you ask Claude to add an endpoint. Quick gist:
+Quick gist:
 
 1. Decide on shape — REST verb + path + auth tier (public / authed / role-gated).
 2. Add a handler method on the `Handler` struct in `services/api/internal/api/handler.go`.
@@ -142,7 +161,7 @@ The full play is documented in the [api-endpoint skill](../.claude/skills/api-en
 
 ### 5.2 Adding a DB migration
 
-The full play is documented in the [db-migration skill](../.claude/skills/db-migration/). Gist:
+Gist:
 
 1. New file pair in `services/shared/storage/postgres/migrations/`: `NNN_description.up.sql` + `NNN_description.down.sql`. NNN is the next zero-padded number.
 2. Per-organization tables need `organization_id UUID NOT NULL` + an RLS policy:
@@ -157,11 +176,11 @@ The full play is documented in the [db-migration skill](../.claude/skills/db-mig
 6. For ad-hoc migrate operations use `bin/axiaopsctl migrate {up,down,force,drift,history}` (`make axiaopsctl` to build). A bastion `migrate` install bypasses the history table — never use that path.
 7. If the schema change implies a new Store method, add to the `Store` interface + postgres impl + integration test under `services/shared/storage/postgres/postgres_test.go`.
 
-See [docs/migrations.md](migrations.md) for the deeper conventions.
+See [ARCHITECTURE.md § 5](ARCHITECTURE.md) ("Migration system") for the deeper conventions.
 
 ### 5.3 Adding a detection rule
 
-Already in [ARCHITECTURE.md § 8](ARCHITECTURE.md#8-detection-engine), but to summarise the dev loop:
+Already in [ARCHITECTURE.md § 7](ARCHITECTURE.md#7-detection-engine), but to summarise the dev loop:
 
 ```bash
 # Edit serviceRules + provider code
@@ -181,51 +200,199 @@ The validators will reject unknown service names at fixture-load time with a lab
 
 ### 5.4 Adding a dashboard screen
 
-Documented in the [dashboard-screen skill](../.claude/skills/dashboard-screen/). Quick gist:
-
 1. New file under `services/dashboard/src/screens/MyScreen.jsx` or `src/pages/MyScreen.jsx`.
 2. Add a route in `App.jsx`.
 3. Use `useTheme()` for all colors. No hardcoded hex.
 4. Data through `useQuery` (TanStack Query) hitting the API client (`api/client.js`).
 5. Add a nav entry to `AppShell.jsx`'s `NAV_ITEMS` if it's a top-level screen, **with a `requires` permission gate if appropriate**.
-6. If the screen exposes a list/table the user might want to export, add CSV download via the [csv-export skill](../.claude/skills/csv-export/).
 
 ### 5.5 Submitting work
 
-We use GitLab. **Always**:
+We use GitHub. **Always**:
 
 ```bash
 git checkout -b feat/short-name        # or fix/, chore/, docs/, experiment/
 # ... commit work ...
 git push -u origin feat/short-name
-glab mr create --target-branch develop --title "feat(scope): tight summary" --description "..."
+gh pr create --base main --title "feat(scope): tight summary" --body "..."
 ```
 
 Conventions:
 
 - **Commit messages**: `type(scope): subject` — `type` ∈ {feat, fix, chore, docs, experiment, refactor, test}, `scope` is the touched service/area. Body explains the **why**, not the what.
-- **MR target**: `develop` by default; `main` only for hot-fixes targeting production.
-- **MR description**: summary + test plan checklist. Use the `gitlab-mr-create` skill template.
-- Per [/CLAUDE.md](../CLAUDE.md), delegate the actual commit creation to the `commit` agent and code review to the `code-reviewer` agent before pushing.
+- **PR description**: summary + test plan checklist.
 - Don't `git push --force` unless explicitly authorised. Don't bypass hooks (`--no-verify`).
 
 ---
 
-## 6. The deployment topology, briefly
+## 6. Testing SSO locally (Entra / Keycloak)
 
-(Detail in [ARCHITECTURE.md § 4](ARCHITECTURE.md#4-deployment-topology) and [docs/deployment.md](deployment.md).)
+Click-through validation of the OIDC RP — admin UX, email-blur discovery, the OIDC
+ceremony, JIT membership provisioning — against a real IdP, faster than standing up
+a staging deployment. SAML is not implemented; OIDC only.
 
-What you actually need to remember:
+**Common to both IdPs:**
 
-- **Each env runs on its own self-hosted host.** Dev-1, dev-2, staging are separate physical hosts at `192.0.2.121` / `.123` / `.122`. Production is AWS ECS Express Mode (account `123456789012`, `eu-central-1`), fronted by CloudFront.
-- **an edge proxy (an edge proxy)** is the edge. Browser hits `https://axiaops-<env>.local`, an edge proxy terminates TLS and reverse-proxies to the host's docker-compose stack on plain HTTP. The dashboard's nginx propagates `X-Forwarded-Proto` so the API's session cookie correctly toggles `Secure`.
-- **CI deploys via SSH-as-Docker-context.** `DOCKER_HOST: ssh://deploy@${DEPLOY_HOST_IP}` lets the CI runner's `docker compose up` execute on the per-env host's daemon. `DEPLOY_SSH_PRIVATE_KEY` **must** be a File-type CI variable.
-- **All `deploy:*` jobs are manual gates.** They never auto-trigger. If one is running, an operator clicked it.
-- **`PUBLIC_HOST`** and **`INTERNAL_DNS`** are per-env CI variables. Empty `PUBLIC_HOST` → SSO ceremonies fail at the IdP redirect.
+- Stack: `make start-staging` (`DEV_MODE=false` — the SSO ceremony routes only
+  register when native auth is active).
+- `PUBLIC_HOST=http://localhost:8082` in `services/api/.env` — an empty value logs
+  `PUBLIC_HOST is empty` and the IdP-registered redirect URI won't match.
+- Redirect URI to register at the IdP: `http://localhost:8082/v1/sso/oidc/callback`
+  (cid-less — connection identity flows through the OAuth `state` parameter, not the
+  URL path; one registered URI covers every connection).
+- Domain verification is bypassed for local testing with a direct Postgres `UPDATE`
+  on `sso_domains` (`status='verified'`) — that column is the load-bearing field, not
+  `verified_at`. This bypass is dev-only; real deployments go through DNS TXT
+  verification.
+- Leave **Enforcement = optional** until the round-trip works — flipping straight to
+  `required` on a misconfigured connection locks out password login (the only escape
+  is `/v1/auth/logout`).
+
+**Microsoft Entra ID specifics:**
+
+- Free `*.onmicrosoft.com` test tenant at <https://aka.ms/CreateTenant> — same
+  issuer/JWKS shape as a corporate tenant.
+- App registration → capture **Application (client) ID** and **Directory (tenant)
+  ID** (ignore **Object ID**, internal Entra bookkeeping). Client secret's **Value**
+  column is the actual secret — the **Secret ID** GUID next to it is never used by
+  any OIDC client; pasting it by mistake produces `AADSTS700016`.
+- Discovery URL: `https://login.microsoftonline.com/<tenant_id>/v2.0/.well-known/openid-configuration`.
+- For group→role JIT mapping: add a **Groups claim** (Security groups, Group ID
+  type) to **Token configuration**, and leave **"Emit groups as role claims"
+  unchecked** — checked routes group IDs into `roles` instead of `groups`, and every
+  JIT login silently falls through to the default role.
+- Common errors: `AADSTS50011` (redirect URI not registered — exact-match, scheme/port/path all matter), `AADSTS50105` ("Assignment required" and the test user isn't assigned), `AADSTS50058`/`no_tokens_found` (third-party cookies blocked during MSAL silent renewal — allow cookies for `[*.]microsoftonline.com` or use a fresh Chrome profile).
+
+**Keycloak specifics:**
+
+- Any version ≥ 20. The **API container** must be able to reach
+  `<keycloak>/realms/<realm>/.well-known/openid-configuration` — if Keycloak
+  resolves differently from inside Docker than from your host, use the LAN IP or
+  `host.docker.internal`, not `localhost`.
+- Client: confidential (client auth on), Standard flow only, redirect URI as above.
+- Group→role mapping: a **Group Membership** protoMapper on the client's dedicated
+  scope, token claim name `groups`, **full group path off** (JIT does an exact-match
+  lookup against bare names), **Add to ID token: on**.
+- Watch the API logs for the audit trail: `SSO_LOGIN_SUCCEEDED`, then
+  `SSO_JIT_PROVISIONED` (first login) or `SSO_JIT_ROLE_UPDATED` (re-login with a
+  changed group). Failure reason codes (`state_invalid`, `code_exchange_failed`,
+  `id_token_invalid`, `domain_unverified`, `cross_connection_domain`,
+  `jit_failed`, `mint_session_failed`) are deliberately coarse in the audit
+  trail — detail goes to `slog` only.
+- `groups` claim missing from the ID token almost always means the mapper's "Add to
+  ID token" toggle is off (defaults off).
+
+Both runbooks validate the same surface end-to-end: `/v1/sso/discover` (pre-auth,
+constant-shape lookup), `/v1/sso/oidc/{cid}/initiate` (PKCE + state + nonce), the
+callback's full ID-token validation chain (alg-confusion guard rejects `none`/
+`HS256`, issuer/audience/nonce, anti-spoofing domain check scoped to *this*
+connection *and* this org), JIT provisioning, and `/v1/me` returning the
+JIT-resolved role.
 
 ---
 
-## 7. Common gotchas
+## 7. Debugging in VS Code
+
+Attaching Delve to the host-mode Go services. Companion to `services/api/CLAUDE.md`
+and the `.vscode/launch.json` header — the launch configs don't start Postgres for
+you, pair them with a running stack.
+
+**Prerequisites**: Go 1.25.x or 1.26.x — with **Go 1.26.2** the matching released
+`dlv 1.26.2` panics inside `parseFileEntries5` on the API binary (slice-bounds
+DWARF-parser bug); install Delve from `master`
+(`go install github.com/go-delve/delve/cmd/dlv@master`) or downgrade Go to 1.25.x.
+The program still runs if this happens — LLDB launches it in a separate process —
+but breakpoints/stepping/variables silently don't work, so you just get logs.
+
+**Stack pairing:**
+
+| Compound config | Pairs with | Auth |
+|---|---|---|
+| **Debug Full Stack** (default) | `make start-dev`, then stop the host Go services it spawns (keep the Postgres container) | `DEV_MODE=true` |
+| **Debug Full Stack (auth)** | `make start-staging`, then `docker stop axiaops-api axiaops-ingestion` | `DEV_MODE=false`, native sessions |
+
+Hit **F5** with no config selected for the default compound, or pick **Debug
+Migrate CLI** / **Debug Tests** (debugs the test focused in the editor) from the picker.
+
+**Required env vars under `DEV_MODE=true`** — the API `die()`s at startup if
+`DEV_ORGANIZATION_ID` is unset (no default; `DEV_USER_ID`/`DEV_USER_EMAIL` do have
+defaults). The committed `launch.json` sets all three to match
+`scripts/seed_test_data.sh`'s output — if you change `DEV_ORGANIZATION_ID` you must reseed.
+
+**Where to break**: handler methods in `services/api/internal/api/handler.go` (one
+breakpoint per route); `middleware/auth.go`'s `DevBypass`/JWKS path to watch
+`organization_id` land on the context; `storage/postgres/postgres.go`'s
+`LoadZombies`/`Summary` to inspect SQL params and the RLS-set `app.organization_id`.
+
+The VS Code Debug Console takes raw Go expressions (`accountID`,
+`storage.OrganizationIDFromCtx(r.Context())`) — no `print` prefix. Delve REPL
+commands need a `dlv ` prefix (`dlv goroutines`, `dlv stack`). Identifiers must be
+in scope at the currently-paused frame.
+
+**Common failures**: empty dashboard after attaching → `make seed` (populates the
+dev org with fixtures) or connect a real account and scan; "address already in use"
+on :8082/:8080/:5432 → stale containers from a previous run, `make stop` then `docker
+rm -f` stragglers if it doesn't clear them.
+
+---
+
+## 8. Versioning & releases
+
+[Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html), no `v` prefix
+(`0.3.0`, not `v0.3.0` — CI consumes the bare tag verbatim as `APP_VERSION`).
+Pre-release suffixes: `-alpha.N` (internal/dogfood cuts, schema/API may change
+without notice), `-beta.N` (design-partner cuts, breaking changes called out in the
+CHANGELOG), `-rc.N` (no new features, only fixes), no suffix = a stable cut promised
+to customers. **`1.0.0` is reserved** for GA / first paying customer — don't burn it
+on a routine bump.
+
+**Pre-1.0** (current): while `MAJOR` is `0`, semver §4 gives latitude, used with
+discipline — `0.Y.0` for substantive feature work or non-strictly-additive
+migrations, `0.Y.Z` for fixes/additive changes within the line. Only the latest
+`0.Y.x` line is supported.
+
+**Cutting a release**: update `CHANGELOG.md` (move `[Unreleased]` entries into a
+dated `## [X.Y.Z]` section — format is [Keep a Changelog
+1.1.0](https://keepachangelog.com/en/1.1.0/)) → promote via a `develop → main` MR
+titled `release: X.Y.Z` → merge → tag `main` at the merge commit with an **annotated**
+tag (`git tag -a 0.1.0-alpha.1 -m "..."`, never lightweight — lightweight tags lose
+author/message metadata) → push the tag. CI does the rest: the tag pipeline builds +
+publishes images with `APP_VERSION=$CI_COMMIT_TAG`, auto-redeploys staging with the
+labelled image, and makes `deploy:production` available as a manual click. **Never
+retag** — if a tag is wrong, cut the next one and note the skip in the CHANGELOG.
+**Never tag from `develop` or a feature branch** — only `main`, so every release
+passes through the promotion MR's audit trail.
+
+**Migration backwards-compatibility contract** (what makes skip-a-minor upgrades
+safe): never delete or edit a released migration — fix forward; never reuse a
+migration number; `.down.sql` is for local dev only, production downgrade is
+"restore from backup"; renames/drops are a two-release dance (add + dual-write, then
+remove next release); migrations should be single-digit seconds on a 100k-row table
+or need an operator runbook entry. See [ARCHITECTURE.md § 5](ARCHITECTURE.md) for
+the migration wrapper's own mechanics (drift detection, `migration_history`).
+
+---
+
+## 9. The deployment topology, briefly
+
+(Detail in [ARCHITECTURE.md § 4](ARCHITECTURE.md#4-deployment-topology).)
+
+What you actually need to remember:
+
+- **Three paths**: `docker compose` (local/single-host, `make start-dev` /
+  `make start-staging`), Kubernetes via [`deploy/helm/`](../deploy/helm/axiaops/),
+  or AWS via [`terraform/`](../terraform/) (ECS Express + RDS).
+- **TLS termination is always someone else's job** — a reverse proxy, an ingress
+  controller, or CloudFront, never the api/ingestion services themselves. They speak
+  plain HTTP internally and trust `X-Forwarded-Proto` to decide whether the session
+  cookie's `Secure` flag is set.
+- **`PUBLIC_HOST`** must be the externally-reachable hostname, not an internal
+  host/IP. Empty → SSO ceremonies fail at the IdP redirect. **`INTERNAL_DNS`** is
+  only needed for split-horizon IdP setups.
+
+---
+
+## 10. Common gotchas
 
 **For Go work:**
 
@@ -244,29 +411,25 @@ What you actually need to remember:
 
 - **`PUBLIC_HOST`**: empty → API logs `"sso: ceremony: PUBLIC_HOST is empty"` at startup and SSO ceremonies fail at the IdP redirect. Set per env scope in CI.
 - **`INTERNAL_DNS`**: needed when the IdP hostname has split-horizon DNS. Without it, the API tries to resolve via public DNS, hits whatever WAF fronts the IdP (Cloudflare Bot Fight Mode rejects Go's default UA on `/.well-known/openid-configuration`), and OIDC discovery fails.
-- **Adding a new env** isn't a port-pair change. You need: provision a new self-hosted host via `self-hosted-infra/stacks/axiaops-dev` Terraform, register the hostname in an edge proxy with a TLS cert, add `deploy:<env>` + `gate:devmode:<env>` CI jobs.
-
-**Source control:**
-
-- **GitLab, not GitHub.** `gh pr ...` will fail. Use `glab mr ...`. Terminology: "MR" / "merge request", not "PR".
 
 ---
 
-## 8. Where to ask, where to look
+## 11. Where to ask, where to look
 
 | Question | First-stop |
 |---|---|
 | "How does X work?" | [ARCHITECTURE.md](ARCHITECTURE.md) → linked CLAUDE.md → grep |
-| "What's the AWS service rule for..." | [aws-coverage.md](aws-coverage.md) |
-| "How does first-run install work?" | [native-auth-bootstrap.md](native-auth-bootstrap.md) |
+| "What's the AWS service rule for..." | [ARCHITECTURE.md § 7](ARCHITECTURE.md#7-detection-engine) |
+| "How does first-run install / RBAC / SSO work?" | [AUTHENTICATION.md](AUTHENTICATION.md) |
+| "How do I connect an AWS account / add a notification channel?" | [OPERATIONS.md](OPERATIONS.md) |
 
-If a doc disagrees with the code, **the code wins** — file an MR to update the doc.
+If a doc disagrees with the code, **the code wins** — file a PR to update the doc.
 
 ---
 
-## 9. Glossary refresher
+## 12. Glossary refresher
 
-See [ARCHITECTURE.md § 13](ARCHITECTURE.md#13-glossary) for the full list. The terms that trip new developers most often:
+See [ARCHITECTURE.md § 12](ARCHITECTURE.md#12-glossary) for the full list. The terms that trip new developers most often:
 
 - **Tier 1 vs Tier 2** — API-only detection vs CloudWatch-driven.
 - **Mummer** — the AWS-API mock for integration tests. Fixtures in `test-infra/mummer/`.
