@@ -4,9 +4,6 @@ AxiaOps ({{ .Release.Name }}) deployed.
 {{- if .Values.ingress.host }}
 Dashboard:       http://{{ .Values.ingress.host }}{{ if .Values.ingress.tls.enabled }} (https){{ end }}
 {{- end }}
-{{- if .Values.ingress.adminHost }}
-Admin console:   http://{{ .Values.ingress.adminHost }}{{ if .Values.ingress.tls.enabled }} (https){{ end }}
-{{- end }}
 {{- else }}
 ingress.enabled is false -- no Ingress was created. Reach the dashboard via:
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "axiaops.fullname" . }}-dashboard 8080:80
@@ -14,7 +11,7 @@ ingress.enabled is false -- no Ingress was created. Reach the dashboard via:
 
 {{- if not .Values.postgres.existingSecret }}
 
-WARNING: postgres.existingSecret is unset -- api/ingestion/api-admin/migrate
+WARNING: postgres.existingSecret is unset -- api/ingestion/migrate
 have NO database connection configured and will not start. Create a Secret
 with keys database-url, migration-database-url, runtime-admin-database-url
 and set postgres.existingSecret to its name.

@@ -91,7 +91,6 @@ logs/
 
 # Go compiled binaries (service-specific)
 services/api/api
-services/api/api-admin
 services/api/main
 services/ingestion/ingestion
 services/ingestion/main

@@ -42,7 +42,7 @@ AxiaOps is split into four services, each independently deployable:
 | `migrate` | A one-shot job that runs database migrations. Deployed as a Helm pre-install/pre-upgrade hook, not a long-running service. |
 
 :::note
-The wider AxiaOps codebase also has an internal admin plane (`api-admin`,
+The hosted AxiaOps SaaS also runs an internal admin plane (`api-admin`,
 `dashboard-admin`, a staff-user/support-console layer) — SaaS-operator
 tooling for administering *other people's* organizations. It doesn't apply
 to a self-hosted single-org install, so it isn't part of the open-source
