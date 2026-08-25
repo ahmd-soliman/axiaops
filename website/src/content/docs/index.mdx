@@ -1,0 +1,80 @@
+---
+title: AxiaOps
+description: Find and eliminate wasted AWS spend — idle, abandoned, and forgotten cloud resources, detected automatically.
+template: splash
+hero:
+  tagline: Stop paying for cloud resources nobody's using.
+  actions:
+    - text: How it works
+      link: /guides/architecture/
+      icon: right-arrow
+    - text: Deploy it
+      link: /guides/deployment/
+      icon: rocket
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What AxiaOps does
+
+AxiaOps connects to an AWS account (via a scoped cross-account IAM role — no
+long-lived access keys) and scans it for **zombie resources**: things that
+are still running, still billing, and doing nothing useful. An RDS instance
+with zero connections. An EKS cluster with zero nodes, still billing its
+control plane. A CloudWatch log group with no retention policy, quietly
+accumulating storage charges forever. An idle EC2 instance nobody remembered
+to shut down.
+
+Every zombie it finds gets a dollar figure attached — real, computed cost,
+not a guess — and rolls up into an organization-wide view of exactly how
+much waste is sitting in your AWS bill right now.
+
+![Organization overview: monthly waste, total zombies, waste ratio, total spend, and waste-over-time chart](../../assets/screenshots/overview.png)
+
+<CardGrid>
+	<Card title="Multi-account aware" icon="approve-check">
+		Connect one AWS account or many. A single-account org lands straight on
+		the actionable per-account workbench; a multi-account org gets the
+		read-only organization-wide summary above first.
+	</Card>
+	<Card title="Real cost, not estimates" icon="database">
+		Costs come from AWS Cost Explorer's own `GetCostAndUsage` /
+		`GetCostAndUsageWithResources` APIs — net amortized, post-credits,
+		RI/SP amortized.
+	</Card>
+	<Card title="Self-hostable" icon="open-book">
+		Ships as a Helm chart for Kubernetes. Bring your own Postgres, or run
+		the bundled Valkey/Postgres for local evaluation — see
+		[Deployment](/guides/deployment/).
+	</Card>
+	<Card title="Built to run continuously" icon="setting">
+		A background ingestion service re-scans on a schedule, so the waste
+		numbers and trend charts stay current without anyone clicking refresh.
+	</Card>
+</CardGrid>
+
+## What it looks like
+
+The dashboard has four views: the organization-wide **Overview** above
+(only shown once you've connected more than one account), a per-account
+**Resources** workbench listing every detected zombie with a reason and a
+dollar figure, a **Trends** view charting waste over time across scan
+history, and a **Costs** view breaking down total AWS spend by service.
+
+### Resources — the workbench
+
+![Resources view listing zombie resources with cost and reason](../../assets/screenshots/resources-1.png)
+
+### Trends — waste over time
+
+![Trends view charting savings and scan history](../../assets/screenshots/trends.png)
+
+### Costs — spend by service
+
+![Costs view breaking down AWS spend by service](../../assets/screenshots/costs.png)
+
+## License
+
+AxiaOps is open source under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
+— self-host it, modify it, run it commercially, no strings attached.
