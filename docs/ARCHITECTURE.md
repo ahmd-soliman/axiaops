@@ -6,10 +6,8 @@ This is the navigable hub for engineers working on AxiaOps. Read this first, the
 > - [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) — onboarding, env setup, common workflows
 > - [/CLAUDE.md](../CLAUDE.md) — project-level conventions, commands, dev workflow
 > - Per-service: [api/CLAUDE.md](../services/api/CLAUDE.md), [ingestion/CLAUDE.md](../services/ingestion/CLAUDE.md), [shared/CLAUDE.md](../services/shared/CLAUDE.md) — dashboard has no per-service CLAUDE.md yet, see [DEVELOPER_GUIDE.md § 3](DEVELOPER_GUIDE.md#3-code-conventions-youll-want-to-absorb) for dashboard conventions
-> - Auth: [auth.md](auth.md), [auth_flow.md](auth_flow.md), [native-auth-bootstrap.md](native-auth-bootstrap.md)
-> - Deployment: [deployment.md](deployment.md), [ci.md](ci.md)
-> - Detection: [aws-coverage.md](aws-coverage.md), [tier2_detections_status.md](tier2_detections_status.md), [cloudtrail-analysis.md](cloudtrail-analysis.md)
-> - Roadmap plans: [CUR_EXTENSION_PLAN.md](CUR_EXTENSION_PLAN.md) — adding AWS Cost & Usage Reports as a parallel data source to Cost Explorer
+> - Auth: [native-auth-bootstrap.md](native-auth-bootstrap.md)
+> - Detection: [aws-coverage.md](aws-coverage.md)
 
 ## TL;DR
 
@@ -371,8 +369,6 @@ flowchart TB
 - **In-app org switcher** (B1.5): `/v1/auth/switch-org` revokes the current session, mints a fresh one bound to the target org, audits the switch as `session.org_switched`.
 - `DEV_MODE` is bypassed by the `production` build tag — see § 7.
 
-See [auth.md](auth.md) and [auth_flow.md](auth_flow.md) for deeper detail.
-
 ### Right-to-erasure paths
 
 - `DELETE /v1/users/me` — hard-delete the caller. 409 if sole owner of any organization. Audit log anonymised across all orgs.
@@ -441,7 +437,7 @@ The `serviceRules` map lives in `analyzer/rules.go:17` — each entry is `rule{m
 3. **Tier 1** (API-only): add a `DiscoverXxxZombies()` function in `services/ingestion/internal/provider/aws/discover_*.go` and call it from `runIngestionCore()` in `services/ingestion/cmd/main.go` (the orchestrator loop, around the existing Discover* calls between lines 544–685)
 4. `services/shared/analyzer/testdata/golden/<scenario>/` — add the golden fixtures (input_costs.json, input_usage.json, expected_zombies.json)
 5. Unit test for the threshold in `services/shared/analyzer/`
-6. Update IAM policy in `docs/production.md`
+6. Update the IAM read-only policy list in [connect-aws-account.md](connect-aws-account.md)
 
 See [aws-coverage.md](aws-coverage.md) and the [detection-rule skill](../.claude/skills/detection-rule/) (auto-loaded when adding detection support).
 
@@ -499,7 +495,7 @@ Two specifics worth knowing:
 
 - **Secrets at rest** — AWS account secrets are AES-256-GCM encrypted with `ENCRYPTION_KEY` (32-byte hex) before DB storage. Never commit `.env` or credentials.
 - **Multi-tenancy** — RLS-enforced at the DB level. Application bug ≠ tenant data leak (the DB refuses to return out-of-tenant rows).
-- **Production IAM** — use roles, not access keys. Customer-onboarding cross-account-role flow documented in [cross-account-roles-design.md](cross-account-roles-design.md).
+- **Production IAM** — use roles, not access keys. Customer-onboarding cross-account-role flow documented in [connect-aws-account.md](connect-aws-account.md).
 - **Build-tag hardening** — `production` build tag strips DEV_MODE from customer binaries. The lint job `test:lint:no-direct-devmode` rejects any new `os.Getenv("DEV_MODE")` reads outside `cmd/devmode_*.go`.
 - **Native auth** — argon2id password hashes; cookie sessions; per-connection OIDC JWKS for SSO; rate limits on login + select-org sharing one budget so an attacker can't double the cap.
 - **Audit log** — every privileged mutation writes a row via the `audit` helper in `services/api/internal/audit/`. Right-to-erasure paths anonymise audit_log instead of dropping it.

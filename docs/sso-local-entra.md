@@ -295,8 +295,5 @@ next iteration.
   minting with `auth_mode='sso'`, audit row.
 - `/v1/me` — returns the SSO-provisioned user with the JIT-resolved role.
 
-Closes the B2 design-doc acceptance criterion (`docs/sso-integration-design.md`
-line 1042 — *"Internal AxiaOps team logs into self-hosted instance via Entra
-OIDC with JIT provisioning"*) and the matching plan acceptance criterion
-(`docs/sso-implementation-plan.md` §5.5 line 1008). Unblocks customer
+Validates JIT provisioning end-to-end via Entra OIDC. Unblocks customer
 onboarding for Entra-backed orgs.

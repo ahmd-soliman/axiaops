@@ -1,8 +1,7 @@
 # E2E Testing Conventions (Playwright)
 
 How the AxiaOps dashboard end-to-end suite is built and how to extend it.
-Scope: `services/dashboard/e2e/` + the stack in `test-infra/e2e/`. For the
-original rationale of the link-check crawler see `docs/e2e-link-check-plan.md`.
+Scope: `services/dashboard/e2e/` + the stack in `test-infra/e2e/`.
 
 ## The one rule that drives everything: test the config you ship
 
