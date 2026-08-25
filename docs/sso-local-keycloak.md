@@ -29,7 +29,7 @@ provisioning.
    - Valid redirect URIs: `http://localhost:8082/v1/sso/oidc/callback`
      - Single literal URI — connection identity flows through the `state`
        parameter, not the URL path. The legacy `/v1/sso/oidc/<cid>/callback`
-       form still resolves for one release (Tasks.md 2.7.22 deprecation
+       form still resolves for one release (a deprecation
        window); add it as an additional redirect URI only if you're
        upgrading an existing AxiaOps install whose initiate side has not
        yet been redeployed.

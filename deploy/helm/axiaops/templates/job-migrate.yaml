@@ -1,0 +1,53 @@
+{{- if .Values.postgres.existingSecret }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Suffixed with the release revision so pre-upgrade hook Jobs don't collide
+  # with the (already-completed, hook-deleted) Job from the prior release --
+  # Helm's hook-delete-policy removes the old one before this fires, but a
+  # fixed name would still race a slow deletion under --wait.
+  name: {{ include "axiaops.fullname" . }}-migrate-{{ .Release.Revision }}
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "migrate") | nindent 4 }}
+  annotations:
+    # pre-install AND pre-upgrade: every existing deploy:<env> CI job runs
+    # migrate before touching api/ingestion (see .gitlab-ci.yml), on both
+    # the very first deploy and every redeploy after. before-hook-creation
+    # also cleans up a Job left behind by a previous failed hook run.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrate.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "axiaops.migrateImage" . }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.existingSecret }}
+                  key: database-url
+            - name: MIGRATION_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.existingSecret }}
+                  key: migration-database-url
+            - name: RUNTIME_ADMIN_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.existingSecret }}
+                  key: runtime-admin-database-url
+            - name: MIGRATION_ACTOR_LABEL
+              value: "{{ .Values.migrate.actorLabel }}:{{ .Release.Name }}#{{ .Release.Revision }}"
+{{- end }}

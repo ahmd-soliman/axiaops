@@ -95,37 +95,6 @@ const (
 	AuditActionChannelUpdated = "channel_updated"
 	AuditActionChannelDeleted = "channel_deleted"
 	AuditActionChannelTested  = "channel_tested"
-	// Phase B1.6 — license-file TTL enforcement (docs/sso-implementation-plan.md
-	// §4.9). The license JWT is verified at boot and re-classified hourly by
-	// the runtime ticker; both code paths write into audit_log so an operator
-	// reviewing the timeline sees the full lifecycle.
-	//
-	// AuditActionLicenseLoaded — written at every successful boot. Metadata
-	// carries license_id, contract_id, customer_id, expires_at.
-	// AuditActionLicenseInGracePeriod — written at boot OR when the runtime
-	// ticker observes the valid → in_grace transition. Metadata carries
-	// license_id, days_remaining, exp + grace_period_days.
-	// AuditActionLicenseExpiredHardFail — historically written immediately
-	// before os.Exit at boot. Retained as a constant for forward-compat and
-	// rolled-back-deploy parity, but **never fires under the B1.6 amendment**
-	// (docs/b1.6-amendment-feature-gating.md): the binary no longer refuses
-	// to start. New past-grace boots audit through Runtime instead.
-	// AuditActionLicenseExpiredRuntime — written by the runtime ticker on the
-	// in_grace → expired transition mid-flight, AND (post-amendment) at boot
-	// when VerifyAtBoot classifies a license as past-grace. The process keeps
-	// running in both cases; the scan-gate flips, not the binary.
-	// AuditActionLicenseRenewed — forward-compat for slice 4+ if we add
-	// detection of "this boot's license_id differs from the previous boot's";
-	// not wired yet.
-	// AuditActionLicenseInvalidSignature — written at boot when JWT verification
-	// fails (signature/alg/iss/aud/iat). Post-amendment the boot continues;
-	// the audit row is the durable trace, the scan-gate enforces.
-	AuditActionLicenseLoaded           = "license_loaded"
-	AuditActionLicenseInGracePeriod    = "license_in_grace_period"
-	AuditActionLicenseExpiredHardFail  = "license_expired_hard_fail"
-	AuditActionLicenseExpiredRuntime   = "license_expired_runtime"
-	AuditActionLicenseRenewed          = "license_renewed"
-	AuditActionLicenseInvalidSignature = "license_invalid_signature"
 	// AuditActionSessionOrgSwitched is written to the FROM org's audit log
 	// when a user POSTs /v1/auth/switch-org and rotates their session to a
 	// different org they're a member of (B1.5 §4.7.4). Metadata carries
@@ -186,12 +155,6 @@ var ValidAuditActions = map[string]bool{
 	AuditActionInvitationRedeemedNative:  true,
 	AuditActionBootstrapCompleted:        true,
 	AuditActionSessionRevokedByAdmin:     true,
-	AuditActionLicenseLoaded:             true,
-	AuditActionLicenseInGracePeriod:      true,
-	AuditActionLicenseExpiredHardFail:    true,
-	AuditActionLicenseExpiredRuntime:     true,
-	AuditActionLicenseRenewed:            true,
-	AuditActionLicenseInvalidSignature:   true,
 	AuditActionSessionOrgSwitched:        true,
 	// Phase B2 SSO actions
 	AuditActionSSOConnectionCreated:         true,

@@ -1,8 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '../theme/ThemeContext';
 import { useMe } from '../context/MeContext';
-import { fetchVersion } from '../api/client';
 import { LinkButton } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { PERM } from '../api/permissions';
@@ -33,11 +31,6 @@ import { PERM } from '../api/permissions';
 // desktop; the mobile tab strip flattens them since horizontal scrolling
 // + section headers don't compose well at 375px.
 //
-// License is gated to the same owner-tier as Organization. Licensing is a
-// billing/contract concern; non-owners can't act on it and LicenseBanner
-// already covers the "scans paused" warning surface for everyone. The pane
-// is the affirmative read-only inspector for the healthy + DEV_MODE-bypass
-// states the banner is silent on. See pages/settings/License.jsx.
 // Workspace before Account: AxiaOps is a workspace tool — users enter
 // Settings to manage cloud accounts, members, SSO, etc. far more often
 // than to edit their own profile. Surfacing Workspace first matches usage
@@ -57,7 +50,6 @@ const TAB_GROUPS = [
       { label: 'Audit Log',      path: '/settings/audit',          requires: PERM.AUDIT_READ },
       { label: 'SSO',            path: '/settings/sso',            requires: PERM.SSO_MANAGE },
       { label: 'Organization',   path: '/settings/organization',   requires: PERM.ORGANIZATION_DELETE },
-      { label: 'License',        path: '/settings/license',        requires: PERM.ORGANIZATION_DELETE },
     ],
   },
   {
@@ -75,12 +67,8 @@ const TABS = TAB_GROUPS.flatMap((g) => g.items);
 
 // Single source of truth for tab visibility. Both the flat `visible` list
 // (mobile strip + first-tab redirect) and the desktop aside's per-group
-// filter run through this so they can never disagree — they did once: the
-// SaaS "hide License" rule lived only on the flat list, so the desktop
-// sidebar kept rendering a dead License link that just bounced back to
-// /settings under the managed (SaaS) build.
-function tabVisible(tab, can, licenseManaged) {
-  if (tab.path === '/settings/license' && licenseManaged) return false;
+// filter run through this so they can never disagree.
+function tabVisible(tab, can) {
   return !tab.requires || can(tab.requires);
 }
 
@@ -90,17 +78,6 @@ export default function Settings() {
   const location = useLocation();
   const { isAtMost } = useBreakpoint();
   const isMobile = isAtMost('sm');
-
-  // Cached ['api-version'] read (same key/fn as AppShell + LicenseBanner →
-  // deduped, no extra request) so we can hide the License tab under SaaS.
-  const { data: version } = useQuery({
-    queryKey: ['api-version'],
-    queryFn: fetchVersion,
-    staleTime: Infinity,
-    gcTime: Infinity,
-    retry: false,
-  });
-  const licenseState = version?.license?.state;
 
   // Wait for /v1/me before deciding what to render. On first paint
   // `loading` is true and every `can()` returns false — without this gate
@@ -115,18 +92,7 @@ export default function Settings() {
   // OnboardingGate.
   if (loading && !me) return null;
 
-  // SaaS (the default build) reports license.state="managed" — there is no
-  // customer-facing license under SaaS (design §7.4), so hide the License tab.
-  // Same cached ['api-version'] key/fn the LicenseBanner + License page use →
-  // React Query dedupes, so this is a cache read, not an extra request.
-  //
-  // Fail-closed while the version query is still resolving (cold-cache direct
-  // load of /settings): treat unknown state as managed so we never flash the
-  // dead License link before the query lands. Self-hosted (state≠"managed")
-  // surfaces the tab a beat later, which is strictly better than briefly
-  // showing a link that just bounces back to /settings under SaaS.
-  const licenseManaged = version === undefined || licenseState === 'managed';
-  const visible = TABS.filter((tab) => tabVisible(tab, can, licenseManaged));
+  const visible = TABS.filter((tab) => tabVisible(tab, can));
 
   // Land on first visible tab. Workspace sits above Account in TAB_GROUPS,
   // so for every current role this resolves to Cloud Accounts (or whichever
@@ -159,7 +125,7 @@ export default function Settings() {
       {isMobile ? (
         <MobileTabs visible={visible} location={location} isDark={isDark} />
       ) : (
-        <DesktopAside can={can} licenseManaged={licenseManaged} location={location} isDark={isDark} />
+        <DesktopAside can={can} location={location} isDark={isDark} />
       )}
       {/* No width cap — settings tabs are full-width like the rest of the
           app; each tab's own padding governs its content inset. */}
@@ -176,14 +142,14 @@ export default function Settings() {
   );
 }
 
-function DesktopAside({ can, licenseManaged, location, isDark }) {
-  // Filter each group's items by permission (and the SaaS License-tab hide)
-  // and drop empty groups so a viewer (no admin tabs) doesn't see a
-  // "Workspace" header with nothing beneath it. Same group order, item order
-  // within a group is preserved. Goes through the shared tabVisible() so the
-  // sidebar can't drift from the flat `visible` list the redirect uses.
+function DesktopAside({ can, location, isDark }) {
+  // Filter each group's items by permission and drop empty groups so a
+  // viewer (no admin tabs) doesn't see a "Workspace" header with nothing
+  // beneath it. Same group order, item order within a group is preserved.
+  // Goes through the shared tabVisible() so the sidebar can't drift from
+  // the flat `visible` list the redirect uses.
   const visibleGroups = TAB_GROUPS
-    .map((g) => ({ ...g, items: g.items.filter((tab) => tabVisible(tab, can, licenseManaged)) }))
+    .map((g) => ({ ...g, items: g.items.filter((tab) => tabVisible(tab, can)) }))
     .filter((g) => g.items.length > 0);
 
   const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';

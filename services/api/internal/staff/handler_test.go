@@ -193,9 +193,10 @@ func TestGetTenant_SummaryHasNoFinOpsDetail(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// entitlement must be present and null (deferred table, documented absence).
-	if v, ok := got["entitlement"]; !ok || v != nil {
-		t.Errorf("entitlement should be present and null, got %v (present=%v)", v, ok)
+	// entitlement no longer exists as a concept — the field must be absent
+	// entirely, not present-and-null.
+	if _, present := got["entitlement"]; present {
+		t.Errorf("entitlement field should no longer be present, got %v", got["entitlement"])
 	}
 	// must NOT leak per-zombie/cost rows — only the aggregate count.
 	if _, leak := got["zombies"]; leak {

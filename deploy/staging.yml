@@ -28,10 +28,15 @@ services:
       RUNTIME_ADMIN_DATABASE_URL: ${RUNTIME_ADMIN_DATABASE_URL}
       SCAN_INTERVAL: ${SCAN_INTERVAL:-60s}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      # 30-day non-prod license minted by mint:license:staging (CI). Required
-      # for pre-release scan smoke; without it the post-amendment scan-gate
-      # 403s license_not_loaded.
-      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
+      # Audit H-2 (tracked, NOT yet implemented): METRICS_BEARER_TOKEN is
+      # currently a no-op. GET /metrics has no runtime auth check today —
+      # it's still listed in publicPath() (services/api/internal/middleware/
+      # auth.go) and registered unauthenticated in services/ingestion/cmd/
+      # main.go. Setting this variable does NOT gate the endpoint yet; the
+      # slot exists so the follow-up that adds real bearer-token enforcement
+      # doesn't also need a CI-variable change. Until then, /metrics is
+      # reachable without auth in every env, including this one.
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
       REDIS_URL: ${REDIS_URL}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       # C-1: ingestion-side HMAC verifier. Required on staging (pre-release
@@ -55,7 +60,15 @@ services:
       INGESTION_URL: http://axiaops-ingestion-staging:8081
       API_ADDR: ":8080"
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      AXIAOPS_LICENSE: ${AXIAOPS_LICENSE}
+      # Audit H-2 (tracked, NOT yet implemented): METRICS_BEARER_TOKEN is
+      # currently a no-op. GET /metrics has no runtime auth check today —
+      # it's still listed in publicPath() (services/api/internal/middleware/
+      # auth.go) and registered unauthenticated in services/ingestion/cmd/
+      # main.go. Setting this variable does NOT gate the endpoint yet; the
+      # slot exists so the follow-up that adds real bearer-token enforcement
+      # doesn't also need a CI-variable change. Until then, /metrics is
+      # reachable without auth in every env, including this one.
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
       REDIS_URL: ${REDIS_URL}
       # C-1: api-side HMAC signer. Same value as ingestion's current slot.
       INGESTION_SHARED_SECRET: ${INGESTION_SHARED_SECRET}

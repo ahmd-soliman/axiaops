@@ -23,7 +23,7 @@ function renderAt(id) {
 describe('TenantDetailScreen', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('shows the summary and the entitlement-deferred note, and no FinOps detail', async () => {
+  it('shows the summary and no FinOps detail', async () => {
     adminApi.getTenant.mockResolvedValue({
       organization_id: 'org-1',
       org_code: 'acme',
@@ -34,14 +34,11 @@ describe('TenantDetailScreen', () => {
       last_scan_at: null,
       latest_total_zombies: 7,
       latest_potential_savings: 0,
-      entitlement: null,
     });
     renderAt('org-1');
 
     expect(await screen.findByRole('heading', { name: 'Acme' })).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument(); // account count
-    // entitlement null → deferred note, not a raw dump
-    expect(screen.getByText(/per-tenant billing entitlement is deferred/i)).toBeInTheDocument();
     // The break-glass boundary copy is present (no zombie/cost rows rendered).
     expect(screen.getByText(/requires an audited break-glass grant/i)).toBeInTheDocument();
   });

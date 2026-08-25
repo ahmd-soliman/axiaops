@@ -1,6 +1,6 @@
 # Refactor: tenant → organization
 
-Tracking ticket: axiaops#25 (Phase 2 #9 in `Tasks.md`).
+Tracking ticket: axiaops#25 (Phase 2 #9).
 
 ## Why now
 

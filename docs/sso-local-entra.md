@@ -147,7 +147,7 @@ In the dashboard, **Settings → SSO**:
    render it as a column today, so dig it out of devtools: open the Network
    tab, find the `POST /v1/sso/connections` (create) or `GET /v1/sso/connections`
    (list) response, the `id` field in the JSON body is the cid (a UUID).
-   Tasks.md tracks exposing it in the UI as a follow-up.
+   Exposing it in the UI is tracked as a follow-up.
 
 2. **Domains → + Add** `<yourtenant>.onmicrosoft.com`.
 
@@ -188,7 +188,7 @@ Now that you have the AxiaOps cid:
      `state` parameter — one redirect URI per AxiaOps host, regardless of
      how many SSO connections you create. The legacy
      `/v1/sso/oidc/<cid>/callback` form still resolves for one release as
-     a deprecation window (see Tasks.md 2.7.22), but new app registrations
+     a deprecation window, but new app registrations
      should use the cid-less form.
 3. Do **not** tick the implicit-flow checkboxes (Access tokens / ID tokens) —
    we use authorization code + PKCE only.

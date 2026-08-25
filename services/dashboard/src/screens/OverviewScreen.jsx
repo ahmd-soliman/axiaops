@@ -1358,13 +1358,6 @@ export default function OverviewScreen({
         watch(accountId, { label: ctx?.label });
         return;
       }
-      // B1.6 slice 8 — license scan-gate (plan §4.9.2b). Roll back the
-      // optimistic 'scanning' state and surface the renewal contact.
-      if (err?.code === 'license_expired') {
-        if (ctx?.previous) queryClient.setQueryData(['accounts'], ctx.previous);
-        toast('License expired — scans paused. Contact sales@axiaops.io to renew.', 'error');
-        return;
-      }
       if (ctx?.previous) queryClient.setQueryData(['accounts'], ctx.previous);
       toast(`Couldn't start scan for ${ctx?.display ?? 'account'}`, 'error');
     },

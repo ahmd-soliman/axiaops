@@ -21,8 +21,6 @@ import (
 	"axiaops.io/shared/authz"
 	"axiaops.io/shared/cache"
 	"axiaops.io/shared/crypto"
-	"axiaops.io/shared/entitlement"
-	"axiaops.io/shared/license"
 	"axiaops.io/shared/model"
 	"axiaops.io/shared/notifications"
 	"axiaops.io/shared/queue"
@@ -67,15 +65,6 @@ type Handler struct {
 	// WithInviteMailer; serverbuild wires the default channel-first/global-SMTP
 	// impl.
 	inviteMailer InviteMailer
-
-	// entitlementResolver gates the scan endpoint on per-tenant billing
-	// entitlement instead of the license JWT. nil ⇒ license gate
-	// (`-tags selfhosted`). Set by the default (SaaS) build via WithEntitlementResolver,
-	// which also flips license.SetEnforcementBypass at boot. entitlementGrace is
-	// the past_due window applied past current_period_end. See
-	// docs/saas-platform-admin-design.md §7.1.
-	entitlementResolver entitlement.Resolver
-	entitlementGrace    time.Duration
 }
 
 // New creates a Handler backed by the given store and queue.
@@ -125,21 +114,6 @@ func (h *Handler) WithIngestionSecret(secret []byte) *Handler {
 // tests inject a fake.
 func (h *Handler) WithInviteMailer(m InviteMailer) *Handler {
 	h.inviteMailer = m
-	return h
-}
-
-// WithEntitlementResolver switches the scan endpoint from the license gate to
-// the per-tenant entitlement gate (SaaS). nil resolver is a no-op — the license
-// gate stays in force (`-tags selfhosted`). grace is the past_due window; a zero grace
-// defaults to entitlement.DefaultGraceDays so a misconfigured root never
-// collapses the grace to nothing. Wired by the default (SaaS) build via
-// serverbuild; tests inject a stub resolver.
-func (h *Handler) WithEntitlementResolver(r entitlement.Resolver, grace time.Duration) *Handler {
-	h.entitlementResolver = r
-	if grace <= 0 {
-		grace = time.Duration(entitlement.DefaultGraceDays) * 24 * time.Hour
-	}
-	h.entitlementGrace = grace
 	return h
 }
 
@@ -613,103 +587,18 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
-// getVersion returns the build identifier for the API service plus the
-// boot-time license summary. Reads APP_VERSION / APP_COMMIT_SHA / APP_ENV,
-// falling back to "dev" / "local" / "development" so a vanilla `make
-// start-dev` still produces a usable response. Auth required (sits under
-// /v1/) so the dashboard footer + license banner only learn about the API
-// after a user has logged in.
-//
-// The license sub-object is the source the slice-8 LicenseBanner reads:
-// state == "valid" + days_remaining < 14 → soon-to-expire banner; state ==
-// "in_grace" → grace banner with renewal contact. State "not_loaded" (DEV_MODE
-// / SaaS binary / pre-VerifyAtBoot) renders nothing. Only `state` is emitted
-// in the not-loaded branch — emitting empty/zero values for the other fields
-// would force the dashboard into "is this `expires_at: ""` a real value or
-// just absence?" branching.
-//
-// Anything beyond build identifier + license belongs in /metrics or a
-// structured log line, not here.
+// getVersion returns the build identifier for the API service. Reads
+// APP_VERSION / APP_COMMIT_SHA / APP_ENV, falling back to "dev" / "local" /
+// "development" so a vanilla `make start-dev` still produces a usable
+// response. Auth required (sits under /v1/) so the dashboard footer only
+// learns about the API after a user has logged in.
 func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"service": "api",
 		"version": getenvOr("APP_VERSION", "dev"),
 		"commit":  getenvOr("APP_COMMIT_SHA", "local"),
 		"env":     getenvOr("APP_ENV", "development"),
-		"license": licenseSummary(),
 	})
-}
-
-// licenseSummary builds the version-endpoint license sub-object from the
-// boot-time *License snapshot. The atomic.Pointer is read once via Snapshot
-// and every other field is computed against that same pointer — calling
-// SnapshotState here would re-read the atomic, opening a TOCTOU window where
-// state describes a different snapshot than expires_at / days_remaining.
-//
-// Returns just {state} when no license is loaded so the dashboard can branch
-// on a single field rather than infer absence from zero values.
-func licenseSummary() map[string]any {
-	// SaaS (the default build) bypasses the license at boot
-	// (license.SetEnforcementBypass) and gates on entitlement instead — there is
-	// no customer-facing license under SaaS (design §7.4). Collapse the sub-object
-	// to {state:"managed"} so the dashboard hides the License banner/page rather
-	// than rendering the (bypassed, possibly not_loaded) license state. The
-	// dashboard's plan/usage view replaces it (#131). Post B1.7-layer-4,
-	// self-hosted/DEV_MODE never set the bypass, so this branch is SaaS-only.
-	if license.IsEnforcementBypassed() {
-		return map[string]any{"state": "managed"}
-	}
-	snap := license.Snapshot()
-	if snap == nil {
-		return map[string]any{"state": license.StateNotLoaded.String()}
-	}
-	return map[string]any{
-		"state":             license.CheckExpiry(snap).String(),
-		"customer_id":       snap.CustomerID,
-		"expires_at":        snap.ExpiresAt.UTC().Format(time.RFC3339),
-		"days_remaining":    snap.DaysRemaining(),
-		"max_organizations": snap.MaxOrganizations,
-	}
-}
-
-// scanGateBody returns the 403 JSON body for the license-gated scan endpoint.
-// Three distinct error codes so the dashboard can pick the right banner copy
-// and operators can route alerts on the label without parsing the human-
-// readable detail. The amendment doc lays out the rationale.
-//
-// Switch is exhaustive over the known blocking states (StateExpired,
-// StateNotLoaded). The default case is the regression guard: any future
-// blocking state (a hypothetical StateTrialExpired, StateRevoked) hits the
-// default with a generic "license_inactive" body AND a slog.Warn so the
-// next time a state is added, the operator sees an unhandled-state warning
-// in logs that points back here. Without the warn, a copy-paste regression
-// could ship the wrong body silently for years.
-//
-// Returned as a pre-built []byte (no marshalling per request) — this fires
-// only on the gate-blocked path which is already a customer-visible error,
-// but the path stays allocation-free regardless.
-//
-// Test pinning: handler_license_gate_test.go has one assertion per known
-// state. Adding a state requires the new state's branch + a new test case;
-// the default-case slog.Warn at runtime is the safety net for shipping
-// without test coverage of the new state.
-func scanGateBody(state license.State) []byte {
-	switch state {
-	case license.StateExpired:
-		return []byte(`{"error":"license_expired","detail":"License past grace period — contact sales@axiaops.io to renew"}`)
-	case license.StateNotLoaded:
-		return []byte(`{"error":"license_not_loaded","detail":"No license installed — see https://axiaops.io/install for instructions"}`)
-	case license.StateValid, license.StateInGrace:
-		// Defensive: caller (scanAccount handler) should never reach here
-		// because IsScanAllowedForState returns true for these states. If
-		// it does, something has flipped the gate without updating this
-		// switch — slog.Warn so the misalignment surfaces.
-		slog.Warn("scanGateBody: called with allow-listed state", "state", state.String())
-		return []byte(`{"error":"license_inactive","detail":"License is not active. See /v1/version for state."}`)
-	default:
-		slog.Warn("scanGateBody: unhandled license state", "state", state.String())
-		return []byte(`{"error":"license_inactive","detail":"License is not active. See /v1/version for state."}`)
-	}
 }
 
 func getenvOr(key, fallback string) string {
@@ -1117,21 +1006,6 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	organizationID := middleware.OrganizationID(r.Context())
 	ctx := storage.WithOrganizationID(r.Context(), organizationID)
-
-	// Scan gate (plan §4.9.2b, post-amendment + SaaS §7.1). The gate now needs
-	// the organization, so it runs AFTER org-id resolution. gateAllowsScan picks
-	// the license path (self-hosted, h.entitlementResolver==nil) or the
-	// per-tenant entitlement path (SaaS) and returns the pre-built 403 body.
-	//
-	// Content-Type set BEFORE WriteHeader because once headers are flushed the
-	// Header() map mutations are dropped — writeJSON's set-then-encode pattern
-	// only works correctly for implicit-200 responses.
-	if ok, body := gateAllowsScan(ctx, h.entitlementResolver, h.entitlementGrace, organizationID); !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write(body)
-		return
-	}
 
 	account, err := h.store.GetAccount(ctx, id)
 	if err != nil {
