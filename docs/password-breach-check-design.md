@@ -52,9 +52,9 @@ We deliberately ship a **~10,044-entry corpus** (`breached-passwords.bin`,
 - **Cost vs coverage.** The ~10k list (curated head + xato-net top-10,000,
   prevalence-ordered) catches the passwords that dominate real-world reuse for a
   **~196 KB embed (~0.2 MB per binary)**. The full top-1M would add **~20 MB to
-  each of TWO shipped images** (`api` + `api-admin`) — incompressible (random
-  SHA-1 digests) — for the rarer mid/long tail. The marginal coverage isn't
-  worth ~40 MB of per-deploy image pull at this stage.
+  the shipped `api` image** — incompressible (random SHA-1 digests) — for the
+  rarer mid/long tail. The marginal coverage isn't worth that per-deploy image
+  pull at this stage.
 - **Producing the full corpus is a 30–50 GB download** (you need HIBP's global
   prevalence ordering, which means pulling the whole corpus); the ~10k list is a
   small committed file with no ceremony. Prior art agrees: GitLab/Django bundle
@@ -108,8 +108,6 @@ they check an existing hash, they don't set one):
 | Bootstrap (first-owner) | `internal/auth/handler.go` | `POST /v1/auth/bootstrap` |
 | Invitation redeem (new user) | `internal/auth/handler.go` | `POST /v1/auth/invitations/redeem` |
 | Password-reset redeem | `internal/auth/handler.go` | `POST /v1/auth/password-reset/redeem` |
-| Staff create | `internal/staff/admin_handler.go` | `POST /admin/staff` |
-| `seed-staff` CLI | `cmd/api-admin/seed.go` | first-superadmin |
 | `hash-password` CLI | `cmd/hash-password/main.go` | operator tooling |
 
 So this is "thread a corpus lookup into the one validator," not wiring sprawl.
@@ -130,14 +128,11 @@ embedded `[]byte`. Rationale:
   (2 MB) misses the mid-tail; top-10M (200 MB) is past diminishing returns and
   bloats every image pull. **Fallback knob: top-500k (10 MB)** — same code,
   smaller N at generation time, if the 20 MB image bump proves heavy.
-- **The blob lands in TWO production images, not one.** `internal/auth` is
-  linked by both the `api` binary (`cmd/`, `Dockerfile`) and the `api-admin`
-  staff-plane binary (`cmd/api-admin`, `Dockerfile.admin`) — both call
-  `CheckPolicy`/`Hash`. ECS pulls them independently, so the size bump is paid
-  twice. (`cmd/hash-password` links it too, but that's operator tooling, not a
+- **The blob lands in the `api` production image.** `internal/auth` is linked
+  by the `api` binary (`cmd/`, `Dockerfile`), which calls `CheckPolicy`/`Hash`.
+  (`cmd/hash-password` links it too, but that's operator tooling, not a
   pulled service image.) Re-run the `make build-production` size diff against
-  **both** `./cmd/` and `./cmd/api-admin/`; the 500k fallback gets more
-  attractive once the bump is counted twice.
+  `./cmd/`; the 500k fallback gets more attractive if the bump proves heavy.
 
 ### New package `services/api/internal/breachlist/`
 
@@ -258,7 +253,7 @@ verbatim.
 | Generator script + `docs/breachlist-provenance.md` + `NOTICE` + first corpus commit | 0.5d–1d |
 | `CheckPolicy` breach lookup + `CheckPolicyWithIdentity` + sentinels + similarity | 0.5d |
 | Wire the 4 identity-bearing sites to `WithIdentity` + per-site tests | 0.5d |
-| Handler/CLI tests (mandated: `"password"` and a 12-char breached string MUST 400; a `crypto/rand` 24-char string MUST pass) + `make build-production` size check on `./cmd/` **and** `./cmd/api-admin/` | 0.5d |
+| Handler/CLI tests (mandated: `"password"` and a 12-char breached string MUST 400; a `crypto/rand` 24-char string MUST pass) + `make build-production` size check on `./cmd/` | 0.5d |
 
 Honest range is **2.5–3.5 days** — the generator/provenance ceremony
 (torrent download → top-N filter → sort → manifest) is the line most likely to

@@ -5,8 +5,9 @@
 in-product recovery if that owner is lost (left the company, lost their password, got
 deleted).
 **Related:** `docs/rbac-design.md` (the four-role hierarchy), `docs/invitation-flow.md`
-(how members get added), `docs/admin-portal-plan.md` (the deferred admin-plane
-break-glass that is *not* a substitute for this).
+(how members get added). A staff-plane break-glass path was once considered as
+a possible substitute for this — it isn't one, and moot regardless now that
+the admin plane is cut from the open-source release.
 
 ## Problem
 
@@ -73,10 +74,7 @@ owner-only, and no one else can configure SSO or mint a new owner. The only esca
 hatches are out-of-band:
 
 - **Infra break-glass** — a manual `UPDATE memberships SET role='owner' …` against RDS
-  (the `aws-prod-sql` runbook, requires a privileged operator + SSO token), or
-- the **admin-plane break-glass**, which is explicitly **deferred** (see
-  `docs/admin-portal-plan.md` / `docs/saas-platform-admin-design.md` §5–7 — "break-glass
-  cross-tenant data reads + impersonation … Deferred").
+  (the `aws-prod-sql` runbook, requires a privileged operator + SSO token).
 
 Both are operator-only and unavailable to a self-hosted customer running without
 AxiaOps staff. The product should let an org protect itself.
@@ -300,8 +298,7 @@ powers stay where they are. No change to the `ErrLastOwner` definition.
 **(a) Keep single-owner; document the DB break-glass.** Status quo plus a runbook.
 Rejected: it leaves a real lockout with no *product* recovery, only an operator SQL
 flip — useless to a self-hosted customer with no AxiaOps staff, and a poor look for a
-product whose pitch is operational safety. The admin-plane break-glass that might
-eventually cover this is explicitly deferred (`docs/admin-portal-plan.md` §5–7).
+product whose pitch is operational safety.
 
 **(b) Push owner powers down to admin.** Make admin able to configure SSO / transfer /
 delete so the loss of the sole owner is survivable. Rejected — directly violates the
