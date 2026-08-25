@@ -36,7 +36,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{/*
 Component-scoped selector labels. component is one of: api, ingestion,
-dashboard, api-admin, dashboard-admin, valkey, migrate.
+dashboard, valkey, migrate.
 */}}
 {{- define "axiaops.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "axiaops.name" . }}
@@ -83,16 +83,8 @@ API_IMAGE_TAG_SUFFIX in .gitlab-ci.yml's .deploy-dev template.
 {{- printf "%s/dashboard:%s" .Values.image.registry (include "axiaops.imageTag" .) -}}
 {{- end -}}
 
-{{- define "axiaops.apiAdminImage" -}}
-{{- printf "%s/api-admin:%s" .Values.image.registry (include "axiaops.imageTag" .) -}}
-{{- end -}}
-
-{{- define "axiaops.dashboardAdminImage" -}}
-{{- printf "%s/dashboard-admin:%s" .Values.image.registry (include "axiaops.imageTag" .) -}}
-{{- end -}}
-
 {{/*
-redis://[:password@]host:port -- built once here so api/ingestion/api-admin
+redis://[:password@]host:port -- built once here so api/ingestion
 don't each re-derive it (matches deploy/dev.yml's REDIS_URL default, which
 does the same conditional-userinfo construction per-service today).
 */}}
@@ -106,8 +98,4 @@ does the same conditional-userinfo construction per-service today).
 
 {{- define "axiaops.apiHost" -}}
 {{- printf "%s-api" (include "axiaops.fullname" .) -}}
-{{- end -}}
-
-{{- define "axiaops.apiAdminHost" -}}
-{{- printf "%s-api-admin" (include "axiaops.fullname" .) -}}
 {{- end -}}

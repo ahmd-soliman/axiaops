@@ -26,9 +26,6 @@ spec:
         {{- if .Values.ingress.host }}
         - {{ .Values.ingress.host | quote }}
         {{- end }}
-        {{- if .Values.ingress.adminHost }}
-        - {{ .Values.ingress.adminHost | quote }}
-        {{- end }}
       secretName: {{ .Values.ingress.tls.secretName }}
   {{- end }}
   rules:
@@ -41,18 +38,6 @@ spec:
             backend:
               service:
                 name: {{ include "axiaops.fullname" . }}-dashboard
-                port:
-                  name: http
-    {{- end }}
-    {{- if .Values.ingress.adminHost }}
-    - host: {{ .Values.ingress.adminHost }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "axiaops.fullname" . }}-dashboard-admin
                 port:
                   name: http
     {{- end }}
