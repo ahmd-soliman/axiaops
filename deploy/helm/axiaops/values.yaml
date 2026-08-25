@@ -56,12 +56,9 @@ ingress:
     enabled: false
     secretName: ""
 
-# The chart never bundles Postgres. Every existing axiaops environment runs
-# it as a standalone process outside the app's own deploy unit (see
-# apps/axiaops-<env>-db in the homelab repo) rather than as part of the
-# thing being deployed -- this chart keeps that separation. existingSecret
-# must provide three postgres:// DSNs as keys: database-url,
-# migration-database-url, runtime-admin-database-url.
+# The chart never bundles Postgres -- bring your own, running outside this
+# deploy unit. existingSecret must provide three postgres:// DSNs as keys:
+# database-url, migration-database-url, runtime-admin-database-url.
 postgres:
   existingSecret: ""
 
@@ -84,9 +81,8 @@ redis:
     secretKey: password
   resources: {}
 
-# Name of a pre-existing Secret (created out-of-band -- this cluster has no
-# sealed-secrets/external-secrets operator, see self-hosted-infra's
-# gitops/README.md "Explicitly not planned") holding the values that must
+# Name of a pre-existing Secret (created out-of-band -- this chart assumes
+# no sealed-secrets/external-secrets operator) holding the values that must
 # never be chart content: encryption-key, ingestion-shared-secret,
 # ingestion-shared-secret-next, metrics-bearer-token, smtp-pass.
 secrets:

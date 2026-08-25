@@ -131,8 +131,7 @@ spec:
       volumes:
         # Ephemeral by design for now -- DEV_MODE skips the install-token
         # bootstrap flow entirely, and this chart doesn't yet assume a
-        # StorageClass exists (see self-hosted-infra gitops/README.md: no CSI
-        # driver on the hard-way cluster today). An auth-on environment
+        # StorageClass exists. An auth-on environment
         # redeploying api before the first-owner token is redeemed would
         # lose it on pod replacement -- fine for a DEV_MODE env, a real gap
         # otherwise. Revisit once a StorageClass exists.

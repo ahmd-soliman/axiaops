@@ -79,7 +79,7 @@ and storage layers are provider-agnostic.
 2. Add the Describe API call to the per-service file in `internal/provider/aws/` (e.g. `discover_ec2.go`, `discover_rds.go`); create a new `discover_<service>.go` if no file exists for that service
 3. Add CloudWatch metric mapping in `internal/provider/aws/cloudwatch.go`
 4. Add unit test in `shared/analyzer/` covering the new threshold
-5. Update the IAM read-only policy list in `docs/connect-aws-account.md`
+5. Update the IAM read-only policy list in `docs/OPERATIONS.md` § 1
 
 ## Observability (Phase 2.6)
 
@@ -157,7 +157,7 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationI
 | Variable | Required | Default | Notes |
 |----------|----------|---------|-------|
 | DATABASE_URL | Yes | — | PostgreSQL app connection (`axiaops`, RLS-enforced) |
-| RUNTIME_ADMIN_DATABASE_URL | Yes outside DEV_MODE | — | Least-privilege RLS-bypass role (`axiaops_runtime`) for the cross-org scheduled-scan enumeration (`ListAllAccounts`). No DDL/ownership. DEV_MODE collapses to a single pool. See `docs/runtime-admin-db-role.md`. |
+| RUNTIME_ADMIN_DATABASE_URL | Yes outside DEV_MODE | — | Least-privilege RLS-bypass role (`axiaops_runtime`) for the cross-org scheduled-scan enumeration (`ListAllAccounts`). No DDL/ownership. DEV_MODE collapses to a single pool. See `docs/AUTHENTICATION.md` § 5. |
 | MIGRATION_DATABASE_URL | No | — | PostgreSQL owner connection (`axiaops_owner`). **Migrate task only** — not read by the ingestion runtime. |
 | AWS_REGION | Prod | eu-central-1 | AWS region for API calls |
 | DAYS_BACK | No | 30 | Cost lookback window (days) |

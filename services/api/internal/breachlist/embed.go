@@ -5,7 +5,7 @@ import _ "embed"
 // corpus is the embedded breached-password blob: a sorted, concatenated stream
 // of RAW 20-byte SHA-1 digests, no delimiters. IsCompromised binary-searches
 // over it. Built by cmd/breachlist-gen from internal/breachlist/seed-wordlist.txt
-// (bootstrap seed) — see docs/breachlist-provenance.md for the source and the
+// (bootstrap seed) — see docs/AUTHENTICATION.md (§4) for the source and the
 // procedure to swap in HIBP's full prevalence-ordered top-1M.
 //
 // The embed is UNCONDITIONAL — no build-tag split. Unlike the license
