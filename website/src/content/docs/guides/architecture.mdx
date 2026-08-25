@@ -1,0 +1,197 @@
+---
+title: Architecture
+description: How AxiaOps is put together — services, data flow, and how it talks to AWS.
+---
+
+import Mermaid from '../../../components/Mermaid.astro';
+
+## System overview
+
+<Mermaid code={`
+flowchart LR
+    User(["Browser"])
+
+    Dash["dashboard"]
+    Api["api"]
+    Ingestion["ingestion\\n(background worker)"]
+    Migrate["migrate\\n(one-shot job)"]
+
+    PG[("Postgres")]
+    Redis[("Redis / Valkey\\nqueue + cache")]
+    AWS["Customer AWS account\\n(sts:AssumeRole)"]
+
+    User --> Dash
+    Dash --> Api
+    Api --> PG
+    Api <-->|sessions · rate limits · SSO state · enqueue to ingestion| Redis
+    Ingestion -->|scans| AWS
+    Ingestion --> PG
+    Ingestion <--> Redis
+    Migrate -.->|runs once, pre-install/upgrade| PG
+`} />
+
+## Services
+
+AxiaOps is split into four services, each independently deployable:
+
+| Service | Role |
+|---|---|
+| `ingestion` | Background worker. Assumes a cross-account role into a connected AWS account, pulls cost data from Cost Explorer, calls per-service discovery APIs (EC2, RDS, EKS, CloudWatch Logs, ...), and runs the zombie-detection rules. Enqueues work onto Redis/Valkey when available, falls back to synchronous processing otherwise. |
+| `api` | The organization-facing REST API (`/v1/*`) — accounts, costs, summary, trend, resources, dismissals. What the dashboard talks to. |
+| `dashboard` | The React SPA end users see — Overview, Resources, Trends, Costs. |
+| `migrate` | A one-shot job that runs database migrations. Deployed as a Helm pre-install/pre-upgrade hook, not a long-running service. |
+
+All long-running services and the migration job share two Go modules:
+`services/shared` (models, the zombie-detection analyzer, storage,
+notifications, the queue abstraction) and each service's own `go.mod`.
+
+## How a scan works
+
+<Mermaid code={`
+flowchart TD
+    A["sts:AssumeRole into the connected AWS account\\n(external ID + short-lived credentials, no stored keys)"]
+    B["Cost Explorer: GetCostAndUsage\\ngrouped by SERVICE + REGION → CostRecord rows"]
+    C["Cost Explorer: GetCostAndUsageWithResources\\nlast 14 days, daily granularity, opt-in AWS feature\\n→ per-resource cost, when available"]
+    D["Per-service discovery APIs\\nDescribeVolumes · DescribeImages · DescribeLogGroups\\nListTables · DescribeCacheClusters ..."]
+    E["analyzer.Detect()\\njoins cost + usage + discovery against\\nper-service threshold rules"]
+    F["[]ZombieResource\\neach with a Reason and a MonthlyCost"]
+    G[("Postgres")]
+    H["Redis / Valkey queue\\n(or inline processing if unreachable)"]
+
+    A --> B --> E
+    A --> C --> E
+    A --> D --> E
+    E --> F --> G
+    F --> H
+`} />
+
+The `api` service then just reads the persisted zombie/cost data back out —
+it never talks to AWS directly.
+
+## Service coverage
+
+Detection rules exist for 14 AWS services — most trigger off a CloudWatch
+usage metric sitting at (or near) zero for the whole billing period; a few
+(unattached/orphaned resources, stale artifacts) are flagged from resource
+metadata alone, with no CloudWatch call at all:
+
+| Service | Flags | Signal |
+|---|---|---|
+| EC2 | Idle instance | CPU utilization ≤ 5% |
+| EC2 | Long-stopped instance | Stopped 30+ days, still billing its attached EBS storage |
+| EC2 (EBS) | Unattached volume | Not mounted to any instance |
+| EC2 (EBS) | Orphaned snapshot | Source volume no longer exists |
+| EC2 (AMI) | Stale AMI | 90+ days old, not referenced by any instance |
+| RDS | Abandoned instance | Zero database connections |
+| RDS | Orphaned snapshot | Source DB gone, snapshot 30+ days old |
+| Lambda | Unused function | Zero invocations |
+| ELB | Abandoned load balancer | Zero requests |
+| VPC | Idle NAT gateway | Zero outbound bytes |
+| VPC | Unattached Elastic IP | Not attached to any resource |
+| EKS | Empty cluster | Zero nodes — control plane still billing. Needs Container Insights enabled; clusters without it are skipped, not falsely cleared |
+| ElastiCache | Idle cluster | Zero connections |
+| OpenSearch / Elasticsearch | Unused domain | Zero search rate |
+| Redshift | Abandoned cluster | Zero database connections |
+| SageMaker | Forgotten endpoint | Zero invocations |
+| DynamoDB | Unused table | Zero consumed read capacity (provisioned-capacity tables only) |
+| CloudFront | Abandoned distribution | Zero requests |
+| S3 | Abandoned bucket | Zero requests — needs S3 request metrics enabled |
+| Kinesis | Unused stream | Zero incoming records |
+| CloudWatch Logs | Wasteful log group | No retention policy — storage grows indefinitely |
+| ECR | Stale images | Untagged/unreferenced images, 90+ days old |
+| Secrets Manager | Unused secret | Not accessed in 90+ days |
+
+Adding coverage for a new service means one of two things: a new entry in
+`serviceRules` (`services/shared/analyzer/rules.go`) if it fits the
+CloudWatch-threshold shape, or a dedicated `Discover*` function in
+`services/ingestion/internal/provider/aws/` if it doesn't — the same place
+EBS, AMI, and snapshot detection live today.
+
+### Cost coverage is broader than detection coverage
+
+The Costs view's "by service" breakdown isn't limited to the table above —
+it's Cost Explorer's own `SERVICE` grouping, verbatim, so it lists *every*
+service on the bill: Cost Explorer's own charge, Data Transfer, Tax,
+CloudFormation, Glue, SNS, SQS, KMS, Glacier, and anything else with a line
+item, regardless of whether a detection rule exists for it. A service with
+real spend but no matching rule still counts toward total spend and its own
+line in that breakdown — it's just never a candidate for a zombie finding.
+
+## Scheduling
+
+`ingestion` re-scans on its own — nothing external triggers a scan. A ticker
+(default every 60 minutes, overridable via `SCAN_INTERVAL`) wakes up
+`scanScheduledAccounts`, which walks every connected account across every
+organization and checks whether it's due: each account carries its own
+`scan_interval_hours`, and a scan is enqueued once `last_scanned_at +
+scan_interval_hours` has passed (or the account has never scanned). So the
+ticker's cadence is global, but *when a given account actually scans* is
+per-account. An account with a negative interval is treated as disabled and
+skipped; one already mid-scan is skipped too rather than double-enqueued.
+Every connected account is scanned unconditionally on this schedule — there's
+no plan/entitlement gate deciding who gets scanned.
+
+Due accounts are pushed onto the Redis-backed job queue and picked up by a
+worker pool, each scan running under a circuit breaker with a 10-minute
+timeout — a hung or failing account's scan is bounded and can't starve the
+others. The account's `status` reflects the outcome directly:
+`scanning` → `connected` / `error` / `scan_timeout` / `circuit_breaker_open`.
+
+## Rate limiting
+
+Two independent layers, both Redis-backed and both scoped to `api` (`ingestion`
+isn't rate-limited — it isn't reachable from outside the cluster):
+
+- **General API traffic** — every request is bucketed by `(organization,
+  user)` in a fixed 1-minute window, capped at 1000 requests/minute by
+  default (`RATE_LIMIT_MAX`). Responses carry `X-RateLimit-*` headers and,
+  once exceeded, a `429` with `Retry-After`.
+- **Auth-specific limits** — tighter caps on the endpoints that don't require
+  a session yet, since those are exactly the ones open to credential
+  stuffing or enumeration: login is capped per source IP *and* per attempted
+  email independently, and unauthenticated endpoints (bootstrap state, SSO
+  discovery) get their own per-IP cap.
+
+Both layers **fail open**: if Redis is unreachable, the request is allowed
+through rather than rejected, and the general limiter simply isn't mounted at
+all when `REDIS_URL` is unset. Availability wins over strictness here — the
+same posture as `ingestion` falling back to synchronous processing when Redis
+is unreachable, elsewhere in this document.
+
+## Storage
+
+- **Postgres** — the system of record. Cost records, detected zombies,
+  scan history, accounts, organizations, dismissals.
+- **Redis / Valkey** — not a store of record, but load-bearing for more
+  than just `ingestion`'s job queue: `api` also uses it for session
+  caching, rate limiting, and SSO state. If it's unreachable, `ingestion`
+  falls back to synchronous processing rather than failing the scan — see
+  the retry/backend-selection logic in
+  `services/ingestion/internal/provider/aws/aws.go`.
+
+## Organizations and accounts
+
+An **organization** owns one or more connected **accounts** (AWS accounts,
+connected via IAM role ARN + external ID). The dashboard's Overview screen
+only renders for organizations with two or more connected accounts — a
+single-account organization is the common self-hosted case, and lands
+straight on the per-account Resources workbench instead of a summary that
+would have nothing to summarize across.
+
+## Connecting to AWS
+
+Every connected account is reached via `sts:AssumeRole`, never static
+access keys. A synchronous `/v1/credentials/verify` endpoint does a
+short-lived (15 minute) AssumeRole + GetCallerIdentity round trip to confirm
+a customer's trust policy is wired correctly *before* the account is saved —
+credentials from that probe are discarded immediately, never persisted.
+Real scans use a longer-lived (1 hour) session, refreshed transparently by
+the AWS SDK's credentials cache.
+
+Cost Explorer calls — the ones most likely to hit AWS-side throttling under
+load — retry on transient failures with exponential backoff (three attempts,
+starting at 100ms and capped at 5s), on top of the retry behavior the AWS SDK
+already applies underneath. A scan that hits a persistent throttle or error
+fails that one account rather than blocking the scheduler — see
+[Scheduling](#scheduling) above for how a stuck account is bounded and
+retried on its own next due date, not immediately.

@@ -1,0 +1,181 @@
+---
+title: Deploying on ECS
+description: Running api and ingestion as ECS Express Mode services, migrations as a one-off Fargate task, and the dashboard on S3 + CloudFront — no Kubernetes cluster required.
+---
+
+import Mermaid from '../../../components/Mermaid.astro';
+
+The [Deployment](/guides/deployment/) and [Deploying on AWS](/guides/aws-deployment/)
+guides assume you're already running (or want to run) a Kubernetes cluster.
+If you'd rather not operate one at all, AxiaOps deploys just as well onto
+plain ECS on Fargate — this is in fact how the hosted AxiaOps service itself
+runs in production. No Helm chart involved; each service becomes its own ECS
+service or one-off task.
+
+## Shape
+
+<Mermaid code={`
+flowchart LR
+    User(["Browser"])
+    CF["CloudFront"]
+    S3[("S3\\ndashboard bundle")]
+    ApiSvc["axiaops-api\\nECS Express service"]
+    IngSvc["axiaops-ingestion\\nECS Express service"]
+    Migrate["axiaops-migrate\\none-off Fargate task"]
+    RDS[("RDS\\nPostgres")]
+    EC[("ElastiCache\\nValkey / Redis")]
+    Target["Customer AWS account(s)\\nbeing scanned"]
+
+    User -->|static assets| CF --> S3
+    User -->|fetch /v1/* · CORS| ApiSvc
+    ApiSvc --> RDS
+    ApiSvc <--> EC
+    ApiSvc --> IngSvc
+    IngSvc --> RDS
+    IngSvc <--> EC
+    IngSvc -->|sts:AssumeRole| Target
+    Migrate -.->|run once, before every release| RDS
+`} />
+
+Unlike the Helm chart, there's no in-cluster proxy stitching these together:
+the dashboard (CloudFront) and the api (its own ECS Express service) are two
+separate origins, and the browser talks to both directly — which is why `api`
+needs `CORS_ORIGIN` set to the dashboard's CloudFront hostname. `PUBLIC_HOST`
+is the api's own hostname, used for links it generates itself (invite emails,
+SSO redirect URIs).
+
+## Why "Express Mode" specifically
+
+Plain ECS `create-service` leaves you to wire the ALB, target group, listener
+rules, and TLS certificate yourself. ECS Express Mode (`aws ecs
+create-express-gateway-service` / `update-express-gateway-service`) provisions
+all of that for you from a single container spec — image, port, env, secrets —
+and re-uses it on every subsequent update. That single-spec update is also
+what replaces Helm's rolling `Deployment` update: point `--primary-container`
+at a new image tag and it handles the canary rollout.
+
+## The four pieces
+
+| | Runs as | Health check |
+|---|---|---|
+| `api` | ECS Express service, `containerPort: 8080` | `/livez` (no DB touch) |
+| `ingestion` | ECS Express service, `containerPort: 8081` | `/health` |
+| `migrate` | One-off Fargate task, run before each deploy | n/a — checked via exit code |
+| `dashboard` | Static build synced to S3, served by CloudFront | n/a |
+
+`ingestion` gets updated before `api` on every deploy — `api` reads
+`INGESTION_URL` at startup, so rolling it first would briefly point new `api`
+tasks at an older `ingestion` build.
+
+Use the `-production` image variant for both — the same `BUILD_TAGS=production`
+build CI publishes alongside the default images, with `DEV_MODE` compiled out
+entirely rather than just defaulted off:
+
+```bash
+IMAGE_BASE=ghcr.io/<your-org>/<your-repo>
+TAG=main-abcd1234
+
+aws ecs update-express-gateway-service \
+  --service-arn "$INGESTION_SERVICE_ARN" \
+  --primary-container '{
+    "image": "'"$IMAGE_BASE"'/ingestion:'"$TAG"'-production",
+    "containerPort": 8081,
+    "environment": [
+      {"name": "APP_ENV", "value": "production"},
+      {"name": "AWS_REGION", "value": "eu-central-1"}
+    ],
+    "secrets": [
+      {"name": "DATABASE_URL", "valueFrom": "'"$SECRET_ARN_DATABASE_URL"'"},
+      {"name": "RUNTIME_ADMIN_DATABASE_URL", "valueFrom": "'"$SECRET_ARN_RUNTIME_ADMIN_URL"'"},
+      {"name": "ENCRYPTION_KEY", "valueFrom": "'"$SECRET_ARN_ENCRYPTION_KEY"'"},
+      {"name": "INGESTION_SHARED_SECRET", "valueFrom": "'"$SECRET_ARN_SHARED_SECRET"'"},
+      {"name": "REDIS_URL", "valueFrom": "'"$SECRET_ARN_REDIS_URL"'"}
+    ]
+  }'
+
+aws ecs update-express-gateway-service \
+  --service-arn "$API_SERVICE_ARN" \
+  --primary-container '{
+    "image": "'"$IMAGE_BASE"'/api:'"$TAG"'-production",
+    "containerPort": 8080,
+    "environment": [
+      {"name": "APP_ENV", "value": "production"},
+      {"name": "PUBLIC_HOST", "value": "api.example.com"},
+      {"name": "CORS_ORIGIN", "value": "https://dashboard.example.com"},
+      {"name": "INGESTION_URL", "value": "https://<ingestion-express-endpoint>"}
+    ],
+    "secrets": [
+      {"name": "DATABASE_URL", "valueFrom": "'"$SECRET_ARN_DATABASE_URL"'"},
+      {"name": "RUNTIME_ADMIN_DATABASE_URL", "valueFrom": "'"$SECRET_ARN_RUNTIME_ADMIN_URL"'"},
+      {"name": "ENCRYPTION_KEY", "valueFrom": "'"$SECRET_ARN_ENCRYPTION_KEY"'"},
+      {"name": "INGESTION_SHARED_SECRET", "valueFrom": "'"$SECRET_ARN_SHARED_SECRET"'"},
+      {"name": "REDIS_URL", "valueFrom": "'"$SECRET_ARN_REDIS_URL"'"}
+    ]
+  }'
+```
+
+`ENCRYPTION_KEY` must be byte-identical on `api` and `ingestion` — `api`
+encrypts each connected account's credentials on `POST /accounts`, `ingestion`
+decrypts them during a scan. Generate it once (`openssl rand -hex 32`) and
+store it in Secrets Manager / SSM as a single value both task definitions
+reference — never regenerate it in place, or every already-connected account
+becomes undecryptable.
+
+## Migrations: a one-off task, not a hook
+
+ECS has no equivalent to Helm's pre-install/pre-upgrade hook, so `migrate`
+runs as an explicit step, before the service updates above — schema changes
+land before any new-code task starts talking to the database:
+
+```bash
+aws ecs run-task \
+  --cluster your-cluster \
+  --task-definition axiaops-migrate:latest \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_IDS],securityGroups=[$SG_ID],assignPublicIp=ENABLED}"
+
+# then poll until it stops, and check the container's exit code —
+# a non-zero exit means the migration failed and the deploy should not proceed:
+aws ecs wait tasks-stopped --cluster your-cluster --tasks "$TASK_ARN"
+aws ecs describe-tasks --cluster your-cluster --tasks "$TASK_ARN" \
+  --query 'tasks[0].containers[0].exitCode'
+```
+
+`migrate` reads the same `DATABASE_URL` / `RUNTIME_ADMIN_DATABASE_URL`
+secrets as `api`/`ingestion` and exits — it isn't a long-running service, so
+it never needs a target group or health check of its own.
+
+## Dashboard: build-time, not runtime, configuration
+
+The Kubernetes/Docker path (`services/dashboard/Dockerfile`) bakes an nginx
+image that injects `window.__ENV__` at container *start* time, so one image
+can be reused across environments. There's no container here at all — the
+Vite bundle is built once and uploaded as static files, so anything the
+dashboard needs (`VITE_API_URL`, `VITE_AXIAOPS_AWS_ACCOUNT_ID`) has to be
+baked in at **build** time instead:
+
+```bash
+cd services/dashboard
+VITE_API_URL="https://api.example.com" \
+VITE_AXIAOPS_AWS_ACCOUNT_ID="<your-aws-account-id>" \
+  npm ci && npm run build
+
+# index.html is excluded from the long cache and re-uploaded with
+# no-cache — otherwise a stale SPA shell stays pinned at the edge after
+# a release; everything under /assets/ is content-hashed by Vite and can
+# cache aggressively.
+aws s3 sync dist/ "s3://your-dashboard-bucket/" --delete \
+  --cache-control "public, max-age=300" --exclude index.html
+aws s3 cp dist/index.html "s3://your-dashboard-bucket/index.html" \
+  --cache-control "no-cache, no-store, must-revalidate" --content-type "text/html"
+aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/*"
+```
+
+## When to pick this over EKS
+
+Both paths run the same four services against the same schema — nothing
+about the application changes. Reach for ECS Express Mode if you don't want
+to operate a Kubernetes control plane at all; reach for the
+[Helm chart](/guides/deployment/) if you're already running EKS (or any
+other cluster) and want AxiaOps to be one more thing `kubectl` manages
+alongside everything else.
