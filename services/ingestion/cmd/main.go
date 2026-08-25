@@ -49,8 +49,8 @@ var (
 
 	// axiaops_ingestion_records_saved_total: Total number of cost records successfully saved to the database.
 	// Labels: provider, organization_id, status (inserted = brand-new row,
-	// updated = existing row whose amount/tags were refreshed by the upsert).
-	// See docs/cost-records-upsert-plan.md for the discrimination via xmax.
+	// updated = existing row whose amount/tags were refreshed by the upsert,
+	// discriminated via the row's xmax).
 	ingestionRecordsSavedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "axiaops_ingestion_records_saved_total",
@@ -155,7 +155,7 @@ func main() {
 	// /health, /metrics, /livez, /readyz stay reachable by docker healthchecks
 	// and Prometheus scrapers (no shared secret). Future ingestion endpoints
 	// should explicitly opt in via protect() rather than opt out of a global
-	// allowlist. See docs/c1-hmac-plan.md §4.2.
+	// allowlist.
 	protect := composeHMACProtect(ingestionSecrets, hmacMaxSkew, hmacSoftEnforce)
 	mux.Handle("POST /scan", protect(http.HandlerFunc(scanHandler(store))))
 

@@ -1,5 +1,5 @@
 // Package model — AuditEvent is a single row in the audit_log table, recording
-// one user-initiated mutation. See docs/audit_trail_plan.md for the full design.
+// one user-initiated mutation.
 package model
 
 import (
@@ -35,7 +35,6 @@ type AuditEvent struct {
 }
 
 // Audit action constants. Values match the action column in audit_log.
-// Keep this list in sync with docs/audit_trail_plan.md §3.2.
 //
 // Rule: audit_log is mutation-only. A user viewing a command, reading a list,
 // or opening a detail page does not belong here — CloudTrail handles real AWS
@@ -71,10 +70,9 @@ const (
 	// AuditActionOnboardingCompleted records the wizard reaching the final
 	// step. Metadata carries steps_skipped (subset of "invite", "aws-account").
 	AuditActionOnboardingCompleted = "onboarding_completed"
-	// Phase B1 — native auth lifecycle. The login/logout actions are
-	// intentionally absent: per docs/audit_trail_plan.md §2 audit_log is
-	// mutation-only, and authn-success / authn-failure belong in the
-	// auth-counter Prometheus metrics + slog (`axiaops_auth_login_total`).
+	// Native auth lifecycle. The login/logout actions are intentionally
+	// absent: audit_log is mutation-only, and authn-success / authn-failure
+	// belong in the auth-counter Prometheus metrics + slog (`axiaops_auth_login_total`).
 	// What lives here is the *state-changing* side of authn.
 	// AuditActionUserNameChanged records a self-service display-name edit
 	// via PATCH /v1/users/me (issue #78). Metadata carries {old_name,
@@ -88,7 +86,7 @@ const (
 	AuditActionInvitationRedeemedNative  = "invitation_redeemed_native"
 	AuditActionBootstrapCompleted        = "bootstrap_completed"
 	AuditActionSessionRevokedByAdmin     = "session_revoked_by_admin"
-	// Notification channels (docs/notifications-plan.md). Metadata carries
+	// Notification channels. Metadata carries
 	// {kind, label} on create/delete and {fields_changed} on update; secret
 	// config values (SMTP pass, webhook URL) are NEVER written to audit.
 	AuditActionChannelCreated = "channel_created"
@@ -111,7 +109,7 @@ const (
 	// audit_log as well because an org admin reviewing "who has been signing in
 	// via SSO this week" needs the per-row trail, not just an aggregate.
 	// Metadata carries connection_id, protocol, and a reason code where
-	// applicable. See docs/sso-integration-design.md §4.5.
+	// applicable.
 	AuditActionSSOConnectionCreated         = "sso_connection_created"
 	AuditActionSSOConnectionUpdated         = "sso_connection_updated"
 	AuditActionSSOConnectionDeleted         = "sso_connection_deleted"

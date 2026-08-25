@@ -105,8 +105,7 @@ type Store interface {
 	// Save upserts a batch of cost records, refreshing amount/currency/tags/
 	// fetched_at/internal_account_id when an existing conflict-key row is
 	// touched. Returns (inserted, updated) counts so callers can split
-	// metrics by which path each record took. See
-	// docs/cost-records-upsert-plan.md for rationale.
+	// metrics by which path each record took.
 	Save(ctx context.Context, records []model.CostRecord) (inserted, updated int64, err error)
 
 	// SaveZombies replaces all zombie records with the latest detection results.
@@ -390,7 +389,7 @@ type Store interface {
 	// thread an empty string through every call.
 	SetUserSSOConnection(ctx context.Context, userID, connectionID string) error
 
-	// ── Pending invitations (see docs/invitation-flow.md) ────────────────────
+	// ── Pending invitations ──────────────────────────────────────────────────
 
 	// CreatePendingInvitation inserts a pending_memberships row, or upserts an
 	// existing pending row for (organization_id, lower(email)) — refreshing
@@ -532,7 +531,7 @@ type Store interface {
 	// row; ID auto-generated if empty.
 	ReplaceSSOGroupMappings(ctx context.Context, connectionID string, mappings []model.SSOGroupMapping) error
 
-	// ── Notification channels (docs/notifications-plan.md) ───────────────────
+	// ── Notification channels ─────────────────────────────────────────────────
 	// All methods require WithOrganizationID(ctx, ...) before the call and run
 	// on the RLS-bound app pool. There is deliberately no cross-org enumerator
 	// (no ListAll*) — the dispatcher fires per-org inside a scan that already

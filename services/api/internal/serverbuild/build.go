@@ -112,7 +112,6 @@ type Deps struct {
 	// from the sync queue fallback, POST /v1/credentials/verify from the
 	// role-based onboarding flow). nil iff Config.DevMode — the receiving
 	// ingestion middleware is in passthrough mode under the same posture.
-	// See docs/c1-hmac-plan.md §3.3.
 	IngestionSecret []byte
 
 	// AuthProvider is the auth seam. Today there's a single impl

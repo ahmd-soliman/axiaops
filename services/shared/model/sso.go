@@ -1,7 +1,5 @@
 // Package model — SSO connection / domain / group mapping types backing
-// the schema in migration 022_sso_core.up.sql. See:
-//   docs/sso-integration-design.md §4.1 (schema)
-//   docs/sso-implementation-plan.md §5  (Phase B2 — Native OIDC RP)
+// the schema in migration 022_sso_core.up.sql.
 package model
 
 import "time"

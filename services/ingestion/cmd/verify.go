@@ -12,8 +12,7 @@ import (
 )
 
 // verifyRequest is the body POSTed by the API service when a customer pastes
-// their freshly-minted role ARN into the dashboard. The flow is described in
-// docs/cross-account-roles-design.md §4.4.
+// their freshly-minted role ARN into the dashboard.
 type verifyRequest struct {
 	RoleARN        string `json:"role_arn"`
 	ExternalID     string `json:"external_id"`

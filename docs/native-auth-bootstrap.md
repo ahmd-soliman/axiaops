@@ -7,9 +7,6 @@ shape *minus* edge TLS — production terminates HTTPS at the edge proxy
 relies on the cookie path's `X-Forwarded-Proto` propagation to behave
 identically when there *is* an edge proxy in front.
 
-For the design rationale and acceptance criteria see
-[`docs/sso-implementation-plan.md`](sso-implementation-plan.md) §4.5 / §4.6.
-
 ## One-time prerequisites
 
 None. The local stack runs plain HTTP; no mkcert / certs / TLS setup.
@@ -166,7 +163,7 @@ There is no `PATCH /v1/users/me/email` endpoint, by design.
 - **SSO users** — change the email in your IdP (Keycloak, Entra, …).
   The next SSO login calls `UpsertUser` with the fresh claims and the
   local row updates in place. `users.sso_external_id` is the stable
-  lookup key, not email — see `docs/sso-integration-design.md` §734.
+  lookup key, not email.
   Don't try to mutate the email locally; the next login would silently
   overwrite it and produce a split-brain.
 
