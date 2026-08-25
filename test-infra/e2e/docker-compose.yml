@@ -8,7 +8,7 @@ name: axiaops-e2e
 # FRESH, un-bootstrapped database. There is intentionally NO startup `seed`
 # service: no org exists until the Playwright `setup` project drives the real
 # /auth/bootstrap ceremony, so seeding happens from that step (it runs the
-# seeder against the org it just created). See docs/e2e-conventions.md.
+# seeder against the org it just created). See docs/TEST_STRATEGY.md (§3).
 #
 # Topology:
 #   postgres ← migrate (one-shot) ← api + ingestion (DEV_MODE=false)
