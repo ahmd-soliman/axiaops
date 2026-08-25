@@ -583,32 +583,6 @@ Do not build any of phase 3 without a named customer.
 
 ---
 
-## 11. Internal / Staff Roles (out of v1 scope — placeholder)
-
-**Scope:** This section is a placeholder for a future design. None of it is v1. When the trigger conditions arrive, spin this out into its own design doc — do not implement from this summary.
-
-Staff (AxiaOps employees) are a different principal type from organization users: they are cross-organization, must be audited unconditionally, and sometimes act as an organization user for debugging. They don't fit into `memberships`.
-
-**Planned shape when built:**
-
-- Separate `staff_users` table. Separate Kinde org ("AxiaOps Internal"). Separate middleware chain on `/internal/*` routes. Customer routes (`/v1/*`) untouched.
-- Cross-organization reads/writes use the `adminPool` pattern already present in `postgres.go:35` (same escape hatch `ListAllAccounts` uses) — **not** `BYPASSRLS` on a new role. Postgres `BYPASSRLS` is all-or-nothing per role and doesn't match the "some queries bypass, some don't" need.
-- Four proposed roles: `staff_support` (read-only cross-organization), `staff_engineer` (read-write + impersonation), `staff_billing` (subscription ops only, explicit no-access to cost/zombie data — GDPR), `staff_admin` (everything, break-glass).
-- Impersonation uses a **short-lived scoped JWT**, not session cookies. AxiaOps is JWT-only; introducing cookie sessions adds CSRF/CORS/session-store work unrelated to the impersonation feature. Staff gets a JWT with both `staff_id` and `acting_as_organization_id` claims; audit log always records the real `staff_id`.
-- Audit logging is mandatory for staff (unlike organization-side audit which v1 defers). Every staff action on customer data logged.
-- `DEV_MODE` covers organization-user dev. Staff-route dev needs a separate opt-in flag so `/internal/*` isn't accidentally exposed; design it then.
-
-**Until then:** direct DB access via `psql` with `MIGRATION_DATABASE_URL`. Fine for a solo founder with zero paying customers. The moment any of these is true, design it properly:
-
-- A second person joins and needs scoped access.
-- First paying customer (staff access crosses a trust boundary under GDPR/SOC2).
-- Support volume > "I can SSH into prod".
-- Billing system ships (needs `staff_billing` as a prerequisite).
-
-Expect ~2 weeks of work when it's time.
-
----
-
 ## 12. Kinde-Native RBAC Evaluation
 
 We evaluated whether to replace AxiaOps' internal RBAC (the `memberships` table + Go permission decorators above) with Kinde's built-in roles and permissions. This section documents the evaluation, the decision, and the upgrade path.

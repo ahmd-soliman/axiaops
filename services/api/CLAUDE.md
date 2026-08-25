@@ -104,36 +104,6 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin the DEV_MODE
 - OIDC SSO ceremony is wired in `serverbuild.ComposeServer` when `!cfg.DevMode`: initiate at `/v1/sso/oidc/{cid}/initiate`, callback at the cid-less `/v1/sso/oidc/callback` (state carries connection identity). The legacy path-cid callback `/v1/sso/oidc/{cid}/callback` stays wired for one release as a deprecation window — hits surface via `axiaops_sso_legacy_callback_total{cid}`. Successful callback mints a native session via the same `SessionManager` with `auth_mode='sso'`.
 - See `docs/invitation-flow.md` for how `pending_memberships` rows get redeemed on first login.
 
-## Platform Admin Plane (`cmd/api-admin`)
-
-A **separate binary** (`services/api/cmd/api-admin`) serving the AxiaOps-staff
-admin plane — structurally isolated from the tenant API (a staff principal
-belongs to NO org and never spans planes). It is NOT internet-facing the way the
-tenant API is: run it behind VPN / SSO-only / SG-restricted ingress. Composed by
-`serverbuild.ComposeAdminServer` (a minimal sibling of `ComposeServer`), wiring
-`internal/staff`. **No DEV_MODE bypass** — staff auth is always real. Listens on
-`ADMIN_API_ADDR` (default `:8090`); shares the same RDS + image as the tenant API.
-
-- **Auth:** native staff credentials (argon2id, reusing `internal/auth`), via the
-  `staff.Provider` seam + `staff.WrapStaff` middleware. Cache-backed staff
-  sessions (`axiaops_staff_session` cookie); roles/status re-read per request.
-  The corporate-IdP end-state is a future `staff.Provider` impl behind the seam.
-- **Roles:** `support` / `ops` / `billing` / `superadmin` — orthogonal to tenant
-  roles. Read endpoints are any-role; staff management is superadmin-only.
-- **Bootstrap:** `api-admin seed-staff --email … --name … --password …` mints
-  the first superadmin (headless/CI/recovery path). A token-based **web**
-  bootstrap for the admin UI (parity with the tenant `/auth/bootstrap`) is
-  designed in `docs/admin-bootstrap-design.md` — both converge on
-  `store.CreateStaffUser`.
-- **Endpoints:** `POST /admin/auth/login|logout`, `GET /admin/me`,
-  `GET /admin/tenants`, `GET /admin/tenants/{id}` (metadata only — NOT FinOps
-  data; break-glass deferred), `GET|POST /admin/staff`,
-  `POST|DELETE /admin/staff/{id}/roles[/{role}]`.
-- **Deferred** (design §5–7): break-glass cross-tenant data reads + impersonation,
-  internal-ops notifications, admin UI.
-
-See `docs/admin-portal-plan.md` and `docs/saas-platform-admin-design.md`.
-
 ## Prometheus Metrics (Phase 2.6)
 
 See `../../OBSERVABILITY.md` for full observability guide.
