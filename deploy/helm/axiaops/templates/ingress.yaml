@@ -1,0 +1,59 @@
+{{/*
+Plain networking.k8s.io/v1 Ingress -- portable to any controller. This
+cluster's ingress controller (Traefik, see self-hosted-infra's gitops/README.md)
+does plain-HTTP Host-based routing only; TLS termination happens at the
+edge (an edge proxy), outside the cluster entirely. If pointed at a controller that
+DOES want in-cluster TLS, set ingress.tls.enabled + ingress.tls.secretName.
+*/}}
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "axiaops.fullname" . }}
+  labels:
+    {{- include "axiaops.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        {{- if .Values.ingress.host }}
+        - {{ .Values.ingress.host | quote }}
+        {{- end }}
+        {{- if .Values.ingress.adminHost }}
+        - {{ .Values.ingress.adminHost | quote }}
+        {{- end }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    {{- if .Values.ingress.host }}
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "axiaops.fullname" . }}-dashboard
+                port:
+                  name: http
+    {{- end }}
+    {{- if .Values.ingress.adminHost }}
+    - host: {{ .Values.ingress.adminHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "axiaops.fullname" . }}-dashboard-admin
+                port:
+                  name: http
+    {{- end }}
+{{- end }}
