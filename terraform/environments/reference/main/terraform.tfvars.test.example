@@ -1,0 +1,34 @@
+# Test-cycle overrides for a short-lived deploy you intend to destroy.
+#
+# Production-safe defaults live in variables.tf:
+#   deletion_protection            = true
+#   skip_final_snapshot            = false
+#   ecr_force_delete               = false
+#   dashboard_bucket_force_destroy = false
+#
+# Those defaults are correct for real production but block
+# `terraform destroy`:
+#   - RDS deletion_protection refuses the destroy.
+#   - ECR repos with images refuse the destroy.
+#   - The dashboard S3 bucket with the SPA bundle refuses the destroy.
+#
+# Setting these four flags to test-cycle values lets a single
+# `terraform destroy -var-file=terraform.tfvars.test` tear the stack down.
+#
+# Usage:
+#   cp terraform.tfvars.test.example terraform.tfvars.test
+#   # (terraform.tfvars.test is gitignored by *.tfvars rule)
+#   terraform apply  -var-file=terraform.tfvars.test
+#   # ... test the stack ...
+#   terraform destroy -var-file=terraform.tfvars.test
+#
+# Then manually clean up bootstrap (separate config root, not covered
+# by this destroy):
+#   aws s3 rm s3://<your-state-bucket> --recursive
+#   aws s3 rb s3://<your-state-bucket>
+#   aws dynamodb delete-table --table-name <your-lock-table>
+
+deletion_protection            = false
+skip_final_snapshot            = true
+ecr_force_delete               = true
+dashboard_bucket_force_destroy = true

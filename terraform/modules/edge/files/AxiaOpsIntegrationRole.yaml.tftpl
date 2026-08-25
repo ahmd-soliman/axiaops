@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+# Rendered by Terraform (modules/edge/onboarding.tf) and published to a public
+# S3 bucket. The dashboard Connect screen deep-links the customer into the
+# CloudFormation console with this template URL + their per-account ExternalId
+# pre-filled as a stack parameter ("Launch Stack" / Vantage-style onboarding).
+#
+# The only Terraform interpolation in this file is $${axiaops_account_id}; all
+# other $${...} would be treated as a Terraform template directive, so this
+# template intentionally avoids CloudFormation !Sub "$${...}" syntax and uses
+# !Ref / !GetAtt instead.
+
+Description: >-
+  AxiaOps read-only cross-account access. Creates one IAM role that AxiaOps
+  assumes (from its AxiaOpsScanner role in AWS account ${axiaops_account_id}) to
+  detect idle and zombie cloud resources. Read-only: no create, modify, or
+  delete permissions are granted.
+
+Parameters:
+  ExternalId:
+    Type: String
+    Description: >-
+      The unique External ID issued by AxiaOps for this account. Copy it from
+      the AxiaOps "Connect account" screen. It guards against confused-deputy
+      access and is required.
+    MinLength: 8
+    AllowedPattern: '[A-Za-z0-9_-]+'
+    ConstraintDescription: must be the External ID copied from the AxiaOps Connect screen.
+
+  RoleName:
+    Type: String
+    Default: AxiaOpsIntegrationRole
+    Description: >-
+      Name for the IAM role AxiaOps will assume. Keep the default unless it
+      collides with an existing role in this account.
+    MinLength: 22
+    MaxLength: 64
+    AllowedPattern: 'AxiaOpsIntegrationRole.*'
+    ConstraintDescription: must start with "AxiaOpsIntegrationRole" (max 64 chars, IAM limit).
+
+Resources:
+  AxiaOpsIntegrationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      Description: Read-only access for AxiaOps FinOps idle/zombie detection.
+      # AxiaOps assumes this role directly (single hop); 1h sessions are ample
+      # for a scan and keep the blast radius of a leaked session short.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAxiaOpsToAssumeForReadOnlyScans
+            Effect: Allow
+            Principal:
+              AWS: 'arn:aws:iam::${axiaops_account_id}:role/AxiaOpsScanner'
+            # sts:TagSession is kept but currently DORMANT.
+            #
+            # The AxiaOps ingestion previously set an AxiaOpsOrg session tag
+            # on every AssumeRole call. That code path was removed on
+            # 2026-05-27 (axiaops issue #26) as a workaround for an IAM
+            # regional propagation issue that made the dual sts:TagSession
+            # grant (customer trust + AxiaOps identity) flake for fresh
+            # customer onboardings. The regression is pinned at
+            # axiaops/services/ingestion/internal/provider/aws/sts_test.go,
+            # which now asserts `len(in.Tags) == 0`.
+            #
+            # The grant is intentionally KEPT on this trust policy (and on
+            # the AxiaOpsScanner identity policy in modules/iam
+            # terraform/modules/iam/main.tf, statement "AssumeCustomerRoles")
+            # so that when the feature is restored — under SCP-style controls
+            # keyed on aws:PrincipalTag/AxiaOpsOrg, design §8 Q7 — customers
+            # do NOT need to redeploy this CloudFormation stack. Removing the
+            # action now would force every connected customer to re-launch
+            # the stack the day the tag feature ships; that post-onboarding
+            # friction is exactly what this grant exists to avoid. The grant
+            # is inert without caller-side use: AWS evaluates sts:TagSession
+            # only when the AssumeRole call carries tags, and today it
+            # carries none.
+            Action:
+              - 'sts:AssumeRole'
+              - 'sts:TagSession'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      Policies:
+        - PolicyName: AxiaOpsReadOnlyScan
+          PolicyDocument:
+            Version: '2012-10-17'
+            # Enumerated from the Describe/List calls in the AxiaOps ingestion
+            # provider. Kept in lockstep with docs/production.md, the dashboard
+            # SCAN_PERMISSION_ACTIONS, and the AxiaOps-side ingestion role.
+            # No write actions, ever.
+            Statement:
+              - Sid: AxiaOpsReadOnlyScan
+                Effect: Allow
+                Action:
+                  - 'sts:GetCallerIdentity'
+                  - 'ce:GetCostAndUsage'
+                  - 'ce:GetCostAndUsageWithResources'
+                  - 'cloudwatch:GetMetricStatistics'
+                  - 'ec2:DescribeInstances'
+                  - 'ec2:DescribeVolumes'
+                  - 'ec2:DescribeSnapshots'
+                  - 'ec2:DescribeImages'
+                  - 'ec2:DescribeAddresses'
+                  - 'ec2:DescribeNatGateways'
+                  - 'rds:DescribeDBInstances'
+                  - 'rds:DescribeDBSnapshots'
+                  - 'lambda:ListFunctions'
+                  - 'elasticloadbalancing:DescribeLoadBalancers'
+                  - 'logs:DescribeLogGroups'
+                  - 'ecr:DescribeRepositories'
+                  - 'ecr:DescribeImages'
+                  - 'secretsmanager:ListSecrets'
+                  - 'elasticache:DescribeCacheClusters'
+                  - 'es:ListDomainNames'
+                  - 'redshift:DescribeClusters'
+                  - 'sagemaker:ListEndpoints'
+                  - 'dynamodb:ListTables'
+                  - 'kinesis:ListStreams'
+                  - 'kinesis:DescribeStreamSummary'
+                  - 'cloudfront:ListDistributions'
+                  - 'eks:ListClusters'
+                  - 's3:ListAllMyBuckets'
+                  - 's3:GetBucketLocation'
+                Resource: '*'
+
+Outputs:
+  RoleArn:
+    Description: Paste this Role ARN back into the AxiaOps Connect screen to finish connecting.
+    Value: !GetAtt AxiaOpsIntegrationRole.Arn
+  ExternalId:
+    Description: The External ID this role trusts (for your records).
+    Value: !Ref ExternalId
