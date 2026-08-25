@@ -19,8 +19,7 @@ import (
 // appropriate HTTP status — see WriteBodyReadError for the canonical mapping.
 //
 // Promoted out of the middleware so audit H-4 callers (services/api/internal
-// /httpjson) can adopt the same 413-vs-400 detection seam — see
-// docs/c1-hmac-plan.md §4.1 and issue #94.
+// /httpjson) can adopt the same 413-vs-400 detection seam.
 func ReadCappedBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byte, error) {
 	return io.ReadAll(http.MaxBytesReader(w, r.Body, maxBytes))
 }
@@ -76,7 +75,7 @@ func Middleware(secret []byte, opts Options, next http.Handler) http.Handler {
 }
 
 // MultiSecretMiddleware is Middleware but accepts a slice of accepted secrets
-// (current + previous) for zero-downtime rotation. See docs/c1-hmac-plan.md §5.
+// (current + previous) for zero-downtime rotation.
 // Verifies against each secret in order; iterates the full slice on success
 // AND failure so timing cannot leak which slot matched.
 //
@@ -105,8 +104,7 @@ func MultiSecretMiddleware(secrets [][]byte, opts Options, next http.Handler) ht
 
 	// Soft-enforce log volume guard: when SoftEnforce is true, every
 	// missing-header request emits a slog.Debug (not Warn) and a
-	// once-per-minute slog.Info summary counter aggregates them. See
-	// docs/c1-hmac-plan.md §5 — "Log volume in soft-enforce mode."
+	// once-per-minute slog.Info summary counter aggregates them.
 	var softCounter atomic.Int64
 	var softTickerOnce sync.Once
 
@@ -194,8 +192,6 @@ func MultiSecretMiddleware(secrets [][]byte, opts Options, next http.Handler) ht
 // Composition roots wire this when they detected they are in DEV_MODE
 // (secret unset) — it surfaces a misconfig where a signed api binary points
 // at a DEV_MODE ingestion binary (defence-in-depth has silently regressed).
-//
-// See docs/c1-hmac-plan.md §4.5 — "Mismatched-mode detection."
 func PassthroughWithWarning(next http.Handler) http.Handler {
 	var once sync.Once
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

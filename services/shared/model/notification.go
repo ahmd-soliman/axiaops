@@ -13,7 +13,7 @@ const (
 )
 
 // Trigger events for TriggerRule.On. v1 recognises only the scan-complete
-// digest; per-zombie alerts are a v2 event (docs/notifications-plan.md).
+// digest; per-zombie alerts are a v2 event.
 const TriggerEventNewZombies = "new_zombies"
 
 // Dispatch status values. Strings must match the `status` CHECK constraint in
@@ -34,7 +34,7 @@ const (
 
 // TriggerRule controls when a channel fires and how much detail the message
 // carries. Stored as JSONB in notification_channels.trigger_rule. The two knobs
-// are deliberately decoupled (see docs/notifications-plan.md "First-scan storm"):
+// are deliberately decoupled (the "first-scan storm" problem):
 //
 //   - MinMonthlySavingsUSD is the GATE — "is this scan worth notifying about?".
 //   - DigestTopN is the BODY TRIM — "how many findings to list in the message".

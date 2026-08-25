@@ -56,7 +56,7 @@ func (t *EmailTransport) SendInvite(ctx context.Context, cfg model.EmailConfig, 
 
 // buildInviteMessage composes the RFC 5322 invite message (headers + plaintext
 // body). Plaintext only, mirroring the digest — HTML is deferred for the same
-// Outlook-CSS/MIME reasons (docs/notifications-plan.md).
+// Outlook-CSS/MIME reasons.
 func buildInviteMessage(cfg model.EmailConfig, recipient string, inv InviteEmail) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", formatFromHeader(cfg))

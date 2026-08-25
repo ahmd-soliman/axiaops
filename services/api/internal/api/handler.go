@@ -36,7 +36,7 @@ type Handler struct {
 	// ingestionSecret signs outbound calls to ingestion (POST
 	// /v1/credentials/verify is the api-side hop; the sync queue path also
 	// signs via syncqueue.New). nil ⇒ DEV_MODE; both ends fall back to
-	// no-sign. See docs/c1-hmac-plan.md §3.3.
+	// no-sign.
 	ingestionSecret []byte
 
 	// redisCache is the cache backend the readyz check pings. nil means
@@ -102,7 +102,6 @@ func (h *Handler) WithIngestionURL(url string) *Handler {
 
 // WithIngestionSecret installs the shared HMAC secret used to sign outbound
 // api → ingestion calls. nil ⇒ DEV_MODE; both ends fall back to no-sign.
-// See docs/c1-hmac-plan.md §3.3.
 func (h *Handler) WithIngestionSecret(secret []byte) *Handler {
 	h.ingestionSecret = secret
 	return h
@@ -167,7 +166,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("DELETE /v1/accounts/{id}", require(authz.PermAccountsDelete, h.deleteAccount))
 	mux.Handle("POST /v1/accounts/{id}/scan", require(authz.PermAccountsScan, h.scanAccount))
 
-	// Notification channels (docs/notifications-plan.md).
+	// Notification channels.
 	mux.Handle("GET /v1/channels", require(authz.PermChannelsRead, h.listChannels))
 	mux.Handle("POST /v1/channels", require(authz.PermChannelsManage, h.createChannel))
 	mux.Handle("PATCH /v1/channels/{id}", require(authz.PermChannelsManage, h.updateChannel))
@@ -197,7 +196,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("PATCH /v1/organizations/me", require(authz.PermOrganizationUpdate, h.updateCurrentOrganization))
 	mux.Handle("POST /v1/organizations/me/onboarding/complete", require(authz.PermOrganizationUpdate, h.completeOnboarding))
 
-	// Email-based invitations (Phase 2). See docs/invitation-flow.md.
+	// Email-based invitations.
 	// createInvitation / revokeInvitation apply additional stricter-perm checks
 	// when the target role is admin (mirrors POST /v1/memberships).
 	mux.Handle("POST /v1/invitations", require(authz.PermMembersInvite, h.createInvitation))

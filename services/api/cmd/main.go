@@ -322,8 +322,7 @@ func main() {
 }
 
 // buildSessionManager wires the native-auth session orchestrator. Reads
-// SESSION_TTL_HOURS and SESSIONS_PER_USER_CAP — defaults match
-// docs/sso-implementation-plan.md §4.5 (24h TTL, cap 10).
+// SESSION_TTL_HOURS and SESSIONS_PER_USER_CAP — defaults are 24h TTL, cap 10.
 func buildSessionManager(store storage.Store, c cache.Cache) *auth.Manager {
 	cfg := auth.Config{
 		TTL:             auth.DefaultSessionTTL,
