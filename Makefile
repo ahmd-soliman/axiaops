@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging start-debug stop migrate seed seed-staff inspect-db clean-db clean-db-drop clean-db-files test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-staging start-debug stop migrate seed inspect-db clean-db clean-db-drop clean-db-files test test-shared test-api test-ingestion test-storage test-all test-liveness
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -75,21 +75,6 @@ start-debug: migrate
 	@echo "Postgres up and migrated. Hit F5 in VS Code to debug Go services."
 	@echo "For dashboard: cd services/dashboard && npm run dev"
 
-# Run the platform admin UI (services/dashboard-admin) dev server on :5174.
-# Its OWN target — the admin plane is opt-in and deliberately NOT bundled into
-# `make start-dev`, so the tenant stack stays lean and nobody runs the staff
-# console who doesn't need it (plane separation, saas-platform-admin-design §3).
-# The admin BACKEND (cmd/api-admin on :8090) comes from `make start-dev`; this
-# is the staff console in front of it. Vite proxies /admin/* → :8090 so the
-# browser stays same-origin and the staff cookie round-trips. Mint a superadmin
-# with `make seed-staff` first if you haven't.
-.PHONY: start-admin-ui
-start-admin-ui:
-	@curl -sf http://localhost:8090/livez >/dev/null 2>&1 \
-		|| echo "⚠  admin backend not detected on :8090 — run 'make start-dev' (then 'make seed-staff') first"
-	@echo "Admin UI → http://localhost:5174  (login with your 'make seed-staff' superadmin)"
-	cd services/dashboard-admin && npm install && npm run dev
-
 # Run database migrations using dedicated migration container
 migrate:
 	@echo "Running database migrations..."
@@ -110,22 +95,6 @@ seed:
 # three so the org switcher exercises end-to-end against the local stack.
 seed-demo:
 	./scripts/seed_test_data.sh --demo
-
-# Seed the PLATFORM ADMIN PLANE's first superadmin. This is a SEPARATE plane
-# from `make seed` (which seeds tenant org/user/zombies) — staff never span
-# planes (saas-platform-admin-design §3), so they get their own seed path: the
-# `seed-staff` subcommand on the cmd/api-admin binary. Idempotent — re-running
-# with an existing email is a no-op (does NOT reset the password).
-# Override STAFF_EMAIL / STAFF_NAME / STAFF_PASSWORD as needed.
-STAFF_EMAIL ?= admin@axiaops.local
-STAFF_NAME ?= Local Admin
-STAFF_PASSWORD ?= local-admin-pass-1234
-seed-staff:
-	cd services/api && \
-		DATABASE_URL="$(DATABASE_URL)" \
-		RUNTIME_ADMIN_DATABASE_URL="postgres://axiaops_runtime:$(POSTGRES_RUNTIME_PASSWORD)@localhost:5432/axiaops?sslmode=disable" \
-		go run ./cmd/api-admin seed-staff --email "$(STAFF_EMAIL)" --name "$(STAFF_NAME)" --password "$(STAFF_PASSWORD)"
-	@echo "Admin console: http://localhost:8090 — login $(STAFF_EMAIL) / $(STAFF_PASSWORD)"
 
 inspect-db:
 	./scripts/inspect_db.sh
@@ -397,14 +366,6 @@ build-production:
 	# for the same reason.
 	cd services/api && go build -tags production -o /tmp/axiaops-api-production ./cmd/
 	cd services/ingestion && go build -tags production -o /tmp/axiaops-ingestion-production ./cmd/
-	# Admin plane binary (cmd/api-admin). Guarded by a directory check so this
-	# target stays green on branches/tags that predate the admin plane (it lands
-	# via the admin-portal MRs). It has no DEV_MODE references today, but pinning
-	# the production-tag build catches a future regression that adds one.
-	@if [ -d services/api/cmd/api-admin ]; then \
-		cd services/api && go build -tags production -o /tmp/axiaops-api-admin-production ./cmd/api-admin/ && \
-		echo "production-tagged api-admin built — /tmp/axiaops-api-admin-production"; \
-	fi
 	@echo "production-tagged binaries built — DEV_MODE is no-op in /tmp/axiaops-{api,ingestion}-production"
 
 # axiaopsctl is the operator CLI for migrate up/down/force/drift/history.

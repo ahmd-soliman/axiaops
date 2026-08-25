@@ -26,7 +26,6 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 | `httpauth/` | **C-1** — shared-secret HMAC-SHA256 (`Sign` / `Verify` / `Middleware` / `MultiSecretMiddleware` / `PassthroughWithWarning`) for service-to-service auth. Today: api → ingestion + the Redis-queue envelope (`SignEnvelope` / `VerifyEnvelope`). Reusable seam for future inter-service hops. Headers: `X-AxiaOps-Ingestion-{Timestamp,Signature}`. Plan: `docs/c1-hmac-plan.md`. |
 | `notifications/` | **Phase 2.15 (see `docs/notifications-plan.md`)** — outbound scan-digest channels. `Transport` interface + `Payload` (`transport.go`), `BuildPayload` (`renderer.go`), `Dispatcher`/`DispatchForScan` (`dispatcher.go` — gate on `trigger_rule`, per-transport timeout, one `notification_dispatches` row per attempt, non-fatal), and the two v1 transports `email_smtp.go` (SMTP/SES) + `slack_webhook.go` (incoming webhook). Each transport decrypts its own `config_ciphertext` (`crypto.Decrypt`) and scrubs its bearer secret from errors (`scrub.go`). Wired into ingestion's `runIngestionCore` and the api's `/v1/channels/{id}/test`. **Invite email** (`invite_email.go`): `InviteSender` interface + `EmailTransport.SendInvite(ctx, cfg model.EmailConfig, recipient, InviteEmail)` mail an invitation's redemption URL to a single invitee. SendInvite takes an already-resolved plaintext `EmailConfig` (not a channel) so the *caller* owns config resolution — the api's `InviteMailer` seam sources it from either the org's email channel (`DecodeEmailConfig`) or the global `SMTP_*` env config. `DecodeEmailConfig` / `ValidateEmailConfig` are exported for that. See `docs/invitation-flow.md`. |
 | `model/audit.go` | **Phase 3.3** — `AuditEvent`, `AuditFilter`, `AuditCursor`, and the `AuditAction*` constants. Consumed by `Store.AuditLogWrite/List/AnonymiseUser` and by the `axiaops.io/api/internal/audit` helper that handlers call after mutations. |
-| `model/staff.go` + `storage/storage_staff.go` | **Platform admin plane** (see `docs/admin-portal-plan.md`) — `StaffUser`, `StaffRole` (support/ops/billing/superadmin), `StaffRoleGrant`, `StaffTenantSummary`; the `StaffStore` slice of `Store` (create/lookup staff, grant/revoke roles, cross-org `ListAllOrganizations`/`StaffTenantSummary`). All on the admin pool, org-less. Impl in `storage/postgres/staff.go`. Served by a separate binary `cmd/api-admin` via `internal/staff`. |
 
 ## Store Interface
 
@@ -91,8 +90,7 @@ The harness validates inputs first (B), so a fixture that uses an unregistered s
   `cost_records`, `zombie_records`, `resource_records`, `accounts`,
   `zombie_snapshots` (aggregate per-scan), `zombie_snapshot_services` (per-service breakdown per snapshot),
   `dismissed_zombies`, `audit_log`,
-  `notification_channels` + `notification_dispatches` (Phase 2.15 — outbound scan-digest channels + delivery log; encrypted `config_ciphertext`),
-  `staff_users` + `staff_role_grants` (platform admin plane — AxiaOps-employee identities + RBAC; **system-scoped, no RLS**, on the admin pool; see `docs/admin-portal-plan.md`)
+  `notification_channels` + `notification_dispatches` (Phase 2.15 — outbound scan-digest channels + delivery log; encrypted `config_ciphertext`)
 
 ## Adding New Tables
 
