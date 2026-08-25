@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars and fill in.
+
+env_name   = "prod"
+region     = "eu-central-1"
+account_id = "<your-12-digit-aws-account-id>"
+
+# owner/repo of the application repository whose CI is allowed to assume the
+# terraform-apply/plan roles this stack creates.
+github_repository = "<your-org>/<your-repo>"
+
+# From `terraform/bootstrap`'s outputs.
+state_bucket_name     = "<your-state-bucket-name>"
+state_lock_table_name = "<your-lock-table-name>"
