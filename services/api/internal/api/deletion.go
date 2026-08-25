@@ -1,7 +1,7 @@
 // Package api — DELETE /v1/users/me and DELETE /v1/organizations/me.
 //
 // These two endpoints implement the GDPR right-to-erasure flow described in
-// docs/rbac-design.md §10 and docs/audit_trail_plan.md §7. Both are guarded
+// docs/rbac-design.md §10. Both are guarded
 // by middleware (authn for /users/me, PermOrganizationDelete for /organizations/me) and
 // both bump a Prometheus counter so the act of deletion has an operational
 // trail that survives the audit_log purge.

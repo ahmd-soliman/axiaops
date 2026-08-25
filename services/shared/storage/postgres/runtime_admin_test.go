@@ -135,8 +135,8 @@ func TestRuntimeAdmin_CannotDDL(t *testing.T) {
 //
 // NB: the app role (axiaops) ALSO holds DELETE on audit_log in practice — the
 // 000_init ALTER DEFAULT PRIVILEGES grant fires when audit_log is created and
-// nothing revokes it, so audit_trail_plan §3.1's "no DELETE for the app role"
-// was never actually enforced. The runtime role's DELETE is therefore no new
+// nothing revokes it, so the "no DELETE for the app role" intent documented
+// elsewhere was never actually enforced. The runtime role's DELETE is therefore no new
 // exposure; tightening the app role's grant to that intent is out of scope here.
 func TestRuntimeAdmin_CanDeleteAuditLog(t *testing.T) {
 	runtimeAdminURLOrSkip(t)

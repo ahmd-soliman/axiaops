@@ -1,6 +1,6 @@
-// native_auth.go — Phase B1 native auth Store implementations.
+// native_auth.go — native auth Store implementations.
 // Methods declared on *Store; satisfies storage.NativeAuthStore (embedded
-// into storage.Store). See docs/sso-implementation-plan.md §4.1 / §4.3.
+// into storage.Store).
 
 package postgres
 

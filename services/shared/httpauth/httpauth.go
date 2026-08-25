@@ -15,8 +15,6 @@
 //	X-AxiaOps-Ingestion-Timestamp: <unix seconds>
 //	X-AxiaOps-Ingestion-Signature: <base64 HMAC-SHA256>
 //
-// See docs/c1-hmac-plan.md §3 for the design rationale (why HMAC-SHA256, why
-// timestamp+path binding, why two split headers, why no nonce).
 package httpauth
 
 import (
