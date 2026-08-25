@@ -756,7 +756,7 @@ func newStore() storage.Store {
 		// With no runtime-admin URL, NewWithRuntimeAdmin falls back to the
 		// RLS-bound app pool and the scan loop silently enumerates zero
 		// accounts. DEV_MODE runs a single shared pool by design; refuse to
-		// start in any other build. See docs/runtime-admin-db-role.md.
+		// start in any other build. See docs/AUTHENTICATION.md (§5).
 		if !devModeEnabled() {
 			die("storage: RUNTIME_ADMIN_DATABASE_URL is required outside DEV_MODE — without the RLS-bypass connection the pool falls back to the app pool and scheduled scans silently enumerate zero accounts")
 		}

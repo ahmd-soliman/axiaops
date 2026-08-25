@@ -51,7 +51,7 @@ services:
       # Runtime RLS-bypass role (axiaops_runtime) — replaces the schema-owner
       # connection at runtime; the migrate step (scripts/migrate.sh, run by the
       # `migrate` Make target before this stack starts) bootstraps the role.
-      # See docs/runtime-admin-db-role.md.
+      # See docs/AUTHENTICATION.md (§5).
       RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops
       # Dev mode defaults — overridable by .env or explicit env vars
       DEV_MODE: ${DEV_MODE:-true}
@@ -103,7 +103,7 @@ services:
     environment:
       DATABASE_URL: postgres://axiaops:${POSTGRES_PASSWORD:-axiaops}@postgres:5432/axiaops
       # Runtime RLS-bypass role (axiaops_runtime) — see the ingestion service
-      # above and docs/runtime-admin-db-role.md.
+      # above and docs/AUTHENTICATION.md (§5).
       RUNTIME_ADMIN_DATABASE_URL: postgres://axiaops_runtime:${POSTGRES_RUNTIME_PASSWORD:-axiaops_runtime}@postgres:5432/axiaops
       INGESTION_URL: http://ingestion:8081
       API_ADDR: ":8080"

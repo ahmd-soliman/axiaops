@@ -22,7 +22,7 @@ import (
 // Store is a PostgreSQL-backed implementation of storage.Store.
 type Store struct {
 	pool      *pgxpool.Pool
-	adminPool *pgxpool.Pool // RLS-bypass connection (axiaops_runtime via per-table policies in prod; falls back to the app pool in dev/tests). Cross-org / pre-auth reads — see docs/runtime-admin-db-role.md.
+	adminPool *pgxpool.Pool // RLS-bypass connection (axiaops_runtime via per-table policies in prod; falls back to the app pool in dev/tests). Cross-org / pre-auth reads — see docs/AUTHENTICATION.md (§5).
 }
 
 // New connects to PostgreSQL as the application user (axiaops).
@@ -54,7 +54,7 @@ func NewWithOwner(ctx context.Context, url, ownerURL string) (*Store, error) {
 
 // NewWithRuntimeAdmin opens the app pool (appURL) plus a least-privilege
 // RLS-bypass pool (runtimeAdminURL → the axiaops_runtime role; see
-// docs/runtime-admin-db-role.md). This is the production seam (resolves
+// docs/AUTHENTICATION.md (§5)). This is the production seam (resolves
 // TODO(#107)): the runtime no longer needs the schema-owner connection, only a
 // role that bypasses RLS via per-table permissive policies — no DDL, no
 // ownership. If runtimeAdminURL is empty or equal to appURL the bypass pool
@@ -1667,7 +1667,7 @@ func (s *Store) AuditLogAnonymiseUser(ctx context.Context, userID string) (int64
 
 // ── Memberships ─────────────────────────────────────────────────────────────
 //
-// RBAC Phase 1. See docs/rbac-design.md §4 for the data model and §6 for
+// RBAC Phase 1. See docs/AUTHENTICATION.md (§2) for the role/permission model and
 // enforcement semantics. All membership reads/writes go through RLS — an organization
 // can only see and mutate its own rows. The middleware path opens its own
 // transaction (rather than reading from adminPool) so RLS stays the last line
@@ -2215,7 +2215,7 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, e
 //     locks down purges to the owner role on purpose.
 //   * the operations span organizations (anonymising audit entries elsewhere when a
 //     user is deleted), so RLS would block half the work.
-// See docs/rbac-design.md §10.
+// See docs/ARCHITECTURE.md (§6, Right-to-erasure paths).
 
 // DeleteUser hard-deletes a user as part of right-to-erasure. Anonymises
 // the user's audit footprint across all organizations, then deletes the user row;

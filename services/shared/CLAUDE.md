@@ -81,7 +81,7 @@ The harness validates inputs first (B), so a fixture that uses an unregistered s
 ## PostgreSQL Conventions
 
 - Migrations in `storage/postgres/migrations/` — `NNN_name.up.sql` / `NNN_name.down.sql`
-- Three DB roles: `axiaops_owner` (runs migrations, creates schema — migrate task only), `axiaops_runtime` (least-privilege RLS-bypass via per-table policies, no DDL — the runtime services' `adminPool`; see `docs/runtime-admin-db-role.md`), and `axiaops` (app user, RLS-limited)
+- Three DB roles: `axiaops_owner` (runs migrations, creates schema — migrate task only), `axiaops_runtime` (least-privilege RLS-bypass via per-table policies, no DDL — the runtime services' `adminPool`; see `docs/AUTHENTICATION.md` § 5), and `axiaops` (app user, RLS-limited)
 - Schema: `axiaops` (not public) — set via `SET search_path TO axiaops`
 - RLS policy: `organization_id = current_setting('app.organization_id', true)` on all data tables
 - Connection pool: `pgxpool.Pool` — pass `DATABASE_URL` for app, `MIGRATION_DATABASE_URL` for migrations
