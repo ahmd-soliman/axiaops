@@ -1,0 +1,13 @@
+apiVersion: v2
+name: axiaops
+description: >-
+  AxiaOps tenant stack (api, ingestion, dashboard, api-admin, dashboard-admin,
+  valkey) for a single environment. Mirrors the shape of deploy/dev.yml,
+  deploy/staging.yml, deploy/preview.yml, deploy/demo.yml, and
+  deploy/integration.yml — one chart install per environment, same as one
+  self-hosted host per environment today. Postgres is external (see
+  postgres.existingSecret in values.yaml), matching the axiaops-<env>-db
+  pattern in the homelab repo rather than a chart-bundled database.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
