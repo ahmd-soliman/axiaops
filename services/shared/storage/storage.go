@@ -280,7 +280,7 @@ type Store interface {
 	// rows modified.
 	AuditLogAnonymiseUser(ctx context.Context, userID string) (int64, error)
 
-	// ── Memberships (RBAC Phase 1, see docs/rbac-design.md) ──────────────────
+	// ── Memberships (RBAC Phase 1, see docs/AUTHENTICATION.md (§2)) ──────────────────
 
 	// RoleOf returns the role string ("owner"|"admin"|"member"|"viewer") for
 	// (organizationID, userID), or "" with nil error when no membership row exists.
@@ -435,7 +435,7 @@ type Store interface {
 	// admin pool. Returns the number of rows updated. Idempotent.
 	ExpirePendingInvitations(ctx context.Context) (int64, error)
 
-	// ── GDPR — right to erasure (see docs/rbac-design.md §10) ────────────────
+	// ── GDPR — right to erasure (see docs/ARCHITECTURE.md (§6, Right-to-erasure paths)) ────────────────
 
 	// DeleteUser hard-deletes a user across the entire system as part of the
 	// per-user right-to-erasure flow. Steps:

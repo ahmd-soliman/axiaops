@@ -74,7 +74,7 @@ type PolicyContext struct {
 // reports "too short," not "breached." The breach screen is the NIST SP
 // 800-63B §5.1.1.2 compromised-credential check — it consults the embedded
 // HIBP subset (internal/breachlist) offline, so it always runs and hard-blocks
-// on a hit (no network, no fail-open). See docs/password-breach-check-design.md.
+// on a hit (no network, no fail-open). See docs/AUTHENTICATION.md (§4).
 //
 // Identity-aware sites (bootstrap, invite-redeem new-user, staff-create) should
 // call CheckPolicyWithIdentity instead to also reject email/name lookalikes.
