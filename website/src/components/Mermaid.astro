@@ -1,0 +1,69 @@
+---
+interface Props {
+	code: string;
+}
+const { code } = Astro.props;
+---
+
+<div class="mermaid-diagram">{code}</div>
+
+<script>
+	import mermaid from 'mermaid';
+
+	function render() {
+		const isDark = document.documentElement.dataset.theme !== 'light';
+		mermaid.initialize({
+			startOnLoad: false,
+			theme: 'base',
+			themeVariables: isDark
+				? {
+						background: '#0b1220',
+						primaryColor: '#182031',
+						primaryTextColor: '#e5ecf5',
+						primaryBorderColor: '#fb923c',
+						lineColor: '#8497b2',
+						secondaryColor: '#111827',
+						tertiaryColor: '#1f2a3d',
+						fontFamily: 'inherit',
+					}
+				: {
+						background: '#fafaf9',
+						primaryColor: '#ffffff',
+						primaryTextColor: '#1c1917',
+						primaryBorderColor: '#ea580c',
+						lineColor: '#64748b',
+						secondaryColor: '#f5f5f4',
+						tertiaryColor: '#fff7ed',
+						fontFamily: 'inherit',
+					},
+		});
+		document.querySelectorAll<HTMLElement>('.mermaid-diagram').forEach((el, i) => {
+			if (el.dataset.rendered === 'true') return;
+			const code = el.textContent ?? '';
+			mermaid.render(`mermaid-svg-${i}-${Date.now()}`, code).then(({ svg }) => {
+				el.innerHTML = svg;
+				el.dataset.rendered = 'true';
+			});
+		});
+	}
+
+	render();
+	document.addEventListener('astro:page-load', render);
+
+	// Re-render on theme toggle so the diagram follows light/dark switches.
+	new MutationObserver(() => {
+		document.querySelectorAll<HTMLElement>('.mermaid-diagram').forEach((el) => {
+			el.dataset.rendered = 'false';
+		});
+		render();
+	}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+</script>
+
+<style>
+	.mermaid-diagram {
+		display: flex;
+		justify-content: center;
+		margin: 1.5rem 0;
+		overflow-x: auto;
+	}
+</style>

@@ -1,0 +1,91 @@
+---
+title: Deploying on AWS
+description: Running AxiaOps on EKS with managed Postgres and Redis instead of self-hosted pods.
+---
+
+import Mermaid from '../../../components/Mermaid.astro';
+
+The [Deployment](/guides/deployment/) guide covers the Helm chart in
+general — this page assumes you're already running it on EKS (the chart
+doesn't target any other Kubernetes distribution specifically) and covers
+what changes once it's a real deployment rather than a trial. EKS itself
+isn't a recommendation here — RDS and ElastiCache over self-hosted pods is.
+
+## On AWS: RDS + ElastiCache
+
+<Mermaid code={`
+flowchart LR
+    subgraph EKS["EKS cluster"]
+        Dash["dashboard"]
+        Api["api"]
+        Ing["ingestion"]
+    end
+
+    RDS[("RDS\\nPostgres")]
+    EC[("ElastiCache\\nValkey / Redis")]
+    Target["Customer AWS account(s)\\nbeing scanned"]
+
+    Dash --> Api
+    Api --> RDS
+    Api <--> EC
+    Ing --> RDS
+    Ing <--> EC
+    Ing -->|sts:AssumeRole| Target
+`} />
+
+The Helm chart already supports this — it never bundles Postgres, and both
+`postgres.existingSecret` and `redis.auth.existingSecret` accept a Secret
+containing an arbitrary connection string. Point them at RDS and
+ElastiCache instead of anything self-hosted:
+
+```bash
+kubectl create secret generic axiaops-postgres \
+  --from-literal=database-url="postgres://...@your-rds-endpoint:5432/axiaops?sslmode=require" \
+  --from-literal=migration-database-url="postgres://...@your-rds-endpoint:5432/axiaops?sslmode=require" \
+  --from-literal=runtime-admin-database-url="postgres://...@your-rds-endpoint:5432/axiaops?sslmode=require"
+
+kubectl create secret generic axiaops-redis \
+  --from-literal=redis-url="redis://:<password>@your-elasticache-endpoint:6379"
+
+helm install axiaops . \
+  --set postgres.existingSecret=axiaops-postgres \
+  --set redis.auth.existingSecret=axiaops-redis \
+  --set image.apiSuffix=-production
+```
+
+## Why managed services
+
+The chart's embedded-pod option (the default, covered in
+[Deployment](/guides/deployment/)) is genuinely fine for trying AxiaOps out,
+but a self-hosted pod shares the app's failure domain and has no
+independent failover — a dependency can come up after the pod that needs
+it, and without a retry that's a silent, lasting degradation rather than a
+crash you'd notice. A managed service sidesteps that entirely. RDS and
+ElastiCache beat a self-hosted pod on reliability here, not cost.
+
+## Valkey deployment options
+
+| | In-cluster pod (default) | `redis.auth.existingSecret` → ElastiCache |
+|---|---|---|
+| Wiring | `redis.enabled: true`, no secret set | `redis.enabled: true` + secret with a `redis-url` key |
+| In-cluster pod deployed? | Yes | **Also yes** — currently no toggle to skip it |
+| Recommended for | Trying it out | Production |
+
+Known gap: there isn't yet a way to point at ElastiCache *without* also
+deploying the unused in-cluster pod alongside it. Harmless, just wasted
+resources — worth a `redis.embedded.enabled` flag in a future chart
+revision, mirroring how Postgres has no in-cluster option at all.
+
+## Two separate IAM roles
+
+1. **The `ingestion` pod's own IAM role** (its EKS pod identity / IRSA
+   role) — needs whatever AWS permissions RDS/ElastiCache access requires
+   (typically none beyond network reachability, if using
+   username/password auth over the VPC).
+2. **The cross-account role `ingestion` assumes into each *scanned*
+   customer account** — a completely separate trust relationship, set up
+   per connected account, documented in
+   [Architecture → Connecting to AWS](/guides/architecture/#connecting-to-aws).
+   This is what actually reads the customer's Cost Explorer / EC2 / RDS /
+   etc. data — it has nothing to do with the infrastructure hosting
+   AxiaOps itself.
