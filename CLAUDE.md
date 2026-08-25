@@ -52,34 +52,22 @@ make test-integration   # Spins up an isolated docker-compose stack (postgres, r
 - In `start-dev` the dashboard proxies `/api/*` through Vite → API on 8080. In `start-staging` nginx serves the built bundle on HTTP and proxies `/api/*` to the containerised API, propagating `X-Forwarded-Proto` from the request — non-Secure cookie under direct-HTTP access (correct), Secure cookie when an edge proxy terminates TLS in front of this stack.
 - **Native-auth first-run** (bootstrap → login → dashboard) is documented in [`docs/native-auth-bootstrap.md`](docs/native-auth-bootstrap.md).
 
-## Deployment topology
+## Deployment
 
-Non-obvious shape that's easy to misread from `.gitlab-ci.yml`:
+Two supported paths for running this yourself: the Helm chart
+(`deploy/helm/axiaops/`) on any Kubernetes cluster, or ECS Express Mode on
+AWS (`terraform/`). Both are covered in the docs site's deployment guides.
+Two env vars are worth knowing about regardless of platform:
 
-- **Infrastructure-as-code lives in two sibling repos**, not in this one:
-  - [`(internal infra repo)`](https://gitlab.com/(internal infra repo)) — the self-hosted stack (`stacks/axiaops-dev`) for dev-1 / dev-2 / staging / preview / demo hosts. Each host is provisioned with the `deploy` user and a public key from `TF_VAR_deploy_ssh_public_keys`.
-  - [`axiaops/aws-infra`](https://gitlab.com/axiaops/aws-infra) — the AWS production stack (VPC, RDS, ECS Express, ECR, S3+CloudFront, IAM OIDC role for CI). Design: [`aws-infra/docs/terraform-prod-design.md`](https://gitlab.com/axiaops/aws-infra/-/blob/main/docs/terraform-prod-design.md).
-
-- **Each deployed env runs on its own self-hosted host**, NOT a single shared Docker host.
-
-  | Env | Hostname | IP |
-  |---|---|---|
-  | dev-1 | `axiaops-<env>.local` | `192.0.2.121` |
-  | dev-2 | `axiaops-<env>.local` | `192.0.2.123` |
-  | staging | `axiaops-<env>.local` | `192.0.2.122` |
-  | production | ECS Express / ECR (separate concern) | — |
-
-- **an edge proxy (an edge proxy)** is the edge proxy in front of every env. Browser → `https://axiaops-<env>.local` → an edge proxy (TLS termination + routing) → host's port 80/8080. The dashboard's `services/dashboard/nginx.conf` listens on plain HTTP and propagates `X-Forwarded-Proto` from an edge proxy, so the API's session cookie correctly toggles `Secure` based on what an edge proxy saw.
-
-- **CI deploys via SSH-as-Docker-context**: `.gitlab-ci.yml` line 357 sets `DOCKER_HOST: ssh://deploy@${DEPLOY_HOST_IP}`. The runner is a distinct host; its `docker login` / `docker pull` / `docker compose up` all execute on the per-env host's daemon over a tunnelled SSH transport. `DEPLOY_SSH_PRIVATE_KEY` MUST be a **File-type** CI variable — Variable-type masking strips PEM newlines and silently corrupts the key.
-
-- **Hostname vs IP**: humans use the `.local` mDNS hostnames everywhere (browser, SSH, scripts). The CI deploy template uses raw IPs because the Alpine-based `docker:24` image's musl libc has no mDNS resolution. Both work; just don't expect the CI container to resolve `axiaops-<env>.local`.
-
-- **`PUBLIC_HOST` per env**: should be the externally-reachable an edge proxy hostname (`https://axiaops-<env>.local`, etc.), not the host IP+port. an edge proxy-terminated TLS makes the API's `X-Forwarded-Proto`-derived cookie `Secure` posture work correctly. Empty → API logs `"sso: ceremony: PUBLIC_HOST is empty"` at startup and SSO ceremonies fail at the IdP redirect. Set as a GitLab CI variable per environment scope (`deploy:preview/staging/production` declare `environment.name`, which keys the lookup); `deploy:dev-1/2` are unscoped by design — set there only if you turn off DEV_MODE for SSO testing.
-
-- **`INTERNAL_DNS` per env (self-hosted IdP only)**: LAN resolver IP injected into the API container via `dns:` in `deploy/{preview,staging,demo}.yml`. Needed when the IdP hostname has split-horizon DNS — public IP for the world, internal LAN IP for on-premises traffic. Without it, the container resolves the IdP via public DNS, hits whatever WAF fronts Keycloak (Cloudflare Bot Fight Mode rejects the Go HTTP client's default UA on `/.well-known/openid-configuration`), and OIDC discovery fails. With it set to e.g. `192.0.2.1` (the router running AdGuard with a `*.example.com` rewrite), traffic stays on the LAN and the discovery fetch succeeds. Scope `*` if all envs share the same router; scope per env otherwise. Not relevant for ECS Express / cloud envs (no LAN, no split-horizon).
-
-- **Adding a new env (preview, demo, etc.)** is NOT just a port-pair change. It requires: (a) provisioning a new self-hosted host via the `self-hosted-infra/stacks/axiaops-dev` Terraform stack with the `deploy` user + authorized key, (b) registering the new hostname in an edge proxy with a TLS cert, (c) adding a `deploy:<env>` CI job (and `gate:devmode:<env>` per plan §4.10 layer 1) that points at the new `DEPLOY_HOST_IP`. None of (a) or (b) lives in this repo.
+- **`PUBLIC_HOST`** — the externally-reachable hostname your edge/ingress
+  terminates TLS for (e.g. `https://app.example.com`). Drives the
+  `X-Forwarded-Proto`-derived cookie `Secure` posture and SSO redirect URIs.
+  Empty → API logs `"sso: ceremony: PUBLIC_HOST is empty"` at startup and SSO
+  ceremonies fail at the IdP redirect.
+- **`INTERNAL_DNS`** (self-hosted IdP only) — a LAN resolver IP for the API
+  container, needed only if your IdP has split-horizon DNS (public IP for the
+  world, internal IP for on-premises traffic). Not relevant for a
+  cloud-hosted IdP or a cloud deployment target.
 
 ## Database
 
@@ -162,16 +150,9 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 
 ## Source Control
 
-- **Host:** GitLab (`git@gitlab.com:axiaops/axiaops.git`). There is no GitHub remote.
-- **CLI:** use `glab`, not `gh`. `gh pr ...` will fail — the equivalent is `glab mr ...`.
-- **Terminology:** "MR" / "merge request", not "PR" / "pull request". The default branch is `main`; MRs historically also targeted `develop` in older history.
-- Any instruction in a global skill that says "use `gh`" or "open a PR" applies via the GitLab equivalent in this repo.
-
-## Agent Delegation
-
-- **Committing** — always delegate to the `commit` agent
-- **Code review before committing** — delegate to the `code-reviewer` agent
-- **Planning non-trivial features** that affect multiple services or the data model — delegate to the `architect` agent
+- **Host:** GitHub. Default branch is `main`.
+- **CLI:** use `gh` (`gh pr create`, `gh pr view`, etc.).
+- **Terminology:** "PR" / "pull request".
 
 ## Service-Specific Instructions
 

@@ -1,5 +1,5 @@
 // Package notifications dispatches post-scan digest messages to an organization's
-// configured channels (email, Slack, …). See docs/notifications-plan.md.
+// configured channels (email, Slack, …).
 //
 // The package owns three concerns: the Transport seam (one method per wire
 // format), payload assembly (renderer.go), and the Dispatcher that gates on the
@@ -36,7 +36,7 @@ type Payload struct {
 
 // Transport sends a Payload to a single channel.
 //
-// Contract for implementations (docs/notifications-plan.md §"Transport interface"):
+// Contract for implementations:
 //   - Decrypt the channel's ConfigCiphertext yourself — the config shape is
 //     kind-specific (model.EmailConfig vs model.SlackConfig), so the dispatcher
 //     stays oblivious to it.

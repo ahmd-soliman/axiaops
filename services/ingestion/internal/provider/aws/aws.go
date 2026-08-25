@@ -133,7 +133,7 @@ func VerifyAssumeRole(ctx context.Context, sts STSAPI, roleARN, externalID, orga
 // NewWithAssumedRole builds a Client that signs every AWS request with
 // short-lived credentials obtained via sts:AssumeRole. The customer's role
 // must allow our AxiaOpsScanner principal with the matching ExternalId on its
-// trust policy — see docs/cross-account-roles-design.md §3.1.
+// trust policy.
 //
 // organizationID is used only for the CloudTrail-distinguishable role session
 // name (no longer passed as a session tag — see VerifyAssumeRole doc comment).

@@ -3,7 +3,7 @@ package model
 import "time"
 
 // PendingInvitation represents an email-based team invitation awaiting first-login
-// redemption. See docs/invitation-flow.md for the full design and lifecycle.
+// redemption.
 //
 // Lifecycle: created by POST /v1/invitations → row inserted with status='pending'.
 // On the invitee's first authenticated request, the auth middleware calls

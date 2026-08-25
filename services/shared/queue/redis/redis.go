@@ -7,7 +7,7 @@
 // signature over the JSON payload (with the Signature field blanked)
 // and embeds it back into the wire form. Dequeue returns the payload
 // as-is; the worker calls httpauth.VerifyEnvelope before trusting any
-// field on it. See docs/c1-hmac-plan.md §4.4.
+// field on it.
 package redis
 
 import (
