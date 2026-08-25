@@ -9,7 +9,6 @@ import { useBreakpoint } from './primitives/useBreakpoint';
 import { NAV_ITEMS, isNavActive } from './navItems';
 import AvatarMenu from './AvatarMenu';
 import OrgSwitcher from './OrgSwitcher';
-import LicenseBanner from './LicenseBanner';
 import MobileNav from './MobileNav';
 
 function IconSun({ color, size = 17 }) {
@@ -60,14 +59,11 @@ export default function AppShell() {
   const isMobile = isAtMost('sm');
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.requires || can(item.requires));
 
-  // Backend build identifier — same ['api-version'] cache entry (key + fn +
-  // staleTime) that LicenseBanner, Settings, and the License page read, so
-  // React Query dedupes and this hook adds ZERO network requests. The footer
-  // uses only the license-free fields (version / commit / env) — it's a
-  // license-INDEPENDENT surface and must never couple to `license` (which
-  // collapses to {state:"managed"} under SaaS). Failures are silently
-  // absorbed (`build` stays undefined → no footer) so a momentarily
-  // unreachable API doesn't break the shell.
+  // Backend build identifier — ['api-version'] cache entry (key + fn +
+  // staleTime), so React Query dedupes across consumers and this hook adds
+  // ZERO network requests beyond the first. Failures are silently absorbed
+  // (`build` stays undefined → no footer) so a momentarily unreachable API
+  // doesn't break the shell.
   const { data: build } = useQuery({
     queryKey: ['api-version'],
     queryFn: fetchVersion,
@@ -190,18 +186,14 @@ export default function AppShell() {
         )}
       </header>
 
-      {/* ── License banner (B1.6 slice 8) ── */}
-      {/* Owners only; renders nothing when license is valid + ≥14 days out. */}
-      <LicenseBanner />
-
       {/* ── Page content ── */}
       <main id="main-content" style={{ flex: 1, overflowY: 'auto' }}>
         <Outlet />
       </main>
 
       {/* ── Build footer ── */}
-      {/* Tiny, dim, monospace — identity lives here per docs/versioning.md;
-          license STATE stays in LicenseBanner. The dashboard and api ship
+      {/* Tiny, dim, monospace — identity lives here per docs/versioning.md.
+          The dashboard and api ship
           from the same release tag/pipeline and the dashboard has no
           independent bundle version (the VITE_APP_VERSION wiring was dropped
           in cc196b2 — traceability is Path-A-only, via the api's

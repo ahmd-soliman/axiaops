@@ -1,0 +1,154 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "axiaops.apiHost" . }}
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "api") | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "api") | nindent 8 }}
+      {{- with .Values.api.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api
+          image: {{ include "axiaops.apiImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: API_ADDR
+              value: ":8080"
+            - name: APP_ENV
+              value: {{ .Values.env | quote }}
+            - name: INGESTION_URL
+              value: "http://{{ include "axiaops.ingestionHost" . }}:8081"
+            - name: DEV_MODE
+              value: {{ .Values.devMode.enabled | quote }}
+            {{- if .Values.devMode.enabled }}
+            - name: DEV_ORGANIZATION_ID
+              value: {{ .Values.devMode.organizationId | quote }}
+            {{- end }}
+            - name: PUBLIC_HOST
+              value: {{ .Values.publicHost | quote }}
+            - name: CORS_ORIGIN
+              value: {{ .Values.corsOrigin | quote }}
+            - name: LOG_OUTPUT
+              value: "json"
+            - name: SMTP_HOST
+              value: {{ .Values.smtp.host | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.smtp.port | quote }}
+            - name: SMTP_USER
+              value: {{ .Values.smtp.user | quote }}
+            - name: SMTP_FROM
+              value: {{ .Values.smtp.from | quote }}
+            - name: SMTP_FROM_NAME
+              value: {{ .Values.smtp.fromName | quote }}
+            {{- if .Values.redis.enabled }}
+            {{- if .Values.redis.auth.existingSecret }}
+            # Password lives in the DSN's userinfo (redis://:<pw>@host:port) --
+            # a plain env var can't interpolate a Secret value into another
+            # string, so the full URL must be provided as a key on the same
+            # Secret rather than assembled from redis.auth.secretKey here.
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.auth.existingSecret }}
+                  key: redis-url
+            {{- else }}
+            - name: REDIS_URL
+              value: "redis://{{ include "axiaops.redisHost" . }}:6379"
+            {{- end }}
+            {{- end }}
+            {{- if .Values.postgres.existingSecret }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.existingSecret }}
+                  key: database-url
+            - name: MIGRATION_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.existingSecret }}
+                  key: migration-database-url
+            {{- end }}
+            {{- if .Values.secrets.existingSecret }}
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: encryption-key
+            - name: INGESTION_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: ingestion-shared-secret
+                  optional: true
+            - name: INGESTION_SHARED_SECRET_NEXT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: ingestion-shared-secret-next
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: smtp-pass
+                  optional: true
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+          {{- with .Values.api.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: bootstrap-token
+              mountPath: /var/run/axiaops
+      volumes:
+        # Ephemeral by design for now -- DEV_MODE skips the install-token
+        # bootstrap flow entirely, and this chart doesn't yet assume a
+        # StorageClass exists (see self-hosted-infra gitops/README.md: no CSI
+        # driver on the hard-way cluster today). An auth-on environment
+        # redeploying api before the first-owner token is redeemed would
+        # lose it on pod replacement -- fine for a DEV_MODE env, a real gap
+        # otherwise. Revisit once a StorageClass exists.
+        - name: bootstrap-token
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "axiaops.apiHost" . }}
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "api") | nindent 4 }}
+spec:
+  selector:
+    {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "api") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

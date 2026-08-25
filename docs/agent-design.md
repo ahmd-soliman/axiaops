@@ -896,8 +896,7 @@ Heavier than v0.1 suggested. Auto-update alone is 3–4 weeks done correctly.
 
 ### Phase 4 — Active capabilities (optional, deferred)
 
-- If automated remediation lands (currently deferred per
-  `docs/feature_prioritization_2026_q2.md`), Agent executes actions locally. This is
+- If automated remediation lands (currently deferred), Agent executes actions locally. This is
   what justifies the "Agent" name vs. "Collector."
 - Likely needs protocol version 3
 - Strong audit log + dry-run mode + customer-side circuit breakers
@@ -1007,9 +1006,6 @@ competitors).
 ## 11. References
 
 - `docs/cross-account-roles-design.md` — current AWS role-based onboarding design
-- `docs/feature_prioritization_2026_q2.md` — phase-4 multi-cloud + deferred features
-- `docs/gtm_assessment.md` — DACH/Mittelstand procurement requirements
-- `docs/business_plan.md` — ICP definition
 - `services/ingestion/cmd/main.go` — composition root the Agent forks from
 - `services/shared/license/` — JWT signing infra the Agent JWT pattern lifts from
 - Issue #9 (Azure cost data), #41 (GCP cost data), #35 (multi-organization MSP support)

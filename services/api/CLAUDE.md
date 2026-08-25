@@ -18,14 +18,11 @@ The api binary supports a `production` build tag (B1.7 layer 3 — plan §4.10.2
 
 Every site that previously read `os.Getenv("DEV_MODE")=="true"` routes through `devModeEnabled()` so the build-tag split lives at one seam. **Any new feature gated on dev-vs-prod must consult `devModeEnabled()`, never read the env directly** — bypassing the helper re-introduces the runtime-bypass attack the build tag closes.
 
-**SaaS is the DEFAULT build; self-hosted licensed is the `-tags selfhosted` opt-in** (design §7.1). Two independent, orthogonal tags: `production` strips DEV_MODE; `selfhosted` re-enables the license gate. Build commands:
-- `go build ./cmd/` — **default = SaaS** (DEV_MODE honoured). `cmd/saasmode_saas.go` (`//go:build !selfhosted`) calls `license.SetEnforcementBypass()` at boot and supplies the store as `Deps.EntitlementResolver` so `scanAccount` gates on per-tenant entitlement; `/v1/version` collapses to `state:"managed"`. Used by local `make start-dev` + dev-1/dev-2.
-- `go build -tags production ./cmd/` — **SaaS, DEV_MODE stripped** (staging/prod). Wired via `make build-production` + the `BUILD_TAGS` Dockerfile arg.
-- `go build -tags "production selfhosted" ./cmd/` — **self-hosted licensed customer build** (the opt-in). `selfhosted` selects `cmd/saasmode_selfhosted.go`, which leaves the license JWT gate in force (no bypass, nil entitlement resolver — the license-bypass call is compiled ONLY into the default SaaS sibling, so this binary can't reach it); `production` strips DEV_MODE. Wired via `make build-selfhosted` + two **manual** build-stage CI jobs: `build:images-selfhosted` (pushes a `-selfhosted`-suffixed image, shipped pre-built to customers) and the sibling `build:selfhosted-shape` (compile + `go test` pin — click it before cutting a self-hosted release).
+There is only one build shape now — no license gate, no per-tenant entitlement gate, no billing, no `selfhosted` opt-in. Every organization can scan unconditionally. Build commands:
+- `go build ./cmd/` — DEV_MODE honoured. Used by local `make start-dev` + dev-1/dev-2.
+- `go build -tags production ./cmd/` — DEV_MODE stripped (staging/prod). Wired via `make build-production` + the `BUILD_TAGS` Dockerfile arg.
 
-**Security note (the default inverted):** since SaaS is the default, forgetting the `selfhosted` tag yields a license-*bypassed* binary — the accepted SaaS-first posture (self-hosted ships pre-built with the tag; design §7.1). `main.go` logs `license: mode resolved mode=saas|selfhosted` at boot so the compiled shape is visible in `docker logs`. No deployed env runs the licensed build; all envs pull the default SaaS image.
-
-Test pairs in `cmd/devmode_{dev,production}_test.go` + `cmd/saasmode_{saas,selfhosted}_test.go` regression-pin the shapes; CI runs `make build-production` (SaaS) on every pipeline; the `production selfhosted` shape is pinned by the **manual** `build:selfhosted-shape` (both selfhosted jobs are manual, build stage — run on demand for a self-hosted release).
+Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin the DEV_MODE-stripping shape; CI runs `make build-production` on every pipeline.
 
 ## Endpoints
 
@@ -35,7 +32,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` + `cmd/saasmode_{saas,selfh
 | GET | /livez | No | Liveness — always 200 unless the process can't reply. Wire orchestrator instance health to this |
 | GET | /readyz | No | Readiness — pings DB (503 if down) and reports Redis status (informational; "ok" / "unreachable" / "skipped"). Wire monitoring/synthetic checks to this |
 | GET | /metrics | No | Prometheus metrics (internal only) |
-| GET | /version | Yes | Build identifier + license summary — `{service, version, commit, env, license}`. `license` is `{state}` only when no license is loaded (SaaS / production-with-no-license-installed), otherwise `{state, customer_id, expires_at, days_remaining, max_organizations}`. State values: `valid \| in_grace \| expired \| not_loaded \| managed`. **`managed`** is the SaaS posture (the **default build**; everything except `-tags selfhosted`): `licenseSummary()` branches on `license.IsEnforcementBypassed()` and collapses the sub-object to `{state:"managed"}` with no other fields — there is no customer-facing license under SaaS (design §7.4), so the dashboard hides the License banner/page (Settings tab + `LicenseBanner`). Post-B1.6-amendment, `state="expired"` carries the full claim sub-object (the snapshot is retained on past-grace so `/v1/version` stays informative). Post-B1.7-layer-4, DEV_MODE returns the full claim sub-object with `state=valid` and `customer_id="axiaops-dev-fixture"` (embedded dev fixture, not a missing-license case). Source for the LicenseBanner. |
+| GET | /version | Yes | Build identifier — `{service, version, commit, env}`. No license field — there is no license/entitlement concept left in the codebase. |
 | GET | /zombies | Yes | List zombie resources for organization |
 | GET | /summary | Yes | Aggregate savings + per-service breakdown (?account_id to scope to one account) |
 | GET | /summary/by-account | Yes | Per-account waste rollup for the org dashboard (`{currency, accounts:[{internal_account_id, account_id, total_zombies, potential_monthly_savings, top_service}]}`); zero-zombie accounts omitted; dismissed excluded like /summary |
@@ -61,7 +58,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` + `cmd/saasmode_{saas,selfh
 | GET | /me | Yes | Current user's role + permission set + display `name` (always present, empty string when unset) + memberships + auth provider/mode. No permission required beyond authn. Display-name editing tracked under issue #78. |
 | GET | /memberships | Yes | List organization memberships |
 | POST | /memberships | Yes | Promote an existing user (by user_id) and assign a role; admin+ only |
-| POST | /invitations | Yes | Invite by email. Writes a token-bearing `pending_memberships` row and returns `redemption_url` in the response body for OOB sharing (admin pastes into Slack/email). Also **best-effort emails the redemption URL** to the invitee via the `InviteMailer` seam (per-org email channel first, then the global `SMTP_*` config) — outcome reported in `email_delivery` (`sent` \| `failed` \| `skipped_no_transport` \| `skipped_no_public_host` \| `error`) and metered via `axiaops_auth_invite_email_total{outcome,source}`; never fatal, the URL is always returned. See `docs/invitation-flow.md` → "Invite-email delivery". Admin+ for member/viewer; owner for admin. Optional `enforcement_hint: "sso_required"` (Tasks.md 2.7.20) is set when the org has at least one active OIDC connection with `enforcement="required"` — the URL still works for the redemption hop but every authed request afterward 403s with `sso_required`, so the dashboard renders a yellow callout telling the admin to route the invitee through SSO instead. |
+| POST | /invitations | Yes | Invite by email. Writes a token-bearing `pending_memberships` row and returns `redemption_url` in the response body for OOB sharing (admin pastes into Slack/email). Also **best-effort emails the redemption URL** to the invitee via the `InviteMailer` seam (per-org email channel first, then the global `SMTP_*` config) — outcome reported in `email_delivery` (`sent` \| `failed` \| `skipped_no_transport` \| `skipped_no_public_host` \| `error`) and metered via `axiaops_auth_invite_email_total{outcome,source}`; never fatal, the URL is always returned. See `docs/invitation-flow.md` → "Invite-email delivery". Admin+ for member/viewer; owner for admin. Optional `enforcement_hint: "sso_required"` is set when the org has at least one active OIDC connection with `enforcement="required"` — the URL still works for the redemption hop but every authed request afterward 403s with `sso_required`, so the dashboard renders a yellow callout telling the admin to route the invitee through SSO instead. |
 | GET | /invitations | Yes | List pending invitations for the current org (?status=pending\|expired\|revoked) |
 | DELETE | /invitations/{id} | Yes | Revoke a pending invitation. The OOB redemption URL becomes invalid the moment the row flips to revoked. |
 | PATCH | /memberships/{id}/role | Yes | Promote or demote a member; permission tier depends on target role |
@@ -70,7 +67,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` + `cmd/saasmode_{saas,selfh
 | DELETE | /users/me | Yes | Right-to-erasure: hard-delete the caller. 409 if sole owner of any organization — must transfer or delete those organizations first. Anonymises audit_log across all organizations. |
 | DELETE | /organizations/me | Yes | Right-to-erasure: cascade-delete the entire organization (every per-organization table including audit_log). Owner-only (`organization:delete`). |
 | POST | /users/{id}/password-reset | Yes | Mint an admin-issued password-reset token. Returns `{user_id, redemption_url, expires_at}` for OOB sharing. Admin+ via `members:manage_basic`; owners-only when target is owner (cross-tier escalation guard). TTL via `PASSWORD_RESET_TTL_HOURS` (default 4h). |
-| GET | /auth/bootstrap/state | No | First-run probe. Returns `{available: bool}` — true iff a `bootstrap_state` row exists (i.e. a POST to `/auth/bootstrap` would succeed with the right token). Drives the dashboard's mount-time auto-redirect from `/login` → `/bootstrap` on fresh installs (Tasks.md row 2.7.16). Not a new oracle — same posture is observable today by POSTing junk to `/auth/bootstrap` and reading 409 vs 401. |
+| GET | /auth/bootstrap/state | No | First-run probe. Returns `{available: bool}` — true iff a `bootstrap_state` row exists (i.e. a POST to `/auth/bootstrap` would succeed with the right token). Drives the dashboard's mount-time auto-redirect from `/login` → `/bootstrap` on fresh installs. Not a new oracle — same posture is observable today by POSTing junk to `/auth/bootstrap` and reading 409 vs 401. |
 | POST | /auth/bootstrap | No | First-owner install. Body `{token, email, name, password, organization_name}`. Sealed forever after first success — returns 409 on subsequent attempts. Token comes from `BOOTSTRAP_TOKEN_FILE_PATH` (mode 0600) or `BOOTSTRAP_INSTALL_TOKEN` env. |
 | POST | /auth/login | No | Native email + password. Single-membership users: returns 200 with `{user, organization}` and sets the `axiaops_session` cookie. Multi-membership users (B1.5): returns 200 with `{needs_org_selection:true, orgs:[{id,name},...]}` and **no cookie** — the dashboard collects the chosen org and POSTs it to `/auth/select-org`. Rate-limited 10/min/IP + 5/min/email. |
 | POST | /auth/select-org | No | B1.5 picker step. Body `{email, password, organization_id}`. Re-validates the password from scratch (defence in depth — never trust the frontend to remember step 1), confirms the chosen org is in the user's membership set, mints a session bound to it. Failure modes collapse to one 401 `invalid_credentials` shape (wrong password, unknown email, org-not-in-set all look the same — narrows the no-creds membership-probe channel). Shares the rate-limit budget with `/auth/login` so an attacker can't double their cap by alternating endpoints. |
@@ -104,7 +101,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` + `cmd/saasmode_{saas,selfh
 - Locations: `internal/middleware/auth.go` (context-key getters/setters + `DevBypass` + `publicPath`); `internal/middleware/auth_native.go` (`WrapNative` — wraps the `auth.Provider` seam, attaches the resolved `Identity` to the request context).
 - Production provider is `auth.NativeProvider`: cookie-bound session lookup against the `sessions` table, role + org resolved via `MembershipLookup`. The `auth.Provider` interface is preserved as a single-impl seam so a future SaaS reactivation can swap implementations without touching the middleware chain.
 - `DEV_MODE=true` → auth chain replaced by `DevBypass`, uses `DEV_ORGANIZATION_ID` / `DEV_USER_ID` / `DEV_USER_EMAIL`.
-- OIDC SSO ceremony is wired in `serverbuild.ComposeServer` when `!cfg.DevMode`: initiate at `/v1/sso/oidc/{cid}/initiate`, callback at the cid-less `/v1/sso/oidc/callback` (state carries connection identity per Tasks.md 2.7.22). The legacy path-cid callback `/v1/sso/oidc/{cid}/callback` stays wired for one release as a deprecation window — hits surface via `axiaops_sso_legacy_callback_total{cid}`. Successful callback mints a native session via the same `SessionManager` with `auth_mode='sso'`.
+- OIDC SSO ceremony is wired in `serverbuild.ComposeServer` when `!cfg.DevMode`: initiate at `/v1/sso/oidc/{cid}/initiate`, callback at the cid-less `/v1/sso/oidc/callback` (state carries connection identity). The legacy path-cid callback `/v1/sso/oidc/{cid}/callback` stays wired for one release as a deprecation window — hits surface via `axiaops_sso_legacy_callback_total{cid}`. Successful callback mints a native session via the same `SessionManager` with `auth_mode='sso'`.
 - See `docs/invitation-flow.md` for how `pending_memberships` rows get redeemed on first login.
 
 ## Platform Admin Plane (`cmd/api-admin`)
@@ -129,11 +126,11 @@ tenant API is: run it behind VPN / SSO-only / SG-restricted ingress. Composed by
   designed in `docs/admin-bootstrap-design.md` — both converge on
   `store.CreateStaffUser`.
 - **Endpoints:** `POST /admin/auth/login|logout`, `GET /admin/me`,
-  `GET /admin/tenants`, `GET /admin/tenants/{id}` (metadata + `entitlement:null`
-  placeholder — NOT FinOps data; break-glass deferred), `GET|POST /admin/staff`,
+  `GET /admin/tenants`, `GET /admin/tenants/{id}` (metadata only — NOT FinOps
+  data; break-glass deferred), `GET|POST /admin/staff`,
   `POST|DELETE /admin/staff/{id}/roles[/{role}]`.
 - **Deferred** (design §5–7): break-glass cross-tenant data reads + impersonation,
-  the per-tenant `entitlements` table, internal-ops notifications, admin UI.
+  internal-ops notifications, admin UI.
 
 See `docs/admin-portal-plan.md` and `docs/saas-platform-admin-design.md`.
 
@@ -209,7 +206,6 @@ Errors are logged to stdout with structured context (JSON format in production).
 | SMTP_FROM | When `SMTP_HOST` set | — | Envelope sender + `From:` address for invite emails. |
 | SMTP_FROM_NAME | No | AxiaOps | `From:` display name for invite emails. |
 | RATE_LIMIT_MAX | No | 1000 | Per-minute request cap per (organization, user). Only active when `REDIS_URL` is set (the limiter needs durable counters). The HTTP middleware advertises the current state via `X-RateLimit-Limit/-Remaining/-Reset` headers on every authenticated response so well-behaved clients can self-pace before earning a 429. |
-| ENTITLEMENT_GRACE_DAYS | No | 21 | **Default (SaaS) build only.** Past_due grace window (days past `current_period_end`) before the entitlement scan-gate blocks. Read by the default build's `entitlementGate`; ignored by the `-tags selfhosted` build (license gate). |
 | DEV_MODE | No | false | Skip auth, use fixed organization |
 | DEV_ORGANIZATION_ID | When `DEV_MODE=true` | — | Organization ID for dev bypass. No default — startup `die()`s if unset while `DEV_MODE=true`. |
 | DEV_USER_ID | No | dev-user-axiaops | User ID seeded in dev mode; `EnsureDevMembership` assigns it `owner` |

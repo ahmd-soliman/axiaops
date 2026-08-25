@@ -46,18 +46,9 @@ start-dev: stop migrate
 # direct-port access.
 # Always runs `stop` first so host-mode services and stale containers are cleared.
 start-staging: stop migrate
-	@# Inject the embedded dev fixture as AXIAOPS_LICENSE so the api boots
-	@# into state="valid" with customer_id="axiaops-dev-fixture" and the
-	@# scan-gate falls through. DEV_MODE=false routes the boot through the
-	@# real-license code path (Load → CheckExpiry → SetCurrent), exercising
-	@# the same chain a deployed staging install runs. The fixture is signed
-	@# by the dev key (embed_dev.go); default-tag builds embed the matching
-	@# pubkey, so verification falls back from prod-pubkey → dev-pubkey
-	@# → success. Throwaway plumbing — issue #76 retires this once CI-pulled
-	@# license seeding lands.
-	DEV_MODE=false AXIAOPS_LICENSE="$$(cat services/shared/license/fixture-dev.jwt)" docker compose up --build -d
+	DEV_MODE=false docker compose up --build -d
 	@echo ""
-	@echo "Full Docker stack starting (DEV_MODE=false, native auth on, dev fixture license loaded)."
+	@echo "Full Docker stack starting (DEV_MODE=false, native auth on)."
 	@echo "  API:        http://localhost:8080  (direct, for curl)"
 	@echo "  Ingestion:  internal only (axiaops-ingestion:8081)"
 	@echo "  Dashboard:  http://localhost:8082  ← use this in the browser"
@@ -492,29 +483,6 @@ build-production:
 		echo "production-tagged api-admin built — /tmp/axiaops-api-admin-production"; \
 	fi
 	@echo "production-tagged binaries built — DEV_MODE is no-op in /tmp/axiaops-{api,ingestion}-production"
-
-# SaaS is the DEFAULT build (`go build ./cmd/`): the license is bypassed at boot
-# and per-tenant entitlement gates scans instead (docs/saas-platform-admin-design.md
-# §7.1). This named target just builds that default explicitly (empty tags) — handy
-# for symmetry with build-production / build-selfhosted and for a one-shot compile
-# check of the SaaS shape.
-.PHONY: build-saas
-build-saas:
-	cd services/api && go build -o /tmp/axiaops-api-saas ./cmd/
-	cd services/ingestion && go build -o /tmp/axiaops-ingestion-saas ./cmd/
-	@echo "default (SaaS) binaries built — /tmp/axiaops-{api,ingestion}-saas (license bypassed, entitlement-gated)"
-
-.PHONY: build-selfhosted
-build-selfhosted:
-	# Self-hosted CUSTOMER binaries: production (DEV_MODE stripped) + selfhosted
-	# (the OPT-IN that re-enables license enforcement — the license JWT gates
-	# scans; per-tenant entitlement is never consulted). The selfhosted tag-seam
-	# files (cmd/saasmode_selfhosted.go) compile ONLY into this build; the default
-	# build is SaaS (license bypassed). This is the shape CI's build:selfhosted-
-	# shape pins and build:images-selfhosted ships pre-built to customers.
-	cd services/api && go build -tags "production selfhosted" -o /tmp/axiaops-api-selfhosted ./cmd/
-	cd services/ingestion && go build -tags "production selfhosted" -o /tmp/axiaops-ingestion-selfhosted ./cmd/
-	@echo "selfhosted binaries built — /tmp/axiaops-{api,ingestion}-selfhosted (license enforced)"
 
 # axiaopsctl is the operator CLI for migrate up/down/force/drift/history.
 # See docs/migration-history-table-design.md §Operator UX.

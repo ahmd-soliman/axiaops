@@ -1,7 +1,7 @@
 # Self-Signup Gap Map
 
 Status: **gap map, not a design.** Feeds the build-sequence question under
-[ADR-0002 (SaaS-first)](decisions/0002-saas-first-for-awareness.md): is open
+ADR-0002 (SaaS-first): is open
 self-registration the true top-of-funnel blocker, ahead of the mail-invite system?
 
 > **Author's note (2026-06-04).** Written to answer "before we build mail invites,

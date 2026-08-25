@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "axiaops.ingestionHost" . }}
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "ingestion") | nindent 4 }}
+spec:
+  replicas: {{ .Values.ingestion.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "ingestion") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "ingestion") | nindent 8 }}
+      {{- with .Values.ingestion.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ingestion
+          image: {{ include "axiaops.ingestionImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: APP_ENV
+              value: {{ .Values.env | quote }}
+            - name: SCAN_INTERVAL
+              value: {{ .Values.ingestion.scanInterval | quote }}
+            - name: DEV_MODE
+              value: {{ .Values.devMode.enabled | quote }}
+            {{- if .Values.devMode.enabled }}
+            - name: DEV_ORGANIZATION_ID
+              value: {{ .Values.devMode.organizationId | quote }}
+            {{- end }}
+            - name: LOG_OUTPUT
+              value: "json"
+            - name: INGESTION_HMAC_SOFT_ENFORCE
+              value: "false"
+            {{- if .Values.redis.enabled }}
+            {{- if .Values.redis.auth.existingSecret }}
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.auth.existingSecret }}
+                  key: redis-url
+            {{- else }}
+            - name: REDIS_URL
+              value: "redis://{{ include "axiaops.redisHost" . }}:6379"
+            {{- end }}
+            {{- end }}
+            {{- if .Values.postgres.existingSecret }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.existingSecret }}
+                  key: database-url
+            - name: MIGRATION_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.existingSecret }}
+                  key: migration-database-url
+            {{- end }}
+            {{- if .Values.secrets.existingSecret }}
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: encryption-key
+            - name: INGESTION_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: ingestion-shared-secret
+                  optional: true
+            - name: INGESTION_SHARED_SECRET_NEXT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: ingestion-shared-secret-next
+                  optional: true
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+          {{- with .Values.ingestion.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "axiaops.ingestionHost" . }}
+  labels:
+    {{- include "axiaops.componentLabels" (dict "context" . "component" "ingestion") | nindent 4 }}
+spec:
+  selector:
+    {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "ingestion") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http

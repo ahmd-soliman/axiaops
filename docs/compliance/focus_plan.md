@@ -9,7 +9,7 @@ _Last updated: 2026-04-25_
 > customer questionnaires increasingly list "FOCUS-conformant" as a
 > requirement, especially in mid-market and MSP buyer profiles.
 >
-> **Targets** (aligned with `Tasks.md` Phase 4 §4.4):
+> **Targets** (aligned with the Phase 4 §4.4 roadmap):
 > - **FOCUS Consumer (ingest)** — Q2 2027, supports customer-supplied FOCUS
 >   exports as a unified ingestion path across AWS / Azure / GCP
 > - **FOCUS Producer (export)** — Q3 2027, AxiaOps emits FOCUS-conformant
@@ -156,7 +156,7 @@ migrations and ingestion logic — these are tracked in §5.
 | Gap | Action |
 |---|---|
 | No `BillingAccountId` vs `SubAccountId` distinction | Already partly there — `accounts` table stores AWS account ID; need to record payer/linked split. |
-| Single `Amount` field — no list/effective/billed split | Add columns when CUR ingestion lands (Phase 3 #13 — `Tasks.md`). |
+| Single `Amount` field — no list/effective/billed split | Add columns when CUR ingestion lands (Phase 3 #13). |
 | Missing `ChargeCategory` | Default to `Usage` until CUR ingestion adds the others. |
 | Missing `CommitmentDiscountType` | Populate from CUR's `savings_plan_*` and `reservation_*` fields. |
 | No `ServiceCategory` lookup | Build a table — small static mapping, ~30 entries. |
@@ -165,7 +165,7 @@ migrations and ingestion logic — these are tracked in §5.
 
 ## 5. Implementation Roadmap
 
-Mapped against existing Phase 3 / Phase 4 plans in `Tasks.md`. The §4.4 entry
+Mapped against the existing Phase 3 / Phase 4 roadmap. The §4.4 entry
 there is the "ship feature" line; this plan is the "ship feature + conformance
 + paperwork" wrapper.
 
@@ -174,7 +174,7 @@ there is the "ship feature" line; this plan is the "ship feature + conformance
 The non-FOCUS work below is required before FOCUS conformance is meaningful;
 it's not new, just called out for the dependency chain.
 
-- [ ] **CUR ingestion** (`Tasks.md` Phase 3 #13) — without this, our `Amount`
+- [ ] **CUR ingestion** (Phase 3 #13) — without this, our `Amount`
       field is list-price-only. FOCUS demands `BilledCost` + `EffectiveCost` +
       `ListCost` for credible Producer role. CUR ingestion is the prerequisite.
 - [ ] `ServiceCategory` lookup table — `services/shared/focus/service_categories.go`,
@@ -213,8 +213,8 @@ S3 bucket, and AxiaOps ingests it identically to a Cost Explorer pull.
       the requesting organization.
 - [ ] Schema-validate every emitted file in tests against the foundation
       reference validator.
-- [ ] Plan-gate Producer access — Team tier and above (per `docs/business_plan.md`
-      pricing tiers). Free / Starter / Growth get Consumer (ingest) only.
+- [ ] Plan-gate Producer access — Team tier and above.
+      Free / Starter / Growth get Consumer (ingest) only.
 - [ ] Customer-facing docs: `docs/focus_export.md` — examples for piping into
       Snowflake / BigQuery / Athena / Power BI.
 - [ ] Audit log entry on every export (overlaps GDPR §4.2 — `gdpr.dsr.export`
@@ -297,7 +297,6 @@ This is the strategic reason we did all the above.
 
 - FinOps Foundation: <https://focus.finops.org> (spec, conformance roles, reference data — verify URL on next read; do not link blindly)
 - `docs/development_plan.md` Phase 4 — multi-cloud and FOCUS framing
-- `Tasks.md` Phase 4 §4.4 — engineering subtasks (this plan supersedes the bullets there for conformance + paperwork)
 - `services/shared/model/cost.go` — current `CostRecord` shape, the source of truth for the mapping in §4.2
 - `services/ingestion/internal/provider/` — `Provider` interface that `focusfile` will satisfy
 - `docs/compliance/gdpr_plan.md` §4.2 — `GET /v1/export` is the GDPR portability endpoint; `GET /v1/export/focus` is its FOCUS-shaped sibling for Producer role
