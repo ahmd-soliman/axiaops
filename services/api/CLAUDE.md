@@ -158,7 +158,7 @@ Errors are logged to stdout with structured context (JSON format in production).
 | Variable | Required | Default | Notes |
 |----------|----------|---------|-------|
 | DATABASE_URL | Yes | — | PostgreSQL app-user connection (`axiaops`, RLS-enforced) |
-| RUNTIME_ADMIN_DATABASE_URL | Yes outside DEV_MODE | — | Least-privilege RLS-bypass role (`axiaops_runtime`) for pre-auth / cross-org reads — native login, `/v1/me`, GDPR purge, stuck-scan recovery. No DDL/ownership. DEV_MODE collapses to a single pool. See `docs/runtime-admin-db-role.md`. |
+| RUNTIME_ADMIN_DATABASE_URL | Yes outside DEV_MODE | — | Least-privilege RLS-bypass role (`axiaops_runtime`) for pre-auth / cross-org reads — native login, `/v1/me`, GDPR purge, stuck-scan recovery. No DDL/ownership. DEV_MODE collapses to a single pool. See `docs/AUTHENTICATION.md` § 5. |
 | MIGRATION_DATABASE_URL | No | — | PostgreSQL owner connection (`axiaops_owner`). **Migrate task only** — not read by the api runtime. |
 | API_ADDR | No | :8080 | Listen address |
 | SESSION_TTL_HOURS | No | 24 | Native session lifetime. |

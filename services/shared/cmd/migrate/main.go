@@ -14,7 +14,7 @@ import (
 	"axiaops.io/shared/storage/postgres"
 )
 
-// Subcommand layout (see docs/migration-history-table-design.md §Operator UX):
+// Subcommand layout (see docs/ARCHITECTURE.md (§5, Migration system)):
 //
 //	axiaopsctl migrate up           Bootstrap + Migrate (default; argv-less call also lands here)
 //	axiaopsctl migrate down N       Steps(-N) with history recording

@@ -62,7 +62,7 @@ To exercise the full auth chain (native cookie sessions, no DEV_MODE bypass), us
 ```bash
 make start-staging
 ```
-First-run bootstrap walkthrough lives in `docs/native-auth-bootstrap.md`.
+First-run bootstrap walkthrough lives in `docs/AUTHENTICATION.md` § 3.
 
 To stop:
 ```bash
@@ -377,7 +377,7 @@ axiaops/
 - [x] Observability — structured logging (slog), Prometheus metrics
 - [x] API versioning — `/v1/` prefix on all endpoints
 - [x] In-memory rate limiting + graceful shutdown
-- [x] GitLab CI pipeline — test + build stages
+- [x] CI pipeline — test + build stages
 - [x] Scheduled auto-scan (24h default per account)
 - [x] `cost_records` 90-day retention cleanup
 - [x] Redis (now Valkey since 2026-05-27 migration) — JWKS cache, scan job queue, rate limiting
@@ -419,15 +419,16 @@ axiaops/
 
 | File | Description |
 |------|-------------|
-| [docs/error_handling.md](docs/error_handling.md) | Comprehensive error handling, retry logic, circuit breaker, UI status indicators |
-| [docs/middleware.md](docs/middleware.md) | API middleware chain — auth, rate limiting, request ID, metrics |
-| [docs/connect-aws-account.md](docs/connect-aws-account.md) | Connecting an AWS account — IAM setup, read-only permission list |
+| [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Native auth, roles/permissions, password breach screening, the runtime DB role |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Connecting an AWS account, Slack/Email notification channels |
+| [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Prometheus metrics, structured logging, AWS-scan error handling/resilience |
+| [docs/TEST_STRATEGY.md](docs/TEST_STRATEGY.md) | Unit/integration/e2e/AWS testing architecture |
 
 ---
 
 ## Status
 
-**Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow. Remaining: email/Slack alerts. Target first paying customer: October 2026.
+**Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow, email/Slack notification channels. Target first paying customer: October 2026.
 
 ---
 

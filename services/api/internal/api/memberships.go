@@ -61,7 +61,7 @@ func (h *Handler) listMemberships(w http.ResponseWriter, r *http.Request) {
 
 // createMembership invites a user to the organization by email. The user must have
 // already logged in to AxiaOps at least once — invite-by-email-before-first-
-// login is deferred to Phase 2 (see docs/rbac-design.md §8). Admins can invite
+// login is deferred to Phase 2 (see docs/AUTHENTICATION.md (§2)). Admins can invite
 // at member/viewer level; only owner can invite at admin level.
 //
 // Permission: members:invite for member/viewer roles, members:manage_admin
