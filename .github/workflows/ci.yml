@@ -225,13 +225,17 @@ jobs:
         run: |
           TAG="main-${GITHUB_SHA::8}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          # Secure-by-default: the plain tag is the DEV_MODE-hardwired-off
+          # (production) build, since that's what anyone pulling the obvious
+          # tag name without reading the docs will get. The DEV_MODE-capable
+          # build is the one that requires an explicit, deliberate suffix.
           for svc in api ingestion; do
             docker build -t ${IMAGE_BASE}/${svc}:${TAG} \
               -f services/${svc}/Dockerfile \
-              --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
-            docker build -t ${IMAGE_BASE}/${svc}:${TAG}-production \
-              -f services/${svc}/Dockerfile \
               --build-arg BUILD_TAGS=production \
+              --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
+            docker build -t ${IMAGE_BASE}/${svc}:${TAG}-devmode \
+              -f services/${svc}/Dockerfile \
               --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
           done
           docker build -t ${IMAGE_BASE}/migrate:${TAG} \
@@ -240,9 +244,9 @@ jobs:
           docker build -t ${IMAGE_BASE}/dashboard:${TAG} \
             -f services/dashboard/Dockerfile services/dashboard
           docker push ${IMAGE_BASE}/api:${TAG}
-          docker push ${IMAGE_BASE}/api:${TAG}-production
+          docker push ${IMAGE_BASE}/api:${TAG}-devmode
           docker push ${IMAGE_BASE}/ingestion:${TAG}
-          docker push ${IMAGE_BASE}/ingestion:${TAG}-production
+          docker push ${IMAGE_BASE}/ingestion:${TAG}-devmode
           docker push ${IMAGE_BASE}/migrate:${TAG}
           docker push ${IMAGE_BASE}/dashboard:${TAG}
 
