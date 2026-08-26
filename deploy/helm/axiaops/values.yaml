@@ -13,8 +13,10 @@ fullnameOverride: ""
 
 image:
   registry: ghcr.io/ahmd-soliman/axiaops
-  # Empty resolves to .Chart.AppVersion (see templates/_helpers.tpl
-  # axiaops.imageTag) -- set explicitly to pin a commit-slug or release tag.
+  # Required -- no default. CI publishes commit-SHA tags (main-<shortsha>),
+  # not semver, so there's no safe fallback to resolve to; an unset tag
+  # fails the template render instead of deploying a broken image
+  # reference. Find a real tag at https://github.com/ahmd-soliman/axiaops/pkgs/container/axiaops%2Fapi.
   tag: ""
   pullPolicy: IfNotPresent
   # api/ingestion only. Secure-by-default: empty pulls the DEV_MODE-hardwired-

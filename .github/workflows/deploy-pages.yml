@@ -1,0 +1,76 @@
+name: deploy-pages
+
+# Builds and publishes two things to the same GitHub Pages site:
+#   - the docs website (website/ -> Astro/Starlight build) at the site root
+#   - a standard Helm chart repository (deploy/helm/axiaops packaged +
+#     indexed) at /charts/, so `helm repo add axiaops
+#     https://<pages-url>/charts` + `helm install axiaops axiaops/axiaops
+#     --version X.Y.Z` works the same way `helm repo add traefik
+#     https://traefik.github.io/charts` does.
+#
+# Requires GitHub Pages to actually be enabled for this repo -- which
+# requires the repo to be public (or GitHub Pro+ while private). Until
+# then this workflow will fail at the Pages steps; that's expected, not
+# a bug. See docs/DEVELOPER_GUIDE.md / the repo's own history for context.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'deploy/helm/axiaops/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  PAGES_URL: https://ahmd-soliman.github.io/axiaops
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - name: Build docs site
+        run: |
+          cd website
+          npm ci
+          npm run build
+
+      - uses: azure/setup-helm@v4
+
+      - name: Assemble combined Pages artifact
+        run: |
+          mkdir -p site-out
+          cp -r website/dist/. site-out/
+          mkdir -p site-out/charts
+          helm package deploy/helm/axiaops -d site-out/charts
+          helm repo index site-out/charts --url "${PAGES_URL}/charts"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site-out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
