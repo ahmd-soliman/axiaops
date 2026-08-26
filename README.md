@@ -1,13 +1,15 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="logos/axiaops-logo-dark.svg">
-  <img alt="AxiaOps" src="logos/axiaops-logo.svg" width="360">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logos/axiaops-logo-dark.svg">
+    <img alt="AxiaOps" src="logos/axiaops-logo.svg" width="360">
+  </picture>
+</p>
 
-## AxiaOps — FinOps
+<h2 align="center">AxiaOps — FinOps</h2>
 
-A self-hosted, open-source FinOps tool for tracking AWS cloud costs and catching the idle and zombie resources quietly driving them up — with trend history, per-account breakdowns, and an actionable remediation workflow with a full audit trail.
+<p align="center">A self-hosted, open-source FinOps tool for tracking AWS cloud costs and catching the idle and zombie resources quietly driving them up — with trend history, per-account breakdowns, and an actionable remediation workflow with a full audit trail.</p>
 
-> **Know the value of every resource.**
+<p align="center"><strong>Know the value of every resource.</strong></p>
 
 ---
 
