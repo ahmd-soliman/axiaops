@@ -27,6 +27,18 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.30] — 2026-08-26
+
+### Fixed
+
+- Helm chart: `api`/`ingestion`/migrate Job now set `APP_VERSION` explicitly
+  from `image.tag` rather than relying on the image's baked-in default —
+  `release.yml` promotes an already-built commit image to the release tag
+  instead of rebuilding, so the image-level `APP_VERSION` (set at
+  `ci.yml` build time) can lag behind the tag actually deployed. Logs,
+  `/version`, and `migration_history.applied_by_image` now correctly show
+  the release tag.
+
 ## [0.1.0-alpha.29] — 2026-08-26
 
 ### Added
@@ -871,6 +883,7 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://github.com/ahmd-soliman/axiaops/compare/0.1.0-alpha.27...develop
+[0.1.0-alpha.30]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.30
 [0.1.0-alpha.29]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.29
 [0.1.0-alpha.28]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.28
 [0.1.0-alpha.27]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.27
