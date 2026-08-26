@@ -66,7 +66,6 @@ To shut everything down: `make stop` (kills the host-mode Go processes AND `dock
 | **Redis** | Not started | Yes — sessions cache, queue, rate-limit |
 | **Dashboard** | Vite dev server `:5173` | nginx-served bundle on `:8082` |
 | **Use when...** | Day-to-day coding, tight feedback loop | Auth flows, Redis features, container parity, OIDC ceremony, cookie behaviour |
-| **License** | Dev fixture (`customer_id="axiaops-dev-fixture"`) auto-injected | Same dev fixture (per `make start-staging` target) — separate from deployed staging which gets a CI-minted production-signed JWT |
 
 Spend most of your time in `start-dev`. Reach for `start-staging` only when you're debugging something that requires the full stack (cookie `Secure` flag, X-Forwarded-Proto handling, Redis-backed sessions, etc.).
 
@@ -353,15 +352,16 @@ migrations, `0.Y.Z` for fixes/additive changes within the line. Only the latest
 
 **Cutting a release**: update `CHANGELOG.md` (move `[Unreleased]` entries into a
 dated `## [X.Y.Z]` section — format is [Keep a Changelog
-1.1.0](https://keepachangelog.com/en/1.1.0/)) → promote via a `develop → main` MR
-titled `release: X.Y.Z` → merge → tag `main` at the merge commit with an **annotated**
-tag (`git tag -a 0.1.0-alpha.1 -m "..."`, never lightweight — lightweight tags lose
-author/message metadata) → push the tag. CI does the rest: the tag pipeline builds +
-publishes images with `APP_VERSION=$CI_COMMIT_TAG`, auto-redeploys staging with the
-labelled image, and makes `deploy:production` available as a manual click. **Never
-retag** — if a tag is wrong, cut the next one and note the skip in the CHANGELOG.
-**Never tag from `develop` or a feature branch** — only `main`, so every release
-passes through the promotion MR's audit trail.
+1.1.0](https://keepachangelog.com/en/1.1.0/)) → tag `main` at the commit you want to
+release with an **annotated** tag (`git tag -a 0.1.0-alpha.1 -m "..."`, never
+lightweight — lightweight tags lose author/message metadata) → push the tag. CI does
+the rest: `release.yml` validates the tag, waits for `ci.yml`'s `build-images` job to
+finish building/testing that exact commit, then promotes the already-built
+`main-<shortsha>` images to the release tag with `docker buildx imagetools create`
+(a manifest copy, not a rebuild — the release image is byte-for-byte what CI already
+tested) and cuts a GitHub Release. **Never retag** — if a tag is wrong, cut the next
+one and note the skip in the CHANGELOG. **Only tag `main`** — release tags are cut
+from what's already merged, never from a feature branch.
 
 **Migration backwards-compatibility contract** (what makes skip-a-minor upgrades
 safe): never delete or edit a released migration — fix forward; never reuse a
