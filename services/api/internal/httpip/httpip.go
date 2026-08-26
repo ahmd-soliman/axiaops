@@ -17,7 +17,7 @@
 //     added, i.e. the actual peer that connected to it.
 //
 //     Self-hosted / dev-staging funnels HTTP through the dashboard nginx:
-//     `[edge proxy(es)] → an edge proxy → dashboard nginx → api`. In ECS Express
+//     `[edge proxy(es)] → dashboard nginx → api`. In ECS Express
 //     production the dashboard is static S3+CloudFront (NOT in the api path),
 //     so the api sits directly behind the shared ALB: `clients → CloudFront /
 //     ECS Express ALB → api` — no dashboard-nginx hop, so prod leans on the
