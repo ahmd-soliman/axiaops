@@ -15,7 +15,7 @@
 # Reaps by the compose project label (containers + networks + volumes) rather
 # than `docker compose down`, so it works without the project's compose file in
 # the working directory. Safe to run anywhere with access to the runner's docker
-# daemon (CI, or ad-hoc over `self-hosted exec <runner> -- ...`).
+# daemon (CI, or ad-hoc directly on the runner host).
 #
 # Env knobs:
 #   STALE_HOURS  age threshold in hours (default 2)

@@ -77,7 +77,7 @@ _Nothing yet — first entries land here in the next development cycle._
 - docs(tasks): sync 2.7.11 breach-corpus size with shipped ~10k corpus
 - docs(auth): design password breach-corpus screening with offline HIBP
 - ci(e2e): bake Playwright runner into hermetic image
-- ci: rename self-hosted runner tag self-hosted -> app
+- ci: rename self-hosted runner tag to `app`
 - test(e2e): single auth-on lane — bootstrap ceremony + real cookie auth
 - ci(e2e): add e2e stage + e2e:regression job; broaden plan to full suite
 - test(e2e): add docker-compose e2e stack + make test-e2e
@@ -203,8 +203,8 @@ _Nothing yet — first entries land here in the next development cycle._
 - **Postgres image pinned to `postgres:17.5-alpine`** across local
   docker-compose, integration test stacks, the CI `test:storage` service
   container, `make` test targets, and the `aws-prod-sql` skill's throwaway VPC
-  container. Matches the deployed envs (the deploy stack runs PG 17 on every self-hosted
-  DB) and prod RDS (`engine_version = 17.5`). Local + CI were previously
+  container. Matches the deployed envs (every self-hosted DB runs PG 17)
+  and prod RDS (`engine_version = 17.5`). Local + CI were previously
   drifting on `postgres:16-alpine`.
 - **Valkey image pinned to `valkey/valkey:8.1-alpine`** across `docker-compose.yml`
   and `deploy/*.yml`. Was floating on the `8-alpine` major tag.
@@ -539,7 +539,7 @@ repo. Still an internal alpha — no schema or public-API changes against
 
 - Manual `deploy:preview` button on `develop` pipelines — preview env can be
   brought up on demand from any develop commit without a tag.
-- Auto-deploying integration environment on `develop` (its own self-hosted host)
+- Auto-deploying integration environment on `develop` (its own dedicated host)
   for end-to-end exercise of the deploy path ahead of staging.
 
 ### Changed

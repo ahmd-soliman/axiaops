@@ -602,6 +602,5 @@ of going through `cmd/devmode_*.go`, the regression-pin tests in
 | **DEV_MODE** | Auth-bypass dev env. Used by `make start-dev` and the `deploy:dev-*` jobs. Stripped from `-tags production` binaries. |
 | **start-dev** | `make start-dev` — host-mode Go services + Postgres container. |
 | **start-staging** | `make start-staging` — full docker-compose stack with native auth on (DEV_MODE=false). |
-| **an edge proxy** | an edge proxy — edge TLS terminator in front of every deployed env. |
 | **Mummer** | The AWS-API mock used in integration tests; fixtures under `test-infra/mummer/`. |
 | **Bootstrap** | The first-run install flow — single-use token mints the first owner + organization. Sealed forever after first success. |
