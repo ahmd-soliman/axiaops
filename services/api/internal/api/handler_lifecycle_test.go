@@ -121,6 +121,40 @@ func TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure(t *testing.T) {
 	}
 }
 
+// TestScanAccount_SurvivesRequestContextCancellation verifies that a client
+// disconnect (r.Context() cancelled) right as the handler starts does not
+// abort the mark-scanning + enqueue write. Regression test for the bug where
+// TryMarkAccountScanning/Enqueue rode r.Context(): a cancelled request left
+// the account stuck at status='scanning' with no job ever queued, since the
+// handler returned 500 before reaching Enqueue.
+func TestScanAccount_SurvivesRequestContextCancellation(t *testing.T) {
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-cancelled", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
+		})
+	captureQ := &captureQueueLC{}
+	mux := http.NewServeMux()
+	api.New(mockStore, captureQ).Register(mux)
+
+	req := orgRequest(http.MethodPost, "/v1/accounts/acc-cancelled/scan")
+	cancelledCtx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(cancelledCtx)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 despite cancelled request context, got %d — body: %s", w.Code, w.Body.String())
+	}
+	if len(captureQ.jobs) != 1 {
+		t.Fatalf("expected 1 job enqueued despite cancelled request context, got %d", len(captureQ.jobs))
+	}
+	if !mockStore.accountScanning["acc-cancelled"] {
+		t.Fatal("expected account to be marked scanning")
+	}
+}
+
 // errorQueueLC always fails on Enqueue.
 type errorQueueLC struct{}
 
