@@ -248,6 +248,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     continue-on-error: true # non-blocking while the suite matures, same as GitLab
     permissions:
+      contents: read
       packages: read
     steps:
       - uses: actions/checkout@v4
