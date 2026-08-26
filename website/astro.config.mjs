@@ -16,6 +16,9 @@ export default defineConfig({
 			},
 			favicon: '/favicon.svg',
 			customCss: ['./src/styles/custom.css'],
+			social: [
+				{ icon: 'github', label: 'GitHub', href: 'https://github.com/ahmd-soliman/axiaops' },
+			],
 			components: {
 				// Dark/Light only -- see the override's own comment for why
 				// "Auto" was dropped.
