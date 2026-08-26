@@ -1000,6 +1000,11 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// scanTriggerWriteTimeout caps the detached mark-scanning + enqueue write in
+// scanAccount below — decoupled from r.Context() so a client disconnect
+// can't abort it mid-commit.
+const scanTriggerWriteTimeout = 5 * time.Second
+
 // scanAccount triggers an ingestion run for the given account.
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1022,7 +1027,20 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.store.TryMarkAccountScanning(ctx, id)
+	// mark-scanning + enqueue must not be tied to r.Context(): a client
+	// disconnect (tab close, dashboard-side timeout) cancels r.Context()
+	// mid-commit, but the UPDATE can already be in flight to Postgres —
+	// pgx then reports "commit: context canceled" for a write the server
+	// applied anyway. Handling that as a clean failure returns 500 without
+	// ever reaching Enqueue below, orphaning the row in 'scanning' with no
+	// job behind it until the 15-minute recovery sweep. A short, detached
+	// deadline lets the write finish on its own terms regardless of
+	// whether the caller is still there to see the response.
+	writeCtx, cancel := context.WithTimeout(context.Background(), scanTriggerWriteTimeout)
+	defer cancel()
+	writeCtx = storage.WithOrganizationID(writeCtx, organizationID)
+
+	ok, err := h.store.TryMarkAccountScanning(writeCtx, id)
 	if err != nil {
 		slog.Error("scanAccount: mark scanning failed", "account_id", id, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -1039,9 +1057,9 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 		EnqueuedAt:     time.Now().UTC(),
 		RequestID:      middleware.RequestIDFromCtx(r.Context()),
 	}
-	if err := h.queue.Enqueue(ctx, job); err != nil {
+	if err := h.queue.Enqueue(writeCtx, job); err != nil {
 		slog.Error("scan.enqueue_failed", "account_id", id, "error", err)
-		_ = h.store.UpdateAccountStatus(ctx, id, "error")
+		_ = h.store.UpdateAccountStatus(writeCtx, id, "error")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
