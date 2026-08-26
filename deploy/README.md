@@ -35,3 +35,13 @@ make start-staging  # full stack, native auth
 make stop
 make test
 ```
+
+`start-dev` builds the DEV_MODE-capable `api`/`ingestion` images locally
+(`docker compose build`, no `BUILD_TAGS`) — that build is never pushed
+anywhere. CI (`ci.yml`/`release.yml`) only builds and publishes the
+production shape (`BUILD_TAGS=production`, DEV_MODE compiled out); an
+auth-bypass image has no business sitting in a public registry, even under
+a clearly-labelled tag. If you want a DEV_MODE image outside `docker
+compose` (e.g. for the Helm chart's `devMode.enabled`), build it yourself —
+`docker build -f services/api/Dockerfile .` with no `BUILD_TAGS` — and push
+it to a registry you control.
