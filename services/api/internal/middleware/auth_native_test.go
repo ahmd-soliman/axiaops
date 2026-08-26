@@ -168,7 +168,7 @@ func TestWrapNativeTelemetryEmitsTierLabel(t *testing.T) {
 		{"password→native", "password", "native"},
 		{"sso→native", "sso", "native"},
 		{"bootstrap→native", "bootstrap", "native"},
-		{"unrecognised→unknown", "future-saas-mode", "unknown"},
+		{"unrecognised→unknown", "future-provider-mode", "unknown"},
 		{"empty→unknown", "", "unknown"},
 	}
 	for _, tc := range cases {

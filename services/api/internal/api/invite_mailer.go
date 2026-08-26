@@ -11,8 +11,8 @@ import (
 )
 
 // InviteMailer delivers an invitation's redemption URL to the invitee. It is the
-// composition-time seam (wired onto the Handler via WithInviteMailer) that the
-// SaaS reactivation swaps for a platform mailer (Resend/Postmark) without
+// composition-time seam (wired onto the Handler via WithInviteMailer) that a
+// future impl could swap for a platform mailer (Resend/Postmark) without
 // touching the handler. SendInvite is best-effort and self-contained: every
 // failure mode resolves to an inviteEmail* outcome string rather than an error,
 // because the redemption URL is already in the invitation response — emailing it

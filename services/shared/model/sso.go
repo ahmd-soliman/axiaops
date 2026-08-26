@@ -95,8 +95,8 @@ type SSOConnection struct {
 	ForceReauth bool `json:"force_reauth"`
 
 	// KindeConnectionID is empty under self-hosted (Option B) — handlers MUST
-	// reject non-empty values on POST/PATCH per design §4.2. Populated only
-	// under a future SaaS reactivation.
+	// reject non-empty values on POST/PATCH. Populated only under a future
+	// hosted-provider variant.
 	KindeConnectionID string `json:"kinde_connection_id,omitempty"`
 
 	// SCIM forward-compat. Filled in Phase E; never read in B2.

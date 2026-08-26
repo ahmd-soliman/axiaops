@@ -1,7 +1,5 @@
 -- 022_sso_core.up.sql
--- Phase B2 — Native OIDC RP foundation. See:
---   docs/sso-integration-design.md §4.1 (full schema rationale)
---   docs/sso-implementation-plan.md §5.1 (slice scope + acceptance)
+-- Phase B2 — Native OIDC RP foundation.
 --
 -- Adds the per-organization SSO surface:
 --   * sso_connections        — one row per (org, IdP); supports OIDC v1, SAML in Phase C

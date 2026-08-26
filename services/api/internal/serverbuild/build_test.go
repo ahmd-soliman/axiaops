@@ -97,15 +97,13 @@ func (c *stubConnector) Test(_ context.Context, _ string) (sso.TestResult, error
 
 // ─── tests ──────────────────────────────────────────────────────────────────
 
-// TestComposeServer_AcceptsAllSeamMocks pins the §4.8.6 D11 acceptance:
-// ComposeServer compiles AND runs against mock implementations of all
-// four SaaS-extension seams (Store, AuthProvider, Discoverer, Connector).
-// A single smoke request against /v1/sso/discover proves the chain
-// serves traffic.
+// TestComposeServer_AcceptsAllSeamMocks pins the acceptance: ComposeServer
+// compiles AND runs against mock implementations of all four extension
+// seams (Store, AuthProvider, Discoverer, Connector). A single smoke
+// request against /v1/sso/discover proves the chain serves traffic.
 //
 // If a future refactor tightens any seam from interface to concrete
-// type, this test stops compiling — surfacing the regression before the
-// SaaS reactivation slice.
+// type, this test stops compiling — surfacing the regression immediately.
 func TestComposeServer_AcceptsAllSeamMocks(t *testing.T) {
 	cfg := serverbuild.Config{
 		Addr:       ":0", // unused; we don't ListenAndServe

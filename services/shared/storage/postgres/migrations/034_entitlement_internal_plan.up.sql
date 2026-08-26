@@ -1,7 +1,7 @@
 -- 034_entitlement_internal_plan.up.sql
--- Auto-entitle every org at creation time so the default (SaaS) build's
--- fail-closed scan-gate (entitlement.IsScanAllowedForOrg — missing row → deny)
--- works without billing wired up. See docs/saas-platform-admin-design.md §7.2.
+-- Auto-entitle every org at creation time so a fail-closed scan-gate
+-- (entitlement.IsScanAllowedForOrg — missing row → deny) works without
+-- billing wired up.
 --
 -- Two parts:
 --   1. Widen the `plan` CHECK to admit a new 'internal' value. Auto-granted

@@ -1,8 +1,7 @@
 -- 037_drop_staff_identity.up.sql
--- Removes the platform admin plane's identity/RBAC tables entirely
--- (docs/open-source-decision.md §0/§3 — the admin plane is cut from the
--- open-source release; it's SaaS-operator-only tooling with no use to a
--- self-hoster). Drops the tables introduced for it:
+-- Removes the platform admin plane's identity/RBAC tables entirely — the
+-- admin plane is cut from the open-source release; it has no use in a
+-- self-hosted single-org install. Drops the tables introduced for it:
 --   - staff_role_grants (032) — drop first, it FKs into staff_users
 --   - staff_users        (032)
 --

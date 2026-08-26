@@ -1,7 +1,5 @@
 -- 021_native_auth.up.sql
--- Phase B1 — native email/password auth replacing Kinde. See
---   docs/sso-implementation-plan.md §4.1
--- for the full design rationale.
+-- Native email/password auth replacing Kinde.
 --
 -- Adds:
 --   * users.password_hash, users.password_set_at, users.email_lower
@@ -19,10 +17,9 @@
 SET search_path TO axiaops;
 
 -- ── users: native-auth columns ──────────────────────────────────────────────
--- Self-hosted v1 (per ADR-0001) deploys one stack per customer, so global
--- email uniqueness is the desired property — a user with a given email exists
--- in exactly one AxiaOps installation. Re-evaluate this constraint if
--- multi-tenant SaaS is reactivated per ADR-0001's review triggers.
+-- Self-hosted deploys one stack per customer, so global email uniqueness is
+-- the desired property — a user with a given email exists in exactly one
+-- AxiaOps installation.
 ALTER TABLE users
     ADD COLUMN password_hash       TEXT        NOT NULL DEFAULT '',
     ADD COLUMN password_set_at     TIMESTAMPTZ,

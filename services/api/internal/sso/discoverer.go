@@ -1,8 +1,8 @@
 // Package sso implements the per-organisation SSO surface (Phase B2).
 //
 // The package owns:
-//   - The Discoverer / Connector seams (D11 / plan §4.8.4-5) that decouple
-//     the HTTP handlers from the storage layer and from any SaaS reactivation.
+//   - The Discoverer / Connector seams that decouple the HTTP handlers
+//     from the storage layer and from any particular provider impl.
 //   - HTTP CRUD on connections, domains, and group mappings.
 //   - The pre-auth /v1/sso/discover handler that routes a login email's
 //     domain to a connection.
@@ -28,8 +28,8 @@ import (
 
 // Discoverer maps a login email's domain to a connection. The HTTP handler
 // for GET /v1/sso/discover delegates to this interface — handler is impl-
-// agnostic. Today only NativeDiscoverer ships; a SaaS reactivation could add
-// a compositeDiscoverer wrapping native + an external IdP's management API.
+// agnostic. Today only NativeDiscoverer ships; a future impl could add a
+// compositeDiscoverer wrapping native + an external IdP's management API.
 //
 // Lookup is constant-shape (always returns DiscoverResult, never errors for
 // "not found") so the handler response shape doesn't fork on the discovery

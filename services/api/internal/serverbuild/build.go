@@ -2,22 +2,22 @@
 // construction, middleware composition, ticker startup. The composition root
 // (cmd/main.go) reads env vars, builds Deps, calls ComposeServer, and runs.
 //
-// Plan §4.8.3 / D11 / architect S9: every dependency that could plausibly
-// diverge between deployment shapes crosses the Deps boundary as an
-// interface — so neither the handler/business-logic layer nor this package
-// needs to change to swap an implementation.
+// Every dependency that could plausibly diverge between deployment shapes
+// crosses the Deps boundary as an interface — so neither the
+// handler/business-logic layer nor this package needs to change to swap an
+// implementation.
 //
 // Four such extension seams cross Deps:
 //   - storage.Store    — already an interface; concrete impl is postgres
 //   - auth.Provider    — pluggable auth (today: native cookie sessions only;
-//     the interface stays so a SaaS reactivation can
-//     swap in a remote-IdP impl without touching the
-//     rest of the chain)
-//   - sso.Discoverer   — pre-auth domain → connection lookup (B2)
-//   - sso.Connector    — connection CRUD with discovery-doc validation (B2)
+//     the interface stays so a different impl (e.g. a
+//     remote IdP) can swap in without touching the rest
+//     of the chain)
+//   - sso.Discoverer   — pre-auth domain → connection lookup
+//   - sso.Connector    — connection CRUD with discovery-doc validation
 //
 // The smoke test in build_test.go boots ComposeServer with mock impls of
-// all four seams and proves the surface holds (plan §4.8.6 acceptance).
+// all four seams and proves the surface holds.
 package serverbuild
 
 import (
@@ -90,7 +90,7 @@ type Config struct {
 }
 
 // Deps bundles the concrete services ComposeServer plugs together. Every
-// field that would differ between self-hosted and SaaS reactivation is an
+// field that could plausibly differ between deployment shapes is an
 // interface; concrete production impls are built by the composition root.
 //
 // Test affordance: every interface field MAY be nil in the smoke test
@@ -104,8 +104,8 @@ type Deps struct {
 	// Cache backs JWKS, OIDC ceremony state, the rate-limiter counter,
 	// and the session-revocation cache. Production: Redis or in-memory.
 	Cache cache.Cache
-	// Queue queues ingestion scan triggers (currently sync HTTP fallback
-	// in self-hosted; Redis LPUSH/BRPOP in SaaS). May be nil in tests.
+	// Queue queues ingestion scan triggers (sync HTTP fallback when no
+	// Redis is configured; Redis LPUSH/BRPOP otherwise). May be nil in tests.
 	Queue queue.Queue
 
 	// IngestionSecret signs outbound api → ingestion HTTP calls (POST /scan
@@ -116,16 +116,14 @@ type Deps struct {
 
 	// AuthProvider is the auth seam. Today there's a single impl
 	// (auth.NativeProvider — cookie + sessions table); the interface stays
-	// so a SaaS reactivation can swap in a remote-IdP impl without
-	// touching the rest of the chain. nil iff Config.DevMode (DevBypass
-	// middleware replaces it).
+	// so a different impl (e.g. a remote IdP) can swap in without touching
+	// the rest of the chain. nil iff Config.DevMode (DevBypass middleware
+	// replaces it).
 	AuthProvider auth.Provider
 
-	// Discoverer is the pre-auth /v1/sso/discover seam. Production: native.
-	// SaaS: external IdP mirror. Required.
+	// Discoverer is the pre-auth /v1/sso/discover seam. Required.
 	Discoverer sso.Discoverer
-	// Connector is the SSO connection-CRUD seam. Production: native.
-	// SaaS: external IdP mirror. Required.
+	// Connector is the SSO connection-CRUD seam. Required.
 	Connector sso.Connector
 
 	// SessionManager is the native-auth session orchestrator. Required

@@ -1,7 +1,5 @@
 -- 032_staff_identity.up.sql
 -- Platform admin plane — staff identity + RBAC.
--- See docs/saas-platform-admin-design.md §4 (staff identity & RBAC) and §8
--- (data-model deltas), and docs/admin-portal-plan.md (slice plan).
 --
 -- These are SYSTEM-scoped tables, NOT per-org data:
 --   * staff_users        — AxiaOps employee identities (the admin/control
@@ -28,11 +26,11 @@
 --   * IDs are TEXT (gen_random_uuid()::text), matching every other table.
 --   * password_hash is the argon2id PHC string (auth.Hash output), nullable so
 --     a later corporate-IdP staff.Provider impl can mint IdP-only staff rows
---     with no local secret (design §4.1 — the IdP swap stays behind the seam).
---   * `role` CHECK is the §4.2 baseline taxonomy. The still-open §11.2 #5
---     auditor/engineering tier is purely additive — a future migration widens
---     the CHECK; do not pre-provision it (no shipping code consumes it yet,
---     unlike the notification_channels kind-enum which had transport stubs).
+--     with no local secret.
+--   * `role` CHECK is the baseline taxonomy. An auditor/engineering tier is
+--     purely additive — a future migration widens the CHECK; do not
+--     pre-provision it (no shipping code consumes it yet, unlike the
+--     notification_channels kind-enum which had transport stubs).
 
 SET search_path TO axiaops;
 
