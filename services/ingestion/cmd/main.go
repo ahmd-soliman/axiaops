@@ -784,8 +784,8 @@ func expireSnoozes(ctx context.Context, store storage.Store) {
 }
 
 // scanScheduledAccounts checks all accounts across all organizations and
-// triggers scans for those overdue. No license or entitlement gate — every
-// connected account is scanned on schedule, unconditionally.
+// triggers scans for those overdue. Every connected account is scanned on
+// schedule, unconditionally.
 func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue) {
 	accounts, err := store.ListAllAccounts(ctx)
 	if err != nil {

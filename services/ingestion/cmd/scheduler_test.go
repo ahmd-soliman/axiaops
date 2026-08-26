@@ -438,9 +438,8 @@ func TestScanScheduledAccounts_ZeroInterval_AlwaysOverdue(t *testing.T) {
 }
 
 // TestWorker_ProcessesJob is the worker's basic control case: dequeue a
-// pending job and reach runScan (signalled by GetAccount being called). No
-// gate sits between dequeue and runScan any more — license/entitlement
-// removed — so this just pins that the worker still drives a job through.
+// pending job and reach runScan (signalled by GetAccount being called) --
+// pins that the worker drives a job straight through from dequeue to scan.
 func TestWorker_ProcessesJob(t *testing.T) {
 	store := &mockStoreForScheduler{
 		accounts: []model.Account{{

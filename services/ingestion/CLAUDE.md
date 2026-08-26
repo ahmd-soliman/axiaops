@@ -20,7 +20,7 @@ Every site that previously read `os.Getenv("DEV_MODE")=="true"` routes through `
 
 Asymmetric stripping (api stripped, ingestion not) would still leak the bypass at the ingestion-side scan-gate (`POST /scan`, `scanScheduledAccounts`, the worker), so both binaries get the same treatment.
 
-There is only one build shape now — no license gate, no per-tenant entitlement gate, no `selfhosted` opt-in. Scans run unconditionally for any connected account. Build commands:
+There is only one build shape. Scans run unconditionally for any connected account. Build commands:
 - `go build ./cmd/` — DEV_MODE honoured. Used by local `make start-dev` + dev-1/dev-2.
 - `go build -tags production ./cmd/` — DEV_MODE stripped (staging/prod). Wired via `make build-production` + the `BUILD_TAGS` Dockerfile arg.
 

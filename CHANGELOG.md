@@ -408,8 +408,6 @@ First release published from the public GitHub repository.
   and added a startup fail-fast guard so a non-dev build refuses to start when
   it is missing — surfacing the misconfiguration as a red deploy instead of a
   green deploy serving broken auth.
-- **Demo environment scans now run.** `AXIAOPS_LICENSE` is passed to the demo
-  api and ingestion services so the license gate is satisfied.
 - **Production deploy poll reads the correct ECS Express status path.** The
   steady-state poll queried the wrong key and logged `status=None`; corrected so
   the deploy reports the real service status.

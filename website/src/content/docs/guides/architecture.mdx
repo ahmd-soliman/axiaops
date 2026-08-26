@@ -128,8 +128,7 @@ scan_interval_hours` has passed (or the account has never scanned). So the
 ticker's cadence is global, but *when a given account actually scans* is
 per-account. An account with a negative interval is treated as disabled and
 skipped; one already mid-scan is skipped too rather than double-enqueued.
-Every connected account is scanned unconditionally on this schedule — there's
-no plan/entitlement gate deciding who gets scanned.
+Every connected account is scanned unconditionally on this schedule.
 
 Due accounts are pushed onto the Redis-backed job queue and picked up by a
 worker pool, each scan running under a circuit breaker with a 10-minute

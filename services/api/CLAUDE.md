@@ -18,7 +18,7 @@ The api binary supports a `production` build tag (B1.7 layer 3 — plan §4.10.2
 
 Every site that previously read `os.Getenv("DEV_MODE")=="true"` routes through `devModeEnabled()` so the build-tag split lives at one seam. **Any new feature gated on dev-vs-prod must consult `devModeEnabled()`, never read the env directly** — bypassing the helper re-introduces the runtime-bypass attack the build tag closes.
 
-There is only one build shape now — no license gate, no per-tenant entitlement gate, no billing, no `selfhosted` opt-in. Every organization can scan unconditionally. Build commands:
+There is only one build shape. Every organization can scan unconditionally. Build commands:
 - `go build ./cmd/` — DEV_MODE honoured. Used by local `make start-dev` + dev-1/dev-2.
 - `go build -tags production ./cmd/` — DEV_MODE stripped (staging/prod). Wired via `make build-production` + the `BUILD_TAGS` Dockerfile arg.
 
@@ -32,7 +32,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin the DEV_MODE
 | GET | /livez | No | Liveness — always 200 unless the process can't reply. Wire orchestrator instance health to this |
 | GET | /readyz | No | Readiness — pings DB (503 if down) and reports Redis status (informational; "ok" / "unreachable" / "skipped"). Wire monitoring/synthetic checks to this |
 | GET | /metrics | No | Prometheus metrics (internal only) |
-| GET | /version | Yes | Build identifier — `{service, version, commit, env}`. No license field — there is no license/entitlement concept left in the codebase. |
+| GET | /version | Yes | Build identifier — `{service, version, commit, env}`. |
 | GET | /zombies | Yes | List zombie resources for organization |
 | GET | /summary | Yes | Aggregate savings + per-service breakdown (?account_id to scope to one account) |
 | GET | /summary/by-account | Yes | Per-account waste rollup for the org dashboard (`{currency, accounts:[{internal_account_id, account_id, total_zombies, potential_monthly_savings, top_service}]}`); zero-zombie accounts omitted; dismissed excluded like /summary |
