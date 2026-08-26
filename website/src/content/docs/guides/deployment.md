@@ -66,5 +66,5 @@ For a first install you don't need production-grade backing services: leave
 the app, keep `devMode.enabled: true`, and point `postgres.existingSecret`
 at whatever Postgres you have handy — a single node with no HA story is
 fine here. Tighten both once you're running it for real — see
-[Deploying on AWS](/guides/aws-deployment/) for what that looks like on
+[Deploying on AWS](aws-deployment/) for what that looks like on
 EKS.
