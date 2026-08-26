@@ -157,6 +157,14 @@ metadata:
   name: {{ include "axiaops.apiHost" . }}
   labels:
     {{- include "axiaops.componentLabels" (dict "context" . "component" "api") | nindent 4 }}
+  annotations:
+    # Standard prometheus.io/* scrape annotations -- consumed by the
+    # kubernetes-service-endpoints job most Prometheus installs ship by
+    # default (e.g. the prometheus-community/prometheus chart), so a scan
+    # of this namespace finds /metrics with no per-target config needed.
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
 spec:
   selector:
     {{- include "axiaops.componentSelectorLabels" (dict "context" . "component" "api") | nindent 4 }}
