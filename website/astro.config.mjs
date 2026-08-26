@@ -27,6 +27,8 @@ export default defineConfig({
 						{ label: 'Deployment', slug: 'guides/deployment' },
 						{ label: 'Deploying on AWS', slug: 'guides/aws-deployment' },
 						{ label: 'Deploying on ECS', slug: 'guides/ecs-deployment' },
+						{ label: 'Authentication & Roles', slug: 'guides/authentication' },
+						{ label: 'Operations', slug: 'guides/operations' },
 					],
 				},
 			],
