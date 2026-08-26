@@ -72,6 +72,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Promote the already-built commit image to this release tag
+        # ci.yml's build-images job (the source of main-<shortsha>) only
+        # runs after its full test gate (test-unit/redis/storage/lint/
+        # integration-*) clears -- typically several minutes. A tag pushed
+        # right after the promotion merge (the documented convention) will
+        # almost always beat that job to the punch, so this retries rather
+        # than failing on the first miss. ~15 minutes of headroom (30
+        # attempts x 30s) comfortably covers ci.yml's observed run time;
+        # if it's still missing after that, something's actually wrong
+        # (ci.yml failed, or this tag is on a commit that was never pushed
+        # to main) and this fails loudly rather than silently rebuilding.
         run: |
           TAG="${GITHUB_REF_NAME}"
           SHA_TAG="main-${GITHUB_SHA::8}"
@@ -79,7 +89,17 @@ jobs:
             SRC="${IMAGE_BASE}/${svc}:${SHA_TAG}"
             DST="${IMAGE_BASE}/${svc}:${TAG}"
             echo "promoting ${SRC} -> ${DST}"
-            docker buildx imagetools create --tag "${DST}" "${SRC}"
+            for attempt in $(seq 1 30); do
+              if docker buildx imagetools create --tag "${DST}" "${SRC}"; then
+                break
+              fi
+              if [ "$attempt" -eq 30 ]; then
+                echo "::error::${SRC} never appeared after 15m of retries -- check ci.yml's run for this commit (${GITHUB_SHA}) on the Actions tab." >&2
+                exit 1
+              fi
+              echo "  not published yet (attempt ${attempt}/30) -- waiting on ci.yml's build-images, retrying in 30s..."
+              sleep 30
+            done
           done
 
       - name: Create GitHub Release
