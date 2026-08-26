@@ -1,0 +1,89 @@
+name: release
+
+# Builds and pushes semver-tagged images when a real release tag is pushed,
+# then cuts a GitHub Release. This is the piece docs/DEVELOPER_GUIDE.md § 8's
+# release process describes but was never actually wired into CI -- until
+# now, cutting a git tag did nothing at all; the only images CI ever
+# produced were commit-SHA tagged (main-<shortsha>) on every push to main.
+#
+# Trigger is a coarse glob (anything with two dots); the validate step does
+# the real semver check and exits early (not a failure -- a skip) on
+# anything that doesn't match the project's tag convention: MAJOR.MINOR.PATCH
+# or MAJOR.MINOR.PATCH-PRERELEASE.N, no "v" prefix. See
+# docs/DEVELOPER_GUIDE.md § 8 for the full cut-a-release flow (CHANGELOG
+# first, tag from main, annotated tag only).
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE_BASE: ghcr.io/${{ github.repository }}
+
+jobs:
+  validate-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      is_release: ${{ steps.check.outputs.is_release }}
+    steps:
+      - id: check
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$ ]]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::'$TAG' doesn't match MAJOR.MINOR.PATCH[-PRERELEASE.N] -- skipping release build, not a failure."
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-push:
+    needs: validate-tag
+    if: needs.validate-tag.outputs.is_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push release images
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Same shape as ci.yml's build-images: plain tag = production
+          # (DEV_MODE-hardwired-off), -devmode = the sibling that honours
+          # DEV_MODE at runtime.
+          for svc in api ingestion; do
+            docker build -t ${IMAGE_BASE}/${svc}:${TAG} \
+              -f services/${svc}/Dockerfile \
+              --build-arg BUILD_TAGS=production \
+              --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
+            docker build -t ${IMAGE_BASE}/${svc}:${TAG}-devmode \
+              -f services/${svc}/Dockerfile \
+              --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
+          done
+          docker build -t ${IMAGE_BASE}/migrate:${TAG} \
+            -f services/migrate/Dockerfile \
+            --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
+          docker build -t ${IMAGE_BASE}/dashboard:${TAG} \
+            -f services/dashboard/Dockerfile services/dashboard
+          docker push ${IMAGE_BASE}/api:${TAG}
+          docker push ${IMAGE_BASE}/api:${TAG}-devmode
+          docker push ${IMAGE_BASE}/ingestion:${TAG}
+          docker push ${IMAGE_BASE}/ingestion:${TAG}-devmode
+          docker push ${IMAGE_BASE}/migrate:${TAG}
+          docker push ${IMAGE_BASE}/dashboard:${TAG}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          # Anything with a suffix (0.1.0-alpha.1 etc) is a pre-release by
+          # the project's own versioning convention -- see
+          # docs/DEVELOPER_GUIDE.md § 8's pre-release identifier table.
+          prerelease: ${{ contains(github.ref_name, '-') }}
