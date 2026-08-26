@@ -10,11 +10,17 @@ export default defineConfig({
 		starlight({
 			title: 'AxiaOps',
 			logo: {
-				src: './src/assets/axiaops-logo-dark.svg',
+				dark: './src/assets/axiaops-logo-dark.svg',
+				light: './src/assets/axiaops-logo.svg',
 				replacesTitle: true,
 			},
 			favicon: '/favicon.svg',
 			customCss: ['./src/styles/custom.css'],
+			components: {
+				// Dark/Light only -- see the override's own comment for why
+				// "Auto" was dropped.
+				ThemeSelect: './src/components/ThemeSelect.astro',
+			},
 			sidebar: [
 				{
 					label: 'Overview',
