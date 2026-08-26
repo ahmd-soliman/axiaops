@@ -13,8 +13,8 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 - **The Zombie Number** — total monthly spend on idle resources across all connected accounts
 - **The Zombie List** — itemized breakdown by resource with cost, usage metric, and remediation suggestion
 - **Owner Resolution** — every zombie includes the responsible team derived from resource tags
-- **The Weekly Digest** — email/Slack alert when new zombies appear (Phase 2)
-- **Multi-account Dashboard** — single pane for managing multiple cloud accounts (Phase 2)
+- **Notification channels** — Slack or email alert when a scan finds new zombies above a savings threshold
+- **Multi-account Dashboard** — single pane for managing multiple cloud accounts
 
 ---
 
@@ -163,12 +163,9 @@ Then use `make start-staging` (see "Running Locally" section above). The Docker 
 3. Stores records in PostgreSQL with organization isolation (RLS)
 4. API serves requests at `http://localhost/api/`
 
-### Known limitations (Phase 2)
+### Known limitations
 
-| Limitation | Phase |
-|-----------|-------|
-| Single AWS account only | Phase 3 |
-| AWS only (no Azure/GCP) | Phase 3 |
+- AWS only — no Azure/GCP support yet
 
 ### Creating a Test Resource (Elastic IP)
 
@@ -273,42 +270,9 @@ API is available at `http://localhost/api/` when running with Docker Compose.
 
 ## Detection Rules
 
-### CloudWatch-Based Detection (Tier 0)
+26 detection rules across 18 AWS services, split into two tiers — **Tier 1** joins Cost Explorer billing data with a CloudWatch metric (cost + usage at/below threshold ⇒ flagged); **Tier 2** is API-only, where Describe-API state alone determines waste (e.g. an unattached EBS volume is always waste, no metric needed). Full rule tables, thresholds, and the required IAM permissions live in [`docs/ARCHITECTURE.md` § 7](docs/ARCHITECTURE.md#7-detection-engine).
 
-| Service | Metric | Threshold | Verdict |
-|---------|--------|-----------|---------|
-| AmazonEC2 | CPUUtilization | ≤ 5% | Idle instance |
-| AmazonRDS | DatabaseConnections | = 0 | Abandoned database |
-| AWSLambda | Invocations | = 0 | Unused function |
-| ELB | RequestCount | = 0 | Abandoned load balancer |
-| VPC (NAT) | BytesOutToDestination | = 0 | Unused NAT Gateway |
-
-### API-Only Detection (Tier 1) ✅
-
-| Resource Type | Detection Method | Cost Formula | Threshold |
-|---------------|------------------|--------------|-----------|
-| **Unattached EIP** | `ec2:DescribeAddresses` | $3.60/month | No network interface attached |
-| **Unattached EBS Volume** | `ec2:DescribeVolumes` | `sizeGB × $0.08/month` | State = "available" |
-| **Orphaned EBS Snapshot** | `ec2:DescribeSnapshots` | `sizeGB × $0.05/month` | Source volume deleted + not backing AMI |
-| **Stopped EC2 Instance** | `ec2:DescribeInstances` | `ebsGB × $0.08/month` | Stopped > 30 days |
-| **Old AMI** | `ec2:DescribeImages` | `snapshotGB × $0.05/month` | Age > 90 days + not in use |
-
-> **Tier 1 detections** are API-only (no CloudWatch needed) and typically surface the largest savings in real-world FinOps audits.
-
-### CloudWatch-Based Detection (Tier 2) ✅
-
-| Service | Metric | Threshold | Typical Cost | Verdict |
-|---------|--------|-----------|--------------|---------|
-| ElastiCache | CurrConnections (`AWS/ElastiCache`) | = 0 | $25-100/mo | Idle cluster |
-| OpenSearch/ES | SearchRate (`AWS/ES`) | = 0 | $25+/mo | Unused cluster |
-| Redshift | DatabaseConnections (`AWS/Redshift`) | = 0 | $180+/mo | Abandoned cluster |
-| SageMaker | Invocations (`AWS/SageMaker`) | = 0 | $100+/mo | Forgotten endpoint |
-| DynamoDB | ConsumedReadCapacityUnits (`AWS/DynamoDB`) | = 0 | Varies | Unused provisioned table |
-| EKS | cluster_node_count (`ContainerInsights`) | = 0 | $73/mo | Control plane with no nodes |
-
-> **Tier 2 detections** use CloudWatch metrics and fit the existing rule framework. EKS detection requires [Container Insights](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Container-Insights-setup-EKS.html) to be enabled on the cluster — clusters without it are skipped rather than producing false positives.
-
-> Rules do not change without business justification. See `CLAUDE.md` for FinOps domain thresholds.
+Rules do not change without business justification — see `CLAUDE.md` for FinOps domain thresholds.
 
 ---
 
@@ -357,54 +321,6 @@ axiaops/
 
 ---
 
-## Roadmap
-
-### Phase 1 — MVP ✅ Complete
-- [x] Go ingestion service with PostgreSQL and RLS
-- [x] Zombie detection with per-service threshold rules
-- [x] REST API (`/api/v1/zombies`, `/api/v1/summary`, `/api/v1/resources`)
-- [x] React web dashboard
-- [x] Docker Compose setup
-- [x] Comprehensive test coverage (44+ tests across 6 packages)
-- [x] AWS Cost Explorer + CloudWatch integration
-
-### Phase 2 — Alpha (in progress, target August 2026)
-- [x] AWS Cost Explorer + CloudWatch + resource discovery integration
-- [x] Native cookie auth + OIDC SSO + multi-tenancy (RLS)
-- [x] Account management — connect AWS accounts, encrypted secrets, on-demand scan
-- [x] Resource inventory view — all resources with zombie/active annotation
-- [x] Savings history / trend (`zombie_snapshots` + `GET /v1/trend`)
-- [x] Observability — structured logging (slog), Prometheus metrics
-- [x] API versioning — `/v1/` prefix on all endpoints
-- [x] In-memory rate limiting + graceful shutdown
-- [x] CI pipeline — test + build stages
-- [x] Scheduled auto-scan (24h default per account)
-- [x] `cost_records` 90-day retention cleanup
-- [x] Redis (now Valkey since 2026-05-27 migration) — JWKS cache, scan job queue, rate limiting
-- [x] Dismiss zombie workflow + snooze + audit trail
-- [x] Wire Redis in API `main.go` (inject into auth + rate limiter)
-- [ ] Weekly email digest + Slack alerts
-- [x] Production deployment (ECS Express + RDS + Valkey via Terraform)
-
-### Phase 3 — Beta / Launch (target December 2026)
-- [x] GDPR / right to erasure + data export
-- [ ] Remediation CLI commands per resource type
-- [ ] Scan history log + tag/team filtering + CSV export
-- [x] Expanded detection rules (EBS, S3, CloudFront, Redshift, ElastiCache)
-- [x] User management + roles (admin/viewer)
-
-### Phase 4 — Scale (2027)
-- [ ] Multi-cloud (Azure, GCP)
-- [ ] Mobile app (iOS + Android)
-- [ ] Cost forecasting (linear regression over snapshot history)
-
-### Phase 5 — Pre-deployment Simulation (2027+)
-- [ ] IaC plan parser (Terraform / CDK)
-- [ ] CI/CD budget gate
-- [ ] What-if cost scenarios
-
----
-
 ## Documentation
 
 **Start here:**
@@ -427,7 +343,7 @@ axiaops/
 
 ## Status
 
-**Phase 2 (Alpha) — April 2026.** Most of Phase 2 is complete: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow, email/Slack notification channels. Target first paying customer: October 2026.
+**Alpha.** Core functionality is working end to end: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow, email/Slack notification channels.
 
 ---
 
