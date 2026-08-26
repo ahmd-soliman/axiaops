@@ -21,7 +21,7 @@ raw ID.
 | Scan lifecycle | `_scan_duration_seconds`, `_scan_errors_total`, `_scan_queue_depth`, `_accounts_scanning` | `stage`, `account_id`, `error_type` |
 | Application | `_application_uptime_seconds`, `_application_errors_total` | — |
 
-### Example Prometheus scrape config
+### Example Prometheus scrape config (docker-compose / single-host)
 
 ```yaml
 scrape_configs:
@@ -33,6 +33,13 @@ scrape_configs:
 
 A fuller example with alerting rule stanzas ships at
 [`deploy/observability/prometheus.yml.example`](https://github.com/ahmd-soliman/axiaops/blob/main/deploy/observability/prometheus.yml.example).
+
+### On Kubernetes
+
+No config needed — the chart's `api`/`ingestion` Services already carry
+`prometheus.io/scrape`/`port`/`path` annotations, picked up automatically by
+the `kubernetes-service-endpoints` job most Prometheus Helm charts ship by
+default.
 
 ### Grafana
 

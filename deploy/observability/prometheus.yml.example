@@ -1,5 +1,15 @@
-# Prometheus configuration for AxiaOps
-# This example scrapes metrics from API and ingestion services.
+# Prometheus configuration for AxiaOps -- docker-compose / single-host
+# deployments. This example scrapes metrics from API and ingestion services
+# via static targets.
+#
+# Running on Kubernetes instead? You don't need this file. The chart's
+# api/ingestion Services already carry prometheus.io/scrape,
+# prometheus.io/port, and prometheus.io/path annotations -- the
+# kubernetes-service-endpoints job that ships by default in the
+# prometheus-community/prometheus Helm chart (and most other Prometheus
+# Operator/Helm setups) picks them up automatically, no per-target config
+# needed. Point your Prometheus at the axiaops namespace and it finds both
+# services on its own.
 #
 # Usage:
 #   cp prometheus.yml.example prometheus.yml

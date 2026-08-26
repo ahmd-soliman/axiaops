@@ -25,6 +25,13 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+### Added
+
+- Helm chart: `api`/`ingestion` Services now carry `prometheus.io/scrape`,
+  `prometheus.io/port`, and `prometheus.io/path` annotations, so a
+  Kubernetes Prometheus's `kubernetes-service-endpoints` job discovers
+  `/metrics` automatically — no per-target scrape config needed.
+
 ### Changed
 
 - Helm chart: `image.tag` now defaults to `Chart.yaml`'s `appVersion`
