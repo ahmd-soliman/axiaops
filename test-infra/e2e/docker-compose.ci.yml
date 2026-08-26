@@ -31,17 +31,17 @@
 services:
 
   migrate:
-    image: ${REGISTRY}/migrate:${IMAGE_TAG}
+    image: ${IMAGE_BASE}/migrate:${IMAGE_TAG}
     pull_policy: always
 
   ingestion:
-    image: ${REGISTRY}/ingestion:${IMAGE_TAG}
+    image: ${IMAGE_BASE}/ingestion:${IMAGE_TAG}
     pull_policy: always
 
   api:
-    image: ${REGISTRY}/api:${IMAGE_TAG}
+    image: ${IMAGE_BASE}/api:${IMAGE_TAG}
     pull_policy: always
 
   dashboard:
-    image: ${REGISTRY}/dashboard:${IMAGE_TAG}
+    image: ${IMAGE_BASE}/dashboard:${IMAGE_TAG}
     pull_policy: always
