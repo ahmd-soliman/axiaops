@@ -4,7 +4,9 @@
 // returning a single JSON document containing every per-organization row the
 // calling organization owns.
 //
-// Gated by PermDataExport (owner-only). The export bundles account configurations, cost/resource/zombie records, and the full audit_log of every member — granting
+// Gated by PermDataExport (owner-only). The export bundles account
+// configurations, cost/resource/zombie records, and the full audit_log of
+// every member — granting
 // a less-privileged role would broaden a single click into a download of
 // data the role cannot otherwise extract in one shot. Loosening this is a
 // product decision, not a code one.
