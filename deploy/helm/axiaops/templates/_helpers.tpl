@@ -6,8 +6,8 @@ Chart name, truncated/sanitized per Helm's own convention.
 {{- end -}}
 
 {{/*
-Fully-qualified app name. One release = one environment (mirrors one self-hosted
-host = one environment today), so releaseName alone is normally enough --
+Fully-qualified app name. One release = one environment (mirrors one
+self-hosted host = one environment today), so releaseName alone is normally enough --
 this still guards the multi-release-per-namespace edge case the same way
 every Helm starter chart does.
 */}}

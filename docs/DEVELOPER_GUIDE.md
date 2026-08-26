@@ -434,4 +434,3 @@ See [ARCHITECTURE.md § 12](ARCHITECTURE.md#12-glossary) for the full list. The 
 - **Tier 1 vs Tier 2** — API-only detection vs CloudWatch-driven.
 - **Mummer** — the AWS-API mock for integration tests. Fixtures in `test-infra/mummer/`.
 - **start-dev vs start-staging** — see § 2.
-- **an edge proxy** — an edge proxy (the edge proxy), **not** the JavaScript package manager.
