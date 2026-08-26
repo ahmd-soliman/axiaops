@@ -41,8 +41,8 @@ before `api`/`ingestion` restart against the new schema.
 
 | Key | Default | Notes |
 |---|---|---|
-| `devMode.enabled` | `true` | Bypasses auth. Only appropriate for a throwaway/personal environment — flip off for anything real. |
-| `image.apiSuffix` | `""` | Empty (default) pulls the DEV_MODE-hardwired-off production `api`/`ingestion` image. Set to `-devmode` to instead pull the sibling build that honours a `DEV_MODE` env var at runtime — matches `devMode.enabled: true` above; an explicit, deliberate opt-in, not the default. |
+| `devMode.enabled` | `true` | Bypasses auth. Only appropriate for a throwaway/personal environment — flip off for anything real. Has no effect against the published image (see `image.apiSuffix` below) — the env var is read by a build that no longer exists in the registry. |
+| `image.apiSuffix` | `""` | Leave empty. CI only builds and publishes the DEV_MODE-hardwired-off production `api`/`ingestion` image — an auth-bypass build is never pushed to a public registry. To actually use `devMode.enabled: true`, build the DEV_MODE-capable image yourself (`docker build -f services/api/Dockerfile .`, omitting `BUILD_TAGS`), push it to a registry you control, and point `apiSuffix`/`image.registry` at that. |
 | `ingress.enabled` | `false` | Deliberately off by default — see above. |
 | `postgres.existingSecret` | `""` | Required for anything to actually start. The chart installs without it (rendering `NOTES.txt` warnings) so `helm template` / CI linting doesn't need a real Secret to succeed. |
 | `redis.enabled` | `true` | Deploys the in-cluster Valkey Deployment + Service. Set `redis.auth.existingSecret` to a Secret containing a full `redis-url` DSN to point at an external Redis-compatible service instead — note this currently still deploys the in-cluster pod alongside it; there isn't yet a clean way to disable the embedded pod while keeping an external `REDIS_URL` wired in. |
@@ -63,8 +63,11 @@ any Deployment/Job reading them will crash-loop):
 
 For a first install you don't need production-grade backing services: leave
 `redis.enabled: true` (the default) so Valkey deploys in-cluster alongside
-the app, keep `devMode.enabled: true`, and point `postgres.existingSecret`
-at whatever Postgres you have handy — a single node with no HA story is
-fine here. Tighten both once you're running it for real — see
-[Deploying on AWS](aws-deployment/) for what that looks like on
-EKS.
+the app, and point `postgres.existingSecret` at whatever Postgres you have
+handy — a single node with no HA story is fine here. The published image
+always ships with real auth, so you'll go through the normal
+[bootstrap flow](authentication/) even on a throwaway install; if you
+specifically want the DEV_MODE auth bypass, build your own image first (see
+`image.apiSuffix` above). Tighten backing services once you're running it
+for real — see [Deploying on AWS](aws-deployment/) for what that looks like
+on EKS.
