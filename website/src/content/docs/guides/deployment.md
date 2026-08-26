@@ -42,7 +42,7 @@ before `api`/`ingestion` restart against the new schema.
 | Key | Default | Notes |
 |---|---|---|
 | `devMode.enabled` | `true` | Bypasses auth. Only appropriate for a throwaway/personal environment — flip off for anything real. |
-| `image.apiSuffix` | `""` | Set to `-production` to pull the DEV_MODE-hardwired-off `api`/`ingestion` image variant. |
+| `image.apiSuffix` | `""` | Empty (default) pulls the DEV_MODE-hardwired-off production `api`/`ingestion` image. Set to `-devmode` to instead pull the sibling build that honours a `DEV_MODE` env var at runtime — matches `devMode.enabled: true` above; an explicit, deliberate opt-in, not the default. |
 | `ingress.enabled` | `false` | Deliberately off by default — see above. |
 | `postgres.existingSecret` | `""` | Required for anything to actually start. The chart installs without it (rendering `NOTES.txt` warnings) so `helm template` / CI linting doesn't need a real Secret to succeed. |
 | `redis.enabled` | `true` | Deploys the in-cluster Valkey Deployment + Service. Set `redis.auth.existingSecret` to a Secret containing a full `redis-url` DSN to point at an external Redis-compatible service instead — note this currently still deploys the in-cluster pod alongside it; there isn't yet a clean way to disable the embedded pod while keeping an external `REDIS_URL` wired in. |
