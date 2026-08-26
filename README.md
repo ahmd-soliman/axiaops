@@ -1,6 +1,6 @@
 # AxiaOps
 
-A FinOps SaaS tool that detects idle and zombie cloud resources still incurring costs despite zero usage — and surfaces an actionable remediation workflow with a full audit trail.
+A self-hosted, open-source FinOps tool that detects idle and zombie cloud resources still incurring costs despite zero usage — and surfaces an actionable remediation workflow with a full audit trail.
 
 > **Know the value of every resource.**
 
@@ -387,7 +387,6 @@ axiaops/
 - [x] Production deployment (ECS Express + RDS + Valkey via Terraform)
 
 ### Phase 3 — Beta / Launch (target December 2026)
-- [ ] Subscription billing
 - [x] GDPR / right to erasure + data export
 - [ ] Remediation CLI commands per resource type
 - [ ] Scan history log + tag/team filtering + CSV export

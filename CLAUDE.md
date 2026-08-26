@@ -2,7 +2,7 @@
 
 ## What is AxiaOps?
 
-FinOps SaaS that detects idle/zombie cloud resources still incurring costs despite zero usage.
+Self-hosted, open-source FinOps tool that detects idle/zombie cloud resources still incurring costs despite zero usage.
 "Know the value of every resource." MVP targets AWS; multi-cloud (Azure, GCP) is Phase 4.
 
 ## Current Status

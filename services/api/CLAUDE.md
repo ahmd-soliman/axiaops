@@ -99,7 +99,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin the DEV_MODE
 ## Auth Middleware
 
 - Locations: `internal/middleware/auth.go` (context-key getters/setters + `DevBypass` + `publicPath`); `internal/middleware/auth_native.go` (`WrapNative` — wraps the `auth.Provider` seam, attaches the resolved `Identity` to the request context).
-- Production provider is `auth.NativeProvider`: cookie-bound session lookup against the `sessions` table, role + org resolved via `MembershipLookup`. The `auth.Provider` interface is preserved as a single-impl seam so a future SaaS reactivation can swap implementations without touching the middleware chain.
+- Production provider is `auth.NativeProvider`: cookie-bound session lookup against the `sessions` table, role + org resolved via `MembershipLookup`. The `auth.Provider` interface is preserved as a single-impl seam so an alternate implementation could swap in without touching the middleware chain.
 - `DEV_MODE=true` → auth chain replaced by `DevBypass`, uses `DEV_ORGANIZATION_ID` / `DEV_USER_ID` / `DEV_USER_EMAIL`.
 - OIDC SSO ceremony is wired in `serverbuild.ComposeServer` when `!cfg.DevMode`: initiate at `/v1/sso/oidc/{cid}/initiate`, callback at the cid-less `/v1/sso/oidc/callback` (state carries connection identity). The legacy path-cid callback `/v1/sso/oidc/{cid}/callback` stays wired for one release as a deprecation window — hits surface via `axiaops_sso_legacy_callback_total{cid}`. Successful callback mints a native session via the same `SessionManager` with `auth_mode='sso'`.
 - See `docs/invitation-flow.md` for how `pending_memberships` rows get redeemed on first login.
