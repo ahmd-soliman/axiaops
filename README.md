@@ -1,6 +1,11 @@
-# AxiaOps
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logos/axiaops-logo-dark.svg">
+  <img alt="AxiaOps" src="logos/axiaops-logo.svg" width="360">
+</picture>
 
-A self-hosted, open-source FinOps tool that detects idle and zombie cloud resources still incurring costs despite zero usage — and surfaces an actionable remediation workflow with a full audit trail.
+## AxiaOps — FinOps
+
+A self-hosted, open-source tool that detects idle and zombie cloud resources still incurring costs despite zero usage — and surfaces an actionable remediation workflow with a full audit trail.
 
 > **Know the value of every resource.**
 
@@ -338,6 +343,8 @@ axiaops/
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Connecting an AWS account, Slack/Email notification channels |
 | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Prometheus metrics, structured logging, AWS-scan error handling/resilience |
 | [docs/TEST_STRATEGY.md](docs/TEST_STRATEGY.md) | Unit/integration/e2e/AWS testing architecture |
+
+**Docs site:** the [`website/`](website/) directory is the public docs site source (Astro + Starlight) — run `cd website && npm install && npm run dev` for a local preview. See [website/README.md](website/README.md).
 
 ---
 
