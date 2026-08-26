@@ -263,7 +263,7 @@ func newMetrics() *Metrics {
 		}, []string{"provider"}),
 		AuthProviderLastSeen: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "axiaops_auth_provider_last_seen_seconds",
-			Help: "Unix timestamp of the most recent authenticated request handled per provider. The seam is preserved post-Kinde-removal so a future SaaS reactivation can register its own provider label without changing the metric name (architect N1).",
+			Help: "Unix timestamp of the most recent authenticated request handled per provider. The seam is preserved post-Kinde-removal so a future auth provider can register its own label without changing the metric name.",
 		}, []string{"provider"}),
 
 		SSOLegacyCallbackTotal: factory.NewCounterVec(prometheus.CounterOpts{

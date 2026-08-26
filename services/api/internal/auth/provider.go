@@ -35,8 +35,8 @@ var ErrUnauthenticated = errors.New("auth: unauthenticated")
 
 // Provider authenticates an incoming request. Self-hosted v1 ships
 // NativeProvider (cookie + sessions table); the interface stays as a
-// single-method seam so a SaaS reactivation can swap in a remote-IdP
-// impl without touching the middleware chain.
+// single-method seam so a different impl (e.g. a remote IdP) can swap in
+// without touching the middleware chain.
 //
 // Implementations MUST be safe for concurrent use across requests.
 type Provider interface {

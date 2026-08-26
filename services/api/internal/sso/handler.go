@@ -449,8 +449,7 @@ func (h *Handler) replaceGroupMappings(w http.ResponseWriter, r *http.Request) {
 	// Verify the connection exists in this org first; ListSSOGroupMappings
 	// returning an empty list is ambiguous (no mappings vs. wrong connection),
 	// so a Get up front gives the caller a clean 404 path. Goes through the
-	// Connector seam so a SaaS reactivation that wraps Get for mirroring
-	// sees this read.
+	// Connector seam so any impl that wraps Get for mirroring sees this read.
 	if _, err := h.connector.Get(ctx, connID); err != nil {
 		if errors.Is(err, storage.ErrSSOConnectionNotFound) {
 			writeError(w, http.StatusNotFound, "connection not found")

@@ -12,11 +12,12 @@ import (
 	"axiaops.io/shared/storage"
 )
 
-// Connector is the seam (D11 / plan §4.8.5) for connection-side mutations
-// — Save (insert/update), Delete, and (slice 4+) live IdP probe via Test.
-// Handlers depend only on this interface, not on the concrete impl. SaaS
-// reactivation adds a kindeConnector that mirrors connections to the Kinde
-// Mgmt API and populates kinde_connection_id; B2 ships only NativeConnector.
+// Connector is the seam for connection-side mutations — Save
+// (insert/update), Delete, and (slice 4+) live IdP probe via Test.
+// Handlers depend only on this interface, not on the concrete impl. A
+// future impl could add a kindeConnector that mirrors connections to the
+// Kinde Mgmt API and populates kinde_connection_id; B2 ships only
+// NativeConnector.
 type Connector interface {
 	// Save creates a new connection (when c.ID is empty) or updates an
 	// existing one. Performs Option-B validation: rejects non-empty

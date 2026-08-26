@@ -1,15 +1,10 @@
 -- 033_entitlements.up.sql
--- SaaS per-tenant entitlement — the billing-driven analogue of the self-hosted
--- license claim. See docs/saas-platform-admin-design.md §7.2 (recommended
--- model) and §8 (data-model deltas).
+-- Per-tenant entitlement — the billing-driven analogue of the self-hosted
+-- license claim.
 --
--- DORMANT SCAFFOLD (Phase 2A): this table exists and is read/written by the
--- `entitlement` package + cmd/entitlement-seed, but NO scan-gate consults it
--- yet — that wiring (the default (SaaS) build's scan gates, via the build-tag
--- seam in services/{api,ingestion}/cmd/saasmode_saas.go, which call
--- license.SetEnforcementBypass()) is Phase 2B, deliberately deferred until
--- ADR-0002 is accepted and the self-serve activation gate proves out
--- (design §7.1 / §11.1 decision 3). Until then this table changes no running
+-- DORMANT SCAFFOLD: this table exists and is read/written by the
+-- `entitlement` package, but no scan-gate consults it — that wiring was
+-- deliberately deferred and never landed. This table changes no running
 -- deployment's behaviour.
 --
 -- SYSTEM-scoped, NOT per-org-RLS data — and this is load-bearing:
@@ -35,9 +30,8 @@
 --     RLS discriminator. ON DELETE CASCADE so a GDPR org purge takes it.
 --   * The past_due grace window is NOT stored — it is derived at read time as
 --     current_period_end + ENTITLEMENT_GRACE_DAYS, mirroring how license grace
---     is `exp + grace_period_days` rather than a stored column (design §7.2's
---     "+ a grace window on past_due, exactly like the license in_grace
---     philosophy"). Keeps billing the single source of truth for the period.
+--     is `exp + grace_period_days` rather than a stored column. Keeps billing
+--     the single source of truth for the period.
 --   * billing_*_ref are opaque provider handles (Stripe customer/subscription
 --     ids) the future webhook seam populates; nullable, no provider coupling
 --     in the schema.

@@ -61,7 +61,7 @@ type Handler struct {
 
 	// inviteMailer delivers invitation redemption URLs to invitees on POST
 	// /v1/invitations. nil ⇒ no delivery attempt (EmailDelivery omitted) — the
-	// composition seam a SaaS reactivation swaps for a platform mailer. Set via
+	// composition seam a future impl could swap for a platform mailer. Set via
 	// WithInviteMailer; serverbuild wires the default channel-first/global-SMTP
 	// impl.
 	inviteMailer InviteMailer

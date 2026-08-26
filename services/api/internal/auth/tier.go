@@ -9,7 +9,7 @@ package auth
 // Today's only tier is "native" (cookie sessions, sourced from
 // sessions.auth_mode = password|sso|bootstrap). The unknown/empty
 // branches stay as observability anchors — a future provider impl
-// (SaaS reactivation) would add its own case here.
+// would add its own case here.
 //
 // "unknown" is the deliberate fallback for any unrecognised mode — it
 // makes the bug observable both in the API response and in metric

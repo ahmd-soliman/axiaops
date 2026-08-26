@@ -2,13 +2,11 @@ name: ci
 
 # Converted from .gitlab-ci.yml's test/integration/e2e/build stages for the
 # open-source release. Deliberately excludes:
-#   - the deploy stage (deploy:dev-1/dev-2/preview/demo/staging/integration/
-#     production, gate:devmode:*) — internal SaaS deploy targets, not
-#     applicable to an OSS repo with no equivalent infrastructure here.
+#   - the deploy stage — internal deploy targets not applicable to an OSS
+#     repo with no equivalent infrastructure here.
 #   - test:dashboard-admin and build:admin-images — the admin plane
-#     (api-admin/dashboard-admin, staff console) is SaaS-operator tooling,
-#     out of scope for a self-hosted single-org install. See
-#     docs (Architecture guide) for the reasoning.
+#     (api-admin/dashboard-admin, staff console) is out of scope for a
+#     self-hosted single-org install.
 # Everything else keeps the same shape: same Makefile targets, same service
 # containers, same Go/Node versions. Images build and push to GHCR instead
 # of the GitLab Container Registry.

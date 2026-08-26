@@ -1,8 +1,7 @@
 // auth_native.go — middleware that authenticates requests via the
-// auth.Provider seam (D11/S1). Today's sole production impl is
-// auth.NativeProvider (cookie + sessions table). The seam stays so a
-// SaaS reactivation can swap in a remote-IdP impl without touching the
-// middleware chain.
+// auth.Provider seam. Today's sole production impl is auth.NativeProvider
+// (cookie + sessions table). The seam stays so a different impl (e.g. a
+// remote IdP) can swap in without touching the middleware chain.
 
 package middleware
 
