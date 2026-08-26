@@ -32,6 +32,10 @@ spec:
           env:
             - name: APP_ENV
               value: {{ .Values.env | quote }}
+            # Overrides the image's own baked-in ENV APP_VERSION -- see
+            # deployment-api.yaml's comment on the same env var.
+            - name: APP_VERSION
+              value: {{ include "axiaops.imageTag" . | quote }}
             - name: SCAN_INTERVAL
               value: {{ .Values.ingestion.scanInterval | quote }}
             - name: DEV_MODE

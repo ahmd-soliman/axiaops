@@ -34,6 +34,14 @@ spec:
               value: ":8080"
             - name: APP_ENV
               value: {{ .Values.env | quote }}
+            # Overrides the image's own baked-in ENV APP_VERSION (set to
+            # whatever CI's build-images tagged it, e.g. main-<shortsha>) --
+            # release.yml promotes an already-built commit image to the
+            # release tag rather than rebuilding it, so the image-level
+            # default can lag behind the tag actually being deployed. A Pod
+            # env var always wins over the image's Dockerfile ENV.
+            - name: APP_VERSION
+              value: {{ include "axiaops.imageTag" . | quote }}
             - name: INGESTION_URL
               value: "http://{{ include "axiaops.ingestionHost" . }}:8081"
             - name: DEV_MODE
