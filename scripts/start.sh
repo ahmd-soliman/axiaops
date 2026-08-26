@@ -96,6 +96,7 @@ cd "$INGESTION_DIR"
   export DATABASE_URL="$DATABASE_URL"
   export MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
   export RUNTIME_ADMIN_DATABASE_URL="$RUNTIME_ADMIN_DATABASE_URL"
+  export DEV_MODE="$CALLER_DEV_MODE"
   if [[ -f .env ]]; then
     set -a; source .env; set +a
   fi
