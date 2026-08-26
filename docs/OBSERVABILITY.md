@@ -70,6 +70,9 @@ observability.Global.ZombiesDetected.WithLabelValues("aws", organizationID).Set(
   `axiaops_potential_monthly_savings_usd` by organization
 - AWS API errors: `rate(axiaops_aws_api_errors_total[5m])` by service
 
+A ready-to-import dashboard covering these is at
+[`deploy/observability/grafana-dashboard.json`](../deploy/observability/grafana-dashboard.json).
+
 ### Example Prometheus scrape config
 
 ```yaml
@@ -79,6 +82,10 @@ scrape_configs:
   - job_name: 'axiaops-ingestion'
     static_configs: [{ targets: ['localhost:8081'] }]
 ```
+
+A fuller example (with comments, optional alerting/rule-file stanzas) is at
+[`deploy/observability/prometheus.yml.example`](../deploy/observability/prometheus.yml.example) —
+copy it to `prometheus.yml` and point `prometheus --config.file=` at it.
 
 ## Structured logging
 
