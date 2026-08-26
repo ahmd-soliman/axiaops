@@ -5,7 +5,7 @@ description: Running AxiaOps on EKS with managed Postgres and Redis instead of s
 
 import Mermaid from '../../../components/Mermaid.astro';
 
-The [Deployment](/guides/deployment/) guide covers the Helm chart in
+The [Deployment](deployment/) guide covers the Helm chart in
 general — this page assumes you're already running it on EKS (the chart
 doesn't target any other Kubernetes distribution specifically) and covers
 what changes once it's a real deployment rather than a trial. EKS itself
@@ -56,7 +56,7 @@ helm install axiaops . \
 ## Why managed services
 
 The chart's embedded-pod option (the default, covered in
-[Deployment](/guides/deployment/)) is genuinely fine for trying AxiaOps out,
+[Deployment](deployment/)) is genuinely fine for trying AxiaOps out,
 but a self-hosted pod shares the app's failure domain and has no
 independent failover — a dependency can come up after the pod that needs
 it, and without a retry that's a silent, lasting degradation rather than a
@@ -85,7 +85,7 @@ revision, mirroring how Postgres has no in-cluster option at all.
 2. **The cross-account role `ingestion` assumes into each *scanned*
    customer account** — a completely separate trust relationship, set up
    per connected account, documented in
-   [Architecture → Connecting to AWS](/guides/architecture/#connecting-to-aws).
+   [Architecture → Connecting to AWS](architecture/#connecting-to-aws).
    This is what actually reads the customer's Cost Explorer / EC2 / RDS /
    etc. data — it has nothing to do with the infrastructure hosting
    AxiaOps itself.
