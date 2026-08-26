@@ -85,6 +85,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.postgres.existingSecret }}
                   key: migration-database-url
+            - name: RUNTIME_ADMIN_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.existingSecret }}
+                  key: runtime-admin-database-url
             {{- end }}
             {{- if .Values.secrets.existingSecret }}
             - name: ENCRYPTION_KEY

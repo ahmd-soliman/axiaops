@@ -27,6 +27,29 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.29] — 2026-08-26
+
+### Added
+
+- example `ExternalSecret` manifests for wiring the chart's two required
+  Secrets from AWS Secrets Manager via External Secrets Operator
+  (`deploy/helm/axiaops/examples/external-secret-aws.yaml`)
+
+### Fixed
+
+- Helm chart: `api`/`ingestion` Deployments never wired `RUNTIME_ADMIN_DATABASE_URL` —
+  only the migrate Job did — so both crash-looped outside DEV_MODE with
+  "RUNTIME_ADMIN_DATABASE_URL is required"
+- Helm chart README's Secret-creation example was missing `ingestion-shared-secret`,
+  which `ingestion` requires outside DEV_MODE for HMAC auth with `api`
+
+### Changed
+
+- `release.yml` no longer rebuilds images from source — it promotes the
+  already-built, already-e2e-tested `main-<shortsha>` commit image to the
+  release tag instead (`docker buildx imagetools create`), so the release
+  artifact is guaranteed byte-for-byte identical to what CI actually tested
+
 ## [0.1.0-alpha.28] — 2026-08-26
 
 First release published from the public GitHub repository.
@@ -848,6 +871,7 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://github.com/ahmd-soliman/axiaops/compare/0.1.0-alpha.27...develop
+[0.1.0-alpha.29]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.29
 [0.1.0-alpha.28]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.28
 [0.1.0-alpha.27]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.27
 [0.1.0-alpha.26]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.26
