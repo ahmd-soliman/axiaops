@@ -85,8 +85,8 @@ knowing about upfront:
 
 | Key | Default | Notes |
 |---|---|---|
-| `devMode.enabled` | `true` | Auth bypass — only ever appropriate for a throwaway/personal environment. |
+| `devMode.enabled` | `true` | Auth bypass — only ever appropriate for a throwaway/personal environment. Has no effect against the published image (see `image.apiSuffix`) — CI never publishes a build that honours it. |
 | `image.tag` | `""` (**required**) | No safe default — see [Installing](#installing) above. |
-| `image.apiSuffix` | `""` | Empty (default) pulls the DEV_MODE-hardwired-off production api/ingestion image. Set to `-devmode` to instead pull the sibling build that honours a `DEV_MODE` env var at runtime — an explicit, deliberate opt-in, not the default. |
+| `image.apiSuffix` | `""` | Leave empty. CI only builds and publishes the DEV_MODE-hardwired-off production api/ingestion image — an auth-bypass build is never pushed to a public registry. Want `devMode.enabled: true` to actually do something? Build the DEV_MODE-capable image yourself (`docker build -f services/api/Dockerfile .`, no `BUILD_TAGS`), push it to a registry you control, and point `apiSuffix`/`image.registry` at that. |
 | `ingress.enabled` | `false` | Deliberately off by default — see above. |
 | `postgres.existingSecret` | `""` | Required for anything to actually start; chart installs without it (renders `NOTES.txt` warnings) so `helm template`/CI linting doesn't need a real Secret to succeed. |

@@ -55,16 +55,14 @@ jobs:
       - name: Build and push release images
         run: |
           TAG="${GITHUB_REF_NAME}"
-          # Same shape as ci.yml's build-images: plain tag = production
-          # (DEV_MODE-hardwired-off), -devmode = the sibling that honours
-          # DEV_MODE at runtime.
+          # Same shape as ci.yml's build-images: only the production shape
+          # (DEV_MODE compiled out) is ever built and published by CI. The
+          # DEV_MODE-capable sibling is local-build-only, never pushed to a
+          # public registry -- see deploy/README.md.
           for svc in api ingestion; do
             docker build -t ${IMAGE_BASE}/${svc}:${TAG} \
               -f services/${svc}/Dockerfile \
               --build-arg BUILD_TAGS=production \
-              --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
-            docker build -t ${IMAGE_BASE}/${svc}:${TAG}-devmode \
-              -f services/${svc}/Dockerfile \
               --build-arg APP_VERSION=${TAG} --build-arg APP_COMMIT_SHA=${GITHUB_SHA::8} .
           done
           docker build -t ${IMAGE_BASE}/migrate:${TAG} \
@@ -73,9 +71,7 @@ jobs:
           docker build -t ${IMAGE_BASE}/dashboard:${TAG} \
             -f services/dashboard/Dockerfile services/dashboard
           docker push ${IMAGE_BASE}/api:${TAG}
-          docker push ${IMAGE_BASE}/api:${TAG}-devmode
           docker push ${IMAGE_BASE}/ingestion:${TAG}
-          docker push ${IMAGE_BASE}/ingestion:${TAG}-devmode
           docker push ${IMAGE_BASE}/migrate:${TAG}
           docker push ${IMAGE_BASE}/dashboard:${TAG}
 
