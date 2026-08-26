@@ -54,12 +54,14 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{/*
-Resolves the image tag: .Values.image.tag if set, else Chart.AppVersion --
-same fallback shape as .gitlab-ci.yml's ${CI_COMMIT_TAG:-${CI_COMMIT_REF_SLUG}}
-(always resolve to *something* rather than an empty/":latest" tag).
+Resolves the image tag. Deliberately NOT defaulted to .Chart.AppVersion --
+CI tags images main-<shortsha>, not semver, so a silent fallback to
+Chart.AppVersion would resolve to a tag that's never actually been
+published and fail with ErrImagePull. image.tag must be set explicitly;
+fail loudly at render time instead of at pod-crash time.
 */}}
 {{- define "axiaops.imageTag" -}}
-{{- default .Chart.AppVersion .Values.image.tag -}}
+{{- required "image.tag must be set -- see the chart README for how to find a published tag" .Values.image.tag -}}
 {{- end -}}
 
 {{/*
