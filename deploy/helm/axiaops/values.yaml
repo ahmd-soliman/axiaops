@@ -12,17 +12,18 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  registry: registry.gitlab.com/axiaops/axiaops
+  registry: ghcr.io/ahmd-soliman/axiaops
   # Empty resolves to .Chart.AppVersion (see templates/_helpers.tpl
   # axiaops.imageTag) -- set explicitly to pin a commit-slug or release tag.
   tag: ""
   pullPolicy: IfNotPresent
-  # api/ingestion only. Empty pulls the DEV_MODE-honouring image; set to
-  # "-production" to pull the DEV_MODE-hardwired-off sibling build:images
-  # also pushes. Mirrors API_IMAGE_TAG_SUFFIX in .gitlab-ci.yml -- see that
-  # file's .deploy-dev template and fix(ci) 3fdc45b6/f90a9736 for why this
-  # distinction exists (a misconfigured DEV_MODE CI var must not be able to
-  # flip auth off on a real environment).
+  # api/ingestion only. Secure-by-default: empty pulls the DEV_MODE-hardwired-
+  # off (production) image -- the one anyone gets who doesn't override this.
+  # Set to "-devmode" to instead pull the sibling build that honours a
+  # DEV_MODE env var at runtime (build-images pushes both). A misconfigured
+  # DEV_MODE env var on a real deployment must not be able to flip auth off,
+  # which is why the safe image is the default and the permissive one
+  # requires an explicit, deliberate opt-in.
   apiSuffix: ""
 
 imagePullSecrets: []
