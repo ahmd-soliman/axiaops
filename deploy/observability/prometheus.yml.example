@@ -2,6 +2,7 @@
 # This example scrapes metrics from API and ingestion services.
 #
 # Usage:
+#   cp prometheus.yml.example prometheus.yml
 #   prometheus --config.file=prometheus.yml
 #
 # Access: http://localhost:9090
