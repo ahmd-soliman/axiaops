@@ -73,7 +73,7 @@ observability.Global.ZombiesDetected.WithLabelValues("aws", organizationID).Set(
 A ready-to-import dashboard covering these is at
 [`deploy/observability/grafana-dashboard.json`](../deploy/observability/grafana-dashboard.json).
 
-### Example Prometheus scrape config
+### Example Prometheus scrape config (docker-compose / single-host)
 
 ```yaml
 scrape_configs:
@@ -86,6 +86,16 @@ scrape_configs:
 A fuller example (with comments, optional alerting/rule-file stanzas) is at
 [`deploy/observability/prometheus.yml.example`](../deploy/observability/prometheus.yml.example) —
 copy it to `prometheus.yml` and point `prometheus --config.file=` at it.
+
+### On Kubernetes
+
+No config file needed. The chart's `api`/`ingestion` Services carry
+`prometheus.io/scrape`, `prometheus.io/port`, and `prometheus.io/path`
+annotations — the `kubernetes-service-endpoints` scrape job that ships by
+default in the prometheus-community/prometheus Helm chart (and most other
+Prometheus setups on Kubernetes) discovers them automatically. Point
+Prometheus at the cluster and it finds both services in the `axiaops`
+namespace on its own.
 
 ## Structured logging
 
