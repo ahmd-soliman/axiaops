@@ -63,9 +63,10 @@ same fallback shape as .gitlab-ci.yml's ${CI_COMMIT_TAG:-${CI_COMMIT_REF_SLUG}}
 {{- end -}}
 
 {{/*
-api/ingestion share one tag-suffix knob: empty pulls the DEV_MODE-honouring
-image, "-production" pulls the DEV_MODE-hardwired-off sibling. Mirrors
-API_IMAGE_TAG_SUFFIX in .gitlab-ci.yml's .deploy-dev template.
+api/ingestion share one tag-suffix knob: empty (the default) pulls the
+DEV_MODE-hardwired-off production image; "-devmode" pulls the sibling build
+that honours a DEV_MODE env var at runtime. Safe image is the default on
+purpose -- see values.yaml's image.apiSuffix comment.
 */}}
 {{- define "axiaops.apiImage" -}}
 {{- printf "%s/api:%s%s" .Values.image.registry (include "axiaops.imageTag" .) .Values.image.apiSuffix -}}
