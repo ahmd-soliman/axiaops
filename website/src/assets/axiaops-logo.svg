@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 100" role="img">
+  <title>AxiaOps</title>
+  <desc>AxiaOps primary horizontal lockup — Rubik-cube dissolve mark with cubies scattering and a transparent corner void. Light variant; pair with axiaops-logo-dark.svg for dark backgrounds.</desc>
+  <g transform="translate(50 50) scale(0.7)">
+    <polygon points="-33,-20 0,-1 0,36 -33,18" fill="#9a3412"/>
+    <polygon points="0,-1 16.5,-10.5 16.5,8 33,-1.5 33,18 0,36" fill="#ea580c"/>
+    <polygon points="0,-38 16.5,-29 0,-20 16.5,-10.5 0,-1 -33,-20" fill="#fb923c"/>
+    <g transform="translate(40 -25)" opacity="0.9">
+      <polygon points="0,-7 6,-3.5 0,0 -6,-3.5" fill="#fb923c"/>
+      <polygon points="0,0 6,-3.5 6,3.5 0,7" fill="#ea580c"/>
+      <polygon points="0,0 -6,-3.5 -6,3.5 0,7" fill="#9a3412"/>
+    </g>
+    <g transform="translate(48 -42)" opacity="0.7">
+      <polygon points="0,-5 4,-2.5 0,0 -4,-2.5" fill="#fb923c"/>
+      <polygon points="0,0 4,-2.5 4,2.5 0,5" fill="#ea580c"/>
+      <polygon points="0,0 -4,-2.5 -4,2.5 0,5" fill="#9a3412"/>
+    </g>
+    <g transform="translate(58 -28)" opacity="0.55">
+      <polygon points="0,-4 3.5,-2 0,0 -3.5,-2" fill="#fb923c"/>
+      <polygon points="0,0 3.5,-2 3.5,2 0,4" fill="#ea580c"/>
+      <polygon points="0,0 -3.5,-2 -3.5,2 0,4" fill="#9a3412"/>
+    </g>
+    <g transform="translate(38 -52)" opacity="0.45">
+      <polygon points="0,-3.5 3,-1.75 0,0 -3,-1.75" fill="#fb923c"/>
+      <polygon points="0,0 3,-1.75 3,1.75 0,3.5" fill="#ea580c"/>
+      <polygon points="0,0 -3,-1.75 -3,1.75 0,3.5" fill="#9a3412"/>
+    </g>
+    <g transform="translate(64 -45)" opacity="0.32">
+      <polygon points="0,-3 2.6,-1.5 0,0 -2.6,-1.5" fill="#fb923c"/>
+      <polygon points="0,0 2.6,-1.5 2.6,1.5 0,3" fill="#ea580c"/>
+      <polygon points="0,0 -2.6,-1.5 -2.6,1.5 0,3" fill="#9a3412"/>
+    </g>
+    <g transform="translate(54 -58)" opacity="0.2">
+      <polygon points="0,-2.5 2.2,-1.2 0,0 -2.2,-1.2" fill="#fb923c"/>
+      <polygon points="0,0 2.2,-1.2 2.2,1.2 0,2.5" fill="#ea580c"/>
+      <polygon points="0,0 -2.2,-1.2 -2.2,1.2 0,2.5" fill="#9a3412"/>
+    </g>
+  </g>
+  <text x="115" y="63" font-family="Geist, -apple-system, sans-serif" font-weight="700" font-size="40" letter-spacing="-0.8" fill="#0f172a">Axia<tspan fill="#f97316">Ops</tspan></text>
+</svg>
