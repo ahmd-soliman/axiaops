@@ -54,6 +54,6 @@ knowing about upfront:
 | Key | Default | Notes |
 |---|---|---|
 | `devMode.enabled` | `true` | Auth bypass — only ever appropriate for a throwaway/personal environment. |
-| `image.apiSuffix` | `""` | Set to `-production` to pull the DEV_MODE-hardwired-off api/ingestion image variant. |
+| `image.apiSuffix` | `""` | Empty (default) pulls the DEV_MODE-hardwired-off production api/ingestion image. Set to `-devmode` to instead pull the sibling build that honours a `DEV_MODE` env var at runtime — an explicit, deliberate opt-in, not the default. |
 | `ingress.enabled` | `false` | Deliberately off by default — see above. |
 | `postgres.existingSecret` | `""` | Required for anything to actually start; chart installs without it (renders `NOTES.txt` warnings) so `helm template`/CI linting doesn't need a real Secret to succeed. |
