@@ -106,11 +106,12 @@ project "no-auth" (deps: [setup], no storageState)
 
 ### CI gating
 
-Non-blocking everywhere today (the suite is young): `develop`/`main` runs
-automatically but `allow_failure: true` (visible, not blocking);
-MRs/feature-branches are `when: manual` (keeps the heavy 3-image build off every
-push). **Exit criterion**: flip to a hard gate (`allow_failure: false`) once the
-bootstrap+login lifecycle specs have been reliably green for ~2 weeks.
+Non-blocking today (the suite is young): the `e2e-regression` job runs on every
+push to `main` but with `continue-on-error: true` (visible in the CI run, doesn't
+block anything). It doesn't run on PRs at all yet — keeps the heavy 3-image build
+off every push. **Exit criterion**: flip to a hard gate (`continue-on-error: false`,
+and add it to PR runs) once the bootstrap+login lifecycle specs have been reliably
+green for ~2 weeks.
 
 ---
 
