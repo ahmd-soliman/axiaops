@@ -38,6 +38,14 @@ export default defineConfig({
 						{ label: 'Deploying on ECS', slug: 'guides/ecs-deployment' },
 						{ label: 'Authentication & Roles', slug: 'guides/authentication' },
 						{ label: 'Operations', slug: 'guides/operations' },
+						{ label: 'Observability', slug: 'guides/observability' },
+					],
+				},
+				{
+					label: 'Contributing',
+					items: [
+						{ label: 'Getting Started', slug: 'guides/contributing' },
+						{ label: 'Testing', slug: 'guides/testing' },
 					],
 				},
 			],

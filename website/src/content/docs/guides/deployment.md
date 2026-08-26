@@ -42,6 +42,7 @@ before `api`/`ingestion` restart against the new schema.
 | Key | Default | Notes |
 |---|---|---|
 | `devMode.enabled` | `true` | Bypasses auth. Only appropriate for a throwaway/personal environment — flip off for anything real. Has no effect against the published image (see `image.apiSuffix` below) — the env var is read by a build that no longer exists in the registry. |
+| `image.tag` | `""` | Falls back to `Chart.yaml`'s `appVersion` — every chart version is published together with a matching, already-tested GHCR image, so you don't need to set this unless you want a different published tag or a manually-built one. |
 | `image.apiSuffix` | `""` | Leave empty. CI only builds and publishes the DEV_MODE-hardwired-off production `api`/`ingestion` image — an auth-bypass build is never pushed to a public registry. To actually use `devMode.enabled: true`, build the DEV_MODE-capable image yourself (`docker build -f services/api/Dockerfile .`, omitting `BUILD_TAGS`), push it to a registry you control, and point `apiSuffix`/`image.registry` at that. |
 | `ingress.enabled` | `false` | Deliberately off by default — see above. |
 | `postgres.existingSecret` | `""` | Required for anything to actually start. The chart installs without it (rendering `NOTES.txt` warnings) so `helm template` / CI linting doesn't need a real Secret to succeed. |
