@@ -57,6 +57,22 @@ jobs:
           mkdir -p site-out
           cp -r website/dist/. site-out/
           mkdir -p site-out/charts
+
+          # Each Pages deploy fully replaces the previous one -- there's no
+          # incremental upload -- so without this, every run would wipe out
+          # every chart version except the one just packaged, breaking
+          # `helm install --version <old>` for anything already published.
+          # A real chart repo keeps every version ever published (same as
+          # chart-releaser, Bitnami, any other real Helm chart repo), so
+          # pull down whatever's already live first and let this run add to
+          # it. Silently a no-op on the very first-ever run (no site to
+          # fetch from yet).
+          if curl -fsSL "${PAGES_URL}/charts/index.yaml" -o /tmp/old-index.yaml; then
+            grep -oE 'https://[^"[:space:]]+\.tgz' /tmp/old-index.yaml | sort -u | while read -r url; do
+              curl -fsSL "$url" -o "site-out/charts/$(basename "$url")"
+            done
+          fi
+
           helm package deploy/helm/axiaops -d site-out/charts
           helm repo index site-out/charts --url "${PAGES_URL}/charts"
 
