@@ -1,0 +1,81 @@
+---
+// Override of @astrojs/starlight/components/ThemeSelect.astro -- replaces
+// Starlight's dropdown with the dashboard app's own single sun/moon toggle
+// button (services/dashboard/src/components/AppShell.jsx), so the control
+// looks and behaves identically across the two properties. Icons are the
+// exact same SVG paths as AppShell's local IconSun/IconMoon.
+//
+// Underlying storage/detection logic is unchanged from the plain
+// dark/light override this replaced: 'starlight-theme' in localStorage,
+// falling back to prefers-color-scheme only on first visit, same as the
+// dashboard's own ThemeContext.
+---
+
+<starlight-theme-select>
+	<button type="button" class="theme-toggle" aria-label="Toggle color theme">
+		<svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<circle cx="12" cy="12" r="4"></circle>
+			<line x1="12" y1="2" x2="12" y2="4"></line>
+			<line x1="12" y1="20" x2="12" y2="22"></line>
+			<line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+			<line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+			<line x1="2" y1="12" x2="4" y2="12"></line>
+			<line x1="20" y1="12" x2="22" y2="12"></line>
+			<line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+			<line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+		</svg>
+		<svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z"></path>
+		</svg>
+	</button>
+</starlight-theme-select>
+{/* Styles live in src/styles/custom.css, not here -- Astro's scoped-CSS
+    compiler mis-scopes selectors with an ancestor attribute selector
+    outside the component (like [data-theme=light] on <html>), silently
+    breaking the icon-swap rule. Confirmed live with Playwright: both
+    icons rendered simultaneously instead of one hiding. */}
+
+<script is:inline>
+	// Inlined to avoid FOUC -- runs before paint, same as Starlight's own
+	// original ThemeSelect. Sets data-theme immediately on cold load.
+	(() => {
+		const storageKey = 'starlight-theme';
+		const stored = localStorage.getItem(storageKey);
+		const theme =
+			stored === 'dark' || stored === 'light'
+				? stored
+				: matchMedia('(prefers-color-scheme: light)').matches
+					? 'light'
+					: 'dark';
+		document.documentElement.dataset.theme = theme;
+	})();
+</script>
+
+<script>
+	type Theme = 'dark' | 'light';
+
+	const storageKey = 'starlight-theme';
+
+	function storeTheme(theme: Theme): void {
+		if (typeof localStorage !== 'undefined') localStorage.setItem(storageKey, theme);
+	}
+
+	function currentTheme(): Theme {
+		return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+	}
+
+	function setTheme(theme: Theme): void {
+		document.documentElement.dataset.theme = theme;
+		storeTheme(theme);
+	}
+
+	class StarlightThemeSelect extends HTMLElement {
+		constructor() {
+			super();
+			this.querySelector('button')?.addEventListener('click', () => {
+				setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+			});
+		}
+	}
+	customElements.define('starlight-theme-select', StarlightThemeSelect);
+</script>
