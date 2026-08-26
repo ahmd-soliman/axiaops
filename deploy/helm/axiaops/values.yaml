@@ -13,10 +13,12 @@ fullnameOverride: ""
 
 image:
   registry: ghcr.io/ahmd-soliman/axiaops
-  # Required -- no default. CI publishes commit-SHA tags (main-<shortsha>),
-  # not semver, so there's no safe fallback to resolve to; an unset tag
-  # fails the template render instead of deploying a broken image
-  # reference. Find a real tag at https://github.com/ahmd-soliman/axiaops/pkgs/container/axiaops%2Fapi.
+  # Empty by default -- falls back to Chart.yaml's appVersion, which
+  # release.yml guarantees has a real published GHCR image (that's what
+  # gets promoted before the chart itself is republished). Set explicitly
+  # to override -- e.g. a manually-built/pushed tag for testing a feature
+  # branch that hasn't been released yet. Browse published tags at
+  # https://github.com/ahmd-soliman/axiaops/pkgs/container/axiaops%2Fapi.
   tag: ""
   pullPolicy: IfNotPresent
   # api/ingestion only. CI only ever builds and publishes the DEV_MODE-
