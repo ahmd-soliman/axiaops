@@ -26,7 +26,31 @@ belong in that deployer's own repo, not here.
   `ingress.enabled: false` here and supply its own alongside whatever
   installs this chart.
 
-## Minimum viable install
+## Installing
+
+Two ways to get the chart, same shape as e.g. `helm repo add traefik
+https://traefik.github.io/charts`:
+
+**From the chart repo (recommended)** — no clone needed:
+
+```bash
+helm repo add axiaops https://ahmd-soliman.github.io/axiaops/charts
+helm repo update
+helm search repo axiaops --versions   # see what's available
+```
+
+**From a local clone** — for chart development, or before the chart repo is
+publicly reachable:
+
+```bash
+git clone https://github.com/ahmd-soliman/axiaops.git
+cd axiaops/deploy/helm/axiaops
+```
+
+Either way, `image.tag` is **required** — the chart has no safe default to
+fall back to (CI publishes commit-SHA tags like `main-<shortsha>`, not
+semver, so there's nothing meaningful to default to). Find a real tag at
+the [`api` package page](https://github.com/ahmd-soliman/axiaops/pkgs/container/axiaops%2Fapi).
 
 ```bash
 kubectl create secret generic axiaops-postgres \
@@ -37,7 +61,15 @@ kubectl create secret generic axiaops-postgres \
 kubectl create secret generic axiaops-secrets \
   --from-literal=encryption-key="$(openssl rand -hex 32)"
 
+# From the chart repo:
+helm install axiaops axiaops/axiaops --version 0.2.0 \
+  --set image.tag=main-b636978e \
+  --set postgres.existingSecret=axiaops-postgres \
+  --set secrets.existingSecret=axiaops-secrets
+
+# From a local clone, same values, just a local path instead of repo/chart:
 helm install axiaops . \
+  --set image.tag=main-b636978e \
   --set postgres.existingSecret=axiaops-postgres \
   --set secrets.existingSecret=axiaops-secrets
 ```
@@ -54,6 +86,7 @@ knowing about upfront:
 | Key | Default | Notes |
 |---|---|---|
 | `devMode.enabled` | `true` | Auth bypass — only ever appropriate for a throwaway/personal environment. |
+| `image.tag` | `""` (**required**) | No safe default — see [Installing](#installing) above. |
 | `image.apiSuffix` | `""` | Empty (default) pulls the DEV_MODE-hardwired-off production api/ingestion image. Set to `-devmode` to instead pull the sibling build that honours a `DEV_MODE` env var at runtime — an explicit, deliberate opt-in, not the default. |
 | `ingress.enabled` | `false` | Deliberately off by default — see above. |
 | `postgres.existingSecret` | `""` | Required for anything to actually start; chart installs without it (renders `NOTES.txt` warnings) so `helm template`/CI linting doesn't need a real Secret to succeed. |
