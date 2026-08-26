@@ -27,6 +27,16 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.32] — 2026-08-26
+
+### Fixed
+
+- `POST /v1/accounts/{id}/scan` tied its mark-scanning + enqueue write to
+  the inbound request's context — a client disconnect mid-commit could
+  leave the account stuck at `status='scanning'` with no scan job ever
+  queued, invisible until the 15-minute stuck-scan recovery sweep. That
+  write now runs on its own short, detached deadline instead.
+
 ## [0.1.0-alpha.31] — 2026-08-26
 
 ### Fixed
@@ -869,6 +879,7 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://github.com/ahmd-soliman/axiaops/compare/0.1.0-alpha.27...develop
+[0.1.0-alpha.32]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.32
 [0.1.0-alpha.31]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.31
 [0.1.0-alpha.30]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.30
 [0.1.0-alpha.29]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.29
