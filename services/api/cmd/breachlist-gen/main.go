@@ -18,8 +18,7 @@
 //	breachlist-gen -hibp -in pwned-passwords-ordered.txt -n 1000000 -out breached-passwords.bin
 //
 // The companion scripts/gen-breachlist.sh wraps this and refreshes the
-// provenance manifest (docs/AUTHENTICATION.md (§4)) + the SHA-256 of the
-// output. See docs/AUTHENTICATION.md (§4).
+// provenance manifest + the SHA-256 of the output. See docs/AUTHENTICATION.md § 4.
 package main
 
 import (
