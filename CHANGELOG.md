@@ -27,6 +27,30 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.28] — 2026-08-26
+
+First release published from the public GitHub repository.
+
+### Added
+
+- publish the Helm chart as a standard chart repository (`helm repo add axiaops
+  https://ahmd-soliman.github.io/axiaops/charts`), packaged and indexed alongside
+  the docs site on GitHub Pages
+- tag-triggered release builds (`release.yml`) — cutting a release tag now builds
+  and publishes semver-tagged images and cuts a GitHub Release with generated notes
+
+### Changed
+
+- migrate CI from GitLab CI to GitHub Actions; images now publish to GHCR
+- CI no longer builds or publishes a DEV_MODE-capable image variant — only the
+  production shape is published; a DEV_MODE image is local-build-only
+
+### Fixed
+
+- Helm chart's `image.tag` no longer silently falls back to a non-existent tag —
+  an unset value now fails the template render instead of deploying a broken
+  image reference
+
 ## [0.1.0-alpha.27] — 2026-08-19
 
 ### Fixed
@@ -824,6 +848,7 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://github.com/ahmd-soliman/axiaops/compare/0.1.0-alpha.27...develop
+[0.1.0-alpha.28]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.28
 [0.1.0-alpha.27]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.27
 [0.1.0-alpha.26]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.26
 [0.1.0-alpha.25]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.25
