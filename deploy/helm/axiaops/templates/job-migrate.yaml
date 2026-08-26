@@ -33,6 +33,11 @@ spec:
         - name: migrate
           image: {{ include "axiaops.migrateImage" . }}
           env:
+            # Overrides the image's own baked-in ENV APP_VERSION -- see
+            # deployment-api.yaml's comment on the same env var. Recorded
+            # into migration_history.applied_by_image (version@commit).
+            - name: APP_VERSION
+              value: {{ include "axiaops.imageTag" . | quote }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
