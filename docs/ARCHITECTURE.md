@@ -12,7 +12,7 @@ This is the navigable hub for engineers working on AxiaOps. Read this first, the
 
 ## TL;DR
 
-AxiaOps is a FinOps SaaS that detects idle/zombie cloud resources still incurring cost. The MVP targets AWS; multi-cloud is on the Phase 4 roadmap. Three Go services communicate via HTTP — `api` (`:8080`) reads from PostgreSQL and exposes a REST surface to a Vite/React dashboard; `ingestion` (`:8081`) fetches AWS data and writes to PostgreSQL; `shared` is a library, not a process. Multi-tenancy is enforced at the database level via Postgres Row-Level Security keyed on `app.organization_id`. DEV_MODE bypasses auth for local development.
+AxiaOps is a self-hosted, open-source FinOps tool that detects idle/zombie cloud resources still incurring cost. The MVP targets AWS; multi-cloud is on the Phase 4 roadmap. Three Go services communicate via HTTP — `api` (`:8080`) reads from PostgreSQL and exposes a REST surface to a Vite/React dashboard; `ingestion` (`:8081`) fetches AWS data and writes to PostgreSQL; `shared` is a library, not a process. Multi-tenancy is enforced at the database level via Postgres Row-Level Security keyed on `app.organization_id`. DEV_MODE bypasses auth for local development.
 
 ---
 
