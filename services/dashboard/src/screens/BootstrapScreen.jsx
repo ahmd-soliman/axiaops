@@ -48,6 +48,13 @@ export default function BootstrapScreen() {
     if (busy) return;
     setError('');
 
+    // noValidate on the <form> below means the fields' own type="email" /
+    // pattern / required / minLength attributes are never enforced by the
+    // browser -- every field needs its own explicit check here instead.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError('Enter a valid email address, like alice@example.com.');
+      return;
+    }
     if (password.length < 12) {
       setError('Password must be at least 12 characters.');
       return;
@@ -73,6 +80,10 @@ export default function BootstrapScreen() {
         setError(e2.message || 'Choose a stronger password.');
       } else if (e2.code === 'email_taken') {
         setError('That email is already registered.');
+      } else if (e2.code === 'invalid_email') {
+        setError(e2.message || 'Enter a valid email address, like alice@example.com.');
+      } else if (e2.code === 'invalid_name' || e2.code === 'invalid_organization_name') {
+        setError(e2.message || 'Check the name fields and try again.');
       } else {
         setError('Setup failed — please retry. If the issue persists check the API logs.');
       }
