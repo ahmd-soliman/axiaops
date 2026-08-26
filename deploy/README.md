@@ -19,6 +19,11 @@ Vendored TLS trust anchors needed by the services themselves (e.g. the AWS RDS
 global CA bundle, required for `sslmode=verify-full` against RDS) — see
 [`certs/README.md`](certs/README.md).
 
+## `observability/`
+
+A ready-to-import Grafana dashboard and an example Prometheus scrape config —
+see [`docs/OBSERVABILITY.md`](../docs/OBSERVABILITY.md) for what they cover.
+
 ## Local development
 
 ```bash
