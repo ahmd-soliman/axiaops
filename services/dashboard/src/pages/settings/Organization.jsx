@@ -15,7 +15,7 @@ import { DangerSection } from '../../components/DangerSection';
 // before rendering the tab), so no extra in-page perm check is needed.
 //
 // Future home for transfer-ownership UI, notification preferences,
-// billing controls, and the org display-name editor.
+// and the org display-name editor.
 export default function Organization() {
   const { isDark } = useTheme();
   const { orgName, onLogout } = useApp();
