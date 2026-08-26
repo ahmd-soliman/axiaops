@@ -27,6 +27,16 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 _Nothing yet — first entries land here in the next development cycle._
 
+## [0.1.0-alpha.31] — 2026-08-26
+
+### Fixed
+
+- dashboard: bootstrap form's `noValidate` was silently disabling the email
+  field's own format validation, and the backend's `invalid_email`/
+  `invalid_name`/`invalid_organization_name` error codes weren't mapped to
+  specific messages — a malformed email submitted with no warning and
+  came back as a generic "Setup failed" instead of a helpful message
+
 ## [0.1.0-alpha.30] — 2026-08-26
 
 ### Fixed
@@ -883,6 +893,7 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://github.com/ahmd-soliman/axiaops/compare/0.1.0-alpha.27...develop
+[0.1.0-alpha.31]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.31
 [0.1.0-alpha.30]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.30
 [0.1.0-alpha.29]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.29
 [0.1.0-alpha.28]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.28
