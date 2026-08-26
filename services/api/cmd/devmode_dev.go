@@ -12,9 +12,8 @@ import "os"
 // false — that is B1.7 layer 3 (plan §4.10.2): customer-shipping binaries
 // built with `-tags production` ignore DEV_MODE entirely, closing the
 // "operator with shell access flips DEV_MODE to bypass auth" attack path —
-// DEV_MODE replaces the entire auth chain with DevBypass, not just a
-// license/entitlement check, so this control stands on its own regardless
-// of licensing.
+// DEV_MODE replaces the entire auth chain with DevBypass, so this control
+// stands on its own.
 //
 // Every cmd/main.go site that previously read os.Getenv("DEV_MODE")=="true"
 // routes through this helper — the build-tag split lives at one seam.
