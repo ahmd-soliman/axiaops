@@ -2,8 +2,9 @@
 # gen-breachlist.sh
 #
 # Regenerates the embedded breached-password corpus consumed by the
-# breachlist package (services/api/internal/breachlist/breached-passwords.bin)
-# and refreshes the provenance manifest (docs/breachlist-provenance.md).
+# breachlist package (services/api/internal/breachlist/breached-passwords.bin).
+# See docs/AUTHENTICATION.md § 4 for the provenance manifest to update
+# afterward if N or the source changed.
 #
 # Two modes:
 #
@@ -25,10 +26,10 @@
 #
 #      (third arg = N; default 1000000. The downloader tool is NOT embedded —
 #       only the resulting digests are, so its licence does not propagate. See
-#       docs/password-breach-check-design.md → "Licence handling".)
+#       docs/AUTHENTICATION.md § 4 for the licensing note.)
 #
 # After either mode the script prints the new N, byte size, and SHA-256, and
-# tells you to update docs/breachlist-provenance.md + NOTICE if N/source changed.
+# tells you to update docs/AUTHENTICATION.md § 4 + NOTICE if N/source changed.
 #
 # Honesty note: the committed asset is named breached-passwords.bin (NOT
 # pwned-top1m.bin) precisely because the shipped default is the bootstrap seed,
@@ -63,7 +64,7 @@ case "$mode" in
 esac
 
 # Report the resulting asset stats. These are the values to copy into
-# docs/breachlist-provenance.md on a real corpus swap.
+# docs/AUTHENTICATION.md § 4 on a real corpus swap.
 bytes="$(wc -c < "$out" | tr -d ' ')"
 records=$(( bytes / 20 ))
 sha256="$(sha256sum "$out" | awk '{print $1}')"
@@ -73,4 +74,4 @@ echo "  records (N): $records" >&2
 echo "  bytes:       $bytes" >&2
 echo "  sha256:      $sha256" >&2
 echo >&2
-echo "If N or the source changed, update docs/breachlist-provenance.md and NOTICE." >&2
+echo "If N or the source changed, update docs/AUTHENTICATION.md § 4 and NOTICE." >&2
