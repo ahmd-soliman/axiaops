@@ -47,10 +47,11 @@ git clone https://github.com/ahmd-soliman/axiaops.git
 cd axiaops/deploy/helm/axiaops
 ```
 
-Either way, `image.tag` is **required** — the chart has no safe default to
-fall back to (CI publishes commit-SHA tags like `main-<shortsha>`, not
-semver, so there's nothing meaningful to default to). Find a real tag at
-the [`api` package page](https://github.com/ahmd-soliman/axiaops/pkgs/container/axiaops%2Fapi).
+`image.tag` defaults to this chart's `appVersion` (`Chart.yaml`) — no need
+to set it unless you want to override with a different published tag, or a
+manually-built one for testing a feature branch that hasn't been released
+yet. Browse published tags at the [`api` package
+page](https://github.com/ahmd-soliman/axiaops/pkgs/container/axiaops%2Fapi).
 
 ```bash
 kubectl create secret generic axiaops-postgres \
@@ -63,14 +64,12 @@ kubectl create secret generic axiaops-secrets \
   --from-literal=ingestion-shared-secret="$(openssl rand -hex 32)"
 
 # From the chart repo:
-helm install axiaops axiaops/axiaops --version 0.2.1 \
-  --set image.tag=0.1.0-alpha.29 \
+helm install axiaops axiaops/axiaops --version 0.2.4 \
   --set postgres.existingSecret=axiaops-postgres \
   --set secrets.existingSecret=axiaops-secrets
 
 # From a local clone, same values, just a local path instead of repo/chart:
 helm install axiaops . \
-  --set image.tag=0.1.0-alpha.29 \
   --set postgres.existingSecret=axiaops-postgres \
   --set secrets.existingSecret=axiaops-secrets
 ```
@@ -111,7 +110,7 @@ knowing about upfront:
 | Key | Default | Notes |
 |---|---|---|
 | `devMode.enabled` | `true` | Auth bypass — only ever appropriate for a throwaway/personal environment. Has no effect against the published image (see `image.apiSuffix`) — CI never publishes a build that honours it. |
-| `image.tag` | `""` (**required**) | No safe default — see [Installing](#installing) above. |
+| `image.tag` | `""` | Falls back to `Chart.yaml`'s `appVersion`. Set explicitly to override — see [Installing](#installing) above. |
 | `image.apiSuffix` | `""` | Leave empty. CI only builds and publishes the DEV_MODE-hardwired-off production api/ingestion image — an auth-bypass build is never pushed to a public registry. Want `devMode.enabled: true` to actually do something? Build the DEV_MODE-capable image yourself (`docker build -f services/api/Dockerfile .`, no `BUILD_TAGS`), push it to a registry you control, and point `apiSuffix`/`image.registry` at that. |
 | `ingress.enabled` | `false` | Deliberately off by default — see above. |
 | `postgres.existingSecret` | `""` | Required for anything to actually start; chart installs without it (renders `NOTES.txt` warnings) so `helm template`/CI linting doesn't need a real Secret to succeed. |

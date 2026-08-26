@@ -54,14 +54,16 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{/*
-Resolves the image tag. Deliberately NOT defaulted to .Chart.AppVersion --
-CI tags images main-<shortsha>, not semver, so a silent fallback to
-Chart.AppVersion would resolve to a tag that's never actually been
-published and fail with ErrImagePull. image.tag must be set explicitly;
-fail loudly at render time instead of at pod-crash time.
+Resolves the image tag. Defaults to .Chart.AppVersion when image.tag is
+unset -- release.yml's promote step guarantees a real GHCR image exists
+for every appVersion this chart is published with (it's what gets
+promoted before the chart's own version is bumped and republished), so
+this default always resolves to something that's actually been pushed.
+Set image.tag explicitly to override -- e.g. a manually-built/pushed tag
+for testing a feature branch that hasn't been released yet.
 */}}
 {{- define "axiaops.imageTag" -}}
-{{- required "image.tag must be set -- see the chart README for how to find a published tag" .Values.image.tag -}}
+{{- .Values.image.tag | default .Chart.AppVersion -}}
 {{- end -}}
 
 {{/*

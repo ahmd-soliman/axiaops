@@ -25,7 +25,13 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
-_Nothing yet — first entries land here in the next development cycle._
+### Changed
+
+- Helm chart: `image.tag` now defaults to `Chart.yaml`'s `appVersion`
+  instead of being required — `release.yml`'s promote step guarantees a
+  real GHCR image exists for every `appVersion` the chart ships with, so
+  the fallback always resolves to something actually published. Still
+  overridable for testing an unreleased/manually-built tag.
 
 ## [0.1.0-alpha.32] — 2026-08-26
 
