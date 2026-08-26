@@ -59,20 +59,45 @@ kubectl create secret generic axiaops-postgres \
   --from-literal=runtime-admin-database-url="postgres://axiaops_runtime:...@host:5432/axiaops?sslmode=disable"
 
 kubectl create secret generic axiaops-secrets \
-  --from-literal=encryption-key="$(openssl rand -hex 32)"
+  --from-literal=encryption-key="$(openssl rand -hex 32)" \
+  --from-literal=ingestion-shared-secret="$(openssl rand -hex 32)"
 
 # From the chart repo:
-helm install axiaops axiaops/axiaops --version 0.2.0 \
-  --set image.tag=main-b636978e \
+helm install axiaops axiaops/axiaops --version 0.2.1 \
+  --set image.tag=0.1.0-alpha.29 \
   --set postgres.existingSecret=axiaops-postgres \
   --set secrets.existingSecret=axiaops-secrets
 
 # From a local clone, same values, just a local path instead of repo/chart:
 helm install axiaops . \
-  --set image.tag=main-b636978e \
+  --set image.tag=0.1.0-alpha.29 \
   --set postgres.existingSecret=axiaops-postgres \
   --set secrets.existingSecret=axiaops-secrets
 ```
+
+### Secrets management
+
+This chart doesn't care how `axiaops-postgres`/`axiaops-secrets` come to
+exist — it only reads them by name (`postgres.existingSecret` /
+`secrets.existingSecret`), same as everything else in this "bring your own
+Secret" chart (see [What this chart does NOT
+do](#what-this-chart-does-not-do) above). Two starting points:
+
+- **Quick start, any cluster** — the `kubectl create secret` commands
+  above. No dependencies, good for a first install or a throwaway/personal
+  environment.
+- **Real deployment, any cloud** — manage them with the [External Secrets
+  Operator](https://external-secrets.io/) instead of typing plaintext into
+  a terminal. [`examples/external-secret-aws.yaml`](examples/external-secret-aws.yaml)
+  is a worked example against AWS Secrets Manager, but the `ExternalSecret`
+  shape is identical for GCP Secret Manager, Vault, Azure Key Vault, etc. —
+  ESO supports [dozens of providers](https://external-secrets.io/latest/provider/aws-secrets-manager/)
+  behind the same `SecretStore`/`ExternalSecret` API, so swap
+  `secretStoreRef` and the provider-specific bits of the `SecretStore`
+  itself; the two `ExternalSecret` resources in the example don't change.
+
+Purely illustrative — nothing under `examples/` is applied by the chart
+itself.
 
 `helm install`/`upgrade` runs `services/migrate` as a `pre-install,
 pre-upgrade` hook Job before any app Pod starts — migrations always apply
