@@ -5,7 +5,7 @@
 
 ## AxiaOps — FinOps
 
-A self-hosted, open-source tool that detects idle and zombie cloud resources still incurring costs despite zero usage — and surfaces an actionable remediation workflow with a full audit trail.
+A self-hosted, open-source FinOps tool for tracking AWS cloud costs and catching the idle and zombie resources quietly driving them up — with trend history, per-account breakdowns, and an actionable remediation workflow with a full audit trail.
 
 > **Know the value of every resource.**
 
