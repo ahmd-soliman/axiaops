@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # smoke-metrics-locked.sh — assert /api/metrics is blocked at the public
 # ingress (nginx in front of the dashboard) while internal probes still
-# work. Pairs with `services/dashboard/nginx.conf` Tasks.md row 2.7.18.
+# work. Pairs with `services/dashboard/nginx.conf`.
 #
 # Usage:
 #   ./scripts/smoke-metrics-locked.sh                 # localhost staging
