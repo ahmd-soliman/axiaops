@@ -80,7 +80,7 @@ migrate:
 	@echo "Running database migrations..."
 	docker compose up -d postgres
 	@echo "Waiting for PostgreSQL to be ready..."
-	@until docker compose exec postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
+	@until docker exec axiaops-postgres pg_isready -U axiaops_owner -d axiaops > /dev/null 2>&1; do sleep 1; done
 	./scripts/migrate.sh
 
 # Seed the dev tenant with dummy zombie + resource records.
