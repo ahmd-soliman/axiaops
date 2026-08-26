@@ -65,7 +65,21 @@ make start-dev
 - API → `http://localhost/api/`
 - Ingestion → `http://localhost:8081` (internal)
 
-To exercise the full auth chain (native cookie sessions, no DEV_MODE bypass), use:
+To exercise the full auth chain (native cookie sessions, no DEV_MODE bypass), `api`/`ingestion`
+run as real containers here (not host-mode like `start-dev`), so two more `.env` files need to
+exist first:
+```bash
+cp services/api/.env.example services/api/.env
+cp .env.example .env
+```
+At minimum, set real values for `ENCRYPTION_KEY` (in `services/api/.env`) and
+`INGESTION_SHARED_SECRET` (in the root `.env` — `docker-compose.yml` reads it from there, not
+from either service's `.env`):
+```
+ENCRYPTION_KEY=<run: openssl rand -hex 32>
+INGESTION_SHARED_SECRET=<run: openssl rand -hex 32>
+```
+Then:
 ```bash
 make start-staging
 ```
