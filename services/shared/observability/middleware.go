@@ -62,13 +62,17 @@ func HTTPMiddleware(next http.Handler) http.Handler {
 		duration := time.Since(start).Seconds()
 		statusStr := strconv.Itoa(observer.statusCode)
 
-		// Record response time and status
+		// Record response time and status (use r.Pattern if available to avoid label cardinality explosion)
+		route := r.Pattern
+		if route == "" {
+			route = r.URL.Path
+		}
 		Global.HTTPRequestsDuration.Observe(duration)
-		Global.HTTPResponsesTotal.WithLabelValues(r.Method, r.URL.Path, statusStr).Inc()
+		Global.HTTPResponsesTotal.WithLabelValues(r.Method, route, statusStr).Inc()
 
 		// Count errors (5xx)
 		if observer.statusCode >= 500 {
-			Global.HTTPErrorsTotal.WithLabelValues(r.Method, r.URL.Path, statusStr).Inc()
+			Global.HTTPErrorsTotal.WithLabelValues(r.Method, route, statusStr).Inc()
 		}
 	})
 }
