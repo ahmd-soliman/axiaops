@@ -20,7 +20,7 @@ test.describe('post-bootstrap auth posture', () => {
   test('an unauthenticated deep link is bounced to /login (AuthGuard)', async ({ page }) => {
     // A protected route with no session must not render — AuthGuard sends it to
     // /login. (Lane A / DEV_MODE bypassed this entirely.)
-    await page.goto('/account');
+    await page.goto('/zombies');
     await page.waitForURL('**/login', { timeout: 30_000 });
   });
 });

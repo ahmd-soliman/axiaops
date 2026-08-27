@@ -8,7 +8,7 @@ import { zombieDetailHref } from '../utils/links';
 // Wrapper for `/` — the read-only organization summary. Mirrors Overview.jsx's
 // account fetch + zero-accounts onboarding redirect, and adds a single-account
 // redirect: the dominant self-hosted operator (one connected account) keeps
-// landing on the actionable workbench at /account, so the org summary only ever
+// landing on the actionable workbench at /zombies, so the org summary only ever
 // renders for orgs with 2+ accounts.
 export default function OrgSummary() {
   const [params] = useSearchParams();
