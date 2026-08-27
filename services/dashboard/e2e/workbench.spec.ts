@@ -7,7 +7,7 @@ import { gotoSettled, expectNotNotFound, captureErrors } from './helpers';
 test.describe('workbench', () => {
   test('resources view loads without error', async ({ page }) => {
     const errors = await captureErrors(page, async () => {
-      await gotoSettled(page, '/account');
+      await gotoSettled(page, '/zombies');
     });
     await expectNotNotFound(page);
     expect(errors, `workbench raised pageerror(s): ${errors.join(' | ')}`).toEqual([]);
