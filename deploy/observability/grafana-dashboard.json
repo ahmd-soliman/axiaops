@@ -461,7 +461,7 @@
       "targets": [
         {
           "expr": "axiaops_zombies_detected",
-          "legendFormat": "{{ provider }} - {{ tenant_id }}",
+          "legendFormat": "{{ provider }} - {{ organization_id }}",
           "refId": "A"
         }
       ],
@@ -540,7 +540,7 @@
       "targets": [
         {
           "expr": "axiaops_potential_monthly_savings_usd",
-          "legendFormat": "{{ provider }} - {{ tenant_id }}",
+          "legendFormat": "{{ provider }} - {{ organization_id }}",
           "refId": "A"
         }
       ],
