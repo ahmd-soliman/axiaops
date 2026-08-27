@@ -67,25 +67,61 @@ for testing a feature branch that hasn't been released yet.
 {{- end -}}
 
 {{/*
+Resolves component image tags with fallback:
+.Values.image.<component>.tag -> .Values.image.tag -> .Chart.AppVersion
+*/}}
+{{- define "axiaops.apiImageTag" -}}
+{{- if and .Values.image.api .Values.image.api.tag -}}
+  {{- .Values.image.api.tag -}}
+{{- else -}}
+  {{- .Values.image.tag | default .Chart.AppVersion -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "axiaops.ingestionImageTag" -}}
+{{- if and .Values.image.ingestion .Values.image.ingestion.tag -}}
+  {{- .Values.image.ingestion.tag -}}
+{{- else -}}
+  {{- .Values.image.tag | default .Chart.AppVersion -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "axiaops.migrateImageTag" -}}
+{{- if and .Values.image.migrate .Values.image.migrate.tag -}}
+  {{- .Values.image.migrate.tag -}}
+{{- else -}}
+  {{- .Values.image.tag | default .Chart.AppVersion -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "axiaops.dashboardImageTag" -}}
+{{- if and .Values.image.dashboard .Values.image.dashboard.tag -}}
+  {{- .Values.image.dashboard.tag -}}
+{{- else -}}
+  {{- .Values.image.tag | default .Chart.AppVersion -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 api/ingestion share one tag-suffix knob: empty (the default) pulls the
 DEV_MODE-hardwired-off production image; "-devmode" pulls the sibling build
 that honours a DEV_MODE env var at runtime. Safe image is the default on
 purpose -- see values.yaml's image.apiSuffix comment.
 */}}
 {{- define "axiaops.apiImage" -}}
-{{- printf "%s/api:%s%s" .Values.image.registry (include "axiaops.imageTag" .) .Values.image.apiSuffix -}}
+{{- printf "%s/api:%s%s" .Values.image.registry (include "axiaops.apiImageTag" .) .Values.image.apiSuffix -}}
 {{- end -}}
 
 {{- define "axiaops.ingestionImage" -}}
-{{- printf "%s/ingestion:%s%s" .Values.image.registry (include "axiaops.imageTag" .) .Values.image.apiSuffix -}}
+{{- printf "%s/ingestion:%s%s" .Values.image.registry (include "axiaops.ingestionImageTag" .) .Values.image.apiSuffix -}}
 {{- end -}}
 
 {{- define "axiaops.migrateImage" -}}
-{{- printf "%s/migrate:%s" .Values.image.registry (include "axiaops.imageTag" .) -}}
+{{- printf "%s/migrate:%s" .Values.image.registry (include "axiaops.migrateImageTag" .) -}}
 {{- end -}}
 
 {{- define "axiaops.dashboardImage" -}}
-{{- printf "%s/dashboard:%s" .Values.image.registry (include "axiaops.imageTag" .) -}}
+{{- printf "%s/dashboard:%s" .Values.image.registry (include "axiaops.dashboardImageTag" .) -}}
 {{- end -}}
 
 {{/*
