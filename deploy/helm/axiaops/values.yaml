@@ -20,6 +20,15 @@ image:
   # branch that hasn't been released yet. Browse published tags at
   # https://github.com/ahmd-soliman/axiaops/pkgs/container/axiaops%2Fapi.
   tag: ""
+  # Per-component tag overrides (optional):
+  # api:
+  #   tag: ""
+  # ingestion:
+  #   tag: ""
+  # migrate:
+  #   tag: ""
+  # dashboard:
+  #   tag: ""
   pullPolicy: IfNotPresent
   # api/ingestion only. CI only ever builds and publishes the DEV_MODE-
   # hardwired-off (production) image -- there is no published "-devmode"
