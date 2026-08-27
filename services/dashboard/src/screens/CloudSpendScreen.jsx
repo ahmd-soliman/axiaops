@@ -695,8 +695,11 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
                             {cfg.label}
                           </div>
                           {zombiesQuery.data?.some(z => z.service === group.service) && (
-                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 10, backgroundColor: '#FEF2F2', color: '#EF4444', border: '1px solid #FCA5A5' }}>
-                              🧟 Zombie Waste
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                              <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: 'var(--color-zombie-badge-text)' }} />
+                              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-zombie-badge-text)' }}>
+                                zombie
+                              </span>
                             </span>
                           )}
                         </div>
@@ -837,8 +840,11 @@ function ServiceDetailPanelBody({ selectedService, panelStats, panelClamped, sel
                     {e.resourceId ?? 'No resource ID'}
                   </span>
                   {isZombie && (
-                    <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 8, backgroundColor: '#FEF2F2', color: '#EF4444', border: '1px solid #FCA5A5' }}>
-                      🧟 Zombie
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      <span style={{ width: 4, height: 4, borderRadius: '50%', backgroundColor: 'var(--color-zombie-badge-text)' }} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-zombie-badge-text)' }}>
+                        zombie
+                      </span>
                     </span>
                   )}
                 </div>
