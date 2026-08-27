@@ -10,7 +10,7 @@ export const NAV_ITEMS = [
   { label: 'Overview',         path: '/' },         // org summary
   { label: 'Zombie Resources', path: '/account' },  // the account workbench (zombie list + bulk actions)
   { label: 'Trends',           path: '/trend' },
-  { label: 'Costs',            path: '/cost' },
+  { label: 'Cost Analytics',   path: '/cost' },
 ];
 
 // isNavActive — sibling-aware prefix match. Currently inert: no entry in
