@@ -1213,7 +1213,7 @@ export default function OverviewScreen({
   const isMobile          = isAtMost('xs');
 
   // Seed the service filter from a deep-link (org summary's "Waste by service"
-  // rows → /account?service=<svc>). Read once on mount; further toggling is the
+  // rows → /zombies?service=<svc>). Read once on mount; further toggling is the
   // user's via the existing filter pills.
   const [filterSvcs, setFilterSvcs]                   = useState(() => new Set(initialServiceFilter ? [initialServiceFilter] : []));
   const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());

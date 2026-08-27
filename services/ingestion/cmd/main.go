@@ -625,6 +625,30 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		zombies = append(zombies, s3Zombies...)
 	}
 
+	// Incomplete S3 multipart uploads (aborted uploads >7 days old).
+	s3MultipartZombies, s3MultipartErr := aws.DiscoverIncompleteMultipartUploads(ctx, allRecords, awsClient, start, end, accountID)
+	if s3MultipartErr != nil {
+		catErr := errors.Categorize(s3MultipartErr, "discover_s3_multipart")
+		slog.Error("discover incomplete S3 multipart uploads failed, continuing",
+			"error", s3MultipartErr,
+			"category", catErr.Category,
+		)
+	} else {
+		zombies = append(zombies, s3MultipartZombies...)
+	}
+
+	// Unused Route53 hosted zones (default records only, zero query activity).
+	r53Zombies, r53Err := aws.DiscoverUnusedHostedZones(ctx, allRecords, awsClient, start, end, accountID)
+	if r53Err != nil {
+		catErr := errors.Categorize(r53Err, "discover_route53")
+		slog.Error("discover unused Route53 hosted zones failed, continuing",
+			"error", r53Err,
+			"category", catErr.Category,
+		)
+	} else {
+		zombies = append(zombies, r53Zombies...)
+	}
+
 	// Classify each zombie into a resource sub-type from its (service, usage
 	// metric) pair. Detect() already sets this for CloudWatch-based zombies; the
 	// API-only discoverers (EIP, EBS volume/snapshot, AMI, log group, …) don't,

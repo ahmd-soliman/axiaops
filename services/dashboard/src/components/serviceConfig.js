@@ -31,6 +31,11 @@ export const SERVICE_CONFIG = {
   AmazonRedshift:             { label: 'Redshift', color: '#9F1239', bg: '#FFE4E6', darkBg: '#4C0519' },
   AmazonSageMaker:            { label: 'SageMaker', color: '#047857', bg: '#D1FAE5', darkBg: '#022C22' },
   AmazonECS:                  { label: 'ECS', color: '#C2410C', bg: '#FED7AA', darkBg: '#431407' },
+  AmazonDocDB:                { label: 'DocDB', color: '#B91C1C', bg: '#FEE2E2', darkBg: '#450A0A' },
+  AmazonMSK:                  { label: 'MSK', color: '#2563EB', bg: '#DBEAFE', darkBg: '#1E3A8A' },
+  AmazonRoute53:              { label: 'Route53', color: '#059669', bg: '#D1FAE5', darkBg: '#064E3B' },
+  AmazonBedrock:              { label: 'Bedrock', color: '#7C3AED', bg: '#EDE9FE', darkBg: '#3B0764' },
+  AmazonKendra:               { label: 'Kendra', color: '#DB2777', bg: '#FCE7F3', darkBg: '#831843' },
   Tax:                        { label: 'Tax', color: '#94A3B8', bg: '#F8FAFC', darkBg: '#1E293B' },
 };
 
@@ -58,6 +63,13 @@ export const RESOURCE_TYPE_CONFIG = {
   classic:          { label: 'Classic LB',     color: '#C4B5FD' },
   alb:              { label: 'Application LB', color: '#DDD6FE' },
   nlb:              { label: 'Network LB',     color: '#EDE9FE' },
+  ecs_service:        { label: 'ECS Service',        color: '#C2410C' },
+  docdb_cluster:      { label: 'DocDB Cluster',      color: '#B91C1C' },
+  msk_cluster:        { label: 'MSK Cluster',        color: '#2563EB' },
+  route53_zone:       { label: 'Route53 Zone',       color: '#059669' },
+  s3_multipart:       { label: 'Incomplete Uploads', color: '#06B6D4' },
+  bedrock_throughput: { label: 'Bedrock Unit',       color: '#7C3AED' },
+  kendra_index:       { label: 'Kendra Index',       color: '#DB2777' },
 };
 
 export function resourceTypeConfig(rt) {

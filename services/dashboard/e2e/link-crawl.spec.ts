@@ -42,6 +42,8 @@ const MAX_PAGES = 200;
 // dynamically from the seeded org-summary / accounts pages.
 const SEED_ROUTES = [
   '/',
+  '/zombies',
+  '/spend',
   '/account',
   '/trend',
   '/cost',

@@ -8,7 +8,7 @@ import { zombieDetailHref } from '../utils/links';
 // Wrapper for `/` — the read-only organization summary. Mirrors Overview.jsx's
 // account fetch + zero-accounts onboarding redirect, and adds a single-account
 // redirect: the dominant self-hosted operator (one connected account) keeps
-// landing on the actionable workbench at /account, so the org summary only ever
+// landing on the actionable workbench at /zombies, so the org summary only ever
 // renders for orgs with 2+ accounts.
 export default function OrgSummary() {
   const [params] = useSearchParams();
@@ -44,7 +44,7 @@ export default function OrgSummary() {
   // Single account → the workbench, scoped to that account. accounts[0].id is the
   // internal UUID the workbench's ?account= param expects.
   if (accounts.data?.length === 1) {
-    return <Navigate to={`/account?account=${encodeURIComponent(accounts.data[0].id)}`} replace />;
+    return <Navigate to={`/zombies?account=${encodeURIComponent(accounts.data[0].id)}`} replace />;
   }
 
   return (
@@ -52,10 +52,10 @@ export default function OrgSummary() {
       <WhatsNextPanel />
       <OrgSummaryScreen
         accounts={accounts.data ?? []}
-        viewAccountsHref="/account"
-        accountHref={(id) => `/account?account=${encodeURIComponent(id)}`}
+        viewAccountsHref="/zombies"
+        accountHref={(id) => `/zombies?account=${encodeURIComponent(id)}`}
         zombieHref={zombieDetailHref}
-        serviceHref={(svc) => `/account?service=${encodeURIComponent(svc)}`}
+        serviceHref={(svc) => `/zombies?service=${encodeURIComponent(svc)}`}
         auditHref="/settings/audit"
         trendsHref="/trend"
       />

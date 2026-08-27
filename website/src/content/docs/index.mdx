@@ -24,11 +24,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 AxiaOps connects to an AWS account (via a scoped cross-account IAM role — no
 long-lived access keys) and scans it for **zombie resources**: things that
-are still running, still billing, and doing nothing useful. An RDS instance
-with zero connections. An EKS cluster with zero nodes, still billing its
-control plane. A CloudWatch log group with no retention policy, quietly
-accumulating storage charges forever. An idle EC2 instance nobody remembered
-to shut down.
+are still running, still billing, and doing nothing useful. An unused **Amazon Bedrock** provisioned model unit ($10k+/mo leak). An abandoned **Amazon Kendra** AI search index ($810–$5,040/mo leak). An RDS instance with zero connections. An EKS or ECS cluster with zero tasks/nodes. A Route53 hosted zone with no records. A CloudWatch log group with no retention policy quietly accumulating storage charges forever.
 
 Every zombie it finds gets a dollar figure attached — real, computed cost,
 not a guess — and rolls up into an organization-wide view of exactly how
@@ -68,15 +64,17 @@ history, and a **Costs** view breaking down total AWS spend by service.
 
 ### Resources — the workbench
 
-![Resources view listing zombie resources with cost and reason](../../assets/screenshots/resources-1.png)
+![Zombie Resources view listing zombie resources with cost and reason](../../assets/screenshots/resources-1.png)
 
 ### Trends — waste over time
 
 ![Trends view charting savings and scan history](../../assets/screenshots/trends.png)
 
-### Costs — spend by service
+### Cloud Spend breakdown
 
-![Costs view breaking down AWS spend by service](../../assets/screenshots/costs.png)
+Track full monthly expenditure across every active AWS service in your accounts.
+
+![Cloud Spend view breaking down AWS spend by service](../../assets/screenshots/costs.png)
 
 ## License
 

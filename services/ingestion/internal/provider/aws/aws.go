@@ -407,6 +407,12 @@ var resourceLevelServices = []string{
 	"Amazon SageMaker",
 	"Amazon DynamoDB",
 	"Amazon Elastic Kubernetes Service",
+	"Amazon Elastic Container Service",
+	"Amazon DocumentDB",
+	"Amazon Managed Streaming for Apache Kafka",
+	"Amazon Route 53",
+	"Amazon Bedrock",
+	"Amazon Kendra",
 }
 
 // ceServiceToInternal maps Cost Explorer service names (as returned with
@@ -448,6 +454,11 @@ var ceServiceToInternal = map[string]string{
 	"AWS Key Management Service":         "AWSKms",
 	"Amazon Glacier":                     "AmazonGlacier",
 	"AWS CloudFormation":                 "AWSCloudFormation",
+	"Amazon DocumentDB":                  "AmazonDocDB",
+	"Amazon Managed Streaming for Apache Kafka": "AmazonMSK",
+	"Amazon Route 53":                    "AmazonRoute53",
+	"Amazon Bedrock":                     "AmazonBedrock",
+	"Amazon Kendra":                      "AmazonKendra",
 }
 
 // normalizeService maps Cost Explorer service names to internal names.
