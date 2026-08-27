@@ -85,6 +85,36 @@ var serviceRules = map[string]rule{
 		unit:      "Count",
 		reason:    "EKS cluster has zero nodes — control plane ($73/mo) billing with no workload",
 	},
+	"AmazonECS": {
+		metric:    "CPUUtilization",
+		threshold: 2.0,
+		unit:      "Percent",
+		reason:    "ECS service CPU utilization below 2% — likely idle",
+	},
+	"AmazonDocDB": {
+		metric:    "DatabaseConnections",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "DocumentDB cluster has zero active database connections — likely unused",
+	},
+	"AmazonMSK": {
+		metric:    "MessagesInPerSec",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "MSK cluster has zero incoming messages — likely idle",
+	},
+	"AmazonBedrock": {
+		metric:    "Invocations",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "Bedrock provisioned throughput model has zero invocations — likely unused ($10k+/mo leak)",
+	},
+	"AmazonKendra": {
+		metric:    "SearchQueryCount",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "Kendra AI search index has zero search queries — likely abandoned ($810+/mo leak)",
+	},
 	// NOTE: CloudFront, Kinesis, and S3 use Tier 1-style direct detection
 	// (DiscoverIdle* functions in ingestion/provider/aws/discover.go) instead
 	// of flowing through Detect(). They are NOT in this map.
@@ -151,8 +181,11 @@ func ResourceType(service, usageMetric string) string {
 			return "secret"
 		}
 	case "AmazonS3":
-		if usageMetric == "AllRequests" {
+		switch usageMetric {
+		case "AllRequests":
 			return "bucket"
+		case "MultipartUploads":
+			return "s3_multipart"
 		}
 	case "AmazonKinesis":
 		if usageMetric == "IncomingRecords" {
@@ -189,6 +222,30 @@ func ResourceType(service, usageMetric string) string {
 	case "AmazonEKS":
 		if usageMetric == "cluster_node_count" {
 			return "cluster"
+		}
+	case "AmazonECS":
+		if usageMetric == "CPUUtilization" {
+			return "ecs_service"
+		}
+	case "AmazonDocDB":
+		if usageMetric == "DatabaseConnections" {
+			return "docdb_cluster"
+		}
+	case "AmazonMSK":
+		if usageMetric == "MessagesInPerSec" {
+			return "msk_cluster"
+		}
+	case "AmazonRoute53":
+		if usageMetric == "QueryCount" {
+			return "route53_zone"
+		}
+	case "AmazonBedrock":
+		if usageMetric == "Invocations" {
+			return "bedrock_throughput"
+		}
+	case "AmazonKendra":
+		if usageMetric == "SearchQueryCount" {
+			return "kendra_index"
 		}
 	}
 	return ""

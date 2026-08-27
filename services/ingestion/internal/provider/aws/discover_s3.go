@@ -149,3 +149,73 @@ func DiscoverIdleS3Buckets(ctx context.Context, records []model.CostRecord, awsC
 
 	return zombies, nil
 }
+
+// DiscoverIncompleteMultipartUploads iterates over all buckets and flags aborted
+// or uncompleted multipart uploads older than 7 days that consume storage costs.
+func DiscoverIncompleteMultipartUploads(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
+	cfg, err := awsClient.configForRegion(ctx, "us-east-1")
+	if err != nil {
+		return nil, fmt.Errorf("s3_multipart: load config: %w", err)
+	}
+
+	bucketsByRegion := discoverS3BucketsByRegion(ctx, cfg)
+	if len(bucketsByRegion) == 0 {
+		return nil, nil
+	}
+
+	accountID := awsClient.AccountID()
+	cutoff := time.Now().AddDate(0, 0, -7)
+	var zombies []model.ZombieResource
+
+	for region, buckets := range bucketsByRegion {
+		regionCfg, err := awsClient.configForRegion(ctx, region)
+		if err != nil {
+			slog.Warn("s3_multipart: load config for region", "region", region, "error", err)
+			continue
+		}
+		client := s3.NewFromConfig(regionCfg)
+
+		for _, bucketName := range buckets {
+			out, err := client.ListMultipartUploads(ctx, &s3.ListMultipartUploadsInput{
+				Bucket: aws.String(bucketName),
+			})
+			if err != nil {
+				slog.Warn("s3_multipart: ListMultipartUploads", "bucket", bucketName, "error", err)
+				continue
+			}
+
+			staleUploads := 0
+			for _, upload := range out.Uploads {
+				if upload.Initiated != nil && upload.Initiated.Before(cutoff) {
+					staleUploads++
+				}
+			}
+
+			if staleUploads > 0 {
+				z := model.ZombieResource{
+					InternalAccountID: internalAccountID,
+					AccountID:         accountID,
+					Provider:          "aws",
+					Service:           "AmazonS3",
+					ResourceType:      "s3_multipart",
+					ResourceID:        bucketName + "/incomplete-uploads",
+					Region:            region,
+					Tags:              map[string]string{"Bucket": bucketName},
+					MonthlyCost:       10.00, // Nominal estimate
+					Currency:          awsClient.Currency(),
+					PeriodStart:       start,
+					PeriodEnd:         end,
+					UsageMetric:       "MultipartUploads",
+					UsageAvg:          float64(staleUploads),
+					UsageUnit:         "Count",
+					Reason:            fmt.Sprintf("S3 bucket has %d incomplete multipart upload(s) older than 7 days", staleUploads),
+					Owner:             "unknown",
+				}
+				zombies = append(zombies, z)
+				slog.Info("s3_multipart: incomplete upload flagged", "bucket", bucketName, "count", staleUploads)
+			}
+		}
+	}
+
+	return zombies, nil
+}

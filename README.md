@@ -31,10 +31,26 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 |-------|-----------|
 | Backend | Go 1.25+ |
 | Database | PostgreSQL 17 (with Row-Level Security) |
-| Frontend | Vite + React — web |
+| Frontend | Vite + React (Node.js 24+) — web |
 | Auth | Native cookie sessions (argon2id) + OIDC SSO |
 | Hosting | AWS ECS Express + RDS |
 | Cloud APIs | AWS Cost Explorer, CloudWatch |
+
+---
+
+## Supported AWS Services
+
+AxiaOps monitors 20+ top AWS services for idle and zombie resources:
+
+| Service Category | AWS Services Covered | Detection Mechanism |
+|---|---|---|
+| **AI & Generative AI** | **Amazon Bedrock** (Provisioned Throughput), **Amazon Kendra** (AI Search Indexes), **Amazon SageMaker** (ML Endpoints) | CloudWatch Invocations & Search Queries |
+| **Compute & Containers** | **Amazon EC2** (Instances, AMIs), **Amazon ECS** (Services & Tasks), **Amazon EKS** (Clusters) | CPU & Memory Utilization, Instance Status |
+| **Storage & Backups** | **Amazon S3** (Idle Buckets & Incomplete Multipart Uploads), **Amazon EBS** (Unattached Volumes, Orphaned Snapshots) | Metric Activity & Multipart Upload Age |
+| **Databases & Cache** | **Amazon RDS** (Instances & Snapshots), **Amazon DocumentDB** (Clusters), **Amazon DynamoDB** (Tables), **Amazon ElastiCache** (Redis/Memcached), **Amazon Redshift** (Clusters) | Active DB Connections & Read/Write Capacity |
+| **Networking & CDN** | **Amazon VPC** (Unattached Elastic IPs, Idle NAT Gateways), **Amazon Route53** (Unused Hosted Zones), **Amazon CloudFront** (CDN Distributions) | Active Traffic & DNS Record Counts |
+| **Messaging & Analytics** | **Amazon MSK** (Managed Kafka), **Amazon Kinesis** (Data Streams), **Amazon CloudWatch** (Wasteful Log Groups) | Ingestion Rates & Log Retention Policies |
+| **Security** | **AWS Secrets Manager** (Unaccessed Secrets) | Access Timestamps |
 
 ---
 
@@ -128,7 +144,14 @@ make stop
          "redshift:DescribeClusters",
          "sagemaker:ListEndpoints",
          "dynamodb:ListTables",
-         "eks:ListClusters"
+         "eks:ListClusters",
+         "ecs:ListClusters",
+         "ecs:ListServices",
+         "docdb:DescribeDBClusters",
+         "kafka:ListClustersV2",
+         "route53:ListHostedZones",
+         "bedrock:ListProvisionedModelThroughputs",
+         "kendra:ListIndices"
        ],
        "Resource": "*"
      }]

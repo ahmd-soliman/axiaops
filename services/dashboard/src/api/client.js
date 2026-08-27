@@ -145,18 +145,20 @@ export async function fetchSummaryByAccount() {
   return res.json();
 }
 
-export async function fetchZombies(accountId) {
-  const url = accountId
-    ? `${BASE_URL}/v1/zombies?account_id=${encodeURIComponent(accountId)}`
+export async function fetchZombies(accountIdOrOpts) {
+  const id = typeof accountIdOrOpts === 'object' && accountIdOrOpts !== null ? accountIdOrOpts.accountId : accountIdOrOpts;
+  const url = id
+    ? `${BASE_URL}/v1/zombies?account_id=${encodeURIComponent(id)}`
     : `${BASE_URL}/v1/zombies`;
   const res = await ifetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch zombies');
   return res.json();
 }
 
-export async function fetchResources(accountId) {
-  const url = accountId
-    ? `${BASE_URL}/v1/resources?account_id=${encodeURIComponent(accountId)}`
+export async function fetchResources(accountIdOrOpts) {
+  const id = typeof accountIdOrOpts === 'object' && accountIdOrOpts !== null ? accountIdOrOpts.accountId : accountIdOrOpts;
+  const url = id
+    ? `${BASE_URL}/v1/resources?account_id=${encodeURIComponent(id)}`
     : `${BASE_URL}/v1/resources`;
   const res = await ifetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch resources');
@@ -373,14 +375,22 @@ export async function fetchVersion() {
 // calendar window and the server ignores `days`; otherwise `days` is a trailing
 // "last N days" window. The absolute path backs the Custom… date-range picker —
 // without it a custom range silently degrades to a trailing window.
-export async function fetchCosts(accountId, service, days = 30, since = null, until = null) {
+export async function fetchCosts(accountIdOrOpts, service, days = 30, since = null, until = null) {
+  let accountId = accountIdOrOpts;
+  if (typeof accountIdOrOpts === 'object' && accountIdOrOpts !== null) {
+    accountId = accountIdOrOpts.accountId;
+    service = accountIdOrOpts.service;
+    days = accountIdOrOpts.period ?? accountIdOrOpts.days ?? 30;
+    since = accountIdOrOpts.sinceIso ?? accountIdOrOpts.since ?? null;
+    until = accountIdOrOpts.untilIso ?? accountIdOrOpts.until ?? null;
+  }
   const params = new URLSearchParams();
   if (accountId) params.set('account_id', accountId);
   if (service) params.set('service', service);
   if (since && until) {
     params.set('since', since);
     params.set('until', until);
-  } else {
+  } else if (days) {
     params.set('days', String(days));
   }
   const qs = params.toString();

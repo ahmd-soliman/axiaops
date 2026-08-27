@@ -16,7 +16,7 @@ test.describe('trend & cost', () => {
 
   test('cost screen renders without error', async ({ page }) => {
     const errors = await captureErrors(page, async () => {
-      await gotoSettled(page, '/cost');
+      await gotoSettled(page, '/spend');
     });
     await expectNotNotFound(page);
     expect(errors, `cost screen raised pageerror(s): ${errors.join(' | ')}`).toEqual([]);

@@ -21,7 +21,7 @@ import { test } from '@playwright/test';
 
 test.fixme('dismiss a zombie → it moves to Hidden → restore it back', async ({ page }) => {
   void page;
-  // 1. await gotoSettled(page, '/account');
+  // 1. await gotoSettled(page, '/zombies');
   //    select first zombie row checkbox; click Dismiss; confirm "Dismiss All".
   // 2. assert the row is gone from the active list;
   //    open the Hidden view; assert the row is present and marked "dismissed".
