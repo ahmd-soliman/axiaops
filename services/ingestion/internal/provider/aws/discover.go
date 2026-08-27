@@ -65,6 +65,12 @@ func DiscoverResources(ctx context.Context, awsClient *Client, records []model.C
 			ids = discoverDynamoDB(ctx, cfg)
 		case "AmazonEKS":
 			ids = discoverEKS(ctx, cfg)
+		case "AmazonECS":
+			ids = discoverECS(ctx, cfg)
+		case "AmazonDocDB":
+			ids = discoverDocDB(ctx, cfg)
+		case "AmazonMSK":
+			ids = discoverMSK(ctx, cfg)
 		// NOTE: CloudFront, Kinesis, and S3 are handled by dedicated Discover*
 		// functions that do their own CloudWatch queries. They are NOT discovered here.
 		default:

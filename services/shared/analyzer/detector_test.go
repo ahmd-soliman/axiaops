@@ -254,6 +254,42 @@ func TestDetect_DynamoDB_ActiveReads_NoZombie(t *testing.T) {
 	}
 }
 
+func TestDetect_ECS_LowCPU_FlagsZombie(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonECS", "api-service", 120.00)}
+	usage := []analyzer.UsageRecord{usageRecord("api-service", "CPUUtilization", 0.5)}
+	zombies := analyzer.Detect(costs, usage, "")
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie for low CPU ECS service, got %d", len(zombies))
+	}
+	if zombies[0].ResourceType != "ecs_service" {
+		t.Errorf("expected ecs_service slug, got %s", zombies[0].ResourceType)
+	}
+}
+
+func TestDetect_DocDB_ZeroConnections_FlagsZombie(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonDocDB", "orders-docdb", 250.00)}
+	usage := []analyzer.UsageRecord{usageRecord("orders-docdb", "DatabaseConnections", 0)}
+	zombies := analyzer.Detect(costs, usage, "")
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie for zero connection DocumentDB, got %d", len(zombies))
+	}
+	if zombies[0].ResourceType != "docdb_cluster" {
+		t.Errorf("expected docdb_cluster slug, got %s", zombies[0].ResourceType)
+	}
+}
+
+func TestDetect_MSK_ZeroMessages_FlagsZombie(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonMSK", "events-kafka", 400.00)}
+	usage := []analyzer.UsageRecord{usageRecord("events-kafka", "MessagesInPerSec", 0)}
+	zombies := analyzer.Detect(costs, usage, "")
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie for zero throughput MSK cluster, got %d", len(zombies))
+	}
+	if zombies[0].ResourceType != "msk_cluster" {
+		t.Errorf("expected msk_cluster slug, got %s", zombies[0].ResourceType)
+	}
+}
+
 // NOTE: CloudFront, Kinesis, and S3 detection tests are in the ingestion
 // service (discover_test.go) since they use Tier 1-style direct detection
 // instead of flowing through Detect().
