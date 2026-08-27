@@ -89,7 +89,8 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const [customRange, setCustomRange] = useState(null);
   const [granularity, setGranularity] = useState('daily'); // 'daily' | 'monthly'
   const [filterServices, setFilterServices] = useState(() => new Set());
-  const [filterResourceTypes, setFilterResourceTypes] = useState(() => new Set());
+  const [filterResourceTypes, setFilterResourceTypes] = useState(new Set());
+  const [sortBy, setSortBy] = useState('cost_desc');
   const [selectedService, setSelectedService] = useState(null);
   const [selectedChartDate, setSelectedChartDate] = useState(null);
 
@@ -207,10 +208,12 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
         });
       }
     }
-    return [...byService.values()]
-      .map(g => ({ ...g, regions: [...g.regions].sort() }))
-      .sort((a, b) => b.total - a.total);
-  }, [filteredCosts]);
+    const list = [...byService.values()].map(g => ({ ...g, regions: [...g.regions].sort() }));
+    if (sortBy === 'cost_asc') return list.sort((a, b) => a.total - b.total);
+    if (sortBy === 'name_asc') return list.sort((a, b) => serviceConfig(a.service).label.localeCompare(serviceConfig(b.service).label));
+    if (sortBy === 'name_desc') return list.sort((a, b) => serviceConfig(b.service).label.localeCompare(serviceConfig(a.service).label));
+    return list.sort((a, b) => b.total - a.total);
+  }, [filteredCosts, sortBy]);
 
   // The drill-down side panel is clamped to a maximum 14-day window
   // (PANEL_MAX_DAYS at module scope) to match AWS Cost Explorer's
@@ -600,24 +603,48 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 By Service · {serviceGroups.length}
               </span>
-              <button
-                onClick={() => exportCSV(records, {
-                  services: [...filterServices],
-                  resourceTypes: [...filterResourceTypes],
-                }, toast)}
-                disabled={records.length === 0}
-                aria-label="Export to CSV"
-                style={{
-                  padding: isMobile ? '8px 12px' : '4px 10px',
-                  borderRadius: 6,
-                  border: `1px solid var(--color-border)`,
-                  backgroundColor: 'var(--color-surface-raised)',
-                  cursor: records.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: records.length === 0 ? 0.5 : 1,
-                }}
-              >
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-mid)' }}>↓ CSV</span>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600 }}>Sort:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                      border: `1px solid var(--color-border)`,
+                      backgroundColor: 'var(--color-surface)',
+                      color: 'var(--color-text)',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="cost_desc">Cost (High → Low)</option>
+                    <option value="cost_asc">Cost (Low → High)</option>
+                    <option value="name_asc">Service (A → Z)</option>
+                    <option value="name_desc">Service (Z → A)</option>
+                  </select>
+                </div>
+                <button
+                  onClick={() => exportCSV(records, {
+                    services: [...filterServices],
+                    resourceTypes: [...filterResourceTypes],
+                  }, toast)}
+                  disabled={records.length === 0}
+                  aria-label="Export to CSV"
+                  style={{
+                    padding: isMobile ? '8px 12px' : '4px 10px',
+                    borderRadius: 6,
+                    border: `1px solid var(--color-border)`,
+                    backgroundColor: 'var(--color-surface-raised)',
+                    cursor: records.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: records.length === 0 ? 0.5 : 1,
+                  }}
+                >
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-mid)' }}>↓ CSV</span>
+                </button>
+              </div>
             </div>
 
             {/* Service-group rows — at xs/sm the four-column row (dot + info

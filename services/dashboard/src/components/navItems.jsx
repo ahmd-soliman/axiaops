@@ -7,10 +7,10 @@
 // in the consumer's render path, not here, so role changes show up on
 // the next render.
 export const NAV_ITEMS = [
-  { label: 'Overview',  path: '/' },         // org summary
-  { label: 'Resources', path: '/account' },  // the account workbench (zombie list + bulk actions)
-  { label: 'Trends',    path: '/trend' },
-  { label: 'Costs',     path: '/cost' },
+  { label: 'Overview',         path: '/' },         // org summary
+  { label: 'Zombie Resources', path: '/account' },  // the account workbench (zombie list + bulk actions)
+  { label: 'Trends',           path: '/trend' },
+  { label: 'Costs',            path: '/cost' },
 ];
 
 // isNavActive — sibling-aware prefix match. Currently inert: no entry in
