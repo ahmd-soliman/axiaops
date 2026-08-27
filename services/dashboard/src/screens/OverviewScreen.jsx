@@ -688,7 +688,6 @@ function FilterPills({
               >
                 <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? '#ffffff' : cfg.color }} />
                 <span style={{ fontSize: 12, fontWeight: 700, color: active ? '#ffffff' : 'var(--color-text)' }}>{cfg.label}</span>
-                <span style={{ fontSize: 11, color: active ? 'rgba(255,255,255,0.8)' : 'var(--color-text-muted)' }}>{currency}{data.savings.toFixed(0)}</span>
               </button>
             );
           })}
