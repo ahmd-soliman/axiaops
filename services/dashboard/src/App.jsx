@@ -20,7 +20,7 @@ import OrgSummary from './pages/OrgSummary';
 import Overview   from './pages/Overview';
 import Detail     from './pages/Detail';
 import Trend      from './pages/Trend';
-import CostAnalytics from './pages/CostAnalytics';
+import CloudSpend  from './pages/CloudSpend';
 import Connect              from './pages/Connect';
 import CloudAccounts        from './pages/CloudAccounts';
 import CloudAccountSettings from './pages/CloudAccountSettings';
@@ -124,7 +124,7 @@ function AuthenticatedApp() {
                 <Route path="/account"            element={<Navigate to="/zombies" replace />} />
                 <Route path="/detail/:id"          element={<Detail />} />
                 <Route path="/trend"               element={<Trend />} />
-                <Route path="/spend"               element={<CostAnalytics />} />
+                <Route path="/spend"               element={<CloudSpend />} />
                 <Route path="/cost"                element={<Navigate to="/spend" replace />} />
                 <Route path="/connect"             element={<Connect />} />
                 {/* Profile and Cloud Accounts moved under /settings; old
