@@ -25,6 +25,7 @@ env:
   IMAGE_BASE: ghcr.io/${{ github.repository }}
   POSTGRES_PASSWORD: axiaops
   POSTGRES_OWNER_PASSWORD: axiaops_owner
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
 
 jobs:
   test-unit:
