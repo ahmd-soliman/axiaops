@@ -59,33 +59,12 @@ var (
 		[]string{"provider", "organization_id", "status"},
 	)
 
-	// axiaops_zombies_detected_total: Total number of zombie resources detected in the current scan.
-	// Labels: organization_id, provider.
-	ingestionZombiesDetectedTotal = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "axiaops_ingestion_zombies_detected_total",
-			Help: "Total number of zombie resources detected in the current scan.",
-		},
-		[]string{"organization_id", "provider"},
-	)
-
-	// axiaops_potential_monthly_savings_usd: Current potential monthly savings in USD.
-	// Labels: organization_id, provider.
-	ingestionPotentialMonthlySavings = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "axiaops_potential_monthly_savings_usd",
-			Help: "Current potential monthly savings in USD.",
-		},
-		[]string{"organization_id", "provider"},
-	)
 )
 
 func init() {
 	// Register ingestion metrics with the default Prometheus registry.
 	prometheus.MustRegister(ingestionRecordsFetchedTotal)
 	prometheus.MustRegister(ingestionRecordsSavedTotal)
-	prometheus.MustRegister(ingestionZombiesDetectedTotal)
-	prometheus.MustRegister(ingestionPotentialMonthlySavings)
 }
 
 // die logs a fatal error and exits with code 1.
@@ -659,8 +638,8 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 	summary := analyzer.Summarize(zombies)
 	slog.Info("analysis: detected zombie resources", "total", summary.TotalZombies, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
-	ingestionZombiesDetectedTotal.WithLabelValues(organizationID, awsClient.Name()).Set(float64(summary.TotalZombies))
-	ingestionPotentialMonthlySavings.WithLabelValues(organizationID, awsClient.Name()).Set(summary.PotentialMonthlySave)
+	observability.Global.ZombiesDetected.WithLabelValues(awsClient.Name(), organizationID).Set(float64(summary.TotalZombies))
+	observability.Global.PotentialMonthlySaving.WithLabelValues(awsClient.Name(), organizationID).Set(summary.PotentialMonthlySave)
 
 	if err := store.SaveZombies(ctx, zombies); err != nil {
 		return fmt.Errorf("save zombies: %w", err)
