@@ -25,6 +25,7 @@ env:
   IMAGE_BASE: ghcr.io/${{ github.repository }}
   POSTGRES_PASSWORD: axiaops
   POSTGRES_OWNER_PASSWORD: axiaops_owner
+  GOPROXY: "https://proxy.golang.org,direct"
 
 jobs:
   test-unit:
