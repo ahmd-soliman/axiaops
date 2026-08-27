@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { fetchCosts, fetchAccounts, scanAccount } from '../api/client';
+import { fetchCosts, fetchZombies, fetchAccounts, scanAccount } from '../api/client';
 import { serviceConfig, resourceTypeConfig, resourceTypeFromId } from '../components/serviceConfig';
 import AccountSelector from '../components/AccountSelector';
 import AreaChart from '../components/AreaChart';
@@ -102,9 +102,25 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   // Fetch costs and trends
   // Cost records now filter by internal_account_id directly (no resolution needed)
   const costsQuery = useQuery({
-    queryKey: ['costs', selectedAccount, period, customRange?.sinceIso ?? null, customRange?.untilIso ?? null],
-    queryFn: () => fetchCosts(selectedAccount, null, period, customRange?.sinceIso, customRange?.untilIso),
+    queryKey: ['costs', selectedAccount, period, customRange],
+    queryFn: () => fetchCosts({ accountId: selectedAccount, period, sinceIso: customRange?.sinceIso, untilIso: customRange?.untilIso }),
+    staleTime: 60_000,
   });
+
+  const zombiesQuery = useQuery({
+    queryKey: ['zombies', selectedAccount],
+    queryFn: () => fetchZombies({ accountId: selectedAccount }),
+    staleTime: 60_000,
+  });
+
+  const zombieResourceIds = useMemo(() => {
+    if (!zombiesQuery.data) return new Set();
+    const ids = new Set();
+    for (const z of zombiesQuery.data) {
+      if (z.resource_id) ids.add(z.resource_id);
+    }
+    return ids;
+  }, [zombiesQuery.data]);
 
   // Derive distinct services from costs
   const allServices = useMemo(() => {
@@ -674,8 +690,15 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
                       <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.color, flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>
-                          {cfg.label}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>
+                            {cfg.label}
+                          </div>
+                          {zombiesQuery.data?.some(z => z.service === group.service) && (
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 10, backgroundColor: '#FEF2F2', color: '#EF4444', border: '1px solid #FCA5A5' }}>
+                              🧟 Zombie Waste
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
                           {group.count} record{group.count !== 1 ? 's' : ''} · {group.regions.length} region{group.regions.length !== 1 ? 's' : ''}
@@ -717,6 +740,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
                 panelStats={panelStats}
                 panelClamped={panelClamped}
                 selectedServiceBreakdown={selectedServiceBreakdown}
+                zombieResourceIds={zombieResourceIds}
               />
             </div>
           )}
@@ -739,6 +763,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
               panelStats={panelStats}
               panelClamped={panelClamped}
               selectedServiceBreakdown={selectedServiceBreakdown}
+              zombieResourceIds={zombieResourceIds}
             />
           )}
         </div>
@@ -749,7 +774,7 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
 
 // Extracted so desktop's sticky right-rail and mobile's bottom sheet
 // render identical content without diverging.
-function ServiceDetailPanelBody({ selectedService, panelStats, panelClamped, selectedServiceBreakdown }) {
+function ServiceDetailPanelBody({ selectedService, panelStats, panelClamped, selectedServiceBreakdown, zombieResourceIds = new Set() }) {
   const cfg = serviceConfig(selectedService);
   return (
     <>
@@ -803,11 +828,19 @@ function ServiceDetailPanelBody({ selectedService, panelStats, panelClamped, sel
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
           {selectedServiceBreakdown.map((e, i) => {
             const resourceType = resourceTypeFromId(e.resourceId);
+            const isZombie = e.resourceId && zombieResourceIds.has(e.resourceId);
             return (
             <div key={e.resourceId ?? `__none__${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderBottom: i < selectedServiceBreakdown.length - 1 ? `1px solid var(--color-border)` : 'none' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, color: 'var(--color-text)', fontFamily: e.resourceId ? '"Geist Mono Variable", monospace' : 'inherit', fontStyle: e.resourceId ? 'normal' : 'italic', wordBreak: 'break-all' }}>
-                  {e.resourceId ?? 'No resource ID'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: 'var(--color-text)', fontFamily: e.resourceId ? '"Geist Mono Variable", monospace' : 'inherit', fontStyle: e.resourceId ? 'normal' : 'italic', wordBreak: 'break-all' }}>
+                    {e.resourceId ?? 'No resource ID'}
+                  </span>
+                  {isZombie && (
+                    <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 8, backgroundColor: '#FEF2F2', color: '#EF4444', border: '1px solid #FCA5A5' }}>
+                      🧟 Zombie
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
                   {resourceType ? `${resourceTypeConfig(resourceType).label} · ` : ''}{e.count} record{e.count !== 1 ? 's' : ''} · {e.regions.join(', ')}
