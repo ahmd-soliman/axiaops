@@ -290,6 +290,30 @@ func TestDetect_MSK_ZeroMessages_FlagsZombie(t *testing.T) {
 	}
 }
 
+func TestDetect_Bedrock_ZeroInvocations_FlagsZombie(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonBedrock", "claude-3-5-sonnet-throughput", 12000.00)}
+	usage := []analyzer.UsageRecord{usageRecord("claude-3-5-sonnet-throughput", "Invocations", 0)}
+	zombies := analyzer.Detect(costs, usage, "")
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie for zero invocation Bedrock throughput, got %d", len(zombies))
+	}
+	if zombies[0].ResourceType != "bedrock_throughput" {
+		t.Errorf("expected bedrock_throughput slug, got %s", zombies[0].ResourceType)
+	}
+}
+
+func TestDetect_Kendra_ZeroQueries_FlagsZombie(t *testing.T) {
+	costs := []model.CostRecord{costRecord("AmazonKendra", "enterprise-rag-index", 5040.00)}
+	usage := []analyzer.UsageRecord{usageRecord("enterprise-rag-index", "SearchQueryCount", 0)}
+	zombies := analyzer.Detect(costs, usage, "")
+	if len(zombies) != 1 {
+		t.Fatalf("expected 1 zombie for zero query Kendra index, got %d", len(zombies))
+	}
+	if zombies[0].ResourceType != "kendra_index" {
+		t.Errorf("expected kendra_index slug, got %s", zombies[0].ResourceType)
+	}
+}
+
 // NOTE: CloudFront, Kinesis, and S3 detection tests are in the ingestion
 // service (discover_test.go) since they use Tier 1-style direct detection
 // instead of flowing through Detect().

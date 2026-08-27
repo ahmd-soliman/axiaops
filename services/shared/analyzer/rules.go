@@ -103,6 +103,18 @@ var serviceRules = map[string]rule{
 		unit:      "Count",
 		reason:    "MSK cluster has zero incoming messages — likely idle",
 	},
+	"AmazonBedrock": {
+		metric:    "Invocations",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "Bedrock provisioned throughput model has zero invocations — likely unused ($10k+/mo leak)",
+	},
+	"AmazonKendra": {
+		metric:    "SearchQueryCount",
+		threshold: 0.0,
+		unit:      "Count",
+		reason:    "Kendra AI search index has zero search queries — likely abandoned ($810+/mo leak)",
+	},
 	// NOTE: CloudFront, Kinesis, and S3 use Tier 1-style direct detection
 	// (DiscoverIdle* functions in ingestion/provider/aws/discover.go) instead
 	// of flowing through Detect(). They are NOT in this map.
@@ -226,6 +238,14 @@ func ResourceType(service, usageMetric string) string {
 	case "AmazonRoute53":
 		if usageMetric == "QueryCount" {
 			return "route53_zone"
+		}
+	case "AmazonBedrock":
+		if usageMetric == "Invocations" {
+			return "bedrock_throughput"
+		}
+	case "AmazonKendra":
+		if usageMetric == "SearchQueryCount" {
+			return "kendra_index"
 		}
 	}
 	return ""
