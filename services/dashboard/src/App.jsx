@@ -124,7 +124,8 @@ function AuthenticatedApp() {
                 <Route path="/account"            element={<Navigate to="/zombies" replace />} />
                 <Route path="/detail/:id"          element={<Detail />} />
                 <Route path="/trend"               element={<Trend />} />
-                <Route path="/cost"                element={<CostAnalytics />} />
+                <Route path="/spend"               element={<CostAnalytics />} />
+                <Route path="/cost"                element={<Navigate to="/spend" replace />} />
                 <Route path="/connect"             element={<Connect />} />
                 {/* Profile and Cloud Accounts moved under /settings; old
                     paths kept as redirects so bookmarks and share-links

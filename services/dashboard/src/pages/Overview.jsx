@@ -34,7 +34,7 @@ export default function Overview() {
       // an InfoTooltip <button>, and an <a> can't legally contain a button, so
       // these stay callbacks rather than anchors.
       onShowTrend={() => navigate('/trend')}
-      onShowCosts={() => navigate(selectedAccount ? `/cost?account=${encodeURIComponent(selectedAccount)}` : '/cost')}
+      onShowCosts={() => navigate(selectedAccount ? `/spend?account=${encodeURIComponent(selectedAccount)}` : '/spend')}
     />
   );
 }
