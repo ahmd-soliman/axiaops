@@ -33,9 +33,7 @@ func discoverECS(ctx context.Context, cfg aws.Config) []string {
 					slog.Warn("discover: ECS ListServices", "cluster", clusterArn, "error", err)
 					break
 				}
-				for _, svcArn := range svcOut.ServiceArns {
-					ids = append(ids, svcArn)
-				}
+				ids = append(ids, svcOut.ServiceArns...)
 				if svcOut.NextToken == nil {
 					break
 				}
