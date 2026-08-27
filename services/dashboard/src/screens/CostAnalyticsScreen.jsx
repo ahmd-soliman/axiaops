@@ -100,16 +100,16 @@ export default function CostAnalyticsScreen({ accounts: passedAccounts, selected
   const selectedAccount = passedSelectedAccount;
 
   // Fetch costs and trends
-  // Cost records now filter by internal_account_id directly (no resolution needed)
+  // Cost records filter by account directly
   const costsQuery = useQuery({
-    queryKey: ['costs', selectedAccount, period, customRange],
-    queryFn: () => fetchCosts({ accountId: selectedAccount, period, sinceIso: customRange?.sinceIso, untilIso: customRange?.untilIso }),
+    queryKey: ['costs', selectedAccount, period, customRange?.sinceIso, customRange?.untilIso],
+    queryFn: () => fetchCosts(selectedAccount, null, period, customRange?.sinceIso, customRange?.untilIso),
     staleTime: 60_000,
   });
 
   const zombiesQuery = useQuery({
     queryKey: ['zombies', selectedAccount],
-    queryFn: () => fetchZombies({ accountId: selectedAccount }),
+    queryFn: () => fetchZombies(selectedAccount),
     staleTime: 60_000,
   });
 
