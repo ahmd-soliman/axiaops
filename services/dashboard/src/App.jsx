@@ -120,7 +120,8 @@ function AuthenticatedApp() {
               </Route>
               <Route element={<AppShell />}>
                 <Route path="/"                    element={<OrgSummary />} />
-                <Route path="/account"             element={<Overview />} />
+                <Route path="/zombies"            element={<Overview />} />
+                <Route path="/account"            element={<Navigate to="/zombies" replace />} />
                 <Route path="/detail/:id"          element={<Detail />} />
                 <Route path="/trend"               element={<Trend />} />
                 <Route path="/cost"                element={<CostAnalytics />} />

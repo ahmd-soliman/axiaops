@@ -8,7 +8,7 @@
 // the next render.
 export const NAV_ITEMS = [
   { label: 'Overview',         path: '/' },         // org summary
-  { label: 'Zombie Resources', path: '/account' },  // the account workbench (zombie list + bulk actions)
+  { label: 'Zombie Resources', path: '/zombies' },  // the account workbench (zombie list + bulk actions)
   { label: 'Trends',           path: '/trend' },
   { label: 'Cloud Spend',      path: '/cost' },
 ];

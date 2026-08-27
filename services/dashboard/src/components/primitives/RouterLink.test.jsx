@@ -22,10 +22,10 @@ describe('RouterLink primitives', () => {
   });
 
   it('RowLink renders an anchor with a resolvable href', () => {
-    renderWithRouter(<RowLink to="/account?account=abc">Row</RowLink>);
+    renderWithRouter(<RowLink to="/zombies?account=abc">Row</RowLink>);
     const link = screen.getByRole('link', { name: 'Row' });
     expect(link.tagName).toBe('A');
-    expect(link).toHaveAttribute('href', '/account?account=abc');
+    expect(link).toHaveAttribute('href', '/zombies?account=abc');
   });
 
   it('StretchedRowLink exposes its destination via an aria-labelled anchor', () => {
