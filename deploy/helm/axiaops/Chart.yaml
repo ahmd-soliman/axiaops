@@ -6,5 +6,5 @@ description: >-
   (see postgres.existingSecret in values.yaml) rather than a
   chart-bundled database.
 type: application
-version: 0.2.7
-appVersion: "v0.2.0-beta.1"
+version: 0.2.8
+appVersion: "v0.2.0-beta.2"
