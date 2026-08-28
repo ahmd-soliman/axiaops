@@ -210,7 +210,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v5
-      - run: make test-e2e-ci
+      - run: make test-e2e
       - if: failure()
         run: |
           cd test-infra/e2e
