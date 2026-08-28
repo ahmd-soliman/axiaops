@@ -128,7 +128,7 @@ make test-integration-ingestion    # Just the ingestion suite
 make build-production    # go build -tags production — catches DEV_MODE leak regressions
 ```
 
-**Conventions** (from [TEST_STRATEGY.md](TEST_STRATEGY.md)):
+**Conventions** (from [TESTING.md](TESTING.md)):
 
 - Standard `testing` package only — **no testify** or third-party assertion libs.
 - **Black-box tests**: `package foo_test`, not `package foo`.
@@ -355,7 +355,7 @@ dated `## [X.Y.Z]` section — format is [Keep a Changelog
 1.1.0](https://keepachangelog.com/en/1.1.0/)) → tag `main` at the commit you want to
 release with an **annotated** tag (`git tag -a 0.1.0-alpha.1 -m "..."`, never
 lightweight — lightweight tags lose author/message metadata) → push the tag. CI does
-the rest: `release.yml` validates the tag, waits for `ci.yml`'s `build-images` job to
+the rest: `release.yml` validates the tag, waits for `ci.yml`'s `publish-images` job to
 finish building/testing that exact commit, then promotes the already-built
 `main-<shortsha>` images to the release tag with `docker buildx imagetools create`
 (a manifest copy, not a rebuild — the release image is byte-for-byte what CI already
