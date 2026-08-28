@@ -93,9 +93,11 @@
 	grid-template-columns: 100% !important;
 	justify-items: center;
 }
-.hero > img {
+.hero img {
 	order: 0 !important;
-	width: min(100%, 32rem) !important;
+	width: min(100%, 28rem) !important;
+	height: auto !important;
+	object-fit: contain;
 }
 .hero .stack {
 	text-align: center !important;
