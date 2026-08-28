@@ -178,7 +178,7 @@ jobs:
           cd test-infra/integration
           docker compose down -v --remove-orphans || true
 
-  build-production-shape:
+  verify-production-build:
     runs-on: ubuntu-latest
     needs: [test-unit, lint]
     steps:
@@ -203,7 +203,7 @@ jobs:
       - lint
       - test-integration-api
       - test-integration-ingestion
-    # Only build+push on main — PR builds compile-check via build-production-shape
+    # Only build+push on main — PR builds compile-check via verify-production-build
     # instead, same split as the GitLab pipeline (build:images excluded feature
     # branches there too).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
