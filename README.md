@@ -12,13 +12,26 @@
 <p align="center"><strong>Know the value of every resource.</strong></p>
 
 <p align="center">
-  <a href="https://ahmd-soliman.github.io/axiaops"><strong>Documentation Website</strong></a> &nbsp;|&nbsp;
-  <a href="https://ahmd-soliman.github.io/axiaops/charts"><strong>Helm Chart Repository</strong></a>
+  <a href="https://ahmd-soliman.github.io/axiaops"><strong>Documentation Website</strong></a>
 </p>
 
 ---
 
-## What It Does
+## Deploying with Helm
+
+Install AxiaOps into your Kubernetes cluster via the official Helm chart:
+
+```bash
+helm repo add axiaops https://ahmd-soliman.github.io/axiaops/charts
+helm repo update
+helm install axiaops axiaops/axiaops --version 0.3.0
+```
+
+See [deploy/helm/axiaops](deploy/helm/axiaops/README.md) for full configuration parameters.
+
+---
+
+## Running Locally
 
 AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 
