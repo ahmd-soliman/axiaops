@@ -8,7 +8,7 @@ name: release
 # commit-SHA tagged (main-<shortsha>) on every push to main.
 #
 # Build once, promote for release -- this job does NOT run `docker build`.
-# ci.yml's build-images already built and pushed main-<shortsha> images for
+# ci.yml's publish-images already built and pushed main-<shortsha> images for
 # this exact commit, and e2e-regression already ran against them. Rebuilding
 # from source here would produce a *different* artifact (base image layers
 # re-pulled at a different moment, anything not hash-pinned free to resolve
@@ -20,7 +20,7 @@ name: release
 #
 # This means release tags MUST be cut immediately after the promotion merge
 # lands, per docs/DEVELOPER_GUIDE.md § 8 -- if another commit pushes to main
-# before the tag, ci.yml's prune step (build-images) will have already
+# before the tag, ci.yml's prune step (publish-images) will have already
 # deleted the older main-<shortsha> versions this job needs to promote, and
 # it fails loudly rather than silently falling back to a rebuild.
 #
@@ -97,7 +97,7 @@ jobs:
                 echo "::error::${SRC} never appeared after 15m of retries -- check ci.yml's run for this commit (${GITHUB_SHA}) on the Actions tab." >&2
                 exit 1
               fi
-              echo "  not published yet (attempt ${attempt}/30) -- waiting on ci.yml's build-images, retrying in 30s..."
+              echo "  not published yet (attempt ${attempt}/30) -- waiting on ci.yml's publish-images, retrying in 30s..."
               sleep 30
             done
           done
