@@ -770,7 +770,7 @@ func TestOIDC_PendingInvitationPrecedence(t *testing.T) {
 	// include g-engineering. JIT would resolve to admin; the invite must
 	// override that to viewer.
 	aliceEmail := "alice@" + fx.domain
-	if _, _, err := fx.store.CreatePendingInvitation(rootCtx, model.PendingInvitation{
+	if _, _, err := fx.store.CreateNativeInvitation(rootCtx, model.PendingInvitation{
 		OrganizationID:  fx.orgID,
 		Email:           aliceEmail,
 		Role:            "viewer", // intentionally LOWER than what JIT would yield
