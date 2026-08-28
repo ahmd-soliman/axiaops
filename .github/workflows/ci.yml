@@ -194,6 +194,40 @@ jobs:
       - run: cd services/api && go test -tags production ./cmd/
       - run: cd services/ingestion && go test -tags production ./cmd/
 
+  e2e-regression:
+    runs-on: ubuntu-latest
+    needs:
+      - test-unit
+      - lint
+      - test-integration-api
+      - test-integration-ingestion
+      - verify-production-build
+    continue-on-error: true # non-blocking while the suite matures, same as GitLab
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - run: make test-e2e-ci
+      - if: failure()
+        run: |
+          cd test-infra/e2e
+          for svc in migrate api ingestion dashboard playwright; do
+            echo "--- logs $svc ---"
+            docker compose logs --no-color --tail=200 "$svc" || true
+          done
+      - if: always()
+        run: |
+          cd test-infra/e2e
+          docker compose down -v --remove-orphans || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            services/dashboard/playwright-report/
+            services/dashboard/test-results/
+          retention-days: 7
+
   build-images:
     runs-on: ubuntu-latest
     needs:
@@ -203,6 +237,8 @@ jobs:
       - lint
       - test-integration-api
       - test-integration-ingestion
+      - verify-production-build
+      - e2e-regression
     # Only build+push on main — PR builds compile-check via verify-production-build
     # instead, same split as the GitLab pipeline (build:images excluded feature
     # branches there too).
@@ -271,41 +307,3 @@ jobs:
                   || echo "  (delete failed for id=${id}, continuing -- likely needs a PAT with delete:packages instead of GITHUB_TOKEN)"
               done
           done
-
-  e2e-regression:
-    runs-on: ubuntu-latest
-    needs: [test-unit, lint, test-integration-api, test-integration-ingestion, build-images]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    continue-on-error: true # non-blocking while the suite matures, same as GitLab
-    permissions:
-      contents: read
-      packages: read
-    env:
-      IMAGE_TAG: ${{ needs.build-images.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - run: make test-e2e-ci
-      - if: failure()
-        run: |
-          cd test-infra/e2e
-          for svc in migrate api ingestion dashboard playwright; do
-            echo "--- logs $svc ---"
-            docker compose logs --no-color --tail=200 "$svc" || true
-          done
-      - if: always()
-        run: |
-          cd test-infra/e2e
-          docker compose down -v --remove-orphans || true
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: |
-            services/dashboard/playwright-report/
-            services/dashboard/test-results/
-          retention-days: 7
