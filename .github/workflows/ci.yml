@@ -180,7 +180,11 @@ jobs:
 
   verify-production-build:
     runs-on: ubuntu-latest
-    needs: [test-unit, lint]
+    needs:
+      - test-unit
+      - lint
+      - test-integration-api
+      - test-integration-ingestion
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v7
@@ -199,6 +203,8 @@ jobs:
     needs:
       - test-unit
       - lint
+      - test-integration-api
+      - test-integration-ingestion
     continue-on-error: true # non-blocking while the suite matures, same as GitLab
     permissions:
       contents: read
