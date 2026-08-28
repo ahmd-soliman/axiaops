@@ -8,7 +8,7 @@ This is the navigable hub for engineers working on AxiaOps. Read this first, the
 > - Per-service: [api/CLAUDE.md](../services/api/CLAUDE.md), [ingestion/CLAUDE.md](../services/ingestion/CLAUDE.md), [shared/CLAUDE.md](../services/shared/CLAUDE.md) — dashboard has no per-service CLAUDE.md yet, see [DEVELOPER_GUIDE.md § 3](DEVELOPER_GUIDE.md#3-code-conventions-youll-want-to-absorb) for dashboard conventions
 > - Auth: [AUTHENTICATION.md](AUTHENTICATION.md)
 > - Operations: [OPERATIONS.md](OPERATIONS.md) — connecting an AWS account, notification channels
-> - Testing: [TEST_STRATEGY.md](TEST_STRATEGY.md)
+> - Testing: [TESTING.md](TESTING.md)
 
 ## TL;DR
 
@@ -537,9 +537,8 @@ GitHub Actions. Workflow defined in `.github/workflows/ci.yml`.
 flowchart LR
     push[push / PR] --> test["test-unit, test-redis,<br/>test-dashboard, test-storage,<br/>lint"]
     test --> integ["test-integration-api,<br/>test-integration-ingestion"]
-    integ --> build["build-production-shape<br/>(go build -tags production)"]
-    build --> images["build-images<br/>(push to GHCR)"]
-    images --> e2e["e2e-regression<br/>(Playwright, non-blocking)"]
+    integ --> stage3["verify-production-build &<br/>e2e-regression"]
+    stage3 --> publish["publish-images<br/>(main push only)"]
 ```
 
 CI covers test, build, and e2e only — there is no deploy stage in this repo's
