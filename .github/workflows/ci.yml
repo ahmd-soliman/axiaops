@@ -148,6 +148,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: make test-integration-api
+      - run: make test-integration-sso
       - if: failure()
         run: |
           cd test-infra/integration
