@@ -199,9 +199,6 @@ jobs:
     needs:
       - test-unit
       - lint
-      - test-integration-api
-      - test-integration-ingestion
-      - verify-production-build
     continue-on-error: true # non-blocking while the suite matures, same as GitLab
     permissions:
       contents: read
@@ -228,7 +225,7 @@ jobs:
             services/dashboard/test-results/
           retention-days: 7
 
-  build-images:
+  publish-images:
     runs-on: ubuntu-latest
     needs:
       - test-unit
@@ -239,9 +236,8 @@ jobs:
       - test-integration-ingestion
       - verify-production-build
       - e2e-regression
-    # Only build+push on main — PR builds compile-check via verify-production-build
-    # instead, same split as the GitLab pipeline (build:images excluded feature
-    # branches there too).
+    # Only publish on main — PR builds compile-check via verify-production-build
+    # and run e2e-regression without pushing to GHCR.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read

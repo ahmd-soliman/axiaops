@@ -72,7 +72,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Promote the already-built commit image to this release tag
-        # ci.yml's build-images job (the source of main-<shortsha>) only
+        # ci.yml's publish-images job (the source of main-<shortsha>) only
         # runs after its full test gate (test-unit/redis/storage/lint/
         # integration-*) clears -- typically several minutes. A tag pushed
         # right after the promotion merge (the documented convention) will
