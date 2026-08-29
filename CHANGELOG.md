@@ -29,6 +29,7 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ### Added
 
+- Helm chart: Added native `traefikIngressRoute` template support in `templates/ingressroute.yaml`.
 - Helm chart: `api`/`ingestion` Services now carry `prometheus.io/scrape`,
   `prometheus.io/port`, and `prometheus.io/path` annotations, so a
   Kubernetes Prometheus's `kubernetes-service-endpoints` job discovers
