@@ -5,7 +5,7 @@ description: Running api and ingestion as ECS Express Mode services, migrations 
 
 import Mermaid from '../../../components/Mermaid.astro';
 
-The [Deployment](deployment/) and [Deploying on AWS](aws-deployment/)
+The [Deployment](../deployment/) and [Deploying on AWS](../aws-deployment/)
 guides assume you're already running (or want to run) a Kubernetes cluster.
 If you'd rather not operate one at all, AxiaOps deploys just as well onto
 plain ECS on Fargate — this is in fact how the hosted AxiaOps service itself
@@ -176,6 +176,6 @@ aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths 
 Both paths run the same four services against the same schema — nothing
 about the application changes. Reach for ECS Express Mode if you don't want
 to operate a Kubernetes control plane at all; reach for the
-[Helm chart](deployment/) if you're already running EKS (or any
+[Helm chart](../deployment/) if you're already running EKS (or any
 other cluster) and want AxiaOps to be one more thing `kubectl` manages
 alongside everything else.
