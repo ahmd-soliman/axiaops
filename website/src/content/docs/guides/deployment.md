@@ -26,7 +26,8 @@ kubectl create secret generic axiaops-postgres \
   --from-literal=runtime-admin-database-url="postgres://axiaops_runtime:...@host:5432/axiaops?sslmode=disable"
 
 kubectl create secret generic axiaops-secrets \
-  --from-literal=encryption-key="$(openssl rand -hex 32)"
+  --from-literal=encryption-key="$(openssl rand -hex 32)" \
+  --from-literal=ingestion-shared-secret="$(openssl rand -hex 32)"
 
 helm install axiaops . \
   --set postgres.existingSecret=axiaops-postgres \
@@ -56,7 +57,7 @@ any Deployment/Job reading them will crash-loop):
 
 - **`axiaops-postgres`** — `database-url`, `migration-database-url`,
   `runtime-admin-database-url`.
-- **`axiaops-secrets`** — `encryption-key`.
+- **`axiaops-secrets`** — `encryption-key`, `ingestion-shared-secret`.
 - **`axiaops-registry`** *(if pulling from a private registry)* —
   `kubernetes.io/dockerconfigjson` image pull credentials.
 
@@ -67,8 +68,8 @@ For a first install you don't need production-grade backing services: leave
 the app, and point `postgres.existingSecret` at whatever Postgres you have
 handy — a single node with no HA story is fine here. The published image
 always ships with real auth, so you'll go through the normal
-[bootstrap flow](authentication/) even on a throwaway install; if you
+[bootstrap flow](../authentication/) even on a throwaway install; if you
 specifically want the DEV_MODE auth bypass, build your own image first (see
 `image.apiSuffix` above). Tighten backing services once you're running it
-for real — see [Deploying on AWS](aws-deployment/) for what that looks like
+for real — see [Deploying on AWS](../aws-deployment/) for what that looks like
 on EKS.

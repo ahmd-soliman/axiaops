@@ -3,7 +3,7 @@ title: Contributing
 description: Local dev setup, code conventions, and how to submit a change.
 ---
 
-How to be productive in this codebase. Read [Architecture](architecture/) first
+How to be productive in this codebase. Read [Architecture](../architecture/) first
 if you haven't — this guide assumes you understand the service layout.
 
 ## Prerequisites
@@ -99,7 +99,7 @@ make build-production    # catches DEV_MODE-leak regressions
 Standard `testing` package only, no third-party assertion libraries;
 black-box tests (`package foo_test`); mock external services via interfaces.
 Full strategy — including why AWS calls are tested against a real dedicated
-test account rather than an emulator — in [Testing](testing/).
+test account rather than an emulator — in [Testing](../testing/).
 
 ## Submitting work
 
