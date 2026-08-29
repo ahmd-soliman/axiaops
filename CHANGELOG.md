@@ -25,6 +25,9 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+### Changed
+- **Helm Chart**: Bumped chart version to `0.3.3`. Converted routing to standard Kubernetes `networking.k8s.io/v1` `Ingress` template and removed legacy Traefik `IngressRoute` template.
+
 ## [0.2.0-beta.6] — 2026-08-29
 
 ### Added
