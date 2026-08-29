@@ -67,14 +67,6 @@ ingress:
     enabled: false
     secretName: ""
 
-traefikIngressRoute:
-  enabled: false
-  host: ""
-  entryPoints:
-    - web
-  annotations:
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-
 # The chart never bundles Postgres -- bring your own, running outside this
 # deploy unit. existingSecret must provide three postgres:// DSNs as keys:
 # database-url, migration-database-url, runtime-admin-database-url.
