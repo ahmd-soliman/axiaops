@@ -7,4 +7,4 @@ description: >-
   chart-bundled database.
 type: application
 version: 0.3.3
-appVersion: "0.2.0-beta.6"
+appVersion: "0.2.0-beta.7"
