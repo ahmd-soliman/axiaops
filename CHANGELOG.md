@@ -25,12 +25,18 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+## [0.2.0-beta.6] — 2026-08-29
+
 ### Added
 
 - Helm chart: `api`/`ingestion` Services now carry `prometheus.io/scrape`,
   `prometheus.io/port`, and `prometheus.io/path` annotations, so a
   Kubernetes Prometheus's `kubernetes-service-endpoints` job discovers
   `/metrics` automatically — no per-target scrape config needed.
+- CI: Added `make test-integration-sso` to `test-integration-api` workflow job.
+- CI: Upstreamed `e2e-regression` workflow to run on PRs prior to image publishing.
+- Documentation: Added "Deploying with Helm" section and GitHub Pages documentation links in `README.md`.
+- Documentation: Complete overhaul and restructure of `docs/TESTING.md` and website testing guide into 5 clear execution layers.
 
 ### Changed
 
@@ -39,6 +45,13 @@ Each version section uses these subheadings, in this order, omitting empty ones:
   real GHCR image exists for every `appVersion` the chart ships with, so
   the fallback always resolves to something actually published. Still
   overridable for testing an unreleased/manually-built tag.
+- Helm chart: Bumped chart version to `0.3.1` and `appVersion` to `0.2.0-beta.6`.
+- CI: Upgraded GitHub Action dependencies (`setup-node@v5`, `setup-go@v7`, `login-action@v4`, `golangci-lint-action@v9`).
+- Website: Fixed hero logo scaling with `height: auto` and responsive `object-fit: contain`.
+
+### Fixed
+
+- SSO / OIDC: Corrected OIDC integration test fixture to invoke `CreateNativeInvitation` instead of `CreatePendingInvitation`.
 
 ## [0.1.0-alpha.32] — 2026-08-26
 
