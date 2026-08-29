@@ -193,7 +193,9 @@ A shutdown that hits the timeout logs and exits anyway rather than hanging — e
 
 ## 5. Database & Multi-Tenancy
 
-PostgreSQL 17 with **schema `axiaops`** (not `public`). Two connection roles: `axiaops_owner` runs migrations and owns DDL; `axiaops` is the app role bound by RLS policies.
+PostgreSQL 17 with **schema `axiaops`** (not `public`). Three connection roles: `axiaops_owner` runs migrations and owns DDL; `axiaops` is the app DML role bound by RLS policies; `axiaops_runtime` is the least-privilege RLS-bypass role for administrative operations.
+
+> **Bootstrap Behavior**: Only `axiaops_owner` must exist in PostgreSQL prior to deployment. During startup, AxiaOps's `Bootstrap()` sequence automatically creates `axiaops` and `axiaops_runtime` if missing and syncs their passwords from connection DSNs.
 
 ### Row-Level Security pattern
 

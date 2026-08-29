@@ -53,6 +53,8 @@ manually-built one for testing a feature branch that hasn't been released
 yet. Browse published tags at the [`api` package
 page](https://github.com/ahmd-soliman/axiaops/pkgs/container/axiaops%2Fapi).
 
+> ℹ️ **PostgreSQL User Setup**: `migration-database-url` connects as `axiaops_owner` (must exist in PostgreSQL beforehand to execute DDL migrations). The application users (`axiaops` and `axiaops_runtime`) are automatically created and password-synced by AxiaOps's built-in `Bootstrap()` sequence if missing.
+
 ```bash
 kubectl create secret generic axiaops-postgres \
   --from-literal=database-url="postgres://axiaops:...@host:5432/axiaops?sslmode=disable" \
