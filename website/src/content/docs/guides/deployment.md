@@ -15,7 +15,7 @@ environment-specific value is supplied by whoever installs it.
 | **Deploys** | `api`, `dashboard`, `ingestion`, and an in-cluster Valkey. |
 | **Does not bundle Postgres** | Every environment runs Postgres as a standalone process outside the chart — you point `postgres.existingSecret` at a pre-created Secret instead. |
 | **Does not generate or manage secrets** | `postgres.existingSecret` and `secrets.existingSecret` are both "bring your own Secret" — the chart assumes no sealed-secrets/external-secrets operator. |
-| **Ingress is opt-in** | `templates/ingress.yaml` is a plain `networking.k8s.io/v1` Ingress, off by default. A Traefik-based cluster wanting `IngressRoute` CRDs instead should leave `ingress.enabled: false` and supply its own `IngressRoute` alongside whatever installs the chart. |
+| **Ingress is opt-in** | `templates/ingress.yaml` is a plain `networking.k8s.io/v1` Ingress, off by default (`ingress.enabled: false`). Real hostnames are environment identity and not hardcoded into chart defaults — set `ingress.enabled: true` and specify `ingress.host` (e.g. `axiaops.example.com`) when installing to configure HTTP routing. |
 
 ## Getting it running
 
@@ -45,7 +45,7 @@ before `api`/`ingestion` restart against the new schema.
 | `devMode.enabled` | `true` | Bypasses auth. Only appropriate for a throwaway/personal environment — flip off for anything real. Has no effect against the published image (see `image.apiSuffix` below) — the env var is read by a build that no longer exists in the registry. |
 | `image.tag` | `""` | Falls back to `Chart.yaml`'s `appVersion` — every chart version is published together with a matching, already-tested GHCR image, so you don't need to set this unless you want a different published tag or a manually-built one. |
 | `image.apiSuffix` | `""` | Leave empty. CI only builds and publishes the DEV_MODE-hardwired-off production `api`/`ingestion` image — an auth-bypass build is never pushed to a public registry. To actually use `devMode.enabled: true`, build the DEV_MODE-capable image yourself (`docker build -f services/api/Dockerfile .`, omitting `BUILD_TAGS`), push it to a registry you control, and point `apiSuffix`/`image.registry` at that. |
-| `ingress.enabled` | `false` | Deliberately off by default — see above. |
+| `ingress.enabled` | `false` | Off by default so hostnames are not hardcoded in chart defaults. Set `ingress.enabled: true` and specify `ingress.host` at install time to configure Ingress routing. |
 | `postgres.existingSecret` | `""` | Required for anything to actually start. The chart installs without it (rendering `NOTES.txt` warnings) so `helm template` / CI linting doesn't need a real Secret to succeed. |
 | `redis.enabled` | `true` | Deploys the in-cluster Valkey Deployment + Service. Set `redis.auth.existingSecret` to a Secret containing a full `redis-url` DSN to point at an external Redis-compatible service instead — note this currently still deploys the in-cluster pod alongside it; there isn't yet a clean way to disable the embedded pod while keeping an external `REDIS_URL` wired in. |
 

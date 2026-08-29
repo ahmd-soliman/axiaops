@@ -19,12 +19,10 @@ belong in that deployer's own repo, not here.
 - **No secret generation or management.** `secrets.existingSecret` and
   `redis.auth.existingSecret` are the same story — bring your own Secret.
   There's no sealed-secrets/external-secrets assumption baked in.
-- **No ingress-controller-specific resources.** `templates/ingress.yaml` is
-  a plain `networking.k8s.io/v1` Ingress. A cluster that wants
-  controller-specific resources instead (e.g. Traefik `IngressRoute` CRDs
-  for header-based health checks, middlewares, etc.) should leave
-  `ingress.enabled: false` here and supply its own alongside whatever
-  installs this chart.
+- **Opt-in ingress.** `templates/ingress.yaml` is a plain
+  `networking.k8s.io/v1` Ingress, off by default (`ingress.enabled: false`).
+  Hostnames are environment identity; set `ingress.enabled: true` and supply
+  `ingress.host` when deploying to enable HTTP routing.
 
 ## Installing
 
