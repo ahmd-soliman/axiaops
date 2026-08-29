@@ -60,16 +60,20 @@ devMode:
 # hostname. ingress.enabled: false skips the Ingress resource entirely.
 ingress:
   enabled: false
-  # e.g. traefik.ingress.kubernetes.io/router.entrypoints: web. Nothing
-  # Traefik-specific is assumed by the templates themselves -- this chart
-  # renders a plain networking.k8s.io/v1 Ingress, portable to any
-  # controller.
   className: ""
   annotations: {}
   host: ""       # dashboard (tenant UI + /api proxy)
   tls:
     enabled: false
     secretName: ""
+
+traefikIngressRoute:
+  enabled: false
+  host: ""
+  entryPoints:
+    - web
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 
 # The chart never bundles Postgres -- bring your own, running outside this
 # deploy unit. existingSecret must provide three postgres:// DSNs as keys:
