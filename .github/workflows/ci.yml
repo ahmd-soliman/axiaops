@@ -285,28 +285,3 @@ jobs:
           docker push ${IMAGE_BASE}/ingestion:${TAG}
           docker push ${IMAGE_BASE}/migrate:${TAG}
           docker push ${IMAGE_BASE}/dashboard:${TAG}
-
-      - name: Prune old commit-SHA image versions
-        # Keeps the package pages (github.com/.../pkgs/container/...) readable:
-        # every push to main pushes a new main-<shortsha> version, so without
-        # this the list grows one entry per commit forever. Deletes any
-        # version whose tags are ALL "main-*" and don't match the tag this
-        # run just pushed -- real release tags (from release.yml, no "main-"
-        # prefix) are never touched by this filter.
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ steps.build.outputs.tag }}"
-          for pkg in api ingestion migrate dashboard; do
-            echo "=== pruning ${IMAGE_BASE}/${pkg} (keeping ${TAG} and 10 most recent main-* builds) ==="
-            gh api "/user/packages/container/axiaops%2F${pkg}/versions" --paginate \
-              --jq '.[] | select((.metadata.container.tags // []) | length > 0)
-                        | select((.metadata.container.tags // []) | all(startswith("main-")))
-                        | select((.metadata.container.tags // []) | index("'"$TAG"'") | not)' \
-            | jq -s 'sort_by(.created_at) | reverse | .[10:] | .[].id' \
-            | while read -r id; do
-                echo "  deleting old version id=${id}"
-                gh api -X DELETE "/user/packages/container/axiaops%2F${pkg}/versions/${id}" \
-                  || echo "  (delete failed for id=${id}, continuing -- likely needs a PAT with delete:packages instead of GITHUB_TOKEN)"
-              done
-          done
