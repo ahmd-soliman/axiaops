@@ -298,14 +298,14 @@ jobs:
         run: |
           TAG="${{ steps.build.outputs.tag }}"
           for pkg in api ingestion migrate dashboard; do
-            echo "=== pruning ${IMAGE_BASE}/${pkg} (keeping ${TAG}) ==="
+            echo "=== pruning ${IMAGE_BASE}/${pkg} (keeping ${TAG} and 10 most recent main-* builds) ==="
             gh api "/user/packages/container/axiaops%2F${pkg}/versions" --paginate \
               --jq '.[] | select((.metadata.container.tags // []) | length > 0)
                         | select((.metadata.container.tags // []) | all(startswith("main-")))
-                        | select((.metadata.container.tags // []) | index("'"$TAG"'") | not)
-                        | .id' \
+                        | select((.metadata.container.tags // []) | index("'"$TAG"'") | not)' \
+            | jq -s 'sort_by(.created_at) | reverse | .[10:] | .[].id' \
             | while read -r id; do
-                echo "  deleting version id=${id}"
+                echo "  deleting old version id=${id}"
                 gh api -X DELETE "/user/packages/container/axiaops%2F${pkg}/versions/${id}" \
                   || echo "  (delete failed for id=${id}, continuing -- likely needs a PAT with delete:packages instead of GITHUB_TOKEN)"
               done

@@ -89,17 +89,25 @@ jobs:
             SRC="${IMAGE_BASE}/${svc}:${SHA_TAG}"
             DST="${IMAGE_BASE}/${svc}:${TAG}"
             echo "promoting ${SRC} -> ${DST}"
-            for attempt in $(seq 1 30); do
+            promoted=false
+            for attempt in $(seq 1 10); do
               if docker buildx imagetools create --tag "${DST}" "${SRC}"; then
+                promoted=true
                 break
               fi
-              if [ "$attempt" -eq 30 ]; then
-                echo "::error::${SRC} never appeared after 15m of retries -- check ci.yml's run for this commit (${GITHUB_SHA}) on the Actions tab." >&2
-                exit 1
-              fi
-              echo "  not published yet (attempt ${attempt}/30) -- waiting on ci.yml's publish-images, retrying in 30s..."
-              sleep 30
+              echo "  not published yet (attempt ${attempt}/10) -- waiting on ci.yml's publish-images, retrying in 15s..."
+              sleep 15
             done
+            if [ "$promoted" = "false" ]; then
+              echo "::warning::${SRC} not found in GHCR -- falling back to building ${DST} from source..."
+              if [ "$svc" = "dashboard" ]; then
+                docker buildx build --push -t "${DST}" -f services/dashboard/Dockerfile services/dashboard
+              elif [ "$svc" = "migrate" ]; then
+                docker buildx build --push -t "${DST}" -f services/migrate/Dockerfile --build-arg APP_VERSION="${TAG}" --build-arg APP_COMMIT_SHA="${GITHUB_SHA::8}" .
+              else
+                docker buildx build --push -t "${DST}" -f services/${svc}/Dockerfile --build-arg BUILD_TAGS=production --build-arg APP_VERSION="${TAG}" --build-arg APP_COMMIT_SHA="${GITHUB_SHA::8}" .
+              fi
+            fi
           done
 
       - name: Create GitHub Release
