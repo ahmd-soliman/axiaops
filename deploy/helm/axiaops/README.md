@@ -32,7 +32,7 @@ https://traefik.github.io/charts`:
 **From the chart repo (recommended)** — no clone needed:
 
 ```bash
-helm repo add axiaops https://ahmd-soliman.github.io/axiaops/charts
+helm repo add axiaops https://axiaops.io/charts
 helm repo update
 helm search repo axiaops --versions   # see what's available
 ```

@@ -31,7 +31,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PAGES_URL: https://ahmd-soliman.github.io/axiaops
+  PAGES_URL: https://axiaops.io
 
 jobs:
   build:

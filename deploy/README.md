@@ -11,7 +11,7 @@ Three real deployment paths for AxiaOps:
 ## `helm/`
 
 A generic, environment-agnostic Helm chart, published as a standard Helm chart
-repository (`helm repo add axiaops https://ahmd-soliman.github.io/axiaops/charts`
+repository (`helm repo add axiaops https://axiaops.io/charts`
 — same pattern as `helm repo add traefik https://traefik.github.io/charts`) — see
 [`helm/axiaops/README.md`](helm/axiaops/README.md) for install instructions and
 the full values reference.
