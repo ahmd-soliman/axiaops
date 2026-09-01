@@ -1,4 +1,4 @@
-.PHONY: start-dev start-staging start-debug stop migrate seed inspect-db clean-db clean-db-drop clean-db-files test test-shared test-api test-ingestion test-storage test-all test-liveness
+.PHONY: start-dev start-staging start-debug stop migrate seed inspect-db clean-db clean-db-drop clean-db-files test test-shared test-api test-ingestion test-storage test-all test-liveness install-hooks
 
 # Postgres credentials — override via env vars for non-dev environments.
 POSTGRES_PASSWORD ?= axiaops
@@ -13,6 +13,12 @@ DATABASE_URL ?= postgres://axiaops:$(POSTGRES_PASSWORD)@localhost:5432/axiaops?s
 INTEGRATION_API_URL ?= http://localhost:8080
 INTEGRATION_REDIS_URL ?= redis://localhost:6379
 INTEGRATION_INGESTION_URL ?= http://localhost:8081
+
+# Wire up the repo's versioned git hooks (.githooks/) for this clone.
+# Run once after cloning. See .githooks/pre-push — blocks pushing any
+# commit carrying a `Co-Authored-By: Claude` trailer.
+install-hooks:
+	git config core.hooksPath .githooks
 
 # Stop local processes, free ports, and stop the Docker stack.
 # Kills host-mode Go services from `start-dev` AND brings down any
