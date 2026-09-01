@@ -4,8 +4,8 @@ import starlight from '@astrojs/starlight';
 
 // https://astro.build/config
 export default defineConfig({
-	site: 'https://ahmd-soliman.github.io',
-	base: '/axiaops',
+	site: 'https://axiaops.io',
+	base: '/',
 	integrations: [
 		starlight({
 			title: 'AxiaOps',
