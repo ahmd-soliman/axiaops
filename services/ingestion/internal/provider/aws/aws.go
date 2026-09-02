@@ -451,6 +451,7 @@ var ceServiceToInternal = map[string]string{
 	"Amazon Route 53":                    "AmazonRoute53",
 	"Amazon Bedrock":                     "AmazonBedrock",
 	"Amazon Kendra":                      "AmazonKendra",
+	"Tax":                                "Tax",
 }
 
 // normalizeService maps Cost Explorer service names to internal names.
