@@ -738,10 +738,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 // per-call via ENCRYPTION_KEY), so constructing them per scan is cheap.
 // PUBLIC_HOST builds the dashboard deep-link; empty omits it.
 func dispatchNotifications(ctx context.Context, store storage.Store, snap model.ZombieSnapshot, summary analyzer.Summary, accountID string) {
-	transports := map[string]notifications.Transport{
-		model.ChannelKindEmail: notifications.NewEmailTransport(),
-		model.ChannelKindSlack: notifications.NewSlackTransport(nil),
-	}
+	transports := notifications.DefaultTransports(notifications.NewEmailTransport())
 	notifications.NewDispatcher(store, transports, os.Getenv("PUBLIC_HOST")).
 		DispatchForScan(ctx, snap, summary, accountID)
 }

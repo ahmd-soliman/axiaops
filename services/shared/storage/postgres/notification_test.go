@@ -63,6 +63,45 @@ func TestSaveNotificationChannel_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveNotificationChannel_RoundTrip_Teams(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	ch := notificationChannel(model.ChannelKindTeams, "Teams digest")
+	ch.OrganizationID = org.ID
+	if err := s.SaveNotificationChannel(ctx, ch); err != nil {
+		t.Fatalf("SaveNotificationChannel: %v", err)
+	}
+
+	list, err := s.ListNotificationChannels(ctx)
+	if err != nil {
+		t.Fatalf("ListNotificationChannels: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("want 1 channel, got %d", len(list))
+	}
+
+	got := list[0]
+	if got.ID == "" {
+		t.Error("expected DB-assigned id, got empty")
+	}
+	if got.Kind != model.ChannelKindTeams || got.Label != "Teams digest" || !got.Enabled {
+		t.Errorf("scalar fields mismatch: %+v", got)
+	}
+	if got.TriggerRule.MinMonthlySavingsUSD != 25 || got.TriggerRule.DigestTopN != 10 {
+		t.Errorf("trigger_rule not round-tripped: %+v", got.TriggerRule)
+	}
+	if len(got.TriggerRule.On) != 1 || got.TriggerRule.On[0] != "new_zombies" {
+		t.Errorf("trigger_rule.on not round-tripped: %+v", got.TriggerRule.On)
+	}
+	if got.ConfigCiphertext != "deadbeefciphertext" {
+		t.Errorf("config_ciphertext mismatch: %q", got.ConfigCiphertext)
+	}
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Error("created_at/updated_at should be set by DB defaults")
+	}
+}
+
 func TestSaveNotificationChannel_UpsertPreservesCreatedBumpsUpdated(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)

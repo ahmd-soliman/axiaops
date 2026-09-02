@@ -3,8 +3,8 @@ package model
 import "time"
 
 // Notification channel kinds. Strings must match the `kind` CHECK constraint in
-// migration 031_notification_channels. Only email + slack ship in v1; teams and
-// jira are pre-provisioned in the enum for follow-up MRs (#114 / #113).
+// migration 031_notification_channels. Email, slack, and teams ship in v1; jira
+// is pre-provisioned in the enum for a follow-up MR (#113).
 const (
 	ChannelKindEmail = "email"
 	ChannelKindSlack = "slack"
@@ -103,5 +103,13 @@ type EmailConfig struct {
 // API responses, and must be scrubbed from any error string before persisting a
 // failed dispatch row (Slack's 404 body sometimes echoes the URL).
 type SlackConfig struct {
+	WebhookURL string `json:"webhook_url"`
+}
+
+// TeamsConfig is the decrypted shape of a teams channel's ConfigCiphertext.
+// Like Slack's, the whole webhook URL is a bearer token — encrypted at rest,
+// redacted in API responses, scrubbed from errors before a failed dispatch row
+// is persisted.
+type TeamsConfig struct {
 	WebhookURL string `json:"webhook_url"`
 }
