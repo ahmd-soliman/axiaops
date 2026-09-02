@@ -137,7 +137,8 @@ function permissionsPolicyJSON() {
   }, null, 2);
 }
 
-function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCurConfig }) {
+
+function BillingSourceConfig({ billingSource, setBillingSource }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12, padding: 16, backgroundColor: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 8 }}>
       <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-mid)' }}>Billing Source</label>
@@ -153,30 +154,28 @@ function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCu
       </div>
       
       {billingSource === 'cur_athena' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
-          <Field label="CUR Database" value={curConfig.cur_database} onChange={v => setCurConfig({ ...curConfig, cur_database: v })} placeholder="e.g. athenacurcfn_my_billing" />
-          <Field label="CUR Table" value={curConfig.cur_table} onChange={v => setCurConfig({ ...curConfig, cur_table: v })} placeholder="e.g. my_billing" />
-          <Field label="CUR Workgroup" value={curConfig.cur_workgroup} onChange={v => setCurConfig({ ...curConfig, cur_workgroup: v })} placeholder="e.g. primary" />
-          <Field label="CUR Results S3 Bucket" value={curConfig.cur_results_s3} onChange={v => setCurConfig({ ...curConfig, cur_results_s3: v })} placeholder="e.g. s3://aws-athena-query-results-..." />
-          <Field label="CUR Region" value={curConfig.cur_region} onChange={v => setCurConfig({ ...curConfig, cur_region: v })} placeholder="e.g. us-east-1" mono />
+        <div style={{ marginTop: 8, padding: 12, backgroundColor: 'var(--color-surface)', borderRadius: 6, fontSize: 13, color: 'var(--color-text-muted)' }}>
+          The CloudFormation stack will automatically configure the necessary Athena resources (Database, Table, and Workgroup) with deterministic <strong>axiaops_*</strong> names. No manual entry required.
         </div>
       )}
     </div>
   );
 }
 
-async function saveCurConfig(accountId, billingSource, curConfig) {
+async function saveCurConfig(account, billingSource, updateAccountFn) {
   if (billingSource === 'cur_athena') {
-    if (!curConfig.cur_database || !curConfig.cur_table || !curConfig.cur_workgroup || !curConfig.cur_results_s3 || !curConfig.cur_region) {
-      throw new Error('All CUR fields are required.');
-    }
-    return await updateAccount(accountId, {
+    return await updateAccountFn(account.id, {
       billing_source: 'cur_athena',
-      ...curConfig,
+      cur_database: 'axiaops_cur_db',
+      cur_table: 'axiaops_cur_table',
+      cur_workgroup: 'axiaops_athena_wg',
+      cur_results_s3: `s3://axiaops-athena-results-${account.account_id}-${account.region}`,
+      cur_region: account.region,
     });
   }
   return null;
 }
+
 
 // One-click "Launch Stack" deep link into the customer's CloudFormation console.
 // QuickCreate pre-fills the AxiaOpsIntegrationRole template (hosted public on S3
@@ -210,7 +209,7 @@ function RoleAuthTab({ onConnected }) {
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
   const [billingSource, setBillingSource] = useState('ce');
-  const [curConfig, setCurConfig] = useState({ cur_database: '', cur_table: '', cur_workgroup: '', cur_results_s3: '', cur_region: '' });
+  
 
   // AXIAOPS_AWS_ACCOUNT_ID must be a real 12-digit AWS account ID. Without
   // a valid value the trust-policy template would render <AxiaOpsAccountId>
@@ -247,7 +246,7 @@ function RoleAuthTab({ onConnected }) {
     setLoading(true);
     try {
       const result = await verifyAccount(draft.id, { roleArn: roleArn.trim() });
-      const updated = await saveCurConfig(result.id, billingSource, curConfig);
+      const updated = await saveCurConfig(result, billingSource, updateAccount);
       onConnected(updated || result);
     } catch (e) {
       setError(e.message || 'Verification failed.');
@@ -271,7 +270,7 @@ function RoleAuthTab({ onConnected }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" />
         <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
-        <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} />
+        <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource}  />
         {error && <ErrorBox message={error} />}
         <PrimaryButton onClick={handleGenerate} loading={loading} label="Generate connection" />
       </div>
@@ -368,13 +367,7 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'ce');
-  const [curConfig, setCurConfig] = useState({
-    cur_database: account?.cur_database || '',
-    cur_table: account?.cur_table || '',
-    cur_workgroup: account?.cur_workgroup || '',
-    cur_results_s3: account?.cur_results_s3 || '',
-    cur_region: account?.cur_region || ''
-  });
+  
 
   async function handleSubmit() {
     if (!isEdit && (!accessKeyId.trim() || !secretKey.trim())) {
@@ -404,24 +397,20 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
           scan_interval_hours: scanInterval,
         };
         if (billingSource === 'cur_athena') {
-          if (!curConfig.cur_database || !curConfig.cur_table || !curConfig.cur_workgroup || !curConfig.cur_results_s3 || !curConfig.cur_region) {
-            setError('All CUR fields are required.');
-            setLoading(false);
-            return;
-          }
-          Object.assign(updatePayload, { billing_source: 'cur_athena', ...curConfig });
+          Object.assign(updatePayload, { 
+            billing_source: 'cur_athena',
+            cur_database: 'axiaops_cur_db',
+            cur_table: 'axiaops_cur_table',
+            cur_workgroup: 'axiaops_athena_wg',
+            cur_results_s3: `s3://axiaops-athena-results-${account.account_id}-${region.trim() || 'eu-central-1'}`,
+            cur_region: region.trim() || 'eu-central-1'
+          });
         } else {
           Object.assign(updatePayload, { billing_source: 'ce' });
         }
         result = await updateAccount(account.id, updatePayload);
       } else {
-        if (billingSource === 'cur_athena') {
-          if (!curConfig.cur_database || !curConfig.cur_table || !curConfig.cur_workgroup || !curConfig.cur_results_s3 || !curConfig.cur_region) {
-            setError('All CUR fields are required.');
-            setLoading(false);
-            return;
-          }
-        }
+        
         result = await connectAccount({
           provider: 'aws',
           label: label.trim() || 'My AWS Account',
@@ -480,7 +469,7 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
           hint="0 = on-demand only, or enter hours between automatic scans"
         />
       )}
-      <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} />
+      <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource}  />
       {error && <ErrorBox message={error} />}
       <PrimaryButton onClick={handleSubmit} loading={loading} label={isEdit ? 'Save Changes' : 'Connect Account'} />
     </>
