@@ -32,6 +32,7 @@ spec:
       containers:
         - name: migrate
           image: {{ include "axiaops.migrateImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             # Overrides the image's own baked-in ENV APP_VERSION -- see
             # deployment-api.yaml's comment on the same env var. Recorded
