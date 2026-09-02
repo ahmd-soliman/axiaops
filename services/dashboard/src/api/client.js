@@ -186,23 +186,34 @@ export async function fetchScanPermissions(billingSource) {
   return res.json();
 }
 
-export async function connectAccount({ provider, label, accessKeyId, secretKey, region }) {
+export async function connectAccount({ provider, label, accessKeyId, secretKey, region, billing_source }) {
+  const body = { provider, label, access_key_id: accessKeyId, secret_key: secretKey, region };
+  if (billing_source !== undefined) body.billing_source = billing_source;
   const res = await ifetch(`${BASE_URL}/v1/accounts`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, label, access_key_id: accessKeyId, secret_key: secretKey, region }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error('Failed to connect account');
   return res.json();
 }
 
-export async function updateAccount(id, { label, accessKeyId, secretKey, region, scan_interval_hours }) {
+export async function updateAccount(id, {
+  label, accessKeyId, secretKey, region, scan_interval_hours,
+  billing_source, cur_database, cur_table, cur_workgroup, cur_results_s3, cur_region,
+}) {
   const body = {};
   if (label !== undefined) body.label = label;
   if (accessKeyId !== undefined) body.access_key_id = accessKeyId;
   if (secretKey !== undefined && secretKey !== '') body.secret_key = secretKey;
   if (region !== undefined) body.region = region;
   if (scan_interval_hours !== undefined) body.scan_interval_hours = scan_interval_hours;
+  if (billing_source !== undefined) body.billing_source = billing_source;
+  if (cur_database !== undefined) body.cur_database = cur_database;
+  if (cur_table !== undefined) body.cur_table = cur_table;
+  if (cur_workgroup !== undefined) body.cur_workgroup = cur_workgroup;
+  if (cur_results_s3 !== undefined) body.cur_results_s3 = cur_results_s3;
+  if (cur_region !== undefined) body.cur_region = cur_region;
 
   const res = await ifetch(`${BASE_URL}/v1/accounts/${id}`, {
     method: 'PATCH',
