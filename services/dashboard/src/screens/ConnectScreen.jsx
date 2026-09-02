@@ -226,6 +226,7 @@ function RoleAuthTab({ onConnected }) {
         provider: 'aws',
         label: label.trim() || 'My AWS Account',
         region: region.trim() || 'eu-central-1',
+        billing_source: billingSource,
       });
       setDraft(created);
       setStep('verify');
@@ -417,6 +418,7 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
           accessKeyId: accessKeyId.trim(),
           secretKey: secretKey.trim(),
           region: region.trim() || 'eu-central-1',
+          billing_source: billingSource,
         });
         const updated = await saveCurConfig(result, billingSource, updateAccount);
         result = updated || result;

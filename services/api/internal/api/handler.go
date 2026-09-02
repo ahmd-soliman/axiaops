@@ -730,6 +730,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		Label       string `json:"label"`
 		AccessKeyID string `json:"access_key_id"`
 		SecretKey   string `json:"secret_key"`
+		BillingSource string `json:"billing_source"`
 		Region      string `json:"region"`
 	}
 	if err := httpjson.Decode(w, r, &req); err != nil {
@@ -758,8 +759,16 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	organizationID := middleware.OrganizationID(r.Context())
+	var bs string
+	if req.BillingSource == model.BillingSourceCURAthena {
+		bs = model.BillingSourceCURAthena
+	} else {
+		bs = model.BillingSourceCostExplorer
+	}
+
 	account := model.Account{
 		ID:                uuid.New().String(),
+		BillingSource:     bs,
 		OrganizationID:    organizationID,
 		Provider:          req.Provider,
 		Label:             req.Label,
@@ -770,6 +779,21 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		Status:            "connected",
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
+	}
+	if bs == model.BillingSourceCURAthena {
+		defDB := "axiaops_cur_db"
+		defTable := "axiaops_cur_table"
+		defWG := "axiaops_athena_wg"
+		defS3 := "s3://axiaops-athena-results-placeholder"
+		account.CURDatabase = &defDB
+		account.CURTable = &defTable
+		account.CURWorkgroup = &defWG
+		account.CURResultsS3 = &defS3
+		defRegion := req.Region
+		if defRegion == "" {
+			defRegion = "us-east-1"
+		}
+		account.CURRegion = &defRegion
 	}
 
 	ctx := storage.WithOrganizationID(r.Context(), organizationID)

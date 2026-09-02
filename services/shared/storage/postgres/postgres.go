@@ -521,10 +521,12 @@ func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
 		INSERT INTO accounts
 			(id, organization_id, provider, label, account_id,
 			 auth_method, access_key_id, secret_encrypted, role_arn, external_id,
-			 region, status, scan_interval_hours, error_message, created_at)
+			 region, status, scan_interval_hours, error_message, created_at,
+			 billing_source, cur_database, cur_table, cur_workgroup, cur_results_s3, cur_region)
 		VALUES ($1, $2, $3, $4, $5,
 			COALESCE(NULLIF($6,''),'access_key'), NULLIF($7,''), NULLIF($8,''), NULLIF($9,''), NULLIF($10,''),
-			$11, $12, $13, NULLIF($14,''), $15)
+			$11, $12, $13, NULLIF($14,''), $15,
+			$16, $17, $18, $19, $20, $21)
 		ON CONFLICT (id) DO UPDATE SET
 			label               = EXCLUDED.label,
 			account_id          = EXCLUDED.account_id,
@@ -536,10 +538,17 @@ func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
 			region              = EXCLUDED.region,
 			status              = EXCLUDED.status,
 			scan_interval_hours = EXCLUDED.scan_interval_hours,
-			error_message       = EXCLUDED.error_message`,
+			error_message       = EXCLUDED.error_message,
+			billing_source      = EXCLUDED.billing_source,
+			cur_database        = EXCLUDED.cur_database,
+			cur_table           = EXCLUDED.cur_table,
+			cur_workgroup       = EXCLUDED.cur_workgroup,
+			cur_results_s3      = EXCLUDED.cur_results_s3,
+			cur_region          = EXCLUDED.cur_region`,
 		a.ID, a.OrganizationID, a.Provider, a.Label, a.AccountID,
 		a.AuthMethod, a.AccessKeyID, a.SecretEncrypted, a.RoleARN, a.ExternalID,
 		a.Region, a.Status, a.ScanIntervalHours, a.ErrorMessage, a.CreatedAt,
+		a.BillingSource, a.CURDatabase, a.CURTable, a.CURWorkgroup, a.CURResultsS3, a.CURRegion,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: save account: %w", err)
@@ -645,7 +654,8 @@ const accountSelectSQL = `
 	       COALESCE(external_id, '')      AS external_id,
 	       region, status, last_scanned_at, scan_interval_hours,
 	       COALESCE(error_message, '')    AS error_message,
-	       created_at
+	       created_at,
+	       billing_source, cur_database, cur_table, cur_workgroup, cur_results_s3, cur_region
 	FROM accounts`
 
 // rowScanner is the subset of pgx.Row / pgx.Rows used by scanAccount.
@@ -663,6 +673,12 @@ func scanAccount(r rowScanner) (model.Account, error) {
 		&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours,
 		&a.ErrorMessage,
 		&a.CreatedAt,
+		&a.BillingSource,
+		&a.CURDatabase,
+		&a.CURTable,
+		&a.CURWorkgroup,
+		&a.CURResultsS3,
+		&a.CURRegion,
 	)
 	if err != nil {
 		return model.Account{}, err

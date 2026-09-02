@@ -48,9 +48,10 @@ var verifyHTTPClient = &http.Client{Timeout: verifyTimeout}
 // The customer-facing flow is described in docs/OPERATIONS.md (§1).
 func (h *Handler) createDraftAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Provider string `json:"provider"`
-		Label    string `json:"label"`
-		Region   string `json:"region"`
+		Provider      string `json:"provider"`
+		Label         string `json:"label"`
+		Region        string `json:"region"`
+		BillingSource string `json:"billing_source"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -77,8 +78,16 @@ func (h *Handler) createDraftAccount(w http.ResponseWriter, r *http.Request) {
 	organizationID := middleware.OrganizationID(r.Context())
 	ctx := storage.WithOrganizationID(r.Context(), organizationID)
 
+	var bs string
+	if req.BillingSource == model.BillingSourceCURAthena {
+		bs = model.BillingSourceCURAthena
+	} else {
+		bs = model.BillingSourceCostExplorer
+	}
+
 	account := model.Account{
 		ID:                uuid.New().String(),
+		BillingSource:     bs,
 		OrganizationID:    organizationID,
 		Provider:          req.Provider,
 		Label:             req.Label,
@@ -88,6 +97,16 @@ func (h *Handler) createDraftAccount(w http.ResponseWriter, r *http.Request) {
 		Status:            model.AccountStatusPendingRoleSetup,
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
+	}
+	if bs == model.BillingSourceCURAthena {
+		defDB := "axiaops_cur_db"
+		defTable := "axiaops_cur_table"
+		defWG := "axiaops_athena_wg"
+		defS3 := "s3://axiaops-athena-results-placeholder"
+		account.CURDatabase = &defDB
+		account.CURTable = &defTable
+		account.CURWorkgroup = &defWG
+		account.CURResultsS3 = &defS3
 	}
 
 	if err := h.store.SaveAccount(ctx, account); err != nil {
