@@ -46,7 +46,7 @@ Test pairs in `cmd/devmode_{dev,production}_test.go` regression-pin the DEV_MODE
 | DELETE | /accounts/{id} | Yes | Remove account |
 | POST | /accounts/{id}/scan | Yes | Trigger on-demand ingestion scan |
 | GET | /channels | Yes | List notification channels (`channels:read`). `config` returns secret fields (`smtp_pass`/`webhook_url`) masked as `***`. |
-| POST | /channels | Yes | Create a channel (`channels:manage`). Body `{kind, label, enabled, trigger_rule, config}`. v1 kinds: `email`, `slack` (teams/jira pre-provisioned in the DB enum, rejected here). Config encrypted at rest. Defaults `enabled:false`. |
+| POST | /channels | Yes | Create a channel (`channels:manage`). Body `{kind, label, enabled, trigger_rule, config}`. v1 kinds: `email`, `slack`, `teams` (jira pre-provisioned in the DB enum, rejected here). Config encrypted at rest. Defaults `enabled:false`. |
 | PATCH | /channels/{id} | Yes | Update label/enabled/trigger_rule/config (`channels:manage`). `kind` is immutable. A secret field sent as `***` or empty keeps the stored value; any other value re-encrypts. |
 | DELETE | /channels/{id} | Yes | Delete a channel and its dispatch rows (`channels:manage`). |
 | POST | /channels/{id}/test | Yes | Send a fixed synthetic digest via the channel's transport (`channels:manage`). 200 `{status:"sent"\|"failed", error?}` — the HTTP call succeeds even when delivery fails; records a `notification_dispatches` row. |

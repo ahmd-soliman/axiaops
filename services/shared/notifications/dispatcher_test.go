@@ -180,12 +180,15 @@ func TestDispatch_MultipleChannels_IndependentOutcomes(t *testing.T) {
 	store := &fakeStore{channels: []model.NotificationChannel{
 		channel("email-low", model.ChannelKindEmail, 5),    // gate met → sent + 1 row
 		channel("slack-high", model.ChannelKindSlack, 500), // gate not met → no send, no row
+		channel("teams-mid", model.ChannelKindTeams, 50),   // gate met → sent + 1 row
 	}}
 	email := &fakeTransport{}
 	slack := &fakeTransport{}
+	teams := &fakeTransport{}
 	d := notifications.NewDispatcher(store, map[string]notifications.Transport{
 		model.ChannelKindEmail: email,
 		model.ChannelKindSlack: slack,
+		model.ChannelKindTeams: teams,
 	}, "")
 
 	d.DispatchForScan(ctxWithOrg(), snapshot(), summary(3, 100), "acct-1")
@@ -196,12 +199,17 @@ func TestDispatch_MultipleChannels_IndependentOutcomes(t *testing.T) {
 	if slack.calls != 0 {
 		t.Errorf("slack (gate $500) should be skipped, calls=%d", slack.calls)
 	}
-	// Only the sent channel records a row; the below-gate channel records nothing.
-	if len(store.dispatches) != 1 {
-		t.Fatalf("want 1 dispatch row (only the sent channel), got %d", len(store.dispatches))
+	if teams.calls != 1 {
+		t.Errorf("teams (gate $50, savings $100) should send, calls=%d", teams.calls)
 	}
-	if store.dispatches[0].Status != model.DispatchStatusSent {
-		t.Errorf("the recorded row should be the sent one, got %q", store.dispatches[0].Status)
+	// The two sent channels record a row; the below-gate channel records nothing.
+	if len(store.dispatches) != 2 {
+		t.Fatalf("want 2 dispatch rows (only the sent channels), got %d", len(store.dispatches))
+	}
+	for _, d := range store.dispatches {
+		if d.Status != model.DispatchStatusSent {
+			t.Errorf("the recorded row should be sent, got %q", d.Status)
+		}
 	}
 }
 

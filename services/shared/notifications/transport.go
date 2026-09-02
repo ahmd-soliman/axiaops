@@ -54,3 +54,16 @@ type Payload struct {
 type Transport interface {
 	Send(ctx context.Context, channel model.NotificationChannel, payload Payload) (externalID string, err error)
 }
+
+// DefaultTransports is the canonical kind→transport wiring, shared by the api's
+// /v1/channels/{id}/test path and ingestion's post-scan digest. Registering a new
+// kind here wires both call sites at once — a transport reachable from only one of
+// them degrades to `failed` dispatch rows with nothing in the build to catch it.
+// email is passed in because the api reuses one instance for the invite mailer.
+func DefaultTransports(email Transport) map[string]Transport {
+	return map[string]Transport{
+		model.ChannelKindEmail: email,
+		model.ChannelKindSlack: NewSlackTransport(nil),
+		model.ChannelKindTeams: NewTeamsTransport(nil),
+	}
+}

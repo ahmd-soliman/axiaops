@@ -38,7 +38,7 @@ AxiaOps connects to your cloud billing via read-only IAM access and delivers:
 - **The Zombie Number** — total monthly spend on idle resources across all connected accounts
 - **The Zombie List** — itemized breakdown by resource with cost, usage metric, and remediation suggestion
 - **Owner Resolution** — every zombie includes the responsible team derived from resource tags
-- **Notification channels** — Slack or email alert when a scan finds new zombies above a savings threshold
+- **Notification channels** — Slack, Microsoft Teams, or email alert when a scan finds new zombies above a savings threshold
 - **Multi-account Dashboard** — single pane for managing multiple cloud accounts
 
 ---
@@ -397,7 +397,7 @@ axiaops/
 | File | Description |
 |------|-------------|
 | [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) | Native auth, roles/permissions, password breach screening, the runtime DB role |
-| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Connecting an AWS account, Slack/Email notification channels |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Connecting an AWS account, Slack/Teams/Email notification channels |
 | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Prometheus metrics, structured logging, AWS-scan error handling/resilience |
 | [docs/TESTING.md](docs/TESTING.md) | Unit/integration/e2e/AWS testing architecture |
 
@@ -407,7 +407,7 @@ axiaops/
 
 ## Status
 
-**Alpha.** Core functionality is working end to end: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow, email/Slack notification channels.
+**Alpha.** Core functionality is working end to end: auth, account management, resource inventory, savings trend, observability, CI pipeline, scheduled auto-scan, Redis (cache/queue/rate limiting), dismiss/snooze workflow, email/Slack/Teams notification channels.
 
 ---
 

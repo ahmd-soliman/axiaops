@@ -248,10 +248,7 @@ func ComposeServer(cfg Config, deps Deps) (http.Handler, error) {
 	apiH := api.New(deps.Store, deps.Queue).
 		WithPublicHost(cfg.PublicHost).
 		WithIngestionSecret(deps.IngestionSecret).
-		WithNotificationTransports(map[string]notifications.Transport{
-			model.ChannelKindEmail: emailTransport,
-			model.ChannelKindSlack: notifications.NewSlackTransport(nil),
-		}).
+		WithNotificationTransports(notifications.DefaultTransports(emailTransport)).
 		WithInviteMailer(api.NewInviteMailer(deps.Store, emailTransport, cfg.TransactionalSMTP, cfg.PublicHost))
 	if cfg.RedisConfigured && deps.Cache != nil {
 		apiH = apiH.WithRedisCache(deps.Cache)
