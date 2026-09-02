@@ -1508,6 +1508,82 @@ Resources:
         ResultConfiguration:
           OutputLocation: !Sub 's3://${AthenaQueryResultsBucket}/'
 
+  AxiaOpsManagedPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: AxiaOpsManagedPolicy
+      Description: Customer managed policy for AxiaOps role
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'sts:GetCallerIdentity'
+              - 'ce:GetCostAndUsage'
+              - 'ce:GetCostAndUsageWithResources'
+              - 'cloudwatch:GetMetricStatistics'
+              - 'ec2:DescribeInstances'
+              - 'ec2:DescribeVolumes'
+              - 'ec2:DescribeSnapshots'
+              - 'ec2:DescribeImages'
+              - 'ec2:DescribeAddresses'
+              - 'ec2:DescribeNatGateways'
+              - 'rds:DescribeDBInstances'
+              - 'rds:DescribeDBSnapshots'
+              - 'lambda:ListFunctions'
+              - 'elasticloadbalancing:DescribeLoadBalancers'
+              - 'logs:DescribeLogGroups'
+              - 'ecr:DescribeRepositories'
+              - 'ecr:DescribeImages'
+              - 'secretsmanager:ListSecrets'
+              - 'elasticache:DescribeCacheClusters'
+              - 'es:ListDomainNames'
+              - 'redshift:DescribeClusters'
+              - 'sagemaker:ListEndpoints'
+              - 'dynamodb:ListTables'
+              - 'kinesis:ListStreams'
+              - 'kinesis:DescribeStreamSummary'
+              - 'cloudfront:ListDistributions'
+              - 'eks:ListClusters'
+              - 's3:ListAllMyBuckets'
+              - 's3:GetBucketLocation'
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - 'athena:StartQueryExecution'
+              - 'athena:GetQueryExecution'
+              - 'athena:GetQueryResults'
+              - 'athena:GetWorkGroup'
+              - 'glue:GetDatabase'
+              - 'glue:GetTable'
+              - 'glue:GetPartitions'
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:ListBucket'
+            Resource: 
+              - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}'
+              - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}/*'
+              - !Sub 'arn:aws:s3:::${CURDataBucket}'
+              - !Sub 'arn:aws:s3:::${CURDataBucket}/*'
+
+  AxiaOpsLambdaManagedPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: AxiaOpsLambdaManagedPolicy
+      Description: Customer managed policy for AxiaOps Lambda role
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'cur:PutReportDefinition'
+              - 'cur:DeleteReportDefinition'
+              - 'cur:ModifyReportDefinition'
+            Resource: '*'
+
   # 4. IAM Role for AxiaOps to assume
   AxiaOpsRole:
     Type: AWS::IAM::Role
@@ -1522,79 +1598,14 @@ Resources:
             Condition:
               StringEquals:
                 "sts:ExternalId": !Ref ExternalId
-      Policies:
-        - PolicyName: AxiaOpsReadOnlyScan
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'sts:GetCallerIdentity'
-                  - 'ce:GetCostAndUsage'
-                  - 'ce:GetCostAndUsageWithResources'
-                  - 'cloudwatch:GetMetricStatistics'
-                  - 'ec2:DescribeInstances'
-                  - 'ec2:DescribeVolumes'
-                  - 'ec2:DescribeSnapshots'
-                  - 'ec2:DescribeImages'
-                  - 'ec2:DescribeAddresses'
-                  - 'ec2:DescribeNatGateways'
-                  - 'rds:DescribeDBInstances'
-                  - 'rds:DescribeDBSnapshots'
-                  - 'lambda:ListFunctions'
-                  - 'elasticloadbalancing:DescribeLoadBalancers'
-                  - 'logs:DescribeLogGroups'
-                  - 'ecr:DescribeRepositories'
-                  - 'ecr:DescribeImages'
-                  - 'secretsmanager:ListSecrets'
-                  - 'elasticache:DescribeCacheClusters'
-                  - 'es:ListDomainNames'
-                  - 'redshift:DescribeClusters'
-                  - 'sagemaker:ListEndpoints'
-                  - 'dynamodb:ListTables'
-                  - 'kinesis:ListStreams'
-                  - 'kinesis:DescribeStreamSummary'
-                  - 'cloudfront:ListDistributions'
-                  - 'eks:ListClusters'
-                  - 's3:ListAllMyBuckets'
-                  - 's3:GetBucketLocation'
-                Resource: '*'
-        - PolicyName: AxiaOpsCURAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'sts:GetCallerIdentity'
-                  - 'ce:GetCostAndUsage'
-                  - 'ce:GetCostAndUsageWithResources'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'athena:StartQueryExecution'
-                  - 'athena:GetQueryExecution'
-                  - 'athena:GetQueryResults'
-                  - 'athena:GetWorkGroup'
-                  - 'glue:GetDatabase'
-                  - 'glue:GetTable'
-                  - 'glue:GetPartitions'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 's3:GetObject'
-                  - 's3:PutObject'
-                  - 's3:ListBucket'
-                Resource: 
-                  - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}'
-                  - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}/*'
-                  - !Sub 'arn:aws:s3:::${CURDataBucket}'
-                  - !Sub 'arn:aws:s3:::${CURDataBucket}/*'
-
+      ManagedPolicyArns:
+        - !Ref AxiaOpsManagedPolicy
 
   # 5. Lambda Execution Role for Custom Resource
   CURSetupLambdaRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: AxiaOpsLambdaRole
       AssumeRolePolicyDocument:
         Statement:
           - Effect: Allow
@@ -1603,17 +1614,7 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: ManageCUR
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'cur:PutReportDefinition'
-                  - 'cur:DeleteReportDefinition'
-                  - 'cur:ModifyReportDefinition'
-                Resource: '*'
+        - !Ref AxiaOpsLambdaManagedPolicy
 
   # 6. Lambda Function to call PutReportDefinition
   CURSetupLambda:
