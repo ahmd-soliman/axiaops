@@ -1417,21 +1417,74 @@ func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
 	organizationID := middleware.OrganizationID(r.Context())
 	ctx := storage.WithOrganizationID(r.Context(), organizationID)
 
-	acc, err := h.store.GetAccount(ctx, id)
+	_, err := h.store.GetAccount(ctx, id)
 	if err != nil {
 		http.Error(w, "account not found", http.StatusNotFound)
 		return
 	}
 
 	template := fmt.Sprintf(`AWSTemplateFormatVersion: '2010-09-09'
-Description: AxiaOps CUR Athena Integration
+Description: AxiaOps CUR Integration - Creates IAM Role and Athena/S3 infrastructure for Cost and Usage Reports.
+
+Parameters:
+  ExternalId:
+    Type: String
+    Description: The External ID provided by AxiaOps for secure role assumption.
 
 Resources:
+  # 1. Bucket for raw CUR data delivery from AWS
+  CURDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'axiaops-cur-data-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # 1b. Policy to allow AWS Billing to write to the CUR bucket
+  CURDataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CURDataBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: billingreports.amazonaws.com
+            Action:
+              - 's3:GetBucketAcl'
+              - 's3:GetBucketPolicy'
+            Resource: !Sub 'arn:aws:s3:::${CURDataBucket}'
+          - Effect: Allow
+            Principal:
+              Service: billingreports.amazonaws.com
+            Action: 's3:PutObject'
+            Resource: !Sub 'arn:aws:s3:::${CURDataBucket}/*'
+
+  # 2. Bucket for Athena query results
   AthenaQueryResultsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub 'axiaops-cur-athena-results-${AWS::AccountId}'
+      BucketName: !Sub 'axiaops-athena-results-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
 
+  # 3. Athena Workgroup
+  AxiaOpsWorkgroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: 'axiaops_athena_wg'
+      WorkGroupConfiguration:
+        ResultConfiguration:
+          OutputLocation: !Sub 's3://${AthenaQueryResultsBucket}/'
+
+  # 4. IAM Role for AxiaOps to assume
   AxiaOpsRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1442,7 +1495,49 @@ Resources:
             Principal:
               AWS: "arn:aws:iam::%s:root"
             Action: sts:AssumeRole
-`, acc.AccountID)
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ExternalId
+      Policies:
+        - PolicyName: AxiaOpsCURAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sts:GetCallerIdentity'
+                  - 'ce:GetCostAndUsage'
+                  - 'ce:GetCostAndUsageWithResources'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'athena:StartQueryExecution'
+                  - 'athena:GetQueryExecution'
+                  - 'athena:GetQueryResults'
+                  - 'athena:GetWorkGroup'
+                  - 'glue:GetDatabase'
+                  - 'glue:GetTable'
+                  - 'glue:GetPartitions'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                  - 's3:ListBucket'
+                Resource: 
+                  - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}'
+                  - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}/*'
+                  - !Sub 'arn:aws:s3:::${CURDataBucket}'
+                  - !Sub 'arn:aws:s3:::${CURDataBucket}/*'
+
+Outputs:
+  RoleARN:
+    Description: Role ARN to paste into AxiaOps
+    Value: !GetAtt AxiaOpsRole.Arn
+  CURBucketName:
+    Description: Bucket name to use when creating the Cost and Usage Report in AWS Billing
+    Value: !Ref CURDataBucket
+`, os.Getenv("AXIAOPS_AWS_ACCOUNT_ID"))
 
 	w.Header().Set("Content-Type", "text/yaml")
 	w.Write([]byte(template))
