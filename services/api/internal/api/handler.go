@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -164,6 +165,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /v1/accounts/draft", require(authz.PermAccountsWrite, h.createDraftAccount))
 	mux.Handle("PATCH /v1/accounts/{id}", require(authz.PermAccountsWrite, h.updateAccount))
 	mux.Handle("DELETE /v1/accounts/{id}", require(authz.PermAccountsDelete, h.deleteAccount))
+	mux.Handle("GET /v1/accounts/{id}/cur-setup", require(authz.PermAccountsRead, h.getCURSetup))
 	mux.Handle("POST /v1/accounts/{id}/scan", require(authz.PermAccountsScan, h.scanAccount))
 
 	// Notification channels.
@@ -811,6 +813,12 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		RoleARN           *string `json:"role_arn"`
 		Region            *string `json:"region"`
 		ScanIntervalHours *int    `json:"scan_interval_hours"`
+		BillingSource     *string `json:"billing_source"`
+		CURDatabase       *string `json:"cur_database"`
+		CURTable          *string `json:"cur_table"`
+		CURWorkgroup      *string `json:"cur_workgroup"`
+		CURResultsS3      *string `json:"cur_results_s3"`
+		CURRegion         *string `json:"cur_region"`
 	}
 	if err := httpjson.Decode(w, r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -849,6 +857,35 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		existing.ScanIntervalHours = *req.ScanIntervalHours
+	}
+	if req.BillingSource != nil {
+		if *req.BillingSource == model.BillingSourceCURAthena {
+			existing.BillingSource = model.BillingSourceCURAthena
+			existing.Status = model.AccountStatusPendingCURDelivery
+		} else {
+			existing.BillingSource = model.BillingSourceCostExplorer
+		}
+	}
+	if req.CURDatabase != nil {
+		existing.CURDatabase = req.CURDatabase
+	}
+	if req.CURTable != nil {
+		existing.CURTable = req.CURTable
+	}
+	if req.CURWorkgroup != nil {
+		existing.CURWorkgroup = req.CURWorkgroup
+	}
+	if req.CURResultsS3 != nil {
+		existing.CURResultsS3 = req.CURResultsS3
+	}
+	if req.CURRegion != nil {
+		existing.CURRegion = req.CURRegion
+	}
+	if existing.BillingSource == model.BillingSourceCURAthena {
+		if existing.CURDatabase == nil || existing.CURTable == nil || existing.CURWorkgroup == nil || existing.CURResultsS3 == nil || existing.CURRegion == nil {
+			http.Error(w, "missing cur configuration fields", http.StatusBadRequest)
+			return
+		}
 	}
 
 	if err := h.store.SaveAccount(ctx, existing); err != nil {
@@ -1371,4 +1408,42 @@ func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 		// truncated body and surface a parse error.
 		slog.Error("writeJSONStatus encode failed", "status", status, "err", err)
 	}
+}
+
+// getCURSetup returns a CloudFormation template tailored for the account to setup CUR delivery and Athena.
+func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
+	// For now, return a dummy CloudFormation template. The plan just says "returns CloudFormation template".
+	id := r.PathValue("id")
+	organizationID := middleware.OrganizationID(r.Context())
+	ctx := storage.WithOrganizationID(r.Context(), organizationID)
+
+	acc, err := h.store.GetAccount(ctx, id)
+	if err != nil {
+		http.Error(w, "account not found", http.StatusNotFound)
+		return
+	}
+
+	template := fmt.Sprintf(`AWSTemplateFormatVersion: '2010-09-09'
+Description: AxiaOps CUR Athena Integration
+
+Resources:
+  AthenaQueryResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'axiaops-cur-athena-results-${AWS::AccountId}'
+
+  AxiaOpsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AxiaOpsRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: "arn:aws:iam::%s:root"
+            Action: sts:AssumeRole
+`, acc.AccountID)
+
+	w.Header().Set("Content-Type", "text/yaml")
+	w.Write([]byte(template))
 }

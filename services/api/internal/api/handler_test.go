@@ -877,3 +877,50 @@ func (q *testCaptureQueue) Dequeue(ctx context.Context) (queue.ScanJob, error) {
 	return queue.ScanJob{}, ctx.Err()
 }
 func (q *testCaptureQueue) Close() error { return nil }
+
+
+func TestUpdateAccount_CURAthena_Success(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1"},
+	})
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := `{"billing_source": "cur_athena", "cur_database": "db", "cur_table": "tbl", "cur_workgroup": "wg", "cur_results_s3": "s3://res", "cur_region": "us-east-1"}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	var account model.Account
+	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if account.BillingSource != model.BillingSourceCURAthena {
+		t.Errorf("expected cur_athena billing_source, got %s", account.BillingSource)
+	}
+	if account.Status != model.AccountStatusPendingCURDelivery {
+		t.Errorf("expected pending_cur_delivery status, got %s", account.Status)
+	}
+}
+
+func TestUpdateAccount_CURAthena_MissingFields_Returns400(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1"},
+	})
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	// Missing cur_region
+	body := `{"billing_source": "cur_athena", "cur_database": "db", "cur_table": "tbl", "cur_workgroup": "wg", "cur_results_s3": "s3://res"}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d: %s", w.Code, w.Body.String())
+	}
+}

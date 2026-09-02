@@ -42,6 +42,11 @@ type Client struct {
 	pricing   *pricing.Config
 }
 
+// Config returns the underlying AWS configuration for creating other clients.
+func (c *Client) Config() aws.Config {
+	return c.cfg
+}
+
 // NewWithStaticCredentials builds a Client using the given access key (e.g. per-organization scan)
 // without mutating process-wide environment variables.
 func NewWithStaticCredentials(ctx context.Context, accessKeyID, secretAccessKey, region string) (*Client, error) {

@@ -1795,3 +1795,62 @@ func TestAuditLog_MissingOrganization_Errors(t *testing.T) {
 		t.Error("expected list error when organization_id missing from ctx, got nil")
 	}
 }
+
+func TestAccount_CURAthena_Constraints(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("skipping test requiring RLS constraint checks")
+	}
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	// Valid CUR config
+	curDB := "db"
+	curTable := "tbl"
+	curWg := "wg"
+	curS3 := "s3"
+	curRegion := "us-east-1"
+	
+	acc := model.Account{
+		ID:             uuid.New().String(),
+		OrganizationID: org.ID,
+		Provider:       "aws",
+		AccountID:      "111222333444",
+		Label:          "CUR Account",
+		AuthMethod:     model.AuthMethodAccessKey,
+		BillingSource:  model.BillingSourceCURAthena,
+		CURDatabase:    &curDB,
+		CURTable:       &curTable,
+		CURWorkgroup:   &curWg,
+		CURResultsS3:   &curS3,
+		CURRegion:      &curRegion,
+		Status:         model.AccountStatusConnected,
+	}
+
+	if err := s.SaveAccount(ctx, acc); err != nil {
+		t.Fatalf("failed to save valid CUR account: %v", err)
+	}
+
+	saved, err := s.GetAccount(ctx, acc.ID)
+	if err != nil {
+		t.Fatalf("failed to get account: %v", err)
+	}
+	if saved.BillingSource != model.BillingSourceCURAthena {
+		t.Errorf("expected cur_athena, got %s", saved.BillingSource)
+	}
+	if saved.CURDatabase == nil || *saved.CURDatabase != "db" {
+		t.Errorf("expected CURDatabase to be db")
+	}
+
+	// Invalid CUR config (missing fields)
+	invalidAcc := acc
+	invalidAcc.ID = uuid.New().String()
+	invalidAcc.CURRegion = nil // Missing region should trigger CHECK constraint
+
+	err = s.SaveAccount(ctx, invalidAcc)
+	if err == nil {
+		t.Fatal("expected error saving CUR account missing cur_region due to CHECK constraint")
+	}
+	if !strings.Contains(err.Error(), "accounts_cur_fields_present") {
+		t.Errorf("expected accounts_cur_fields_present constraint violation, got: %v", err)
+	}
+}

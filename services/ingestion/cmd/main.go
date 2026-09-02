@@ -21,6 +21,8 @@ import (
 
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
+	"axiaops.io/ingestion/internal/provider/aws/cur"
+	"github.com/aws/aws-sdk-go-v2/service/athena"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/errors"
 	"axiaops.io/shared/httpauth"
@@ -359,7 +361,17 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	if err != nil {
 		return fmt.Errorf("aws init: %w", err)
 	}
-	var billing provider.BillingSource = aws.NewCostExplorerSource(awsClient)
+	var billing provider.BillingSource
+	if account.BillingSource == model.BillingSourceCURAthena {
+		athenaClient := athena.NewFromConfig(awsClient.Config(), func(o *athena.Options) {
+			if account.CURRegion != nil {
+				o.Region = *account.CURRegion
+			}
+		})
+		billing = cur.NewAthenaCURSource(athenaClient, *account.CURDatabase, *account.CURTable, *account.CURWorkgroup, *account.CURResultsS3)
+	} else {
+		billing = aws.NewCostExplorerSource(awsClient)
+	}
 	providers = append(providers, billing)
 
 	organizationID := storage.OrganizationIDFromCtx(ctx)
