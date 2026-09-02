@@ -138,7 +138,9 @@ function permissionsPolicyJSON() {
 }
 
 
-function BillingSourceConfig({ billingSource, setBillingSource }) {
+function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCurConfig }) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12, padding: 16, backgroundColor: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 8 }}>
       <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-mid)' }}>Billing Source</label>
@@ -155,22 +157,39 @@ function BillingSourceConfig({ billingSource, setBillingSource }) {
       
       {billingSource === 'cur_athena' && (
         <div style={{ marginTop: 8, padding: 12, backgroundColor: 'var(--color-surface)', borderRadius: 6, fontSize: 13, color: 'var(--color-text-muted)' }}>
-          The CloudFormation stack will automatically configure the necessary Athena resources (Database, Table, and Workgroup) with deterministic <strong>axiaops_*</strong> names. No manual entry required.
+          <div style={{ marginBottom: 12 }}>
+            The CloudFormation stack automatically configures resources with deterministic <strong>axiaops_*</strong> names.
+          </div>
+          
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
+            <input type="checkbox" checked={showAdvanced} onChange={e => setShowAdvanced(e.target.checked)} />
+            Advanced Configuration (Manual Override)
+          </label>
+
+          {showAdvanced && curConfig && setCurConfig && (
+            <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 8, borderLeft: '2px solid var(--color-border)' }}>
+              <Field label="Athena Database" value={curConfig.cur_database} onChange={v => setCurConfig({...curConfig, cur_database: v})} placeholder="axiaops_cur_db" mono />
+              <Field label="Athena Table" value={curConfig.cur_table} onChange={v => setCurConfig({...curConfig, cur_table: v})} placeholder="axiaops_cur_table" mono />
+              <Field label="Athena Workgroup" value={curConfig.cur_workgroup} onChange={v => setCurConfig({...curConfig, cur_workgroup: v})} placeholder="axiaops_athena_wg" mono />
+              <Field label="Results S3 Bucket" value={curConfig.cur_results_s3} onChange={v => setCurConfig({...curConfig, cur_results_s3: v})} placeholder="s3://axiaops-athena-results-..." mono />
+              <Field label="CUR Region" value={curConfig.cur_region} onChange={v => setCurConfig({...curConfig, cur_region: v})} placeholder="us-east-1" mono />
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-async function saveCurConfig(account, billingSource, updateAccountFn) {
+async function saveCurConfig(account, billingSource, updateAccountFn, curConfig) {
   if (billingSource === 'cur_athena') {
     return await updateAccountFn(account.id, {
       billing_source: 'cur_athena',
-      cur_database: 'axiaops_cur_db',
-      cur_table: 'axiaops_cur_table',
-      cur_workgroup: 'axiaops_athena_wg',
-      cur_results_s3: `s3://axiaops-athena-results-${account.account_id}-${account.region}`,
-      cur_region: account.region,
+      cur_database: curConfig?.cur_database || 'axiaops_cur_db',
+      cur_table: curConfig?.cur_table || 'axiaops_cur_table',
+      cur_workgroup: curConfig?.cur_workgroup || 'axiaops_athena_wg',
+      cur_results_s3: curConfig?.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${account.region}`,
+      cur_region: curConfig?.cur_region || account.region,
     });
   }
   return null;
@@ -209,6 +228,7 @@ function RoleAuthTab({ onConnected }) {
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
   const [billingSource, setBillingSource] = useState('ce');
+  const [curConfig, setCurConfig] = useState({ cur_database: 'axiaops_cur_db', cur_table: 'axiaops_cur_table', cur_workgroup: 'axiaops_athena_wg', cur_results_s3: '', cur_region: '' });
   
 
   // AXIAOPS_AWS_ACCOUNT_ID must be a real 12-digit AWS account ID. Without
@@ -247,7 +267,7 @@ function RoleAuthTab({ onConnected }) {
     setLoading(true);
     try {
       const result = await verifyAccount(draft.id, { roleArn: roleArn.trim() });
-      const updated = await saveCurConfig(result, billingSource, updateAccount);
+      const updated = await saveCurConfig(result, billingSource, updateAccount, curConfig);
       onConnected(updated || result);
     } catch (e) {
       setError(e.message || 'Verification failed.');
@@ -388,6 +408,13 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'ce');
+  const [curConfig, setCurConfig] = useState({ 
+    cur_database: account?.cur_database || 'axiaops_cur_db', 
+    cur_table: account?.cur_table || 'axiaops_cur_table', 
+    cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg', 
+    cur_results_s3: account?.cur_results_s3 || '', 
+    cur_region: account?.cur_region || '' 
+  });
   
 
   async function handleSubmit() {
@@ -440,7 +467,7 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
           region: region.trim() || 'eu-central-1',
           billing_source: billingSource,
         });
-        const updated = await saveCurConfig(result, billingSource, updateAccount);
+        const updated = await saveCurConfig(result, billingSource, updateAccount, curConfig);
         result = updated || result;
       }
       onConnected(result);
@@ -510,6 +537,7 @@ function RoleEditTab({ account, onConnected }) {
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
   const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'ce');
+  const [curConfig, setCurConfig] = useState({ cur_database: account?.cur_database || 'axiaops_cur_db', cur_table: account?.cur_table || 'axiaops_cur_table', cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg', cur_results_s3: account?.cur_results_s3 || '', cur_region: account?.cur_region || '' });
 
   const roleArnChanged = roleArn.trim() !== (account.role_arn ?? '');
 
@@ -534,11 +562,11 @@ function RoleEditTab({ account, onConnected }) {
       if (billingSource === 'cur_athena') {
         Object.assign(updatePayload, { 
           billing_source: 'cur_athena',
-          cur_database: 'axiaops_cur_db',
-          cur_table: 'axiaops_cur_table',
-          cur_workgroup: 'axiaops_athena_wg',
-          cur_results_s3: `s3://axiaops-athena-results-${account.account_id}-${region.trim() || 'eu-central-1'}`,
-          cur_region: region.trim() || 'eu-central-1'
+          cur_database: curConfig.cur_database || 'axiaops_cur_db',
+          cur_table: curConfig.cur_table || 'axiaops_cur_table',
+          cur_workgroup: curConfig.cur_workgroup || 'axiaops_athena_wg',
+          cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${region.trim() || 'eu-central-1'}`,
+          cur_region: curConfig.cur_region || region.trim() || 'eu-central-1'
         });
       } else {
         Object.assign(updatePayload, { billing_source: 'ce' });
@@ -578,7 +606,7 @@ function RoleEditTab({ account, onConnected }) {
         type="number"
         hint="0 = on-demand only, or enter hours between automatic scans"
       />
-      <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} />
+      <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} />
       {error && <ErrorBox message={error} hint={verifyHint} />}
       <PrimaryButton onClick={handleSubmit} loading={loading} label="Save Changes" />
     </>
