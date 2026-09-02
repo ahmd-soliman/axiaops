@@ -101,7 +101,7 @@ access-key connections, delete the IAM user's key.
 
 ---
 
-## 2. Notification channels (Slack / Email)
+## 2. Notification channels (Slack / Email / Teams)
 
 Requires role **admin** or **owner** (`channels:manage`). After every scan, AxiaOps
 sends a digest (zombie count, potential savings, top services) to each **enabled**
@@ -128,6 +128,20 @@ curl -i -X POST -H 'Content-type: application/json' \
 
 `200`/`ok` = webhook valid (if AxiaOps's Test still fails, the stored URL is wrong).
 `404 no_service/no_team` = URL revoked, recreate it.
+
+### Add a Microsoft Teams channel
+
+1. Teams channel → `⋯` → **Workflows** → *"Post to a channel when a webhook request is received"*. A legacy Connectors webhook URL will not work — create a Workflow.
+2. Copy the generated URL → AxiaOps **Settings → Integrations → Add channel** → Type = Microsoft Teams webhook.
+3. Verify with the **Test** button before relying on it.
+
+Isolate "is the webhook good?" from AxiaOps directly:
+
+```bash
+curl -i -X POST -H 'Content-type: application/json' \
+  -d '{"type":"message","attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","contentUrl":null,"content":{"$schema":"http://adaptivecards.io/schemas/adaptive-card.json","type":"AdaptiveCard","version":"1.4","body":[{"type":"TextBlock","wrap":true,"text":"AxiaOps test"}]}}]}' \
+  '<webhook-url>'
+```
 
 ### Add an Email (SMTP) channel
 
@@ -194,6 +208,8 @@ is expected.
 | Failure | Likely cause |
 |---|---|
 | Slack `failed`, 4xx | Webhook revoked — recreate it |
+| Teams `failed`, 4xx | Webhook revoked or the Workflow was deleted — regenerate it. Also check it is a **Workflows** URL, not a legacy Connectors one |
+| Teams `sent` but the card looks truncated | A `TextBlock` is missing `wrap: true` — a rendering bug on our side, not a config problem |
 | Email `failed`, `535` | Wrong SMTP credentials. Workspace: must be an App Password (not login password) minted on the same mailbox as the SMTP username, which must be a real user (not alias/group) |
 | Email `failed`, `EOF` | Relay dropped the connection — often an unauthenticated send the relay refused, or (historically) a non-domain HELO |
 | Email `failed`, timeout | Host/port unreachable, or the channel is pointed at port 465 |

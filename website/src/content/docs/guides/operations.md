@@ -70,6 +70,14 @@ threshold is met.
    URL → **Save** (starts disabled).
 5. **Test**, confirm the digest arrives, then flip to **enabled**.
 
+### Microsoft Teams
+
+1. Teams channel → `⋯` → **Workflows** → *"Post to a channel when a webhook request is received"*. (Note: a legacy Connectors webhook URL will not work — create a Workflow).
+2. Copy the generated URL — treat it as a secret.
+3. AxiaOps → **Settings → Integrations → Add channel** → Microsoft Teams webhook → paste the
+   URL → **Save** (starts disabled).
+4. **Test**, confirm the digest arrives, then flip to **enabled**.
+
 ### Email (SMTP)
 
 AxiaOps speaks plain SMTP — Amazon SES, a Google Workspace relay, or a single

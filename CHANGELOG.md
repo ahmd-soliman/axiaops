@@ -25,6 +25,12 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+## [0.2.0-beta.9] — 2026-09-02
+
+### Added
+
+- **Microsoft Teams notification channel.** Admins can now configure a Microsoft Teams webhook via **Settings → Integrations** to receive post-scan digests. Messages use the Adaptive Card format (compatible with Teams Workflows). Config masking, delivery logs, and trigger rules match the existing Slack/Email channels.
+
 ## [0.2.0-beta.7] — 2026-08-29
 
 ### Changed
@@ -223,7 +229,7 @@ First release published from the public GitHub repository.
 
 ### Added
 
-- **Notification channels — email + Slack scan digests.** Admins can configure org-level outbound channels under **Settings → Integrations** (`/v1/channels`) that receive a savings digest after each scan. Email is SMTP/SES (no third-party SDK); Slack is an incoming webhook. Each channel has a trigger rule (`min_monthly_savings_usd` gate + `digest_top_n` body trim) and a **Test** button. Transport config (SMTP password / webhook URL) is AES-256-GCM encrypted at rest, masked as `***` on read, and scrubbed from delivery-error records. Dispatch is wired into the ingestion scan loop (best-effort, non-fatal) and every attempt is logged to a deliveries drawer. New permissions `channels:read` (viewer+) / `channels:manage` (admin+); migration `031_notification_channels`. Teams/Jira are pre-provisioned in the schema for follow-ups (#113/#114) but not yet shippable. See [`docs/notifications-plan.md`](docs/notifications-plan.md).
+- **Notification channels — email + Slack scan digests.** Admins can configure org-level outbound channels under **Settings → Integrations** (`/v1/channels`) that receive a savings digest after each scan. Email is SMTP/SES (no third-party SDK); Slack is an incoming webhook. Each channel has a trigger rule (`min_monthly_savings_usd` gate + `digest_top_n` body trim) and a **Test** button. Transport config (SMTP password / webhook URL) is AES-256-GCM encrypted at rest, masked as `***` on read, and scrubbed from delivery-error records. Dispatch is wired into the ingestion scan loop (best-effort, non-fatal) and every attempt is logged to a deliveries drawer. New permissions `channels:read` (viewer+) / `channels:manage` (admin+); migration `031_notification_channels`. Teams/Jira are pre-provisioned in the schema for follow-ups (#113/#114) but not yet shippable.
 
 ## [0.1.0-alpha.23] — 2026-05-30
 
@@ -911,6 +917,7 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://github.com/ahmd-soliman/axiaops/compare/0.1.0-alpha.27...develop
+[0.2.0-beta.9]: https://github.com/ahmd-soliman/axiaops/tree/0.2.0-beta.9
 [0.1.0-alpha.32]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.32
 [0.1.0-alpha.31]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.31
 [0.1.0-alpha.30]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.30

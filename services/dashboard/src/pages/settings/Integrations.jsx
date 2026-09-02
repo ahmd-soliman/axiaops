@@ -11,14 +11,15 @@ import {
 } from '../../api/client';
 import { Spinner } from '../../components/primitives';
 
-// Integrations pane: notification channels (email + Slack) that receive a
+// Integrations pane: notification channels (email + Slack + Teams) that receive a
 // digest after each scan. Container is gated on PERM.CHANNELS_MANAGE (admin+),
 // so this whole file assumes the caller can mutate. Mirrors the SSO Connections
-// pane idiom (react-query + table + modal). See docs/notifications-plan.md.
+// pane idiom (react-query + table + modal).
 
 const KINDS = [
   { value: 'email', label: 'Email (SMTP)' },
   { value: 'slack', label: 'Slack webhook' },
+  { value: 'teams', label: 'Microsoft Teams webhook' },
 ];
 
 // Email provider presets — prefill host/port so the admin picks instead of
@@ -235,8 +236,8 @@ function ChannelModal({ mode, existing, onClose, onSaved, isDark }) {
           <input type="text" value={form.label} onChange={set('label')} required maxLength={120} style={inputStyle()} />
         </Field>
 
-        {form.kind === 'slack' ? (
-          <Field label="Webhook URL" hint={isEdit ? 'Leave as *** (or clear) to keep the stored URL.' : undefined}>
+        {form.kind === 'slack' || form.kind === 'teams' ? (
+          <Field label="Webhook URL" hint={isEdit ? 'Leave as *** (or clear) to keep the stored URL.' : (form.kind === 'slack' ? 'hooks.slack.com/...' : 'Workflows URL')}>
             <input type="text" value={form.webhookUrl} onChange={set('webhookUrl')} required={!isEdit} autoComplete="off" style={inputStyle()} />
           </Field>
         ) : (
@@ -297,7 +298,7 @@ function initialForm(existing) {
   return {
     kind: existing?.kind || 'email',
     label: existing?.label || '',
-    // slack
+    // slack / teams
     webhookUrl: cfg.webhook_url || '',
     // email — provider is a UI hint (prefills host/port); inferred from the
     // stored host in edit mode so the dropdown reflects reality.
@@ -315,7 +316,7 @@ function initialForm(existing) {
 }
 
 function buildConfig(form) {
-  if (form.kind === 'slack') {
+  if (form.kind === 'slack' || form.kind === 'teams') {
     return { webhook_url: form.webhookUrl };
   }
   return {
@@ -377,7 +378,7 @@ function fmtTime(s) {
 function EmptyState() {
   return (
     <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 13 }}>
-      No notification channels yet. Click <strong>Add channel</strong> to send scan digests to email or Slack.
+      No notification channels yet. Click <strong>Add channel</strong> to send scan digests to email, Slack, or Teams.
     </div>
   );
 }

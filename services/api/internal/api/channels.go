@@ -29,10 +29,10 @@ import (
 const channelSecretMask = "***"
 
 // channelKindSupported reports whether a kind has a transport in v1. The DB
-// enum also allows teams/jira (pre-provisioned for #113/#114), but creating one
+// enum also allows jira (pre-provisioned for #113), but creating one
 // is rejected until its transport ships.
 func channelKindSupported(kind string) bool {
-	return kind == model.ChannelKindEmail || kind == model.ChannelKindSlack
+	return kind == model.ChannelKindEmail || kind == model.ChannelKindSlack || kind == model.ChannelKindTeams
 }
 
 // channelResponse is the client-facing shape. ConfigCiphertext never leaves the
@@ -446,13 +446,30 @@ func channelToResponse(ch model.NotificationChannel) (channelResponse, error) {
 	}, nil
 }
 
+// webhookOnlyKinds are channel kinds whose entire config is a single
+// webhook_url field (Slack, Teams). Handling them as one case here — and in
+// canonicalCreateConfig/canonicalMergedConfig below — avoids a third
+// near-identical switch case each time another webhook-shaped kind ships.
+var webhookOnlyKinds = map[string]bool{
+	model.ChannelKindSlack: true,
+	model.ChannelKindTeams: true,
+}
+
+// webhookURLConfig is the JSON shape shared by SlackConfig and TeamsConfig
+// (both are just {webhook_url}). Decoding into this instead of the named
+// model type lets every webhook-only kind share one code path; the encoded
+// bytes are identical to marshalling the named type, since the json tags match.
+type webhookURLConfig struct {
+	WebhookURL string `json:"webhook_url"`
+}
+
 func redactConfig(ch model.NotificationChannel) (map[string]any, error) {
 	plaintext, err := crypto.Decrypt(ch.ConfigCiphertext)
 	if err != nil {
 		return nil, err
 	}
-	switch ch.Kind {
-	case model.ChannelKindEmail:
+	switch {
+	case ch.Kind == model.ChannelKindEmail:
 		var c model.EmailConfig
 		if err := json.Unmarshal([]byte(plaintext), &c); err != nil {
 			return nil, err
@@ -470,8 +487,8 @@ func redactConfig(ch model.NotificationChannel) (map[string]any, error) {
 			"from_name":  c.FromName,
 			"recipients": recipients,
 		}, nil
-	case model.ChannelKindSlack:
-		var c model.SlackConfig
+	case webhookOnlyKinds[ch.Kind]:
+		var c webhookURLConfig
 		if err := json.Unmarshal([]byte(plaintext), &c); err != nil {
 			return nil, err
 		}
@@ -492,8 +509,8 @@ func maskIfSet(s string) string {
 // returns its canonical JSON encoding (ready to encrypt). Validation errors are
 // safe to surface to the client.
 func canonicalCreateConfig(kind string, raw json.RawMessage) ([]byte, error) {
-	switch kind {
-	case model.ChannelKindEmail:
+	switch {
+	case kind == model.ChannelKindEmail:
 		var c model.EmailConfig
 		if err := json.Unmarshal(raw, &c); err != nil {
 			return nil, fmt.Errorf("invalid email config: %w", err)
@@ -502,13 +519,13 @@ func canonicalCreateConfig(kind string, raw json.RawMessage) ([]byte, error) {
 			return nil, err
 		}
 		return json.Marshal(c)
-	case model.ChannelKindSlack:
-		var c model.SlackConfig
+	case webhookOnlyKinds[kind]:
+		var c webhookURLConfig
 		if err := json.Unmarshal(raw, &c); err != nil {
-			return nil, fmt.Errorf("invalid slack config: %w", err)
+			return nil, fmt.Errorf("invalid %s config: %w", kind, err)
 		}
 		if c.WebhookURL == "" {
-			return nil, errors.New("slack config requires webhook_url")
+			return nil, fmt.Errorf("%s config requires webhook_url", kind)
 		}
 		return json.Marshal(c)
 	default:
@@ -520,8 +537,8 @@ func canonicalCreateConfig(kind string, raw json.RawMessage) ([]byte, error) {
 // config, keeping a stored secret when the incoming secret field is empty or the
 // "***" mask. Returns canonical JSON ready to re-encrypt.
 func canonicalMergedConfig(kind, existingPlaintext string, raw json.RawMessage) ([]byte, error) {
-	switch kind {
-	case model.ChannelKindEmail:
+	switch {
+	case kind == model.ChannelKindEmail:
 		var existing, incoming model.EmailConfig
 		if err := json.Unmarshal([]byte(existingPlaintext), &existing); err != nil {
 			return nil, fmt.Errorf("decode stored config: %w", err)
@@ -544,19 +561,19 @@ func canonicalMergedConfig(kind, existingPlaintext string, raw json.RawMessage) 
 			return nil, err
 		}
 		return json.Marshal(existing)
-	case model.ChannelKindSlack:
-		var existing, incoming model.SlackConfig
+	case webhookOnlyKinds[kind]:
+		var existing, incoming webhookURLConfig
 		if err := json.Unmarshal([]byte(existingPlaintext), &existing); err != nil {
 			return nil, fmt.Errorf("decode stored config: %w", err)
 		}
 		if err := json.Unmarshal(raw, &incoming); err != nil {
-			return nil, fmt.Errorf("invalid slack config: %w", err)
+			return nil, fmt.Errorf("invalid %s config: %w", kind, err)
 		}
 		if incoming.WebhookURL != "" && incoming.WebhookURL != channelSecretMask {
 			existing.WebhookURL = incoming.WebhookURL
 		}
 		if existing.WebhookURL == "" {
-			return nil, errors.New("slack config requires webhook_url")
+			return nil, fmt.Errorf("%s config requires webhook_url", kind)
 		}
 		return json.Marshal(existing)
 	default:
