@@ -284,7 +284,27 @@ function RoleAuthTab({ onConnected }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <CopyableBlock label="External ID (pre-filled into the stack / your trust policy)" value={draft.external_id} />
 
-      {hasLaunchStack && (
+      {billingSource === 'cur_athena' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <a
+            href={`/api/v1/accounts/${draft.id}/cur-setup`}
+            download="cur_template.yml"
+            style={{
+              display: 'inline-block', alignSelf: 'flex-start',
+              backgroundColor: 'var(--color-accent)', color: '#fff',
+              fontSize: 14, fontWeight: 600, padding: '10px 16px',
+              borderRadius: 8, textDecoration: 'none',
+            }}
+          >
+            Download CloudFormation Template
+          </a>
+          <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+            Since AxiaOps requires specific regional resources for Cost and Usage Reports, please deploy this template manually.
+            Download the file, open the <strong>AWS CloudFormation Console (us-east-1)</strong>, and choose <strong>Upload a template file</strong>.
+            The ExternalId and Account ID are already pre-filled inside the file!
+          </span>
+        </div>
+      ) : hasLaunchStack && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <a
             href={launchStackUrl(draft.external_id)}
