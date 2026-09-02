@@ -75,6 +75,9 @@ jobs:
 
           helm package deploy/helm/axiaops -d site-out/charts
           helm repo index site-out/charts --url "${PAGES_URL}/charts"
+          
+          # Clean up old apiVersion: v1 entries
+          yq eval 'del(.entries.axiaops[] | select(.apiVersion == "v1"))' -i site-out/charts/index.yaml
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
