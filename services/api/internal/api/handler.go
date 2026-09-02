@@ -1499,6 +1499,42 @@ Resources:
               StringEquals:
                 "sts:ExternalId": !Ref ExternalId
       Policies:
+        - PolicyName: AxiaOpsReadOnlyScan
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sts:GetCallerIdentity'
+                  - 'ce:GetCostAndUsage'
+                  - 'ce:GetCostAndUsageWithResources'
+                  - 'cloudwatch:GetMetricStatistics'
+                  - 'ec2:DescribeInstances'
+                  - 'ec2:DescribeVolumes'
+                  - 'ec2:DescribeSnapshots'
+                  - 'ec2:DescribeImages'
+                  - 'ec2:DescribeAddresses'
+                  - 'ec2:DescribeNatGateways'
+                  - 'rds:DescribeDBInstances'
+                  - 'rds:DescribeDBSnapshots'
+                  - 'lambda:ListFunctions'
+                  - 'elasticloadbalancing:DescribeLoadBalancers'
+                  - 'logs:DescribeLogGroups'
+                  - 'ecr:DescribeRepositories'
+                  - 'ecr:DescribeImages'
+                  - 'secretsmanager:ListSecrets'
+                  - 'elasticache:DescribeCacheClusters'
+                  - 'es:ListDomainNames'
+                  - 'redshift:DescribeClusters'
+                  - 'sagemaker:ListEndpoints'
+                  - 'dynamodb:ListTables'
+                  - 'kinesis:ListStreams'
+                  - 'kinesis:DescribeStreamSummary'
+                  - 'cloudfront:ListDistributions'
+                  - 'eks:ListClusters'
+                  - 's3:ListAllMyBuckets'
+                  - 's3:GetBucketLocation'
+                Resource: '*'
         - PolicyName: AxiaOpsCURAccess
           PolicyDocument:
             Version: '2012-10-17'
