@@ -706,11 +706,6 @@ func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 	}
 
 	for _, stmt := range []string{
-		`DELETE FROM cost_records WHERE internal_account_id = $1`,
-		`DELETE FROM resource_records WHERE internal_account_id = $1`,
-		`DELETE FROM zombie_records WHERE internal_account_id = $1`,
-		`DELETE FROM zombie_snapshots WHERE account_id = $1`,
-		`DELETE FROM dismissed_zombies WHERE account_id = $1`,
 		`DELETE FROM accounts WHERE id = $1`,
 	} {
 		if _, err := tx.Exec(ctx, stmt, id); err != nil {
