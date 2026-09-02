@@ -1,3 +1,5 @@
+SET search_path TO axiaops;
+
 ALTER TABLE cost_records
   ADD COLUMN cost_basis TEXT NOT NULL DEFAULT 'billed';
 

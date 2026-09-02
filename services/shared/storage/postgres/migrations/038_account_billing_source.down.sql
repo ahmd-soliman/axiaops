@@ -1,3 +1,5 @@
+SET search_path TO axiaops;
+
 ALTER TABLE accounts
   DROP CONSTRAINT IF EXISTS accounts_cur_fields_present,
   DROP CONSTRAINT IF EXISTS accounts_billing_source_valid,

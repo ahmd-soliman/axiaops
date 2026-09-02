@@ -1,3 +1,5 @@
+SET search_path TO axiaops;
+
 ALTER TABLE accounts
   ADD COLUMN billing_source   TEXT NOT NULL DEFAULT 'cost_explorer',
   ADD COLUMN cur_database     TEXT,
