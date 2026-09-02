@@ -41,11 +41,16 @@ func WrapNative(provider auth.Provider, next http.Handler) http.Handler {
 			return
 		}
 
-		identity := auth.Identity{
-			UserID:         "dummy",
-			OrganizationID: "113135d6-63de-4316-9636-3c6c3b152c4e",
+		identity, err := provider.Authenticate(r)
+		if err != nil {
+			// 401 with a fixed body — never echo the internal reason
+			// (architect §11 / plan §7.1: don't leak whether the
+			// cookie was missing, expired, or revoked).
+			slog.Warn("auth: request unauthenticated",
+				"method", r.Method, "path", r.URL.Path)
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
 		}
-		slog.Debug("Bypassed auth")
 
 		// Auth-provider telemetry. Mapping: password/sso/bootstrap →
 		// "native"; "" → "unknown".
