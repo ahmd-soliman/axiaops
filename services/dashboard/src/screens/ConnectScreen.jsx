@@ -418,7 +418,7 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
           secretKey: secretKey.trim(),
           region: region.trim() || 'eu-central-1',
         });
-        const updated = await saveCurConfig(result.id, billingSource, curConfig);
+        const updated = await saveCurConfig(result, billingSource, updateAccount);
         result = updated || result;
       }
       onConnected(result);
@@ -487,6 +487,7 @@ function RoleEditTab({ account, onConnected }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
+  const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'ce');
 
   const roleArnChanged = roleArn.trim() !== (account.role_arn ?? '');
 
@@ -498,17 +499,34 @@ function RoleEditTab({ account, onConnected }) {
       const scanInterval = parseInt(scanIntervalHours, 10);
       if (isNaN(scanInterval) || scanInterval < 0) {
         setError('Scan interval must be a number ≥ 0.');
+        setLoading(false);
         return;
       }
+      
+      const updatePayload = {
+        label: label.trim() || 'My AWS Account',
+        region: region.trim() || 'eu-central-1',
+        scan_interval_hours: scanInterval,
+      };
+      
+      if (billingSource === 'cur_athena') {
+        Object.assign(updatePayload, { 
+          billing_source: 'cur_athena',
+          cur_database: 'axiaops_cur_db',
+          cur_table: 'axiaops_cur_table',
+          cur_workgroup: 'axiaops_athena_wg',
+          cur_results_s3: `s3://axiaops-athena-results-${account.account_id}-${region.trim() || 'eu-central-1'}`,
+          cur_region: region.trim() || 'eu-central-1'
+        });
+      } else {
+        Object.assign(updatePayload, { billing_source: 'ce' });
+      }
+
       // Apply non-credential edits first so label / region / scan interval
       // changes do not get silently dropped when the user also changes the
       // role ARN. PATCH /v1/accounts/{id} ignores role_arn here because it is
       // not in the body — the verify round-trip happens in the second call.
-      const updated = await updateAccount(account.id, {
-        label: label.trim() || 'My AWS Account',
-        region: region.trim() || 'eu-central-1',
-        scan_interval_hours: scanInterval,
-      });
+      const updated = await updateAccount(account.id, updatePayload);
       if (roleArnChanged) {
         const verified = await verifyAccount(account.id, { roleArn: roleArn.trim() });
         onConnected(verified);
@@ -538,6 +556,7 @@ function RoleEditTab({ account, onConnected }) {
         type="number"
         hint="0 = on-demand only, or enter hours between automatic scans"
       />
+      <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} />
       {error && <ErrorBox message={error} hint={verifyHint} />}
       <PrimaryButton onClick={handleSubmit} loading={loading} label="Save Changes" />
     </>
