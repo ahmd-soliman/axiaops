@@ -35,9 +35,5 @@ func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, MaxBodyBytes)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
-	err := dec.Decode(dst)
-	if err != nil {
-		println("HTTPJSON DECODE ERROR:", err.Error())
-	}
-	return err
+	return dec.Decode(dst)
 }
