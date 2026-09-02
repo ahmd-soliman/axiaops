@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/shared/model"
 )
 
@@ -32,14 +33,8 @@ func (s *CostExplorerSource) FetchCosts(ctx context.Context, start, end time.Tim
 	return records, nil
 }
 
-func (s *CostExplorerSource) FetchResourceCosts(ctx context.Context, start, end time.Time) ([]model.CostRecord, error) {
-	// For CE, resource costs are genuinely billed.
-	records, err := s.client.FetchResourceCosts(ctx, start, end)
-	if err != nil {
-		return nil, err
-	}
-	for i := range records {
-		records[i].CostBasis = model.CostBasisBilled
-	}
-	return records, nil
+// FetchResourceCosts is CUR-only (see billing.go). CE never returns
+// resource-level cost from this source, per the adopted scope.
+func (s *CostExplorerSource) FetchResourceCosts(context.Context, time.Time, time.Time) ([]model.CostRecord, error) {
+	return nil, provider.ErrResourceCostsUnsupported
 }

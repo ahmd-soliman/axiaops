@@ -171,6 +171,21 @@ export async function fetchAccounts() {
   return res.json();
 }
 
+// fetchScanPermissions returns the IAM policy document a customer should
+// attach for manual (access-key) onboarding. billingSource === 'cur_athena'
+// adds the Athena/Glue statement. Backend-sourced (scan_permissions.go) so
+// this can never drift from what the CFN-managed role actually gets, the
+// way the dashboard's old hardcoded copy did (it never had Athena/Glue at
+// all, for either billing source).
+export async function fetchScanPermissions(billingSource) {
+  const url = billingSource === 'cur_athena'
+    ? `${BASE_URL}/v1/scan-permissions?billing_source=cur_athena`
+    : `${BASE_URL}/v1/scan-permissions`;
+  const res = await ifetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch required permissions');
+  return res.json();
+}
+
 export async function connectAccount({ provider, label, accessKeyId, secretKey, region }) {
   const res = await ifetch(`${BASE_URL}/v1/accounts`, {
     method: 'POST',

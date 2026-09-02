@@ -1,0 +1,88 @@
+package api
+
+// generalScanPermissions are the read-only Describe/List actions every
+// connected account needs for resource discovery and CloudWatch usage,
+// regardless of billing source. This is the single source of truth for two
+// consumers that used to be hand-maintained, separately, in two languages:
+// the CUR-setup CloudFormation template's AxiaOpsPolicy resource
+// (templates/cur_setup.yaml.tmpl) and the manual access-key setup policy
+// the dashboard displays (GET /v1/scan-permissions). They drifted before —
+// the dashboard's copy never even had the Athena/Glue statement below.
+var generalScanPermissions = []string{
+	"sts:GetCallerIdentity",
+	"ce:GetCostAndUsage",
+	"ce:GetCostAndUsageWithResources",
+	"cloudwatch:GetMetricStatistics",
+	"ec2:DescribeInstances",
+	"ec2:DescribeVolumes",
+	"ec2:DescribeSnapshots",
+	"ec2:DescribeImages",
+	"ec2:DescribeAddresses",
+	"ec2:DescribeNatGateways",
+	"rds:DescribeDBInstances",
+	"rds:DescribeDBSnapshots",
+	"lambda:ListFunctions",
+	"elasticloadbalancing:DescribeLoadBalancers",
+	"logs:DescribeLogGroups",
+	"ecr:DescribeRepositories",
+	"ecr:DescribeImages",
+	"secretsmanager:ListSecrets",
+	"elasticache:DescribeCacheClusters",
+	"es:ListDomainNames",
+	"redshift:DescribeClusters",
+	"sagemaker:ListEndpoints",
+	"dynamodb:ListTables",
+	"kinesis:ListStreams",
+	"kinesis:DescribeStreamSummary",
+	"cloudfront:ListDistributions",
+	"eks:ListClusters",
+	"s3:ListAllMyBuckets",
+	"s3:GetBucketLocation",
+}
+
+// curAthenaPermissions are the additional actions a cur_athena billing
+// account needs on top of generalScanPermissions, to run the amortization
+// query against the customer's own Glue/Athena catalog. GetPartition and
+// BatchGetPartition (singular/batch, alongside the plural GetPartitions)
+// were missing here until a real scan against a real IAM policy — as
+// opposed to an admin-equivalent test credential — surfaced the gap.
+var curAthenaPermissions = []string{
+	"athena:StartQueryExecution",
+	"athena:GetQueryExecution",
+	"athena:GetQueryResults",
+	"athena:GetWorkGroup",
+	"glue:GetDatabase",
+	"glue:GetTable",
+	"glue:GetPartitions",
+	"glue:GetPartition",
+	"glue:BatchGetPartition",
+}
+
+// scanPermissionsPolicy builds the IAM policy document a customer should
+// attach to the IAM user (access-key mode) or role (CFN-managed mode)
+// AxiaOps uses to scan their account. includeCURAthena adds the Athena/Glue
+// statement — scoped to Resource '*' here, unlike the CFN template's own
+// AxiaOpsPolicy, which additionally scopes an S3 statement to the exact
+// buckets it just created — because this document is served before any
+// account-specific bucket names exist. A customer who already knows their
+// CUR/results bucket ARNs can tighten the equivalent S3 actions themselves.
+func scanPermissionsPolicy(includeCURAthena bool) map[string]any {
+	statements := []map[string]any{
+		{
+			"Effect":   "Allow",
+			"Action":   generalScanPermissions,
+			"Resource": "*",
+		},
+	}
+	if includeCURAthena {
+		statements = append(statements, map[string]any{
+			"Effect":   "Allow",
+			"Action":   curAthenaPermissions,
+			"Resource": "*",
+		})
+	}
+	return map[string]any{
+		"Version":   "2012-10-17",
+		"Statement": statements,
+	}
+}

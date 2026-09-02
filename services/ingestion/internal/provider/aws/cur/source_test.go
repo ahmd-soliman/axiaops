@@ -105,3 +105,69 @@ func TestFetchResourceCosts(t *testing.T) {
 		t.Errorf("record 2 parsed incorrectly: %+v", c2)
 	}
 }
+
+// TestFetchResourceCosts_SkipsBlankResourceID guards against re-introducing
+// the upsert-key collision bug: RI/SP fee line items (RIFee,
+// SavingsPlanRecurringFee) carry no resource attribution and come back with
+// resource_id="", which is the same sentinel FetchCosts uses for its own
+// aggregate row (service, region, resource_id="", period_start). Saving a
+// resource-level row here would silently overwrite that correct aggregate
+// with just the fee's isolated amount.
+func TestFetchResourceCosts_SkipsBlankResourceID(t *testing.T) {
+	mock := &mockAthena{
+		execID: "query-456",
+		rows: [][]string{
+			{"111122223333", "AmazonRDS", "us-east-1", "2026-08-05", "db-1", "5.00"},
+			{"111122223333", "AmazonRDS", "us-east-1", "2026-08-05", "", "1.50"},
+		},
+	}
+
+	source := NewAthenaCURSource(mock, "db", "tbl", "wg", "s3://res")
+	source.pollInterval = time.Millisecond
+
+	start, _ := time.Parse("2006-01-02", "2026-08-05")
+	end := start.Add(24 * time.Hour)
+
+	costs, err := source.FetchResourceCosts(context.Background(), start, end)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(costs) != 1 {
+		t.Fatalf("expected 1 record (blank resource_id dropped), got %d: %+v", len(costs), costs)
+	}
+	if costs[0].ResourceID != "db-1" || costs[0].Amount != 5.00 {
+		t.Errorf("expected surviving record db-1/5.00, got %+v", costs[0])
+	}
+}
+
+// TestFetchCosts_KeepsBlankResourceID is the mirror check: the aggregate
+// (non-resource-level) query never populates resource_id at all — every row
+// legitimately uses the "" sentinel — so FetchCosts must not apply the same
+// skip, or every aggregate row would be dropped.
+func TestFetchCosts_KeepsBlankResourceID(t *testing.T) {
+	mock := &mockAthena{
+		execID: "query-789",
+		rows: [][]string{
+			{"111122223333", "AmazonRDS", "us-east-1", "2026-08-05", "", "6.50"},
+		},
+	}
+
+	source := NewAthenaCURSource(mock, "db", "tbl", "wg", "s3://res")
+	source.pollInterval = time.Millisecond
+
+	start, _ := time.Parse("2006-01-02", "2026-08-05")
+	end := start.Add(24 * time.Hour)
+
+	costs, err := source.FetchCosts(context.Background(), start, end)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(costs) != 1 {
+		t.Fatalf("expected 1 aggregate record, got %d: %+v", len(costs), costs)
+	}
+	if costs[0].Amount != 6.50 {
+		t.Errorf("expected amount 6.50, got %+v", costs[0])
+	}
+}

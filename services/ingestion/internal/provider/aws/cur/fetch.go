@@ -56,6 +56,20 @@ func (s *AthenaCURSource) fetchAndParse(ctx context.Context, sql string, start, 
 			}
 			costStr := *d[5].VarCharValue
 
+			// RI/SP fee line items (RIFee, SavingsPlanRecurringFee) have no
+			// resource attribution and come back with an empty resource_id —
+			// which collides with the sentinel "no resource" value FetchCosts
+			// uses for its own aggregate rows (same upsert key: service,
+			// region, resource_id="", period_start). Saving these here would
+			// silently overwrite the correct service-level total with just
+			// the fee's isolated amount. The fee is already counted in that
+			// aggregate, so drop it here rather than double-book it under a
+			// key it doesn't own. Mirrors the same skip the deleted CE-based
+			// FetchResourceCosts used to do for "" / "NoResourceId".
+			if queryType == "resource_costs" && resourceID == "" {
+				continue
+			}
+
 			cost, _ := strconv.ParseFloat(costStr, 64)
 			if cost == 0 {
 				continue

@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AxiaOps CUR Integration - Creates IAM Role and Athena/S3 infrastructure for Cost and Usage Reports.
+
+Parameters:
+  ExternalId:
+    Type: String
+    Description: The External ID provided by AxiaOps for secure role assumption.
+
+Resources:
+  # 1. Bucket for raw CUR data delivery from AWS
+  CURDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'axiaops-cur-data-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # 1b. Policy to allow AWS Data Exports (CUR 2.0) to write to the CUR bucket.
+  # Principal and conditions per https://docs.aws.amazon.com/cur/latest/userguide/dataexports-s3-bucket.html —
+  # bcm-data-exports.amazonaws.com, scoped to exports created by this account only.
+  CURDataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CURDataBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableAWSDataExportsToWriteToS3
+            Effect: Allow
+            Principal:
+              Service: bcm-data-exports.amazonaws.com
+            Action: 's3:PutObject'
+            Resource: !Sub 'arn:aws:s3:::${CURDataBucket}/*'
+            Condition:
+              ArnLike:
+                'aws:SourceArn': !Sub 'arn:aws:bcm-data-exports:us-east-1:${AWS::AccountId}:export/*'
+              StringEquals:
+                'aws:SourceAccount': !Ref 'AWS::AccountId'
+
+  # 2. Bucket for Athena query results
+  AthenaQueryResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'axiaops-athena-results-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # 3. Athena Workgroup
+  AxiaOpsWorkgroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: 'axiaops_athena_wg'
+      WorkGroupConfiguration:
+        ResultConfiguration:
+          OutputLocation: !Sub 's3://${AthenaQueryResultsBucket}/'
+
+  # AxiaOpsPolicy's first two statements are generated from
+  # services/api/internal/api/scan_permissions.go (generalScanPermissions,
+  # curAthenaPermissions) — the same list GET /v1/scan-permissions returns to
+  # the dashboard for manual access-key setup — so the CFN-managed role and a
+  # hand-configured IAM user always need exactly the same permissions. Only
+  # the S3 statement stays template-local: it's scoped to the exact buckets
+  # this stack just created, which a generic (pre-account) policy display
+  # can't know in advance.
+  AxiaOpsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: AxiaOpsPolicy
+      Description: Customer managed policy for AxiaOps role
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+{{- range .GeneralActions}}
+              - '{{.}}'
+{{- end}}
+            Resource: '*'
+          - Effect: Allow
+            Action:
+{{- range .CURAthenaActions}}
+              - '{{.}}'
+{{- end}}
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:ListBucket'
+            Resource:
+              - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}'
+              - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}/*'
+              - !Sub 'arn:aws:s3:::${CURDataBucket}'
+              - !Sub 'arn:aws:s3:::${CURDataBucket}/*'
+
+  # 4. IAM Role for AxiaOps to assume
+  AxiaOpsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AxiaOpsRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: "arn:aws:iam::{{.AccountID}}:root"
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ExternalId
+      ManagedPolicyArns:
+        - !Ref AxiaOpsPolicy
+
+  # 5. CUR 2.0 Data Export. Native resource — no custom Lambda needed. Column
+  # list is deliberately narrow (only what the amortization query in
+  # services/ingestion/internal/provider/aws/cur/query.go reads) since Data
+  # Exports lets you choose columns at export time, and Athena bills by bytes
+  # scanned: a narrower export means a cheaper query, not just a cheaper
+  # export. If query.go starts reading another column, add it here too.
+  AxiaOpsCURExport:
+    Type: AWS::BCMDataExports::Export
+    DependsOn: CURDataBucketPolicy
+    Properties:
+      Export:
+        Name: axiaops
+        DataQuery:
+          QueryStatement: >-
+            SELECT line_item_usage_account_id, line_item_product_code,
+            product_region_code, line_item_resource_id,
+            line_item_usage_start_date, line_item_line_item_type,
+            line_item_unblended_cost, savings_plan_savings_plan_effective_cost,
+            savings_plan_total_commitment_to_date, savings_plan_used_commitment,
+            reservation_effective_cost,
+            reservation_unused_amortized_upfront_fee_for_billing_period,
+            reservation_unused_recurring_fee
+            FROM COST_AND_USAGE_REPORT
+          TableConfigurations:
+            COST_AND_USAGE_REPORT:
+              TIME_GRANULARITY: HOURLY
+              INCLUDE_RESOURCES: 'TRUE'
+              INCLUDE_SPLIT_COST_ALLOCATION_DATA: 'FALSE'
+        DestinationConfigurations:
+          S3Destination:
+            S3Bucket: !Ref CURDataBucket
+            S3Prefix: cur
+            S3Region: !Ref AWS::Region
+            S3OutputConfigurations:
+              OutputType: CUSTOM
+              Format: PARQUET
+              Compression: PARQUET
+              Overwrite: OVERWRITE_REPORT
+        RefreshCadence:
+          Frequency: SYNCHRONOUS
+
+  # 6. Glue database/table for Athena. AWS Data Exports does not
+  # auto-register a Glue table (unlike legacy CUR's ATHENA artifact, which at
+  # least drops a setup template) — see plan open decision #7. Defined
+  # explicitly here, matching the export's column selection above and the
+  # BILLING_PERIOD=YYYY-MM partitioning Data Exports uses for delivery
+  # (https://docs.aws.amazon.com/cur/latest/userguide/dataexports-export-delivery.html).
+  # Names match the defaults in POST /v1/accounts (defDB/defTable).
+  AxiaOpsCURDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: axiaops_cur_db
+
+  AxiaOpsCURTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref AxiaOpsCURDatabase
+      TableInput:
+        Name: axiaops_cur_table
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          EXTERNAL: 'TRUE'
+        PartitionKeys:
+          - Name: billing_period
+            Type: string
+        StorageDescriptor:
+          Location: !Sub 's3://${CURDataBucket}/cur/axiaops/data/'
+          InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+          Columns:
+            - {Name: line_item_usage_account_id, Type: string}
+            - {Name: line_item_product_code, Type: string}
+            - {Name: product_region_code, Type: string}
+            - {Name: line_item_resource_id, Type: string}
+            - {Name: line_item_usage_start_date, Type: timestamp}
+            - {Name: line_item_line_item_type, Type: string}
+            - {Name: line_item_unblended_cost, Type: double}
+            - {Name: savings_plan_savings_plan_effective_cost, Type: double}
+            - {Name: savings_plan_total_commitment_to_date, Type: double}
+            - {Name: savings_plan_used_commitment, Type: double}
+            - {Name: reservation_effective_cost, Type: double}
+            - {Name: reservation_unused_amortized_upfront_fee_for_billing_period, Type: double}
+            - {Name: reservation_unused_recurring_fee, Type: double}
+
+Outputs:
+  RoleARN:
+    Description: Role ARN to paste into AxiaOps
+    Value: !GetAtt AxiaOpsRole.Arn
+  CURBucketName:
+    Description: Bucket name to use when creating the Cost and Usage Report in AWS Billing
+    Value: !Ref CURDataBucket

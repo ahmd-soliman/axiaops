@@ -768,6 +768,7 @@ func testAccount(organizationID string) model.Account {
 		Status:            "connected",
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
+		BillingSource:     model.BillingSourceCostExplorer,
 	}
 }
 
@@ -840,6 +841,113 @@ func TestAccount_Delete(t *testing.T) {
 	}
 	if len(accounts) != 0 {
 		t.Errorf("expected 0 accounts after delete, got %d", len(accounts))
+	}
+}
+
+// TestAccount_DeleteCascadesAccountData guards against the account-deletion
+// data-leak bug: none of cost_records, resource_records, zombie_records,
+// zombie_snapshots, or dismissed_zombies carry a foreign key back to
+// accounts (internal_account_id / account_id are plain TEXT columns), so
+// deleting an account previously removed only the accounts row and left
+// every dollar of its cost/zombie history behind forever — silently
+// corrupting aggregate views like total spend for an account that no
+// longer exists. DeleteAccount must scrub all five tables in the same
+// transaction as the account row.
+func TestAccount_DeleteCascadesAccountData(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope reads to this organization")
+	}
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	a := testAccount(org.ID)
+	if err := s.SaveAccount(ctx, a); err != nil {
+		t.Fatalf("SaveAccount: %v", err)
+	}
+
+	now := time.Now().UTC()
+
+	cost := costRecord("AmazonEC2", "eu-central-1", 15.99)
+	cost.InternalAccountID = &a.ID
+	if _, _, err := s.Save(ctx, []model.CostRecord{cost}); err != nil {
+		t.Fatalf("Save cost record: %v", err)
+	}
+
+	if err := s.SaveResources(ctx, []model.ResourceRecord{{
+		Provider:          "aws",
+		AccountID:         "000000000000",
+		InternalAccountID: a.ID,
+		Service:           "AmazonEC2",
+		Region:            "eu-central-1",
+		ResourceID:        "i-0abcd",
+		MonthlyCost:       15.99,
+		Currency:          "USD",
+		PeriodStart:       now,
+		PeriodEnd:         now,
+	}}); err != nil {
+		t.Fatalf("SaveResources: %v", err)
+	}
+
+	if err := s.SaveZombies(ctx, []model.ZombieResource{{
+		Provider:          "aws",
+		AccountID:         "000000000000",
+		InternalAccountID: a.ID,
+		Service:           "AmazonEC2",
+		Region:            "eu-central-1",
+		ResourceID:        "i-0abcd",
+		MonthlyCost:       15.99,
+		Currency:          "USD",
+		PeriodStart:       now,
+		PeriodEnd:         now,
+	}}); err != nil {
+		t.Fatalf("SaveZombies: %v", err)
+	}
+
+	if err := s.SaveSnapshot(ctx, model.ZombieSnapshot{
+		ID:               uuid.New().String(),
+		AccountID:        a.ID,
+		SnapshotAt:       now,
+		ZombieCount:      1,
+		TotalMonthlyCost: 15.99,
+		Currency:         "USD",
+	}); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	if _, err := s.DismissZombie(ctx, model.DismissAction{
+		AccountID:  a.ID,
+		Provider:   "aws",
+		Service:    "AmazonEC2",
+		Region:     "eu-central-1",
+		ResourceID: "i-0abcd",
+		Action:     "dismiss",
+		Reason:     "not_a_zombie",
+	}); err != nil {
+		t.Fatalf("DismissZombie: %v", err)
+	}
+
+	if err := s.DeleteAccount(ctx, a.ID); err != nil {
+		t.Fatalf("DeleteAccount: %v", err)
+	}
+
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+
+	for _, tbl := range []struct{ table, column string }{
+		{"cost_records", "internal_account_id"},
+		{"resource_records", "internal_account_id"},
+		{"zombie_records", "internal_account_id"},
+		{"zombie_snapshots", "account_id"},
+		{"dismissed_zombies", "account_id"},
+	} {
+		var count int
+		q := fmt.Sprintf(`SELECT count(*) FROM axiaops.%s WHERE %s = $1`, tbl.table, tbl.column)
+		if err := conn.QueryRow(context.Background(), q, a.ID).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", tbl.table, err)
+		}
+		if count != 0 {
+			t.Errorf("expected 0 rows in %s for deleted account, got %d", tbl.table, count)
+		}
 	}
 }
 

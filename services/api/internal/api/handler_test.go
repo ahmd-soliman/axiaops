@@ -722,6 +722,53 @@ func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
 	}
 }
 
+// ── GET /scan-permissions ───────────────────────────────────────────────────
+//
+// scan_permissions.go is the single source of truth shared with the CFN
+// template (templates/cur_setup.yaml.tmpl) — these tests pin the JSON shape
+// the dashboard's Connect screen renders, and specifically that the
+// Athena/Glue statement only appears for cur_athena (it never existed in the
+// dashboard's old hardcoded copy at all, for either billing source).
+
+func TestGetScanPermissions_DefaultExcludesCURAthena(t *testing.T) {
+	_, mux := testHandler()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/scan-permissions"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "sts:GetCallerIdentity") {
+		t.Errorf("expected general actions present, got: %s", body)
+	}
+	if strings.Contains(body, "athena:StartQueryExecution") || strings.Contains(body, "glue:GetPartition") {
+		t.Errorf("expected no Athena/Glue actions without billing_source=cur_athena, got: %s", body)
+	}
+}
+
+func TestGetScanPermissions_CURAthenaIncludesAthenaAndGlue(t *testing.T) {
+	_, mux := testHandler()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/scan-permissions?billing_source=cur_athena"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, action := range []string{
+		"sts:GetCallerIdentity",
+		"athena:StartQueryExecution",
+		"glue:GetPartitions",
+		"glue:GetPartition",
+		"glue:BatchGetPartition",
+	} {
+		if !strings.Contains(body, action) {
+			t.Errorf("expected %q in policy, got: %s", action, body)
+		}
+	}
+}
+
 // ── GET /trend ────────────────────────────────────────────────────────────────
 
 func TestGetTrend_Returns200(t *testing.T) {

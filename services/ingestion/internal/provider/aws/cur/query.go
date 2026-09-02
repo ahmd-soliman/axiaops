@@ -92,7 +92,7 @@ func (s *AthenaCURSource) buildAmortizedSQL(start, end time.Time, resourceLevel 
 SELECT
   line_item_usage_account_id AS account_id,
   line_item_product_code AS service,
-  product_region AS region,
+  product_region_code AS region,
   DATE(line_item_usage_start_date) AS period_start,
   %s AS resource_id,
   SUM(CASE line_item_line_item_type

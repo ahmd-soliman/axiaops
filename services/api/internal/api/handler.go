@@ -1,16 +1,18 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"fmt"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/google/uuid"
@@ -166,6 +168,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("PATCH /v1/accounts/{id}", require(authz.PermAccountsWrite, h.updateAccount))
 	mux.Handle("DELETE /v1/accounts/{id}", require(authz.PermAccountsDelete, h.deleteAccount))
 	mux.Handle("GET /v1/accounts/{id}/cur-setup", require(authz.PermAccountsRead, h.getCURSetup))
+	mux.Handle("GET /v1/scan-permissions", require(authz.PermAccountsRead, h.getScanPermissions))
 	mux.Handle("POST /v1/accounts/{id}/scan", require(authz.PermAccountsScan, h.scanAccount))
 
 	// Notification channels.
@@ -1061,10 +1064,25 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// scanTriggerWriteTimeout caps the detached mark-scanning + enqueue write in
+// scanTriggerWriteTimeout caps the detached mark-scanning write in
 // scanAccount below — decoupled from r.Context() so a client disconnect
 // can't abort it mid-commit.
 const scanTriggerWriteTimeout = 5 * time.Second
+
+// scanEnqueueTimeout bounds the detached goroutine that hands the job to
+// h.queue.Enqueue. For the Redis backend this is a fast LPUSH and the bound
+// is generous headroom. For the sync (no-Redis, dev-mode) fallback,
+// Enqueue *is* the scan — a synchronous POST /scan to ingestion that blocks
+// until the whole run finishes — so this must be long enough for a real
+// scan, not just an HTTP round trip. CUR/Athena scans in particular run at
+// least two StartQueryExecution + poll cycles (FetchCosts, then
+// FetchResourceCosts) at cur.AthenaCURSource's 2s poll interval, so a
+// budget sized for "the mark-scanning DB write" (formerly shared with this
+// call as scanTriggerWriteTimeout) reliably timed out here even on an empty
+// table. Matches stuckScanTimeout (cmd/main.go) — the account is eligible
+// for the stuck-scan recovery sweep at the same point this goroutine gives
+// up, so the two mechanisms hand off cleanly instead of racing.
+const scanEnqueueTimeout = 15 * time.Minute
 
 // scanAccount triggers an ingestion run for the given account.
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
@@ -1112,20 +1130,6 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job := queue.ScanJob{
-		OrganizationID: account.OrganizationID,
-		AccountID:      account.ID,
-		EnqueuedAt:     time.Now().UTC(),
-		RequestID:      middleware.RequestIDFromCtx(r.Context()),
-	}
-	if err := h.queue.Enqueue(writeCtx, job); err != nil {
-		slog.Error("scan.enqueue_failed", "account_id", id, "error", err)
-		_ = h.store.UpdateAccountStatus(writeCtx, id, "error")
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	slog.Info("scan.enqueued", "account_id", id, "organization_id", organizationID)
-
 	audit.Record(r, h.store, model.AuditEvent{
 		Action:       model.AuditActionScanTriggered,
 		ResourceType: "account",
@@ -1136,6 +1140,37 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 			"on_demand":     true,
 		},
 	})
+
+	// Enqueue runs detached from r.Context() and from the response below: for
+	// the Redis backend this is a fast LPUSH anyway, but for the sync
+	// (no-Redis) fallback Enqueue *is* the scan — a blocking POST /scan to
+	// ingestion that only returns once the run finishes. Doing that inline
+	// would hold this response open for the scan's full duration, defeating
+	// the "status": "scanning" contract below — and for CUR/Athena accounts,
+	// whose query-polling routinely runs past a few seconds, used to blow the
+	// old shared scanTriggerWriteTimeout and return a false 500 while the
+	// scan succeeded anyway. writeCtx (and its cancel) don't survive this
+	// function returning, so the goroutine gets its own context.
+	job := queue.ScanJob{
+		OrganizationID: account.OrganizationID,
+		AccountID:      account.ID,
+		EnqueuedAt:     time.Now().UTC(),
+		RequestID:      middleware.RequestIDFromCtx(r.Context()),
+	}
+	go func() {
+		enqueueCtx, cancel := context.WithTimeout(context.Background(), scanEnqueueTimeout)
+		defer cancel()
+		enqueueCtx = storage.WithOrganizationID(enqueueCtx, organizationID)
+		if err := h.queue.Enqueue(enqueueCtx, job); err != nil {
+			slog.Error("scan.enqueue_failed", "account_id", id, "error", err)
+			statusCtx, statusCancel := context.WithTimeout(context.Background(), scanTriggerWriteTimeout)
+			defer statusCancel()
+			statusCtx = storage.WithOrganizationID(statusCtx, organizationID)
+			_ = h.store.UpdateAccountStatus(statusCtx, id, "error")
+			return
+		}
+		slog.Info("scan.enqueued", "account_id", id, "organization_id", organizationID)
+	}()
 
 	writeJSON(w, map[string]string{"status": "scanning"})
 }
@@ -1434,9 +1469,34 @@ func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 	}
 }
 
+//go:embed templates/cur_setup.yaml.tmpl
+var curSetupTemplateSrc string
+
+var curSetupTemplate = template.Must(template.New("cur_setup").Parse(curSetupTemplateSrc))
+
+// curSetupTemplateData feeds templates/cur_setup.yaml.tmpl. GeneralActions
+// and CURAthenaActions come from scan_permissions.go so this template and
+// GET /v1/scan-permissions can never drift the way the CFN template and the
+// dashboard's hardcoded policy display once did.
+type curSetupTemplateData struct {
+	AccountID        string
+	GeneralActions   []string
+	CURAthenaActions []string
+}
+
+// getScanPermissions returns the IAM policy document a customer should
+// attach for manual (access-key) onboarding — the dashboard's Connect screen
+// fetches this instead of hardcoding the action list, so it can never drift
+// from what the CFN-managed role actually gets (scan_permissions.go is the
+// single source of truth for both). ?billing_source=cur_athena adds the
+// Athena/Glue statement.
+func (h *Handler) getScanPermissions(w http.ResponseWriter, r *http.Request) {
+	includeCUR := r.URL.Query().Get("billing_source") == model.BillingSourceCURAthena
+	writeJSON(w, map[string]any{"policy": scanPermissionsPolicy(includeCUR)})
+}
+
 // getCURSetup returns a CloudFormation template tailored for the account to setup CUR delivery and Athena.
 func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
-	// For now, return a dummy CloudFormation template. The plan just says "returns CloudFormation template".
 	id := r.PathValue("id")
 	organizationID := middleware.OrganizationID(r.Context())
 	ctx := storage.WithOrganizationID(r.Context(), organizationID)
@@ -1447,238 +1507,18 @@ func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	template := fmt.Sprintf(`AWSTemplateFormatVersion: '2010-09-09'
-Description: AxiaOps CUR Integration - Creates IAM Role and Athena/S3 infrastructure for Cost and Usage Reports.
-
-Parameters:
-  ExternalId:
-    Type: String
-    Description: The External ID provided by AxiaOps for secure role assumption.
-
-Resources:
-  # 1. Bucket for raw CUR data delivery from AWS
-  CURDataBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub 'axiaops-cur-data-${AWS::AccountId}-${AWS::Region}'
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
-  # 1b. Policy to allow AWS Billing to write to the CUR bucket
-  CURDataBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref CURDataBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: billingreports.amazonaws.com
-            Action:
-              - 's3:GetBucketAcl'
-              - 's3:GetBucketPolicy'
-            Resource: !Sub 'arn:aws:s3:::${CURDataBucket}'
-          - Effect: Allow
-            Principal:
-              Service: billingreports.amazonaws.com
-            Action: 's3:PutObject'
-            Resource: !Sub 'arn:aws:s3:::${CURDataBucket}/*'
-
-  # 2. Bucket for Athena query results
-  AthenaQueryResultsBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub 'axiaops-athena-results-${AWS::AccountId}-${AWS::Region}'
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
-  # 3. Athena Workgroup
-  AxiaOpsWorkgroup:
-    Type: AWS::Athena::WorkGroup
-    Properties:
-      Name: 'axiaops_athena_wg'
-      WorkGroupConfiguration:
-        ResultConfiguration:
-          OutputLocation: !Sub 's3://${AthenaQueryResultsBucket}/'
-
-  AxiaOpsPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: AxiaOpsPolicy
-      Description: Customer managed policy for AxiaOps role
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action:
-              - 'sts:GetCallerIdentity'
-              - 'ce:GetCostAndUsage'
-              - 'ce:GetCostAndUsageWithResources'
-              - 'cloudwatch:GetMetricStatistics'
-              - 'ec2:DescribeInstances'
-              - 'ec2:DescribeVolumes'
-              - 'ec2:DescribeSnapshots'
-              - 'ec2:DescribeImages'
-              - 'ec2:DescribeAddresses'
-              - 'ec2:DescribeNatGateways'
-              - 'rds:DescribeDBInstances'
-              - 'rds:DescribeDBSnapshots'
-              - 'lambda:ListFunctions'
-              - 'elasticloadbalancing:DescribeLoadBalancers'
-              - 'logs:DescribeLogGroups'
-              - 'ecr:DescribeRepositories'
-              - 'ecr:DescribeImages'
-              - 'secretsmanager:ListSecrets'
-              - 'elasticache:DescribeCacheClusters'
-              - 'es:ListDomainNames'
-              - 'redshift:DescribeClusters'
-              - 'sagemaker:ListEndpoints'
-              - 'dynamodb:ListTables'
-              - 'kinesis:ListStreams'
-              - 'kinesis:DescribeStreamSummary'
-              - 'cloudfront:ListDistributions'
-              - 'eks:ListClusters'
-              - 's3:ListAllMyBuckets'
-              - 's3:GetBucketLocation'
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - 'athena:StartQueryExecution'
-              - 'athena:GetQueryExecution'
-              - 'athena:GetQueryResults'
-              - 'athena:GetWorkGroup'
-              - 'glue:GetDatabase'
-              - 'glue:GetTable'
-              - 'glue:GetPartitions'
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - 's3:GetObject'
-              - 's3:PutObject'
-              - 's3:ListBucket'
-            Resource: 
-              - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}'
-              - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}/*'
-              - !Sub 'arn:aws:s3:::${CURDataBucket}'
-              - !Sub 'arn:aws:s3:::${CURDataBucket}/*'
-
-  AxiaOpsLambdaPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: AxiaOpsLambdaPolicy
-      Description: Customer managed policy for AxiaOps Lambda role
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action:
-              - 'cur:PutReportDefinition'
-              - 'cur:DeleteReportDefinition'
-              - 'cur:ModifyReportDefinition'
-            Resource: '*'
-
-  # 4. IAM Role for AxiaOps to assume
-  AxiaOpsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: AxiaOpsRole
-      AssumeRolePolicyDocument:
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: "arn:aws:iam::%s:root"
-            Action: sts:AssumeRole
-            Condition:
-              StringEquals:
-                "sts:ExternalId": !Ref ExternalId
-      ManagedPolicyArns:
-        - !Ref AxiaOpsPolicy
-
-  # 5. Lambda Execution Role for Custom Resource
-  CURSetupLambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: AxiaOpsLambdaRole
-      AssumeRolePolicyDocument:
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - !Ref AxiaOpsLambdaPolicy
-
-  # 6. Lambda Function to call PutReportDefinition
-  CURSetupLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      Handler: index.handler
-      Role: !GetAtt CURSetupLambdaRole.Arn
-      Runtime: python3.9
-      Timeout: 60
-      Code:
-        ZipFile: |
-          import boto3
-          import cfnresponse
-          import json
-          
-          def handler(event, context):
-              print(json.dumps(event))
-              cur = boto3.client('cur', region_name='us-east-1') # CUR API is only in us-east-1
-              report_name = event['ResourceProperties']['ReportName']
-              bucket = event['ResourceProperties']['BucketName']
-              region = event['ResourceProperties']['Region']
-              
-              try:
-                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
-                      cur.put_report_definition(
-                          ReportDefinition={
-                              'ReportName': report_name,
-                              'TimeUnit': 'HOURLY',
-                              'Format': 'Parquet',
-                              'Compression': 'Parquet',
-                              'AdditionalSchemaElements': ['RESOURCES'],
-                              'S3Bucket': bucket,
-                              'S3Prefix': 'cur',
-                              'S3Region': region,
-                              'ReportVersioning': 'OVERWRITE_REPORT',
-                              'AdditionalArtifacts': ['ATHENA']
-                          }
-                      )
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-                  elif event['RequestType'] == 'Delete':
-                      cur.delete_report_definition(ReportName=report_name)
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-              except Exception as e:
-                  print(f"Error: {str(e)}")
-                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Message": str(e)})
-
-  # 7. Custom Resource Invocation
-  EnableCUR:
-    Type: Custom::EnableCUR
-    Properties:
-      ServiceToken: !GetAtt CURSetupLambda.Arn
-      ReportName: 'axiaops'
-      BucketName: !Ref CURDataBucket
-      Region: !Ref AWS::Region
-
-Outputs:
-  RoleARN:
-    Description: Role ARN to paste into AxiaOps
-    Value: !GetAtt AxiaOpsRole.Arn
-  CURBucketName:
-    Description: Bucket name to use when creating the Cost and Usage Report in AWS Billing
-    Value: !Ref CURDataBucket
-`, os.Getenv("AXIAOPS_AWS_ACCOUNT_ID"))
+	var buf bytes.Buffer
+	data := curSetupTemplateData{
+		AccountID:        os.Getenv("AXIAOPS_AWS_ACCOUNT_ID"),
+		GeneralActions:   generalScanPermissions,
+		CURAthenaActions: curAthenaPermissions,
+	}
+	if err := curSetupTemplate.Execute(&buf, data); err != nil {
+		slog.Error("getCURSetup: template execute failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/yaml")
-	w.Write([]byte(template))
+	w.Write(buf.Bytes())
 }

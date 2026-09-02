@@ -23,7 +23,7 @@ const ecrStaleImageThreshold = 90 * 24 * time.Hour
 // recently pushed image). Results are summarized per repository — one zombie per
 // repo with total waste across all stale images.
 func DiscoverStaleECRImages(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	regions := uniqueRegions(records)
+	regions := discoveryRegions(records, awsClient.Region())
 	accountID := awsClient.AccountID()
 	now := time.Now().UTC()
 	var zombies []model.ZombieResource
