@@ -13,11 +13,6 @@ import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { MobileSheet } from '../components/primitives/MobileSheet';
 import { csvEncode, downloadCSV } from '../utils/csv';
 
-// AWS Cost Explorer's GetCostAndUsageWithResources tops out at 14 days of
-// resource-level history. The drill-down panel is clamped to this window
-// so its service total reconciles with its per-resource breakdown — see
-// the comment beside `panelWindowDays` in the component body.
-const PANEL_MAX_DAYS = 14;
 
 function formatCost(val) {
   if (val >= 1000) return `${(val / 1000).toFixed(2)}k`;
@@ -230,15 +225,28 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
     if (sortBy === 'name_desc') return list.sort((a, b) => serviceConfig(b.service).label.localeCompare(serviceConfig(a.service).label));
     return list.sort((a, b) => b.total - a.total);
   }, [filteredCosts, sortBy]);
+  // Resource-level data horizon derived from returned records.
+  // The drill-down side panel is clamped to this window so its service total
+  // reconciles with its per-resource breakdown.
+  const { resourceHorizonDays, earliestResourceDate } = useMemo(() => {
+    if (!costsQuery.data || costsQuery.data.length === 0) return { resourceHorizonDays: 14, earliestResourceDate: null };
+    let minTime = Infinity;
+    for (const r of costsQuery.data) {
+      if (r.resource_id) {
+        const t = new Date(r.period_start).getTime();
+        if (t < minTime) minTime = t;
+      }
+    }
+    if (minTime === Infinity) return { resourceHorizonDays: 14, earliestResourceDate: null };
+    const days = Math.ceil((Date.now() - minTime) / 86400000);
+    return { resourceHorizonDays: days, earliestResourceDate: new Date(minTime) };
+  }, [costsQuery.data]);
 
-  // The drill-down side panel is clamped to a maximum 14-day window
-  // (PANEL_MAX_DAYS at module scope) to match AWS Cost Explorer's
-  // resource-level data ceiling — without it, the panel's service total
-  // spans the user's selected period (up to a year) while the resource
-  // breakdown only spans the last 14 days, and the two numbers don't
-  // reconcile so resource rows look like they're "missing" most of the cost.
-  const panelWindowDays = Math.min(period, PANEL_MAX_DAYS);
-  const panelClamped = period > PANEL_MAX_DAYS;
+  const panelWindowDays = Math.min(period, resourceHorizonDays);
+  // Hide warning if the data horizon covers the requested period
+  const panelClamped = customRange 
+    ? (new Date(customRange.untilIso) - new Date(customRange.sinceIso)) / 86400000 > resourceHorizonDays
+    : period > resourceHorizonDays;
 
   // Records for the selected service within the panel's clamped window.
   // Drives both the panel summary (total / period / regions / count) and
@@ -560,16 +568,13 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
             })}
           </div>
         )}
-
         {/* An active type filter narrows to records that have resource-level
-            cost data, which AWS only provides for the trailing 14 days —
-            longer windows will look truncated without this explanation. */}
-        {singleService && filterResourceTypes.size > 0 && (customRange
-          ? (new Date(customRange.untilIso) - new Date(customRange.sinceIso)) / 86400000 >= PANEL_MAX_DAYS
-          : period > PANEL_MAX_DAYS) && (
+            cost data, which may be a shorter window than the requested period.
+            Hide the warning if the data covers the selected period. */}
+        {singleService && filterResourceTypes.size > 0 && panelClamped && (
           <div style={{ padding: '0 16px 12px' }}>
             <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-              Type filters use resource-level cost data, which AWS caps at the last {PANEL_MAX_DAYS} days — earlier records are excluded.
+              Type filters use resource-level cost data — detail begins {earliestResourceDate ? formatDateShort(earliestResourceDate.toISOString()) : 'recently'}. Earlier records are excluded.
             </span>
           </div>
         )}
@@ -742,6 +747,8 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
                 selectedService={selectedService}
                 panelStats={panelStats}
                 panelClamped={panelClamped}
+                resourceHorizonDays={resourceHorizonDays}
+                earliestResourceDate={earliestResourceDate}
                 selectedServiceBreakdown={selectedServiceBreakdown}
                 zombieResourceIds={zombieResourceIds}
               />
@@ -765,6 +772,8 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
               selectedService={selectedService}
               panelStats={panelStats}
               panelClamped={panelClamped}
+                resourceHorizonDays={resourceHorizonDays}
+                earliestResourceDate={earliestResourceDate}
               selectedServiceBreakdown={selectedServiceBreakdown}
               zombieResourceIds={zombieResourceIds}
             />
@@ -777,7 +786,7 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
 
 // Extracted so desktop's sticky right-rail and mobile's bottom sheet
 // render identical content without diverging.
-function ServiceDetailPanelBody({ selectedService, panelStats, panelClamped, selectedServiceBreakdown, zombieResourceIds = new Set() }) {
+function ServiceDetailPanelBody({ selectedService, panelStats, panelClamped, selectedServiceBreakdown, zombieResourceIds = new Set() , resourceHorizonDays, earliestResourceDate}) {
   const cfg = serviceConfig(selectedService);
   return (
     <>
@@ -788,10 +797,9 @@ function ServiceDetailPanelBody({ selectedService, panelStats, panelClamped, sel
           <div style={{ fontSize: 11, color: 'var(--color-text-muted)', wordBreak: 'break-all' }}>{selectedService}</div>
         </div>
       </div>
-
       {panelClamped && (
         <div style={{ fontSize: 10, color: 'var(--color-text-muted)', fontStyle: 'italic', marginBottom: 12, padding: '6px 8px', backgroundColor: 'var(--color-surface-raised)', borderRadius: 4 }}>
-          Showing last {PANEL_MAX_DAYS} days · resource-level cost data is capped at {PANEL_MAX_DAYS} days by AWS Cost Explorer. The chart and the table still reflect your selected period.
+          Showing last {resourceHorizonDays} days · resource-level detail begins {earliestResourceDate ? formatDateShort(earliestResourceDate.toISOString()) : 'recently'}. The chart and the table still reflect your selected period.
         </div>
       )}
 

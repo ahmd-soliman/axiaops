@@ -8,8 +8,7 @@ export const PRESET_OPTIONS = [
   { label: '7d',  days: 7 },
   { label: '30d', days: 30 },
   { label: '90d', days: 90 },
-  { label: '6m',  days: 180 },
-  { label: '1y',  days: 365 },
+  
 ];
 
 // Default selection when a screen mounts without a remembered value.
@@ -153,6 +152,7 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
             <input
               type="date"
               value={customSince}
+              min={isoDaysAgo(90)}
               max={customUntil || isoToday()}
               onChange={e => setCustomSince(e.target.value)}
               style={{ padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 4, fontSize: 13 }}
@@ -163,7 +163,7 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
             <input
               type="date"
               value={customUntil}
-              min={customSince}
+              min={customSince || isoDaysAgo(90)}
               max={isoToday()}
               onChange={e => setCustomUntil(e.target.value)}
               style={{ padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 4, fontSize: 13 }}
