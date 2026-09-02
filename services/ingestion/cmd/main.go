@@ -359,7 +359,8 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	if err != nil {
 		return fmt.Errorf("aws init: %w", err)
 	}
-	providers = append(providers, awsClient)
+	var billing provider.BillingSource = aws.NewCostExplorerSource(awsClient)
+	providers = append(providers, billing)
 
 	organizationID := storage.OrganizationIDFromCtx(ctx)
 	if organizationID == "" {
@@ -428,7 +429,10 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	// Fetch resource-level costs for services that support per-resource CE data.
 	// These records have ResourceID populated, enabling Detect() to join with
 	// usage AND per-resource drill-downs in the dashboard.
-	resourceCosts, _ := awsClient.FetchResourceCosts(ctx, start, end)
+	resourceCosts, err := billing.FetchResourceCosts(ctx, start, end)
+	if err != nil && err != provider.ErrResourceCostsUnsupported {
+		slog.Error("fetch resource costs failed", "error", err)
+	}
 	if len(resourceCosts) > 0 {
 		slog.Info("fetched resource-level costs", "count", len(resourceCosts))
 		for i := range resourceCosts {
@@ -654,6 +658,8 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	// API-only discoverers (EIP, EBS volume/snapshot, AMI, log group, …) don't,
 	// so backfill any that are still empty. This populates zombie_records and —
 	// via the per-(service, resource_type) breakdown below — the trend filter.
+	applyBilledCosts(zombies, allRecords)
+
 	for i := range zombies {
 		if zombies[i].ResourceType == "" {
 			zombies[i].ResourceType = analyzer.ResourceType(zombies[i].Service, zombies[i].UsageMetric)
@@ -856,4 +862,23 @@ func dateRange() (end, start time.Time) {
 	}
 	start = end.AddDate(0, 0, -days)
 	return
+}
+
+// applyBilledCosts overwrites discovery-based list-price estimates with actual
+// billed costs when a real line item exists for the resource.
+func applyBilledCosts(zombies []model.ZombieResource, costs []model.CostRecord) {
+	billed := make(map[string]float64, len(costs))
+	for _, c := range costs {
+		if c.ResourceID != "" && c.CostBasis == model.CostBasisBilled {
+			billed[c.ResourceID] += c.Amount
+		}
+	}
+	for i := range zombies {
+		if amt, ok := billed[zombies[i].ResourceID]; ok {
+			zombies[i].MonthlyCost = amt
+			zombies[i].CostBasis = model.CostBasisBilled
+			continue
+		}
+		zombies[i].CostBasis = model.CostBasisListPrice
+	}
 }
