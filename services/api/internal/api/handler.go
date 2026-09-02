@@ -1530,6 +1530,85 @@ Resources:
                   - !Sub 'arn:aws:s3:::${CURDataBucket}'
                   - !Sub 'arn:aws:s3:::${CURDataBucket}/*'
 
+
+  # 5. Lambda Execution Role for Custom Resource
+  CURSetupLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ManageCUR
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'cur:PutReportDefinition'
+                  - 'cur:DeleteReportDefinition'
+                  - 'cur:ModifyReportDefinition'
+                Resource: '*'
+
+  # 6. Lambda Function to call PutReportDefinition
+  CURSetupLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt CURSetupLambdaRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          
+          def handler(event, context):
+              print(json.dumps(event))
+              cur = boto3.client('cur', region_name='us-east-1') # CUR API is only in us-east-1
+              report_name = event['ResourceProperties']['ReportName']
+              bucket = event['ResourceProperties']['BucketName']
+              region = event['ResourceProperties']['Region']
+              
+              try:
+                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                      cur.put_report_definition(
+                          ReportDefinition={
+                              'ReportName': report_name,
+                              'TimeUnit': 'HOURLY',
+                              'Format': 'Parquet',
+                              'Compression': 'Parquet',
+                              'AdditionalSchemaElements': ['RESOURCES'],
+                              'S3Bucket': bucket,
+                              'S3Prefix': 'cur',
+                              'S3Region': region,
+                              'ReportVersioning': 'OVERWRITE_REPORT',
+                              'AdditionalArtifacts': ['ATHENA']
+                          }
+                      )
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  elif event['RequestType'] == 'Delete':
+                      cur.delete_report_definition(ReportName=report_name)
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Message": str(e)})
+
+  # 7. Custom Resource Invocation
+  EnableCUR:
+    Type: Custom::EnableCUR
+    Properties:
+      ServiceToken: !GetAtt CURSetupLambda.Arn
+      ReportName: 'axiaops'
+      BucketName: !Ref CURDataBucket
+      Region: !Ref AWS::Region
+
 Outputs:
   RoleARN:
     Description: Role ARN to paste into AxiaOps
