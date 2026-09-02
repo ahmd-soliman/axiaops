@@ -1508,10 +1508,10 @@ Resources:
         ResultConfiguration:
           OutputLocation: !Sub 's3://${AthenaQueryResultsBucket}/'
 
-  AxiaOpsManagedPolicy:
+  AxiaOpsPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: AxiaOpsManagedPolicy
+      ManagedPolicyName: AxiaOpsPolicy
       Description: Customer managed policy for AxiaOps role
       PolicyDocument:
         Version: '2012-10-17'
@@ -1569,10 +1569,10 @@ Resources:
               - !Sub 'arn:aws:s3:::${CURDataBucket}'
               - !Sub 'arn:aws:s3:::${CURDataBucket}/*'
 
-  AxiaOpsLambdaManagedPolicy:
+  AxiaOpsLambdaPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: AxiaOpsLambdaManagedPolicy
+      ManagedPolicyName: AxiaOpsLambdaPolicy
       Description: Customer managed policy for AxiaOps Lambda role
       PolicyDocument:
         Version: '2012-10-17'
@@ -1599,7 +1599,7 @@ Resources:
               StringEquals:
                 "sts:ExternalId": !Ref ExternalId
       ManagedPolicyArns:
-        - !Ref AxiaOpsManagedPolicy
+        - !Ref AxiaOpsPolicy
 
   # 5. Lambda Execution Role for Custom Resource
   CURSetupLambdaRole:
@@ -1614,7 +1614,7 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - !Ref AxiaOpsLambdaManagedPolicy
+        - !Ref AxiaOpsLambdaPolicy
 
   # 6. Lambda Function to call PutReportDefinition
   CURSetupLambda:
