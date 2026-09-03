@@ -124,6 +124,17 @@ ingestion:
   # billing periods against a cur_athena account) or narrow it per
   # environment as needed.
   daysBack: 30
+  # Age cutoff (days) for the nightly cost_records retention sweep. 395
+  # (not the ingestion binary's own conservative default of 90) to match
+  # the dashboard's custom date-range ceiling -- rows older than this are
+  # deleted regardless of what the UI lets someone select, so a selector
+  # wider than retention just shows an incomplete chart. 395 = 365 + a
+  # 30-day buffer so a full calendar month a year ago stays queryable
+  # no matter where in the current month you are (a plain 365-day floor
+  # only guarantees the same day a year ago, not the whole month).
+  # Growth is linear in resources * days; check cost_records index size
+  # before raising this much further.
+  costRecordsRetentionDays: 395
   podAnnotations: {}
 
 dashboard:
