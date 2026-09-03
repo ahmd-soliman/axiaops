@@ -89,6 +89,8 @@ Resources:
 {{- end}}
             Resource: '*'
           - Effect: Allow
+            # Athena writes query result files to this bucket under the
+            # caller's identity — PutObject is required here.
             Action:
               - 's3:GetObject'
               - 's3:PutObject'
@@ -96,6 +98,15 @@ Resources:
             Resource:
               - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}'
               - !Sub 'arn:aws:s3:::${AthenaQueryResultsBucket}/*'
+          - Effect: Allow
+            # Read-only. The CUR data bucket only ever needs to be written to
+            # by bcm-data-exports.amazonaws.com (CURDataBucketPolicy above) —
+            # the scanning role/user has no legitimate reason to write into
+            # the customer's own billing-data bucket. No PutObject here.
+            Action:
+              - 's3:GetObject'
+              - 's3:ListBucket'
+            Resource:
               - !Sub 'arn:aws:s3:::${CURDataBucket}'
               - !Sub 'arn:aws:s3:::${CURDataBucket}/*'
 
@@ -164,6 +175,13 @@ Resources:
   # BILLING_PERIOD=YYYY-MM partitioning Data Exports uses for delivery
   # (https://docs.aws.amazon.com/cur/latest/userguide/dataexports-export-delivery.html).
   # Names match the defaults in POST /v1/accounts (defDB/defTable).
+  #
+  # Partition projection (not MSCK/a crawler/a Lambda) is what makes new
+  # billing periods queryable. Without it, Athena has zero visibility into
+  # any BILLING_PERIOD=YYYY-MM folder until something explicitly registers
+  # it — the table silently returns 0 rows for data that's actually in S3,
+  # every month, for every customer, forever. Projection computes valid
+  # partitions from the range/format below instead of needing registration.
   AxiaOpsCURDatabase:
     Type: AWS::Glue::Database
     Properties:
@@ -181,6 +199,13 @@ Resources:
         TableType: EXTERNAL_TABLE
         Parameters:
           EXTERNAL: 'TRUE'
+          'projection.enabled': 'true'
+          'projection.billing_period.type': 'date'
+          'projection.billing_period.format': 'yyyy-MM'
+          'projection.billing_period.interval': '1'
+          'projection.billing_period.interval.unit': 'MONTHS'
+          'projection.billing_period.range': '2024-01,NOW'
+          'storage.location.template': !Sub 's3://${CURDataBucket}/cur/axiaops/data/BILLING_PERIOD=${!billing_period}/'
         PartitionKeys:
           - Name: billing_period
             Type: string
