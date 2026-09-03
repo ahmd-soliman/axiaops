@@ -48,6 +48,7 @@ before `api`/`ingestion` restart against the new schema.
 | `ingress.enabled` | `false` | Off by default so hostnames are not hardcoded in chart defaults. Set `ingress.enabled: true` and specify `ingress.host` at install time to configure Ingress routing. |
 | `postgres.existingSecret` | `""` | Required for anything to actually start. The chart installs without it (rendering `NOTES.txt` warnings) so `helm template` / CI linting doesn't need a real Secret to succeed. |
 | `redis.enabled` | `true` | Deploys the in-cluster Valkey Deployment + Service. Set `redis.auth.existingSecret` to a Secret containing a full `redis-url` DSN to point at an external Redis-compatible service instead — note this currently still deploys the in-cluster pod alongside it; there isn't yet a clean way to disable the embedded pod while keeping an external `REDIS_URL` wired in. |
+| `ingestion.daysBack` | `30` | Cost lookback window for every scan. Matches the `ingestion` binary's own built-in default, so leaving this alone changes nothing. Override to widen it — e.g. backfilling older billing periods against a `cur_athena` account needs a window that actually reaches back that far. |
 
 ## Required Secrets
 

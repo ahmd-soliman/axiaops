@@ -118,6 +118,12 @@ ingestion:
   replicaCount: 1
   resources: {}
   scanInterval: 60s
+  # Cost lookback window in days. Matches services/ingestion/cmd/main.go's
+  # own default (30) so an install that never touches this value behaves
+  # identically to setting it explicitly. Widen it (e.g. to backfill older
+  # billing periods against a cur_athena account) or narrow it per
+  # environment as needed.
+  daysBack: 30
   podAnnotations: {}
 
 dashboard:

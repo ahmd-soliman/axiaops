@@ -38,6 +38,8 @@ spec:
               value: {{ include "axiaops.imageTag" . | quote }}
             - name: SCAN_INTERVAL
               value: {{ .Values.ingestion.scanInterval | quote }}
+            - name: DAYS_BACK
+              value: {{ .Values.ingestion.daysBack | quote }}
             - name: DEV_MODE
               value: {{ .Values.devMode.enabled | quote }}
             {{- if .Values.devMode.enabled }}
