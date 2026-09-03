@@ -12,6 +12,7 @@ import { useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { MobileSheet } from '../components/primitives/MobileSheet';
 import { csvEncode, downloadCSV } from '../utils/csv';
+import { toAggregateCostRecords } from '../utils/costTotals';
 
 
 function formatCost(val) {
@@ -160,10 +161,19 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
     return records;
   }, [costsQuery.data, filterServices, singleService, filterResourceTypes]);
 
+  // A cost_records row exists at two granularities for the same underlying
+  // spend -- a general row (no resource_id, one per service/region/day) and,
+  // where supported, resource-level rows breaking that same total down
+  // further. Every aggregation below (total, chart, by-service table) must
+  // run over this filtered set, or it double-counts every dollar that has
+  // resource-level attribution. Only the per-resource drill-down panel further
+  // down needs the raw, unfiltered records.
+  const aggregateCosts = useMemo(() => toAggregateCostRecords(filteredCosts), [filteredCosts]);
+
   // Calculate totals
   const totalCost = useMemo(() => {
-    return filteredCosts.reduce((sum, r) => sum + (r.amount || 0), 0);
-  }, [filteredCosts]);
+    return aggregateCosts.reduce((sum, r) => sum + (r.amount || 0), 0);
+  }, [aggregateCosts]);
 
   // Auto-select granularity when period changes
   const effectiveGranularity = period <= 30 ? 'daily' : granularity;
@@ -171,9 +181,9 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
 
   // Aggregate cost records for the chart — daily or monthly.
   const costChartData = useMemo(() => {
-    if (filteredCosts.length === 0) return [];
+    if (aggregateCosts.length === 0) return [];
     const byKey = new Map();
-    for (const r of filteredCosts) {
+    for (const r of aggregateCosts) {
       // period_start is a UTC RFC3339 string (Z-suffixed) from the Go API, so
       // a raw slice is equivalent to parse→toISOString and skips the per-record
       // Date allocation.
@@ -193,13 +203,13 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
     }
     return [...byKey.values()]
       .sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
-  }, [filteredCosts, effectiveGranularity]);
+  }, [aggregateCosts, effectiveGranularity]);
 
   // Aggregate cost records by service for the table view.
   const serviceGroups = useMemo(() => {
-    if (filteredCosts.length === 0) return [];
+    if (aggregateCosts.length === 0) return [];
     const byService = new Map();
-    for (const r of filteredCosts) {
+    for (const r of aggregateCosts) {
       const g = byService.get(r.service);
       if (g) {
         g.total += r.amount || 0;
@@ -224,7 +234,7 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
     if (sortBy === 'name_asc') return list.sort((a, b) => serviceConfig(a.service).label.localeCompare(serviceConfig(b.service).label));
     if (sortBy === 'name_desc') return list.sort((a, b) => serviceConfig(b.service).label.localeCompare(serviceConfig(a.service).label));
     return list.sort((a, b) => b.total - a.total);
-  }, [filteredCosts, sortBy]);
+  }, [aggregateCosts, sortBy]);
   // Resource-level data horizon derived from returned records.
   // The drill-down side panel is clamped to this window so its service total
   // reconciles with its per-resource breakdown.

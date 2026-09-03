@@ -5,6 +5,7 @@ import { serviceConfig } from '../components/serviceConfig';
 import { Spinner, useWindowWidth, LinkButton, RowLink } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import AreaChart from '../components/AreaChart';
+import { sumCostRecords } from '../utils/costTotals';
 
 // OrgSummaryScreen — read-only organization summary at `/`. Slices: headline
 // tiles (#1) + by-service breakdown (#4) + per-account breakdown (#3) + account
@@ -12,8 +13,8 @@ import AreaChart from '../components/AreaChart';
 //
 // Deliberately self-contained: it does NOT import the heavy OverviewHero /
 // ServiceBreakdown out of the ~1800-line workbench (OverviewScreen.jsx). The
-// client-side reductions it needs (totalSpend) are re-implemented here in a
-// few lines rather than reaching into the don't-touch file.
+// client-side reductions it needs (totalSpend) use the shared costTotals
+// helper rather than reaching into the don't-touch file.
 //
 // This screen only ever renders for orgs with 2+ accounts — the zero-account
 // and single-account cases are handled by redirects in pages/OrgSummary.jsx.
@@ -67,10 +68,11 @@ export default function OrgSummaryScreen({ accounts = [], viewAccountsHref, acco
   }, [zombies.data]);
 
   // #1 "total spend": /v1/costs returns a raw []CostRecord with no org total,
-  // so reduce client-side. Re-implemented here (the workbench has its own copy).
-  const totalSpend = useMemo(() => {
-    return (costs.data ?? []).reduce((a, c) => a + (c.amount || 0), 0);
-  }, [costs.data]);
+  // so reduce client-side via the shared helper (CloudSpendScreen has the
+  // canonical copy) -- it must exclude resource-level rows or every dollar
+  // with resource-level attribution gets counted twice (once as a general
+  // service/day row, once per resource).
+  const totalSpend = useMemo(() => sumCostRecords(costs.data), [costs.data]);
 
   // Merge per-account waste (keyed by internal_account_id) over the full account
   // list so zero-waste and never-scanned accounts still show in the strip.

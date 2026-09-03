@@ -11,6 +11,7 @@ import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { csvEncode, downloadCSV } from '../utils/csv';
 import { formatDate } from '../utils/formatDate';
+import { sumCostRecords } from '../utils/costTotals';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1243,10 +1244,7 @@ export default function OverviewScreen({
   const trend      = useQuery({ queryKey: ['trend', selectedAccount],      queryFn: () => fetchTrend(selectedAccount), placeholderData: (prev) => prev });
   const dismissals = useQuery({ queryKey: ['dismissals', selectedAccount], queryFn: () => fetchDismissals(selectedAccount) });
 
-  const totalSpend = useMemo(() => {
-    if (!costs.data) return 0;
-    return costs.data.reduce((sum, r) => sum + (r.amount || 0), 0);
-  }, [costs.data]);
+  const totalSpend = useMemo(() => sumCostRecords(costs.data), [costs.data]);
 
   const isLoading    = summary.isLoading || resources.isLoading;
   const isError      = summary.isError   || resources.isError;
