@@ -792,10 +792,13 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		account.CURTable = &defTable
 		account.CURWorkgroup = &defWG
 		account.CURResultsS3 = &defS3
-		defRegion := req.Region
-		if defRegion == "" {
-			defRegion = "us-east-1"
-		}
+		// AWS::BCMDataExports::Export (the CUR 2.0 Data Export resource the
+		// setup CloudFormation stack creates) can only be created in
+		// us-east-1 -- and since that same stack also creates the Glue
+		// Database/Table/Athena Workgroup, all of that infra necessarily
+		// lives in us-east-1 too, regardless of the account's own AWS
+		// region. Never fall back to req.Region here.
+		defRegion := "us-east-1"
 		account.CURRegion = &defRegion
 	}
 

@@ -170,8 +170,11 @@ async function saveCurConfig(account, billingSource, updateAccountFn, curConfig)
       cur_database: curConfig?.cur_database || 'axiaops_cur_db',
       cur_table: curConfig?.cur_table || 'axiaops_cur_table',
       cur_workgroup: curConfig?.cur_workgroup || 'axiaops_athena_wg',
-      cur_results_s3: curConfig?.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${account.region}`,
-      cur_region: curConfig?.cur_region || account.region,
+      // AWS::BCMDataExports::Export (and the Glue/Athena resources the same
+      // setup stack creates) only exist in us-east-1, regardless of the
+      // account's own AWS region -- never fall back to account.region here.
+      cur_results_s3: curConfig?.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-us-east-1`,
+      cur_region: curConfig?.cur_region || 'us-east-1',
     });
   }
   return null;
@@ -210,7 +213,7 @@ function RoleAuthTab({ onConnected }) {
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
   const [billingSource, setBillingSource] = useState('ce');
-  const [curConfig, setCurConfig] = useState({ cur_database: 'axiaops_cur_db', cur_table: 'axiaops_cur_table', cur_workgroup: 'axiaops_athena_wg', cur_results_s3: '', cur_region: '' });
+  const [curConfig, setCurConfig] = useState({ cur_database: 'axiaops_cur_db', cur_table: 'axiaops_cur_table', cur_workgroup: 'axiaops_athena_wg', cur_results_s3: '', cur_region: 'us-east-1' });
   const permissionsPolicyJSON = useScanPermissionsJSON(billingSource);
 
   // pendingDrafts guards against a real bug: draftAccount() mints a brand-new
@@ -244,7 +247,7 @@ function RoleAuthTab({ onConnected }) {
       cur_table: account.cur_table || 'axiaops_cur_table',
       cur_workgroup: account.cur_workgroup || 'axiaops_athena_wg',
       cur_results_s3: account.cur_results_s3 || '',
-      cur_region: account.cur_region || '',
+      cur_region: account.cur_region || 'us-east-1',
     });
     setDraft(account);
     setStep('verify');
@@ -467,7 +470,7 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
     cur_table: account?.cur_table || 'axiaops_cur_table', 
     cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg', 
     cur_results_s3: account?.cur_results_s3 || '', 
-    cur_region: account?.cur_region || ''
+    cur_region: account?.cur_region || 'us-east-1'
   });
   const permissionsPolicyJSON = useScanPermissionsJSON(billingSource);
 
@@ -505,7 +508,7 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
             cur_table: curConfig.cur_table || 'axiaops_cur_table',
             cur_workgroup: curConfig.cur_workgroup || 'axiaops_athena_wg',
             cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${region.trim() || 'eu-central-1'}`,
-            cur_region: curConfig.cur_region || region.trim() || 'eu-central-1'
+            cur_region: curConfig.cur_region || 'us-east-1'
           });
         } else {
           Object.assign(updatePayload, { billing_source: 'ce' });
@@ -591,7 +594,7 @@ function RoleEditTab({ account, onConnected }) {
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
   const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'ce');
-  const [curConfig, setCurConfig] = useState({ cur_database: account?.cur_database || 'axiaops_cur_db', cur_table: account?.cur_table || 'axiaops_cur_table', cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg', cur_results_s3: account?.cur_results_s3 || '', cur_region: account?.cur_region || '' });
+  const [curConfig, setCurConfig] = useState({ cur_database: account?.cur_database || 'axiaops_cur_db', cur_table: account?.cur_table || 'axiaops_cur_table', cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg', cur_results_s3: account?.cur_results_s3 || '', cur_region: account?.cur_region || 'us-east-1' });
 
   const roleArnChanged = roleArn.trim() !== (account.role_arn ?? '');
 
@@ -620,7 +623,7 @@ function RoleEditTab({ account, onConnected }) {
           cur_table: curConfig.cur_table || 'axiaops_cur_table',
           cur_workgroup: curConfig.cur_workgroup || 'axiaops_athena_wg',
           cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${region.trim() || 'eu-central-1'}`,
-          cur_region: curConfig.cur_region || region.trim() || 'eu-central-1'
+          cur_region: curConfig.cur_region || 'us-east-1'
         });
       } else {
         Object.assign(updatePayload, { billing_source: 'ce' });
