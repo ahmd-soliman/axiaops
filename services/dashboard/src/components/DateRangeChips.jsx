@@ -152,6 +152,16 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
             <input
               type="date"
               value={customSince}
+              // 395 = 365 + a 30-day buffer, not an arbitrary round number:
+              // a plain 365-day floor only guarantees the same calendar DAY
+              // a year ago is still retrievable -- it doesn't guarantee the
+              // whole MONTH a year ago is, since a month can start up to
+              // ~30 days before its end. The extra 30 days keeps a full
+              // year-over-year monthly comparison valid no matter where in
+              // the current month you are. Keep in sync with
+              // COST_RECORDS_RETENTION_DAYS -- this is a UI-side ceiling,
+              // not a substitute for retention actually covering the range.
+              min={isoDaysAgo(395)}
               max={customUntil || isoToday()}
               onChange={e => setCustomSince(e.target.value)}
               style={{ padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 4, fontSize: 13 }}
@@ -162,7 +172,7 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
             <input
               type="date"
               value={customUntil}
-              min={customSince || isoDaysAgo(90)}
+              min={customSince || isoDaysAgo(395)}
               max={isoToday()}
               onChange={e => setCustomUntil(e.target.value)}
               style={{ padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 4, fontSize: 13 }}
