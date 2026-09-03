@@ -8,7 +8,7 @@ export const PRESET_OPTIONS = [
   { label: '7d',  days: 7 },
   { label: '30d', days: 30 },
   { label: '90d', days: 90 },
-  
+  { label: '6m',  days: 180 },
 ];
 
 // Default selection when a screen mounts without a remembered value.
@@ -45,7 +45,7 @@ function chipStyle(mobile, active) {
 
 // DateRangeChips
 //
-// Preset chips (7d / 30d / 90d / 6m / 1y) + a Custom… trigger that opens a
+// Preset chips (7d / 30d / 90d / 6m) + a Custom… trigger that opens a
 // small popover with two date inputs (start, end). Lifts the picker UI out of
 // TrendScreen + CostAnalyticsScreen into one component so the same UX renders
 // on every chart screen (including Overview, which had no picker before).
@@ -152,7 +152,6 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
             <input
               type="date"
               value={customSince}
-              min={isoDaysAgo(90)}
               max={customUntil || isoToday()}
               onChange={e => setCustomSince(e.target.value)}
               style={{ padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 4, fontSize: 13 }}
