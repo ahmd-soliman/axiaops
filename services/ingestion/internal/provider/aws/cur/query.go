@@ -3,6 +3,7 @@ package cur
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -69,17 +70,17 @@ func (s *AthenaCURSource) buildAmortizedSQL(start, end time.Time, resourceLevel 
 	// parameterized queries for everything nicely in v2 SDK without ExecutionParameters, 
 	// we will inject safely formatted strings).
 	
-	// Ensure we span the correct billing periods. If start/end cross months, we need to query multiple partitions.
-	// For simplicity, we just use a basic string here for now. A robust implementation would generate
-	// (billing_period = '2026-08' OR billing_period = '2026-09')
-	
-	billingPeriodStart := start.Format("2006-01")
-	billingPeriodEnd := end.Add(-24 * time.Hour).Format("2006-01") // exclusive end boundary usually
-	
-	periodCondition := fmt.Sprintf("billing_period = '%s'", billingPeriodStart)
-	if billingPeriodStart != billingPeriodEnd {
-		periodCondition = fmt.Sprintf("(billing_period = '%s' OR billing_period = '%s')", billingPeriodStart, billingPeriodEnd)
+	// Enumerate every billing_period the [start, end) window spans -- a
+	// range crossing more than one month boundary (e.g. a widened
+	// DAYS_BACK) must list every month in between, not just the first and
+	// last, or Athena's partition pruning silently drops the middle ones
+	// with no error.
+	adjustedEnd := end.Add(-24 * time.Hour) // exclusive end boundary usually
+	var quoted []string
+	for cur := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, time.UTC); !cur.After(adjustedEnd); cur = cur.AddDate(0, 1, 0) {
+		quoted = append(quoted, fmt.Sprintf("'%s'", cur.Format("2006-01")))
 	}
+	periodCondition := fmt.Sprintf("billing_period IN (%s)", strings.Join(quoted, ", "))
 
 	resourceField := "''"
 	groupBy := "1, 2, 3, 4"
