@@ -68,7 +68,7 @@ jobs:
           # it. Silently a no-op on the very first-ever run (no site to
           # fetch from yet).
           if curl -fsSL "${PAGES_URL}/charts/index.yaml" -o /tmp/old-index.yaml; then
-            grep -oE 'https://[^"[:space:]]+\.tgz' /tmp/old-index.yaml | grep -v 'axiaops-0\.[012]\.' | sort -u | while read -r url; do
+            grep -oE 'https://[^"[:space:]]+\.tgz' /tmp/old-index.yaml | grep -v 'axiaops-0\.[012]\.' | grep -v 'axiaops-0\.3\.[0123]\.tgz' | sort -u | while read -r url; do
               curl -fsSL "$url" -o "site-out/charts/$(basename "$url")"
             done
           fi
