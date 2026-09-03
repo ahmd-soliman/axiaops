@@ -40,6 +40,8 @@ spec:
               value: {{ .Values.ingestion.scanInterval | quote }}
             - name: DAYS_BACK
               value: {{ .Values.ingestion.daysBack | quote }}
+            - name: COST_RECORDS_RETENTION_DAYS
+              value: {{ .Values.ingestion.costRecordsRetentionDays | quote }}
             - name: DEV_MODE
               value: {{ .Values.devMode.enabled | quote }}
             {{- if .Values.devMode.enabled }}
