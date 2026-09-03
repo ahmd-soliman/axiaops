@@ -57,3 +57,25 @@ func TestBuildAmortizedSQL_TwoAdjacentMonths(t *testing.T) {
 		t.Errorf("expected IN clause covering both August and September, got: %s", sql)
 	}
 }
+
+func TestBuildTaxSQL_FiltersToTaxLineItemsOnly(t *testing.T) {
+	s := NewAthenaCURSource(nil, "db", "tbl", "wg", "s3://res")
+
+	start, _ := time.Parse("2006-01-02", "2026-09-01")
+	end, _ := time.Parse("2006-01-02", "2026-09-03")
+
+	sql := s.buildTaxSQL(start, end)
+
+	if !strings.Contains(sql, "line_item_line_item_type = 'Tax'") {
+		t.Errorf("expected filter on Tax line items, got: %s", sql)
+	}
+	if !strings.Contains(sql, "'Tax' AS service") {
+		t.Errorf("expected literal 'Tax' service column, got: %s", sql)
+	}
+	if !strings.Contains(sql, "billing_period IN ('2026-09')") {
+		t.Errorf("expected billing_period condition to be reused, got: %s", sql)
+	}
+	if strings.Contains(sql, "line_item_resource_id") {
+		t.Errorf("tax query should not break down by resource, got: %s", sql)
+	}
+}

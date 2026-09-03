@@ -112,3 +112,13 @@ func (s *AthenaCURSource) FetchResourceCosts(ctx context.Context, start, end tim
 	sql := s.buildAmortizedSQL(start, end, true)
 	return s.fetchAndParse(ctx, sql, start, end, "resource_costs")
 }
+
+// FetchTaxCosts sums Tax-type line items into one CostRecord per account per
+// day, tagged Service: "Tax" -- a reconciliation line for the dashboard's
+// total-spend figure, never fed into analyzer.Detect() (no serviceRules
+// entry will ever match "Tax", so it can't become a zombie finding) and
+// excluded from FetchCosts/FetchResourceCosts' own amortization math.
+func (s *AthenaCURSource) FetchTaxCosts(ctx context.Context, start, end time.Time) ([]model.CostRecord, error) {
+	sql := s.buildTaxSQL(start, end)
+	return s.fetchAndParse(ctx, sql, start, end, "tax_costs")
+}

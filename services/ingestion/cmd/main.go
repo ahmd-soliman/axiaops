@@ -461,6 +461,29 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		allRecords = append(allRecords, resourceCosts...)
 	}
 
+	// Tax is a CUR-only concept (line_item_line_item_type = 'Tax'). Cost
+	// Explorer already folds Tax into its own per-service totals via
+	// ceServiceToInternal, so this only applies to the CUR/Athena source.
+	if curSource, ok := billing.(*cur.AthenaCURSource); ok {
+		taxCosts, err := curSource.FetchTaxCosts(ctx, start, end)
+		if err != nil {
+			slog.Error("fetch tax costs failed", "error", err)
+		} else if len(taxCosts) > 0 {
+			for i := range taxCosts {
+				taxCosts[i].InternalAccountID = &accountID
+			}
+			inserted, updated, saveErr := store.Save(ctx, taxCosts)
+			if saveErr != nil {
+				return fmt.Errorf("save tax costs failed: %w", saveErr)
+			}
+			slog.Info("saved tax costs", "total", len(taxCosts), "inserted", inserted, "updated", updated)
+			ingestionRecordsFetchedTotal.WithLabelValues("aws", organizationID).Add(float64(len(taxCosts)))
+			ingestionRecordsSavedTotal.WithLabelValues("aws", organizationID, "inserted").Add(float64(inserted))
+			ingestionRecordsSavedTotal.WithLabelValues("aws", organizationID, "updated").Add(float64(updated))
+			allRecords = append(allRecords, taxCosts...)
+		}
+	}
+
 	var usage []analyzer.UsageRecord
 	var usageErr error
 	if len(allRecords) > 0 {

@@ -63,24 +63,58 @@ func (s *AthenaCURSource) runQuery(ctx context.Context, sql string, queryType st
 	}
 }
 
-// buildAmortizedSQL constructs the CUDOS-compatible amortization query.
-// It uses billing_period as a partition key (formatted YYYY-MM) for pruning.
-func (s *AthenaCURSource) buildAmortizedSQL(start, end time.Time, resourceLevel bool) string {
-	// Format dates for SQL injection (safely parameterized usually, but Athena doesn't fully support
-	// parameterized queries for everything nicely in v2 SDK without ExecutionParameters, 
-	// we will inject safely formatted strings).
-	
-	// Enumerate every billing_period the [start, end) window spans -- a
-	// range crossing more than one month boundary (e.g. a widened
-	// DAYS_BACK) must list every month in between, not just the first and
-	// last, or Athena's partition pruning silently drops the middle ones
-	// with no error.
+// billingPeriodCondition enumerates every billing_period the [start, end)
+// window spans -- a range crossing more than one month boundary (e.g. a
+// widened DAYS_BACK) must list every month in between, not just the first
+// and last, or Athena's partition pruning silently drops the middle ones
+// with no error. Shared by every query against this table, whatever it
+// selects.
+func billingPeriodCondition(start, end time.Time) string {
 	adjustedEnd := end.Add(-24 * time.Hour) // exclusive end boundary usually
 	var quoted []string
 	for cur := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, time.UTC); !cur.After(adjustedEnd); cur = cur.AddDate(0, 1, 0) {
 		quoted = append(quoted, fmt.Sprintf("'%s'", cur.Format("2006-01")))
 	}
-	periodCondition := fmt.Sprintf("billing_period IN (%s)", strings.Join(quoted, ", "))
+	return fmt.Sprintf("billing_period IN (%s)", strings.Join(quoted, ", "))
+}
+
+// buildTaxSQL sums Tax-type line items into one row per account per day.
+// Tax is intentionally NOT broken down by the service it was charged
+// against (unlike buildAmortizedSQL) -- it's surfaced as a single
+// reconciliation line, not scattered across every service's own row. The
+// caller maps the resulting CostRecord to Service: "Tax" (see
+// FetchTaxCosts) rather than trusting column 2 below, which is a literal.
+func (s *AthenaCURSource) buildTaxSQL(start, end time.Time) string {
+	periodCondition := billingPeriodCondition(start, end)
+	return fmt.Sprintf(`
+SELECT
+  line_item_usage_account_id AS account_id,
+  'Tax' AS service,
+  '' AS region,
+  DATE(line_item_usage_start_date) AS period_start,
+  '' AS resource_id,
+  SUM(line_item_unblended_cost) AS amortized_cost
+FROM "%s"."%s"
+WHERE %s
+  AND line_item_usage_start_date >= TIMESTAMP '%s'
+  AND line_item_usage_start_date < TIMESTAMP '%s'
+  AND line_item_line_item_type = 'Tax'
+GROUP BY 1, 4
+HAVING SUM(line_item_unblended_cost) > 0.000001`,
+		s.database,
+		s.table,
+		periodCondition,
+		start.Format("2006-01-02 15:04:05"),
+		end.Format("2006-01-02 15:04:05"))
+}
+
+// buildAmortizedSQL constructs the CUDOS-compatible amortization query.
+// It uses billing_period as a partition key (formatted YYYY-MM) for pruning.
+func (s *AthenaCURSource) buildAmortizedSQL(start, end time.Time, resourceLevel bool) string {
+	// Format dates for SQL injection (safely parameterized usually, but Athena doesn't fully support
+	// parameterized queries for everything nicely in v2 SDK without ExecutionParameters,
+	// we will inject safely formatted strings).
+	periodCondition := billingPeriodCondition(start, end)
 
 	resourceField := "''"
 	groupBy := "1, 2, 3, 4"
