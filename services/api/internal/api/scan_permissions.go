@@ -38,6 +38,26 @@ var generalScanPermissions = []string{
 	"eks:ListClusters",
 	"s3:ListAllMyBuckets",
 	"s3:GetBucketLocation",
+	// Backs DiscoverIncompleteMultipartUploads (discover_s3.go) — stale/
+	// incomplete multipart uploads bill storage but never show up in a
+	// normal object listing. Without this the check AccessDenied's on every
+	// bucket, every scan, for zero possible result.
+	"s3:ListBucketMultipartUploads",
+	// Backs DiscoverUnusedHostedZones (discover_route53.go) — flags Route53
+	// hosted zones with only default NS/SOA records ($0.50/mo each) as
+	// zombies. Without this the check AccessDenied's every scan; the
+	// handler logs a warning and returns (nil, nil) rather than failing the
+	// whole scan, so the gap was silent.
+	"route53:ListHostedZones",
+	// Backs discoverECS (discover_ecs.go), part of the general
+	// resource-discovery pipeline (discover.go) that feeds CloudWatch
+	// usage checks for AmazonECS cost records. Both actions are needed:
+	// ListClusters enumerates clusters, ListServices (called per cluster
+	// right after) enumerates the services within each one. Surfaced by a
+	// scan against a real account with real ECS spend — the gap was silent
+	// on every account without ECS usage in its scan window.
+	"ecs:ListClusters",
+	"ecs:ListServices",
 }
 
 // curAthenaPermissions are the additional actions a cur_athena billing
