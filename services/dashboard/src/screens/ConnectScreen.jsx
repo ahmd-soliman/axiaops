@@ -173,7 +173,7 @@ async function saveCurConfig(account, billingSource, updateAccountFn, curConfig)
       // AWS::BCMDataExports::Export (and the Glue/Athena resources the same
       // setup stack creates) only exist in us-east-1, regardless of the
       // account's own AWS region -- never fall back to account.region here.
-      cur_results_s3: curConfig?.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-us-east-1`,
+      cur_results_s3: curConfig?.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${curConfig?.cur_region || 'us-east-1'}`,
       cur_region: curConfig?.cur_region || 'us-east-1',
     });
   }
@@ -507,7 +507,7 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
             cur_database: curConfig.cur_database || 'axiaops_cur_db',
             cur_table: curConfig.cur_table || 'axiaops_cur_table',
             cur_workgroup: curConfig.cur_workgroup || 'axiaops_athena_wg',
-            cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${region.trim() || 'eu-central-1'}`,
+            cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${curConfig.cur_region || 'us-east-1'}`,
             cur_region: curConfig.cur_region || 'us-east-1'
           });
         } else {
@@ -622,7 +622,7 @@ function RoleEditTab({ account, onConnected }) {
           cur_database: curConfig.cur_database || 'axiaops_cur_db',
           cur_table: curConfig.cur_table || 'axiaops_cur_table',
           cur_workgroup: curConfig.cur_workgroup || 'axiaops_athena_wg',
-          cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${region.trim() || 'eu-central-1'}`,
+          cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${curConfig.cur_region || 'us-east-1'}`,
           cur_region: curConfig.cur_region || 'us-east-1'
         });
       } else {
