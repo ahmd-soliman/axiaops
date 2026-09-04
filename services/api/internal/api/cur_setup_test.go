@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -181,5 +182,71 @@ func TestGetCURSetup_CURDataBucketIsReadOnly(t *testing.T) {
 	}
 	if !strings.Contains(athenaStmt, "s3:PutObject") {
 		t.Errorf("expected s3:PutObject in the AthenaQueryResultsBucket statement, got: %s", athenaStmt)
+	}
+}
+
+// ── PATCH /accounts/{id} — CUR config injection guard ───────────────────────
+//
+// cur_database/cur_table/cur_workgroup/cur_results_s3/cur_region are
+// interpolated into Athena SQL via fmt.Sprintf as quoted identifiers
+// (cur/query.go's buildAmortizedSQL/buildTaxSQL) — unvalidated, an
+// authenticated user with accounts:write could escape the identifier quotes
+// and inject arbitrary Presto SQL, or point the scan at another
+// organization's Glue table/S3 results bucket. Pins that every CUR field is
+// checked against AWS's own naming rules before being persisted.
+
+func TestUpdateAccount_RejectsMaliciousCURFields(t *testing.T) {
+	cases := []struct {
+		name  string
+		field string
+		value string
+	}{
+		{"database with quote", "cur_database", `foo" UNION SELECT * FROM other_org_secrets --`},
+		{"database with space", "cur_database", "not a valid identifier"},
+		{"table with SQL comment", "cur_table", "axiaops_cur_table -- "},
+		{"workgroup with slash", "cur_workgroup", "wg/../other"},
+		{"results_s3 not an s3 URI", "cur_results_s3", "https://evil.example.com/exfil"},
+		{"results_s3 with injected quote", "cur_results_s3", `s3://bucket/"; DROP TABLE accounts; --`},
+		{"region not a real region format", "cur_region", "us-east-1; DROP TABLE accounts"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewMockStore().WithAccounts([]model.Account{{
+				ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws",
+				BillingSource: model.BillingSourceCURAthena,
+			}})
+			h := api.New(store, noopQueue())
+			mux := http.NewServeMux()
+			h.Register(mux)
+
+			body := fmt.Sprintf(`{"billing_source":"cur_athena","cur_database":"axiaops_cur_db","cur_table":"axiaops_cur_table","cur_workgroup":"axiaops_athena_wg","cur_results_s3":"s3://axiaops-athena-results-123456789012-us-east-1","cur_region":"us-east-1","%s":%q}`, tc.field, tc.value)
+
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("expected 400 for %s=%q, got %d — body: %s", tc.field, tc.value, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestUpdateAccount_AcceptsValidCURFields(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{{
+		ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws",
+		BillingSource: model.BillingSourceCURAthena,
+	}})
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := `{"billing_source":"cur_athena","cur_database":"axiaops_cur_db","cur_table":"axiaops_cur_table","cur_workgroup":"axiaops_athena_wg","cur_results_s3":"s3://axiaops-athena-results-123456789012-us-east-1","cur_region":"us-east-1"}`
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid CUR fields, got %d — body: %s", w.Code, w.Body.String())
 	}
 }

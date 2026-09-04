@@ -7,9 +7,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -900,6 +902,10 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "missing cur configuration fields", http.StatusBadRequest)
 			return
 		}
+		if msg := validateCURConfig(existing.CURDatabase, existing.CURTable, existing.CURWorkgroup, existing.CURResultsS3, existing.CURRegion); msg != "" {
+			http.Error(w, msg, http.StatusBadRequest)
+			return
+		}
 	}
 
 	if err := h.store.SaveAccount(ctx, existing); err != nil {
@@ -1049,6 +1055,51 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── CUR config field validation ─────────────────────────────────────────────
+//
+// cur_database/cur_table/cur_workgroup are interpolated into Athena SQL
+// (cur/query.go's buildAmortizedSQL / buildTaxSQL) via fmt.Sprintf as quoted
+// identifiers. Without validation an authenticated user could escape the
+// identifier quotes and inject arbitrary Presto SQL. AWS Glue database/table
+// names strictly conform to ^[a-zA-Z0-9_]{1,128}$; workgroups additionally
+// allow dots and hyphens.
+//
+// cur_results_s3 is never interpolated into SQL — it's only ever passed as
+// the typed OutputLocation field of an AWS SDK StartQueryExecutionInput
+// (cur/query.go) — so it isn't part of that same injection surface. It's
+// still validated as a well-formed s3:// URI (bucket name plus an optional
+// path segment restricted to safe URI characters, not "anything after the
+// first slash") so a malformed value fails loudly here rather than
+// surfacing as an opaque AWS API error, or in some future code path that
+// does start treating this string as more than an opaque OutputLocation.
+var (
+	validGlueIdentifier  = regexp.MustCompile(`^[a-zA-Z0-9_]{1,128}$`)
+	validAthenaWorkgroup = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)
+	validAWSRegion       = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-\d+$`)
+	validS3URI           = regexp.MustCompile(`^s3://[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9](/[a-zA-Z0-9._\-/]*)?$`)
+)
+
+// validateCURConfig checks that CUR-related fields are safe for use in Athena
+// queries. Returns a human-readable error string or "" if valid.
+func validateCURConfig(database, table, workgroup, resultsS3, region *string) string {
+	if database != nil && !validGlueIdentifier.MatchString(*database) {
+		return fmt.Sprintf("invalid cur_database %q: must match [a-zA-Z0-9_]{1,128}", *database)
+	}
+	if table != nil && !validGlueIdentifier.MatchString(*table) {
+		return fmt.Sprintf("invalid cur_table %q: must match [a-zA-Z0-9_]{1,128}", *table)
+	}
+	if workgroup != nil && !validAthenaWorkgroup.MatchString(*workgroup) {
+		return fmt.Sprintf("invalid cur_workgroup %q: must match [a-zA-Z0-9._-]{1,128}", *workgroup)
+	}
+	if resultsS3 != nil && !validS3URI.MatchString(*resultsS3) {
+		return fmt.Sprintf("invalid cur_results_s3 %q: must be a valid s3:// URI", *resultsS3)
+	}
+	if region != nil && !validAWSRegion.MatchString(*region) {
+		return fmt.Sprintf("invalid cur_region %q: must be a valid AWS region", *region)
+	}
+	return ""
 }
 
 // scanTriggerWriteTimeout caps the detached mark-scanning write in
