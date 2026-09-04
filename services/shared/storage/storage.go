@@ -84,7 +84,6 @@ func OrganizationIDFromCtx(ctx context.Context) string {
 // CostFilter specifies criteria for listing cost records.
 type CostFilter struct {
 	InternalAccountID string // optional: filter by internal_account_id (system account ID)
-	AWSAccountID      string // optional: filter by account_id (AWS account ID) — for backward compatibility with old records
 	Service           string // optional: filter by service name
 	Days              int    // optional: trailing lookback window in days (default: 30). Ignored when Since/Until are set.
 

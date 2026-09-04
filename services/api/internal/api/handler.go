@@ -521,8 +521,7 @@ func (h *Handler) getTrendResourceTypes(w http.ResponseWriter, r *http.Request) 
 }
 
 // listCosts returns cost records for the organization, filtered by account, service, and time window.
-// Optional query params: ?account_id=<id>, ?service=<name>, ?days=<int> (default 30).
-// account_id can be either the internal AxiaOps account UUID or the AWS account ID.
+// Optional query params: ?account_id=<internal account UUID>, ?service=<name>, ?days=<int> (default 30).
 func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithOrganizationID(r.Context(), middleware.OrganizationID(r.Context()))
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
@@ -548,30 +547,15 @@ func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// account_id parameter can be either the internal UUID or the AWS account ID.
-	// Strategy:
-	// 1. If it looks like a UUID, try to look it up as internal account ID first
-	// 2. If found, use both internal_account_id and account_id for filtering
-	// 3. If not found or looks like AWS ID, use as account_id filter
+	// account_id is always the internal AxiaOps account UUID (what the
+	// dashboard's account selector sends — see AccountSelector.jsx). Two
+	// account rows can share the same underlying AWS account number (e.g.
+	// the same AWS account connected twice under different billing sources),
+	// so filtering must key off this UUID alone — a fallback that also
+	// matched on the AWS account number would leak one account's records
+	// into another's view whenever they share an AWS account ID.
 	if accountIDParam != "" {
-		// Try to look it up as an internal account ID (UUID)
-		account, err := h.store.GetAccount(ctx, accountIDParam)
-		if err == nil {
-			// Found by internal UUID
-			filter.InternalAccountID = accountIDParam
-			if account.AccountID != "" {
-				filter.AWSAccountID = account.AccountID
-			}
-			slog.Info("listCosts: filtered by internal account UUID", "internal_id", accountIDParam, "aws_id", account.AccountID)
-		} else {
-			// Account not found - it could be:
-			// 1. An internal UUID that hasn't been added to accounts table yet (newly created)
-			// 2. An AWS account ID
-			// Try both approaches:
-			filter.InternalAccountID = accountIDParam // Try as internal UUID
-			filter.AWSAccountID = accountIDParam      // Also try as AWS account ID
-			slog.Info("listCosts: filtered by parameter (either internal UUID or AWS ID)", "account_id", accountIDParam)
-		}
+		filter.InternalAccountID = accountIDParam
 	}
 
 	records, err := h.store.ListCostRecords(ctx, filter)
@@ -728,13 +712,13 @@ func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
 // POST /v1/accounts/draft → PATCH /v1/accounts/{id} (see account_role.go).
 func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Provider    string `json:"provider"`
-		AuthMethod  string `json:"auth_method"`
-		Label       string `json:"label"`
-		AccessKeyID string `json:"access_key_id"`
-		SecretKey   string `json:"secret_key"`
+		Provider      string `json:"provider"`
+		AuthMethod    string `json:"auth_method"`
+		Label         string `json:"label"`
+		AccessKeyID   string `json:"access_key_id"`
+		SecretKey     string `json:"secret_key"`
 		BillingSource string `json:"billing_source"`
-		Region      string `json:"region"`
+		Region        string `json:"region"`
 	}
 	if err := httpjson.Decode(w, r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)

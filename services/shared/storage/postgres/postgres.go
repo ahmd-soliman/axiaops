@@ -950,24 +950,10 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 		argN++
 	}
 
-	// Filter by account: match either internal_account_id (new records) or account_id (old records with NULL internal_account_id)
-	if filter.InternalAccountID != "" || filter.AWSAccountID != "" {
-		if filter.InternalAccountID != "" && filter.AWSAccountID != "" {
-			// If both are provided, match either one
-			query += fmt.Sprintf(" AND (internal_account_id = $%d OR account_id = $%d)", argN, argN+1)
-			args = append(args, filter.InternalAccountID, filter.AWSAccountID)
-			argN += 2
-		} else if filter.InternalAccountID != "" {
-			// Only internal account ID provided
-			query += fmt.Sprintf(" AND internal_account_id = $%d", argN)
-			args = append(args, filter.InternalAccountID)
-			argN++
-		} else {
-			// Only AWS account ID provided
-			query += fmt.Sprintf(" AND account_id = $%d", argN)
-			args = append(args, filter.AWSAccountID)
-			argN++
-		}
+	if filter.InternalAccountID != "" {
+		query += fmt.Sprintf(" AND internal_account_id = $%d", argN)
+		args = append(args, filter.InternalAccountID)
+		argN++
 	}
 
 	if filter.Service != "" {
