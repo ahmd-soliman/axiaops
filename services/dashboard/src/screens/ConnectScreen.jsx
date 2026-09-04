@@ -124,7 +124,15 @@ function useScanPermissionsJSON(billingSource) {
 // screen at /settings/cloud-accounts/:accountId — RoleEditTab/AccessKeyTab's
 // own edit modes below are unreachable dead code, nothing routes to
 // ConnectScreen with an `account` prop) can offer the same CUR editing UI.
-export function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCurConfig, defaultExpanded = false }) {
+//
+// `savedValues` (an existing account's real cur_* fields, or null/undefined
+// for a fresh connection with nothing saved yet) drives what shows while
+// Advanced Configuration is folded: an existing account's actual current
+// values (read-only), rather than the generic "deterministic axiaops_*
+// names" sentence — which is accurate for a new connection but actively
+// misleading once an account's real values diverge from that generic
+// pattern (e.g. a manually-named test setup).
+export function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCurConfig, defaultExpanded = false, savedValues = null }) {
   // Start expanded when editing an account that already has real CUR values
   // saved — otherwise the fields are only reachable by knowing to re-check
   // this box, which reads as "I can't see/edit what's already configured."
@@ -146,10 +154,20 @@ export function BillingSourceConfig({ billingSource, setBillingSource, curConfig
       
       {billingSource === 'cur_athena' && (
         <div style={{ marginTop: 8, padding: 12, backgroundColor: 'var(--color-surface)', borderRadius: 6, fontSize: 13, color: 'var(--color-text-muted)' }}>
-          <div style={{ marginBottom: 12 }}>
-            The CloudFormation stack automatically configures resources with deterministic <strong>axiaops_*</strong> names.
-          </div>
-          
+          {savedValues ? (
+            <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <div>Database: <strong style={{ color: 'var(--color-text)', fontFamily: '"Geist Mono Variable", monospace' }}>{savedValues.cur_database}</strong></div>
+              <div>Table: <strong style={{ color: 'var(--color-text)', fontFamily: '"Geist Mono Variable", monospace' }}>{savedValues.cur_table}</strong></div>
+              <div>Workgroup: <strong style={{ color: 'var(--color-text)', fontFamily: '"Geist Mono Variable", monospace' }}>{savedValues.cur_workgroup}</strong></div>
+              <div>Results S3: <strong style={{ color: 'var(--color-text)', fontFamily: '"Geist Mono Variable", monospace' }}>{savedValues.cur_results_s3}</strong></div>
+              <div>Region: <strong style={{ color: 'var(--color-text)', fontFamily: '"Geist Mono Variable", monospace' }}>{savedValues.cur_region}</strong></div>
+            </div>
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              The CloudFormation stack automatically configures resources with deterministic <strong>axiaops_*</strong> names.
+            </div>
+          )}
+
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
             <input type="checkbox" checked={showAdvanced} onChange={e => setShowAdvanced(e.target.checked)} />
             Advanced Configuration (Manual Override)

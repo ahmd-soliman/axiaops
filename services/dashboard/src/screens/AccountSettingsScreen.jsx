@@ -347,12 +347,26 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
               hint="0 = on-demand only, or enter hours between automatic scans"
             />
 
+            {/* Folded by default on this edit screen — most edits here are
+                label/region/interval tweaks that have nothing to do with
+                billing source. savedValues shows the account's real current
+                CUR config while folded (instead of the generic new-connection
+                sentence, which is wrong for an account like a manually-named
+                test setup), and the fields are pre-filled with those same
+                values the moment Advanced Configuration is opened — nothing
+                is actually hidden, just collapsed. */}
             <BillingSourceConfig
               billingSource={billingSource}
               setBillingSource={setBillingSource}
               curConfig={curConfig}
               setCurConfig={setCurConfig}
-              defaultExpanded={!!account?.cur_database}
+              savedValues={account?.cur_database ? {
+                cur_database: account.cur_database,
+                cur_table: account.cur_table,
+                cur_workgroup: account.cur_workgroup,
+                cur_results_s3: account.cur_results_s3,
+                cur_region: account.cur_region,
+              } : null}
             />
 
             {error && (
