@@ -22,7 +22,6 @@ import (
 	"axiaops.io/ingestion/internal/provider"
 	"axiaops.io/ingestion/internal/provider/aws"
 	"axiaops.io/ingestion/internal/provider/aws/cur"
-	"github.com/aws/aws-sdk-go-v2/service/athena"
 	"axiaops.io/shared/analyzer"
 	"axiaops.io/shared/errors"
 	"axiaops.io/shared/httpauth"
@@ -33,6 +32,7 @@ import (
 	"axiaops.io/shared/queue"
 	"axiaops.io/shared/storage"
 	"axiaops.io/shared/storage/postgres"
+	"github.com/aws/aws-sdk-go-v2/service/athena"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -60,7 +60,6 @@ var (
 		},
 		[]string{"provider", "organization_id", "status"},
 	)
-
 )
 
 func init() {
@@ -339,27 +338,67 @@ func runScan(ctx context.Context, store storage.Store, accountID string) error {
 	if hasAccount {
 		accountPtr = &account
 	}
-	return runIngestionCore(ctx, store, accountID, accountPtr)
+	gotCostData, err := runIngestionCore(ctx, store, accountID, accountPtr)
+	if err != nil {
+		return err
+	}
+	if hasAccount {
+		finalizeAccountStatus(ctx, store, account, gotCostData)
+	}
+	return nil
+}
+
+// finalizeAccountStatus sets the account's status once a scan has
+// succeeded. Always advances last_scanned_at (via UpdateAccountStatus, even
+// when re-writing the same status) so isAccountOverdue's interval-based
+// backoff applies on the next check — an account left in
+// AccountStatusPendingCURDelivery is not a "try again immediately" state.
+// A CUR account still pending its first delivery only flips to Connected
+// once a scan actually found cost data; an empty scan (export not
+// delivered yet) leaves it pending so the next scheduled attempt tries
+// again after the normal interval rather than the scan silently
+// "succeeding" into a state that looks done when it isn't. Every other
+// account (CE, or CUR that's already delivered once) always flips to
+// Connected — the pending-vs-empty distinction only matters pre-first-data.
+func finalizeAccountStatus(ctx context.Context, store storage.Store, account model.Account, gotCostData bool) {
+	status := model.AccountStatusConnected
+	if account.Status == model.AccountStatusPendingCURDelivery && !gotCostData {
+		status = model.AccountStatusPendingCURDelivery
+	}
+	if err := store.UpdateAccountStatus(ctx, account.ID, status); err != nil {
+		slog.Error("runScan: update account status failed", "account_id", account.ID, "status", status, "error", err)
+	}
 }
 
 // runIngestionCore is the shared implementation used by runScan and the HTTP handler.
-func runIngestionCore(ctx context.Context, store storage.Store, accountID string, account *model.Account) error {
+// runIngestionCore runs one account's scan. The bool return reports whether
+// any cost records were fetched and saved at all. Used by callers to decide
+// whether a CUR account still in AccountStatusPendingCURDelivery has
+// actually received its first billing export data yet (see
+// isAccountOverdue) — an empty result leaves it pending rather than
+// flipping to Connected. Note this can't distinguish "export hasn't
+// delivered yet" from "account genuinely has zero billed activity this
+// window" (both fetch zero rows); a real customer account staying at
+// literally zero spend forever is the one case that would never leave
+// PendingCURDelivery. Accepted as a rare edge case rather than worth the
+// extra complexity of telling the two apart.
+func runIngestionCore(ctx context.Context, store storage.Store, accountID string, account *model.Account) (bool, error) {
 	// In DEV_MODE, skip scan only if no account is configured
 	if devModeEnabled() && account == nil {
 		slog.Info("ingestion: DEV_MODE — skipping AWS scan (no account)", "account_id", accountID)
-		return nil
+		return false, nil
 	}
 
 	// Require an account row for any real scan
 	if account == nil {
-		return fmt.Errorf("AWS credentials required - configure account in database")
+		return false, fmt.Errorf("AWS credentials required - configure account in database")
 	}
 
 	var providers []provider.Provider
 
 	awsClient, err := aws.NewForAccount(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("aws init: %w", err)
+		return false, fmt.Errorf("aws init: %w", err)
 	}
 	var billing provider.BillingSource
 	if account.BillingSource == model.BillingSourceCURAthena {
@@ -379,7 +418,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		orgCode := "aws-" + awsClient.AccountID()
 		org, err := store.UpsertOrganization(ctx, orgCode, orgCode)
 		if err != nil {
-			return fmt.Errorf("upsert organization: %w", err)
+			return false, fmt.Errorf("upsert organization: %w", err)
 		}
 		organizationID = org.ID
 		ctx = storage.WithOrganizationID(ctx, organizationID)
@@ -393,7 +432,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		// Check for cancellation before each provider
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return false, ctx.Err()
 		default:
 		}
 
@@ -409,7 +448,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 			// Fail entire scan for credential/permission errors
 			if catErr.Category.ShouldFailScan() {
-				return fmt.Errorf("[%s] %w", p.Name(), catErr)
+				return false, fmt.Errorf("[%s] %w", p.Name(), catErr)
 			}
 			continue
 		}
@@ -421,7 +460,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 		inserted, updated, saveErr := store.Save(ctx, records)
 		if saveErr != nil {
-			return fmt.Errorf("[%s] save failed: %w", p.Name(), saveErr)
+			return false, fmt.Errorf("[%s] save failed: %w", p.Name(), saveErr)
 		}
 		slog.Info("fetched records", "provider", p.Name(), "total", len(records), "inserted", inserted, "updated", updated)
 		ingestionRecordsFetchedTotal.WithLabelValues(p.Name(), organizationID).Add(float64(len(records)))
@@ -434,7 +473,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	// Check for cancellation before usage fetching
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return false, ctx.Err()
 	default:
 	}
 
@@ -452,7 +491,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		}
 		inserted, updated, saveErr := store.Save(ctx, resourceCosts)
 		if saveErr != nil {
-			return fmt.Errorf("save resource costs failed: %w", saveErr)
+			return false, fmt.Errorf("save resource costs failed: %w", saveErr)
 		}
 		slog.Info("saved resource-level costs", "total", len(resourceCosts), "inserted", inserted, "updated", updated)
 		ingestionRecordsFetchedTotal.WithLabelValues("aws", organizationID).Add(float64(len(resourceCosts)))
@@ -474,7 +513,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 			}
 			inserted, updated, saveErr := store.Save(ctx, taxCosts)
 			if saveErr != nil {
-				return fmt.Errorf("save tax costs failed: %w", saveErr)
+				return false, fmt.Errorf("save tax costs failed: %w", saveErr)
 			}
 			slog.Info("saved tax costs", "total", len(taxCosts), "inserted", inserted, "updated", updated)
 			ingestionRecordsFetchedTotal.WithLabelValues("aws", organizationID).Add(float64(len(taxCosts)))
@@ -699,7 +738,7 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 	observability.Global.PotentialMonthlySaving.WithLabelValues(awsClient.Name(), organizationID).Set(summary.PotentialMonthlySave)
 
 	if err := store.SaveZombies(ctx, zombies); err != nil {
-		return fmt.Errorf("save zombies: %w", err)
+		return false, fmt.Errorf("save zombies: %w", err)
 	}
 	slog.Info("storage: saved zombie records", "count", len(zombies))
 
@@ -758,10 +797,10 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		resources[i].InternalAccountID = accountID
 	}
 	if err := store.SaveResources(ctx, resources); err != nil {
-		return fmt.Errorf("save resources: %w", err)
+		return false, fmt.Errorf("save resources: %w", err)
 	}
 	slog.Info("storage: saved resource records", "total", len(resources), "zombies", len(zombies))
-	return nil
+	return len(allRecords) > 0, nil
 }
 
 // dispatchNotifications fans a completed scan out to the org's enabled
@@ -818,7 +857,8 @@ func expireSnoozes(ctx context.Context, store storage.Store) {
 
 // scanScheduledAccounts checks all accounts across all organizations and
 // triggers scans for those overdue. Every connected account is scanned on
-// schedule, unconditionally.
+// schedule, unconditionally — see isAccountOverdue for the one exception
+// (a CUR account still awaiting its first billing export delivery).
 func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Queue) {
 	accounts, err := store.ListAllAccounts(ctx)
 	if err != nil {
@@ -840,12 +880,7 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Que
 		if acc.ScanIntervalHours < 0 {
 			continue
 		}
-		isOverdue := acc.LastScannedAt == nil
-		if !isOverdue {
-			nextScan := acc.LastScannedAt.Add(time.Duration(acc.ScanIntervalHours) * time.Hour)
-			isOverdue = now.After(nextScan)
-		}
-		if !isOverdue {
+		if !isAccountOverdue(acc, now) {
 			continue
 		}
 		job := queue.ScanJob{
@@ -859,6 +894,33 @@ func scanScheduledAccounts(ctx context.Context, store storage.Store, q queue.Que
 		}
 		slog.Info("scan.scheduled", "account_id", acc.ID, "organization_id", acc.OrganizationID, "interval_hours", acc.ScanIntervalHours)
 	}
+}
+
+// isAccountOverdue reports whether acc is due for a scan at `now`.
+//
+// A never-scanned account is normally overdue immediately. The one
+// exception: an account still in AccountStatusPendingCURDelivery — its
+// billing export can take up to ~24h to deliver first data, so scanning
+// immediately is guaranteed to come back empty (and, prior to this check,
+// used to happen on literally the next scheduler tick after connecting).
+// That account's first scan is instead anchored on CreatedAt +
+// ScanIntervalHours — reusing the interval already configured for
+// steady-state scans rather than adding a new field. Once a scan actually
+// finds real cost data the status flips to AccountStatusConnected (see
+// scan_handler.go / worker.go's SaveZombies-gated UpdateAccountStatus call)
+// and this branch stops applying; until then, an empty scan leaves the
+// account in AccountStatusPendingCURDelivery, so each subsequent tick
+// re-evaluates against the same CreatedAt anchor rather than immediately
+// re-firing.
+func isAccountOverdue(acc model.Account, now time.Time) bool {
+	interval := time.Duration(acc.ScanIntervalHours) * time.Hour
+	if acc.LastScannedAt == nil {
+		if acc.Status == model.AccountStatusPendingCURDelivery {
+			return now.After(acc.CreatedAt.Add(interval))
+		}
+		return true
+	}
+	return now.After(acc.LastScannedAt.Add(interval))
 }
 
 func dateRange() (end, start time.Time) {
