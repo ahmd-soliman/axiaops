@@ -128,12 +128,12 @@ function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCu
       <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-mid)' }}>Billing Source</label>
       <div style={{ display: 'flex', gap: 16 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
-          <input type="radio" name="billingSource" value="ce" checked={billingSource === 'ce'} onChange={() => setBillingSource('ce')} />
-          Cost Explorer
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
           <input type="radio" name="billingSource" value="cur_athena" checked={billingSource === 'cur_athena'} onChange={() => setBillingSource('cur_athena')} />
           CUR (Athena) — Default
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
+          <input type="radio" name="billingSource" value="ce" checked={billingSource === 'ce'} onChange={() => setBillingSource('ce')} />
+          Cost Explorer
         </label>
       </div>
       
@@ -467,9 +467,14 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
   const [scanIntervalHours, setScanIntervalHours] = useState(account?.scan_interval_hours?.toString() ?? '24');
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
-  const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'ce');
-  const [curConfig, setCurConfig] = useState({ 
-    cur_database: account?.cur_database || 'axiaops_cur_db', 
+  // No `account` yet means this is a new connection — default to CUR, same
+  // as RoleAuthTab. Only an existing account genuinely still on CE should
+  // show CE selected (falls to 'ce' below); collapsing "no account" and
+  // "account on CE" into the same ternary branch is the bug that left new
+  // Access Key connections defaulting to CE despite the label change.
+  const [billingSource, setBillingSource] = useState(!account ? 'cur_athena' : (account.billing_source === 'cur_athena' ? 'cur_athena' : 'ce'));
+  const [curConfig, setCurConfig] = useState({
+    cur_database: account?.cur_database || 'axiaops_cur_db',
     cur_table: account?.cur_table || 'axiaops_cur_table', 
     cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg', 
     cur_results_s3: account?.cur_results_s3 || '', 
