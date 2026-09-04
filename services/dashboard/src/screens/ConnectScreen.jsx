@@ -120,7 +120,11 @@ function useScanPermissionsJSON(billingSource) {
 }
 
 
-function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCurConfig, defaultExpanded = false }) {
+// Exported so AccountSettingsScreen (the actual reachable "edit account"
+// screen at /settings/cloud-accounts/:accountId — RoleEditTab/AccessKeyTab's
+// own edit modes below are unreachable dead code, nothing routes to
+// ConnectScreen with an `account` prop) can offer the same CUR editing UI.
+export function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCurConfig, defaultExpanded = false }) {
   // Start expanded when editing an account that already has real CUR values
   // saved — otherwise the fields are only reachable by knowing to re-check
   // this box, which reads as "I can't see/edit what's already configured."

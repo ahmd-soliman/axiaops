@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner } from '../components/primitives';
 import { useDestructiveConfirm, DestructiveConfirmModal } from '../components/DestructiveConfirm';
+import { BillingSourceConfig } from './ConnectScreen';
 
 function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, readOnly }) {
   return (
@@ -88,6 +89,14 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   const [secretKey, setSecretKey]     = useState('');
   const [region, setRegion]           = useState(account?.region ?? 'eu-central-1');
   const [scanIntervalHours, setScanIntervalHours] = useState(account?.scan_interval_hours?.toString() ?? '24');
+  const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'ce');
+  const [curConfig, setCurConfig] = useState({
+    cur_database: account?.cur_database || 'axiaops_cur_db',
+    cur_table: account?.cur_table || 'axiaops_cur_table',
+    cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg',
+    cur_results_s3: account?.cur_results_s3 || '',
+    cur_region: account?.cur_region || 'us-east-1',
+  });
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const scanning = account?.status === 'scanning';
@@ -142,6 +151,18 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
       if (!isRoleMode) {
         payload.accessKeyId = accessKeyId.trim();
         payload.secretKey = secretKey.trim() || undefined;
+      }
+      if (billingSource === 'cur_athena') {
+        Object.assign(payload, {
+          billing_source: 'cur_athena',
+          cur_database: curConfig.cur_database || 'axiaops_cur_db',
+          cur_table: curConfig.cur_table || 'axiaops_cur_table',
+          cur_workgroup: curConfig.cur_workgroup || 'axiaops_athena_wg',
+          cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${curConfig.cur_region || 'us-east-1'}`,
+          cur_region: curConfig.cur_region || 'us-east-1',
+        });
+      } else {
+        Object.assign(payload, { billing_source: 'ce' });
       }
       const result = await updateAccount(account.id, payload);
       toast('Account settings saved', 'success');
@@ -324,6 +345,14 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
               placeholder="24"
               type="number"
               hint="0 = on-demand only, or enter hours between automatic scans"
+            />
+
+            <BillingSourceConfig
+              billingSource={billingSource}
+              setBillingSource={setBillingSource}
+              curConfig={curConfig}
+              setCurConfig={setCurConfig}
+              defaultExpanded={!!account?.cur_database}
             />
 
             {error && (
