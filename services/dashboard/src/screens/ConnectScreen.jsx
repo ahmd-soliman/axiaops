@@ -147,7 +147,7 @@ export function BillingSourceConfig({ billingSource, setBillingSource, curConfig
           CUR (Athena) — Default
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
-          <input type="radio" name="billingSource" value="ce" checked={billingSource === 'ce'} onChange={() => setBillingSource('ce')} />
+          <input type="radio" name="billingSource" value="cost_explorer" checked={billingSource === 'cost_explorer'} onChange={() => setBillingSource('cost_explorer')} />
           Cost Explorer
         </label>
       </div>
@@ -269,7 +269,7 @@ function RoleAuthTab({ onConnected }) {
   }, []);
 
   function handleResume(account) {
-    setBillingSource(account.billing_source === 'cur_athena' ? 'cur_athena' : 'ce');
+    setBillingSource(account.billing_source === 'cur_athena' ? 'cur_athena' : 'cost_explorer');
     setCurConfig({
       cur_database: account.cur_database || 'axiaops_cur_db',
       cur_table: account.cur_table || 'axiaops_cur_table',
@@ -494,10 +494,10 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
   const [error, setError]             = useState('');
   // No `account` yet means this is a new connection — default to CUR, same
   // as RoleAuthTab. Only an existing account genuinely still on CE should
-  // show CE selected (falls to 'ce' below); collapsing "no account" and
+  // show CE selected (falls to 'cost_explorer' below); collapsing "no account" and
   // "account on CE" into the same ternary branch is the bug that left new
   // Access Key connections defaulting to CE despite the label change.
-  const [billingSource, setBillingSource] = useState(!account ? 'cur_athena' : (account.billing_source === 'cur_athena' ? 'cur_athena' : 'ce'));
+  const [billingSource, setBillingSource] = useState(!account ? 'cur_athena' : (account.billing_source === 'cur_athena' ? 'cur_athena' : 'cost_explorer'));
   const [curConfig, setCurConfig] = useState({
     cur_database: account?.cur_database || 'axiaops_cur_db',
     cur_table: account?.cur_table || 'axiaops_cur_table', 
@@ -544,7 +544,7 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
             cur_region: curConfig.cur_region || 'us-east-1'
           });
         } else {
-          Object.assign(updatePayload, { billing_source: 'ce' });
+          Object.assign(updatePayload, { billing_source: 'cost_explorer' });
         }
         result = await updateAccount(account.id, updatePayload);
       } else {
@@ -626,7 +626,7 @@ function RoleEditTab({ account, onConnected }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
-  const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'ce');
+  const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'cost_explorer');
   const [curConfig, setCurConfig] = useState({ cur_database: account?.cur_database || 'axiaops_cur_db', cur_table: account?.cur_table || 'axiaops_cur_table', cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg', cur_results_s3: account?.cur_results_s3 || '', cur_region: account?.cur_region || 'us-east-1' });
 
   const roleArnChanged = roleArn.trim() !== (account.role_arn ?? '');
@@ -659,7 +659,7 @@ function RoleEditTab({ account, onConnected }) {
           cur_region: curConfig.cur_region || 'us-east-1'
         });
       } else {
-        Object.assign(updatePayload, { billing_source: 'ce' });
+        Object.assign(updatePayload, { billing_source: 'cost_explorer' });
       }
 
       // Apply non-credential edits first so label / region / scan interval

@@ -89,7 +89,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   const [secretKey, setSecretKey]     = useState('');
   const [region, setRegion]           = useState(account?.region ?? 'eu-central-1');
   const [scanIntervalHours, setScanIntervalHours] = useState(account?.scan_interval_hours?.toString() ?? '24');
-  const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'ce');
+  const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'cost_explorer');
   const [curConfig, setCurConfig] = useState({
     cur_database: account?.cur_database || 'axiaops_cur_db',
     cur_table: account?.cur_table || 'axiaops_cur_table',
@@ -162,7 +162,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
           cur_region: curConfig.cur_region || 'us-east-1',
         });
       } else {
-        Object.assign(payload, { billing_source: 'ce' });
+        Object.assign(payload, { billing_source: 'cost_explorer' });
       }
       const result = await updateAccount(account.id, payload);
       toast('Account settings saved', 'success');
