@@ -686,14 +686,11 @@ func scanAccount(r rowScanner) (model.Account, error) {
 	return a, nil
 }
 
-// DeleteAccount removes an account by ID for the organization in ctx, along
-// with every row of data that account ever produced. None of the tables
-// below carry a foreign key back to accounts — internal_account_id /
-// account_id are plain TEXT columns — so without this the account row
-// disappears but its cost/zombie/snapshot history stays behind forever,
-// silently corrupting aggregate views like total spend for an account that
-// no longer exists. zombie_snapshot_services is not listed here because it
-// already cascades via its own FK to zombie_snapshots(id).
+// DeleteAccount removes an account by ID for the organization in ctx.
+// Child rows in cost_records, resource_records, zombie_records,
+// zombie_snapshots, and dismissed_zombies are cleaned up automatically
+// by the ON DELETE CASCADE foreign keys added in migration 040.
+// zombie_snapshot_services cascades via its own FK to zombie_snapshots(id).
 func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -705,12 +702,8 @@ func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 		return err
 	}
 
-	for _, stmt := range []string{
-		`DELETE FROM accounts WHERE id = $1`,
-	} {
-		if _, err := tx.Exec(ctx, stmt, id); err != nil {
-			return fmt.Errorf("postgres: delete account: %w", err)
-		}
+	if _, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, id); err != nil {
+		return fmt.Errorf("postgres: delete account: %w", err)
 	}
 	return tx.Commit(ctx)
 }
