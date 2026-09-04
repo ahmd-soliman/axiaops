@@ -6,6 +6,7 @@ import { Spinner, useWindowWidth, LinkButton, RowLink } from '../components/prim
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import AreaChart from '../components/AreaChart';
 import { sumCostRecords } from '../utils/costTotals';
+import { STATUS_HINT } from '../utils/accountStatus';
 
 // OrgSummaryScreen — read-only organization summary at `/`. Slices: headline
 // tiles (#1) + by-service breakdown (#4) + per-account breakdown (#3) + account
@@ -601,9 +602,14 @@ function AccountStatus({ status }) {
     scanning: 'var(--color-accent)',
     error: 'var(--color-error)',
     pending_role_setup: 'var(--color-text-muted)',
+    pending_cur_delivery: 'var(--color-text-muted)',
   }[status] || 'var(--color-text-muted)';
+  const hint = STATUS_HINT[status];
   return (
-    <span style={{ fontSize: 11, fontWeight: 600, color, letterSpacing: 0.2 }}>
+    <span
+      title={hint}
+      style={{ fontSize: 11, fontWeight: 600, color, letterSpacing: 0.2, cursor: hint ? 'help' : undefined }}
+    >
       {(status || 'unknown').replace(/_/g, ' ')}
     </span>
   );
