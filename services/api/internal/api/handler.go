@@ -1507,5 +1507,5 @@ func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/yaml")
-	w.Write(buf.Bytes())
+	_, _ = w.Write(buf.Bytes())
 }
