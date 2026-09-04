@@ -45,6 +45,7 @@ function StatusBadge({ status }) {
     scan_timeout:         { color: 'var(--color-warning)', label: 'Timed Out' },
     circuit_breaker_open: { color: 'var(--color-warning)', label: 'Paused' },
     scanning:             { color: 'var(--color-accent)',  label: 'Scanning…' },
+    pending_cur_delivery: { color: 'var(--color-text-muted)', label: 'Awaiting First Delivery' },
   };
   const c = config[status] ?? { color: 'var(--color-text-muted)', label: 'Unknown' };
 
@@ -66,6 +67,7 @@ function statusHeadline(status) {
     case 'scan_timeout':         return 'Last scan timed out at 15 minutes.';
     case 'circuit_breaker_open': return 'Paused after repeated scan failures.';
     case 'scanning':             return 'Scan in progress.';
+    case 'pending_cur_delivery': return 'Billing export provisioned — first cost data typically arrives within 24 hours.';
     default:                     return '';
   }
 }
