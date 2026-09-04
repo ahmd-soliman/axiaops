@@ -472,6 +472,7 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
           </div>
           <DateRangeChips
             value={period}
+            activeRange={customRange}
             onChange={(days, range) => {
               setPeriod(days);
               // Presets call onChange(days) with no range → trailing window.

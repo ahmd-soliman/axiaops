@@ -9,6 +9,7 @@ export const PRESET_OPTIONS = [
   { label: '30d', days: 30 },
   { label: '90d', days: 90 },
   { label: '6m',  days: 180 },
+  { label: '1y',  days: 365 },
 ];
 
 // Default selection when a screen mounts without a remembered value.
@@ -45,7 +46,7 @@ function chipStyle(mobile, active) {
 
 // DateRangeChips
 //
-// Preset chips (7d / 30d / 90d / 6m) + a Custom… trigger that opens a
+// Preset chips (7d / 30d / 90d / 6m / 1y) + a Custom… trigger that opens a
 // small popover with two date inputs (start, end). Lifts the picker UI out of
 // TrendScreen + CostAnalyticsScreen into one component so the same UX renders
 // on every chart screen (including Overview, which had no picker before).
@@ -57,17 +58,41 @@ function chipStyle(mobile, active) {
 //     count between the chosen dates AND a {sinceIso, untilIso} pair so the
 //     screen can scope to that window precisely (callers that only care
 //     about a day count can ignore the second arg).
+//   - `activeRange` is the currently-APPLIED custom {sinceIso, untilIso},
+//     mirrored back in from the caller's own state (null while a preset is
+//     active). Without this the component has no way to know what window is
+//     actually in effect — it only ever sees a day count — so its "Custom…"
+//     chip label falls back to guessing "today minus N days," which reads
+//     wrong for any historical range (e.g. picking 1–30 Jun while viewing the
+//     dashboard in September). Passing the real applied dates back in keeps
+//     the label truthful across re-renders, remounts, and restored state.
 //
 // Visual parity with the previous in-screen chip rows is preserved — same
 // border / accent / padding so refactoring TrendScreen + CostAnalyticsScreen
 // is a drop-in swap.
-export default function DateRangeChips({ value, onChange, mobile = false, presets = PRESET_OPTIONS }) {
+export default function DateRangeChips({ value, onChange, mobile = false, presets = PRESET_OPTIONS, activeRange = null }) {
   const [open, setOpen] = useState(false);
-  const [customSince, setCustomSince] = useState(isoDaysAgo(value > 0 ? value : DEFAULT_DAYS));
-  const [customUntil, setCustomUntil] = useState(isoToday());
+  const [customSince, setCustomSince] = useState(activeRange?.sinceIso ?? isoDaysAgo(value > 0 ? value : DEFAULT_DAYS));
+  const [customUntil, setCustomUntil] = useState(activeRange?.untilIso ?? isoToday());
   const popoverRef = useRef(null);
 
-  const isCustom = !presets.some(p => p.days === value);
+  const isCustom = activeRange != null || !presets.some(p => p.days === value);
+
+  // Keep the popover draft (and the chip label, which reads customSince/
+  // customUntil) in sync with the actually-applied range whenever the
+  // caller's state changes out from under us — e.g. a fresh mount that
+  // restores an existing custom selection, rather than only the moment the
+  // user clicks Apply in this instance of the popover.
+  useEffect(() => {
+    if (!activeRange) return;
+    setCustomSince(activeRange.sinceIso);
+    setCustomUntil(activeRange.untilIso);
+    // Deliberately depend on the primitive fields, not `activeRange` itself —
+    // callers pass a fresh object literal on every render, and keying off
+    // the reference would re-run (and needlessly reset any in-progress
+    // popover edit) on every unrelated parent re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRange?.sinceIso, activeRange?.untilIso]);
 
   useEffect(() => {
     if (!open) return;
@@ -81,6 +106,26 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
     document.addEventListener('pointerdown', onDocClick);
     return () => document.removeEventListener('pointerdown', onDocClick);
   }, [open]);
+
+  // Opening the popover re-seeds the draft from whatever is CURRENTLY active,
+  // rather than leaving it at whatever it last happened to be. Without this,
+  // switching between preset chips (which never touch customSince/
+  // customUntil at all — only Apply or the activeRange-sync effect above do)
+  // left the popover showing a stale draft: pick 1y, open Custom (draft
+  // reflects 1y — fine so far), Cancel, click 6m, reopen Custom — the draft
+  // still read "1y" because nothing had ever recomputed it for the 6m
+  // selection. Presets get a fresh trailing-window draft; an already-applied
+  // Custom range gets its real dates back.
+  function openPopover() {
+    if (activeRange) {
+      setCustomSince(activeRange.sinceIso);
+      setCustomUntil(activeRange.untilIso);
+    } else {
+      setCustomSince(isoDaysAgo(value > 0 ? value : DEFAULT_DAYS));
+      setCustomUntil(isoToday());
+    }
+    setOpen(true);
+  }
 
   function applyCustom() {
     if (!customSince || !customUntil) return;
@@ -108,7 +153,7 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
       })}
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => (open ? setOpen(false) : openPopover())}
         aria-pressed={isCustom}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -151,6 +196,12 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
             From
             <input
               type="date"
+              // Force dd/mm/yyyy display regardless of OS locale, matching
+              // the en-GB convention formatDate.js uses everywhere else in
+              // the app — the input's native picker otherwise renders
+              // mm/dd/yyyy on a US-locale OS, which reads as day/month
+              // transposed next to every other date in this app.
+              lang="en-GB"
               value={customSince}
               // 395 = 365 + a 30-day buffer, not an arbitrary round number:
               // a plain 365-day floor only guarantees the same calendar DAY
@@ -171,6 +222,7 @@ export default function DateRangeChips({ value, onChange, mobile = false, preset
             To
             <input
               type="date"
+              lang="en-GB"
               value={customUntil}
               min={customSince || isoDaysAgo(395)}
               max={isoToday()}
