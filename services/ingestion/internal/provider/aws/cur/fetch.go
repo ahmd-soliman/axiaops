@@ -43,6 +43,14 @@ func (s *AthenaCURSource) fetchAndParse(ctx context.Context, sql string, start, 
 				continue // malformed row
 			}
 
+			// Guard required columns — Athena returns VarCharValue == nil
+			// for SQL NULL, which can happen for certain edge-case CUR line
+			// items (credits, adjustments, untyped charges). Dereferencing
+			// a nil *string panics; skip the row instead.
+			if d[0].VarCharValue == nil || d[1].VarCharValue == nil || d[3].VarCharValue == nil || d[5].VarCharValue == nil {
+				continue
+			}
+
 			accountID := *d[0].VarCharValue
 			service := *d[1].VarCharValue
 			region := ""
@@ -71,7 +79,7 @@ func (s *AthenaCURSource) fetchAndParse(ctx context.Context, sql string, start, 
 			}
 
 			cost, _ := strconv.ParseFloat(costStr, 64)
-			if cost == 0 {
+			if cost <= 0 {
 				continue
 			}
 
@@ -84,7 +92,7 @@ func (s *AthenaCURSource) fetchAndParse(ctx context.Context, sql string, start, 
 			records = append(records, model.CostRecord{
 				Provider:    "aws",
 				AccountID:   accountID,
-				Service:     service, // needs mapping to KnownServices? No, CUR output usually matches CE for most services? We'll see.
+				Service:     service,
 				Region:      region,
 				ResourceID:  resourceID,
 				Amount:      cost,
