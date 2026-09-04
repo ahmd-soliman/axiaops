@@ -120,8 +120,11 @@ function useScanPermissionsJSON(billingSource) {
 }
 
 
-function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCurConfig }) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
+function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCurConfig, defaultExpanded = false }) {
+  // Start expanded when editing an account that already has real CUR values
+  // saved — otherwise the fields are only reachable by knowing to re-check
+  // this box, which reads as "I can't see/edit what's already configured."
+  const [showAdvanced, setShowAdvanced] = useState(defaultExpanded);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12, padding: 16, backgroundColor: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 8 }}>
@@ -583,7 +586,7 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
           hint="0 = on-demand only, or enter hours between automatic scans"
         />
       )}
-      <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} />
+      <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} defaultExpanded={!!account?.cur_database} />
       {error && <ErrorBox message={error} />}
       <PrimaryButton onClick={handleSubmit} loading={loading} label={isEdit ? 'Save Changes' : 'Connect Account'} />
     </>
@@ -671,7 +674,7 @@ function RoleEditTab({ account, onConnected }) {
         type="number"
         hint="0 = on-demand only, or enter hours between automatic scans"
       />
-      <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} />
+      <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} defaultExpanded={!!account?.cur_database} />
       {error && <ErrorBox message={error} hint={verifyHint} />}
       <PrimaryButton onClick={handleSubmit} loading={loading} label="Save Changes" />
     </>
