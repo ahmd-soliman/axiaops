@@ -129,11 +129,11 @@ function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCu
       <div style={{ display: 'flex', gap: 16 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
           <input type="radio" name="billingSource" value="ce" checked={billingSource === 'ce'} onChange={() => setBillingSource('ce')} />
-          Cost Explorer (Default)
+          Cost Explorer
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
           <input type="radio" name="billingSource" value="cur_athena" checked={billingSource === 'cur_athena'} onChange={() => setBillingSource('cur_athena')} />
-          CUR (Athena)
+          CUR (Athena) — Default
         </label>
       </div>
       
@@ -212,7 +212,10 @@ function RoleAuthTab({ onConnected }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
-  const [billingSource, setBillingSource] = useState('ce');
+  // CUR is the default for new connections — CE is being phased out (see
+  // ~/Desktop/axiaops-cur-migration-plan.md Phase 5); it stays selectable
+  // here only as a fallback until that removal ships.
+  const [billingSource, setBillingSource] = useState('cur_athena');
   const [curConfig, setCurConfig] = useState({ cur_database: 'axiaops_cur_db', cur_table: 'axiaops_cur_table', cur_workgroup: 'axiaops_athena_wg', cur_results_s3: '', cur_region: 'us-east-1' });
   const permissionsPolicyJSON = useScanPermissionsJSON(billingSource);
 
