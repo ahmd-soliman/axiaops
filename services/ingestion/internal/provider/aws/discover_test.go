@@ -344,3 +344,65 @@ func TestDiscoveryRegions_InvalidAccountRegion_Excluded(t *testing.T) {
 		t.Errorf("expected 0 regions (invalid account region rejected like any other), got %v", regions)
 	}
 }
+
+// ── FilterAxiaOpsInfra ───────────────────────────────────────────────────────
+//
+// Pins a real incident: DiscoverWastefulLogGroups flagged
+// "/aws/lambda/axiaops-cur-test-CURSetupLambda-AbCdEfGhIjKl" (a leftover
+// deployment Lambda's log group, from the CUR setup CloudFormation stack's
+// own automation) as a "no retention policy" zombie — self-referential
+// noise from the CUR pipeline's own infrastructure showing up as customer
+// waste, in an account also used to run/validate that pipeline.
+
+func TestIsAxiaOpsOwnedResource_MatchesEachKnownSignature(t *testing.T) {
+	for _, id := range []string{
+		"axiaops-cur-data-123456789012-us-east-1-test",
+		"axiaops-athena-results-123456789012-us-east-1-test",
+		"axiaops_cur_db_test",
+		"axiaops_cur_table",
+		"axiaops_athena_wg_test",
+		"arn:aws:iam::123456789012:role/AxiaOpsRole",
+		"arn:aws:iam::123456789012:user/AxiaOpsUser",
+		"arn:aws:iam::123456789012:policy/AxiaOpsPolicy",
+		"arn:aws:secretsmanager:us-east-1:123456789012:secret:axiaops/AxiaOpsUser/access-key-AbCdEf",
+		"/aws/lambda/axiaops-cur-test-CURSetupLambda-AbCdEfGhIjKl",
+	} {
+		if !isAxiaOpsOwnedResource(id) {
+			t.Errorf("expected %q to be recognized as AxiaOps' own CUR infra", id)
+		}
+	}
+}
+
+func TestIsAxiaOpsOwnedResource_RealCustomerResourcesUnaffected(t *testing.T) {
+	for _, id := range []string{
+		"i-0123456789abcdef0",
+		"arn:aws:iam::123456789012:role/MyCompanyDeployRole",
+		"vol-0a1b2c3d4e5f67890",
+		"my-companys-data-bucket",
+		"/aws-glue/crawlers", // account-wide Glue log group, not one of ours
+	} {
+		if isAxiaOpsOwnedResource(id) {
+			t.Errorf("expected %q (a real/unrelated resource) not to match, but it did", id)
+		}
+	}
+}
+
+func TestFilterAxiaOpsInfra_DropsOnlyAxiaOpsResources(t *testing.T) {
+	zombies := []model.ZombieResource{
+		{Service: "AmazonCloudWatch", ResourceID: "/aws/lambda/axiaops-cur-test-CURSetupLambda-AbCdEfGhIjKl"},
+		{Service: "AmazonEC2", ResourceID: "i-0123456789abcdef0"},
+		{Service: "AmazonS3", ResourceID: "axiaops-cur-data-123456789012-us-east-1-test"},
+		{Service: "AmazonEBS", ResourceID: "vol-0a1b2c3d4e5f67890"},
+	}
+
+	filtered := FilterAxiaOpsInfra(zombies)
+
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 real zombies to survive, got %d: %+v", len(filtered), filtered)
+	}
+	for _, z := range filtered {
+		if isAxiaOpsOwnedResource(z.ResourceID) {
+			t.Errorf("AxiaOps-owned resource %q leaked through the filter", z.ResourceID)
+		}
+	}
+}

@@ -719,6 +719,18 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 		zombies = append(zombies, r53Zombies...)
 	}
 
+	// Drop AxiaOps' own CUR pipeline infrastructure (the S3 buckets, Glue/
+	// Athena resources, and IAM role/user + secret the setup CloudFormation
+	// stack creates) before it can be flagged as customer waste — only
+	// relevant when this account is also the one the CUR pipeline was set up
+	// in (AxiaOps' own AWS account, or a test/scratch account used to
+	// validate the pipeline), but harmless everywhere else since a real
+	// customer's resources won't collide with these names by chance. See
+	// FilterAxiaOpsInfra's doc comment for the concrete incident that
+	// motivated this (a leftover deployment Lambda's log group flagged as a
+	// "no retention policy" zombie).
+	zombies = aws.FilterAxiaOpsInfra(zombies)
+
 	// Classify each zombie into a resource sub-type from its (service, usage
 	// metric) pair. Detect() already sets this for CloudWatch-based zombies; the
 	// API-only discoverers (EIP, EBS volume/snapshot, AMI, log group, …) don't,

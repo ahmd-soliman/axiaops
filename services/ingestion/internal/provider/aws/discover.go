@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -203,4 +204,68 @@ func serviceCostFromRecords(records []model.CostRecord, service string) float64 
 		}
 	}
 	return total
+}
+
+// axiaOpsInfraSignatures identifies AWS resources the CUR setup CloudFormation
+// template (templates/cur_setup.yaml.tmpl) itself creates in the account being
+// scanned: the CUR/results S3 buckets, the Glue database/table, the Athena
+// workgroup, the assumed role or generated IAM user + its Secrets Manager
+// secret, and CloudFormation-managed Lambda log groups left over from earlier
+// iterations of that automation. These substrings are matched against a
+// zombie candidate's ResourceID.
+//
+// Why this matters: whenever the account being scanned is also the one the
+// CUR pipeline was set up in — AxiaOps's own AWS account, or any test/scratch
+// account used to validate the pipeline (see docs/cur-migration-plan.md) —
+// that pipeline's own necessary, actively-used infrastructure sits in the
+// same account as real (or simulated) customer resources. Without this
+// filter it gets flagged as customer waste right alongside them: confirmed
+// in practice by DiscoverWastefulLogGroups flagging
+// "/aws/lambda/axiaops-cur-test-CURSetupLambda-..." (a leftover deployment
+// Lambda's log group) as a "no retention policy" zombie.
+//
+// Substring matching, not exact names, because these resource names are
+// parameterized in the CFN template (ExportName/BucketSuffix/RoleName/
+// UserName/etc. — see cur_setup.yaml.tmpl) and a customer could rename them;
+// this only needs to catch AxiaOps' own *default* naming, which is what
+// every real deployment of this pipeline uses unless deliberately overridden.
+var axiaOpsInfraSignatures = []string{
+	"axiaops-cur-data-",       // CUR delivery bucket (CURDataBucket)
+	"axiaops-athena-results-", // Athena query-results bucket (AthenaQueryResultsBucket)
+	"axiaops_cur_db",          // Glue database (AxiaOpsCURDatabase)
+	"axiaops_cur_table",       // Glue table (AxiaOpsCURTable)
+	"axiaops_athena_wg",       // Athena workgroup (AxiaOpsWorkgroup)
+	"role/AxiaOpsRole",        // Assumed-role ARN (AxiaOpsRole)
+	"user/AxiaOpsUser",        // Access-key IAM user ARN (AxiaOpsUser)
+	"policy/AxiaOpsPolicy",    // Managed policy ARN (AxiaOpsPolicy)
+	"secret:axiaops/",         // Generated access-key secret (AxiaOpsUserSecret, name "axiaops/<user>/access-key")
+	"/aws/lambda/axiaops-cur-", // Leftover CloudFormation custom-resource Lambda log groups
+}
+
+// isAxiaOpsOwnedResource reports whether resourceID matches one of this CUR
+// pipeline's own resources (see axiaOpsInfraSignatures).
+func isAxiaOpsOwnedResource(resourceID string) bool {
+	for _, sig := range axiaOpsInfraSignatures {
+		if strings.Contains(resourceID, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// FilterAxiaOpsInfra removes zombie candidates whose ResourceID identifies
+// the CUR pipeline's own infrastructure (see axiaOpsInfraSignatures) — active,
+// necessary scanning plumbing, not customer waste. Call once after all
+// Discover* results (and analyzer.Detect's CUR/CloudWatch-based results) are
+// aggregated into a single slice, before Summarize/SaveZombies.
+func FilterAxiaOpsInfra(zombies []model.ZombieResource) []model.ZombieResource {
+	filtered := zombies[:0]
+	for _, z := range zombies {
+		if isAxiaOpsOwnedResource(z.ResourceID) {
+			slog.Info("discover: excluding AxiaOps' own CUR infra from zombie results", "resource_id", z.ResourceID, "service", z.Service)
+			continue
+		}
+		filtered = append(filtered, z)
+	}
+	return filtered
 }
