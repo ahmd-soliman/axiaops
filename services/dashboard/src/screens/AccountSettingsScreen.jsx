@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner } from '../components/primitives';
 import { useDestructiveConfirm, DestructiveConfirmModal } from '../components/DestructiveConfirm';
+import { BillingSourceConfig, roleNameFromArn } from './ConnectScreen';
 
 function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, readOnly }) {
   return (
@@ -45,6 +46,7 @@ function StatusBadge({ status }) {
     scan_timeout:         { color: 'var(--color-warning)', label: 'Timed Out' },
     circuit_breaker_open: { color: 'var(--color-warning)', label: 'Paused' },
     scanning:             { color: 'var(--color-accent)',  label: 'Scanning…' },
+    pending_cur_delivery: { color: 'var(--color-text-muted)', label: 'Awaiting First Delivery' },
   };
   const c = config[status] ?? { color: 'var(--color-text-muted)', label: 'Unknown' };
 
@@ -66,6 +68,7 @@ function statusHeadline(status) {
     case 'scan_timeout':         return 'Last scan timed out at 15 minutes.';
     case 'circuit_breaker_open': return 'Paused after repeated scan failures.';
     case 'scanning':             return 'Scan in progress.';
+    case 'pending_cur_delivery': return 'Billing export provisioned — first cost data typically arrives within 24 hours.';
     default:                     return '';
   }
 }
@@ -86,6 +89,15 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
   const [secretKey, setSecretKey]     = useState('');
   const [region, setRegion]           = useState(account?.region ?? 'eu-central-1');
   const [scanIntervalHours, setScanIntervalHours] = useState(account?.scan_interval_hours?.toString() ?? '24');
+  const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'cost_explorer');
+  const [curConfig, setCurConfig] = useState({
+    cur_database: account?.cur_database || 'axiaops_cur_db',
+    cur_table: account?.cur_table || 'axiaops_cur_table',
+    cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg',
+    cur_results_s3: account?.cur_results_s3 || '',
+    cur_region: account?.cur_region || 'us-east-1',
+    role_name: roleNameFromArn(account?.role_arn) || 'AxiaOpsRole',
+  });
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const scanning = account?.status === 'scanning';
@@ -140,6 +152,18 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
       if (!isRoleMode) {
         payload.accessKeyId = accessKeyId.trim();
         payload.secretKey = secretKey.trim() || undefined;
+      }
+      if (billingSource === 'cur_athena') {
+        Object.assign(payload, {
+          billing_source: 'cur_athena',
+          cur_database: curConfig.cur_database || 'axiaops_cur_db',
+          cur_table: curConfig.cur_table || 'axiaops_cur_table',
+          cur_workgroup: curConfig.cur_workgroup || 'axiaops_athena_wg',
+          cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${curConfig.cur_region || 'us-east-1'}`,
+          cur_region: curConfig.cur_region || 'us-east-1',
+        });
+      } else {
+        Object.assign(payload, { billing_source: 'cost_explorer' });
       }
       const result = await updateAccount(account.id, payload);
       toast('Account settings saved', 'success');
@@ -322,6 +346,29 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
               placeholder="24"
               type="number"
               hint="0 = on-demand only, or enter hours between automatic scans"
+            />
+
+            {/* Folded by default on this edit screen — most edits here are
+                label/region/interval tweaks that have nothing to do with
+                billing source. savedValues shows the account's real current
+                CUR config while folded (instead of the generic new-connection
+                sentence, which is wrong for an account like a manually-named
+                test setup), and the fields are pre-filled with those same
+                values the moment Advanced Configuration is opened — nothing
+                is actually hidden, just collapsed. */}
+            <BillingSourceConfig
+              billingSource={billingSource}
+              setBillingSource={setBillingSource}
+              curConfig={curConfig}
+              setCurConfig={setCurConfig}
+              savedValues={account?.cur_database ? {
+                cur_database: account.cur_database,
+                cur_table: account.cur_table,
+                cur_workgroup: account.cur_workgroup,
+                cur_results_s3: account.cur_results_s3,
+                cur_region: account.cur_region,
+              } : null}
+              accountId={account?.id}
             />
 
             {error && (

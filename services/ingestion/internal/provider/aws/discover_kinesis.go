@@ -36,7 +36,7 @@ func discoverKinesis(ctx context.Context, cfg aws.Config) []string {
 // records and queries CloudWatch for IncomingRecords. Streams with zero incoming
 // records are flagged, with cost estimated from shard count.
 func DiscoverIdleKinesisStreams(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	regions := uniqueRegions(records)
+	regions := discoveryRegions(records, awsClient.Region())
 	accountID := awsClient.AccountID()
 	var zombies []model.ZombieResource
 

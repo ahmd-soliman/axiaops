@@ -38,13 +38,32 @@ type Queue struct {
 	secret []byte
 }
 
+// clientTimeout bounds every Enqueue call. For this backend, Enqueue *is* the
+// scan — a blocking POST /scan that only returns once ingestion finishes —
+// not a lightweight queue push, so this has to be long enough for a real
+// scan rather than a normal HTTP round trip. It was previously 30s, which
+// fired on real accounts with enough resources to discover well before a
+// legitimate scan could finish, producing a false scan.enqueue_failed even
+// though ingestion completed the scan successfully moments later.
+//
+// This can't simply be removed in favor of relying on the caller's context:
+// scanAccount's goroutine (services/api/internal/api/handler.go) does supply
+// one (scanEnqueueTimeout, kept equal to this value below), but ingestion's
+// own scanScheduledAccounts sweep (cmd/main.go) calls Enqueue with
+// context.Background() — no deadline at all. That sweep loops over every
+// overdue account making one blocking Enqueue call at a time; an unbounded
+// client would let one hung account stall every account behind it in that
+// loop indefinitely. A generous, bounded client timeout is the backstop for
+// that path; scanAccount's own context still governs the HTTP-triggered path.
+const clientTimeout = 15 * time.Minute
+
 // New creates a sync Queue that POSTs to the given ingestion service URL.
 // secret is the shared HMAC secret loaded from INGESTION_SHARED_SECRET; pass
 // nil in DEV_MODE.
 func New(ingestionURL string, secret []byte) *Queue {
 	return &Queue{
 		ingestionURL: ingestionURL,
-		client:       &http.Client{Timeout: 30 * time.Second},
+		client:       &http.Client{Timeout: clientTimeout},
 		secret:       secret,
 	}
 }

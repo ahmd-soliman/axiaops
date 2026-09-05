@@ -133,6 +133,7 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 		// CHECK constraint introduced in migration 019. Use any non-empty values
 		// — this test cares about cascade behaviour, not credential validity.
 		AccessKeyID: "AKIAIOSFODNN7EXAMPLE", SecretEncrypted: "stub",
+		BillingSource: model.BillingSourceCostExplorer,
 	}); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
 	}

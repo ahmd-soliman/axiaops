@@ -43,7 +43,7 @@ func isSecretUnused(lastAccessed, created *time.Time, threshold time.Duration, n
 // billed at $0.40/month regardless of whether they are read, so forgotten
 // secrets accumulate charges silently after the service that used them is torn down.
 func DiscoverUnusedSecrets(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	regions := uniqueRegions(records)
+	regions := discoveryRegions(records, awsClient.Region())
 	accountID := awsClient.AccountID()
 	now := time.Now().UTC()
 	var zombies []model.ZombieResource

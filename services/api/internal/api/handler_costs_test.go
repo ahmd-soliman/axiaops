@@ -214,8 +214,12 @@ func TestListCosts_MalformedSinceIgnored(t *testing.T) {
 	}
 }
 
-func TestListCosts_AccountIDFilter_InternalUUID(t *testing.T) {
-	// When account_id matches an existing account, both internal and AWS IDs are set.
+func TestListCosts_AccountIDFilter_SetsInternalAccountID(t *testing.T) {
+	// account_id is always treated as the internal account UUID, verbatim --
+	// no AWS-account-ID lookup or fallback. Two account rows can share the
+	// same underlying AWS account number (e.g. the same AWS account
+	// connected twice under different billing sources), so filtering must
+	// key off this UUID alone.
 	store := NewMockStore().
 		WithAccounts([]model.Account{
 			{ID: "acc-uuid-1", AccountID: "123456789012", Provider: "aws"},
@@ -236,33 +240,6 @@ func TestListCosts_AccountIDFilter_InternalUUID(t *testing.T) {
 	if filter.InternalAccountID != "acc-uuid-1" {
 		t.Errorf("expected InternalAccountID acc-uuid-1, got %q", filter.InternalAccountID)
 	}
-	if filter.AWSAccountID != "123456789012" {
-		t.Errorf("expected AWSAccountID 123456789012, got %q", filter.AWSAccountID)
-	}
-}
-
-func TestListCosts_AccountIDFilter_NotFound_SetsBoth(t *testing.T) {
-	// When account_id doesn't match any existing account, both fields are set
-	// to the raw parameter (could be internal UUID or AWS ID).
-	store := NewMockStore().WithCostRecords(testCostRecords)
-	h := api.New(store, noopQueue())
-	mux := http.NewServeMux()
-	h.Register(mux)
-
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?account_id=unknown-id"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-
-	filter := store.GetLastCostFilter()
-	if filter.InternalAccountID != "unknown-id" {
-		t.Errorf("expected InternalAccountID unknown-id, got %q", filter.InternalAccountID)
-	}
-	if filter.AWSAccountID != "unknown-id" {
-		t.Errorf("expected AWSAccountID unknown-id, got %q", filter.AWSAccountID)
-	}
 }
 
 func TestListCosts_NoAccountID_LeavesFilterEmpty(t *testing.T) {
@@ -281,35 +258,5 @@ func TestListCosts_NoAccountID_LeavesFilterEmpty(t *testing.T) {
 	filter := store.GetLastCostFilter()
 	if filter.InternalAccountID != "" {
 		t.Errorf("expected empty InternalAccountID, got %q", filter.InternalAccountID)
-	}
-	if filter.AWSAccountID != "" {
-		t.Errorf("expected empty AWSAccountID, got %q", filter.AWSAccountID)
-	}
-}
-
-func TestListCosts_AccountWithoutAWSID_OnlySetsInternal(t *testing.T) {
-	// When account exists but has no AWS AccountID populated yet.
-	store := NewMockStore().
-		WithAccounts([]model.Account{
-			{ID: "acc-new", AccountID: "", Provider: "aws"},
-		}).
-		WithCostRecords(testCostRecords)
-	h := api.New(store, noopQueue())
-	mux := http.NewServeMux()
-	h.Register(mux)
-
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/costs?account_id=acc-new"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-
-	filter := store.GetLastCostFilter()
-	if filter.InternalAccountID != "acc-new" {
-		t.Errorf("expected InternalAccountID acc-new, got %q", filter.InternalAccountID)
-	}
-	if filter.AWSAccountID != "" {
-		t.Errorf("expected empty AWSAccountID (not populated), got %q", filter.AWSAccountID)
 	}
 }

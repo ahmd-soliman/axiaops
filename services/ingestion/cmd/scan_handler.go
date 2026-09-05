@@ -39,7 +39,8 @@ func scanHandler(store storage.Store) http.HandlerFunc {
 			http.Error(w, "ingestion failed", http.StatusInternalServerError)
 			return
 		}
-		_ = store.UpdateAccountStatus(ctx, req.AccountID, "connected")
+		// runScan already sets the account's final status (connected, or left
+		// pending a CUR account's first delivery) via finalizeAccountStatus.
 		w.WriteHeader(http.StatusOK)
 	}
 }

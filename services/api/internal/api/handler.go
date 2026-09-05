@@ -1,15 +1,20 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/google/uuid"
@@ -164,6 +169,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /v1/accounts/draft", require(authz.PermAccountsWrite, h.createDraftAccount))
 	mux.Handle("PATCH /v1/accounts/{id}", require(authz.PermAccountsWrite, h.updateAccount))
 	mux.Handle("DELETE /v1/accounts/{id}", require(authz.PermAccountsDelete, h.deleteAccount))
+	mux.Handle("GET /v1/accounts/{id}/cur-setup", require(authz.PermAccountsRead, h.getCURSetup))
+	mux.Handle("GET /v1/scan-permissions", require(authz.PermAccountsRead, h.getScanPermissions))
 	mux.Handle("POST /v1/accounts/{id}/scan", require(authz.PermAccountsScan, h.scanAccount))
 
 	// Notification channels.
@@ -516,8 +523,7 @@ func (h *Handler) getTrendResourceTypes(w http.ResponseWriter, r *http.Request) 
 }
 
 // listCosts returns cost records for the organization, filtered by account, service, and time window.
-// Optional query params: ?account_id=<id>, ?service=<name>, ?days=<int> (default 30).
-// account_id can be either the internal AxiaOps account UUID or the AWS account ID.
+// Optional query params: ?account_id=<internal account UUID>, ?service=<name>, ?days=<int> (default 30).
 func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 	ctx := storage.WithOrganizationID(r.Context(), middleware.OrganizationID(r.Context()))
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
@@ -543,30 +549,15 @@ func (h *Handler) listCosts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// account_id parameter can be either the internal UUID or the AWS account ID.
-	// Strategy:
-	// 1. If it looks like a UUID, try to look it up as internal account ID first
-	// 2. If found, use both internal_account_id and account_id for filtering
-	// 3. If not found or looks like AWS ID, use as account_id filter
+	// account_id is always the internal AxiaOps account UUID (what the
+	// dashboard's account selector sends — see AccountSelector.jsx). Two
+	// account rows can share the same underlying AWS account number (e.g.
+	// the same AWS account connected twice under different billing sources),
+	// so filtering must key off this UUID alone — a fallback that also
+	// matched on the AWS account number would leak one account's records
+	// into another's view whenever they share an AWS account ID.
 	if accountIDParam != "" {
-		// Try to look it up as an internal account ID (UUID)
-		account, err := h.store.GetAccount(ctx, accountIDParam)
-		if err == nil {
-			// Found by internal UUID
-			filter.InternalAccountID = accountIDParam
-			if account.AccountID != "" {
-				filter.AWSAccountID = account.AccountID
-			}
-			slog.Info("listCosts: filtered by internal account UUID", "internal_id", accountIDParam, "aws_id", account.AccountID)
-		} else {
-			// Account not found - it could be:
-			// 1. An internal UUID that hasn't been added to accounts table yet (newly created)
-			// 2. An AWS account ID
-			// Try both approaches:
-			filter.InternalAccountID = accountIDParam // Try as internal UUID
-			filter.AWSAccountID = accountIDParam      // Also try as AWS account ID
-			slog.Info("listCosts: filtered by parameter (either internal UUID or AWS ID)", "account_id", accountIDParam)
-		}
+		filter.InternalAccountID = accountIDParam
 	}
 
 	records, err := h.store.ListCostRecords(ctx, filter)
@@ -723,12 +714,13 @@ func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
 // POST /v1/accounts/draft → PATCH /v1/accounts/{id} (see account_role.go).
 func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Provider    string `json:"provider"`
-		AuthMethod  string `json:"auth_method"`
-		Label       string `json:"label"`
-		AccessKeyID string `json:"access_key_id"`
-		SecretKey   string `json:"secret_key"`
-		Region      string `json:"region"`
+		Provider      string `json:"provider"`
+		AuthMethod    string `json:"auth_method"`
+		Label         string `json:"label"`
+		AccessKeyID   string `json:"access_key_id"`
+		SecretKey     string `json:"secret_key"`
+		BillingSource string `json:"billing_source"`
+		Region        string `json:"region"`
 	}
 	if err := httpjson.Decode(w, r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -756,8 +748,28 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	organizationID := middleware.OrganizationID(r.Context())
+	var bs string
+	if req.BillingSource == model.BillingSourceCURAthena {
+		bs = model.BillingSourceCURAthena
+	} else {
+		bs = model.BillingSourceCostExplorer
+	}
+
+	// A fresh CUR-Athena account only has the placeholder CURResultsS3 below
+	// until PATCH supplies the real bucket, so it must not report
+	// "connected" yet — mirrors the role-based draft flow (account_role.go)
+	// and the billing_source-switch branch further down in updateAccount.
+	// finalizeAccountStatus (services/ingestion/cmd/main.go) is what
+	// eventually flips this to Connected, once a scan actually pulls cost
+	// data.
+	status := model.AccountStatusConnected
+	if bs == model.BillingSourceCURAthena {
+		status = model.AccountStatusPendingCURDelivery
+	}
+
 	account := model.Account{
 		ID:                uuid.New().String(),
+		BillingSource:     bs,
 		OrganizationID:    organizationID,
 		Provider:          req.Provider,
 		Label:             req.Label,
@@ -765,9 +777,27 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		AccessKeyID:       req.AccessKeyID,
 		SecretEncrypted:   secretEncrypted,
 		Region:            req.Region,
-		Status:            "connected",
+		Status:            status,
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
+	}
+	if bs == model.BillingSourceCURAthena {
+		defDB := defaultCURDatabase
+		defTable := defaultCURTable
+		defWG := defaultCURWorkgroup
+		defS3 := placeholderCURResultsS3
+		account.CURDatabase = &defDB
+		account.CURTable = &defTable
+		account.CURWorkgroup = &defWG
+		account.CURResultsS3 = &defS3
+		// AWS::BCMDataExports::Export (the CUR 2.0 Data Export resource the
+		// setup CloudFormation stack creates) can only be created in
+		// us-east-1 -- and since that same stack also creates the Glue
+		// Database/Table/Athena Workgroup, all of that infra necessarily
+		// lives in us-east-1 too, regardless of the account's own AWS
+		// region. Never fall back to req.Region here.
+		defRegion := defaultCURRegion
+		account.CURRegion = &defRegion
 	}
 
 	ctx := storage.WithOrganizationID(r.Context(), organizationID)
@@ -811,6 +841,12 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		RoleARN           *string `json:"role_arn"`
 		Region            *string `json:"region"`
 		ScanIntervalHours *int    `json:"scan_interval_hours"`
+		BillingSource     *string `json:"billing_source"`
+		CURDatabase       *string `json:"cur_database"`
+		CURTable          *string `json:"cur_table"`
+		CURWorkgroup      *string `json:"cur_workgroup"`
+		CURResultsS3      *string `json:"cur_results_s3"`
+		CURRegion         *string `json:"cur_region"`
 	}
 	if err := httpjson.Decode(w, r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -849,6 +885,39 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		existing.ScanIntervalHours = *req.ScanIntervalHours
+	}
+	if req.BillingSource != nil {
+		if *req.BillingSource == model.BillingSourceCURAthena {
+			existing.BillingSource = model.BillingSourceCURAthena
+			existing.Status = model.AccountStatusPendingCURDelivery
+		} else {
+			existing.BillingSource = model.BillingSourceCostExplorer
+		}
+	}
+	if req.CURDatabase != nil {
+		existing.CURDatabase = req.CURDatabase
+	}
+	if req.CURTable != nil {
+		existing.CURTable = req.CURTable
+	}
+	if req.CURWorkgroup != nil {
+		existing.CURWorkgroup = req.CURWorkgroup
+	}
+	if req.CURResultsS3 != nil {
+		existing.CURResultsS3 = req.CURResultsS3
+	}
+	if req.CURRegion != nil {
+		existing.CURRegion = req.CURRegion
+	}
+	if existing.BillingSource == model.BillingSourceCURAthena {
+		if existing.CURDatabase == nil || existing.CURTable == nil || existing.CURWorkgroup == nil || existing.CURResultsS3 == nil || existing.CURRegion == nil {
+			http.Error(w, "missing cur configuration fields", http.StatusBadRequest)
+			return
+		}
+		if msg := validateCURConfig(existing.CURDatabase, existing.CURTable, existing.CURWorkgroup, existing.CURResultsS3, existing.CURRegion); msg != "" {
+			http.Error(w, msg, http.StatusBadRequest)
+			return
+		}
 	}
 
 	if err := h.store.SaveAccount(ctx, existing); err != nil {
@@ -1000,10 +1069,75 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// scanTriggerWriteTimeout caps the detached mark-scanning + enqueue write in
+// ── CUR config field validation ─────────────────────────────────────────────
+//
+// cur_database/cur_table/cur_workgroup are interpolated into Athena SQL
+// (cur/query.go's buildAmortizedSQL / buildTaxSQL) via fmt.Sprintf as quoted
+// identifiers. Without validation an authenticated user could escape the
+// identifier quotes and inject arbitrary Presto SQL. AWS Glue database/table
+// names strictly conform to ^[a-zA-Z0-9_]{1,128}$; workgroups additionally
+// allow dots and hyphens.
+//
+// cur_results_s3 is never interpolated into SQL — it's only ever passed as
+// the typed OutputLocation field of an AWS SDK StartQueryExecutionInput
+// (cur/query.go) — so it isn't part of that same injection surface. It's
+// still validated as a well-formed s3:// URI (bucket name plus an optional
+// path segment restricted to safe URI characters, not "anything after the
+// first slash") so a malformed value fails loudly here rather than
+// surfacing as an opaque AWS API error, or in some future code path that
+// does start treating this string as more than an opaque OutputLocation.
+var (
+	validGlueIdentifier  = regexp.MustCompile(`^[a-zA-Z0-9_]{1,128}$`)
+	validAthenaWorkgroup = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)
+	validAWSRegion       = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-\d+$`)
+	validS3URI           = regexp.MustCompile(`^s3://[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9](/[a-zA-Z0-9._\-/]*)?$`)
+	// validIAMName mirrors AWS's own charset for IAM role/policy names
+	// ([\w+=,.@-]{1,64}) — used to validate the ?role_name override for
+	// getCURSetup before it's interpolated into the rendered template's raw
+	// YAML.
+	validIAMName = regexp.MustCompile(`^[\w+=,.@-]{1,64}$`)
+)
+
+// validateCURConfig checks that CUR-related fields are safe for use in Athena
+// queries. Returns a human-readable error string or "" if valid.
+func validateCURConfig(database, table, workgroup, resultsS3, region *string) string {
+	if database != nil && !validGlueIdentifier.MatchString(*database) {
+		return fmt.Sprintf("invalid cur_database %q: must match [a-zA-Z0-9_]{1,128}", *database)
+	}
+	if table != nil && !validGlueIdentifier.MatchString(*table) {
+		return fmt.Sprintf("invalid cur_table %q: must match [a-zA-Z0-9_]{1,128}", *table)
+	}
+	if workgroup != nil && !validAthenaWorkgroup.MatchString(*workgroup) {
+		return fmt.Sprintf("invalid cur_workgroup %q: must match [a-zA-Z0-9._-]{1,128}", *workgroup)
+	}
+	if resultsS3 != nil && !validS3URI.MatchString(*resultsS3) {
+		return fmt.Sprintf("invalid cur_results_s3 %q: must be a valid s3:// URI", *resultsS3)
+	}
+	if region != nil && !validAWSRegion.MatchString(*region) {
+		return fmt.Sprintf("invalid cur_region %q: must be a valid AWS region", *region)
+	}
+	return ""
+}
+
+// scanTriggerWriteTimeout caps the detached mark-scanning write in
 // scanAccount below — decoupled from r.Context() so a client disconnect
 // can't abort it mid-commit.
 const scanTriggerWriteTimeout = 5 * time.Second
+
+// scanEnqueueTimeout bounds the detached goroutine that hands the job to
+// h.queue.Enqueue. For the Redis backend this is a fast LPUSH and the bound
+// is generous headroom. For the sync (no-Redis, dev-mode) fallback,
+// Enqueue *is* the scan — a synchronous POST /scan to ingestion that blocks
+// until the whole run finishes — so this must be long enough for a real
+// scan, not just an HTTP round trip. CUR/Athena scans in particular run at
+// least two StartQueryExecution + poll cycles (FetchCosts, then
+// FetchResourceCosts) at cur.AthenaCURSource's 2s poll interval, so a
+// budget sized for "the mark-scanning DB write" (formerly shared with this
+// call as scanTriggerWriteTimeout) reliably timed out here even on an empty
+// table. Matches stuckScanTimeout (cmd/main.go) — the account is eligible
+// for the stuck-scan recovery sweep at the same point this goroutine gives
+// up, so the two mechanisms hand off cleanly instead of racing.
+const scanEnqueueTimeout = 15 * time.Minute
 
 // scanAccount triggers an ingestion run for the given account.
 func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
@@ -1051,20 +1185,6 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job := queue.ScanJob{
-		OrganizationID: account.OrganizationID,
-		AccountID:      account.ID,
-		EnqueuedAt:     time.Now().UTC(),
-		RequestID:      middleware.RequestIDFromCtx(r.Context()),
-	}
-	if err := h.queue.Enqueue(writeCtx, job); err != nil {
-		slog.Error("scan.enqueue_failed", "account_id", id, "error", err)
-		_ = h.store.UpdateAccountStatus(writeCtx, id, "error")
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	slog.Info("scan.enqueued", "account_id", id, "organization_id", organizationID)
-
 	audit.Record(r, h.store, model.AuditEvent{
 		Action:       model.AuditActionScanTriggered,
 		ResourceType: "account",
@@ -1075,6 +1195,37 @@ func (h *Handler) scanAccount(w http.ResponseWriter, r *http.Request) {
 			"on_demand":     true,
 		},
 	})
+
+	// Enqueue runs detached from r.Context() and from the response below: for
+	// the Redis backend this is a fast LPUSH anyway, but for the sync
+	// (no-Redis) fallback Enqueue *is* the scan — a blocking POST /scan to
+	// ingestion that only returns once the run finishes. Doing that inline
+	// would hold this response open for the scan's full duration, defeating
+	// the "status": "scanning" contract below — and for CUR/Athena accounts,
+	// whose query-polling routinely runs past a few seconds, used to blow the
+	// old shared scanTriggerWriteTimeout and return a false 500 while the
+	// scan succeeded anyway. writeCtx (and its cancel) don't survive this
+	// function returning, so the goroutine gets its own context.
+	job := queue.ScanJob{
+		OrganizationID: account.OrganizationID,
+		AccountID:      account.ID,
+		EnqueuedAt:     time.Now().UTC(),
+		RequestID:      middleware.RequestIDFromCtx(r.Context()),
+	}
+	go func() {
+		enqueueCtx, cancel := context.WithTimeout(context.Background(), scanEnqueueTimeout)
+		defer cancel()
+		enqueueCtx = storage.WithOrganizationID(enqueueCtx, organizationID)
+		if err := h.queue.Enqueue(enqueueCtx, job); err != nil {
+			slog.Error("scan.enqueue_failed", "account_id", id, "error", err)
+			statusCtx, statusCancel := context.WithTimeout(context.Background(), scanTriggerWriteTimeout)
+			defer statusCancel()
+			statusCtx = storage.WithOrganizationID(statusCtx, organizationID)
+			_ = h.store.UpdateAccountStatus(statusCtx, id, "error")
+			return
+		}
+		slog.Info("scan.enqueued", "account_id", id, "organization_id", organizationID)
+	}()
 
 	writeJSON(w, map[string]string{"status": "scanning"})
 }
@@ -1371,4 +1522,116 @@ func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 		// truncated body and surface a parse error.
 		slog.Error("writeJSONStatus encode failed", "status", status, "err", err)
 	}
+}
+
+//go:embed templates/cur_setup.yaml.tmpl
+var curSetupTemplateSrc string
+
+var curSetupTemplate = template.Must(template.New("cur_setup").Parse(curSetupTemplateSrc))
+
+// curSetupTemplateData feeds templates/cur_setup.yaml.tmpl. GeneralActions
+// and CURAthenaActions come from scan_permissions.go so this template and
+// GET /v1/scan-permissions can never drift the way the CFN template and the
+// dashboard's hardcoded policy display once did. ExternalID pre-fills the
+// ExternalId parameter's Default so the downloaded template is genuinely
+// ready to deploy as-is — the dashboard's download prompt already claims
+// this ("The ExternalId and Account ID are already pre-filled inside the
+// file!"), but until this field existed only AccountID actually was;
+// ExternalID was fetched from the store and silently discarded.
+type curSetupTemplateData struct {
+	AccountID           string
+	ExternalID          string
+	GlueDatabaseName    string
+	GlueTableName       string
+	AthenaWorkgroupName string
+	RoleName            string
+	GeneralActions      []string
+	CURAthenaActions    []string
+}
+
+// getScanPermissions returns the IAM policy document a customer should
+// attach for manual (access-key) onboarding — the dashboard's Connect screen
+// fetches this instead of hardcoding the action list, so it can never drift
+// from what the CFN-managed role actually gets (scan_permissions.go is the
+// single source of truth for both). ?billing_source=cur_athena adds the
+// Athena/Glue statement.
+func (h *Handler) getScanPermissions(w http.ResponseWriter, r *http.Request) {
+	includeCUR := r.URL.Query().Get("billing_source") == model.BillingSourceCURAthena
+	writeJSON(w, map[string]any{"policy": scanPermissionsPolicy(includeCUR)})
+}
+
+// getCURSetup returns a CloudFormation template tailored for the account to
+// setup CUR delivery and Athena. ?cur_database/?cur_table/?cur_workgroup let
+// the dashboard's "Advanced Configuration" overrides (BillingSourceConfig)
+// flow into the template's Glue/Athena resource names — without this, a
+// customer who typed a custom database/table/workgroup name would get a
+// deployed stack that still creates the axiaops_* defaults, silently
+// mismatched against what's saved on the account row. Validated with the
+// same regexes updateAccount uses for these fields (validateCURConfig)
+// since they're interpolated into the template's raw YAML with no escaping
+// (text/template, not html/template) — an unvalidated value could break out
+// of the quoted Default and inject arbitrary CloudFormation.
+func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	organizationID := middleware.OrganizationID(r.Context())
+	ctx := storage.WithOrganizationID(r.Context(), organizationID)
+
+	account, err := h.store.GetAccount(ctx, id)
+	if err != nil {
+		http.Error(w, "account not found", http.StatusNotFound)
+		return
+	}
+
+	glueDatabase := defaultCURDatabase
+	if v := r.URL.Query().Get("cur_database"); v != "" {
+		if !validGlueIdentifier.MatchString(v) {
+			http.Error(w, fmt.Sprintf("invalid cur_database %q: must match [a-zA-Z0-9_]{1,128}", v), http.StatusBadRequest)
+			return
+		}
+		glueDatabase = v
+	}
+	glueTable := defaultCURTable
+	if v := r.URL.Query().Get("cur_table"); v != "" {
+		if !validGlueIdentifier.MatchString(v) {
+			http.Error(w, fmt.Sprintf("invalid cur_table %q: must match [a-zA-Z0-9_]{1,128}", v), http.StatusBadRequest)
+			return
+		}
+		glueTable = v
+	}
+	athenaWorkgroup := defaultCURWorkgroup
+	if v := r.URL.Query().Get("cur_workgroup"); v != "" {
+		if !validAthenaWorkgroup.MatchString(v) {
+			http.Error(w, fmt.Sprintf("invalid cur_workgroup %q: must match [a-zA-Z0-9._-]{1,128}", v), http.StatusBadRequest)
+			return
+		}
+		athenaWorkgroup = v
+	}
+	roleName := defaultCURRoleName
+	if v := r.URL.Query().Get("role_name"); v != "" {
+		if !validIAMName.MatchString(v) {
+			http.Error(w, fmt.Sprintf("invalid role_name %q: must match [\\w+=,.@-]{1,64}", v), http.StatusBadRequest)
+			return
+		}
+		roleName = v
+	}
+
+	var buf bytes.Buffer
+	data := curSetupTemplateData{
+		AccountID:           os.Getenv("AXIAOPS_AWS_ACCOUNT_ID"),
+		ExternalID:          account.ExternalID,
+		GlueDatabaseName:    glueDatabase,
+		GlueTableName:       glueTable,
+		AthenaWorkgroupName: athenaWorkgroup,
+		RoleName:            roleName,
+		GeneralActions:      generalScanPermissions,
+		CURAthenaActions:    curAthenaPermissions,
+	}
+	if err := curSetupTemplate.Execute(&buf, data); err != nil {
+		slog.Error("getCURSetup: template execute failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/yaml")
+	_, _ = w.Write(buf.Bytes())
 }

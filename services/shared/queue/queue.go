@@ -116,14 +116,40 @@ func (a *syncAdapter) Close() error { return a.q.Close() }
 //   - Sync backend signs the outbound HTTP request (C-1 wire auth).
 //
 // nil secret == DEV_MODE; both backends fall through to unsigned operation.
+// redisConnectRetries and redisConnectBackoff bound how long New waits for
+// Redis before falling back to sync. Only relevant when redisURL is
+// non-empty (an operator explicitly wants Redis) -- without this retry, a
+// pod that starts a beat before its Redis/Valkey dependency (e.g. every
+// component restarting together, as `kubectl delete pods --all` or a full
+// rollout does) permanently and silently downgrades to sync for its entire
+// lifetime on nothing more than a momentary race. That's especially bad for
+// ingestion: sync's Dequeue never polls Redis at all, so if api's own New
+// call lands a beat later and picks redis, jobs it enqueues sit in Redis
+// forever with nothing consuming them -- a split-brain queue with zero
+// errors anywhere. 5 attempts x up to 2s covers the ordinary
+// pod-startup-ordering race; a Redis that is actually down/misconfigured
+// still falls back to sync (a working, if degraded, mode) rather than
+// blocking startup indefinitely.
+const redisConnectRetries = 5
+
+const redisConnectBackoff = 2 * time.Second
+
 func New(redisURL, ingestionURL string, secret []byte) Queue {
 	if redisURL != "" {
-		q, err := redisqueue.New(redisURL, secret)
-		if err == nil {
-			slog.Info("queue: backend selected", "backend", "redis")
-			return &redisAdapter{q}
+		var lastErr error
+		for attempt := 1; attempt <= redisConnectRetries; attempt++ {
+			q, err := redisqueue.New(redisURL, secret)
+			if err == nil {
+				slog.Info("queue: backend selected", "backend", "redis")
+				return &redisAdapter{q}
+			}
+			lastErr = err
+			if attempt < redisConnectRetries {
+				time.Sleep(redisConnectBackoff)
+			}
 		}
-		slog.Warn("queue: failed to connect to Redis, falling back to sync", "err", err)
+		slog.Warn("queue: failed to connect to Redis after retries, falling back to sync",
+			"attempts", redisConnectRetries, "err", lastErr)
 	}
 	slog.Info("queue: backend selected", "backend", "sync")
 	return &syncAdapter{syncqueue.New(ingestionURL, secret)}

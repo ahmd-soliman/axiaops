@@ -9,6 +9,8 @@ package aws
 import (
 	"testing"
 	"time"
+
+	"axiaops.io/shared/model"
 )
 
 // ── parseStopTime ─────────────────────────────────────────────────────────────
@@ -291,5 +293,54 @@ func TestIsRDSSnapshotOrphaned_OldOrphan_Flagged(t *testing.T) {
 	days := isRDSSnapshotOrphaned(false, 45*24*time.Hour, 30*24*time.Hour)
 	if days != 45 {
 		t.Errorf("expected 45, got %d", days)
+	}
+}
+
+// ── discoveryRegions ─────────────────────────────────────────────────────────────
+//
+// accountRegion is a floor, not a replacement: without it, a freshly
+// connected CUR account with no cost data yet (up to 24h before first
+// delivery, per the migration plan §2) produces an empty region set, so
+// every Discover* function's "for region := range regions" loop runs zero
+// times — nothing gets checked anywhere, even the account's own region.
+
+func TestDiscoveryRegions_EmptyRecords_StillIncludesAccountRegion(t *testing.T) {
+	regions := discoveryRegions(nil, "us-east-1")
+	if _, ok := regions["us-east-1"]; !ok {
+		t.Fatalf("expected account region present with no cost records, got %v", regions)
+	}
+	if len(regions) != 1 {
+		t.Errorf("expected exactly 1 region, got %d: %v", len(regions), regions)
+	}
+}
+
+func TestDiscoveryRegions_UnionsAccountRegionWithCostRecordRegions(t *testing.T) {
+	records := []model.CostRecord{
+		{Region: "eu-central-1"},
+		{Region: "us-west-2"},
+	}
+	regions := discoveryRegions(records, "us-east-1")
+	for _, want := range []string{"eu-central-1", "us-west-2", "us-east-1"} {
+		if _, ok := regions[want]; !ok {
+			t.Errorf("expected %q in result, got %v", want, regions)
+		}
+	}
+	if len(regions) != 3 {
+		t.Errorf("expected 3 regions, got %d: %v", len(regions), regions)
+	}
+}
+
+func TestDiscoveryRegions_AccountRegionAlreadyPresent_NoDuplicate(t *testing.T) {
+	records := []model.CostRecord{{Region: "us-east-1"}, {Region: "us-east-1"}}
+	regions := discoveryRegions(records, "us-east-1")
+	if len(regions) != 1 {
+		t.Errorf("expected 1 region (no duplication), got %d: %v", len(regions), regions)
+	}
+}
+
+func TestDiscoveryRegions_InvalidAccountRegion_Excluded(t *testing.T) {
+	regions := discoveryRegions(nil, "global")
+	if len(regions) != 0 {
+		t.Errorf("expected 0 regions (invalid account region rejected like any other), got %v", regions)
 	}
 }

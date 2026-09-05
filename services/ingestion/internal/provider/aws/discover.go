@@ -131,14 +131,44 @@ func isAWSRegion(s string) bool {
 	return hyphens >= 2
 }
 
-// uniqueRegions extracts the set of real AWS regions present in cost records.
+// discoveryRegions extracts the set of real AWS regions present in cost records,
+// plus the account's own configured home region as a guaranteed floor.
 // Cost Explorer pseudo-values like "global" or "NoRegion" are excluded.
-func uniqueRegions(records []model.CostRecord) map[string]struct{} {
+//
+// The floor exists for cold start: a freshly connected CUR account delivers
+// no cost data for up to 24h, then month-to-date only for a few weeks (see
+// axiaops-cur-migration-plan.md §2). Without it, an empty cost-record set
+// means every Discover* function's region loop below runs zero times —
+// nothing gets checked anywhere, even in the region the customer actually
+// told us about at connect time. Once real cost data accumulates, this
+// becomes a no-op (the account's region is already in the set) — it isn't a
+// second filtering mode, just a lower bound on the first one, so a genuinely
+// idle account can still surface zombies in its own region on day one.
+//
+// Known limitation, accepted as-is (not fixed): accountRegion is a single
+// value (model.Account.Region), so this only guarantees cold-start coverage
+// for the *one* region the customer typed in at connect time. A genuinely
+// multi-region customer's other regions stay invisible to every Discover*
+// rule until real cost data organically reveals them — potentially the
+// first few weeks of a CUR account's life (see the cold-start note above).
+// Two ways to close this were considered and deliberately not built:
+//   - Let the customer list multiple regions at connect time (schema +
+//     onboarding UI change).
+//   - During cold start specifically (empty records), call
+//     ec2:DescribeRegions once and float the account's *entire* enabled
+//     region set instead of just one — self-narrows back to cost-driven
+//     regions the moment real data exists, no new field or UI needed.
+// Revisit if multi-region cold-start blind spots turn out to matter in
+// practice; the second option is the cheaper fix if so.
+func discoveryRegions(records []model.CostRecord, accountRegion string) map[string]struct{} {
 	regions := make(map[string]struct{})
 	for _, r := range records {
 		if r.Region != "" && isAWSRegion(r.Region) {
 			regions[r.Region] = struct{}{}
 		}
+	}
+	if accountRegion != "" && isAWSRegion(accountRegion) {
+		regions[accountRegion] = struct{}{}
 	}
 	return regions
 }

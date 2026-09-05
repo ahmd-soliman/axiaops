@@ -722,6 +722,53 @@ func TestScanAccount_ScanAlreadyInProgress_Returns409(t *testing.T) {
 	}
 }
 
+// ── GET /scan-permissions ───────────────────────────────────────────────────
+//
+// scan_permissions.go is the single source of truth shared with the CFN
+// template (templates/cur_setup.yaml.tmpl) — these tests pin the JSON shape
+// the dashboard's Connect screen renders, and specifically that the
+// Athena/Glue statement only appears for cur_athena (it never existed in the
+// dashboard's old hardcoded copy at all, for either billing source).
+
+func TestGetScanPermissions_DefaultExcludesCURAthena(t *testing.T) {
+	_, mux := testHandler()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/scan-permissions"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "sts:GetCallerIdentity") {
+		t.Errorf("expected general actions present, got: %s", body)
+	}
+	if strings.Contains(body, "athena:StartQueryExecution") || strings.Contains(body, "glue:GetPartition") {
+		t.Errorf("expected no Athena/Glue actions without billing_source=cur_athena, got: %s", body)
+	}
+}
+
+func TestGetScanPermissions_CURAthenaIncludesAthenaAndGlue(t *testing.T) {
+	_, mux := testHandler()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/scan-permissions?billing_source=cur_athena"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, action := range []string{
+		"sts:GetCallerIdentity",
+		"athena:StartQueryExecution",
+		"glue:GetPartitions",
+		"glue:GetPartition",
+		"glue:BatchGetPartition",
+	} {
+		if !strings.Contains(body, action) {
+			t.Errorf("expected %q in policy, got: %s", action, body)
+		}
+	}
+}
+
 // ── GET /trend ────────────────────────────────────────────────────────────────
 
 func TestGetTrend_Returns200(t *testing.T) {
@@ -877,3 +924,50 @@ func (q *testCaptureQueue) Dequeue(ctx context.Context) (queue.ScanJob, error) {
 	return queue.ScanJob{}, ctx.Err()
 }
 func (q *testCaptureQueue) Close() error { return nil }
+
+
+func TestUpdateAccount_CURAthena_Success(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1"},
+	})
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := `{"billing_source": "cur_athena", "cur_database": "db", "cur_table": "tbl", "cur_workgroup": "wg", "cur_results_s3": "s3://res", "cur_region": "us-east-1"}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	var account model.Account
+	if err := json.NewDecoder(w.Body).Decode(&account); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if account.BillingSource != model.BillingSourceCURAthena {
+		t.Errorf("expected cur_athena billing_source, got %s", account.BillingSource)
+	}
+	if account.Status != model.AccountStatusPendingCURDelivery {
+		t.Errorf("expected pending_cur_delivery status, got %s", account.Status)
+	}
+}
+
+func TestUpdateAccount_CURAthena_MissingFields_Returns400(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIA123", Region: "us-east-1"},
+	})
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	// Missing cur_region
+	body := `{"billing_source": "cur_athena", "cur_database": "db", "cur_table": "tbl", "cur_workgroup": "wg", "cur_results_s3": "s3://res"}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d: %s", w.Code, w.Body.String())
+	}
+}

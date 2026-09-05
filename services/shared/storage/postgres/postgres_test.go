@@ -145,6 +145,31 @@ func newOrgCtx(t *testing.T, s *postgres.Store) (context.Context, model.Organiza
 	return storage.WithOrganizationID(ctx, org.ID), org
 }
 
+// mustSaveTestAccount saves a minimal valid account row under the given ID so
+// that the accounts(id) foreign keys added by migration 040 are satisfied
+// when a test saves cost/resource/zombie/snapshot/dismissal records
+// referencing it -- those tables no longer accept an internal_account_id /
+// account_id with no matching accounts row. Tests that only care about the
+// child table's own behavior can otherwise use any synthetic account ID they
+// like, as long as they create it here first.
+func mustSaveTestAccount(t *testing.T, s *postgres.Store, ctx context.Context, organizationID, accountID string) {
+	t.Helper()
+	if err := s.SaveAccount(ctx, model.Account{
+		ID:              accountID,
+		OrganizationID:  organizationID,
+		Provider:        "aws",
+		AccountID:       "000000000000",
+		Region:          "eu-central-1",
+		Status:          "connected",
+		AuthMethod:      model.AuthMethodAccessKey,
+		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+		SecretEncrypted: "stub",
+		BillingSource:   model.BillingSourceCostExplorer,
+	}); err != nil {
+		t.Fatalf("mustSaveTestAccount(%q): %v", accountID, err)
+	}
+}
+
 func costRecord(service, region string, amount float64) model.CostRecord {
 	return model.CostRecord{
 		Provider:    "aws",
@@ -358,6 +383,7 @@ func TestSave_UpsertPreservesInternalAccountID(t *testing.T) {
 	ctx, org := newOrgCtx(t, s)
 
 	internal := "internal-acct-abc"
+	mustSaveTestAccount(t, s, ctx, org.ID, internal)
 	first := costRecord("AmazonElastiCache", "eu-central-1", 50.00)
 	first.InternalAccountID = &internal
 	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
@@ -493,7 +519,8 @@ func zombieResource(service string, cost float64) model.ZombieResource {
 
 func TestSaveZombies_LoadZombies_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	zombies := []model.ZombieResource{
 		zombieResource("AmazonEC2", 100.00),
@@ -515,7 +542,8 @@ func TestSaveZombies_LoadZombies_Roundtrip(t *testing.T) {
 
 func TestSaveZombies_ReplacesOnSecondRun(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	if err := s.SaveZombies(ctx, []model.ZombieResource{
 		zombieResource("AmazonEC2", 100.00),
@@ -567,8 +595,9 @@ func TestZombies_OrganizationIsolation(t *testing.T) {
 	}
 	s := newTestStore(t)
 
-	ctxA, _ := newOrgCtx(t, s)
+	ctxA, orgA := newOrgCtx(t, s)
 	ctxB, _ := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctxA, orgA.ID, "test-account-id")
 
 	// Organization A saves zombies.
 	if err := s.SaveZombies(ctxA, []model.ZombieResource{zombieResource("AmazonEC2", 100)}); err != nil {
@@ -768,6 +797,7 @@ func testAccount(organizationID string) model.Account {
 		Status:            "connected",
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
+		BillingSource:     model.BillingSourceCostExplorer,
 	}
 }
 
@@ -840,6 +870,113 @@ func TestAccount_Delete(t *testing.T) {
 	}
 	if len(accounts) != 0 {
 		t.Errorf("expected 0 accounts after delete, got %d", len(accounts))
+	}
+}
+
+// TestAccount_DeleteCascadesAccountData guards against the account-deletion
+// data-leak bug: none of cost_records, resource_records, zombie_records,
+// zombie_snapshots, or dismissed_zombies carry a foreign key back to
+// accounts (internal_account_id / account_id are plain TEXT columns), so
+// deleting an account previously removed only the accounts row and left
+// every dollar of its cost/zombie history behind forever — silently
+// corrupting aggregate views like total spend for an account that no
+// longer exists. DeleteAccount must scrub all five tables in the same
+// transaction as the account row.
+func TestAccount_DeleteCascadesAccountData(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope reads to this organization")
+	}
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	a := testAccount(org.ID)
+	if err := s.SaveAccount(ctx, a); err != nil {
+		t.Fatalf("SaveAccount: %v", err)
+	}
+
+	now := time.Now().UTC()
+
+	cost := costRecord("AmazonEC2", "eu-central-1", 15.99)
+	cost.InternalAccountID = &a.ID
+	if _, _, err := s.Save(ctx, []model.CostRecord{cost}); err != nil {
+		t.Fatalf("Save cost record: %v", err)
+	}
+
+	if err := s.SaveResources(ctx, []model.ResourceRecord{{
+		Provider:          "aws",
+		AccountID:         "000000000000",
+		InternalAccountID: a.ID,
+		Service:           "AmazonEC2",
+		Region:            "eu-central-1",
+		ResourceID:        "i-0abcd",
+		MonthlyCost:       15.99,
+		Currency:          "USD",
+		PeriodStart:       now,
+		PeriodEnd:         now,
+	}}); err != nil {
+		t.Fatalf("SaveResources: %v", err)
+	}
+
+	if err := s.SaveZombies(ctx, []model.ZombieResource{{
+		Provider:          "aws",
+		AccountID:         "000000000000",
+		InternalAccountID: a.ID,
+		Service:           "AmazonEC2",
+		Region:            "eu-central-1",
+		ResourceID:        "i-0abcd",
+		MonthlyCost:       15.99,
+		Currency:          "USD",
+		PeriodStart:       now,
+		PeriodEnd:         now,
+	}}); err != nil {
+		t.Fatalf("SaveZombies: %v", err)
+	}
+
+	if err := s.SaveSnapshot(ctx, model.ZombieSnapshot{
+		ID:               uuid.New().String(),
+		AccountID:        a.ID,
+		SnapshotAt:       now,
+		ZombieCount:      1,
+		TotalMonthlyCost: 15.99,
+		Currency:         "USD",
+	}); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	if _, err := s.DismissZombie(ctx, model.DismissAction{
+		AccountID:  a.ID,
+		Provider:   "aws",
+		Service:    "AmazonEC2",
+		Region:     "eu-central-1",
+		ResourceID: "i-0abcd",
+		Action:     "dismiss",
+		Reason:     "not_a_zombie",
+	}); err != nil {
+		t.Fatalf("DismissZombie: %v", err)
+	}
+
+	if err := s.DeleteAccount(ctx, a.ID); err != nil {
+		t.Fatalf("DeleteAccount: %v", err)
+	}
+
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+
+	for _, tbl := range []struct{ table, column string }{
+		{"cost_records", "internal_account_id"},
+		{"resource_records", "internal_account_id"},
+		{"zombie_records", "internal_account_id"},
+		{"zombie_snapshots", "account_id"},
+		{"dismissed_zombies", "account_id"},
+	} {
+		var count int
+		q := fmt.Sprintf(`SELECT count(*) FROM axiaops.%s WHERE %s = $1`, tbl.table, tbl.column)
+		if err := conn.QueryRow(context.Background(), q, a.ID).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", tbl.table, err)
+		}
+		if count != 0 {
+			t.Errorf("expected 0 rows in %s for deleted account, got %d", tbl.table, count)
+		}
 	}
 }
 
@@ -962,6 +1099,7 @@ func testRoleAccount(organizationID string) model.Account {
 		Status:            model.AccountStatusConnected,
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
+		BillingSource:     model.BillingSourceCostExplorer,
 	}
 }
 
@@ -1132,7 +1270,8 @@ func resourceRecord(service string, isZombie bool) model.ResourceRecord {
 
 func TestSaveResources_LoadResources_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	resources := []model.ResourceRecord{
 		resourceRecord("AmazonEC2", true),
@@ -1154,7 +1293,8 @@ func TestSaveResources_LoadResources_Roundtrip(t *testing.T) {
 
 func TestSaveResources_ReplacesOnSecondRun(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	if err := s.SaveResources(ctx, []model.ResourceRecord{
 		resourceRecord("AmazonEC2", true),
@@ -1195,6 +1335,7 @@ func zombieSnapshot(organizationID, accountID string, cost float64, zombieCount 
 func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-001")
 
 	snap := zombieSnapshot(org.ID, "acc-001", 150.00, 3)
 	if err := s.SaveSnapshot(ctx, snap); err != nil {
@@ -1229,6 +1370,7 @@ func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
 func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-1")
 
 	// Insert three snapshots with explicit timestamps spread one hour apart.
 	base := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
@@ -1270,6 +1412,8 @@ func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 func TestListSnapshots_FilterByAccountID(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-A")
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-B")
 
 	// Two snapshots for acc-A, one for acc-B.
 	if err := s.SaveSnapshot(ctx, zombieSnapshot(org.ID, "acc-A", 100, 2)); err != nil {
@@ -1365,6 +1509,7 @@ func TestSnapshot_OrganizationIsolation(t *testing.T) {
 
 	ctxA, orgA := newOrgCtx(t, s)
 	ctxB, _ := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctxA, orgA.ID, "acc-1")
 
 	// Organization A saves a snapshot.
 	if err := s.SaveSnapshot(ctxA, zombieSnapshot(orgA.ID, "acc-1", 100, 2)); err != nil {
@@ -1384,6 +1529,7 @@ func TestSnapshot_OrganizationIsolation(t *testing.T) {
 func TestSaveSnapshot_AccumulatesAcrossScans(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-1")
 
 	// Simulate three consecutive scans — unlike zombie_records, snapshots must not be replaced.
 	for i := 1; i <= 3; i++ {
@@ -1567,8 +1713,8 @@ func TestAuditLog_IPAddressRoundTrips(t *testing.T) {
 // actor_name is denormalised on write (migration 028). Three branches need
 // coverage:
 //   - caller supplies a name → persists verbatim
-//   - caller supplies empty name → column stores '' (NOT NULL DEFAULT '')
-//   - row written before column existed → existing rows still surface '' as
+//   - caller supplies empty name → column stores ” (NOT NULL DEFAULT ”)
+//   - row written before column existed → existing rows still surface ” as
 //     the read path projects the column with no fallback magic
 //
 // The frontend's fallback to actor_email depends on the empty-string branches
@@ -1793,5 +1939,66 @@ func TestAuditLog_MissingOrganization_Errors(t *testing.T) {
 	}
 	if _, err := s.AuditLogList(context.Background(), model.AuditFilter{}); err == nil {
 		t.Error("expected list error when organization_id missing from ctx, got nil")
+	}
+}
+
+func TestAccount_CURAthena_Constraints(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("skipping test requiring RLS constraint checks")
+	}
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	// Valid CUR config
+	curDB := "db"
+	curTable := "tbl"
+	curWg := "wg"
+	curS3 := "s3"
+	curRegion := "us-east-1"
+
+	acc := model.Account{
+		ID:              uuid.New().String(),
+		OrganizationID:  org.ID,
+		Provider:        "aws",
+		AccountID:       "111222333444",
+		Label:           "CUR Account",
+		AuthMethod:      model.AuthMethodAccessKey,
+		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+		SecretEncrypted: "encrypted-test-value",
+		BillingSource:   model.BillingSourceCURAthena,
+		CURDatabase:     &curDB,
+		CURTable:        &curTable,
+		CURWorkgroup:    &curWg,
+		CURResultsS3:    &curS3,
+		CURRegion:       &curRegion,
+		Status:          model.AccountStatusConnected,
+	}
+
+	if err := s.SaveAccount(ctx, acc); err != nil {
+		t.Fatalf("failed to save valid CUR account: %v", err)
+	}
+
+	saved, err := s.GetAccount(ctx, acc.ID)
+	if err != nil {
+		t.Fatalf("failed to get account: %v", err)
+	}
+	if saved.BillingSource != model.BillingSourceCURAthena {
+		t.Errorf("expected cur_athena, got %s", saved.BillingSource)
+	}
+	if saved.CURDatabase == nil || *saved.CURDatabase != "db" {
+		t.Errorf("expected CURDatabase to be db")
+	}
+
+	// Invalid CUR config (missing fields)
+	invalidAcc := acc
+	invalidAcc.ID = uuid.New().String()
+	invalidAcc.CURRegion = nil // Missing region should trigger CHECK constraint
+
+	err = s.SaveAccount(ctx, invalidAcc)
+	if err == nil {
+		t.Fatal("expected error saving CUR account missing cur_region due to CHECK constraint")
+	}
+	if !strings.Contains(err.Error(), "accounts_cur_fields_present") {
+		t.Errorf("expected accounts_cur_fields_present constraint violation, got: %v", err)
 	}
 }

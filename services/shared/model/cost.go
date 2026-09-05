@@ -23,6 +23,7 @@ type CostRecord struct {
 	PeriodEnd         time.Time         `json:"period_end"`
 	Tags              map[string]string `json:"tags"`
 	FetchedAt         time.Time         `json:"fetched_at"`
+	CostBasis         string            `json:"cost_basis"` // "billed" | "list_price"
 }
 
 // ValidationError carries the field name that failed and a human-readable
@@ -106,3 +107,8 @@ func regionAcceptable(provider, region string) bool {
 	}
 	return AWSRegionLike(region)
 }
+
+const (
+	CostBasisBilled    = "billed"
+	CostBasisListPrice = "list_price"
+)

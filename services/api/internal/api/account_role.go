@@ -48,9 +48,10 @@ var verifyHTTPClient = &http.Client{Timeout: verifyTimeout}
 // The customer-facing flow is described in docs/OPERATIONS.md (§1).
 func (h *Handler) createDraftAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Provider string `json:"provider"`
-		Label    string `json:"label"`
-		Region   string `json:"region"`
+		Provider      string `json:"provider"`
+		Label         string `json:"label"`
+		Region        string `json:"region"`
+		BillingSource string `json:"billing_source"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -77,8 +78,16 @@ func (h *Handler) createDraftAccount(w http.ResponseWriter, r *http.Request) {
 	organizationID := middleware.OrganizationID(r.Context())
 	ctx := storage.WithOrganizationID(r.Context(), organizationID)
 
+	var bs string
+	if req.BillingSource == model.BillingSourceCURAthena {
+		bs = model.BillingSourceCURAthena
+	} else {
+		bs = model.BillingSourceCostExplorer
+	}
+
 	account := model.Account{
 		ID:                uuid.New().String(),
+		BillingSource:     bs,
 		OrganizationID:    organizationID,
 		Provider:          req.Provider,
 		Label:             req.Label,
@@ -88,6 +97,23 @@ func (h *Handler) createDraftAccount(w http.ResponseWriter, r *http.Request) {
 		Status:            model.AccountStatusPendingRoleSetup,
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
+	}
+	if bs == model.BillingSourceCURAthena {
+		defDB := defaultCURDatabase
+		defTable := defaultCURTable
+		defWG := defaultCURWorkgroup
+		defS3 := placeholderCURResultsS3
+		// AWS::BCMDataExports::Export only exists in us-east-1, and the
+		// same setup stack creates the Glue Database/Table/Athena
+		// Workgroup, so all of it lives in us-east-1 regardless of the
+		// account's own AWS region -- see handler.go's createAccount for
+		// the identical reasoning.
+		defRegion := defaultCURRegion
+		account.CURDatabase = &defDB
+		account.CURTable = &defTable
+		account.CURWorkgroup = &defWG
+		account.CURResultsS3 = &defS3
+		account.CURRegion = &defRegion
 	}
 
 	if err := h.store.SaveAccount(ctx, account); err != nil {
