@@ -130,6 +130,68 @@ func TestGetCURSetup_RejectsInvalidResourceNameOverrides(t *testing.T) {
 	}
 }
 
+// TestGetCURSetup_AuthMethodDrivesIdentityResource pins the access-key
+// onboarding automation: the template now creates AxiaOpsRole (assumed via
+// ExternalId) for auth_method=role, or AxiaOpsUser + a generated
+// AWS::IAM::AccessKey (secret stashed in Secrets Manager, never a raw
+// CloudFormation Output — see the template's own comment on why) for
+// auth_method=access_key. Both share the exact same AxiaOpsPolicy.
+func TestGetCURSetup_AuthMethodDrivesIdentityResource(t *testing.T) {
+	for _, tc := range []struct {
+		authMethod   string
+		wantDefault  string
+		wantResource string
+	}{
+		{model.AuthMethodRole, "Default: 'role'", "AxiaOpsRole:"},
+		{model.AuthMethodAccessKey, "Default: 'access_key'", "AxiaOpsUser:"},
+	} {
+		store := NewMockStore().WithAccounts([]model.Account{
+			{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", BillingSource: model.BillingSourceCURAthena, AuthMethod: tc.authMethod},
+		})
+		h := api.New(store, noopQueue())
+		mux := http.NewServeMux()
+		h.Register(mux)
+
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/accounts/acc-1/cur-setup"))
+
+		body := w.Body.String()
+		if !strings.Contains(body, tc.wantDefault) {
+			t.Errorf("auth_method=%s: expected AuthMethod parameter %q, got: %s", tc.authMethod, tc.wantDefault, body)
+		}
+		if !strings.Contains(body, tc.wantResource) {
+			t.Errorf("auth_method=%s: expected resource %q in template, got: %s", tc.authMethod, tc.wantResource, body)
+		}
+		if !strings.Contains(body, "AxiaOpsUserSecret:") || !strings.Contains(body, "AWS::SecretsManager::Secret") {
+			t.Errorf("auth_method=%s: expected AxiaOpsUserSecret (Secrets Manager) resource declared regardless of which identity is active, got: %s", tc.authMethod, body)
+		}
+	}
+}
+
+// TestGetCURSetup_UnknownAuthMethodFallsBackToRole pins the defensive
+// fallback: accounts.auth_method is NOT NULL DEFAULT 'access_key' at the DB
+// layer, so a real fetched row is never empty, but rendering an empty (or
+// otherwise invalid) AuthMethod into the template's AllowedValues:
+// [role, access_key] parameter would make even `aws cloudformation
+// validate-template` reject the whole file — verified manually. An unknown
+// value must fall back to 'role' rather than propagate.
+func TestGetCURSetup_UnknownAuthMethodFallsBackToRole(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", BillingSource: model.BillingSourceCURAthena, AuthMethod: ""},
+	})
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/accounts/acc-1/cur-setup"))
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Default: 'role'") {
+		t.Errorf("expected empty/unknown auth_method to fall back to 'role', got: %s", body)
+	}
+}
+
 func TestGetCURSetup_AccountNotFound_Returns404(t *testing.T) {
 	store := NewMockStore().WithGetAccountError(errors.New("not found"))
 	h := api.New(store, noopQueue())

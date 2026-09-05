@@ -2,10 +2,21 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: AxiaOps CUR Integration - Creates IAM Role and Athena/S3 infrastructure for Cost and Usage Reports.
 
 Parameters:
+  # Defaulted from the account's own auth_method (getCURSetup) — role
+  # accounts get AxiaOpsRole (assumed via ExternalId, no long-lived secret
+  # ever leaves this account); access_key accounts get AxiaOpsUser + a
+  # generated access key instead, since that account has no role to assume.
+  # Exactly one of the two identity resources below is created, gated on
+  # this parameter's Conditions.
+  AuthMethod:
+    Type: String
+    Default: '{{.AuthMethod}}'
+    AllowedValues: [role, access_key]
+    Description: Whether AxiaOps authenticates by assuming AxiaOpsRole (recommended) or using AxiaOpsUser's access key.
   ExternalId:
     Type: String
     Default: '{{.ExternalID}}'
-    Description: The External ID provided by AxiaOps for secure role assumption.
+    Description: The External ID provided by AxiaOps for secure role assumption. Ignored when AuthMethod is access_key.
 
   # --- Resource naming. GlueDatabaseName/GlueTableName/AthenaWorkgroupName/
   # RoleName default to whatever the dashboard's Advanced Configuration
@@ -58,11 +69,19 @@ Parameters:
   RoleName:
     Type: String
     Default: '{{.RoleName}}'
-    Description: Name of the IAM role AxiaOps assumes to scan this account.
+    Description: Name of the IAM role AxiaOps assumes to scan this account. Ignored when AuthMethod is access_key.
+  UserName:
+    Type: String
+    Default: '{{.RoleName}}'
+    Description: Name of the IAM user AxiaOps authenticates as. Ignored when AuthMethod is role. Shares the same default as RoleName since only one of the two is ever created.
   PolicyName:
     Type: String
     Default: AxiaOpsPolicy
-    Description: Name of the IAM managed policy attached to RoleName.
+    Description: Name of the IAM managed policy attached to RoleName or UserName.
+
+Conditions:
+  UseRole: !Equals [!Ref AuthMethod, role]
+  UseAccessKey: !Equals [!Ref AuthMethod, access_key]
 
 Resources:
   # 1. Bucket for raw CUR data delivery from AWS
@@ -168,9 +187,12 @@ Resources:
               - !Sub 'arn:aws:s3:::${CURDataBucket}'
               - !Sub 'arn:aws:s3:::${CURDataBucket}/*'
 
-  # 4. IAM Role for AxiaOps to assume
+  # 4. IAM Role for AxiaOps to assume (AuthMethod=role, the recommended path
+  # — see docs/OPERATIONS.md § 1. No long-lived credential ever leaves this
+  # account; AxiaOps proves its identity by assuming this role.
   AxiaOpsRole:
     Type: AWS::IAM::Role
+    Condition: UseRole
     Properties:
       RoleName: !Ref RoleName
       AssumeRolePolicyDocument:
@@ -184,6 +206,37 @@ Resources:
                 "sts:ExternalId": !Ref ExternalId
       ManagedPolicyArns:
         - !Ref AxiaOpsPolicy
+
+  # 4b. IAM User + generated access key (AuthMethod=access_key — the legacy
+  # onboarding path; automates what used to be a manual "create a user,
+  # generate keys, paste them into AxiaOps" sequence). The secret key is
+  # never exposed as a raw CloudFormation Output on purpose: stack Outputs
+  # are readable by anyone in this account who can DescribeStacks (often a
+  # broad, long-lived grant) with no audit trail, for as long as the stack
+  # exists. Secrets Manager instead requires the specific
+  # secretsmanager:GetSecretValue permission and logs every read.
+  AxiaOpsUser:
+    Type: AWS::IAM::User
+    Condition: UseAccessKey
+    Properties:
+      UserName: !Ref UserName
+      ManagedPolicyArns:
+        - !Ref AxiaOpsPolicy
+
+  AxiaOpsUserAccessKey:
+    Type: AWS::IAM::AccessKey
+    Condition: UseAccessKey
+    Properties:
+      UserName: !Ref AxiaOpsUser
+      Status: Active
+
+  AxiaOpsUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: UseAccessKey
+    Properties:
+      Name: !Sub 'axiaops/${AxiaOpsUser}/access-key'
+      Description: AxiaOps scanning credentials — retrieve with the command in this stack's Outputs.
+      SecretString: !Sub '{"AccessKeyId":"${AxiaOpsUserAccessKey}","SecretAccessKey":"${AxiaOpsUserAccessKey.SecretAccessKey}"}'
 
   # 5. CUR 2.0 Data Export. Native resource — no custom Lambda needed. Column
   # list is deliberately narrow (only what the amortization query in
@@ -295,8 +348,22 @@ Resources:
 
 Outputs:
   RoleARN:
+    Condition: UseRole
     Description: Role ARN to paste into AxiaOps
     Value: !GetAtt AxiaOpsRole.Arn
+  AccessKeyId:
+    Condition: UseAccessKey
+    Description: Access Key ID to paste into AxiaOps (not a secret — safe to view here)
+    Value: !Ref AxiaOpsUserAccessKey
+  SecretAccessKeyCommand:
+    Condition: UseAccessKey
+    # Deliberately prints the whole {"AccessKeyId":...,"SecretAccessKey":...}
+    # blob rather than piping through jq/python to extract one field — a
+    # single flat command with no nested quoting is the one thing guaranteed
+    # to work identically in bash, zsh, and PowerShell without whatever
+    # shell the customer happens to be running mangling the quotes.
+    Description: Run this, then copy the SecretAccessKey value out of the JSON it prints
+    Value: !Sub 'aws secretsmanager get-secret-value --secret-id ${AxiaOpsUserSecret} --query SecretString --output text'
   CURBucketName:
     Description: Bucket name to use when creating the Cost and Usage Report in AWS Billing
     Value: !Ref CURDataBucket

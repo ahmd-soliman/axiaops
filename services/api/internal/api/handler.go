@@ -1541,6 +1541,7 @@ var curSetupTemplate = template.Must(template.New("cur_setup").Parse(curSetupTem
 type curSetupTemplateData struct {
 	AccountID           string
 	ExternalID          string
+	AuthMethod          string
 	GlueDatabaseName    string
 	GlueTableName       string
 	AthenaWorkgroupName string
@@ -1582,6 +1583,19 @@ func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The DB's accounts.auth_method column is NOT NULL DEFAULT 'access_key'
+	// (migration 019), so a real fetched row is never empty here — this is
+	// a defensive fallback only. Confirmed the failure mode it guards
+	// against is real: the template's AuthMethod parameter declares
+	// AllowedValues: [role, access_key], and rendering an empty string into
+	// its Default makes even `aws cloudformation validate-template` reject
+	// the whole file with "Parameter 'AuthMethod' must be one of
+	// AllowedValues" — silently serving a broken download otherwise.
+	authMethod := account.AuthMethod
+	if authMethod != model.AuthMethodRole && authMethod != model.AuthMethodAccessKey {
+		authMethod = model.AuthMethodRole
+	}
+
 	glueDatabase := defaultCURDatabase
 	if v := r.URL.Query().Get("cur_database"); v != "" {
 		if !validGlueIdentifier.MatchString(v) {
@@ -1619,6 +1633,7 @@ func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
 	data := curSetupTemplateData{
 		AccountID:           os.Getenv("AXIAOPS_AWS_ACCOUNT_ID"),
 		ExternalID:          account.ExternalID,
+		AuthMethod:          authMethod,
 		GlueDatabaseName:    glueDatabase,
 		GlueTableName:       glueTable,
 		AthenaWorkgroupName: athenaWorkgroup,

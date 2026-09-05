@@ -297,6 +297,14 @@ function RoleAuthTab({ onConnected }) {
   const [draft, setDraft] = useState(null);
   const [label, setLabel] = useState('');
   const [region, setRegion] = useState('eu-central-1');
+  // Not sent to the backend — account_id is derived server-side from the
+  // verified role ARN (the source of truth). This is purely a client-side
+  // convenience: knowing it upfront lets handleGenerate below compute the
+  // exact Role ARN the customer's CloudFormation stack will produce
+  // (arn:aws:iam::<this>:role/<curConfig.role_name>), so roleArn starts
+  // prepopulated instead of empty — nothing left to copy-paste from the
+  // stack's Outputs tab if they used the deterministic role name.
+  const [customerAwsAccountId, setCustomerAwsAccountId] = useState('');
   const [roleArn, setRoleArn] = useState('');
   const [showManual, setShowManual] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -341,6 +349,7 @@ function RoleAuthTab({ onConnected }) {
       cur_workgroup: account.cur_workgroup || 'axiaops_athena_wg',
       cur_results_s3: account.cur_results_s3 || '',
       cur_region: account.cur_region || 'us-east-1',
+      role_name: roleNameFromArn(account.role_arn) || 'AxiaOpsRole',
     });
     setDraft(account);
     setStep('verify');
@@ -364,6 +373,9 @@ function RoleAuthTab({ onConnected }) {
         billing_source: billingSource,
       });
       setDraft(created);
+      if (/^\d{12}$/.test(customerAwsAccountId.trim())) {
+        setRoleArn(`arn:aws:iam::${customerAwsAccountId.trim()}:role/${billingSource === 'cur_athena' ? (curConfig.role_name || 'AxiaOpsRole') : 'AxiaOpsIntegrationRole'}`);
+      }
       setStep('verify');
     } catch (e) {
       setError('Failed to start onboarding. Please try again.');
@@ -441,6 +453,14 @@ function RoleAuthTab({ onConnected }) {
         )}
         <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" />
         <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
+        <Field
+          label="Your AWS Account ID (optional)"
+          value={customerAwsAccountId}
+          onChange={setCustomerAwsAccountId}
+          placeholder="123456789012"
+          mono
+          hint="Lets us prefill the exact Role ARN below instead of you copying it from the stack's Outputs tab. Top-right of the AWS Console."
+        />
         <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} />
         {error && <ErrorBox message={error} />}
         <PrimaryButton onClick={handleGenerate} loading={loading} label={pendingDrafts.length > 0 ? 'Start a new connection instead' : 'Generate connection'} />
@@ -522,7 +542,7 @@ function RoleAuthTab({ onConnected }) {
       )}
 
       <Field label="Role ARN" value={roleArn} onChange={setRoleArn}
-        placeholder="arn:aws:iam::...:role/AxiaOpsIntegrationRole"
+        placeholder={`arn:aws:iam::...:role/${billingSource === 'cur_athena' ? (curConfig.role_name || 'AxiaOpsRole') : 'AxiaOpsIntegrationRole'}`}
         hint="From the CloudFormation stack's RoleArn output (or your manually-created role)"
         mono />
 
@@ -557,6 +577,15 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
   const [scanIntervalHours, setScanIntervalHours] = useState(account?.scan_interval_hours?.toString() ?? '24');
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
+  const [showPermissions, setShowPermissions] = useState(false);
+  // Not sent to the backend — for a new connection, account_id is derived
+  // server-side from the credentials via STS once connectAccount succeeds
+  // (saveCurConfig's cur_results_s3 fallback already uses that real value).
+  // This is purely a client-side convenience, mirroring RoleAuthTab: knowing
+  // it upfront lets the "Results S3 Bucket" Advanced Configuration field be
+  // prepopulated with the same s3://axiaops-athena-results-<id>-<region>
+  // name the CFN template would create, instead of staying blank until save.
+  const [customerAwsAccountId, setCustomerAwsAccountId] = useState('');
   // No `account` yet means this is a new connection — default to CUR, same
   // as RoleAuthTab. Only an existing account genuinely still on CE should
   // show CE selected (falls to 'cost_explorer' below); collapsing "no account" and
@@ -644,13 +673,21 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
           padding: '14px 16px',
           marginBottom: 18,
         }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? 'var(--color-text-mid)' : '#1D4ED8', display: 'block', marginBottom: 8 }}>
-            Required IAM permissions
-          </span>
-          <p style={{ fontSize: 12, color: 'var(--color-text-mid)', margin: '0 0 8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? 'var(--color-text-mid)' : '#1D4ED8' }}>
+              Required IAM permissions
+            </span>
+            <button
+              onClick={() => setShowPermissions(s => !s)}
+              style={{ background: 'none', border: 'none', color: isDark ? 'var(--color-text-mid)' : '#1D4ED8', fontSize: 12, textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+            >
+              {showPermissions ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--color-text-mid)', margin: showPermissions ? '8px 0' : '8px 0 0' }}>
             Attach this read-only policy to the IAM user behind these access keys.
           </p>
-          <CopyableBlock label="Permissions policy JSON" value={permissionsPolicyJSON} />
+          {showPermissions && <CopyableBlock label="Permissions policy JSON" value={permissionsPolicyJSON} />}
         </div>
       )}
       <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" />
@@ -664,6 +701,21 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
         type="password"
       />
       <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
+      {!isEdit && (
+        <Field
+          label="Your AWS Account ID (optional)"
+          value={customerAwsAccountId}
+          onChange={v => {
+            setCustomerAwsAccountId(v);
+            if (/^\d{12}$/.test(v.trim()) && !curConfig.cur_results_s3) {
+              setCurConfig(c => ({ ...c, cur_results_s3: `s3://axiaops-athena-results-${v.trim()}-${c.cur_region || 'us-east-1'}` }));
+            }
+          }}
+          placeholder="123456789012"
+          mono
+          hint="Prefills the Results S3 Bucket name in Advanced Configuration below. Top-right of the AWS Console."
+        />
+      )}
       {isEdit && (
         <Field
           label="Auto-scan interval (hours)"
