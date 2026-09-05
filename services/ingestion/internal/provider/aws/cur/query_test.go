@@ -58,6 +58,31 @@ func TestBuildAmortizedSQL_TwoAdjacentMonths(t *testing.T) {
 	}
 }
 
+// buildAmortizedSQL must include Credit and Refund line items so they net
+// into each group's total via the CASE expression's ELSE branch
+// (line_item_unblended_cost, negative for these types) -- excluding them
+// silently inflated CUR-reported costs relative to what the old
+// NetAmortizedCost-based Cost Explorer path reported for the same bill.
+// Only Tax is excluded (it has its own dedicated buildTaxSQL query).
+func TestBuildAmortizedSQL_IncludesCreditAndRefundLineItems(t *testing.T) {
+	s := NewAthenaCURSource(nil, "db", "tbl", "wg", "s3://res")
+
+	start, _ := time.Parse("2006-01-02", "2026-09-01")
+	end, _ := time.Parse("2006-01-02", "2026-09-03")
+
+	sql := s.buildAmortizedSQL(start, end, false)
+
+	if !strings.Contains(sql, "line_item_line_item_type != 'Tax'") {
+		t.Errorf("expected Tax to still be excluded, got: %s", sql)
+	}
+	if strings.Contains(sql, "'Credit'") {
+		t.Errorf("expected Credit line items to no longer be excluded, got: %s", sql)
+	}
+	if strings.Contains(sql, "'Refund'") {
+		t.Errorf("expected Refund line items to no longer be excluded, got: %s", sql)
+	}
+}
+
 func TestBuildTaxSQL_FiltersToTaxLineItemsOnly(t *testing.T) {
 	s := NewAthenaCURSource(nil, "db", "tbl", "wg", "s3://res")
 

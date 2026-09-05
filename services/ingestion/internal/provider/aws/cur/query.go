@@ -110,6 +110,16 @@ HAVING SUM(line_item_unblended_cost) > 0.000001`,
 
 // buildAmortizedSQL constructs the CUDOS-compatible amortization query.
 // It uses billing_period as a partition key (formatted YYYY-MM) for pruning.
+// Only Tax is excluded (it has its own dedicated buildTaxSQL query, see
+// FetchTaxCosts) -- Credit and Refund line items are deliberately included
+// and fall through the CASE's ELSE branch to line_item_unblended_cost,
+// which AWS reports as negative for these types. Summing them alongside
+// Usage nets credits/refunds into each group's total, mirroring how the
+// old Cost Explorer path's NetAmortizedCost metric was already net of
+// credits. Excluding them here (as an earlier version of this query did)
+// silently inflated CUR-reported costs relative to what CE reported for
+// the same bill -- a group that nets to zero or negative is still
+// filtered out below by the HAVING clause, same as CE's own amount<=0 skip.
 func (s *AthenaCURSource) buildAmortizedSQL(start, end time.Time, resourceLevel bool) string {
 	// Format dates for SQL injection (safely parameterized usually, but Athena doesn't fully support
 	// parameterized queries for everything nicely in v2 SDK without ExecutionParameters,
@@ -144,7 +154,7 @@ FROM "%s"."%s"
 WHERE %s
   AND line_item_usage_start_date >= TIMESTAMP '%s'
   AND line_item_usage_start_date < TIMESTAMP '%s'
-  AND line_item_line_item_type NOT IN ('Tax', 'Credit', 'Refund')
+  AND line_item_line_item_type != 'Tax'
 GROUP BY %s
 HAVING SUM(CASE line_item_line_item_type
     WHEN 'SavingsPlanCoveredUsage' THEN savings_plan_savings_plan_effective_cost
