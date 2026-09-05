@@ -5,7 +5,7 @@ import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner } from '../components/primitives';
 import { useDestructiveConfirm, DestructiveConfirmModal } from '../components/DestructiveConfirm';
-import { BillingSourceConfig } from './ConnectScreen';
+import { BillingSourceConfig, roleNameFromArn } from './ConnectScreen';
 
 function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, readOnly }) {
   return (
@@ -96,6 +96,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
     cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg',
     cur_results_s3: account?.cur_results_s3 || '',
     cur_region: account?.cur_region || 'us-east-1',
+    role_name: roleNameFromArn(account?.role_arn) || 'AxiaOpsRole',
   });
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
@@ -367,6 +368,7 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
                 cur_results_s3: account.cur_results_s3,
                 cur_region: account.cur_region,
               } : null}
+              accountId={account?.id}
             />
 
             {error && (

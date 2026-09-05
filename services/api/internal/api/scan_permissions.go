@@ -91,6 +91,7 @@ const (
 	defaultCURTable         = "axiaops_cur_table"
 	defaultCURWorkgroup     = "axiaops_athena_wg"
 	defaultCURRegion        = "us-east-1"
+	defaultCURRoleName      = "AxiaOpsRole"
 	placeholderCURResultsS3 = "s3://axiaops-athena-results-placeholder"
 )
 

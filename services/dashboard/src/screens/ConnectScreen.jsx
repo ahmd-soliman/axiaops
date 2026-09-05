@@ -71,6 +71,17 @@ function CopyableBlock({ label, value }) {
   );
 }
 
+// Extracts the role name from an existing account's role_arn (the last
+// path segment, e.g. "arn:aws:iam::123:role/MyCustomRole" -> "MyCustomRole")
+// so editing an already-connected role account prepopulates Advanced
+// Configuration's IAM Role Name with the name it was actually deployed
+// under, not the generic default. Returns '' for a blank/malformed arn.
+export function roleNameFromArn(roleArn) {
+  if (!roleArn) return '';
+  const parts = roleArn.split('/');
+  return parts.length > 1 ? parts[parts.length - 1] : '';
+}
+
 // Build the customer's trust policy JSON with the AxiaOps principal and the
 // per-account ExternalId already filled in. Mirrors design §3.1.
 function trustPolicyJSON(externalId) {
@@ -132,7 +143,15 @@ function useScanPermissionsJSON(billingSource) {
 // names" sentence — which is accurate for a new connection but actively
 // misleading once an account's real values diverge from that generic
 // pattern (e.g. a manually-named test setup).
-export function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCurConfig, defaultExpanded = false, savedValues = null }) {
+// accountId (optional): when given, offers the same "Download CloudFormation
+// Template" button RoleAuthTab's verify step shows — the CFN stack it
+// deploys creates resources already named to match the defaults below (or
+// AccessKeyTab/AccountSettingsScreen's saveCurConfig fallback), so this is
+// the one place a customer on either auth method can actually get those
+// resources created, not just be told what name they need to end up with.
+// Only renders once an account row exists (RoleAuthTab's own draft step,
+// or any edit screen) — GET .../cur-setup 404s before that.
+export function BillingSourceConfig({ billingSource, setBillingSource, curConfig, setCurConfig, defaultExpanded = false, savedValues = null, accountId = null }) {
   // Start expanded when editing an account that already has real CUR values
   // saved — otherwise the fields are only reachable by knowing to re-check
   // this box, which reads as "I can't see/edit what's already configured."
@@ -168,6 +187,28 @@ export function BillingSourceConfig({ billingSource, setBillingSource, curConfig
             </div>
           )}
 
+          {accountId && (
+            <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <a
+                href={curSetupHref(accountId, curConfig)}
+                download="cur_template.yml"
+                style={{
+                  display: 'inline-block', alignSelf: 'flex-start',
+                  backgroundColor: 'var(--color-accent)', color: '#fff',
+                  fontSize: 13, fontWeight: 600, padding: '8px 14px',
+                  borderRadius: 8, textDecoration: 'none',
+                }}
+              >
+                Download CloudFormation Template
+              </a>
+              <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                Creates the S3 buckets, Data Export, Glue database/table, and Athena workgroup above —
+                open the <strong>AWS CloudFormation Console (us-east-1)</strong> and choose <strong>Upload a template file</strong>.
+                The External ID and your AxiaOps account ID are already filled in.
+              </span>
+            </div>
+          )}
+
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
             <input type="checkbox" checked={showAdvanced} onChange={e => setShowAdvanced(e.target.checked)} />
             Advanced Configuration (Manual Override)
@@ -180,12 +221,36 @@ export function BillingSourceConfig({ billingSource, setBillingSource, curConfig
               <Field label="Athena Workgroup" value={curConfig.cur_workgroup} onChange={v => setCurConfig({...curConfig, cur_workgroup: v})} placeholder="axiaops_athena_wg" mono />
               <Field label="Results S3 Bucket" value={curConfig.cur_results_s3} onChange={v => setCurConfig({...curConfig, cur_results_s3: v})} placeholder="s3://axiaops-athena-results-..." mono />
               <Field label="CUR Region" value={curConfig.cur_region} onChange={v => setCurConfig({...curConfig, cur_region: v})} placeholder="us-east-1" mono />
+              <Field
+                label="IAM Role Name"
+                value={curConfig.role_name}
+                onChange={v => setCurConfig({...curConfig, role_name: v})}
+                placeholder="AxiaOpsRole"
+                mono
+                hint="Only used to name the downloaded CloudFormation stack's role — not saved on the account."
+              />
             </div>
           )}
         </div>
       )}
     </div>
   );
+}
+
+// Builds the GET .../cur-setup URL, carrying whatever Advanced Configuration
+// overrides are currently set so the downloaded template's Glue/Athena/Role
+// resource names actually match what's saved on the account — otherwise the
+// stack silently deploys the axiaops_*/AxiaOpsRole defaults regardless of
+// what the customer typed here. Blank/default values are omitted so the
+// server's own defaults (and its query-param validation) still apply.
+function curSetupHref(accountId, curConfig) {
+  const params = new URLSearchParams();
+  if (curConfig?.cur_database && curConfig.cur_database !== 'axiaops_cur_db') params.set('cur_database', curConfig.cur_database);
+  if (curConfig?.cur_table && curConfig.cur_table !== 'axiaops_cur_table') params.set('cur_table', curConfig.cur_table);
+  if (curConfig?.cur_workgroup && curConfig.cur_workgroup !== 'axiaops_athena_wg') params.set('cur_workgroup', curConfig.cur_workgroup);
+  if (curConfig?.role_name && curConfig.role_name !== 'AxiaOpsRole') params.set('role_name', curConfig.role_name);
+  const query = params.toString();
+  return `/api/v1/accounts/${accountId}/cur-setup${query ? `?${query}` : ''}`;
 }
 
 async function saveCurConfig(account, billingSource, updateAccountFn, curConfig) {
@@ -241,7 +306,7 @@ function RoleAuthTab({ onConnected }) {
   // ~/Desktop/axiaops-cur-migration-plan.md Phase 5); it stays selectable
   // here only as a fallback until that removal ships.
   const [billingSource, setBillingSource] = useState('cur_athena');
-  const [curConfig, setCurConfig] = useState({ cur_database: 'axiaops_cur_db', cur_table: 'axiaops_cur_table', cur_workgroup: 'axiaops_athena_wg', cur_results_s3: '', cur_region: 'us-east-1' });
+  const [curConfig, setCurConfig] = useState({ cur_database: 'axiaops_cur_db', cur_table: 'axiaops_cur_table', cur_workgroup: 'axiaops_athena_wg', cur_results_s3: '', cur_region: 'us-east-1', role_name: 'AxiaOpsRole' });
   const permissionsPolicyJSON = useScanPermissionsJSON(billingSource);
 
   // pendingDrafts guards against a real bug: draftAccount() mints a brand-new
@@ -392,7 +457,7 @@ function RoleAuthTab({ onConnected }) {
       {billingSource === 'cur_athena' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <a
-            href={`/api/v1/accounts/${draft.id}/cur-setup`}
+            href={curSetupHref(draft.id, curConfig)}
             download="cur_template.yml"
             style={{
               display: 'inline-block', alignSelf: 'flex-start',
@@ -500,10 +565,11 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
   const [billingSource, setBillingSource] = useState(!account ? 'cur_athena' : (account.billing_source === 'cur_athena' ? 'cur_athena' : 'cost_explorer'));
   const [curConfig, setCurConfig] = useState({
     cur_database: account?.cur_database || 'axiaops_cur_db',
-    cur_table: account?.cur_table || 'axiaops_cur_table', 
-    cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg', 
-    cur_results_s3: account?.cur_results_s3 || '', 
-    cur_region: account?.cur_region || 'us-east-1'
+    cur_table: account?.cur_table || 'axiaops_cur_table',
+    cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg',
+    cur_results_s3: account?.cur_results_s3 || '',
+    cur_region: account?.cur_region || 'us-east-1',
+    role_name: roleNameFromArn(account?.role_arn) || 'AxiaOpsRole',
   });
   const permissionsPolicyJSON = useScanPermissionsJSON(billingSource);
 
@@ -627,7 +693,7 @@ function RoleEditTab({ account, onConnected }) {
   const [error, setError] = useState('');
   const [verifyHint, setVerifyHint] = useState('');
   const [billingSource, setBillingSource] = useState(account?.billing_source === 'cur_athena' ? 'cur_athena' : 'cost_explorer');
-  const [curConfig, setCurConfig] = useState({ cur_database: account?.cur_database || 'axiaops_cur_db', cur_table: account?.cur_table || 'axiaops_cur_table', cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg', cur_results_s3: account?.cur_results_s3 || '', cur_region: account?.cur_region || 'us-east-1' });
+  const [curConfig, setCurConfig] = useState({ cur_database: account?.cur_database || 'axiaops_cur_db', cur_table: account?.cur_table || 'axiaops_cur_table', cur_workgroup: account?.cur_workgroup || 'axiaops_athena_wg', cur_results_s3: account?.cur_results_s3 || '', cur_region: account?.cur_region || 'us-east-1', role_name: roleNameFromArn(account?.role_arn) || 'AxiaOpsRole' });
 
   const roleArnChanged = roleArn.trim() !== (account.role_arn ?? '');
 

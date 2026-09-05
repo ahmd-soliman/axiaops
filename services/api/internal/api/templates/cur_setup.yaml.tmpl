@@ -7,15 +7,21 @@ Parameters:
     Default: '{{.ExternalID}}'
     Description: The External ID provided by AxiaOps for secure role assumption.
 
-  # --- Resource naming, all defaulted to AxiaOps' standard names below.
-  # Override these (e.g. via --parameter-overrides) only to run a second copy
-  # of this stack in the same AWS account/region — a parallel test or
-  # fresh-install validation stack — without colliding on names. Every
-  # resource that used to repeat a literal now derives it from here instead,
-  # so changing a name can't leave a stale copy of the literal behind
-  # elsewhere in the template. That's exactly how a hand-edited "-test" copy
-  # of this file once drifted: its Data Export was renamed but the Glue
-  # table's storage location, hardcoded separately, was not.
+  # --- Resource naming. GlueDatabaseName/GlueTableName/AthenaWorkgroupName/
+  # RoleName default to whatever the dashboard's Advanced Configuration
+  # (BillingSourceConfig) has saved for this account — see getCURSetup's
+  # ?cur_database/?cur_table/?cur_workgroup/?role_name — so a customer who
+  # customized those away from the axiaops_* defaults gets a template that
+  # actually matches, instead of silently deploying axiaops_* regardless.
+  # ExportName/S3Prefix/BucketSuffix aren't dashboard-editable; override
+  # those (e.g. via --parameter-overrides) only to run a second copy of this
+  # stack in the same AWS account/region without colliding on names — a
+  # parallel test or fresh-install validation stack. Every resource that
+  # used to repeat a literal now derives it from a Parameter instead, so
+  # changing a name can't leave a stale copy of the literal behind elsewhere
+  # in the template. That's exactly how a hand-edited "-test" copy of this
+  # file once drifted: its Data Export was renamed but the Glue table's
+  # storage location, hardcoded separately, was not.
   ExportName:
     Type: String
     Default: axiaops
@@ -39,19 +45,19 @@ Parameters:
       into the same account/region — set this to avoid that.
   GlueDatabaseName:
     Type: String
-    Default: axiaops_cur_db
-    Description: Glue Data Catalog database name. Must match POST /v1/accounts' defDB default.
+    Default: '{{.GlueDatabaseName}}'
+    Description: Glue Data Catalog database name. Must match the account's cur_database.
   GlueTableName:
     Type: String
-    Default: axiaops_cur_table
-    Description: Glue table name. Must match POST /v1/accounts' defTable default.
+    Default: '{{.GlueTableName}}'
+    Description: Glue table name. Must match the account's cur_table.
   AthenaWorkgroupName:
     Type: String
-    Default: axiaops_athena_wg
-    Description: Athena workgroup name. Must match POST /v1/accounts' defWG default.
+    Default: '{{.AthenaWorkgroupName}}'
+    Description: Athena workgroup name. Must match the account's cur_workgroup.
   RoleName:
     Type: String
-    Default: AxiaOpsRole
+    Default: '{{.RoleName}}'
     Description: Name of the IAM role AxiaOps assumes to scan this account.
   PolicyName:
     Type: String

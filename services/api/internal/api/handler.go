@@ -1091,6 +1091,11 @@ var (
 	validAthenaWorkgroup = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)
 	validAWSRegion       = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-\d+$`)
 	validS3URI           = regexp.MustCompile(`^s3://[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9](/[a-zA-Z0-9._\-/]*)?$`)
+	// validIAMName mirrors AWS's own charset for IAM role/policy names
+	// ([\w+=,.@-]{1,64}) — used to validate the ?role_name override for
+	// getCURSetup before it's interpolated into the rendered template's raw
+	// YAML.
+	validIAMName = regexp.MustCompile(`^[\w+=,.@-]{1,64}$`)
 )
 
 // validateCURConfig checks that CUR-related fields are safe for use in Athena
@@ -1534,10 +1539,14 @@ var curSetupTemplate = template.Must(template.New("cur_setup").Parse(curSetupTem
 // file!"), but until this field existed only AccountID actually was;
 // ExternalID was fetched from the store and silently discarded.
 type curSetupTemplateData struct {
-	AccountID        string
-	ExternalID       string
-	GeneralActions   []string
-	CURAthenaActions []string
+	AccountID           string
+	ExternalID          string
+	GlueDatabaseName    string
+	GlueTableName       string
+	AthenaWorkgroupName string
+	RoleName            string
+	GeneralActions      []string
+	CURAthenaActions    []string
 }
 
 // getScanPermissions returns the IAM policy document a customer should
@@ -1551,7 +1560,17 @@ func (h *Handler) getScanPermissions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"policy": scanPermissionsPolicy(includeCUR)})
 }
 
-// getCURSetup returns a CloudFormation template tailored for the account to setup CUR delivery and Athena.
+// getCURSetup returns a CloudFormation template tailored for the account to
+// setup CUR delivery and Athena. ?cur_database/?cur_table/?cur_workgroup let
+// the dashboard's "Advanced Configuration" overrides (BillingSourceConfig)
+// flow into the template's Glue/Athena resource names — without this, a
+// customer who typed a custom database/table/workgroup name would get a
+// deployed stack that still creates the axiaops_* defaults, silently
+// mismatched against what's saved on the account row. Validated with the
+// same regexes updateAccount uses for these fields (validateCURConfig)
+// since they're interpolated into the template's raw YAML with no escaping
+// (text/template, not html/template) — an unvalidated value could break out
+// of the quoted Default and inject arbitrary CloudFormation.
 func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	organizationID := middleware.OrganizationID(r.Context())
@@ -1563,12 +1582,49 @@ func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	glueDatabase := defaultCURDatabase
+	if v := r.URL.Query().Get("cur_database"); v != "" {
+		if !validGlueIdentifier.MatchString(v) {
+			http.Error(w, fmt.Sprintf("invalid cur_database %q: must match [a-zA-Z0-9_]{1,128}", v), http.StatusBadRequest)
+			return
+		}
+		glueDatabase = v
+	}
+	glueTable := defaultCURTable
+	if v := r.URL.Query().Get("cur_table"); v != "" {
+		if !validGlueIdentifier.MatchString(v) {
+			http.Error(w, fmt.Sprintf("invalid cur_table %q: must match [a-zA-Z0-9_]{1,128}", v), http.StatusBadRequest)
+			return
+		}
+		glueTable = v
+	}
+	athenaWorkgroup := defaultCURWorkgroup
+	if v := r.URL.Query().Get("cur_workgroup"); v != "" {
+		if !validAthenaWorkgroup.MatchString(v) {
+			http.Error(w, fmt.Sprintf("invalid cur_workgroup %q: must match [a-zA-Z0-9._-]{1,128}", v), http.StatusBadRequest)
+			return
+		}
+		athenaWorkgroup = v
+	}
+	roleName := defaultCURRoleName
+	if v := r.URL.Query().Get("role_name"); v != "" {
+		if !validIAMName.MatchString(v) {
+			http.Error(w, fmt.Sprintf("invalid role_name %q: must match [\\w+=,.@-]{1,64}", v), http.StatusBadRequest)
+			return
+		}
+		roleName = v
+	}
+
 	var buf bytes.Buffer
 	data := curSetupTemplateData{
-		AccountID:        os.Getenv("AXIAOPS_AWS_ACCOUNT_ID"),
-		ExternalID:       account.ExternalID,
-		GeneralActions:   generalScanPermissions,
-		CURAthenaActions: curAthenaPermissions,
+		AccountID:           os.Getenv("AXIAOPS_AWS_ACCOUNT_ID"),
+		ExternalID:          account.ExternalID,
+		GlueDatabaseName:    glueDatabase,
+		GlueTableName:       glueTable,
+		AthenaWorkgroupName: athenaWorkgroup,
+		RoleName:            roleName,
+		GeneralActions:      generalScanPermissions,
+		CURAthenaActions:    curAthenaPermissions,
 	}
 	if err := curSetupTemplate.Execute(&buf, data); err != nil {
 		slog.Error("getCURSetup: template execute failed", "error", err)

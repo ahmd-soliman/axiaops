@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -63,6 +64,69 @@ func TestGetCURSetup_PrefillsExternalID(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "Default: 'axiaops-ext-abc123'") {
 		t.Errorf("expected ExternalId parameter to default to the account's stored ExternalID, got: %s", body)
+	}
+}
+
+// TestGetCURSetup_OverridesResourceNamesFromQuery pins the fix for the
+// dashboard's Advanced Configuration overrides being disconnected from the
+// downloaded template: a customer who set a custom cur_database/cur_table/
+// cur_workgroup/role_name (BillingSourceConfig) used to get a template that
+// still defaulted to axiaops_cur_db/axiaops_cur_table/axiaops_athena_wg/
+// AxiaOpsRole regardless — a silent mismatch against what's saved on the
+// account. The query params must now flow into the rendered Defaults.
+func TestGetCURSetup_OverridesResourceNamesFromQuery(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", BillingSource: model.BillingSourceCURAthena},
+	})
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/accounts/acc-1/cur-setup?cur_database=my_db&cur_table=my_table&cur_workgroup=my-wg&role_name=MyCustomRole"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		"GlueDatabaseName:\n    Type: String\n    Default: 'my_db'",
+		"GlueTableName:\n    Type: String\n    Default: 'my_table'",
+		"AthenaWorkgroupName:\n    Type: String\n    Default: 'my-wg'",
+		"RoleName:\n    Type: String\n    Default: 'MyCustomRole'",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected %q in rendered template, got: %s", want, body)
+		}
+	}
+}
+
+// TestGetCURSetup_RejectsInvalidResourceNameOverrides pins the security-
+// relevant half of the same fix: these query params are interpolated
+// straight into the template's raw YAML (text/template, no escaping), so an
+// unvalidated value could break out of the quoted Default and inject
+// arbitrary CloudFormation. Each param must be checked with the same regex
+// updateAccount already uses for the equivalent stored field.
+func TestGetCURSetup_RejectsInvalidResourceNameOverrides(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", BillingSource: model.BillingSourceCURAthena},
+	})
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	for _, tc := range []struct{ param, value string }{
+		{"cur_database", "' } malicious: true"},
+		{"cur_table", "../../etc/passwd"},
+		{"cur_workgroup", "bad workgroup"},
+		{"role_name", "bad'role"},
+	} {
+		q := url.Values{tc.param: {tc.value}}.Encode()
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/accounts/acc-1/cur-setup?"+q))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s=%q: expected 400, got %d — body: %s", tc.param, tc.value, w.Code, w.Body.String())
+		}
 	}
 }
 
