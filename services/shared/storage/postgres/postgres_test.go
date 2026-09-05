@@ -145,6 +145,31 @@ func newOrgCtx(t *testing.T, s *postgres.Store) (context.Context, model.Organiza
 	return storage.WithOrganizationID(ctx, org.ID), org
 }
 
+// mustSaveTestAccount saves a minimal valid account row under the given ID so
+// that the accounts(id) foreign keys added by migration 040 are satisfied
+// when a test saves cost/resource/zombie/snapshot/dismissal records
+// referencing it -- those tables no longer accept an internal_account_id /
+// account_id with no matching accounts row. Tests that only care about the
+// child table's own behavior can otherwise use any synthetic account ID they
+// like, as long as they create it here first.
+func mustSaveTestAccount(t *testing.T, s *postgres.Store, ctx context.Context, organizationID, accountID string) {
+	t.Helper()
+	if err := s.SaveAccount(ctx, model.Account{
+		ID:              accountID,
+		OrganizationID:  organizationID,
+		Provider:        "aws",
+		AccountID:       "000000000000",
+		Region:          "eu-central-1",
+		Status:          "connected",
+		AuthMethod:      model.AuthMethodAccessKey,
+		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+		SecretEncrypted: "stub",
+		BillingSource:   model.BillingSourceCostExplorer,
+	}); err != nil {
+		t.Fatalf("mustSaveTestAccount(%q): %v", accountID, err)
+	}
+}
+
 func costRecord(service, region string, amount float64) model.CostRecord {
 	return model.CostRecord{
 		Provider:    "aws",
@@ -358,6 +383,7 @@ func TestSave_UpsertPreservesInternalAccountID(t *testing.T) {
 	ctx, org := newOrgCtx(t, s)
 
 	internal := "internal-acct-abc"
+	mustSaveTestAccount(t, s, ctx, org.ID, internal)
 	first := costRecord("AmazonElastiCache", "eu-central-1", 50.00)
 	first.InternalAccountID = &internal
 	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
@@ -493,7 +519,8 @@ func zombieResource(service string, cost float64) model.ZombieResource {
 
 func TestSaveZombies_LoadZombies_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	zombies := []model.ZombieResource{
 		zombieResource("AmazonEC2", 100.00),
@@ -515,7 +542,8 @@ func TestSaveZombies_LoadZombies_Roundtrip(t *testing.T) {
 
 func TestSaveZombies_ReplacesOnSecondRun(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	if err := s.SaveZombies(ctx, []model.ZombieResource{
 		zombieResource("AmazonEC2", 100.00),
@@ -567,8 +595,9 @@ func TestZombies_OrganizationIsolation(t *testing.T) {
 	}
 	s := newTestStore(t)
 
-	ctxA, _ := newOrgCtx(t, s)
+	ctxA, orgA := newOrgCtx(t, s)
 	ctxB, _ := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctxA, orgA.ID, "test-account-id")
 
 	// Organization A saves zombies.
 	if err := s.SaveZombies(ctxA, []model.ZombieResource{zombieResource("AmazonEC2", 100)}); err != nil {
@@ -1070,6 +1099,7 @@ func testRoleAccount(organizationID string) model.Account {
 		Status:            model.AccountStatusConnected,
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
+		BillingSource:     model.BillingSourceCostExplorer,
 	}
 }
 
@@ -1240,7 +1270,8 @@ func resourceRecord(service string, isZombie bool) model.ResourceRecord {
 
 func TestSaveResources_LoadResources_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	resources := []model.ResourceRecord{
 		resourceRecord("AmazonEC2", true),
@@ -1262,7 +1293,8 @@ func TestSaveResources_LoadResources_Roundtrip(t *testing.T) {
 
 func TestSaveResources_ReplacesOnSecondRun(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	if err := s.SaveResources(ctx, []model.ResourceRecord{
 		resourceRecord("AmazonEC2", true),
@@ -1303,6 +1335,7 @@ func zombieSnapshot(organizationID, accountID string, cost float64, zombieCount 
 func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-001")
 
 	snap := zombieSnapshot(org.ID, "acc-001", 150.00, 3)
 	if err := s.SaveSnapshot(ctx, snap); err != nil {
@@ -1337,6 +1370,7 @@ func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
 func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-1")
 
 	// Insert three snapshots with explicit timestamps spread one hour apart.
 	base := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
@@ -1378,6 +1412,8 @@ func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 func TestListSnapshots_FilterByAccountID(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-A")
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-B")
 
 	// Two snapshots for acc-A, one for acc-B.
 	if err := s.SaveSnapshot(ctx, zombieSnapshot(org.ID, "acc-A", 100, 2)); err != nil {
@@ -1473,6 +1509,7 @@ func TestSnapshot_OrganizationIsolation(t *testing.T) {
 
 	ctxA, orgA := newOrgCtx(t, s)
 	ctxB, _ := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctxA, orgA.ID, "acc-1")
 
 	// Organization A saves a snapshot.
 	if err := s.SaveSnapshot(ctxA, zombieSnapshot(orgA.ID, "acc-1", 100, 2)); err != nil {
@@ -1492,6 +1529,7 @@ func TestSnapshot_OrganizationIsolation(t *testing.T) {
 func TestSaveSnapshot_AccumulatesAcrossScans(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-1")
 
 	// Simulate three consecutive scans — unlike zombie_records, snapshots must not be replaced.
 	for i := 1; i <= 3; i++ {
@@ -1675,8 +1713,8 @@ func TestAuditLog_IPAddressRoundTrips(t *testing.T) {
 // actor_name is denormalised on write (migration 028). Three branches need
 // coverage:
 //   - caller supplies a name → persists verbatim
-//   - caller supplies empty name → column stores '' (NOT NULL DEFAULT '')
-//   - row written before column existed → existing rows still surface '' as
+//   - caller supplies empty name → column stores ” (NOT NULL DEFAULT ”)
+//   - row written before column existed → existing rows still surface ” as
 //     the read path projects the column with no fallback magic
 //
 // The frontend's fallback to actor_email depends on the empty-string branches
@@ -1917,21 +1955,23 @@ func TestAccount_CURAthena_Constraints(t *testing.T) {
 	curWg := "wg"
 	curS3 := "s3"
 	curRegion := "us-east-1"
-	
+
 	acc := model.Account{
-		ID:             uuid.New().String(),
-		OrganizationID: org.ID,
-		Provider:       "aws",
-		AccountID:      "111222333444",
-		Label:          "CUR Account",
-		AuthMethod:     model.AuthMethodAccessKey,
-		BillingSource:  model.BillingSourceCURAthena,
-		CURDatabase:    &curDB,
-		CURTable:       &curTable,
-		CURWorkgroup:   &curWg,
-		CURResultsS3:   &curS3,
-		CURRegion:      &curRegion,
-		Status:         model.AccountStatusConnected,
+		ID:              uuid.New().String(),
+		OrganizationID:  org.ID,
+		Provider:        "aws",
+		AccountID:       "111222333444",
+		Label:           "CUR Account",
+		AuthMethod:      model.AuthMethodAccessKey,
+		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+		SecretEncrypted: "encrypted-test-value",
+		BillingSource:   model.BillingSourceCURAthena,
+		CURDatabase:     &curDB,
+		CURTable:        &curTable,
+		CURWorkgroup:    &curWg,
+		CURResultsS3:    &curS3,
+		CURRegion:       &curRegion,
+		Status:          model.AccountStatusConnected,
 	}
 
 	if err := s.SaveAccount(ctx, acc); err != nil {

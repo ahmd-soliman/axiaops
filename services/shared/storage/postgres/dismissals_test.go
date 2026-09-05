@@ -11,7 +11,8 @@ import (
 // via LEFT JOIN. Resource present in the latest scan → cost populated.
 func TestListActiveDismissals_JoinsLastKnownCost(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	z := zombieResource("AmazonEC2", 42.50)
 	if err := s.SaveZombies(ctx, []model.ZombieResource{z}); err != nil {
@@ -57,7 +58,8 @@ func TestListActiveDismissals_JoinsLastKnownCost(t *testing.T) {
 // the frontend's costsById workaround could not cover.
 func TestListActiveDismissals_OrphanedDismissalReturnsNilCost(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	z := zombieResource("AmazonEC2", 42.50)
 	if err := s.SaveZombies(ctx, []model.ZombieResource{z}); err != nil {
