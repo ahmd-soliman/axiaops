@@ -99,16 +99,16 @@ func (h *Handler) createDraftAccount(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:         time.Now().UTC(),
 	}
 	if bs == model.BillingSourceCURAthena {
-		defDB := "axiaops_cur_db"
-		defTable := "axiaops_cur_table"
-		defWG := "axiaops_athena_wg"
-		defS3 := "s3://axiaops-athena-results-placeholder"
+		defDB := defaultCURDatabase
+		defTable := defaultCURTable
+		defWG := defaultCURWorkgroup
+		defS3 := placeholderCURResultsS3
 		// AWS::BCMDataExports::Export only exists in us-east-1, and the
 		// same setup stack creates the Glue Database/Table/Athena
 		// Workgroup, so all of it lives in us-east-1 regardless of the
 		// account's own AWS region -- see handler.go's createAccount for
 		// the identical reasoning.
-		defRegion := "us-east-1"
+		defRegion := defaultCURRegion
 		account.CURDatabase = &defDB
 		account.CURTable = &defTable
 		account.CURWorkgroup = &defWG

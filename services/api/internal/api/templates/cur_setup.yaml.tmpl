@@ -4,14 +4,66 @@ Description: AxiaOps CUR Integration - Creates IAM Role and Athena/S3 infrastruc
 Parameters:
   ExternalId:
     Type: String
+    Default: '{{.ExternalID}}'
     Description: The External ID provided by AxiaOps for secure role assumption.
+
+  # --- Resource naming, all defaulted to AxiaOps' standard names below.
+  # Override these (e.g. via --parameter-overrides) only to run a second copy
+  # of this stack in the same AWS account/region — a parallel test or
+  # fresh-install validation stack — without colliding on names. Every
+  # resource that used to repeat a literal now derives it from here instead,
+  # so changing a name can't leave a stale copy of the literal behind
+  # elsewhere in the template. That's exactly how a hand-edited "-test" copy
+  # of this file once drifted: its Data Export was renamed but the Glue
+  # table's storage location, hardcoded separately, was not.
+  ExportName:
+    Type: String
+    Default: axiaops
+    Description: >-
+      Name of the CUR 2.0 Data Export (AWS::BCMDataExports::Export). AWS
+      nests delivered data under this same name inside S3Prefix
+      (<S3Prefix>/<ExportName>/data/...) — the Glue table's storage location
+      is computed from this parameter and S3Prefix, never hardcoded
+      separately, so the two can't drift out of sync again.
+  S3Prefix:
+    Type: String
+    Default: cur
+    Description: S3 key prefix under CURDataBucket that the Data Export delivers to.
+  BucketSuffix:
+    Type: String
+    Default: ''
+    Description: >-
+      Optional suffix appended to both S3 bucket names (e.g. "-test"). Bucket
+      names are otherwise derived from account ID + region, which is unique
+      per account/region but still collides if you deploy a second stack
+      into the same account/region — set this to avoid that.
+  GlueDatabaseName:
+    Type: String
+    Default: axiaops_cur_db
+    Description: Glue Data Catalog database name. Must match POST /v1/accounts' defDB default.
+  GlueTableName:
+    Type: String
+    Default: axiaops_cur_table
+    Description: Glue table name. Must match POST /v1/accounts' defTable default.
+  AthenaWorkgroupName:
+    Type: String
+    Default: axiaops_athena_wg
+    Description: Athena workgroup name. Must match POST /v1/accounts' defWG default.
+  RoleName:
+    Type: String
+    Default: AxiaOpsRole
+    Description: Name of the IAM role AxiaOps assumes to scan this account.
+  PolicyName:
+    Type: String
+    Default: AxiaOpsPolicy
+    Description: Name of the IAM managed policy attached to RoleName.
 
 Resources:
   # 1. Bucket for raw CUR data delivery from AWS
   CURDataBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub 'axiaops-cur-data-${AWS::AccountId}-${AWS::Region}'
+      BucketName: !Sub 'axiaops-cur-data-${AWS::AccountId}-${AWS::Region}${BucketSuffix}'
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -44,7 +96,7 @@ Resources:
   AthenaQueryResultsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub 'axiaops-athena-results-${AWS::AccountId}-${AWS::Region}'
+      BucketName: !Sub 'axiaops-athena-results-${AWS::AccountId}-${AWS::Region}${BucketSuffix}'
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -55,7 +107,7 @@ Resources:
   AxiaOpsWorkgroup:
     Type: AWS::Athena::WorkGroup
     Properties:
-      Name: 'axiaops_athena_wg'
+      Name: !Ref AthenaWorkgroupName
       WorkGroupConfiguration:
         ResultConfiguration:
           OutputLocation: !Sub 's3://${AthenaQueryResultsBucket}/'
@@ -71,7 +123,7 @@ Resources:
   AxiaOpsPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: AxiaOpsPolicy
+      ManagedPolicyName: !Ref PolicyName
       Description: Customer managed policy for AxiaOps role
       PolicyDocument:
         Version: '2012-10-17'
@@ -114,7 +166,7 @@ Resources:
   AxiaOpsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: AxiaOpsRole
+      RoleName: !Ref RoleName
       AssumeRolePolicyDocument:
         Statement:
           - Effect: Allow
@@ -138,7 +190,7 @@ Resources:
     DependsOn: CURDataBucketPolicy
     Properties:
       Export:
-        Name: axiaops
+        Name: !Ref ExportName
         DataQuery:
           QueryStatement: >-
             SELECT line_item_usage_account_id, line_item_product_code,
@@ -158,7 +210,7 @@ Resources:
         DestinationConfigurations:
           S3Destination:
             S3Bucket: !Ref CURDataBucket
-            S3Prefix: cur
+            S3Prefix: !Ref S3Prefix
             S3Region: !Ref AWS::Region
             S3OutputConfigurations:
               OutputType: CUSTOM
@@ -174,7 +226,9 @@ Resources:
   # explicitly here, matching the export's column selection above and the
   # BILLING_PERIOD=YYYY-MM partitioning Data Exports uses for delivery
   # (https://docs.aws.amazon.com/cur/latest/userguide/dataexports-export-delivery.html).
-  # Names match the defaults in POST /v1/accounts (defDB/defTable).
+  # GlueDatabaseName/GlueTableName default to the same names POST
+  # /v1/accounts uses for defDB/defTable — keep them in sync if either
+  # default changes.
   #
   # Partition projection (not MSCK/a crawler/a Lambda) is what makes new
   # billing periods queryable. Without it, Athena has zero visibility into
@@ -187,7 +241,7 @@ Resources:
     Properties:
       CatalogId: !Ref AWS::AccountId
       DatabaseInput:
-        Name: axiaops_cur_db
+        Name: !Ref GlueDatabaseName
 
   AxiaOpsCURTable:
     Type: AWS::Glue::Table
@@ -195,7 +249,7 @@ Resources:
       CatalogId: !Ref AWS::AccountId
       DatabaseName: !Ref AxiaOpsCURDatabase
       TableInput:
-        Name: axiaops_cur_table
+        Name: !Ref GlueTableName
         TableType: EXTERNAL_TABLE
         Parameters:
           EXTERNAL: 'TRUE'
@@ -205,12 +259,15 @@ Resources:
           'projection.billing_period.interval': '1'
           'projection.billing_period.interval.unit': 'MONTHS'
           'projection.billing_period.range': '2024-01,NOW'
-          'storage.location.template': !Sub 's3://${CURDataBucket}/cur/axiaops/data/BILLING_PERIOD=${!billing_period}/'
+          # Derived from S3Prefix + ExportName (never a separate literal) —
+          # this is the exact path AWS Data Exports delivers to:
+          # <S3Prefix>/<ExportName>/data/BILLING_PERIOD=.../
+          'storage.location.template': !Sub 's3://${CURDataBucket}/${S3Prefix}/${ExportName}/data/BILLING_PERIOD=${!billing_period}/'
         PartitionKeys:
           - Name: billing_period
             Type: string
         StorageDescriptor:
-          Location: !Sub 's3://${CURDataBucket}/cur/axiaops/data/'
+          Location: !Sub 's3://${CURDataBucket}/${S3Prefix}/${ExportName}/data/'
           InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
           OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
           SerdeInfo:

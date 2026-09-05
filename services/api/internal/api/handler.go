@@ -755,6 +755,18 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		bs = model.BillingSourceCostExplorer
 	}
 
+	// A fresh CUR-Athena account only has the placeholder CURResultsS3 below
+	// until PATCH supplies the real bucket, so it must not report
+	// "connected" yet — mirrors the role-based draft flow (account_role.go)
+	// and the billing_source-switch branch further down in updateAccount.
+	// finalizeAccountStatus (services/ingestion/cmd/main.go) is what
+	// eventually flips this to Connected, once a scan actually pulls cost
+	// data.
+	status := model.AccountStatusConnected
+	if bs == model.BillingSourceCURAthena {
+		status = model.AccountStatusPendingCURDelivery
+	}
+
 	account := model.Account{
 		ID:                uuid.New().String(),
 		BillingSource:     bs,
@@ -765,15 +777,15 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		AccessKeyID:       req.AccessKeyID,
 		SecretEncrypted:   secretEncrypted,
 		Region:            req.Region,
-		Status:            "connected",
+		Status:            status,
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
 	}
 	if bs == model.BillingSourceCURAthena {
-		defDB := "axiaops_cur_db"
-		defTable := "axiaops_cur_table"
-		defWG := "axiaops_athena_wg"
-		defS3 := "s3://axiaops-athena-results-placeholder"
+		defDB := defaultCURDatabase
+		defTable := defaultCURTable
+		defWG := defaultCURWorkgroup
+		defS3 := placeholderCURResultsS3
 		account.CURDatabase = &defDB
 		account.CURTable = &defTable
 		account.CURWorkgroup = &defWG
@@ -784,7 +796,7 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		// Database/Table/Athena Workgroup, all of that infra necessarily
 		// lives in us-east-1 too, regardless of the account's own AWS
 		// region. Never fall back to req.Region here.
-		defRegion := "us-east-1"
+		defRegion := defaultCURRegion
 		account.CURRegion = &defRegion
 	}
 
@@ -1515,9 +1527,15 @@ var curSetupTemplate = template.Must(template.New("cur_setup").Parse(curSetupTem
 // curSetupTemplateData feeds templates/cur_setup.yaml.tmpl. GeneralActions
 // and CURAthenaActions come from scan_permissions.go so this template and
 // GET /v1/scan-permissions can never drift the way the CFN template and the
-// dashboard's hardcoded policy display once did.
+// dashboard's hardcoded policy display once did. ExternalID pre-fills the
+// ExternalId parameter's Default so the downloaded template is genuinely
+// ready to deploy as-is — the dashboard's download prompt already claims
+// this ("The ExternalId and Account ID are already pre-filled inside the
+// file!"), but until this field existed only AccountID actually was;
+// ExternalID was fetched from the store and silently discarded.
 type curSetupTemplateData struct {
 	AccountID        string
+	ExternalID       string
 	GeneralActions   []string
 	CURAthenaActions []string
 }
@@ -1539,7 +1557,7 @@ func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
 	organizationID := middleware.OrganizationID(r.Context())
 	ctx := storage.WithOrganizationID(r.Context(), organizationID)
 
-	_, err := h.store.GetAccount(ctx, id)
+	account, err := h.store.GetAccount(ctx, id)
 	if err != nil {
 		http.Error(w, "account not found", http.StatusNotFound)
 		return
@@ -1548,6 +1566,7 @@ func (h *Handler) getCURSetup(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	data := curSetupTemplateData{
 		AccountID:        os.Getenv("AXIAOPS_AWS_ACCOUNT_ID"),
+		ExternalID:       account.ExternalID,
 		GeneralActions:   generalScanPermissions,
 		CURAthenaActions: curAthenaPermissions,
 	}

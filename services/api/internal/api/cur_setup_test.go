@@ -41,6 +41,31 @@ func TestGetCURSetup_Returns200AndYAMLContentType(t *testing.T) {
 	}
 }
 
+// TestGetCURSetup_PrefillsExternalID pins a real fix: getCURSetup used to
+// fetch the account solely to check it exists, discarding it (`_, err :=
+// h.store.GetAccount(...)`), so the downloaded template's ExternalId
+// parameter had no Default — despite the dashboard's download prompt
+// claiming "The ExternalId and Account ID are already pre-filled inside the
+// file!" (ConnectScreen.jsx). Customers had to copy-paste the ExternalId by
+// hand from the dashboard into the CloudFormation console. The account's
+// stored ExternalID must now flow into the rendered Default.
+func TestGetCURSetup_PrefillsExternalID(t *testing.T) {
+	store := NewMockStore().WithAccounts([]model.Account{
+		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", BillingSource: model.BillingSourceCURAthena, ExternalID: "axiaops-ext-abc123"},
+	})
+	h := api.New(store, noopQueue())
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/accounts/acc-1/cur-setup"))
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Default: 'axiaops-ext-abc123'") {
+		t.Errorf("expected ExternalId parameter to default to the account's stored ExternalID, got: %s", body)
+	}
+}
+
 func TestGetCURSetup_AccountNotFound_Returns404(t *testing.T) {
 	store := NewMockStore().WithGetAccountError(errors.New("not found"))
 	h := api.New(store, noopQueue())
@@ -126,8 +151,21 @@ func TestGetCURSetup_GlueTableHasPartitionProjection(t *testing.T) {
 	if !strings.Contains(body, "storage.location.template") {
 		t.Fatalf("expected storage.location.template in rendered Glue table Parameters, got: %s", body)
 	}
-	if !strings.Contains(body, "cur/axiaops/data/BILLING_PERIOD=${!billing_period}/") {
-		t.Errorf("expected storage.location.template to use the literal ${!billing_period} placeholder, got: %s", body)
+	if !strings.Contains(body, "${S3Prefix}/${ExportName}/data/BILLING_PERIOD=${!billing_period}/") {
+		t.Errorf("expected storage.location.template to derive from ${S3Prefix}/${ExportName}, got: %s", body)
+	}
+
+	// StorageDescriptor.Location must derive from the exact same
+	// ${S3Prefix}/${ExportName} parameters as storage.location.template
+	// above (both ultimately from AxiaOpsCURExport's own S3Prefix/ExportName
+	// properties). This is a regression guard for a real incident: a
+	// hand-edited copy of this template once renamed the Data Export but
+	// left Location hardcoded to the old name, so Athena queried an S3
+	// prefix the export never wrote to and silently returned zero rows.
+	// Deriving both from the same parameters makes that drift structurally
+	// impossible instead of relying on someone remembering to update both.
+	if !strings.Contains(body, "Location: !Sub 's3://${CURDataBucket}/${S3Prefix}/${ExportName}/data/'") {
+		t.Errorf("expected StorageDescriptor.Location to derive from ${S3Prefix}/${ExportName} (not a hardcoded literal), got: %s", body)
 	}
 
 	// PartitionKeys must still declare billing_period — projection augments

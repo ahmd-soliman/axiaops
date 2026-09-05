@@ -78,6 +78,22 @@ var curAthenaPermissions = []string{
 	"glue:BatchGetPartition",
 }
 
+// Default Glue/Athena resource names the CUR-setup CloudFormation template
+// (templates/cur_setup.yaml.tmpl) creates, and the account defaults applied
+// when billing_source=cur_athena is chosen. createAccount (handler.go) and
+// createDraftAccount (account_role.go) both need these and used to carry
+// separate copies of the same literals — exactly the drift this file exists
+// to prevent for the permission lists above. placeholderCURResultsS3 is
+// never a real bucket; callers must leave the account in
+// AccountStatusPendingCURDelivery until it's replaced via PATCH.
+const (
+	defaultCURDatabase      = "axiaops_cur_db"
+	defaultCURTable         = "axiaops_cur_table"
+	defaultCURWorkgroup     = "axiaops_athena_wg"
+	defaultCURRegion        = "us-east-1"
+	placeholderCURResultsS3 = "s3://axiaops-athena-results-placeholder"
+)
+
 // scanPermissionsPolicy builds the IAM policy document a customer should
 // attach to the IAM user (access-key mode) or role (CFN-managed mode)
 // AxiaOps uses to scan their account. includeCURAthena adds the Athena/Glue
