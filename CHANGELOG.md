@@ -25,6 +25,10 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+### Changed
+
+- Helm chart: Bumped chart version to `0.3.7` and `appVersion` to `0.3.0-alpha.1`. The published `0.3.6` chart predated both the `axiaops-io` org move and this release, so its default `image.registry`/`appVersion` were stale.
+
 ## [0.3.0-alpha.1] — 2026-09-06
 
 Alpha for this specific release — the new CUR capability is still actively
