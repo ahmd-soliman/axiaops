@@ -336,7 +336,7 @@ func readBackCostRecord(t *testing.T, orgID, service, region, resourceID string)
 // readBackCostRecordByInternalAccount is readBackCostRecord narrowed to a
 // specific internal_account_id, for tests where more than one row can now
 // share the same (service, region, resource_id, period) conflict-key prefix
-// — distinguished only by internal_account_id (migration 038).
+// — distinguished only by internal_account_id (migration 041).
 func readBackCostRecordByInternalAccount(t *testing.T, orgID, service, region, resourceID, internalAccountID string) (id string, amount float64, gotInternalAccountID *string) {
 	t.Helper()
 	conn := connectTestDB(t)
@@ -352,6 +352,29 @@ func readBackCostRecordByInternalAccount(t *testing.T, orgID, service, region, r
 	).Scan(&id, &amount, &gotInternalAccountID)
 	if err != nil {
 		t.Fatalf("readBackCostRecordByInternalAccount(internal_account_id=%q): %v", internalAccountID, err)
+	}
+	return
+}
+
+// readBackCostRecordByNullInternalAccount is the NULL-account variant —
+// internal_account_id stays nullable (migration 040's FK requires it, an
+// empty-string sentinel would need a matching accounts row), so an "unset"
+// row must be looked up with IS NULL rather than an equality match.
+func readBackCostRecordByNullInternalAccount(t *testing.T, orgID, service, region, resourceID string) (id string, amount float64) {
+	t.Helper()
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	err := conn.QueryRow(context.Background(), `
+		SELECT id::text, amount
+		FROM axiaops.cost_records
+		WHERE organization_id = $1 AND provider = 'aws' AND account_id = '000000000000'
+		  AND service = $2 AND region = $3 AND resource_id = $4
+		  AND period_start = '2026-03-01'::date AND period_end = '2026-03-31'::date
+		  AND internal_account_id IS NULL`,
+		orgID, service, region, resourceID,
+	).Scan(&id, &amount)
+	if err != nil {
+		t.Fatalf("readBackCostRecordByNullInternalAccount: %v", err)
 	}
 	return
 }
@@ -401,13 +424,15 @@ func TestSave_UpsertPreservesID(t *testing.T) {
 	}
 }
 
-// A nil InternalAccountID coerces to "" (migration 038 made the column NOT
-// NULL DEFAULT ''), which is now part of the conflict key — so a second
-// write that omits it targets a distinct row from one that set a real value,
-// rather than merging into it. This replaces the old COALESCE-preserving
-// behavior: real ingestion call sites always set InternalAccountID before
-// calling Save, so this scenario shouldn't occur in practice, but the DB
-// must not silently misattribute a row if it ever does.
+// internal_account_id stays nullable on this branch (migration 040's foreign
+// key to accounts(id) means an empty-string sentinel would need a matching
+// account row), so a nil InternalAccountID binds as a real SQL NULL. NULL is
+// part of the conflict key (migration 041) and Postgres treats NULLs as
+// mutually distinct in a unique constraint, so a second write that omits it
+// never conflicts with — and so can't clobber — a row that set a real value.
+// Real ingestion call sites always set InternalAccountID before calling
+// Save, so this scenario shouldn't occur in practice, but the DB must not
+// silently misattribute a row if it ever does.
 func TestSave_MissingInternalAccountIDDoesNotClobberExisting(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
@@ -434,12 +459,9 @@ func TestSave_MissingInternalAccountIDDoesNotClobberExisting(t *testing.T) {
 		t.Errorf("expected internal_account_id %q preserved on its own row, got %v", internal, internalKnown)
 	}
 
-	_, amountUnset, internalUnset := readBackCostRecordByInternalAccount(t, org.ID, "AmazonElastiCache", "eu-central-1", "res-001", "")
+	_, amountUnset := readBackCostRecordByNullInternalAccount(t, org.ID, "AmazonElastiCache", "eu-central-1", "res-001")
 	if amountUnset != 75.00 {
-		t.Errorf("expected a separate internal_account_id=\"\" row with amount 75.00, got %v", amountUnset)
-	}
-	if internalUnset == nil || *internalUnset != "" {
-		t.Errorf("expected internal_account_id \"\" on the second row, got %v", internalUnset)
+		t.Errorf("expected a separate internal_account_id=NULL row with amount 75.00, got %v", amountUnset)
 	}
 }
 
@@ -453,6 +475,8 @@ func TestSave_DifferentInternalAccountIDsDoNotCollide(t *testing.T) {
 
 	accountA := "internal-acct-a"
 	accountB := "internal-acct-b"
+	mustSaveTestAccount(t, s, ctx, org.ID, accountA)
+	mustSaveTestAccount(t, s, ctx, org.ID, accountB)
 
 	first := costRecord("AmazonEC2", "eu-central-1", 10.00)
 	first.InternalAccountID = &accountA

@@ -116,13 +116,18 @@ func setOrganization(ctx context.Context, tx pgx.Tx) error {
 // billing period reaches the database under the rolling 30-day re-fetch
 // window.
 //
-// internal_account_id is part of the conflict key (migration 038) so two
-// different accounts connected to the same AWS account_id — e.g. running CE
-// and CUR ingestion side-by-side for migration comparison — never collide on
-// the same row; each keeps independent cost data. A nil InternalAccountID is
-// coerced to "" before binding, matching the column's NOT NULL DEFAULT ''
-// (kept nullable in the Go model only because the column was nullable when
-// this field was introduced in migration 010).
+// COALESCE(internal_account_id, '') is part of the conflict key (the
+// cost_records_org_resource_unique expression index from migration 041) so
+// two different accounts connected to the same AWS account_id — e.g. running
+// CE and CUR ingestion side-by-side for migration comparison — never
+// collide on the same row; each keeps independent cost data. The COALESCE
+// wrapper (rather than a plain column in the key) lets two NULL
+// InternalAccountIDs still collide with each other and upsert in place —
+// migration 040 added a foreign key on this column to accounts(id), so the
+// stored value must stay a real NULL rather than an empty-string sentinel
+// with no matching account, and a plain NULL-inclusive key would otherwise
+// treat every NULL as distinct, silently duplicating rows on every re-fetch
+// for records that don't set this field.
 //
 // Returns the count of rows that were fresh inserts and the count that were
 // updates, discriminated via the PostgreSQL upsert idiom RETURNING (xmax = 0):
@@ -149,18 +154,13 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (inserted,
 		if err != nil {
 			return 0, 0, fmt.Errorf("postgres: marshal tags: %w", err)
 		}
-		internalAccountID := ""
-		if r.InternalAccountID != nil {
-			internalAccountID = *r.InternalAccountID
-		}
-
 		var wasInsert bool
 		err = tx.QueryRow(ctx, `
 			INSERT INTO cost_records
 				(organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency,
 				 period_start, period_end, tags, fetched_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-			ON CONFLICT (organization_id, provider, account_id, service, region, resource_id, period_start, period_end, internal_account_id)
+			ON CONFLICT (organization_id, provider, account_id, service, region, resource_id, period_start, period_end, COALESCE(internal_account_id, ''))
 			DO UPDATE SET
 				amount     = EXCLUDED.amount,
 				currency   = EXCLUDED.currency,
@@ -168,7 +168,7 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (inserted,
 				fetched_at = EXCLUDED.fetched_at
 			RETURNING (xmax = 0)`,
 			organizationID,
-			r.Provider, r.AccountID, internalAccountID, r.Service, r.Region, r.ResourceID,
+			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID,
 			r.Amount, r.Currency,
 			r.PeriodStart, r.PeriodEnd,
 			string(tags), r.FetchedAt,
