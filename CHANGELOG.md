@@ -25,6 +25,51 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+## [0.3.0-alpha.1] — 2026-09-06
+
+Alpha for this specific release — the new CUR capability is still actively
+being hardened (see Fixed below), not yet design-partner ready. The existing
+Cost Explorer path is unaffected and remains at its prior beta maturity.
+
+### Added
+
+- **AWS Cost and Usage Report (CUR) via Athena** as an alternative billing
+  source to Cost Explorer. New AWS account connections default to CUR;
+  existing Cost Explorer accounts are unaffected. Onboarding automates the
+  CUR export and Athena/Glue setup via a bundled CloudFormation template
+  (including a Lambda custom resource), with an advanced manual-configuration
+  option in the dashboard for hand-rolled setups.
+- Tax is now surfaced as its own cost line item, instead of being folded into
+  the underlying service.
+- Foreign key constraints on `internal_account_id`/`account_id` across
+  `cost_records`, `resource_records`, `zombie_records`, `zombie_snapshots`,
+  and `dismissed_zombies`, preventing orphaned records if an account is
+  deleted.
+
+### Fixed
+
+- **Two accounts connected to the same underlying AWS account (e.g. a Cost
+  Explorer account and a CUR account pointed at the same account for
+  migration comparison) no longer clobber each other's cost data.** The
+  `cost_records` upsert key didn't include `internal_account_id`, so
+  whichever account scanned last silently reassigned the other's rows to
+  itself — the other account would appear to have zero cost data despite
+  having scanned successfully.
+- New CUR-Athena account connections no longer ship pre-marked "connected"
+  with a hardcoded placeholder S3 results bucket that never exists — every
+  scan against it failed until manually patched. Accounts now correctly
+  start in a pending-CUR-delivery state until the export is confirmed live.
+- AxiaOps' own CUR pipeline infrastructure (the CUR setup Lambda's log
+  groups) is excluded from zombie detection results, instead of flagging
+  itself as a wasteful resource.
+- Various CUR correctness fixes: Athena partition projection enabled (least-
+  privilege S3 grants), every billing period a scan window spans is now
+  enumerated, Credit/Refund CUR line items are netted instead of dropped,
+  negative-cost records no longer miscounted, CUR config fields validated
+  against Athena/Presto injection.
+- Redis queue connection now retries before falling back to the synchronous
+  path, instead of only checking once at process startup.
+
 ## [0.2.0-beta.9] — 2026-09-02
 
 ### Added
@@ -916,7 +961,8 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://github.com/axiaops-io/axiaops/compare/0.1.0-alpha.27...develop
+[Unreleased]: https://github.com/axiaops-io/axiaops/compare/0.3.0-alpha.1...main
+[0.3.0-alpha.1]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.1
 [0.2.0-beta.9]: https://github.com/axiaops-io/axiaops/tree/0.2.0-beta.9
 [0.1.0-alpha.32]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.32
 [0.1.0-alpha.31]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.31
