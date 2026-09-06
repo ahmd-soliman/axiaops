@@ -19,7 +19,7 @@ import (
 // — no CloudWatch metrics needed because DescribeLogGroups includes both
 // retentionInDays and storedBytes.
 func DiscoverWastefulLogGroups(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	regions := uniqueRegions(records)
+	regions := discoveryRegions(records, awsClient.Region())
 	accountID := awsClient.AccountID()
 	var zombies []model.ZombieResource
 

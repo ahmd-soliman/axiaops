@@ -10,8 +10,9 @@
 // Use this for any full calendar date shown to a user. Two things intentionally
 // do NOT route through here:
 //   - compact chart-axis ticks that omit the year ("29 May"), where space is tight;
-//   - the native <input type="date"> picker, whose display format follows the
-//     user's OS locale (correct behaviour for an input control).
+//   - the native <input type="date"> picker, which is pinned to `lang="en-GB"`
+//     (dd/mm/yyyy) at each call site instead, so its own OS-locale-driven
+//     rendering can't disagree with the day/month order used everywhere else.
 //
 // Accepts an ISO string or a Date; returns '' for null / empty / unparseable input.
 export function formatDate(value) {

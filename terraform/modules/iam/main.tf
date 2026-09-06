@@ -497,10 +497,18 @@ data "aws_iam_policy_document" "ecs_ingestion_task" {
       "dynamodb:DescribeTable",
       "eks:ListClusters",
       "eks:DescribeCluster",
+      "ecs:ListClusters",
+      "ecs:ListServices",
+      "docdb:DescribeDBClusters",
+      "kafka:ListClustersV2",
+      "route53:ListHostedZones",
+      "bedrock:ListProvisionedModelThroughputs",
+      "kendra:ListIndices",
       "logs:DescribeLogGroups",
       "ecr:DescribeRepositories",
       "ecr:DescribeImages",
       "secretsmanager:ListSecrets",
+      "s3:ListBucketMultipartUploads",
     ]
     resources = ["*"]
   }

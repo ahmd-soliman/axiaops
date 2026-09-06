@@ -68,6 +68,50 @@ flowchart TD
 The `api` service then just reads the persisted zombie/cost data back out —
 it never talks to AWS directly.
 
+## CUR / Athena billing path
+
+Cost Explorer works out of the box, but is limited to the last 14 days at
+resource granularity. Accounts with `billing_source: cur_athena` instead read
+from a Cost and Usage Report (CUR 2.0 / AWS Data Exports) the customer's
+account delivers into their own S3 bucket — no 14-day limit, and cheaper at
+scale. This path replaces steps B/C in the diagram above with a query against
+S3 via Athena:
+
+<Mermaid code={`
+flowchart LR
+    Export["AWS Data Exports\\n(customer's own export config)"]
+    S3["S3: Parquet files\\npartitioned BILLING_PERIOD=YYYY-MM"]
+    Glue["Glue Data Catalog\\ndatabase + table: schema + partition projection"]
+    Athena["Athena\\nSQL query engine, pay per byte scanned"]
+    Results["S3: query results (CSV)"]
+    Ingestion["ingestion: buildAmortizedSQL()\\nGROUP BY service, region, day"]
+
+    Export -->|delivers| S3
+    S3 -.->|registered via| Glue
+    Ingestion -->|StartQueryExecution| Athena
+    Athena -->|reads schema + location from| Glue
+    Athena -->|reads Parquet bytes from| S3
+    Athena -->|writes| Results
+    Ingestion -->|GetQueryResults| Results
+`} />
+
+Glue holds no data itself — it's metadata only: schema (column names/types)
+plus where the data lives in S3. The table is partitioned by
+`billing_period`, but partitions aren't manually registered (no crawler, no
+`MSCK REPAIR`, no Lambda): the table uses [Athena partition
+projection](https://docs.aws.amazon.com/athena/latest/ug/partition-projection.html) —
+Glue computes each partition's S3 location from a template
+(`storage.location.template`) instead of looking up a stored partition list.
+A new `BILLING_PERIOD=2026-10/` folder becomes queryable the moment the
+export delivers it, with nothing to run in between.
+
+The CloudFormation template that provisions this (`Launch Stack` in
+[Connecting an AWS account](/guides/operations/#connecting-an-aws-account))
+creates the S3 buckets, the Glue database/table with projection enabled, an
+Athena workgroup, and the Data Exports config in one stack — see
+`services/api/internal/api/templates/cur_setup.yaml.tmpl`.
+
+
 ## Service coverage
 
 Detection rules exist for 14 AWS services — most trigger off a CloudWatch

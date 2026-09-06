@@ -30,12 +30,32 @@ func newTrackingHandler(mockStore *MockStore) (*MockStore, *http.ServeMux) {
 	return mockStore, mux
 }
 
-// captureQueueLC records enqueued jobs and always succeeds.
-type captureQueueLC struct{ jobs []queue.ScanJob }
+// captureQueueLC records enqueued jobs and always succeeds. Enqueue now runs
+// in scanAccount's detached goroutine (see scanEnqueueTimeout), so jobs is
+// mutex-guarded and signal is an optional non-blocking notification a test
+// can wait on instead of racing the goroutine with a bare field read.
+type captureQueueLC struct {
+	mu     sync.Mutex
+	jobs   []queue.ScanJob
+	signal chan struct{}
+}
 
 func (q *captureQueueLC) Enqueue(_ context.Context, job queue.ScanJob) error {
+	q.mu.Lock()
 	q.jobs = append(q.jobs, job)
+	q.mu.Unlock()
+	if q.signal != nil {
+		select {
+		case q.signal <- struct{}{}:
+		default:
+		}
+	}
 	return nil
+}
+func (q *captureQueueLC) Jobs() []queue.ScanJob {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return append([]queue.ScanJob(nil), q.jobs...)
 }
 func (q *captureQueueLC) Dequeue(ctx context.Context) (queue.ScanJob, error) {
 	<-ctx.Done()
@@ -102,13 +122,18 @@ func TestScanAccount_Async_UpdatesStatusConnectedOnSuccess(t *testing.T) {
 	}
 }
 
-// TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure verifies that when
-// enqueue fails the handler returns 500 and marks the account as error.
+// TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure verifies that
+// enqueue runs detached from the request: the handler returns 200/"scanning"
+// immediately (it can't know yet whether the downstream scan will succeed —
+// same contract the Redis-backed queue has always had), and the account is
+// marked "error" a moment later once the background enqueue actually fails.
 func TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure(t *testing.T) {
+	statusSignal := make(chan struct{}, 4)
 	mockStore := NewMockStore().
 		WithAccounts([]model.Account{
 			{ID: "acc-fail", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
-		})
+		}).
+		WithStatusSignal(statusSignal)
 
 	mux := http.NewServeMux()
 	api.New(mockStore, &errorQueueLC{}).Register(mux)
@@ -116,8 +141,19 @@ func TestScanAccount_Async_UpdatesStatusErrorOnIngestionFailure(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgRequest(http.MethodPost, "/v1/accounts/acc-fail/scan"))
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 on enqueue failure, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (enqueue is detached, failure surfaces later), got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	select {
+	case <-statusSignal:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the detached enqueue failure to mark the account error")
+	}
+
+	calls := mockStore.GetStatusUpdateCalls()
+	if len(calls) != 1 || calls[0].accountID != "acc-fail" || calls[0].status != "error" {
+		t.Fatalf("expected one UpdateAccountStatus(acc-fail, error) call, got %+v", calls)
 	}
 }
 
@@ -132,7 +168,7 @@ func TestScanAccount_SurvivesRequestContextCancellation(t *testing.T) {
 		WithAccounts([]model.Account{
 			{ID: "acc-cancelled", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIA", Region: "us-east-1"},
 		})
-	captureQ := &captureQueueLC{}
+	captureQ := &captureQueueLC{signal: make(chan struct{}, 1)}
 	mux := http.NewServeMux()
 	api.New(mockStore, captureQ).Register(mux)
 
@@ -147,8 +183,16 @@ func TestScanAccount_SurvivesRequestContextCancellation(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 despite cancelled request context, got %d — body: %s", w.Code, w.Body.String())
 	}
-	if len(captureQ.jobs) != 1 {
-		t.Fatalf("expected 1 job enqueued despite cancelled request context, got %d", len(captureQ.jobs))
+
+	// Enqueue now runs in a detached goroutine (its own context, independent
+	// of req.Context()), so wait for it rather than racing a bare field read.
+	select {
+	case <-captureQ.signal:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the detached enqueue despite cancelled request context")
+	}
+	if jobs := captureQ.Jobs(); len(jobs) != 1 {
+		t.Fatalf("expected 1 job enqueued despite cancelled request context, got %d", len(jobs))
 	}
 	if !mockStore.accountScanning["acc-cancelled"] {
 		t.Fatal("expected account to be marked scanning")

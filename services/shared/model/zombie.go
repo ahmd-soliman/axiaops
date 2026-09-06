@@ -23,6 +23,7 @@ type ZombieResource struct {
 
 	// Cost fields
 	MonthlyCost float64   `json:"monthly_cost"`
+	CostBasis        string       `json:"cost_basis"`
 	Currency    string    `json:"currency"`
 	PeriodStart time.Time `json:"period_start"`
 	PeriodEnd   time.Time `json:"period_end"`

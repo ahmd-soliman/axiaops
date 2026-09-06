@@ -55,7 +55,7 @@ var stoppedAtRe = regexp.MustCompile(`\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} GMT
 // stoppedInstanceThreshold (30 days). The monthly cost is estimated from the
 // total size of the instance's attached EBS volumes at $0.08/GB-month.
 func DiscoverLongStoppedInstances(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	regions := uniqueRegions(records)
+	regions := discoveryRegions(records, awsClient.Region())
 	accountID := awsClient.AccountID()
 	now := time.Now().UTC()
 	var zombies []model.ZombieResource
@@ -223,7 +223,7 @@ const oldAMIThreshold = 90 * 24 * time.Hour
 // Note: snapshots that back these AMIs are intentionally excluded from
 // DiscoverOrphanedEBSSnapshots to avoid double-counting.
 func DiscoverOldAMIs(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	regions := uniqueRegions(records)
+	regions := discoveryRegions(records, awsClient.Region())
 	accountID := awsClient.AccountID()
 	now := time.Now().UTC()
 	var zombies []model.ZombieResource

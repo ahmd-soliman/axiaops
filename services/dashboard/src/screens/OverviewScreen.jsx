@@ -11,6 +11,7 @@ import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { csvEncode, downloadCSV } from '../utils/csv';
 import { formatDate } from '../utils/formatDate';
+import { sumCostRecords } from '../utils/costTotals';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -76,7 +77,7 @@ function MonthlyWasteCard({ onShowTrend, children }) {
   );
 }
 
-function OverviewHero({ summary, totalSpend, trend, period, onPeriodChange, onShowTrend, onShowCosts, isMobile }) {
+function OverviewHero({ summary, totalSpend, trend, period, customRange, onPeriodChange, onShowTrend, onShowCosts, isMobile }) {
   const data = summary.data;
   const monthlyWaste = data?.potential_monthly_savings ?? 0;
   // Scale the monthly waste to the chosen window so the headline number and the
@@ -97,9 +98,14 @@ function OverviewHero({ summary, totalSpend, trend, period, onPeriodChange, onSh
   // scanned), so naively comparing the last two rows compared two arbitrary
   // accounts' totals — making the headline ▲/▼ % delta meaningless. Roll up
   // by date here so the delta compares yesterday's org-wide total to today's.
-  // Then trim to the selected window — `period` days back from the most
-  // recent snapshot — so the chip selection scopes the dailyTotals slice
-  // exactly the way it scopes the fetchCosts window in the parent component.
+  // Then trim to the selected window so the chip selection scopes the
+  // dailyTotals slice exactly the way it scopes the fetchCosts window in the
+  // parent component. A Custom… pick scopes by the actual applied calendar
+  // dates (`customRange`) rather than trailing-N-entries — slice(-period)
+  // would silently show the most recent `period` days of data regardless of
+  // which historical dates the user actually picked, the same label/data
+  // mismatch fixed in DateRangeChips itself. Preset chips keep the trailing
+  // "period days back from the most recent snapshot" window.
   const dailyTotals = useMemo(() => {
     const m = new Map();
     for (const s of trend.data ?? []) {
@@ -107,8 +113,11 @@ function OverviewHero({ summary, totalSpend, trend, period, onPeriodChange, onSh
       m.set(day, (m.get(day) || 0) + s.total_monthly_cost);
     }
     const sorted = [...m.entries()].sort();
+    if (customRange) {
+      return sorted.filter(([day]) => day >= customRange.sinceIso && day <= customRange.untilIso);
+    }
     return period > 0 && sorted.length > period ? sorted.slice(-period) : sorted;
-  }, [trend.data, period]);
+  }, [trend.data, period, customRange]);
   // Compare today's org-wide total to the total at the WINDOW START — so the
   // ▲/▼ headline answers "how have we trended over the last {period} days?"
   // rather than the previous "vs yesterday" which collapses to noise when the
@@ -129,7 +138,7 @@ function OverviewHero({ summary, totalSpend, trend, period, onPeriodChange, onSh
           stats stay the visual anchor; on phones the chips wrap below the
           flex row but stay tappable. */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <DateRangeChips value={period} onChange={onPeriodChange} mobile={isMobile} />
+        <DateRangeChips value={period} activeRange={customRange} onChange={onPeriodChange} mobile={isMobile} />
       </div>
 
       {/* Two-stat row — stacks vertically on phones; the 28px-bold spend value
@@ -1229,24 +1238,34 @@ export default function OverviewScreen({
   // previous hardcoded 30-day behaviour; the chip row in OverviewHero lets
   // the user widen/narrow without leaving the screen.
   const [period, setPeriod] = useState(DEFAULT_DAYS);
+  // Absolute calendar window from the Custom… picker ({ sinceIso, untilIso}),
+  // or null for the trailing `period`-day window. Presets clear it back to
+  // null. Mirrors CloudSpendScreen so every chip row behaves the same way.
+  const [customRange, setCustomRange] = useState(null);
+
+  function handlePeriodChange(days, range) {
+    setPeriod(days);
+    setCustomRange(range ?? null);
+  }
 
   const summary    = useQuery({ queryKey: ['summary', selectedAccount],    queryFn: () => fetchSummary(selectedAccount) });
   const resources  = useQuery({ queryKey: ['resources', selectedAccount],  queryFn: () => fetchResources(selectedAccount) });
   // placeholderData keeps the previous window's costs visible while the new
   // window's request is in flight — chip clicks invite rapid exploration and
   // a fresh isLoading state on every click flashes the chart on each change.
-  const costs      = useQuery({ queryKey: ['costs', selectedAccount, period], queryFn: () => fetchCosts(selectedAccount, null, period), placeholderData: (prev) => prev });
+  const costs      = useQuery({
+    queryKey: ['costs', selectedAccount, period, customRange?.sinceIso, customRange?.untilIso],
+    queryFn: () => fetchCosts(selectedAccount, null, period, customRange?.sinceIso, customRange?.untilIso),
+    placeholderData: (prev) => prev,
+  });
   // placeholderData mirrors the costs query so the chart doesn't flash empty
-  // when account-switching (chip changes don't invalidate this key — period
-  // is applied client-side via dailyTotals.slice — so the placeholder only
-  // matters for the account selector path).
+  // when account-switching (chip changes don't invalidate this key — the
+  // period/customRange window is applied client-side in dailyTotals — so the
+  // placeholder only matters for the account selector path).
   const trend      = useQuery({ queryKey: ['trend', selectedAccount],      queryFn: () => fetchTrend(selectedAccount), placeholderData: (prev) => prev });
   const dismissals = useQuery({ queryKey: ['dismissals', selectedAccount], queryFn: () => fetchDismissals(selectedAccount) });
 
-  const totalSpend = useMemo(() => {
-    if (!costs.data) return 0;
-    return costs.data.reduce((sum, r) => sum + (r.amount || 0), 0);
-  }, [costs.data]);
+  const totalSpend = useMemo(() => sumCostRecords(costs.data), [costs.data]);
 
   const isLoading    = summary.isLoading || resources.isLoading;
   const isError      = summary.isError   || resources.isError;
@@ -1579,7 +1598,7 @@ export default function OverviewScreen({
       </div>
 
       {/* Overview hero */}
-      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} period={period} onPeriodChange={setPeriod} onShowTrend={onShowTrend} onShowCosts={onShowCosts} isMobile={isMobile} />
+      <OverviewHero summary={summary} totalSpend={totalSpend} trend={trend} period={period} customRange={customRange} onPeriodChange={handlePeriodChange} onShowTrend={onShowTrend} onShowCosts={onShowCosts} isMobile={isMobile} />
 
       {/* Service breakdown */}
       <ServiceBreakdown

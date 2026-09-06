@@ -145,6 +145,31 @@ func newOrgCtx(t *testing.T, s *postgres.Store) (context.Context, model.Organiza
 	return storage.WithOrganizationID(ctx, org.ID), org
 }
 
+// mustSaveTestAccount saves a minimal valid account row under the given ID so
+// that the accounts(id) foreign keys added by migration 040 are satisfied
+// when a test saves cost/resource/zombie/snapshot/dismissal records
+// referencing it -- those tables no longer accept an internal_account_id /
+// account_id with no matching accounts row. Tests that only care about the
+// child table's own behavior can otherwise use any synthetic account ID they
+// like, as long as they create it here first.
+func mustSaveTestAccount(t *testing.T, s *postgres.Store, ctx context.Context, organizationID, accountID string) {
+	t.Helper()
+	if err := s.SaveAccount(ctx, model.Account{
+		ID:              accountID,
+		OrganizationID:  organizationID,
+		Provider:        "aws",
+		AccountID:       "000000000000",
+		Region:          "eu-central-1",
+		Status:          "connected",
+		AuthMethod:      model.AuthMethodAccessKey,
+		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+		SecretEncrypted: "stub",
+		BillingSource:   model.BillingSourceCostExplorer,
+	}); err != nil {
+		t.Fatalf("mustSaveTestAccount(%q): %v", accountID, err)
+	}
+}
+
 func costRecord(service, region string, amount float64) model.CostRecord {
 	return model.CostRecord{
 		Provider:    "aws",
@@ -161,15 +186,26 @@ func costRecord(service, region string, amount float64) model.CostRecord {
 	}
 }
 
+// costRecordFor is costRecord with InternalAccountID set — internal_account_id
+// is NOT NULL (migration 041) with a foreign key to accounts(id), so every
+// cost record test needs one; the caller must have already created that
+// account via mustSaveTestAccount.
+func costRecordFor(internalAccountID, service, region string, amount float64) model.CostRecord {
+	r := costRecord(service, region, amount)
+	r.InternalAccountID = &internalAccountID
+	return r
+}
+
 // ── Save ──────────────────────────────────────────────────────────────────────
 
 func TestSave_InsertsRecords(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
 	records := []model.CostRecord{
-		costRecord("AmazonEC2", "eu-central-1", 100.00),
-		costRecord("AmazonRDS", "eu-central-1", 200.00),
+		costRecordFor("test-account", "AmazonEC2", "eu-central-1", 100.00),
+		costRecordFor("test-account", "AmazonRDS", "eu-central-1", 200.00),
 	}
 
 	inserted, updated, err := s.Save(ctx, records)
@@ -183,9 +219,10 @@ func TestSave_InsertsRecords(t *testing.T) {
 
 func TestSave_SecondCallUpdatesExisting(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
-	records := []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 100.00)}
+	records := []model.CostRecord{costRecordFor("test-account", "AmazonEC2", "eu-central-1", 100.00)}
 
 	inserted, updated, err := s.Save(ctx, records)
 	if err != nil {
@@ -206,14 +243,15 @@ func TestSave_SecondCallUpdatesExisting(t *testing.T) {
 
 func TestListCostRecords_AbsoluteWindow(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
 	// Five daily records; distinct period_start (and resource_id) so none
 	// collide on the upsert conflict key.
 	days := []int{1, 5, 10, 15, 20}
 	var records []model.CostRecord
 	for i, d := range days {
-		r := costRecord("AmazonEC2", "eu-central-1", 10.0)
+		r := costRecordFor("test-account", "AmazonEC2", "eu-central-1", 10.0)
 		r.ResourceID = fmt.Sprintf("res-%02d", d)
 		r.PeriodStart = time.Date(2026, 3, d, 0, 0, 0, 0, time.UTC)
 		r.PeriodEnd = time.Date(2026, 3, d+1, 0, 0, 0, 0, time.UTC)
@@ -261,11 +299,12 @@ func TestSave_EmptyBatch(t *testing.T) {
 
 func TestSave_DifferentRegionIsNotDuplicate(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
 	records := []model.CostRecord{
-		costRecord("AmazonEC2", "eu-central-1", 100.00),
-		costRecord("AmazonEC2", "eu-west-1", 100.00),
+		costRecordFor("test-account", "AmazonEC2", "eu-central-1", 100.00),
+		costRecordFor("test-account", "AmazonEC2", "eu-west-1", 100.00),
 	}
 
 	inserted, updated, err := s.Save(ctx, records)
@@ -308,16 +347,40 @@ func readBackCostRecord(t *testing.T, orgID, service, region, resourceID string)
 	return
 }
 
+// readBackCostRecordByInternalAccount is readBackCostRecord narrowed to a
+// specific internal_account_id, for tests where more than one row can now
+// share the same (service, region, resource_id, period) conflict-key prefix
+// — distinguished only by internal_account_id (migration 041).
+func readBackCostRecordByInternalAccount(t *testing.T, orgID, service, region, resourceID, internalAccountID string) (id string, amount float64, gotInternalAccountID *string) {
+	t.Helper()
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	err := conn.QueryRow(context.Background(), `
+		SELECT id::text, amount, internal_account_id
+		FROM axiaops.cost_records
+		WHERE organization_id = $1 AND provider = 'aws' AND account_id = '000000000000'
+		  AND service = $2 AND region = $3 AND resource_id = $4
+		  AND period_start = '2026-03-01'::date AND period_end = '2026-03-31'::date
+		  AND internal_account_id = $5`,
+		orgID, service, region, resourceID, internalAccountID,
+	).Scan(&id, &amount, &gotInternalAccountID)
+	if err != nil {
+		t.Fatalf("readBackCostRecordByInternalAccount(internal_account_id=%q): %v", internalAccountID, err)
+	}
+	return
+}
+
 func TestSave_UpsertWinsLatest(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
-	first := costRecord("AmazonEC2", "eu-central-1", 0.33)
+	first := costRecordFor("test-account", "AmazonEC2", "eu-central-1", 0.33)
 	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
 
-	second := costRecord("AmazonEC2", "eu-central-1", 4.03) // same conflict key, late-settled amount
+	second := costRecordFor("test-account", "AmazonEC2", "eu-central-1", 4.03) // same conflict key, late-settled amount
 	inserted, updated, err := s.Save(ctx, []model.CostRecord{second})
 	if err != nil {
 		t.Fatalf("second Save: %v", err)
@@ -335,14 +398,15 @@ func TestSave_UpsertWinsLatest(t *testing.T) {
 func TestSave_UpsertPreservesID(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
-	first := costRecord("AmazonRDS", "eu-central-1", 100.00)
+	first := costRecordFor("test-account", "AmazonRDS", "eu-central-1", 100.00)
 	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
 	firstID, _, _ := readBackCostRecord(t, org.ID, "AmazonRDS", "eu-central-1", "res-001")
 
-	second := costRecord("AmazonRDS", "eu-central-1", 200.00)
+	second := costRecordFor("test-account", "AmazonRDS", "eu-central-1", 200.00)
 	if _, _, err := s.Save(ctx, []model.CostRecord{second}); err != nil {
 		t.Fatalf("second Save: %v", err)
 	}
@@ -353,30 +417,72 @@ func TestSave_UpsertPreservesID(t *testing.T) {
 	}
 }
 
-func TestSave_UpsertPreservesInternalAccountID(t *testing.T) {
+// internal_account_id is NOT NULL (migration 041) — a cost record with no
+// known owning account isn't meaningful data, and migration 040's foreign
+// key to accounts(id) means there's no sentinel value to fall back to
+// anyway. Both real ingestion call sites always set this field before
+// calling Save, so omitting it should fail loudly rather than silently
+// succeed with an ambiguous attribution.
+func TestSave_MissingInternalAccountIDFailsInsert(t *testing.T) {
+	s := newTestStore(t)
+	ctx, _ := newOrgCtx(t, s)
+
+	record := costRecord("AmazonElastiCache", "eu-central-1", 50.00)
+	record.InternalAccountID = nil
+	_, _, err := s.Save(ctx, []model.CostRecord{record})
+	if err == nil {
+		t.Fatal("expected Save to fail when InternalAccountID is nil, got no error")
+	}
+}
+
+// This is the regression test for the real bug: two different accounts
+// connected to the same AWS account_id (e.g. a CE account and a CUR account
+// pointed at the same real AWS account for migration comparison) must not
+// collide in cost_records — each keeps its own independent cost data.
+func TestSave_DifferentInternalAccountIDsDoNotCollide(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
 
-	internal := "internal-acct-abc"
-	first := costRecord("AmazonElastiCache", "eu-central-1", 50.00)
-	first.InternalAccountID = &internal
+	accountA := "internal-acct-a"
+	accountB := "internal-acct-b"
+	mustSaveTestAccount(t, s, ctx, org.ID, accountA)
+	mustSaveTestAccount(t, s, ctx, org.ID, accountB)
+
+	first := costRecord("AmazonEC2", "eu-central-1", 10.00)
+	first.InternalAccountID = &accountA
 	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
-		t.Fatalf("first Save: %v", err)
+		t.Fatalf("save account A: %v", err)
 	}
 
-	// Second write has the field nil — COALESCE in the upsert clause must preserve the stored value.
-	second := costRecord("AmazonElastiCache", "eu-central-1", 75.00)
-	second.InternalAccountID = nil
+	second := costRecord("AmazonEC2", "eu-central-1", 999.00)
+	second.InternalAccountID = &accountB
 	if _, _, err := s.Save(ctx, []model.CostRecord{second}); err != nil {
-		t.Fatalf("second Save: %v", err)
+		t.Fatalf("save account B: %v", err)
 	}
 
-	_, amount, gotInternal := readBackCostRecord(t, org.ID, "AmazonElastiCache", "eu-central-1", "res-001")
-	if amount != 75.00 {
-		t.Errorf("expected amount refreshed to 75.00, got %v", amount)
+	_, amountA, _ := readBackCostRecordByInternalAccount(t, org.ID, "AmazonEC2", "eu-central-1", "res-001", accountA)
+	if amountA != 10.00 {
+		t.Errorf("account A's row was overwritten by account B's scan: expected 10.00, got %v", amountA)
 	}
-	if gotInternal == nil || *gotInternal != internal {
-		t.Errorf("expected internal_account_id preserved as %q, got %v", internal, gotInternal)
+
+	_, amountB, _ := readBackCostRecordByInternalAccount(t, org.ID, "AmazonEC2", "eu-central-1", "res-001", accountB)
+	if amountB != 999.00 {
+		t.Errorf("expected account B's row at 999.00, got %v", amountB)
+	}
+
+	// Re-scan account A — must refresh its own row only, not touch account B's.
+	firstRescanned := costRecord("AmazonEC2", "eu-central-1", 11.00)
+	firstRescanned.InternalAccountID = &accountA
+	if _, _, err := s.Save(ctx, []model.CostRecord{firstRescanned}); err != nil {
+		t.Fatalf("re-save account A: %v", err)
+	}
+	_, amountA2, _ := readBackCostRecordByInternalAccount(t, org.ID, "AmazonEC2", "eu-central-1", "res-001", accountA)
+	if amountA2 != 11.00 {
+		t.Errorf("expected account A's re-scan to update to 11.00, got %v", amountA2)
+	}
+	_, amountBAfter, _ := readBackCostRecordByInternalAccount(t, org.ID, "AmazonEC2", "eu-central-1", "res-001", accountB)
+	if amountBAfter != 999.00 {
+		t.Errorf("account A's re-scan corrupted account B's row: expected 999.00, got %v", amountBAfter)
 	}
 }
 
@@ -387,10 +493,12 @@ func TestSave_UpsertRLSIsolation(t *testing.T) {
 	s := newTestStore(t)
 	ctxA, orgA := newOrgCtx(t, s)
 	ctxB, orgB := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctxA, orgA.ID, "test-account-a")
+	mustSaveTestAccount(t, s, ctxB, orgB.ID, "test-account-b")
 
 	// Both orgs upsert the same conflict-key shape but with different amounts.
-	a := costRecord("AmazonELB", "eu-central-1", 11.00)
-	b := costRecord("AmazonELB", "eu-central-1", 22.00)
+	a := costRecordFor("test-account-a", "AmazonELB", "eu-central-1", 11.00)
+	b := costRecordFor("test-account-b", "AmazonELB", "eu-central-1", 22.00)
 
 	if _, _, err := s.Save(ctxA, []model.CostRecord{a}); err != nil {
 		t.Fatalf("orgA Save: %v", err)
@@ -413,15 +521,16 @@ func TestSave_UpsertRLSIsolation(t *testing.T) {
 func TestSave_ConcurrentUpsertLastWriterWins(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
 	// Seed the row so both goroutines hit the UPDATE path (cleanest race shape).
-	seed := costRecord("AmazonVPC", "eu-central-1", 0.10)
+	seed := costRecordFor("test-account", "AmazonVPC", "eu-central-1", 0.10)
 	if _, _, err := s.Save(ctx, []model.CostRecord{seed}); err != nil {
 		t.Fatalf("seed Save: %v", err)
 	}
 
-	a := costRecord("AmazonVPC", "eu-central-1", 100.00)
-	b := costRecord("AmazonVPC", "eu-central-1", 200.00)
+	a := costRecordFor("test-account", "AmazonVPC", "eu-central-1", 100.00)
+	b := costRecordFor("test-account", "AmazonVPC", "eu-central-1", 200.00)
 
 	start := make(chan struct{})
 	done := make(chan error, 2)
@@ -493,7 +602,8 @@ func zombieResource(service string, cost float64) model.ZombieResource {
 
 func TestSaveZombies_LoadZombies_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	zombies := []model.ZombieResource{
 		zombieResource("AmazonEC2", 100.00),
@@ -515,7 +625,8 @@ func TestSaveZombies_LoadZombies_Roundtrip(t *testing.T) {
 
 func TestSaveZombies_ReplacesOnSecondRun(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	if err := s.SaveZombies(ctx, []model.ZombieResource{
 		zombieResource("AmazonEC2", 100.00),
@@ -567,8 +678,9 @@ func TestZombies_OrganizationIsolation(t *testing.T) {
 	}
 	s := newTestStore(t)
 
-	ctxA, _ := newOrgCtx(t, s)
+	ctxA, orgA := newOrgCtx(t, s)
 	ctxB, _ := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctxA, orgA.ID, "test-account-id")
 
 	// Organization A saves zombies.
 	if err := s.SaveZombies(ctxA, []model.ZombieResource{zombieResource("AmazonEC2", 100)}); err != nil {
@@ -768,6 +880,7 @@ func testAccount(organizationID string) model.Account {
 		Status:            "connected",
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
+		BillingSource:     model.BillingSourceCostExplorer,
 	}
 }
 
@@ -840,6 +953,113 @@ func TestAccount_Delete(t *testing.T) {
 	}
 	if len(accounts) != 0 {
 		t.Errorf("expected 0 accounts after delete, got %d", len(accounts))
+	}
+}
+
+// TestAccount_DeleteCascadesAccountData guards against the account-deletion
+// data-leak bug: none of cost_records, resource_records, zombie_records,
+// zombie_snapshots, or dismissed_zombies carry a foreign key back to
+// accounts (internal_account_id / account_id are plain TEXT columns), so
+// deleting an account previously removed only the accounts row and left
+// every dollar of its cost/zombie history behind forever — silently
+// corrupting aggregate views like total spend for an account that no
+// longer exists. DeleteAccount must scrub all five tables in the same
+// transaction as the account row.
+func TestAccount_DeleteCascadesAccountData(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("skipping: requires DATABASE_URL (non-superuser) for RLS to scope reads to this organization")
+	}
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	a := testAccount(org.ID)
+	if err := s.SaveAccount(ctx, a); err != nil {
+		t.Fatalf("SaveAccount: %v", err)
+	}
+
+	now := time.Now().UTC()
+
+	cost := costRecord("AmazonEC2", "eu-central-1", 15.99)
+	cost.InternalAccountID = &a.ID
+	if _, _, err := s.Save(ctx, []model.CostRecord{cost}); err != nil {
+		t.Fatalf("Save cost record: %v", err)
+	}
+
+	if err := s.SaveResources(ctx, []model.ResourceRecord{{
+		Provider:          "aws",
+		AccountID:         "000000000000",
+		InternalAccountID: a.ID,
+		Service:           "AmazonEC2",
+		Region:            "eu-central-1",
+		ResourceID:        "i-0abcd",
+		MonthlyCost:       15.99,
+		Currency:          "USD",
+		PeriodStart:       now,
+		PeriodEnd:         now,
+	}}); err != nil {
+		t.Fatalf("SaveResources: %v", err)
+	}
+
+	if err := s.SaveZombies(ctx, []model.ZombieResource{{
+		Provider:          "aws",
+		AccountID:         "000000000000",
+		InternalAccountID: a.ID,
+		Service:           "AmazonEC2",
+		Region:            "eu-central-1",
+		ResourceID:        "i-0abcd",
+		MonthlyCost:       15.99,
+		Currency:          "USD",
+		PeriodStart:       now,
+		PeriodEnd:         now,
+	}}); err != nil {
+		t.Fatalf("SaveZombies: %v", err)
+	}
+
+	if err := s.SaveSnapshot(ctx, model.ZombieSnapshot{
+		ID:               uuid.New().String(),
+		AccountID:        a.ID,
+		SnapshotAt:       now,
+		ZombieCount:      1,
+		TotalMonthlyCost: 15.99,
+		Currency:         "USD",
+	}); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	if _, err := s.DismissZombie(ctx, model.DismissAction{
+		AccountID:  a.ID,
+		Provider:   "aws",
+		Service:    "AmazonEC2",
+		Region:     "eu-central-1",
+		ResourceID: "i-0abcd",
+		Action:     "dismiss",
+		Reason:     "not_a_zombie",
+	}); err != nil {
+		t.Fatalf("DismissZombie: %v", err)
+	}
+
+	if err := s.DeleteAccount(ctx, a.ID); err != nil {
+		t.Fatalf("DeleteAccount: %v", err)
+	}
+
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+
+	for _, tbl := range []struct{ table, column string }{
+		{"cost_records", "internal_account_id"},
+		{"resource_records", "internal_account_id"},
+		{"zombie_records", "internal_account_id"},
+		{"zombie_snapshots", "account_id"},
+		{"dismissed_zombies", "account_id"},
+	} {
+		var count int
+		q := fmt.Sprintf(`SELECT count(*) FROM axiaops.%s WHERE %s = $1`, tbl.table, tbl.column)
+		if err := conn.QueryRow(context.Background(), q, a.ID).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", tbl.table, err)
+		}
+		if count != 0 {
+			t.Errorf("expected 0 rows in %s for deleted account, got %d", tbl.table, count)
+		}
 	}
 }
 
@@ -962,6 +1182,7 @@ func testRoleAccount(organizationID string) model.Account {
 		Status:            model.AccountStatusConnected,
 		ScanIntervalHours: 24,
 		CreatedAt:         time.Now().UTC(),
+		BillingSource:     model.BillingSourceCostExplorer,
 	}
 }
 
@@ -1132,7 +1353,8 @@ func resourceRecord(service string, isZombie bool) model.ResourceRecord {
 
 func TestSaveResources_LoadResources_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	resources := []model.ResourceRecord{
 		resourceRecord("AmazonEC2", true),
@@ -1154,7 +1376,8 @@ func TestSaveResources_LoadResources_Roundtrip(t *testing.T) {
 
 func TestSaveResources_ReplacesOnSecondRun(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account-id")
 
 	if err := s.SaveResources(ctx, []model.ResourceRecord{
 		resourceRecord("AmazonEC2", true),
@@ -1195,6 +1418,7 @@ func zombieSnapshot(organizationID, accountID string, cost float64, zombieCount 
 func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-001")
 
 	snap := zombieSnapshot(org.ID, "acc-001", 150.00, 3)
 	if err := s.SaveSnapshot(ctx, snap); err != nil {
@@ -1229,6 +1453,7 @@ func TestSaveSnapshot_ListSnapshots_Roundtrip(t *testing.T) {
 func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-1")
 
 	// Insert three snapshots with explicit timestamps spread one hour apart.
 	base := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
@@ -1270,6 +1495,8 @@ func TestListSnapshots_OrderedOldestFirst(t *testing.T) {
 func TestListSnapshots_FilterByAccountID(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-A")
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-B")
 
 	// Two snapshots for acc-A, one for acc-B.
 	if err := s.SaveSnapshot(ctx, zombieSnapshot(org.ID, "acc-A", 100, 2)); err != nil {
@@ -1365,6 +1592,7 @@ func TestSnapshot_OrganizationIsolation(t *testing.T) {
 
 	ctxA, orgA := newOrgCtx(t, s)
 	ctxB, _ := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctxA, orgA.ID, "acc-1")
 
 	// Organization A saves a snapshot.
 	if err := s.SaveSnapshot(ctxA, zombieSnapshot(orgA.ID, "acc-1", 100, 2)); err != nil {
@@ -1384,6 +1612,7 @@ func TestSnapshot_OrganizationIsolation(t *testing.T) {
 func TestSaveSnapshot_AccumulatesAcrossScans(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "acc-1")
 
 	// Simulate three consecutive scans — unlike zombie_records, snapshots must not be replaced.
 	for i := 1; i <= 3; i++ {
@@ -1406,13 +1635,14 @@ func TestSaveSnapshot_AccumulatesAcrossScans(t *testing.T) {
 
 func TestDeleteOldCostRecords_DeletesExpiredRows(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
-	old := costRecord("AmazonEC2", "eu-central-1", 10.00)
+	old := costRecordFor("test-account", "AmazonEC2", "eu-central-1", 10.00)
 	old.PeriodEnd = time.Now().UTC().AddDate(0, 0, -100)
 	old.PeriodStart = old.PeriodEnd.AddDate(0, 0, -30)
 
-	recent := costRecord("AmazonRDS", "eu-central-1", 20.00)
+	recent := costRecordFor("test-account", "AmazonRDS", "eu-central-1", 20.00)
 	recent.PeriodEnd = time.Now().UTC().AddDate(0, 0, -10)
 	recent.PeriodStart = recent.PeriodEnd.AddDate(0, 0, -30)
 
@@ -1432,9 +1662,10 @@ func TestDeleteOldCostRecords_DeletesExpiredRows(t *testing.T) {
 
 func TestDeleteOldCostRecords_KeepsRecentRows(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
-	recent := costRecord("AmazonEC2", "eu-central-1", 50.00)
+	recent := costRecordFor("test-account", "AmazonEC2", "eu-central-1", 50.00)
 	recent.PeriodEnd = time.Now().UTC().AddDate(0, 0, -10)
 	recent.PeriodStart = recent.PeriodEnd.AddDate(0, 0, -30)
 	if _, _, err := s.Save(ctx, []model.CostRecord{recent}); err != nil {
@@ -1567,8 +1798,8 @@ func TestAuditLog_IPAddressRoundTrips(t *testing.T) {
 // actor_name is denormalised on write (migration 028). Three branches need
 // coverage:
 //   - caller supplies a name → persists verbatim
-//   - caller supplies empty name → column stores '' (NOT NULL DEFAULT '')
-//   - row written before column existed → existing rows still surface '' as
+//   - caller supplies empty name → column stores ” (NOT NULL DEFAULT ”)
+//   - row written before column existed → existing rows still surface ” as
 //     the read path projects the column with no fallback magic
 //
 // The frontend's fallback to actor_email depends on the empty-string branches
@@ -1793,5 +2024,66 @@ func TestAuditLog_MissingOrganization_Errors(t *testing.T) {
 	}
 	if _, err := s.AuditLogList(context.Background(), model.AuditFilter{}); err == nil {
 		t.Error("expected list error when organization_id missing from ctx, got nil")
+	}
+}
+
+func TestAccount_CURAthena_Constraints(t *testing.T) {
+	if !rlsEnforced() {
+		t.Skip("skipping test requiring RLS constraint checks")
+	}
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	// Valid CUR config
+	curDB := "db"
+	curTable := "tbl"
+	curWg := "wg"
+	curS3 := "s3"
+	curRegion := "us-east-1"
+
+	acc := model.Account{
+		ID:              uuid.New().String(),
+		OrganizationID:  org.ID,
+		Provider:        "aws",
+		AccountID:       "111222333444",
+		Label:           "CUR Account",
+		AuthMethod:      model.AuthMethodAccessKey,
+		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+		SecretEncrypted: "encrypted-test-value",
+		BillingSource:   model.BillingSourceCURAthena,
+		CURDatabase:     &curDB,
+		CURTable:        &curTable,
+		CURWorkgroup:    &curWg,
+		CURResultsS3:    &curS3,
+		CURRegion:       &curRegion,
+		Status:          model.AccountStatusConnected,
+	}
+
+	if err := s.SaveAccount(ctx, acc); err != nil {
+		t.Fatalf("failed to save valid CUR account: %v", err)
+	}
+
+	saved, err := s.GetAccount(ctx, acc.ID)
+	if err != nil {
+		t.Fatalf("failed to get account: %v", err)
+	}
+	if saved.BillingSource != model.BillingSourceCURAthena {
+		t.Errorf("expected cur_athena, got %s", saved.BillingSource)
+	}
+	if saved.CURDatabase == nil || *saved.CURDatabase != "db" {
+		t.Errorf("expected CURDatabase to be db")
+	}
+
+	// Invalid CUR config (missing fields)
+	invalidAcc := acc
+	invalidAcc.ID = uuid.New().String()
+	invalidAcc.CURRegion = nil // Missing region should trigger CHECK constraint
+
+	err = s.SaveAccount(ctx, invalidAcc)
+	if err == nil {
+		t.Fatal("expected error saving CUR account missing cur_region due to CHECK constraint")
+	}
+	if !strings.Contains(err.Error(), "accounts_cur_fields_present") {
+		t.Errorf("expected accounts_cur_fields_present constraint violation, got: %v", err)
 	}
 }

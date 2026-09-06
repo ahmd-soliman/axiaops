@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
 # Blocks pushing any commit whose message carries a
-# `Co-Authored-By: Claude ...` trailer.
-#
-# Background: docs/git-history-scrub-runbook.md — a 2026-05-07 rewrite
-# stripped 394 such trailers because they show up as a phantom
-# "Claude" entry in GitHub's repo-homepage contributors widget and
-# that cache doesn't reliably clear even after the trailers are gone
-# from history (see github.com/orgs/community/discussions/197389).
-# This hook stops it from ever getting re-pushed in the first place.
+# `Co-Authored-By: Claude ...` trailer. See docs/git-history-scrub-runbook.md.
 set -euo pipefail
 
 pattern='^[[:space:]]*Co-Authored-By:[[:space:]]*Claude'

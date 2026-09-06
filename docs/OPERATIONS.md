@@ -62,7 +62,9 @@ or delete action, ever:
       "kinesis:ListStreams", "kinesis:DescribeStreamSummary",
       "cloudfront:ListDistributions",
       "eks:ListClusters",
-      "s3:ListAllMyBuckets", "s3:GetBucketLocation"
+      "s3:ListAllMyBuckets", "s3:GetBucketLocation", "s3:ListBucketMultipartUploads",
+      "route53:ListHostedZones",
+      "ecs:ListClusters", "ecs:ListServices"
     ],
     "Resource": "*"
   }]

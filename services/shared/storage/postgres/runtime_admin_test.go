@@ -49,12 +49,14 @@ func TestRuntimeAdmin_BypassesRLSAcrossOrgs(t *testing.T) {
 	s := newTestStore(t) // truncates tables, opens the store
 	ctx := context.Background()
 
-	ctx1, _ := newOrgCtx(t, s)
-	ctx2, _ := newOrgCtx(t, s)
-	if _, _, err := s.Save(ctx1, []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 100)}); err != nil {
+	ctx1, org1 := newOrgCtx(t, s)
+	ctx2, org2 := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx1, org1.ID, "test-account-1")
+	mustSaveTestAccount(t, s, ctx2, org2.ID, "test-account-2")
+	if _, _, err := s.Save(ctx1, []model.CostRecord{costRecordFor("test-account-1", "AmazonEC2", "eu-central-1", 100)}); err != nil {
 		t.Fatalf("seed org1: %v", err)
 	}
-	if _, _, err := s.Save(ctx2, []model.CostRecord{costRecord("AmazonRDS", "eu-central-1", 200)}); err != nil {
+	if _, _, err := s.Save(ctx2, []model.CostRecord{costRecordFor("test-account-2", "AmazonRDS", "eu-central-1", 200)}); err != nil {
 		t.Fatalf("seed org2: %v", err)
 	}
 
