@@ -308,6 +308,29 @@ func readBackCostRecord(t *testing.T, orgID, service, region, resourceID string)
 	return
 }
 
+// readBackCostRecordByInternalAccount is readBackCostRecord narrowed to a
+// specific internal_account_id, for tests where more than one row can now
+// share the same (service, region, resource_id, period) conflict-key prefix
+// — distinguished only by internal_account_id (migration 038).
+func readBackCostRecordByInternalAccount(t *testing.T, orgID, service, region, resourceID, internalAccountID string) (id string, amount float64, gotInternalAccountID *string) {
+	t.Helper()
+	conn := connectTestDB(t)
+	defer func() { _ = conn.Close(context.Background()) }()
+	err := conn.QueryRow(context.Background(), `
+		SELECT id::text, amount, internal_account_id
+		FROM axiaops.cost_records
+		WHERE organization_id = $1 AND provider = 'aws' AND account_id = '000000000000'
+		  AND service = $2 AND region = $3 AND resource_id = $4
+		  AND period_start = '2026-03-01'::date AND period_end = '2026-03-31'::date
+		  AND internal_account_id = $5`,
+		orgID, service, region, resourceID, internalAccountID,
+	).Scan(&id, &amount, &gotInternalAccountID)
+	if err != nil {
+		t.Fatalf("readBackCostRecordByInternalAccount(internal_account_id=%q): %v", internalAccountID, err)
+	}
+	return
+}
+
 func TestSave_UpsertWinsLatest(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
@@ -353,7 +376,14 @@ func TestSave_UpsertPreservesID(t *testing.T) {
 	}
 }
 
-func TestSave_UpsertPreservesInternalAccountID(t *testing.T) {
+// A nil InternalAccountID coerces to "" (migration 038 made the column NOT
+// NULL DEFAULT ''), which is now part of the conflict key — so a second
+// write that omits it targets a distinct row from one that set a real value,
+// rather than merging into it. This replaces the old COALESCE-preserving
+// behavior: real ingestion call sites always set InternalAccountID before
+// calling Save, so this scenario shouldn't occur in practice, but the DB
+// must not silently misattribute a row if it ever does.
+func TestSave_MissingInternalAccountIDDoesNotClobberExisting(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
 
@@ -364,19 +394,75 @@ func TestSave_UpsertPreservesInternalAccountID(t *testing.T) {
 		t.Fatalf("first Save: %v", err)
 	}
 
-	// Second write has the field nil — COALESCE in the upsert clause must preserve the stored value.
 	second := costRecord("AmazonElastiCache", "eu-central-1", 75.00)
 	second.InternalAccountID = nil
 	if _, _, err := s.Save(ctx, []model.CostRecord{second}); err != nil {
 		t.Fatalf("second Save: %v", err)
 	}
 
-	_, amount, gotInternal := readBackCostRecord(t, org.ID, "AmazonElastiCache", "eu-central-1", "res-001")
-	if amount != 75.00 {
-		t.Errorf("expected amount refreshed to 75.00, got %v", amount)
+	_, amountKnown, internalKnown := readBackCostRecordByInternalAccount(t, org.ID, "AmazonElastiCache", "eu-central-1", "res-001", internal)
+	if amountKnown != 50.00 {
+		t.Errorf("expected the internal_account_id=%q row to keep its original amount 50.00, got %v", internal, amountKnown)
 	}
-	if gotInternal == nil || *gotInternal != internal {
-		t.Errorf("expected internal_account_id preserved as %q, got %v", internal, gotInternal)
+	if internalKnown == nil || *internalKnown != internal {
+		t.Errorf("expected internal_account_id %q preserved on its own row, got %v", internal, internalKnown)
+	}
+
+	_, amountUnset, internalUnset := readBackCostRecordByInternalAccount(t, org.ID, "AmazonElastiCache", "eu-central-1", "res-001", "")
+	if amountUnset != 75.00 {
+		t.Errorf("expected a separate internal_account_id=\"\" row with amount 75.00, got %v", amountUnset)
+	}
+	if internalUnset == nil || *internalUnset != "" {
+		t.Errorf("expected internal_account_id \"\" on the second row, got %v", internalUnset)
+	}
+}
+
+// This is the regression test for the real bug: two different accounts
+// connected to the same AWS account_id (e.g. a CE account and a CUR account
+// pointed at the same real AWS account for migration comparison) must not
+// collide in cost_records — each keeps its own independent cost data.
+func TestSave_DifferentInternalAccountIDsDoNotCollide(t *testing.T) {
+	s := newTestStore(t)
+	ctx, org := newOrgCtx(t, s)
+
+	accountA := "internal-acct-a"
+	accountB := "internal-acct-b"
+
+	first := costRecord("AmazonEC2", "eu-central-1", 10.00)
+	first.InternalAccountID = &accountA
+	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
+		t.Fatalf("save account A: %v", err)
+	}
+
+	second := costRecord("AmazonEC2", "eu-central-1", 999.00)
+	second.InternalAccountID = &accountB
+	if _, _, err := s.Save(ctx, []model.CostRecord{second}); err != nil {
+		t.Fatalf("save account B: %v", err)
+	}
+
+	_, amountA, _ := readBackCostRecordByInternalAccount(t, org.ID, "AmazonEC2", "eu-central-1", "res-001", accountA)
+	if amountA != 10.00 {
+		t.Errorf("account A's row was overwritten by account B's scan: expected 10.00, got %v", amountA)
+	}
+
+	_, amountB, _ := readBackCostRecordByInternalAccount(t, org.ID, "AmazonEC2", "eu-central-1", "res-001", accountB)
+	if amountB != 999.00 {
+		t.Errorf("expected account B's row at 999.00, got %v", amountB)
+	}
+
+	// Re-scan account A — must refresh its own row only, not touch account B's.
+	firstRescanned := costRecord("AmazonEC2", "eu-central-1", 11.00)
+	firstRescanned.InternalAccountID = &accountA
+	if _, _, err := s.Save(ctx, []model.CostRecord{firstRescanned}); err != nil {
+		t.Fatalf("re-save account A: %v", err)
+	}
+	_, amountA2, _ := readBackCostRecordByInternalAccount(t, org.ID, "AmazonEC2", "eu-central-1", "res-001", accountA)
+	if amountA2 != 11.00 {
+		t.Errorf("expected account A's re-scan to update to 11.00, got %v", amountA2)
+	}
+	_, amountBAfter, _ := readBackCostRecordByInternalAccount(t, org.ID, "AmazonEC2", "eu-central-1", "res-001", accountB)
+	if amountBAfter != 999.00 {
+		t.Errorf("account A's re-scan corrupted account B's row: expected 999.00, got %v", amountBAfter)
 	}
 }
 
