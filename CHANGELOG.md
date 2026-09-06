@@ -127,7 +127,7 @@ First release published from the public GitHub repository.
 ### Added
 
 - publish the Helm chart as a standard chart repository (`helm repo add axiaops
-  https://ahmd-soliman.github.io/axiaops/charts`), packaged and indexed alongside
+  https://axiaops-io.github.io/axiaops/charts`), packaged and indexed alongside
   the docs site on GitHub Pages
 - tag-triggered release builds (`release.yml`) — cutting a release tag now builds
   and publishes semver-tagged images and cuts a GitHub Release with generated notes
@@ -916,36 +916,36 @@ History before the first tag. Phase 1 MVP delivered:
 Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
-[Unreleased]: https://github.com/ahmd-soliman/axiaops/compare/0.1.0-alpha.27...develop
-[0.2.0-beta.9]: https://github.com/ahmd-soliman/axiaops/tree/0.2.0-beta.9
-[0.1.0-alpha.32]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.32
-[0.1.0-alpha.31]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.31
-[0.1.0-alpha.30]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.30
-[0.1.0-alpha.29]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.29
-[0.1.0-alpha.28]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.28
-[0.1.0-alpha.27]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.27
-[0.1.0-alpha.26]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.26
-[0.1.0-alpha.25]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.25
-[0.1.0-alpha.24]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.24
-[0.1.0-alpha.23]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.23
-[0.1.0-alpha.22]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.22
-[0.1.0-alpha.21]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.21
-[0.1.0-alpha.20]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.20
-[0.1.0-alpha.19]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.19
-[0.1.0-alpha.18]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.18
-[0.1.0-alpha.17]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.17
-[0.1.0-alpha.16]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.16
-[0.1.0-alpha.15]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.15
-[0.1.0-alpha.14]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.14
-[0.1.0-alpha.13]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.13
-[0.1.0-alpha.12]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.12
-[0.1.0-alpha.11]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.11
-[0.1.0-alpha.10]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.10
-[0.1.0-alpha.9]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.9
-[0.1.0-alpha.7]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.7
-[0.1.0-alpha.6]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.6
-[0.1.0-alpha.5]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.5
-[0.1.0-alpha.4]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.4
-[0.1.0-alpha.3]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.3
-[0.1.0-alpha.2]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.2
-[0.1.0-alpha.1]: https://github.com/ahmd-soliman/axiaops/tree/0.1.0-alpha.1
+[Unreleased]: https://github.com/axiaops-io/axiaops/compare/0.1.0-alpha.27...develop
+[0.2.0-beta.9]: https://github.com/axiaops-io/axiaops/tree/0.2.0-beta.9
+[0.1.0-alpha.32]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.32
+[0.1.0-alpha.31]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.31
+[0.1.0-alpha.30]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.30
+[0.1.0-alpha.29]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.29
+[0.1.0-alpha.28]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.28
+[0.1.0-alpha.27]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.27
+[0.1.0-alpha.26]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.26
+[0.1.0-alpha.25]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.25
+[0.1.0-alpha.24]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.24
+[0.1.0-alpha.23]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.23
+[0.1.0-alpha.22]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.22
+[0.1.0-alpha.21]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.21
+[0.1.0-alpha.20]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.20
+[0.1.0-alpha.19]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.19
+[0.1.0-alpha.18]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.18
+[0.1.0-alpha.17]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.17
+[0.1.0-alpha.16]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.16
+[0.1.0-alpha.15]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.15
+[0.1.0-alpha.14]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.14
+[0.1.0-alpha.13]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.13
+[0.1.0-alpha.12]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.12
+[0.1.0-alpha.11]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.11
+[0.1.0-alpha.10]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.10
+[0.1.0-alpha.9]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.9
+[0.1.0-alpha.7]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.7
+[0.1.0-alpha.6]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.6
+[0.1.0-alpha.5]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.5
+[0.1.0-alpha.4]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.4
+[0.1.0-alpha.3]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.3
+[0.1.0-alpha.2]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.2
+[0.1.0-alpha.1]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.1

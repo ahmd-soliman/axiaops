@@ -106,4 +106,4 @@ account is expected, not broken.
 
 Full deliverability guidance, SMTP error-code tables, and the security model
 behind channel credentials live in the repo's
-[`docs/OPERATIONS.md`](https://github.com/ahmd-soliman/axiaops/blob/main/docs/OPERATIONS.md).
+[`docs/OPERATIONS.md`](https://github.com/axiaops-io/axiaops/blob/main/docs/OPERATIONS.md).
