@@ -8,33 +8,34 @@
 -- and the other's rows get reassigned to it, making the other account look
 -- like it has zero cost data even though it was scanned successfully.
 --
--- A plain column-based UNIQUE constraint won't work here: Postgres treats
--- every NULL as distinct from every other NULL, so a record saved twice
--- without InternalAccountID set (nil) would insert a new row on every
--- re-fetch instead of updating in place -- a real regression this migration
--- was caught introducing against TestSave_SecondCallUpdatesExisting et al.
--- We also can't backfill NULL to '' the way migration 020 did for
--- resource_id: migration 040 on this branch added
--- cost_records_internal_account_id_fkey REFERENCING accounts(id), and ''
--- would need a real accounts row with that id to satisfy it.
+-- Tightened to NOT NULL rather than left nullable: both ingestion call
+-- sites that produce cost_records already always set this field before
+-- calling Save, no installation has any NULL rows today (verified against
+-- prod and dev directly), and a cost record with no known owning account
+-- isn't meaningful data to begin with. Same NULL-distinctness reasoning as
+-- migration 020's resource_id fix applies (Postgres treats two NULLs as
+-- distinct in a unique constraint), but here we close it by disallowing
+-- NULL entirely rather than backfilling to a sentinel -- migration 040's
+-- cost_records_internal_account_id_fkey means any stored value must
+-- reference a real accounts row, and there is no sentinel account to
+-- backfill orphaned rows to.
 --
--- Instead this is an expression-based UNIQUE INDEX keyed on
--- COALESCE(internal_account_id, ''). The stored column value stays exactly
--- what was written -- NULL stays NULL, satisfying the foreign key -- but
--- for the purposes of conflict detection two NULLs now collide with each
--- other (both normalize to ''), matching the old upsert-in-place behavior,
--- while two different real internal_account_id values still don't collide
--- with each other or with NULL.
-
--- IF NOT EXISTS on the index (and IF EXISTS on the drop) so this migration
--- tolerates being replayed by dirty-state recovery after a mid-step crash,
--- same requirement migration 031's DO-block pattern documents.
+-- IF EXISTS/idempotent-safe so this tolerates being replayed by dirty-state
+-- recovery after a mid-step crash, same requirement migration 031's
+-- DO-block pattern documents.
 
 SET search_path TO axiaops;
 
+-- No-op today (verified zero NULL rows in prod and dev) -- kept as a guard
+-- for any future install that somehow has orphaned rows; ON DELETE CASCADE
+-- via the migration-040 FK means a NULL row can only exist if its owning
+-- account was deleted without cascading, which shouldn't happen but this
+-- makes the migration fail loudly (FK violation) rather than silently if
+-- it ever does.
+ALTER TABLE cost_records ALTER COLUMN internal_account_id SET NOT NULL;
+
 ALTER TABLE cost_records DROP CONSTRAINT IF EXISTS cost_records_org_resource_unique;
 
-CREATE UNIQUE INDEX IF NOT EXISTS cost_records_org_resource_unique ON cost_records (
-    organization_id, provider, account_id, service, region, resource_id,
-    period_start, period_end, COALESCE(internal_account_id, '')
-);
+ALTER TABLE cost_records
+    ADD CONSTRAINT cost_records_org_resource_unique
+    UNIQUE (organization_id, provider, account_id, service, region, resource_id, period_start, period_end, internal_account_id);

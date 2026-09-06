@@ -186,15 +186,26 @@ func costRecord(service, region string, amount float64) model.CostRecord {
 	}
 }
 
+// costRecordFor is costRecord with InternalAccountID set — internal_account_id
+// is NOT NULL (migration 041) with a foreign key to accounts(id), so every
+// cost record test needs one; the caller must have already created that
+// account via mustSaveTestAccount.
+func costRecordFor(internalAccountID, service, region string, amount float64) model.CostRecord {
+	r := costRecord(service, region, amount)
+	r.InternalAccountID = &internalAccountID
+	return r
+}
+
 // ── Save ──────────────────────────────────────────────────────────────────────
 
 func TestSave_InsertsRecords(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
 	records := []model.CostRecord{
-		costRecord("AmazonEC2", "eu-central-1", 100.00),
-		costRecord("AmazonRDS", "eu-central-1", 200.00),
+		costRecordFor("test-account", "AmazonEC2", "eu-central-1", 100.00),
+		costRecordFor("test-account", "AmazonRDS", "eu-central-1", 200.00),
 	}
 
 	inserted, updated, err := s.Save(ctx, records)
@@ -208,9 +219,10 @@ func TestSave_InsertsRecords(t *testing.T) {
 
 func TestSave_SecondCallUpdatesExisting(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
-	records := []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 100.00)}
+	records := []model.CostRecord{costRecordFor("test-account", "AmazonEC2", "eu-central-1", 100.00)}
 
 	inserted, updated, err := s.Save(ctx, records)
 	if err != nil {
@@ -231,14 +243,15 @@ func TestSave_SecondCallUpdatesExisting(t *testing.T) {
 
 func TestListCostRecords_AbsoluteWindow(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
 	// Five daily records; distinct period_start (and resource_id) so none
 	// collide on the upsert conflict key.
 	days := []int{1, 5, 10, 15, 20}
 	var records []model.CostRecord
 	for i, d := range days {
-		r := costRecord("AmazonEC2", "eu-central-1", 10.0)
+		r := costRecordFor("test-account", "AmazonEC2", "eu-central-1", 10.0)
 		r.ResourceID = fmt.Sprintf("res-%02d", d)
 		r.PeriodStart = time.Date(2026, 3, d, 0, 0, 0, 0, time.UTC)
 		r.PeriodEnd = time.Date(2026, 3, d+1, 0, 0, 0, 0, time.UTC)
@@ -286,11 +299,12 @@ func TestSave_EmptyBatch(t *testing.T) {
 
 func TestSave_DifferentRegionIsNotDuplicate(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
 	records := []model.CostRecord{
-		costRecord("AmazonEC2", "eu-central-1", 100.00),
-		costRecord("AmazonEC2", "eu-west-1", 100.00),
+		costRecordFor("test-account", "AmazonEC2", "eu-central-1", 100.00),
+		costRecordFor("test-account", "AmazonEC2", "eu-west-1", 100.00),
 	}
 
 	inserted, updated, err := s.Save(ctx, records)
@@ -356,39 +370,17 @@ func readBackCostRecordByInternalAccount(t *testing.T, orgID, service, region, r
 	return
 }
 
-// readBackCostRecordByNullInternalAccount is the NULL-account variant —
-// internal_account_id stays nullable (migration 040's FK requires it, an
-// empty-string sentinel would need a matching accounts row), so an "unset"
-// row must be looked up with IS NULL rather than an equality match.
-func readBackCostRecordByNullInternalAccount(t *testing.T, orgID, service, region, resourceID string) (id string, amount float64) {
-	t.Helper()
-	conn := connectTestDB(t)
-	defer func() { _ = conn.Close(context.Background()) }()
-	err := conn.QueryRow(context.Background(), `
-		SELECT id::text, amount
-		FROM axiaops.cost_records
-		WHERE organization_id = $1 AND provider = 'aws' AND account_id = '000000000000'
-		  AND service = $2 AND region = $3 AND resource_id = $4
-		  AND period_start = '2026-03-01'::date AND period_end = '2026-03-31'::date
-		  AND internal_account_id IS NULL`,
-		orgID, service, region, resourceID,
-	).Scan(&id, &amount)
-	if err != nil {
-		t.Fatalf("readBackCostRecordByNullInternalAccount: %v", err)
-	}
-	return
-}
-
 func TestSave_UpsertWinsLatest(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
-	first := costRecord("AmazonEC2", "eu-central-1", 0.33)
+	first := costRecordFor("test-account", "AmazonEC2", "eu-central-1", 0.33)
 	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
 
-	second := costRecord("AmazonEC2", "eu-central-1", 4.03) // same conflict key, late-settled amount
+	second := costRecordFor("test-account", "AmazonEC2", "eu-central-1", 4.03) // same conflict key, late-settled amount
 	inserted, updated, err := s.Save(ctx, []model.CostRecord{second})
 	if err != nil {
 		t.Fatalf("second Save: %v", err)
@@ -406,14 +398,15 @@ func TestSave_UpsertWinsLatest(t *testing.T) {
 func TestSave_UpsertPreservesID(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
-	first := costRecord("AmazonRDS", "eu-central-1", 100.00)
+	first := costRecordFor("test-account", "AmazonRDS", "eu-central-1", 100.00)
 	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
 	firstID, _, _ := readBackCostRecord(t, org.ID, "AmazonRDS", "eu-central-1", "res-001")
 
-	second := costRecord("AmazonRDS", "eu-central-1", 200.00)
+	second := costRecordFor("test-account", "AmazonRDS", "eu-central-1", 200.00)
 	if _, _, err := s.Save(ctx, []model.CostRecord{second}); err != nil {
 		t.Fatalf("second Save: %v", err)
 	}
@@ -424,44 +417,21 @@ func TestSave_UpsertPreservesID(t *testing.T) {
 	}
 }
 
-// internal_account_id stays nullable on this branch (migration 040's foreign
-// key to accounts(id) means an empty-string sentinel would need a matching
-// account row), so a nil InternalAccountID binds as a real SQL NULL. NULL is
-// part of the conflict key (migration 041) and Postgres treats NULLs as
-// mutually distinct in a unique constraint, so a second write that omits it
-// never conflicts with — and so can't clobber — a row that set a real value.
-// Real ingestion call sites always set InternalAccountID before calling
-// Save, so this scenario shouldn't occur in practice, but the DB must not
-// silently misattribute a row if it ever does.
-func TestSave_MissingInternalAccountIDDoesNotClobberExisting(t *testing.T) {
+// internal_account_id is NOT NULL (migration 041) — a cost record with no
+// known owning account isn't meaningful data, and migration 040's foreign
+// key to accounts(id) means there's no sentinel value to fall back to
+// anyway. Both real ingestion call sites always set this field before
+// calling Save, so omitting it should fail loudly rather than silently
+// succeed with an ambiguous attribution.
+func TestSave_MissingInternalAccountIDFailsInsert(t *testing.T) {
 	s := newTestStore(t)
-	ctx, org := newOrgCtx(t, s)
+	ctx, _ := newOrgCtx(t, s)
 
-	internal := "internal-acct-abc"
-	mustSaveTestAccount(t, s, ctx, org.ID, internal)
-	first := costRecord("AmazonElastiCache", "eu-central-1", 50.00)
-	first.InternalAccountID = &internal
-	if _, _, err := s.Save(ctx, []model.CostRecord{first}); err != nil {
-		t.Fatalf("first Save: %v", err)
-	}
-
-	second := costRecord("AmazonElastiCache", "eu-central-1", 75.00)
-	second.InternalAccountID = nil
-	if _, _, err := s.Save(ctx, []model.CostRecord{second}); err != nil {
-		t.Fatalf("second Save: %v", err)
-	}
-
-	_, amountKnown, internalKnown := readBackCostRecordByInternalAccount(t, org.ID, "AmazonElastiCache", "eu-central-1", "res-001", internal)
-	if amountKnown != 50.00 {
-		t.Errorf("expected the internal_account_id=%q row to keep its original amount 50.00, got %v", internal, amountKnown)
-	}
-	if internalKnown == nil || *internalKnown != internal {
-		t.Errorf("expected internal_account_id %q preserved on its own row, got %v", internal, internalKnown)
-	}
-
-	_, amountUnset := readBackCostRecordByNullInternalAccount(t, org.ID, "AmazonElastiCache", "eu-central-1", "res-001")
-	if amountUnset != 75.00 {
-		t.Errorf("expected a separate internal_account_id=NULL row with amount 75.00, got %v", amountUnset)
+	record := costRecord("AmazonElastiCache", "eu-central-1", 50.00)
+	record.InternalAccountID = nil
+	_, _, err := s.Save(ctx, []model.CostRecord{record})
+	if err == nil {
+		t.Fatal("expected Save to fail when InternalAccountID is nil, got no error")
 	}
 }
 
@@ -523,10 +493,12 @@ func TestSave_UpsertRLSIsolation(t *testing.T) {
 	s := newTestStore(t)
 	ctxA, orgA := newOrgCtx(t, s)
 	ctxB, orgB := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctxA, orgA.ID, "test-account-a")
+	mustSaveTestAccount(t, s, ctxB, orgB.ID, "test-account-b")
 
 	// Both orgs upsert the same conflict-key shape but with different amounts.
-	a := costRecord("AmazonELB", "eu-central-1", 11.00)
-	b := costRecord("AmazonELB", "eu-central-1", 22.00)
+	a := costRecordFor("test-account-a", "AmazonELB", "eu-central-1", 11.00)
+	b := costRecordFor("test-account-b", "AmazonELB", "eu-central-1", 22.00)
 
 	if _, _, err := s.Save(ctxA, []model.CostRecord{a}); err != nil {
 		t.Fatalf("orgA Save: %v", err)
@@ -549,15 +521,16 @@ func TestSave_UpsertRLSIsolation(t *testing.T) {
 func TestSave_ConcurrentUpsertLastWriterWins(t *testing.T) {
 	s := newTestStore(t)
 	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
 	// Seed the row so both goroutines hit the UPDATE path (cleanest race shape).
-	seed := costRecord("AmazonVPC", "eu-central-1", 0.10)
+	seed := costRecordFor("test-account", "AmazonVPC", "eu-central-1", 0.10)
 	if _, _, err := s.Save(ctx, []model.CostRecord{seed}); err != nil {
 		t.Fatalf("seed Save: %v", err)
 	}
 
-	a := costRecord("AmazonVPC", "eu-central-1", 100.00)
-	b := costRecord("AmazonVPC", "eu-central-1", 200.00)
+	a := costRecordFor("test-account", "AmazonVPC", "eu-central-1", 100.00)
+	b := costRecordFor("test-account", "AmazonVPC", "eu-central-1", 200.00)
 
 	start := make(chan struct{})
 	done := make(chan error, 2)
@@ -1662,13 +1635,14 @@ func TestSaveSnapshot_AccumulatesAcrossScans(t *testing.T) {
 
 func TestDeleteOldCostRecords_DeletesExpiredRows(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
-	old := costRecord("AmazonEC2", "eu-central-1", 10.00)
+	old := costRecordFor("test-account", "AmazonEC2", "eu-central-1", 10.00)
 	old.PeriodEnd = time.Now().UTC().AddDate(0, 0, -100)
 	old.PeriodStart = old.PeriodEnd.AddDate(0, 0, -30)
 
-	recent := costRecord("AmazonRDS", "eu-central-1", 20.00)
+	recent := costRecordFor("test-account", "AmazonRDS", "eu-central-1", 20.00)
 	recent.PeriodEnd = time.Now().UTC().AddDate(0, 0, -10)
 	recent.PeriodStart = recent.PeriodEnd.AddDate(0, 0, -30)
 
@@ -1688,9 +1662,10 @@ func TestDeleteOldCostRecords_DeletesExpiredRows(t *testing.T) {
 
 func TestDeleteOldCostRecords_KeepsRecentRows(t *testing.T) {
 	s := newTestStore(t)
-	ctx, _ := newOrgCtx(t, s)
+	ctx, org := newOrgCtx(t, s)
+	mustSaveTestAccount(t, s, ctx, org.ID, "test-account")
 
-	recent := costRecord("AmazonEC2", "eu-central-1", 50.00)
+	recent := costRecordFor("test-account", "AmazonEC2", "eu-central-1", 50.00)
 	recent.PeriodEnd = time.Now().UTC().AddDate(0, 0, -10)
 	recent.PeriodStart = recent.PeriodEnd.AddDate(0, 0, -30)
 	if _, _, err := s.Save(ctx, []model.CostRecord{recent}); err != nil {
