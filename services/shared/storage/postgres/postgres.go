@@ -110,15 +110,22 @@ func setOrganization(ctx context.Context, tx pgx.Tx) error {
 
 // Save upserts cost records in a single transaction. Rows whose conflict key
 // (organization_id, provider, account_id, service, region, resource_id,
-// period_start, period_end) already exists have their amount, currency, tags,
-// fetched_at, and internal_account_id refreshed from the incoming payload —
+// period_start, period_end, internal_account_id) already exists have their
+// amount, currency, tags, and fetched_at refreshed from the incoming payload —
 // this is how AWS Cost Explorer's late-settled NetAmortizedCost for day-1 of a
 // billing period reaches the database under the rolling 30-day re-fetch
 // window.
 //
-// The internal_account_id column uses COALESCE so a re-fetch that omits the
-// field never clobbers a populated legacy value (the column was added in
-// migration 010 without NOT NULL).
+// internal_account_id is part of the conflict key (migration 041) so two
+// different accounts connected to the same AWS account_id — e.g. running CE
+// and CUR ingestion side-by-side for migration comparison — never collide
+// on the same row; each keeps independent cost data. The column is NOT
+// NULL (both ingestion call sites that produce cost_records always set
+// this field before calling Save, and migration 040's foreign key to
+// accounts(id) means there's no meaningful sentinel to fall back to
+// anyway) — a caller that omits it fails the insert outright with a clear
+// constraint violation rather than silently sharing a row with another
+// caller that also omitted it.
 //
 // Returns the count of rows that were fresh inserts and the count that were
 // updates, discriminated via the PostgreSQL upsert idiom RETURNING (xmax = 0):
@@ -151,13 +158,12 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (inserted,
 				(organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency,
 				 period_start, period_end, tags, fetched_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-			ON CONFLICT (organization_id, provider, account_id, service, region, resource_id, period_start, period_end)
+			ON CONFLICT (organization_id, provider, account_id, service, region, resource_id, period_start, period_end, internal_account_id)
 			DO UPDATE SET
-				amount              = EXCLUDED.amount,
-				currency            = EXCLUDED.currency,
-				tags                = EXCLUDED.tags,
-				fetched_at          = EXCLUDED.fetched_at,
-				internal_account_id = COALESCE(EXCLUDED.internal_account_id, cost_records.internal_account_id)
+				amount     = EXCLUDED.amount,
+				currency   = EXCLUDED.currency,
+				tags       = EXCLUDED.tags,
+				fetched_at = EXCLUDED.fetched_at
 			RETURNING (xmax = 0)`,
 			organizationID,
 			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID,

@@ -122,12 +122,11 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 		t.Fatalf("EnsureDevMembership: %v", err)
 	}
 
-	// Cost record + account + audit row.
-	if _, _, err := s.Save(ctx, []model.CostRecord{costRecord("AmazonEC2", "eu-central-1", 1.23)}); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
+	// Account + cost record (references it via internal_account_id, NOT NULL
+	// with a foreign key to accounts.id) + audit row.
+	accountID := "acc-" + uuid.New().String()
 	if err := s.SaveAccount(ctx, model.Account{
-		ID: "acc-" + uuid.New().String(), OrganizationID: org.ID,
+		ID: accountID, OrganizationID: org.ID,
 		Provider: "aws", AccountID: "000000000000", Region: "eu-central-1", Status: "connected",
 		// access-key fields are required by the accounts_access_key_fields_present
 		// CHECK constraint introduced in migration 019. Use any non-empty values
@@ -136,6 +135,9 @@ func TestDeleteOrganizationCascade_PurgesEveryTable(t *testing.T) {
 		BillingSource: model.BillingSourceCostExplorer,
 	}); err != nil {
 		t.Fatalf("SaveAccount: %v", err)
+	}
+	if _, _, err := s.Save(ctx, []model.CostRecord{costRecordFor(accountID, "AmazonEC2", "eu-central-1", 1.23)}); err != nil {
+		t.Fatalf("Save: %v", err)
 	}
 	if _, err := s.AuditLogWrite(ctx, model.AuditEvent{
 		UserID: userID, ActorEmail: "u@x.com", Action: model.AuditActionAccountConnected,
