@@ -82,4 +82,4 @@ to your IdP automatically and provisions the user on first successful login.
 ## Learn more
 
 The full request-level flow, permission model internals, and the runtime security
-model live in the repo's [`docs/AUTHENTICATION.md`](https://github.com/ahmd-soliman/axiaops/blob/main/docs/AUTHENTICATION.md).
+model live in the repo's [`docs/AUTHENTICATION.md`](https://github.com/axiaops-io/axiaops/blob/main/docs/AUTHENTICATION.md).

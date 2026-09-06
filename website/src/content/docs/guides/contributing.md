@@ -19,7 +19,7 @@ if you haven't — this guide assumes you understand the service layout.
 ## First-day setup
 
 ```bash
-git clone https://github.com/ahmd-soliman/axiaops.git
+git clone https://github.com/axiaops-io/axiaops.git
 cd axiaops
 
 cp services/ingestion/.env.example services/ingestion/.env

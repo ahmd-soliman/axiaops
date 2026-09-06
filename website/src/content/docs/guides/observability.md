@@ -32,7 +32,7 @@ scrape_configs:
 ```
 
 A fuller example with alerting rule stanzas ships at
-[`deploy/observability/prometheus.yml.example`](https://github.com/ahmd-soliman/axiaops/blob/main/deploy/observability/prometheus.yml.example).
+[`deploy/observability/prometheus.yml.example`](https://github.com/axiaops-io/axiaops/blob/main/deploy/observability/prometheus.yml.example).
 
 ### On Kubernetes
 
@@ -45,7 +45,7 @@ default.
 
 A ready-to-import dashboard covering request rate, error rate, p95 latency,
 the zombie-detection/savings trend, and AWS API error rate lives at
-[`deploy/observability/grafana-dashboard.json`](https://github.com/ahmd-soliman/axiaops/blob/main/deploy/observability/grafana-dashboard.json).
+[`deploy/observability/grafana-dashboard.json`](https://github.com/axiaops-io/axiaops/blob/main/deploy/observability/grafana-dashboard.json).
 
 ## Structured logging
 
@@ -83,4 +83,4 @@ normal), `error` (red — check credentials/permissions), `scan_timeout`
 
 The full metrics reference, code-level usage examples, and the retry/circuit-breaker
 implementation details live in the repo's
-[`docs/OBSERVABILITY.md`](https://github.com/ahmd-soliman/axiaops/blob/main/docs/OBSERVABILITY.md).
+[`docs/OBSERVABILITY.md`](https://github.com/axiaops-io/axiaops/blob/main/docs/OBSERVABILITY.md).

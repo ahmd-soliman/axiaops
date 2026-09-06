@@ -28,7 +28,7 @@ Optional but nice:
 
 ```bash
 # Clone
-git clone git@github.com:ahmd-soliman/axiaops.git
+git clone git@github.com:axiaops-io/axiaops.git
 cd axiaops
 
 # AWS credentials — put in services/ingestion/.env or export in your shell.

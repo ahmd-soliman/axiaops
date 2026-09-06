@@ -41,7 +41,7 @@ helm search repo axiaops --versions   # see what's available
 publicly reachable:
 
 ```bash
-git clone https://github.com/ahmd-soliman/axiaops.git
+git clone https://github.com/axiaops-io/axiaops.git
 cd axiaops/deploy/helm/axiaops
 ```
 
@@ -49,7 +49,7 @@ cd axiaops/deploy/helm/axiaops
 to set it unless you want to override with a different published tag, or a
 manually-built one for testing a feature branch that hasn't been released
 yet. Browse published tags at the [`api` package
-page](https://github.com/ahmd-soliman/axiaops/pkgs/container/axiaops%2Fapi).
+page](https://github.com/axiaops-io/axiaops/pkgs/container/axiaops%2Fapi).
 
 > ℹ️ **PostgreSQL User Setup**: `migration-database-url` connects as `axiaops_owner` (must exist in PostgreSQL beforehand to execute DDL migrations). The application users (`axiaops` and `axiaops_runtime`) are automatically created and password-synced by AxiaOps's built-in `Bootstrap()` sequence if missing.
 

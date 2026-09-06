@@ -17,7 +17,7 @@ export default defineConfig({
 			favicon: '/favicon.svg',
 			customCss: ['./src/styles/custom.css'],
 			social: [
-				{ icon: 'github', label: 'GitHub', href: 'https://github.com/ahmd-soliman/axiaops' },
+				{ icon: 'github', label: 'GitHub', href: 'https://github.com/axiaops-io/axiaops' },
 			],
 			components: {
 				// Dark/Light only -- see the override's own comment for why
