@@ -141,7 +141,9 @@ func startWorker(
 				continue
 			}
 
-			_ = store.UpdateAccountStatus(statusCtx, job.AccountID, "connected")
+			// runScan already sets the account's final status (connected, or
+			// left pending a CUR account's first delivery) via
+			// finalizeAccountStatus.
 			slog.Info("worker: scan.completed",
 				"account_id", job.AccountID,
 				"circuit_breaker_state", cb.State().String(),

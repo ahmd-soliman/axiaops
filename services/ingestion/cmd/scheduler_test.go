@@ -13,10 +13,11 @@ import (
 
 // mockStoreForScheduler is a minimal mock store for testing the scheduler.
 type mockStoreForScheduler struct {
-	accounts        []model.Account
-	listErr         error
-	listCalls       int
-	getAccountCalls int
+	accounts          []model.Account
+	listErr           error
+	listCalls         int
+	getAccountCalls   int
+	updateStatusCalls []struct{ id, status string }
 }
 
 func (m *mockStoreForScheduler) ListAccounts(ctx context.Context) ([]model.Account, error) {
@@ -76,7 +77,8 @@ func (m *mockStoreForScheduler) GetAccount(_ context.Context, id string) (model.
 	return model.Account{}, nil
 }
 func (m *mockStoreForScheduler) DeleteAccount(context.Context, string) error { return nil }
-func (m *mockStoreForScheduler) UpdateAccountStatus(context.Context, string, string) error {
+func (m *mockStoreForScheduler) UpdateAccountStatus(_ context.Context, id, status string) error {
+	m.updateStatusCalls = append(m.updateStatusCalls, struct{ id, status string }{id, status})
 	return nil
 }
 func (m *mockStoreForScheduler) SetAccountError(context.Context, string, string) error {
@@ -437,6 +439,146 @@ func TestScanScheduledAccounts_ZeroInterval_AlwaysOverdue(t *testing.T) {
 	}
 }
 
+// ── isAccountOverdue: pending-CUR-delivery delay ────────────────────────────
+//
+// A CUR account still awaiting its first billing export delivery shouldn't
+// have its first scan fire on literally the next scheduler tick after
+// connecting — the export can take up to ~24h, so that scan is guaranteed
+// to find nothing. These pin the CreatedAt-anchored delay directly on the
+// extracted pure function, no queue/store involved.
+
+func TestIsAccountOverdue_PendingCURDelivery_BeforeAnchor(t *testing.T) {
+	acc := model.Account{
+		ID:                "acc-1",
+		Status:            model.AccountStatusPendingCURDelivery,
+		ScanIntervalHours: 24,
+		CreatedAt:         time.Now().Add(-1 * time.Hour), // connected 1h ago
+		LastScannedAt:     nil,
+	}
+	if isAccountOverdue(acc, time.Now()) {
+		t.Error("expected not overdue — export delivery window (24h) hasn't elapsed since CreatedAt")
+	}
+}
+
+func TestIsAccountOverdue_PendingCURDelivery_AfterAnchor(t *testing.T) {
+	acc := model.Account{
+		ID:                "acc-1",
+		Status:            model.AccountStatusPendingCURDelivery,
+		ScanIntervalHours: 24,
+		CreatedAt:         time.Now().Add(-25 * time.Hour), // connected 25h ago
+		LastScannedAt:     nil,
+	}
+	if !isAccountOverdue(acc, time.Now()) {
+		t.Error("expected overdue — 25h since CreatedAt exceeds the 24h interval")
+	}
+}
+
+func TestIsAccountOverdue_NeverScanned_NotPending_ScansImmediately(t *testing.T) {
+	// A never-scanned account NOT in PendingCURDelivery (e.g. Cost Explorer,
+	// which has data immediately) keeps the original "scan on first tick"
+	// behavior — CreatedAt is irrelevant here even if it's recent.
+	acc := model.Account{
+		ID:                "acc-1",
+		Status:            model.AccountStatusConnected,
+		ScanIntervalHours: 24,
+		CreatedAt:         time.Now(),
+		LastScannedAt:     nil,
+	}
+	if !isAccountOverdue(acc, time.Now()) {
+		t.Error("expected overdue — never-scanned non-CUR-pending accounts scan immediately")
+	}
+}
+
+func TestIsAccountOverdue_AlreadyScanned_UsesLastScannedAt_NotCreatedAt(t *testing.T) {
+	// Once LastScannedAt is set (even from an empty pending-delivery scan),
+	// the normal interval-since-last-scan rule takes over — CreatedAt is
+	// only consulted pre-first-scan.
+	last := time.Now().Add(-1 * time.Hour)
+	acc := model.Account{
+		ID:                "acc-1",
+		Status:            model.AccountStatusPendingCURDelivery,
+		ScanIntervalHours: 24,
+		CreatedAt:         time.Now().Add(-100 * time.Hour), // long past its own delay window
+		LastScannedAt:     &last,
+	}
+	if isAccountOverdue(acc, time.Now()) {
+		t.Error("expected not overdue — last scan was 1h ago against a 24h interval, regardless of CreatedAt")
+	}
+}
+
+// TestScanScheduledAccounts_PendingCURDelivery_NotYetDue / _Due exercise the
+// same delay through the full scheduler loop (not just the pure function),
+// pinning that scanScheduledAccounts actually wires isAccountOverdue in.
+
+func TestScanScheduledAccounts_PendingCURDelivery_NotYetDue(t *testing.T) {
+	store := &mockStoreForScheduler{
+		accounts: []model.Account{{
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 24,
+			Status: model.AccountStatusPendingCURDelivery, CreatedAt: time.Now().Add(-1 * time.Hour),
+		}},
+	}
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 0 {
+		t.Fatalf("expected 0 jobs — pending-CUR-delivery account connected only 1h ago, got %d", len(q.jobs))
+	}
+}
+
+func TestScanScheduledAccounts_PendingCURDelivery_Due(t *testing.T) {
+	store := &mockStoreForScheduler{
+		accounts: []model.Account{{
+			ID: "acc-1", OrganizationID: "organization-1", ScanIntervalHours: 24,
+			Status: model.AccountStatusPendingCURDelivery, CreatedAt: time.Now().Add(-25 * time.Hour),
+		}},
+	}
+	q := &captureQueue{}
+	scanScheduledAccounts(context.Background(), store, q)
+	if len(q.jobs) != 1 {
+		t.Fatalf("expected 1 job — pending-CUR-delivery account connected 25h ago, got %d", len(q.jobs))
+	}
+}
+
+// ── finalizeAccountStatus ────────────────────────────────────────────────
+
+func TestFinalizeAccountStatus_PendingCURDelivery_NoData_StaysPending(t *testing.T) {
+	store := &mockStoreForScheduler{}
+	acc := model.Account{ID: "acc-1", Status: model.AccountStatusPendingCURDelivery}
+	finalizeAccountStatus(context.Background(), store, acc, false)
+
+	if len(store.updateStatusCalls) != 1 {
+		t.Fatalf("expected 1 UpdateAccountStatus call, got %d", len(store.updateStatusCalls))
+	}
+	if got := store.updateStatusCalls[0].status; got != model.AccountStatusPendingCURDelivery {
+		t.Errorf("expected status to stay %q (so LastScannedAt still advances for the next backoff check), got %q",
+			model.AccountStatusPendingCURDelivery, got)
+	}
+}
+
+func TestFinalizeAccountStatus_PendingCURDelivery_GotData_FlipsToConnected(t *testing.T) {
+	store := &mockStoreForScheduler{}
+	acc := model.Account{ID: "acc-1", Status: model.AccountStatusPendingCURDelivery}
+	finalizeAccountStatus(context.Background(), store, acc, true)
+
+	if len(store.updateStatusCalls) != 1 {
+		t.Fatalf("expected 1 UpdateAccountStatus call, got %d", len(store.updateStatusCalls))
+	}
+	if got := store.updateStatusCalls[0].status; got != model.AccountStatusConnected {
+		t.Errorf("expected status Connected once real cost data was found, got %q", got)
+	}
+}
+
+func TestFinalizeAccountStatus_NotPending_AlwaysConnected(t *testing.T) {
+	// A CE account, or a CUR account that already delivered once — the
+	// pending/empty distinction only applies pre-first-data.
+	store := &mockStoreForScheduler{}
+	acc := model.Account{ID: "acc-1", Status: model.AccountStatusConnected}
+	finalizeAccountStatus(context.Background(), store, acc, false)
+
+	if len(store.updateStatusCalls) != 1 || store.updateStatusCalls[0].status != model.AccountStatusConnected {
+		t.Errorf("expected status Connected regardless of gotCostData, got %+v", store.updateStatusCalls)
+	}
+}
+
 // TestWorker_ProcessesJob is the worker's basic control case: dequeue a
 // pending job and reach runScan (signalled by GetAccount being called) --
 // pins that the worker drives a job straight through from dequeue to scan.
@@ -468,4 +610,3 @@ func TestWorker_ProcessesJob(t *testing.T) {
 		t.Errorf("worker did not reach runScan")
 	}
 }
-

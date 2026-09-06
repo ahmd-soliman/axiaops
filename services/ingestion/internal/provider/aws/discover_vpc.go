@@ -33,7 +33,7 @@ func discoverNATGateways(ctx context.Context, cfg aws.Config) []string {
 // charges for them regardless of usage, with no CloudWatch metric to consult.
 // internalAccountID is the UUID from the accounts table, used for filtering.
 func DiscoverUnattachedEIPs(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	regions := uniqueRegions(records)
+	regions := discoveryRegions(records, awsClient.Region())
 	accountID := awsClient.AccountID()
 	var zombies []model.ZombieResource
 

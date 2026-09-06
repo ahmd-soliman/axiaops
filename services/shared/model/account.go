@@ -27,6 +27,12 @@ type Account struct {
 	ScanIntervalHours int        `json:"scan_interval_hours"` // auto-scan interval in hours; default 24
 	ErrorMessage      string     `json:"error_message,omitempty"` // most recent failure reason; surfaced in dashboard
 	CreatedAt         time.Time  `json:"created_at"`
+	BillingSource     string     `json:"billing_source"`
+	CURDatabase       *string    `json:"cur_database,omitempty"`
+	CURTable          *string    `json:"cur_table,omitempty"`
+	CURWorkgroup      *string    `json:"cur_workgroup,omitempty"`
+	CURResultsS3      *string    `json:"cur_results_s3,omitempty"`
+	CURRegion         *string    `json:"cur_region,omitempty"`
 }
 
 // AuthMethod values. The string forms must match the auth_method CHECK
@@ -45,3 +51,10 @@ const (
 	AccountStatusError             = "error"
 	AccountStatusPendingRoleSetup  = "pending_role_setup"
 )
+
+const (
+	BillingSourceCostExplorer = "cost_explorer"
+	BillingSourceCURAthena    = "cur_athena"
+)
+
+const AccountStatusPendingCURDelivery = "pending_cur_delivery"

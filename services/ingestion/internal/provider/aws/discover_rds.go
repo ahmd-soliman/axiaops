@@ -48,7 +48,7 @@ const rdsSnapshotAgeThreshold = 30 * 24 * time.Hour
 // accumulate silently at $0.095/GB-month. Automated snapshots are excluded —
 // AWS manages their lifecycle via the retention setting.
 func DiscoverOrphanedRDSSnapshots(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	regions := uniqueRegions(records)
+	regions := discoveryRegions(records, awsClient.Region())
 	accountID := awsClient.AccountID()
 	now := time.Now().UTC()
 	var zombies []model.ZombieResource

@@ -7,7 +7,7 @@ import { PERM } from '../api/permissions';
 import { Spinner, LinkButton, StretchedRowLink } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
 import { CardRow } from '../components/primitives/CardRow';
-import { STATUS_LABEL } from '../utils/accountStatus';
+import { STATUS_LABEL, STATUS_HINT } from '../utils/accountStatus';
 import { formatRelative } from '../utils/relativeTime';
 import { editAccountHref } from '../utils/links';
 
@@ -251,14 +251,19 @@ function StatusBadge({ status }) {
     error:                'var(--color-error)',
     scan_timeout:         'var(--color-warning)',
     circuit_breaker_open: 'var(--color-warning)',
+    pending_cur_delivery: 'var(--color-text-muted)',
   }[status] || 'var(--color-text-muted)';
   return (
-    <span style={{
-      fontSize: 11,
-      fontWeight: 600,
-      color: fg,
-      letterSpacing: 0.2,
-    }}>
+    <span
+      title={STATUS_HINT[status]}
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        color: fg,
+        letterSpacing: 0.2,
+        cursor: STATUS_HINT[status] ? 'help' : undefined,
+      }}
+    >
       {STATUS_LABEL[status] ?? status ?? 'Unknown'}
     </span>
   );

@@ -47,6 +47,13 @@ var KnownServices = map[string]struct{}{
 	"AmazonGlacier":      {},
 	"AWSCloudFormation":  {},
 	"AmazonECS":          {},
+	// Tax is its own CUR/CE line-item type (line_item_line_item_type = "Tax"
+	// / Cost Explorer's own "Tax" service dimension), never a real AWS
+	// service — surfaced as its own cost line for invoice reconciliation,
+	// deliberately excluded from analyzer.serviceRules (no rule will ever
+	// match it, so it can never become a zombie finding) and from every
+	// amortization/optimization calculation upstream.
+	"Tax": {},
 }
 
 // IsKnownService reports whether s is registered in KnownServices.

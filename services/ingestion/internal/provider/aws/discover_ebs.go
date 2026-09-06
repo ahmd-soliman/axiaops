@@ -18,7 +18,7 @@ import (
 // mounted to any instance). AWS charges for EBS storage regardless of whether
 // the volume is attached, making these invisible but guaranteed waste.
 func DiscoverUnattachedEBSVolumes(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	regions := uniqueRegions(records)
+	regions := discoveryRegions(records, awsClient.Region())
 	accountID := awsClient.AccountID()
 	var zombies []model.ZombieResource
 
@@ -86,7 +86,7 @@ func DiscoverUnattachedEBSVolumes(ctx context.Context, records []model.CostRecor
 // does not back a registered AMI. These snapshots accumulate silently at
 // $0.05/GB-month and are safe to delete once both conditions are met.
 func DiscoverOrphanedEBSSnapshots(ctx context.Context, records []model.CostRecord, awsClient *Client, start, end time.Time, internalAccountID string) ([]model.ZombieResource, error) {
-	regions := uniqueRegions(records)
+	regions := discoveryRegions(records, awsClient.Region())
 	accountID := awsClient.AccountID()
 	var zombies []model.ZombieResource
 

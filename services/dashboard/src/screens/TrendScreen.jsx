@@ -103,6 +103,22 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+// Wall-clock window shared by chart/history filtering and CSV export. A
+// Custom… pick uses the actual applied calendar bounds (whole day, inclusive)
+// rather than a trailing day count — a historical range like 1–30 Jun isn't
+// "the most recent N days," so reusing the preset math for it would silently
+// select the wrong data (the same label/data mismatch fixed in DateRangeChips
+// itself). Preset chips keep the existing trailing-window behaviour.
+function windowBounds(period, customRange) {
+  if (customRange) {
+    return {
+      sinceMs: new Date(customRange.sinceIso + 'T00:00:00Z').getTime(),
+      untilMs: new Date(customRange.untilIso + 'T23:59:59.999Z').getTime(),
+    };
+  }
+  return { sinceMs: Date.now() - period * 24 * 60 * 60 * 1000, untilMs: Date.now() };
+}
+
 function formatDateTime(iso) {
   const d = new Date(iso);
   return formatFullDate(d)
@@ -136,7 +152,7 @@ function mergeSnapshotSeries(seriesList) {
 // Walks per-bucket data (not the merged sum) so each row self-describes its
 // service / resource_type filter. When multiple services are selected, rows
 // are emitted per service per timestamp instead of being collapsed to a sum.
-function exportCSV(seriesByBucket, { periodDays }, toast) {
+function exportCSV(seriesByBucket, { periodDays, sinceMs, untilMs }, toast) {
   const services      = [...new Set(seriesByBucket.map(b => b.service).filter(Boolean))];
   const resourceTypes = [...new Set(seriesByBucket.map(b => b.resourceType).filter(Boolean))];
 
@@ -149,7 +165,15 @@ function exportCSV(seriesByBucket, { periodDays }, toast) {
   const headers = ['snapshot_at', 'service', 'resource_type', 'account_id', 'zombie_count', 'total_monthly_cost', 'currency'];
   const rows = [];
   for (const bucket of seriesByBucket) {
-    for (const s of bucket.snaps.slice(-periodDays)) {
+    // Filter by wall-clock window (not "last N entries") — a multi-account
+    // org's raw series has several rows per day, and a Custom… absolute
+    // range isn't necessarily "the most recent N days" at all, so slicing by
+    // count either over/under-selects or (for a historical range) exports
+    // the wrong days entirely. Mirrors the filteredSnaps windowing above.
+    for (const s of bucket.snaps.filter(snap => {
+      const t = new Date(snap.snapshot_at).getTime();
+      return t >= sinceMs && t <= untilMs;
+    })) {
       rows.push([
         s.snapshot_at,
         bucket.service ?? '',
@@ -272,6 +296,11 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   );
   const [selectedSnap, setSelectedSnap] = useState(null);
   const [period, setPeriod]             = useState(DEFAULT_DAYS);
+  // Absolute calendar window from the Custom… picker ({ sinceIso, untilIso}),
+  // or null for the trailing `period`-day window. Presets clear it back to
+  // null. Mirrors CloudSpendScreen / OverviewScreen so every chip row behaves
+  // the same way.
+  const [customRange, setCustomRange]   = useState(null);
   const [granularity, setGranularity]   = useState('daily');
   const [listPage, setListPage]         = useState(1);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -297,24 +326,39 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   // so a naive slice(-period) treated `period` as "last N entries" —
   // i.e. period=7 picked the most recent 7 scans rather than the last
   // 7 days, and 6m/1y both collapsed to "all entries". Computing a
-  // wall-clock cutoff keeps the chip labels honest end-to-end.
-  // Window + shape the snaps once per (data, period, granularity) change
-  // rather than on every render. The wall-clock cutoff is computed inside so a
-  // mid-second re-render can't shift a boundary point in or out.
+  // wall-clock window (windowBounds) keeps the chip labels honest end-to-end,
+  // for both the trailing-day presets and an absolute Custom… range.
+  // Window + shape the snaps once per (data, period, customRange, granularity)
+  // change rather than on every render. The bounds are computed inside so a
+  // mid-second re-render can't shift a preset's boundary point in or out.
   const { filteredSnaps, chartSnaps, reversedSnaps } = useMemo(() => {
-    const cutoffMs = Date.now() - period * 24 * 60 * 60 * 1000;
-    const filtered = mergedSnaps.filter(s => new Date(s.snapshot_at).getTime() >= cutoffMs);
+    const { sinceMs, untilMs } = windowBounds(period, customRange);
+    const filtered = mergedSnaps.filter(s => {
+      const t = new Date(s.snapshot_at).getTime();
+      return t >= sinceMs && t <= untilMs;
+    });
     const chart = effectiveGranularity === 'monthly'
       ? downsampleByMonth(filtered)
       : aggregateToDays(filtered);
     return { filteredSnaps: filtered, chartSnaps: chart, reversedSnaps: [...filtered].reverse() };
-  }, [mergedSnaps, period, effectiveGranularity]);
+  }, [mergedSnaps, period, customRange, effectiveGranularity]);
 
-  // Total CSV rows across all buckets (one row per snap per bucket, period-windowed).
-  const exportRowCount = filterBuckets.reduce(
-    (sum, _, i) => sum + Math.min(trendQueries[i].data?.length ?? 0, period),
-    0,
-  );
+  // Total CSV rows across all buckets, window-filtered the same way as the
+  // chart/history above (not the old `Math.min(length, period)` count
+  // approximation, which broke identically for multi-account orgs and for
+  // any Custom… range not ending today).
+  const exportRowCount = useMemo(() => {
+    const { sinceMs, untilMs } = windowBounds(period, customRange);
+    return filterBuckets.reduce((sum, _, i) => {
+      const data = trendQueries[i].data;
+      if (!Array.isArray(data)) return sum;
+      return sum + data.filter(s => {
+        const t = new Date(s.snapshot_at).getTime();
+        return t >= sinceMs && t <= untilMs;
+      }).length;
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterBuckets, period, customRange, dataSignature]);
 
   // Scroll to selected row in history list
   useEffect(() => {
@@ -332,8 +376,9 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [selectedSnap, listPage, reversedSnaps]);
 
-  function changePeriod(days) {
+  function changePeriod(days, range) {
     setPeriod(days);
+    setCustomRange(range ?? null);
     setSelectedSnap(null);
     setListPage(1);
   }
@@ -515,7 +560,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               </div>
             )}
           </div>
-          <DateRangeChips value={period} onChange={changePeriod} mobile={isMobile} />
+          <DateRangeChips value={period} activeRange={customRange} onChange={changePeriod} mobile={isMobile} />
         </div>
 
         {/* Service filter pills */}
@@ -642,7 +687,7 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
                 resourceType: b.resourceType,
                 snaps:        Array.isArray(trendQueries[i].data) ? trendQueries[i].data : [],
               }));
-              exportCSV(seriesByBucket, { periodDays: period }, toast);
+              exportCSV(seriesByBucket, { periodDays: period, ...windowBounds(period, customRange) }, toast);
             }}
             disabled={exportRowCount === 0}
             aria-label="Export to CSV"

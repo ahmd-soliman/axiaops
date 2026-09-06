@@ -110,15 +110,22 @@ func setOrganization(ctx context.Context, tx pgx.Tx) error {
 
 // Save upserts cost records in a single transaction. Rows whose conflict key
 // (organization_id, provider, account_id, service, region, resource_id,
-// period_start, period_end) already exists have their amount, currency, tags,
-// fetched_at, and internal_account_id refreshed from the incoming payload —
+// period_start, period_end, internal_account_id) already exists have their
+// amount, currency, tags, and fetched_at refreshed from the incoming payload —
 // this is how AWS Cost Explorer's late-settled NetAmortizedCost for day-1 of a
 // billing period reaches the database under the rolling 30-day re-fetch
 // window.
 //
-// The internal_account_id column uses COALESCE so a re-fetch that omits the
-// field never clobbers a populated legacy value (the column was added in
-// migration 010 without NOT NULL).
+// internal_account_id is part of the conflict key (migration 041) so two
+// different accounts connected to the same AWS account_id — e.g. running CE
+// and CUR ingestion side-by-side for migration comparison — never collide
+// on the same row; each keeps independent cost data. The column is NOT
+// NULL (both ingestion call sites that produce cost_records always set
+// this field before calling Save, and migration 040's foreign key to
+// accounts(id) means there's no meaningful sentinel to fall back to
+// anyway) — a caller that omits it fails the insert outright with a clear
+// constraint violation rather than silently sharing a row with another
+// caller that also omitted it.
 //
 // Returns the count of rows that were fresh inserts and the count that were
 // updates, discriminated via the PostgreSQL upsert idiom RETURNING (xmax = 0):
@@ -151,13 +158,12 @@ func (s *Store) Save(ctx context.Context, records []model.CostRecord) (inserted,
 				(organization_id, provider, account_id, internal_account_id, service, region, resource_id, amount, currency,
 				 period_start, period_end, tags, fetched_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-			ON CONFLICT (organization_id, provider, account_id, service, region, resource_id, period_start, period_end)
+			ON CONFLICT (organization_id, provider, account_id, service, region, resource_id, period_start, period_end, internal_account_id)
 			DO UPDATE SET
-				amount              = EXCLUDED.amount,
-				currency            = EXCLUDED.currency,
-				tags                = EXCLUDED.tags,
-				fetched_at          = EXCLUDED.fetched_at,
-				internal_account_id = COALESCE(EXCLUDED.internal_account_id, cost_records.internal_account_id)
+				amount     = EXCLUDED.amount,
+				currency   = EXCLUDED.currency,
+				tags       = EXCLUDED.tags,
+				fetched_at = EXCLUDED.fetched_at
 			RETURNING (xmax = 0)`,
 			organizationID,
 			r.Provider, r.AccountID, r.InternalAccountID, r.Service, r.Region, r.ResourceID,
@@ -521,10 +527,12 @@ func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
 		INSERT INTO accounts
 			(id, organization_id, provider, label, account_id,
 			 auth_method, access_key_id, secret_encrypted, role_arn, external_id,
-			 region, status, scan_interval_hours, error_message, created_at)
+			 region, status, scan_interval_hours, error_message, created_at,
+			 billing_source, cur_database, cur_table, cur_workgroup, cur_results_s3, cur_region)
 		VALUES ($1, $2, $3, $4, $5,
 			COALESCE(NULLIF($6,''),'access_key'), NULLIF($7,''), NULLIF($8,''), NULLIF($9,''), NULLIF($10,''),
-			$11, $12, $13, NULLIF($14,''), $15)
+			$11, $12, $13, NULLIF($14,''), $15,
+			$16, $17, $18, $19, $20, $21)
 		ON CONFLICT (id) DO UPDATE SET
 			label               = EXCLUDED.label,
 			account_id          = EXCLUDED.account_id,
@@ -536,10 +544,17 @@ func (s *Store) SaveAccount(ctx context.Context, a model.Account) error {
 			region              = EXCLUDED.region,
 			status              = EXCLUDED.status,
 			scan_interval_hours = EXCLUDED.scan_interval_hours,
-			error_message       = EXCLUDED.error_message`,
+			error_message       = EXCLUDED.error_message,
+			billing_source      = EXCLUDED.billing_source,
+			cur_database        = EXCLUDED.cur_database,
+			cur_table           = EXCLUDED.cur_table,
+			cur_workgroup       = EXCLUDED.cur_workgroup,
+			cur_results_s3      = EXCLUDED.cur_results_s3,
+			cur_region          = EXCLUDED.cur_region`,
 		a.ID, a.OrganizationID, a.Provider, a.Label, a.AccountID,
 		a.AuthMethod, a.AccessKeyID, a.SecretEncrypted, a.RoleARN, a.ExternalID,
 		a.Region, a.Status, a.ScanIntervalHours, a.ErrorMessage, a.CreatedAt,
+		a.BillingSource, a.CURDatabase, a.CURTable, a.CURWorkgroup, a.CURResultsS3, a.CURRegion,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: save account: %w", err)
@@ -645,7 +660,8 @@ const accountSelectSQL = `
 	       COALESCE(external_id, '')      AS external_id,
 	       region, status, last_scanned_at, scan_interval_hours,
 	       COALESCE(error_message, '')    AS error_message,
-	       created_at
+	       created_at,
+	       billing_source, cur_database, cur_table, cur_workgroup, cur_results_s3, cur_region
 	FROM accounts`
 
 // rowScanner is the subset of pgx.Row / pgx.Rows used by scanAccount.
@@ -663,6 +679,12 @@ func scanAccount(r rowScanner) (model.Account, error) {
 		&a.Region, &a.Status, &a.LastScannedAt, &a.ScanIntervalHours,
 		&a.ErrorMessage,
 		&a.CreatedAt,
+		&a.BillingSource,
+		&a.CURDatabase,
+		&a.CURTable,
+		&a.CURWorkgroup,
+		&a.CURResultsS3,
+		&a.CURRegion,
 	)
 	if err != nil {
 		return model.Account{}, err
@@ -671,6 +693,10 @@ func scanAccount(r rowScanner) (model.Account, error) {
 }
 
 // DeleteAccount removes an account by ID for the organization in ctx.
+// Child rows in cost_records, resource_records, zombie_records,
+// zombie_snapshots, and dismissed_zombies are cleaned up automatically
+// by the ON DELETE CASCADE foreign keys added in migration 040.
+// zombie_snapshot_services cascades via its own FK to zombie_snapshots(id).
 func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -682,8 +708,7 @@ func (s *Store) DeleteAccount(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err = tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, id)
-	if err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, id); err != nil {
 		return fmt.Errorf("postgres: delete account: %w", err)
 	}
 	return tx.Commit(ctx)
@@ -924,24 +949,10 @@ func (s *Store) ListCostRecords(ctx context.Context, filter storage.CostFilter) 
 		argN++
 	}
 
-	// Filter by account: match either internal_account_id (new records) or account_id (old records with NULL internal_account_id)
-	if filter.InternalAccountID != "" || filter.AWSAccountID != "" {
-		if filter.InternalAccountID != "" && filter.AWSAccountID != "" {
-			// If both are provided, match either one
-			query += fmt.Sprintf(" AND (internal_account_id = $%d OR account_id = $%d)", argN, argN+1)
-			args = append(args, filter.InternalAccountID, filter.AWSAccountID)
-			argN += 2
-		} else if filter.InternalAccountID != "" {
-			// Only internal account ID provided
-			query += fmt.Sprintf(" AND internal_account_id = $%d", argN)
-			args = append(args, filter.InternalAccountID)
-			argN++
-		} else {
-			// Only AWS account ID provided
-			query += fmt.Sprintf(" AND account_id = $%d", argN)
-			args = append(args, filter.AWSAccountID)
-			argN++
-		}
+	if filter.InternalAccountID != "" {
+		query += fmt.Sprintf(" AND internal_account_id = $%d", argN)
+		args = append(args, filter.InternalAccountID)
+		argN++
 	}
 
 	if filter.Service != "" {

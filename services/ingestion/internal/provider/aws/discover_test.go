@@ -9,6 +9,8 @@ package aws
 import (
 	"testing"
 	"time"
+
+	"axiaops.io/shared/model"
 )
 
 // ── parseStopTime ─────────────────────────────────────────────────────────────
@@ -291,5 +293,116 @@ func TestIsRDSSnapshotOrphaned_OldOrphan_Flagged(t *testing.T) {
 	days := isRDSSnapshotOrphaned(false, 45*24*time.Hour, 30*24*time.Hour)
 	if days != 45 {
 		t.Errorf("expected 45, got %d", days)
+	}
+}
+
+// ── discoveryRegions ─────────────────────────────────────────────────────────────
+//
+// accountRegion is a floor, not a replacement: without it, a freshly
+// connected CUR account with no cost data yet (up to 24h before first
+// delivery, per the migration plan §2) produces an empty region set, so
+// every Discover* function's "for region := range regions" loop runs zero
+// times — nothing gets checked anywhere, even the account's own region.
+
+func TestDiscoveryRegions_EmptyRecords_StillIncludesAccountRegion(t *testing.T) {
+	regions := discoveryRegions(nil, "us-east-1")
+	if _, ok := regions["us-east-1"]; !ok {
+		t.Fatalf("expected account region present with no cost records, got %v", regions)
+	}
+	if len(regions) != 1 {
+		t.Errorf("expected exactly 1 region, got %d: %v", len(regions), regions)
+	}
+}
+
+func TestDiscoveryRegions_UnionsAccountRegionWithCostRecordRegions(t *testing.T) {
+	records := []model.CostRecord{
+		{Region: "eu-central-1"},
+		{Region: "us-west-2"},
+	}
+	regions := discoveryRegions(records, "us-east-1")
+	for _, want := range []string{"eu-central-1", "us-west-2", "us-east-1"} {
+		if _, ok := regions[want]; !ok {
+			t.Errorf("expected %q in result, got %v", want, regions)
+		}
+	}
+	if len(regions) != 3 {
+		t.Errorf("expected 3 regions, got %d: %v", len(regions), regions)
+	}
+}
+
+func TestDiscoveryRegions_AccountRegionAlreadyPresent_NoDuplicate(t *testing.T) {
+	records := []model.CostRecord{{Region: "us-east-1"}, {Region: "us-east-1"}}
+	regions := discoveryRegions(records, "us-east-1")
+	if len(regions) != 1 {
+		t.Errorf("expected 1 region (no duplication), got %d: %v", len(regions), regions)
+	}
+}
+
+func TestDiscoveryRegions_InvalidAccountRegion_Excluded(t *testing.T) {
+	regions := discoveryRegions(nil, "global")
+	if len(regions) != 0 {
+		t.Errorf("expected 0 regions (invalid account region rejected like any other), got %v", regions)
+	}
+}
+
+// ── FilterAxiaOpsInfra ───────────────────────────────────────────────────────
+//
+// Pins a real incident: DiscoverWastefulLogGroups flagged
+// "/aws/lambda/axiaops-cur-test-CURSetupLambda-AbCdEfGhIjKl" (a leftover
+// deployment Lambda's log group, from the CUR setup CloudFormation stack's
+// own automation) as a "no retention policy" zombie — self-referential
+// noise from the CUR pipeline's own infrastructure showing up as customer
+// waste, in an account also used to run/validate that pipeline.
+
+func TestIsAxiaOpsOwnedResource_MatchesEachKnownSignature(t *testing.T) {
+	for _, id := range []string{
+		"axiaops-cur-data-123456789012-us-east-1-test",
+		"axiaops-athena-results-123456789012-us-east-1-test",
+		"axiaops_cur_db_test",
+		"axiaops_cur_table",
+		"axiaops_athena_wg_test",
+		"arn:aws:iam::123456789012:role/AxiaOpsRole",
+		"arn:aws:iam::123456789012:user/AxiaOpsUser",
+		"arn:aws:iam::123456789012:policy/AxiaOpsPolicy",
+		"arn:aws:secretsmanager:us-east-1:123456789012:secret:axiaops/AxiaOpsUser/access-key-AbCdEf",
+		"/aws/lambda/axiaops-cur-test-CURSetupLambda-AbCdEfGhIjKl",
+	} {
+		if !isAxiaOpsOwnedResource(id) {
+			t.Errorf("expected %q to be recognized as AxiaOps' own CUR infra", id)
+		}
+	}
+}
+
+func TestIsAxiaOpsOwnedResource_RealCustomerResourcesUnaffected(t *testing.T) {
+	for _, id := range []string{
+		"i-0123456789abcdef0",
+		"arn:aws:iam::123456789012:role/MyCompanyDeployRole",
+		"vol-0a1b2c3d4e5f67890",
+		"my-companys-data-bucket",
+		"/aws-glue/crawlers", // account-wide Glue log group, not one of ours
+	} {
+		if isAxiaOpsOwnedResource(id) {
+			t.Errorf("expected %q (a real/unrelated resource) not to match, but it did", id)
+		}
+	}
+}
+
+func TestFilterAxiaOpsInfra_DropsOnlyAxiaOpsResources(t *testing.T) {
+	zombies := []model.ZombieResource{
+		{Service: "AmazonCloudWatch", ResourceID: "/aws/lambda/axiaops-cur-test-CURSetupLambda-AbCdEfGhIjKl"},
+		{Service: "AmazonEC2", ResourceID: "i-0123456789abcdef0"},
+		{Service: "AmazonS3", ResourceID: "axiaops-cur-data-123456789012-us-east-1-test"},
+		{Service: "AmazonEBS", ResourceID: "vol-0a1b2c3d4e5f67890"},
+	}
+
+	filtered := FilterAxiaOpsInfra(zombies)
+
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 real zombies to survive, got %d: %+v", len(filtered), filtered)
+	}
+	for _, z := range filtered {
+		if isAxiaOpsOwnedResource(z.ResourceID) {
+			t.Errorf("AxiaOps-owned resource %q leaked through the filter", z.ResourceID)
+		}
 	}
 }

@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -131,14 +132,44 @@ func isAWSRegion(s string) bool {
 	return hyphens >= 2
 }
 
-// uniqueRegions extracts the set of real AWS regions present in cost records.
+// discoveryRegions extracts the set of real AWS regions present in cost records,
+// plus the account's own configured home region as a guaranteed floor.
 // Cost Explorer pseudo-values like "global" or "NoRegion" are excluded.
-func uniqueRegions(records []model.CostRecord) map[string]struct{} {
+//
+// The floor exists for cold start: a freshly connected CUR account delivers
+// no cost data for up to 24h, then month-to-date only for a few weeks (see
+// axiaops-cur-migration-plan.md §2). Without it, an empty cost-record set
+// means every Discover* function's region loop below runs zero times —
+// nothing gets checked anywhere, even in the region the customer actually
+// told us about at connect time. Once real cost data accumulates, this
+// becomes a no-op (the account's region is already in the set) — it isn't a
+// second filtering mode, just a lower bound on the first one, so a genuinely
+// idle account can still surface zombies in its own region on day one.
+//
+// Known limitation, accepted as-is (not fixed): accountRegion is a single
+// value (model.Account.Region), so this only guarantees cold-start coverage
+// for the *one* region the customer typed in at connect time. A genuinely
+// multi-region customer's other regions stay invisible to every Discover*
+// rule until real cost data organically reveals them — potentially the
+// first few weeks of a CUR account's life (see the cold-start note above).
+// Two ways to close this were considered and deliberately not built:
+//   - Let the customer list multiple regions at connect time (schema +
+//     onboarding UI change).
+//   - During cold start specifically (empty records), call
+//     ec2:DescribeRegions once and float the account's *entire* enabled
+//     region set instead of just one — self-narrows back to cost-driven
+//     regions the moment real data exists, no new field or UI needed.
+// Revisit if multi-region cold-start blind spots turn out to matter in
+// practice; the second option is the cheaper fix if so.
+func discoveryRegions(records []model.CostRecord, accountRegion string) map[string]struct{} {
 	regions := make(map[string]struct{})
 	for _, r := range records {
 		if r.Region != "" && isAWSRegion(r.Region) {
 			regions[r.Region] = struct{}{}
 		}
+	}
+	if accountRegion != "" && isAWSRegion(accountRegion) {
+		regions[accountRegion] = struct{}{}
 	}
 	return regions
 }
@@ -173,4 +204,68 @@ func serviceCostFromRecords(records []model.CostRecord, service string) float64 
 		}
 	}
 	return total
+}
+
+// axiaOpsInfraSignatures identifies AWS resources the CUR setup CloudFormation
+// template (templates/cur_setup.yaml.tmpl) itself creates in the account being
+// scanned: the CUR/results S3 buckets, the Glue database/table, the Athena
+// workgroup, the assumed role or generated IAM user + its Secrets Manager
+// secret, and CloudFormation-managed Lambda log groups left over from earlier
+// iterations of that automation. These substrings are matched against a
+// zombie candidate's ResourceID.
+//
+// Why this matters: whenever the account being scanned is also the one the
+// CUR pipeline was set up in — AxiaOps's own AWS account, or any test/scratch
+// account used to validate the pipeline (see docs/cur-migration-plan.md) —
+// that pipeline's own necessary, actively-used infrastructure sits in the
+// same account as real (or simulated) customer resources. Without this
+// filter it gets flagged as customer waste right alongside them: confirmed
+// in practice by DiscoverWastefulLogGroups flagging
+// "/aws/lambda/axiaops-cur-test-CURSetupLambda-..." (a leftover deployment
+// Lambda's log group) as a "no retention policy" zombie.
+//
+// Substring matching, not exact names, because these resource names are
+// parameterized in the CFN template (ExportName/BucketSuffix/RoleName/
+// UserName/etc. — see cur_setup.yaml.tmpl) and a customer could rename them;
+// this only needs to catch AxiaOps' own *default* naming, which is what
+// every real deployment of this pipeline uses unless deliberately overridden.
+var axiaOpsInfraSignatures = []string{
+	"axiaops-cur-data-",       // CUR delivery bucket (CURDataBucket)
+	"axiaops-athena-results-", // Athena query-results bucket (AthenaQueryResultsBucket)
+	"axiaops_cur_db",          // Glue database (AxiaOpsCURDatabase)
+	"axiaops_cur_table",       // Glue table (AxiaOpsCURTable)
+	"axiaops_athena_wg",       // Athena workgroup (AxiaOpsWorkgroup)
+	"role/AxiaOpsRole",        // Assumed-role ARN (AxiaOpsRole)
+	"user/AxiaOpsUser",        // Access-key IAM user ARN (AxiaOpsUser)
+	"policy/AxiaOpsPolicy",    // Managed policy ARN (AxiaOpsPolicy)
+	"secret:axiaops/",         // Generated access-key secret (AxiaOpsUserSecret, name "axiaops/<user>/access-key")
+	"/aws/lambda/axiaops-cur-", // Leftover CloudFormation custom-resource Lambda log groups
+}
+
+// isAxiaOpsOwnedResource reports whether resourceID matches one of this CUR
+// pipeline's own resources (see axiaOpsInfraSignatures).
+func isAxiaOpsOwnedResource(resourceID string) bool {
+	for _, sig := range axiaOpsInfraSignatures {
+		if strings.Contains(resourceID, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// FilterAxiaOpsInfra removes zombie candidates whose ResourceID identifies
+// the CUR pipeline's own infrastructure (see axiaOpsInfraSignatures) — active,
+// necessary scanning plumbing, not customer waste. Call once after all
+// Discover* results (and analyzer.Detect's CUR/CloudWatch-based results) are
+// aggregated into a single slice, before Summarize/SaveZombies.
+func FilterAxiaOpsInfra(zombies []model.ZombieResource) []model.ZombieResource {
+	filtered := zombies[:0]
+	for _, z := range zombies {
+		if isAxiaOpsOwnedResource(z.ResourceID) {
+			slog.Info("discover: excluding AxiaOps' own CUR infra from zombie results", "resource_id", z.ResourceID, "service", z.Service)
+			continue
+		}
+		filtered = append(filtered, z)
+	}
+	return filtered
 }
