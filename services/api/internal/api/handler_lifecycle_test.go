@@ -223,7 +223,7 @@ func TestAccountLifecycle_CreateThenList(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	// 1. Create the account.
-	body := `{"provider":"aws","label":"integration-test","access_key_id":"AKIA_INT","secret_key":"secret123","region":"ap-southeast-1"}`
+	body := `{"provider":"aws","label":"integration-test","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"ap-southeast-1"}`
 	wCreate := httptest.NewRecorder()
 	mux.ServeHTTP(wCreate, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 	if wCreate.Code != http.StatusCreated {
@@ -511,6 +511,76 @@ func TestUpdateAccount_UpdatesRegion_Returns200(t *testing.T) {
 	}
 	if updated.Label != "my-account" {
 		t.Errorf("expected Label my-account preserved, got %s", updated.Label)
+	}
+}
+
+// TestUpdateAccount_MalformedAccessKeyID_Returns400 verifies that changing
+// access_key_id to a non-AWS-shaped value is rejected before it ever reaches
+// the store — a malformed edit must never overwrite a working connection.
+func TestUpdateAccount_MalformedAccessKeyID_Returns400(t *testing.T) {
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-badkey", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIAIOSFODNN7EXAMPLE", Region: "us-east-1"},
+		})
+	_, mux := newTrackingHandler(mockStore)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-badkey", `{"access_key_id":"someone@example.com"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUpdateAccount_EmptyAccessKeyID_Returns400 covers the explicit
+// empty-string branch, distinct from the regex check above — sending
+// access_key_id: "" is a caller error (clearing it isn't a supported way to
+// switch auth methods), not silently ignored.
+func TestUpdateAccount_EmptyAccessKeyID_Returns400(t *testing.T) {
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-emptykey", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIAIOSFODNN7EXAMPLE", Region: "us-east-1"},
+		})
+	_, mux := newTrackingHandler(mockStore)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-emptykey", `{"access_key_id":""}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUpdateAccount_MalformedSecretKey_Returns400 verifies a non-empty but
+// wrong-shaped secret_key is rejected. An empty secret_key is deliberately
+// NOT tested here — it means "keep the existing secret" and must stay valid.
+func TestUpdateAccount_MalformedSecretKey_Returns400(t *testing.T) {
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-badsecret", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIAIOSFODNN7EXAMPLE", Region: "us-east-1"},
+		})
+	_, mux := newTrackingHandler(mockStore)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-badsecret", `{"secret_key":"tooshort"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateAccount_MalformedRegion_Returns400(t *testing.T) {
+	mockStore := NewMockStore().
+		WithAccounts([]model.Account{
+			{ID: "acc-badregion", OrganizationID: "organization-test-uuid", Provider: "aws", AccessKeyID: "AKIAIOSFODNN7EXAMPLE", Region: "us-east-1"},
+		})
+	_, mux := newTrackingHandler(mockStore)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-badregion", `{"region":"not-a-region"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
 	}
 }
 

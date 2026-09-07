@@ -76,6 +76,20 @@ func TestCreateDraftAccount_ReturnsExternalIDAndPendingStatus(t *testing.T) {
 	}
 }
 
+func TestCreateDraftAccount_MalformedRegion_Returns400(t *testing.T) {
+	store := NewMockStore()
+	_, mux := roleTestHandler(store, "http://unused")
+
+	body := `{"label":"prod","region":"not-a-region"}`
+	req := orgRequestWithBody(http.MethodPost, "/v1/accounts/draft", body)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestCreateDraftAccount_RejectsNonAWSProvider(t *testing.T) {
 	store := NewMockStore()
 	_, mux := roleTestHandler(store, "http://unused")

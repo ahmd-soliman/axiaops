@@ -5,7 +5,7 @@ import { useToast } from '../context/ToastContext';
 import { useScanStatus } from '../hooks/useScanStatus';
 import { Spinner } from '../components/primitives';
 import { useDestructiveConfirm, DestructiveConfirmModal } from '../components/DestructiveConfirm';
-import { BillingSourceConfig, roleNameFromArn } from './ConnectScreen';
+import { BillingSourceConfig, roleNameFromArn, AWS_ACCESS_KEY_ID_RE, AWS_SECRET_KEY_RE, AWS_REGION_RE, validateCurConfig } from './ConnectScreen';
 
 function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, readOnly }) {
   return (
@@ -136,6 +136,22 @@ export default function AccountSettingsScreen({ account, onBack, onAccountUpdate
     // change flow lives behind the dedicated Connect → Role tab on
     // ConnectScreen, which re-runs the verify probe end-to-end).
     if (!isRoleMode && !accessKeyId.trim()) { setError('Access Key ID is required.'); return; }
+    if (!isRoleMode && !AWS_ACCESS_KEY_ID_RE.test(accessKeyId.trim())) {
+      setError('Access Key ID must look like an AWS key (e.g. AKIAIOSFODNN7EXAMPLE).');
+      return;
+    }
+    if (!isRoleMode && secretKey.trim() && !AWS_SECRET_KEY_RE.test(secretKey.trim())) {
+      setError("Secret Access Key must be 40 characters from AWS's key alphabet.");
+      return;
+    }
+    if (!AWS_REGION_RE.test(region.trim() || 'eu-central-1')) {
+      setError('Region must be a valid AWS region, e.g. eu-central-1.');
+      return;
+    }
+    if (billingSource === 'cur_athena') {
+      const curError = validateCurConfig(curConfig);
+      if (curError) { setError(curError); return; }
+    }
     const scanInterval = parseInt(scanIntervalHours, 10);
     if (isNaN(scanInterval) || scanInterval < 0) { setError('Scan interval must be a number ≥ 0.'); return; }
     setError('');
