@@ -271,13 +271,18 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
   }, [selectedService, filteredCosts, panelWindowDays]);
 
   // Aggregate the panel records: total, count, regions, period bounds.
+  // Must dedupe general vs resource-level rows the same way aggregateCosts
+  // does above, or the total double-counts every dollar that also has
+  // resource-level attribution (panelServiceRecords deliberately keeps both
+  // granularities so the per-resource breakdown below can show them).
   const panelStats = useMemo(() => {
-    if (!selectedService || panelServiceRecords.length === 0) return null;
+    const dedupedRecords = toAggregateCostRecords(panelServiceRecords);
+    if (!selectedService || dedupedRecords.length === 0) return null;
     let total = 0;
-    let periodStart = panelServiceRecords[0].period_start;
-    let periodEnd   = panelServiceRecords[0].period_end;
+    let periodStart = dedupedRecords[0].period_start;
+    let periodEnd   = dedupedRecords[0].period_end;
     const regions = new Set();
-    for (const r of panelServiceRecords) {
+    for (const r of dedupedRecords) {
       total += r.amount || 0;
       if (r.period_start < periodStart) periodStart = r.period_start;
       if (r.period_end   > periodEnd)   periodEnd   = r.period_end;
@@ -286,11 +291,11 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
     return {
       service: selectedService,
       total,
-      count: panelServiceRecords.length,
+      count: dedupedRecords.length,
       regions: [...regions].sort(),
       periodStart,
       periodEnd,
-      currency: panelServiceRecords[0].currency || 'USD',
+      currency: dedupedRecords[0].currency || 'USD',
     };
   }, [selectedService, panelServiceRecords]);
 
