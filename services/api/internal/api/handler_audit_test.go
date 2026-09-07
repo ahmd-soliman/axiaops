@@ -127,7 +127,7 @@ func TestAuditEmission_CreateAccount_RecordsAccountConnected(t *testing.T) {
 		"organization-audit", "user-audit", "audit@axiaops.local", "Audit Tester", newMux(newHandlerWith(store)),
 	)
 
-	body := `{"provider":"aws","label":"prod","access_key_id":"AKIA","secret_key":"s","region":"eu-central-1"}`
+	body := `{"provider":"aws","label":"prod","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"eu-central-1"}`
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/v1/accounts", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")

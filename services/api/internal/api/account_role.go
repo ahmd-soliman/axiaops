@@ -67,6 +67,10 @@ func (h *Handler) createDraftAccount(w http.ResponseWriter, r *http.Request) {
 	if req.Region == "" {
 		req.Region = "eu-central-1"
 	}
+	if !validAWSRegion.MatchString(req.Region) {
+		http.Error(w, "invalid region: must be a valid AWS region (e.g. eu-central-1)", http.StatusBadRequest)
+		return
+	}
 
 	externalID, err := generateExternalID()
 	if err != nil {

@@ -734,11 +734,23 @@ func (h *Handler) createAccount(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "access_key_id and secret_key are required", http.StatusBadRequest)
 		return
 	}
+	if !validAWSAccessKeyID.MatchString(req.AccessKeyID) {
+		http.Error(w, "invalid access_key_id: must start with AKIA or ASIA followed by 16 uppercase letters or digits", http.StatusBadRequest)
+		return
+	}
+	if !validAWSSecretKey.MatchString(req.SecretKey) {
+		http.Error(w, "invalid secret_key: must be 40 characters from AWS's key alphabet (A-Z a-z 0-9 / +)", http.StatusBadRequest)
+		return
+	}
 	if req.Provider == "" {
 		req.Provider = "aws"
 	}
 	if req.Region == "" {
 		req.Region = "eu-central-1"
+	}
+	if !validAWSRegion.MatchString(req.Region) {
+		http.Error(w, "invalid region: must be a valid AWS region (e.g. eu-central-1)", http.StatusBadRequest)
+		return
 	}
 
 	secretEncrypted, err := crypto.Encrypt(req.SecretKey)
@@ -866,9 +878,21 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		existing.Label = *req.Label
 	}
 	if req.AccessKeyID != nil {
+		if *req.AccessKeyID == "" {
+			http.Error(w, "access_key_id cannot be empty", http.StatusBadRequest)
+			return
+		}
+		if !validAWSAccessKeyID.MatchString(*req.AccessKeyID) {
+			http.Error(w, "invalid access_key_id: must start with AKIA or ASIA followed by 16 uppercase letters or digits", http.StatusBadRequest)
+			return
+		}
 		existing.AccessKeyID = *req.AccessKeyID
 	}
 	if req.SecretKey != nil && *req.SecretKey != "" {
+		if !validAWSSecretKey.MatchString(*req.SecretKey) {
+			http.Error(w, "invalid secret_key: must be 40 characters from AWS's key alphabet (A-Z a-z 0-9 / +)", http.StatusBadRequest)
+			return
+		}
 		encrypted, err := crypto.Encrypt(*req.SecretKey)
 		if err != nil {
 			http.Error(w, "encryption failed", http.StatusInternalServerError)
@@ -877,6 +901,10 @@ func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		existing.SecretEncrypted = encrypted
 	}
 	if req.Region != nil {
+		if !validAWSRegion.MatchString(*req.Region) {
+			http.Error(w, "invalid region: must be a valid AWS region (e.g. eu-central-1)", http.StatusBadRequest)
+			return
+		}
 		existing.Region = *req.Region
 	}
 	if req.ScanIntervalHours != nil {
@@ -1096,6 +1124,20 @@ var (
 	// getCURSetup before it's interpolated into the rendered template's raw
 	// YAML.
 	validIAMName = regexp.MustCompile(`^[\w+=,.@-]{1,64}$`)
+)
+
+// ── Access-key account field validation ─────────────────────────────────────
+//
+// createAccount/updateAccount previously only checked non-emptiness, so any
+// string — an email address, a placeholder, a secret pasted into the wrong
+// field — was accepted, AES-encrypted, and stored, with the mismatch only
+// surfacing opaquely on the account's first scan attempt. These match AWS's
+// own published formats: an access key ID is a 4-letter type prefix (AKIA
+// long-term, ASIA STS-issued) plus 16 uppercase-alphanumeric characters; a
+// secret access key is 40 characters from AWS's base64-ish alphabet.
+var (
+	validAWSAccessKeyID = regexp.MustCompile(`^(AKIA|ASIA)[A-Z0-9]{16}$`)
+	validAWSSecretKey   = regexp.MustCompile(`^[A-Za-z0-9/+]{40}$`)
 )
 
 // validateCURConfig checks that CUR-related fields are safe for use in Athena

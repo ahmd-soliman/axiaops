@@ -223,7 +223,7 @@ func TestAccountLifecycle_CreateThenList(t *testing.T) {
 	_, mux := newTrackingHandler(mockStore)
 
 	// 1. Create the account.
-	body := `{"provider":"aws","label":"integration-test","access_key_id":"AKIA_INT","secret_key":"secret123","region":"ap-southeast-1"}`
+	body := `{"provider":"aws","label":"integration-test","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"ap-southeast-1"}`
 	wCreate := httptest.NewRecorder()
 	mux.ServeHTTP(wCreate, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 	if wCreate.Code != http.StatusCreated {
