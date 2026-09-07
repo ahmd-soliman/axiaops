@@ -28,7 +28,56 @@ env:
   GOPROXY: "https://proxy.golang.org,direct"
 
 jobs:
+  # Every job below is a required status check on main (branch protection),
+  # so this can't be a `paths-ignore` on the workflow itself -- that would
+  # leave required checks permanently unreported for docs/terraform-only
+  # PRs and block them from merging forever. Instead: this job always runs
+  # (cheap, no checkout of build tooling) and the five root jobs below gate
+  # on its output. GitHub cascades a skipped job through `needs:` chains
+  # automatically (a job's default `if` requires its dependencies to have
+  # *succeeded*, not just completed, so a skipped test-unit/lint/etc. skips
+  # test-integration-api/ingestion, verify-production-build, e2e-regression,
+  # and publish-images in turn, with no extra `if:` needed on any of them) --
+  # a skipped required check still satisfies branch protection.
+  #
+  # Defaults to running full CI (code=true) whenever anything outside the
+  # known-safe paths changed, or when the diff can't be computed (e.g. a
+  # force-push leaves `before` as all-zeros) -- never the other way around.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$BASE" "${{ github.sha }}")"
+          echo "Changed files:"
+          echo "$changed"
+          # Safe-to-skip: docs/website content, terraform (no automated
+          # apply pipeline reads this in CI), and root/per-service CLAUDE.md
+          # files. Anything else -- including .github/workflows/** itself --
+          # falls through to code=true.
+          if echo "$changed" | grep -qvE '^(docs/|website/|terraform/|README\.md$|CHANGELOG\.md$|CLAUDE\.md$|services/[^/]+/CLAUDE\.md$)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test-unit:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -44,6 +93,8 @@ jobs:
       - run: cd services/ingestion && go test ./... -count=1 -v -p=4
 
   test-redis:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       redis:
@@ -68,6 +119,8 @@ jobs:
       - run: cd services/shared && go test ./cache ./queue -count=1 -v
 
   test-dashboard:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -79,6 +132,8 @@ jobs:
       - run: cd services/dashboard && npm ci && npm run test:run
 
   test-storage:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -109,6 +164,8 @@ jobs:
       - run: cd services/shared && go test ./storage/postgres/... -count=1 -v -p=1
 
   lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
