@@ -4,6 +4,59 @@ import { useTheme } from '../theme/ThemeContext';
 import { Spinner } from '../components/primitives';
 import { AXIAOPS_AWS_ACCOUNT_ID, AXIAOPS_CFN_TEMPLATE_URL } from '../config';
 
+// Mirrors the server-side patterns in services/api/internal/api/handler.go
+// (validAWSAccessKeyID / validAWSSecretKey / validAWSRegion) so a malformed
+// value (an email pasted into Access Key ID, say) is caught here with a
+// field-level message instead of round-tripping to a generic 400. Exported
+// so AccountSettingsScreen (the reachable access-key edit form) validates
+// the same fields the same way.
+export const AWS_ACCESS_KEY_ID_RE = /^(AKIA|ASIA)[A-Z0-9]{16}$/;
+export const AWS_SECRET_KEY_RE = /^[A-Za-z0-9/+]{40}$/;
+export const AWS_ACCOUNT_ID_RE = /^\d{12}$/;
+export const AWS_REGION_RE = /^[a-z]{2}(-[a-z]+)+-\d+$/;
+
+// Mirrors validGlueIdentifier / validAthenaWorkgroup / validS3URI in
+// services/api/internal/api/handler.go's validateCURConfig — those fields
+// are interpolated into raw Athena SQL server-side, so a malformed value
+// (or an injection attempt) is worth catching here too, before the round
+// trip to the server's 400.
+const CUR_GLUE_IDENTIFIER_RE = /^[a-zA-Z0-9_]{1,128}$/;
+const CUR_ATHENA_WORKGROUP_RE = /^[a-zA-Z0-9._-]{1,128}$/;
+const CUR_S3_URI_RE = /^s3:\/\/[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](\/[a-zA-Z0-9._-]*)*$/;
+
+// Validates a curConfig object against the same effective values the
+// server will end up persisting (saveCurConfig / the Object.assign blocks
+// below apply the same axiaops_* defaults for a blank field), so a field
+// left blank never spuriously fails here. Returns '' when valid, otherwise
+// a message naming the offending value.
+export function validateCurConfig(curConfig) {
+  const database = curConfig?.cur_database || 'axiaops_cur_db';
+  const table = curConfig?.cur_table || 'axiaops_cur_table';
+  const workgroup = curConfig?.cur_workgroup || 'axiaops_athena_wg';
+  const resultsS3 = curConfig?.cur_results_s3;
+  const region = curConfig?.cur_region || 'us-east-1';
+  if (!CUR_GLUE_IDENTIFIER_RE.test(database)) {
+    return `Athena Database "${database}" must match [a-zA-Z0-9_]{1,128}.`;
+  }
+  if (!CUR_GLUE_IDENTIFIER_RE.test(table)) {
+    return `Athena Table "${table}" must match [a-zA-Z0-9_]{1,128}.`;
+  }
+  if (!CUR_ATHENA_WORKGROUP_RE.test(workgroup)) {
+    return `Athena Workgroup "${workgroup}" must match [a-zA-Z0-9._-]{1,128}.`;
+  }
+  // Only checked when the customer actually typed something — a blank
+  // field falls back to the s3://axiaops-athena-results-<id>-<region>
+  // default computed once the real account id exists, which is always
+  // well-formed.
+  if (resultsS3 && !CUR_S3_URI_RE.test(resultsS3)) {
+    return `Results S3 Bucket "${resultsS3}" must be a valid s3:// URI.`;
+  }
+  if (!AWS_REGION_RE.test(region)) {
+    return `CUR Region "${region}" must be a valid AWS region, e.g. us-east-1.`;
+  }
+  return '';
+}
+
 function Field({ label, value, onChange, placeholder, mono, type = 'text', hint, readOnly }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -363,6 +416,14 @@ function RoleAuthTab({ onConnected }) {
   const configMissing = !/^\d{12}$/.test(AXIAOPS_AWS_ACCOUNT_ID);
 
   async function handleGenerate() {
+    if (region.trim() && !AWS_REGION_RE.test(region.trim())) {
+      setError('Region must be a valid AWS region, e.g. eu-central-1.');
+      return;
+    }
+    if (customerAwsAccountId.trim() && !AWS_ACCOUNT_ID_RE.test(customerAwsAccountId.trim())) {
+      setError('AWS Account ID must be 12 digits.');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
@@ -388,6 +449,13 @@ function RoleAuthTab({ onConnected }) {
     if (!roleArn.trim()) {
       setError('Paste your role ARN before verifying.');
       return;
+    }
+    if (billingSource === 'cur_athena') {
+      const curError = validateCurConfig(curConfig);
+      if (curError) {
+        setError(curError);
+        return;
+      }
     }
     setError('');
     setVerifyHint('');
@@ -569,7 +637,19 @@ function reasonToHint(reason) {
   }
 }
 
+// Access Key tab: for a new connection, mirrors RoleAuthTab's two-step shape
+// (and button names) so the CFN download link — which needs a real account
+// ID — can render the same way it does there. Step 1 collects credentials
+// and calls connectAccount ("Generate connection"): access keys are usable
+// immediately, unlike a role ARN, so this is also the point the account is
+// actually created (RoleAuthTab's equivalent, draftAccount, defers real
+// credentials to its own step 2 instead). Step 2 shows the CFN download (CUR
+// only) and finalizes any Advanced Configuration via saveCurConfig
+// ("Verify and connect"). Editing an existing account already has a real
+// accountId and stays single-step, as before.
 function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
+  const [step, setStep] = useState('form'); // 'form' | 'verify' — new connections only
+  const [draft, setDraft] = useState(null);
   const [label, setLabel]             = useState(account?.label ?? '');
   const [accessKeyId, setAccessKeyId] = useState(account?.access_key_id ?? '');
   const [secretKey, setSecretKey]     = useState('');
@@ -602,121 +682,166 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
   });
   const permissionsPolicyJSON = useScanPermissionsJSON(billingSource);
 
-  async function handleSubmit() {
-    if (!isEdit && (!accessKeyId.trim() || !secretKey.trim())) {
-      setError('Access Key ID and Secret Access Key are required.');
-      return;
+  function validateCredentialFields({ requireSecret }) {
+    if (!accessKeyId.trim() || (requireSecret && !secretKey.trim())) {
+      return requireSecret ? 'Access Key ID and Secret Access Key are required.' : 'Access Key ID is required.';
     }
-    if (isEdit && !accessKeyId.trim()) {
-      setError('Access Key ID is required.');
+    if (!AWS_ACCESS_KEY_ID_RE.test(accessKeyId.trim())) {
+      return 'Access Key ID must look like an AWS key (e.g. AKIAIOSFODNN7EXAMPLE).';
+    }
+    if (secretKey.trim() && !AWS_SECRET_KEY_RE.test(secretKey.trim())) {
+      return "Secret Access Key must be 40 characters from AWS's key alphabet.";
+    }
+    if (!AWS_REGION_RE.test(region.trim() || 'eu-central-1')) {
+      return 'Region must be a valid AWS region, e.g. eu-central-1.';
+    }
+    if (!isEdit && customerAwsAccountId.trim() && !AWS_ACCOUNT_ID_RE.test(customerAwsAccountId.trim())) {
+      return 'AWS Account ID must be 12 digits.';
+    }
+    return '';
+  }
+
+  // Step 1 for a new connection — validates, then connects immediately
+  // (access keys need no separate verification round-trip) and moves to
+  // step 2 for CFN download / Advanced Configuration.
+  async function handleGenerate() {
+    const validationError = validateCredentialFields({ requireSecret: true });
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setError('');
     setLoading(true);
     try {
-      let result;
-      if (isEdit) {
-        const scanInterval = parseInt(scanIntervalHours, 10);
-        if (isNaN(scanInterval) || scanInterval < 0) {
-          setError('Scan interval must be a number ≥ 0.');
-          setLoading(false);
-          return;
-        }
-        const updatePayload = {
-          label: label.trim() || 'My AWS Account',
-          accessKeyId: accessKeyId.trim(),
-          secretKey: secretKey.trim() || undefined,
-          region: region.trim() || 'eu-central-1',
-          scan_interval_hours: scanInterval,
-        };
-        if (billingSource === 'cur_athena') {
-          Object.assign(updatePayload, {
-            billing_source: 'cur_athena',
-            cur_database: curConfig.cur_database || 'axiaops_cur_db',
-            cur_table: curConfig.cur_table || 'axiaops_cur_table',
-            cur_workgroup: curConfig.cur_workgroup || 'axiaops_athena_wg',
-            cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${curConfig.cur_region || 'us-east-1'}`,
-            cur_region: curConfig.cur_region || 'us-east-1'
-          });
-        } else {
-          Object.assign(updatePayload, { billing_source: 'cost_explorer' });
-        }
-        result = await updateAccount(account.id, updatePayload);
-      } else {
-        
-        result = await connectAccount({
-          provider: 'aws',
-          label: label.trim() || 'My AWS Account',
-          accessKeyId: accessKeyId.trim(),
-          secretKey: secretKey.trim(),
-          region: region.trim() || 'eu-central-1',
-          billing_source: billingSource,
-        });
-        const updated = await saveCurConfig(result, billingSource, updateAccount, curConfig);
-        result = updated || result;
-      }
-      onConnected(result);
+      const created = await connectAccount({
+        provider: 'aws',
+        label: label.trim() || 'My AWS Account',
+        accessKeyId: accessKeyId.trim(),
+        secretKey: secretKey.trim(),
+        region: region.trim() || 'eu-central-1',
+        billing_source: billingSource,
+      });
+      setDraft(created);
+      setStep('verify');
     } catch {
-      setError(isEdit ? 'Failed to update. Check your credentials and try again.' : 'Failed to connect. Check your credentials and try again.');
+      setError('Failed to connect. Check your credentials and try again.');
     } finally {
       setLoading(false);
     }
   }
 
-  return (
-    <>
-      {!isEdit && (
-        <div style={{
-          backgroundColor: isDark ? 'var(--color-surface-raised)' : '#EFF6FF',
-          border: `1px solid ${isDark ? 'var(--color-border)' : '#BFDBFE'}`,
-          borderRadius: 10,
-          padding: '14px 16px',
-          marginBottom: 18,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? 'var(--color-text-mid)' : '#1D4ED8' }}>
-              Required IAM permissions
-            </span>
-            <button
-              onClick={() => setShowPermissions(s => !s)}
-              style={{ background: 'none', border: 'none', color: isDark ? 'var(--color-text-mid)' : '#1D4ED8', fontSize: 12, textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
-            >
-              {showPermissions ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--color-text-mid)', margin: showPermissions ? '8px 0' : '8px 0 0' }}>
-            Attach this read-only policy to the IAM user behind these access keys.
-          </p>
-          {showPermissions && <CopyableBlock label="Permissions policy JSON" value={permissionsPolicyJSON} />}
-        </div>
-      )}
-      <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" />
-      <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
-      <Field
-        label="AWS Secret Access Key"
-        value={secretKey}
-        onChange={setSecretKey}
-        placeholder={isEdit ? 'Leave blank to keep existing' : 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'}
-        mono
-        type="password"
-      />
-      <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
-      {!isEdit && (
+  // Step 2 for a new connection — the account already exists; this just
+  // finalizes any CUR Advanced Configuration and hands off.
+  async function handleFinish() {
+    if (billingSource === 'cur_athena') {
+      const curError = validateCurConfig(curConfig);
+      if (curError) {
+        setError(curError);
+        return;
+      }
+    }
+    setError('');
+    setLoading(true);
+    try {
+      const updated = await saveCurConfig(draft, billingSource, updateAccount, curConfig);
+      onConnected(updated || draft);
+    } catch {
+      setError('Failed to save configuration. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSubmitEdit() {
+    const validationError = validateCredentialFields({ requireSecret: false });
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    if (billingSource === 'cur_athena') {
+      const curError = validateCurConfig(curConfig);
+      if (curError) {
+        setError(curError);
+        return;
+      }
+    }
+    setError('');
+    setLoading(true);
+    try {
+      const scanInterval = parseInt(scanIntervalHours, 10);
+      if (isNaN(scanInterval) || scanInterval < 0) {
+        setError('Scan interval must be a number ≥ 0.');
+        setLoading(false);
+        return;
+      }
+      const updatePayload = {
+        label: label.trim() || 'My AWS Account',
+        accessKeyId: accessKeyId.trim(),
+        secretKey: secretKey.trim() || undefined,
+        region: region.trim() || 'eu-central-1',
+        scan_interval_hours: scanInterval,
+      };
+      if (billingSource === 'cur_athena') {
+        Object.assign(updatePayload, {
+          billing_source: 'cur_athena',
+          cur_database: curConfig.cur_database || 'axiaops_cur_db',
+          cur_table: curConfig.cur_table || 'axiaops_cur_table',
+          cur_workgroup: curConfig.cur_workgroup || 'axiaops_athena_wg',
+          cur_results_s3: curConfig.cur_results_s3 || `s3://axiaops-athena-results-${account.account_id}-${curConfig.cur_region || 'us-east-1'}`,
+          cur_region: curConfig.cur_region || 'us-east-1'
+        });
+      } else {
+        Object.assign(updatePayload, { billing_source: 'cost_explorer' });
+      }
+      const result = await updateAccount(account.id, updatePayload);
+      onConnected(result);
+    } catch {
+      setError('Failed to update. Check your credentials and try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const permissionsBanner = (
+    <div style={{
+      backgroundColor: isDark ? 'var(--color-surface-raised)' : '#EFF6FF',
+      border: `1px solid ${isDark ? 'var(--color-border)' : '#BFDBFE'}`,
+      borderRadius: 10,
+      padding: '14px 16px',
+      marginBottom: 18,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? 'var(--color-text-mid)' : '#1D4ED8' }}>
+          Required IAM permissions
+        </span>
+        <button
+          onClick={() => setShowPermissions(s => !s)}
+          style={{ background: 'none', border: 'none', color: isDark ? 'var(--color-text-mid)' : '#1D4ED8', fontSize: 12, textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+        >
+          {showPermissions ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--color-text-mid)', margin: showPermissions ? '8px 0' : '8px 0 0' }}>
+        Attach this read-only policy to the IAM user behind these access keys.
+      </p>
+      {showPermissions && <CopyableBlock label="Permissions policy JSON" value={permissionsPolicyJSON} />}
+    </div>
+  );
+
+  if (isEdit) {
+    return (
+      <>
+        <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" />
+        <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
         <Field
-          label="Your AWS Account ID (optional)"
-          value={customerAwsAccountId}
-          onChange={v => {
-            setCustomerAwsAccountId(v);
-            if (/^\d{12}$/.test(v.trim()) && !curConfig.cur_results_s3) {
-              setCurConfig(c => ({ ...c, cur_results_s3: `s3://axiaops-athena-results-${v.trim()}-${c.cur_region || 'us-east-1'}` }));
-            }
-          }}
-          placeholder="123456789012"
+          label="AWS Secret Access Key"
+          value={secretKey}
+          onChange={setSecretKey}
+          placeholder="Leave blank to keep existing"
           mono
-          hint="Prefills the Results S3 Bucket name in Advanced Configuration below. Top-right of the AWS Console."
+          type="password"
         />
-      )}
-      {isEdit && (
+        <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
         <Field
           label="Auto-scan interval (hours)"
           value={scanIntervalHours}
@@ -725,11 +850,82 @@ function AccessKeyTab({ onConnected, isEdit, account, isDark }) {
           type="number"
           hint="0 = on-demand only, or enter hours between automatic scans"
         />
+        <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} defaultExpanded={!!account?.cur_database} accountId={account.id} />
+        {error && <ErrorBox message={error} />}
+        <PrimaryButton onClick={handleSubmitEdit} loading={loading} label="Save Changes" />
+      </>
+    );
+  }
+
+  if (step === 'form') {
+    return (
+      <>
+        {permissionsBanner}
+        <Field label="Label (optional)" value={label} onChange={setLabel} placeholder="e.g. Production" />
+        <Field label="AWS Access Key ID" value={accessKeyId} onChange={setAccessKeyId} placeholder="AKIAIOSFODNN7EXAMPLE" mono />
+        <Field
+          label="AWS Secret Access Key"
+          value={secretKey}
+          onChange={setSecretKey}
+          placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+          mono
+          type="password"
+        />
+        <Field label="Region" value={region} onChange={setRegion} placeholder="eu-central-1" mono />
+        <Field
+          label="Your AWS Account ID (optional)"
+          value={customerAwsAccountId}
+          onChange={v => {
+            setCustomerAwsAccountId(v);
+            if (AWS_ACCOUNT_ID_RE.test(v.trim()) && !curConfig.cur_results_s3) {
+              setCurConfig(c => ({ ...c, cur_results_s3: `s3://axiaops-athena-results-${v.trim()}-${c.cur_region || 'us-east-1'}` }));
+            }
+          }}
+          placeholder="123456789012"
+          mono
+          hint="Prefills the Results S3 Bucket name in Advanced Configuration below. Top-right of the AWS Console."
+        />
+        <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} />
+        {error && <ErrorBox message={error} />}
+        <PrimaryButton onClick={handleGenerate} loading={loading} label="Generate connection" />
+      </>
+    );
+  }
+
+  // step === 'verify'
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <p style={{ fontSize: 13, color: 'var(--color-text-mid)', margin: 0 }}>
+        {billingSource === 'cur_athena'
+          ? 'Your access keys are saved. Deploy the CloudFormation template below to finish CUR setup.'
+          : 'Your access keys are saved and ready to scan.'}
+      </p>
+
+      {billingSource === 'cur_athena' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <a
+            href={curSetupHref(draft.id, curConfig)}
+            download="cur_template.yml"
+            style={{
+              display: 'inline-block', alignSelf: 'flex-start',
+              backgroundColor: 'var(--color-accent)', color: '#fff',
+              fontSize: 14, fontWeight: 600, padding: '10px 16px',
+              borderRadius: 8, textDecoration: 'none',
+            }}
+          >
+            Download CloudFormation Template
+          </a>
+          <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+            Since AxiaOps requires specific regional resources for Cost and Usage Reports, please deploy this template manually.
+            Download the file, open the <strong>AWS CloudFormation Console (us-east-1)</strong>, and choose <strong>Upload a template file</strong>.
+            The ExternalId and Account ID are already pre-filled inside the file!
+          </span>
+        </div>
       )}
-      <BillingSourceConfig billingSource={billingSource} setBillingSource={setBillingSource} curConfig={curConfig} setCurConfig={setCurConfig} defaultExpanded={!!account?.cur_database} />
+
       {error && <ErrorBox message={error} />}
-      <PrimaryButton onClick={handleSubmit} loading={loading} label={isEdit ? 'Save Changes' : 'Connect Account'} />
-    </>
+      <PrimaryButton onClick={handleFinish} loading={loading} label="Verify and connect" />
+    </div>
   );
 }
 
@@ -752,6 +948,17 @@ function RoleEditTab({ account, onConnected }) {
   async function handleSubmit() {
     setError('');
     setVerifyHint('');
+    if (!AWS_REGION_RE.test(region.trim() || 'eu-central-1')) {
+      setError('Region must be a valid AWS region, e.g. eu-central-1.');
+      return;
+    }
+    if (billingSource === 'cur_athena') {
+      const curError = validateCurConfig(curConfig);
+      if (curError) {
+        setError(curError);
+        return;
+      }
+    }
     setLoading(true);
     try {
       const scanInterval = parseInt(scanIntervalHours, 10);
@@ -760,7 +967,7 @@ function RoleEditTab({ account, onConnected }) {
         setLoading(false);
         return;
       }
-      
+
       const updatePayload = {
         label: label.trim() || 'My AWS Account',
         region: region.trim() || 'eu-central-1',

@@ -400,7 +400,7 @@ func TestCreateAccount_ReturnsAccountJSON(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := `{"provider":"aws","label":"prod","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI","region":"us-east-1"}`
+	body := `{"provider":"aws","label":"prod","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"us-east-1"}`
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
@@ -427,7 +427,7 @@ func TestCreateAccount_DefaultsScanIntervalHoursTo24(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI"}`
+	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}`
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
@@ -448,7 +448,7 @@ func TestCreateAccount_DefaultsProviderAndRegion(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI"}`
+	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}`
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
@@ -503,6 +503,50 @@ func TestCreateAccount_MissingSecretKey_Returns400(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+// TestCreateAccount_MalformedAccessKeyID_Returns400 pins the real-world case
+// that prompted this check: an email address (or any non-AWS-shaped string)
+// pasted into access_key_id used to be accepted, AES-encrypted, and stored
+// as-is, with the mismatch only surfacing opaquely on the account's first
+// scan attempt.
+func TestCreateAccount_MalformedAccessKeyID_Returns400(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
+
+	_, mux := testHandler()
+	body := `{"access_key_id":"someone@example.com","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateAccount_MalformedSecretKey_Returns400(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
+
+	_, mux := testHandler()
+	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"tooshort"}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateAccount_MalformedRegion_Returns400(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
+
+	_, mux := testHandler()
+	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"not-a-region"}`
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
 	}
 }
 
