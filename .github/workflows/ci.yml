@@ -40,44 +40,44 @@ jobs:
   # and publish-images in turn, with no extra `if:` needed on any of them) --
   # a skipped required check still satisfies branch protection.
   #
-  # Defaults to running full CI (code=true) whenever anything outside the
-  # known-safe paths changed, or when the diff can't be computed (e.g. a
-  # force-push leaves `before` as all-zeros) -- never the other way around.
+  # Defaults to running full CI whenever anything outside the known-safe
+  # paths changed. Uses dorny/paths-filter (pinned to the v4.0.3 release
+  # commit) rather than a hand-rolled git diff -- it already handles the
+  # pull_request (GitHub API, no checkout needed) vs push-to-main (git,
+  # diffed against the prior commit on the same branch) cases correctly on
+  # its own, including its own merge-base-search fetch depth, so this job
+  # doesn't need to reimplement any of that.
+  #
+  # NOTE: a filter made only of negated ('!...') patterns never matches
+  # anything (documented paths-filter gotcha) -- '**' is the catch-all
+  # inclusion pattern here, and predicate-quantifier: some-with-excludes is
+  # what makes the '!'-prefixed lines actually exclude.
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
       - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
         with:
-          fetch-depth: 0
-      - id: filter
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE="${{ github.event.pull_request.base.sha }}"
-          else
-            BASE="${{ github.event.before }}"
-          fi
-          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          changed="$(git diff --name-only "$BASE" "${{ github.sha }}")"
-          echo "Changed files:"
-          echo "$changed"
-          # Safe-to-skip: docs/website content, terraform (no automated
-          # apply pipeline reads this in CI), and root/per-service CLAUDE.md
-          # files. Anything else -- including .github/workflows/** itself --
-          # falls through to code=true.
-          if echo "$changed" | grep -qvE '^(docs/|website/|terraform/|README\.md$|CHANGELOG\.md$|CLAUDE\.md$|services/[^/]+/CLAUDE\.md$)'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          fi
+          predicate-quantifier: "some-with-excludes"
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!website/**'
+              - '!terraform/**'
+              - '!README.md'
+              - '!CHANGELOG.md'
+              - '!CLAUDE.md'
+              - '!services/*/CLAUDE.md'
 
   test-unit:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: failure() || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -94,7 +94,7 @@ jobs:
 
   test-redis:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: failure() || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       redis:
@@ -120,7 +120,7 @@ jobs:
 
   test-dashboard:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: failure() || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -133,7 +133,7 @@ jobs:
 
   test-storage:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: failure() || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -165,7 +165,7 @@ jobs:
 
   lint:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: failure() || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
