@@ -25,6 +25,16 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+## [0.3.0-alpha.4] — 2026-09-07
+
+### Added
+
+- Access-key accounts (`createAccount`/`updateAccount`/`createDraftAccount`) now validate `access_key_id`, `secret_key`, and `region` against AWS's own published formats before accepting them, both server-side and in the Connect/Account Settings forms. Previously any string was accepted, AES-encrypted, and stored, with a bad value only surfacing opaquely on the account's first scan attempt.
+
+### Changed
+
+- `ci.yml` now skips the full test/build suite (unit, integration, e2e, production-build verification) for changes that only touch docs, the website, or Terraform — those jobs report as skipped rather than actually running, since none of them exercise anything those paths touch. Required status checks still get satisfied by a skipped conclusion, so this doesn't affect merge gating.
+
 ## [0.3.0-alpha.3] — 2026-09-07
 
 ### Fixed
@@ -978,6 +988,7 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://github.com/axiaops-io/axiaops/compare/0.3.0-alpha.1...main
+[0.3.0-alpha.4]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.4
 [0.3.0-alpha.3]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.3
 [0.3.0-alpha.2]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.1
