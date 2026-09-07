@@ -19,6 +19,7 @@ No AWS SDK dependency — cloud-specific code lives in the ingestion service.
 | `storage/postgres/` | Production Store impl — PostgreSQL with RLS, migrations |
 | `analyzer/` | `Detect()`, `Summarize()`, `AnnotateAll()` — pure functions, no I/O |
 | `crypto/` | AES-256-GCM encrypt/decrypt for account secrets |
+| `pricing/` | AWS list-price rates for API-only zombie cost estimates (EIP, EBS volume/snapshot, CloudWatch Logs, RDS snapshot, ECR storage, Kinesis shard, Secrets Manager). `Default()` loads the embedded, dated/sourced `rates.yml`; `Config.For(region)` overlays per-region overrides. Single source of truth for the `$/GB-month`-style figures quoted in root `CLAUDE.md`'s FinOps Domain Rules table — update `rates.yml` (with its source URL + date) first, table second. |
 | `logging/` | `Init(service)` — configures `log/slog` with JSON/text output |
 | `observability/` | **Phase 2.6** — Prometheus metrics, HTTP middleware |
 | `cache/` | **Phase 2.14** — `Cache` interface + Redis + memory implementations. `cache.New(redisURL)` selects backend. |

@@ -107,13 +107,13 @@ var serviceRules = map[string]rule{
 		metric:    "Invocations",
 		threshold: 0.0,
 		unit:      "Count",
-		reason:    "Bedrock provisioned throughput model has zero invocations — likely unused ($10k+/mo leak)",
+		reason:    "Bedrock provisioned throughput model has zero invocations — likely unused; billed continuously regardless of usage",
 	},
 	"AmazonKendra": {
 		metric:    "SearchQueryCount",
 		threshold: 0.0,
 		unit:      "Count",
-		reason:    "Kendra AI search index has zero search queries — likely abandoned ($810+/mo leak)",
+		reason:    "Kendra AI search index has zero search queries — likely abandoned; billed hourly regardless of usage",
 	},
 	// NOTE: CloudFront, Kinesis, and S3 use Tier 1-style direct detection
 	// (DiscoverIdle* functions in ingestion/provider/aws/discover.go) instead

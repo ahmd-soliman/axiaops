@@ -76,6 +76,15 @@ deploying the unused in-cluster pod alongside it. Harmless, just wasted
 resources — worth a `redis.embedded.enabled` flag in a future chart
 revision, mirroring how Postgres has no in-cluster option at all.
 
+`redis.enabled: false` is also possible — `api`/`ingestion` both fall back
+to an in-memory cache and synchronous (non-queued) scan processing when
+`REDIS_URL` is unset — but not recommended for production. Two concrete
+costs: the API's per-organization rate limiter is disabled outright (it
+only activates when `REDIS_URL` is set), and the in-memory cache/session
+state is per-pod, not shared — with more than one `api` replica, a session
+validated on one pod may not be visible on another. Fine for a single-replica
+trial; leave `redis.enabled: true` for anything real.
+
 ## Two separate IAM roles
 
 1. **The `ingestion` pod's own IAM role** (its EKS pod identity / IRSA

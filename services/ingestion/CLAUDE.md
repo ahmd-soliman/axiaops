@@ -161,6 +161,9 @@ observability.Global.PotentialMonthlySaving.WithLabelValues("aws", organizationI
 | MIGRATION_DATABASE_URL | No | — | PostgreSQL owner connection (`axiaops_owner`). **Migrate task only** — not read by the ingestion runtime. |
 | AWS_REGION | Prod | eu-central-1 | AWS region for API calls |
 | DAYS_BACK | No | 30 | Cost lookback window (days) |
+| START_DATE / END_DATE | No | — | Explicit `YYYY-MM-DD` range, both required together — overrides `DAYS_BACK` when set. |
+| SCAN_INTERVAL | No | 60m | Go duration string — how often the background ticker checks all organizations' accounts for due scheduled scans (per-account cadence is still `scan_interval_hours` on the account row; see Architecture doc's Scheduling section). |
+| SNOOZE_EXPIRY_INTERVAL | No | 10m | Go duration string — how often the background ticker expires past snoozes so `dismissed_zombies` stays accurate. |
 | COST_RECORDS_RETENTION_DAYS | No | 90 | Age cutoff for the daily `cost_records` retention sweep (midnight UTC, cross-org). |
 | NOTIFICATION_DISPATCH_RETENTION_DAYS | No | 90 | Age cutoff (by `created_at`) for the daily `notification_dispatches` retention sweep — runs in the same midnight-UTC pass as the cost sweep, cross-org via the admin pool. |
 | ENCRYPTION_KEY | Yes | — | Decrypt account secrets; also decrypts `notification_channels.config_ciphertext` in the post-scan notification dispatch |

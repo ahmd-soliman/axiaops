@@ -420,12 +420,16 @@ buckets by `(organization, user)`, which auth has to resolve first.
 
 ## 7. Detection Engine
 
-26 detection rules across 18 AWS services, two tiers depending on the data source:
+Detection rules exist for 23 AWS services (30 rules total) — most trigger off
+a CloudWatch usage metric sitting at (or near) zero for the whole billing
+period; a few (unattached/orphaned resources, stale artifacts) are flagged
+from resource metadata alone, with no CloudWatch call at all. Two tiers
+depending on the data source:
 
-- **Tier 1 (CloudWatch-based)** — joins Cost Explorer billing data with a
-  CloudWatch metric; cost with usage at/below threshold ⇒ flagged.
-- **Tier 2 (API-only)** — Describe-API state alone determines waste (e.g. an
-  unattached EBS volume is always waste, no metric needed).
+- **Tier 1 (CloudWatch-based, 19 rules)** — joins Cost Explorer billing data
+  with a CloudWatch metric; cost with usage at/below threshold ⇒ flagged.
+- **Tier 2 (API-only, 11 rules)** — Describe-API state alone determines waste
+  (e.g. an unattached EBS volume is always waste, no metric needed).
 
 ### Tier 1 — CloudWatch-based
 
@@ -442,6 +446,11 @@ buckets by `(organization, user)`, which auth has to resolve first.
 | SageMaker | Invocations (AWS/SageMaker) | = 0 | Forgotten endpoint |
 | DynamoDB | ConsumedReadCapacityUnits (AWS/DynamoDB) | = 0 | Unused table (provisioned mode) |
 | EKS | cluster_node_count (ContainerInsights) | = 0 | Empty cluster (requires Container Insights) |
+| ECS | CPUUtilization (AWS/ECS) | ≤ 2% | Idle service |
+| DocumentDB | DatabaseConnections (AWS/DocDB) | = 0 | Unused cluster |
+| MSK | MessagesInPerSec (AWS/Kafka) | = 0 | Idle cluster |
+| Bedrock | Invocations (AWS/Bedrock) | = 0 | Unused provisioned throughput |
+| Kendra | SearchQueryCount (AWS/Kendra) | = 0 | Abandoned search index |
 | CloudFront | Requests (AWS/CloudFront) | = 0 | Abandoned distribution |
 | Kinesis | IncomingRecords (AWS/Kinesis) | = 0 | Unused data stream |
 | S3 | AllRequests (AWS/S3) | = 0 | Abandoned bucket (requires request metrics enabled) |
@@ -458,6 +467,8 @@ buckets by `(organization, user)`, which auth has to resolve first.
 | CloudWatch Log Group | `logs:DescribeLogGroups` | No retention policy | Wasteful log group |
 | RDS Snapshot (manual) | `rds:DescribeDBSnapshots` | Age > 30d, source DB deleted | Orphaned RDS snapshot |
 | ECR Repository | `ecr:DescribeRepositories`+`ListImages` | Untagged or age > 90d | Stale container images |
+| Route53 Hosted Zone | `route53:ListHostedZones`+`ListResourceRecordSets` | Only default NS/SOA records | Unused hosted zone |
+| S3 Multipart Upload | `s3:ListMultipartUploads` | Incomplete upload age > 7 days | Wasted storage from abandoned uploads |
 | Secrets Manager | `secretsmanager:ListSecrets` | `LastAccessedDate` > 90d | Unused secret |
 
 The full read-only IAM permission list these calls require is in
