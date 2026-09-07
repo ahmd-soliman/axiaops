@@ -58,6 +58,18 @@ var generalScanPermissions = []string{
 	// on every account without ECS usage in its scan window.
 	"ecs:ListClusters",
 	"ecs:ListServices",
+	// Backs discoverDocDB (discover_docdb.go), discoverMSK (discover_msk.go),
+	// discoverBedrock (discover_bedrock.go), and discoverKendra
+	// (discover_kendra.go) — all four ship and run today but AccessDenied
+	// silently on every role-based account without these, since none of them
+	// were ever added here. Each discovery function catches the error, logs
+	// a warning, and returns an empty list rather than failing the scan, so
+	// AmazonDocDB/AmazonMSK/AmazonBedrock/AmazonKendra detection has been
+	// dead for every account onboarded via the recommended role flow.
+	"docdb:DescribeDBClusters",
+	"kafka:ListClustersV2",
+	"bedrock:ListProvisionedModelThroughputs",
+	"kendra:ListIndices",
 }
 
 // curAthenaPermissions are the additional actions a cur_athena billing
