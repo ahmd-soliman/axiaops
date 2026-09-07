@@ -747,6 +747,35 @@ func TestGetScanPermissions_DefaultExcludesCURAthena(t *testing.T) {
 	}
 }
 
+// TestGetScanPermissions_IncludesDiscoveryOnlyServices pins the four actions
+// backing discoverDocDB, discoverMSK, discoverBedrock, and discoverKendra
+// (discover_docdb.go, discover_msk.go, discover_bedrock.go,
+// discover_kendra.go) — all four discovery functions shipped and ran before
+// their IAM actions were ever added to generalScanPermissions, so every
+// role-based account AccessDenied'd on them silently (each discovery
+// function logs a warning and returns an empty list rather than failing the
+// scan). Regression test for that gap.
+func TestGetScanPermissions_IncludesDiscoveryOnlyServices(t *testing.T) {
+	_, mux := testHandler()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, orgRequest(http.MethodGet, "/v1/scan-permissions"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, action := range []string{
+		"docdb:DescribeDBClusters",
+		"kafka:ListClustersV2",
+		"bedrock:ListProvisionedModelThroughputs",
+		"kendra:ListIndices",
+	} {
+		if !strings.Contains(body, action) {
+			t.Errorf("expected %q in policy, got: %s", action, body)
+		}
+	}
+}
+
 func TestGetScanPermissions_CURAthenaIncludesAthenaAndGlue(t *testing.T) {
 	_, mux := testHandler()
 	w := httptest.NewRecorder()
