@@ -25,6 +25,12 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+## [0.3.0-alpha.3] — 2026-09-07
+
+### Fixed
+
+- Dashboard: the cost drill-down panel's per-resource breakdown listed the general "no resource_id" row as its own "No resource ID" entry next to the real resource-level rows it already contains — a general row's amount is the whole day-level total for the service, so line items that also carry a resource_id are already summed into it. Showing both double-counted the same dollars, one level deeper than the panel-total fix in `0.3.0-alpha.2`. The breakdown now prefers resource-level rows when they exist and drops the general row entirely, falling back to it only when a service has no resource-level data at all.
+
 ## [0.3.0-alpha.2] — 2026-09-07
 
 ### Changed
@@ -972,6 +978,7 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://github.com/axiaops-io/axiaops/compare/0.3.0-alpha.1...main
+[0.3.0-alpha.3]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.3
 [0.3.0-alpha.2]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.1
 [0.2.0-beta.9]: https://github.com/axiaops-io/axiaops/tree/0.2.0-beta.9
