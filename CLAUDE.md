@@ -104,6 +104,10 @@ Two env vars are worth knowing about regardless of platform:
 
 Zombie detection thresholds — do not change without business justification:
 
+30 rules across 23 AWS services total (see `docs/ARCHITECTURE.md` § 7 for the
+full breakdown). Highlights — do not change thresholds without business
+justification:
+
 | Service | Metric | Threshold | Verdict |
 |---------|--------|-----------|---------|
 | AmazonEC2 | CPUUtilization | ≤ 5% | Idle instance |
@@ -111,15 +115,23 @@ Zombie detection thresholds — do not change without business justification:
 | AWSLambda | Invocations | = 0 | Unused function |
 | ELB | RequestCount | = 0 | Abandoned LB |
 | VPC (NAT) | BytesOutToDestination | = 0 | Unused NAT GW |
-| VPC (EIP) | NetworkInterfaceAttachment | = 0 | Unattached EIP |
+| AmazonEKS | cluster_node_count | = 0 | Empty cluster (control plane still bills) |
+| AmazonECS | CPUUtilization | ≤ 2% | Idle service |
+| AmazonBedrock | Invocations | = 0 | Unused provisioned throughput |
+| AmazonKendra | SearchQueryCount | = 0 | Abandoned search index |
 | CloudFront | Requests | = 0 | Abandoned distribution |
 | Kinesis | IncomingRecords | = 0 | Unused data stream |
 | S3 | AllRequests | = 0 | Abandoned bucket (requires request metrics) |
+
+Also CloudWatch-based (`serviceRules` in `services/shared/analyzer/rules.go`):
+ElastiCache, OpenSearch (`AmazonES`), Redshift, SageMaker, DynamoDB, DocumentDB
+(`AmazonDocDB`), MSK — same "usage metric at/near zero" shape as the table above.
 
 API-only rules (no CloudWatch — state derived directly from AWS Describe APIs):
 
 | Service | Detection Method | Threshold | Verdict | Cost |
 |---------|-----------------|-----------|---------|------|
+| VPC (EIP) | ec2:DescribeAddresses | Not attached to any ENI | Unattached EIP | $3.60/mo ($0.005/hr) |
 | AmazonEC2 (EBS vol) | ec2:DescribeVolumes | state = "available" | Unattached volume | $0.08–0.125/GB-month |
 | AmazonEC2 (snapshot) | ec2:DescribeSnapshots + DescribeVolumes | source volume gone, not backing any AMI | Orphaned snapshot | $0.05/GB-month |
 | AmazonEC2 (stopped) | ec2:DescribeInstances StateTransitionReason | stopped > 30 days | Long-stopped instance (EBS still bills) | $0.08/GB-month on attached volumes |
@@ -128,6 +140,8 @@ API-only rules (no CloudWatch — state derived directly from AWS Describe APIs)
 | AmazonRDS (snapshot) | rds:DescribeDBSnapshots + DescribeDBInstances | manual, age > 30 days, source DB gone | Orphaned RDS snapshot | $0.095/GB-month |
 | AmazonECR (images) | ecr:DescribeRepositories + DescribeImages | untagged or age > 90 days (not latest) | Stale container images | $0.10/GB-month |
 | AWSSecretsManager | secretsmanager:ListSecrets | LastAccessedDate > 90 days | Unused secret | $0.40/secret-month |
+| AmazonRoute53 | route53:ListHostedZones + ListResourceRecordSets | Only default NS/SOA records | Unused hosted zone | $0.50/zone-month |
+| AmazonS3 (multipart) | s3:ListMultipartUploads | Incomplete upload older than 7 days | Wasted storage | $10/mo nominal estimate (bytes not measured) |
 
 ## Security
 

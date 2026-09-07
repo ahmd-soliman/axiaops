@@ -114,10 +114,10 @@ Athena workgroup, and the Data Exports config in one stack — see
 
 ## Service coverage
 
-Detection rules exist for 14 AWS services — most trigger off a CloudWatch
-usage metric sitting at (or near) zero for the whole billing period; a few
-(unattached/orphaned resources, stale artifacts) are flagged from resource
-metadata alone, with no CloudWatch call at all:
+Detection rules exist for 23 AWS services (30 rules total) — most trigger off
+a CloudWatch usage metric sitting at (or near) zero for the whole billing
+period; a few (unattached/orphaned resources, stale artifacts) are flagged
+from resource metadata alone, with no CloudWatch call at all:
 
 | Service | Flags | Signal |
 |---|---|---|
@@ -133,16 +133,23 @@ metadata alone, with no CloudWatch call at all:
 | VPC | Idle NAT gateway | Zero outbound bytes |
 | VPC | Unattached Elastic IP | Not attached to any resource |
 | EKS | Empty cluster | Zero nodes — control plane still billing. Needs Container Insights enabled; clusters without it are skipped, not falsely cleared |
+| ECS | Idle service | CPU utilization ≤ 2% |
 | ElastiCache | Idle cluster | Zero connections |
 | OpenSearch / Elasticsearch | Unused domain | Zero search rate |
 | Redshift | Abandoned cluster | Zero database connections |
 | SageMaker | Forgotten endpoint | Zero invocations |
 | DynamoDB | Unused table | Zero consumed read capacity (provisioned-capacity tables only) |
+| DocumentDB | Unused cluster | Zero database connections |
+| MSK | Idle cluster | Zero incoming messages |
+| Bedrock | Unused provisioned throughput | Zero invocations — billed continuously regardless of usage |
+| Kendra | Abandoned search index | Zero search queries — billed hourly regardless of usage |
 | CloudFront | Abandoned distribution | Zero requests |
 | S3 | Abandoned bucket | Zero requests — needs S3 request metrics enabled |
+| S3 | Wasted storage | Incomplete multipart upload older than 7 days |
 | Kinesis | Unused stream | Zero incoming records |
 | CloudWatch Logs | Wasteful log group | No retention policy — storage grows indefinitely |
 | ECR | Stale images | Untagged/unreferenced images, 90+ days old |
+| Route53 | Unused hosted zone | Only default NS/SOA records — nothing else was ever added |
 | Secrets Manager | Unused secret | Not accessed in 90+ days |
 
 Adding coverage for a new service means one of two things: a new entry in
@@ -207,10 +214,26 @@ is unreachable, elsewhere in this document.
   scan history, accounts, organizations, dismissals.
 - **Redis / Valkey** — not a store of record, but load-bearing for more
   than just `ingestion`'s job queue: `api` also uses it for session
-  caching, rate limiting, and SSO state. If it's unreachable, `ingestion`
-  falls back to synchronous processing rather than failing the scan — see
-  the retry/backend-selection logic in
-  `services/ingestion/internal/provider/aws/aws.go`.
+  caching, rate limiting, and SSO state. The Redis-vs-synchronous choice
+  (`services/shared/queue/queue.go`) is made once at startup from whether
+  `REDIS_URL` is set — there's no runtime failover. If Redis is configured
+  but goes unreachable *after* startup: an on-demand scan trigger
+  (`POST /accounts/{id}/scan`) already reported `"scanning"` to the caller
+  before the failed enqueue flips the account to `"error"` in the
+  background; a scheduled scan just logs and retries on the next cycle,
+  with no side effects. Either way, every `ingestion` replica's worker loop
+  (`services/ingestion/cmd/worker.go`) logs `worker: dequeue error` and
+  retries every second until Redis returns — the pod doesn't crash and its
+  health checks stay green, it just stops picking up new jobs for the
+  outage's duration. Multiple `ingestion` replicas share the queue for free
+  (Redis's blocking `BRPOP` hands each job to exactly one waiting replica,
+  no extra coordination needed), but delivery is at-most-once: `BRPOP`
+  removes a job before it's processed, so a replica that crashes between
+  dequeue and completion loses that job silently — no ack, no
+  redelivery, no dead-letter queue. A lost scheduled scan self-heals on
+  the next cycle; a lost on-demand trigger leaves the account at
+  `"scanning"` until the 15-minute stuck-scan recovery sweep resets it, and
+  the user has to retry.
 
 ## Organizations and accounts
 
@@ -223,13 +246,25 @@ would have nothing to summarize across.
 
 ## Connecting to AWS
 
-Every connected account is reached via `sts:AssumeRole`, never static
-access keys. A synchronous `/v1/credentials/verify` endpoint does a
-short-lived (15 minute) AssumeRole + GetCallerIdentity round trip to confirm
-a customer's trust policy is wired correctly *before* the account is saved —
-credentials from that probe are discarded immediately, never persisted.
-Real scans use a longer-lived (1 hour) session, refreshed transparently by
-the AWS SDK's credentials cache.
+Every connected account is reached via `sts:AssumeRole` (recommended) — a
+static access key is also possible, but not recommended, since it's a
+long-lived credential the account owner has to rotate themselves. A
+synchronous `/v1/credentials/verify` endpoint does a short-lived (15 minute)
+AssumeRole + GetCallerIdentity round trip to confirm a customer's trust
+policy is wired correctly *before* the account is saved — credentials from
+that probe are discarded immediately, never persisted. Real scans use a
+longer-lived (1 hour) session, refreshed transparently by the AWS SDK's
+credentials cache.
+
+`AssumeRole` itself still needs `ingestion` to authenticate as *some* AWS
+identity first (`config.LoadDefaultConfig` — the AWS SDK's standard
+credential chain). Running on AWS compute (ECS task role, EKS pod identity)
+resolves this for free, no keys anywhere. Self-hosted outside AWS, there's
+no instance-metadata service to vend that identity — the operator sets
+`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (see `.env.example`), or avoids a
+long-lived key entirely with [IAM Roles Anywhere](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/introduction.html)
+(short-lived credentials via a private CA-issued certificate — needs no code
+change, just a `credential_process` entry in the AWS config the SDK already reads).
 
 Cost Explorer calls — the ones most likely to hit AWS-side throttling under
 load — retry on transient failures with exponential backoff (three attempts,

@@ -342,7 +342,7 @@ API is available at `http://localhost/api/` when running with Docker Compose.
 
 ## Detection Rules
 
-26 detection rules across 18 AWS services, split into two tiers — **Tier 1** joins Cost Explorer billing data with a CloudWatch metric (cost + usage at/below threshold ⇒ flagged); **Tier 2** is API-only, where Describe-API state alone determines waste (e.g. an unattached EBS volume is always waste, no metric needed). Full rule tables, thresholds, and the required IAM permissions live in [`docs/ARCHITECTURE.md` § 7](docs/ARCHITECTURE.md#7-detection-engine).
+30 detection rules across 23 AWS services, split into two tiers — **Tier 1** joins Cost Explorer billing data with a CloudWatch metric (cost + usage at/below threshold ⇒ flagged); **Tier 2** is API-only, where Describe-API state alone determines waste (e.g. an unattached EBS volume is always waste, no metric needed). Full rule tables, thresholds, and the required IAM permissions live in [`docs/ARCHITECTURE.md` § 7](docs/ARCHITECTURE.md#7-detection-engine).
 
 Rules do not change without business justification — see `CLAUDE.md` for FinOps domain thresholds.
 
