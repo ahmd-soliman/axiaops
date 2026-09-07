@@ -25,9 +25,15 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+## [0.3.0-alpha.2] — 2026-09-07
+
 ### Changed
 
 - Helm chart: Bumped chart version to `0.3.7` and `appVersion` to `0.3.0-alpha.1`. The published `0.3.6` chart predated both the `axiaops-io` org move and this release, so its default `image.registry`/`appVersion` were stale.
+
+### Fixed
+
+- Dashboard: the cost drill-down side panel's TOTAL/PERIOD stats summed raw `cost_records` without deduping the two granularities the CUR migration introduced (a general per-day row plus resource-level rows breaking that same spend down further), so any service with resource-level attribution showed exactly 2x its real cost in the panel header. The panel now reuses the same dedup helper the by-service table already applied.
 
 ## [0.3.0-alpha.1] — 2026-09-06
 
@@ -966,6 +972,7 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://github.com/axiaops-io/axiaops/compare/0.3.0-alpha.1...main
+[0.3.0-alpha.2]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.1
 [0.2.0-beta.9]: https://github.com/axiaops-io/axiaops/tree/0.2.0-beta.9
 [0.1.0-alpha.32]: https://github.com/axiaops-io/axiaops/tree/0.1.0-alpha.32
