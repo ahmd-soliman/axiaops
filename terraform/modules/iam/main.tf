@@ -467,51 +467,23 @@ data "aws_iam_policy_document" "ecs_ingestion_task" {
     }
   }
 
-  # Tier-1 + Tier-2 + API-only detection-rule actions (CLAUDE.md tables,
-  # docs/production.md, docs/tier2_detections_status.md). Resource * because
-  # describe APIs do not take per-resource ARNs.
-  statement {
-    sid    = "ReadCloudCosts"
-    effect = "Allow"
-    actions = [
-      "ce:GetCostAndUsage",
-      "cloudwatch:GetMetricStatistics",
-      "cloudwatch:ListMetrics",
-      "ec2:DescribeInstances",
-      "ec2:DescribeNatGateways",
-      "ec2:DescribeAddresses",
-      "ec2:DescribeVolumes",
-      "ec2:DescribeSnapshots",
-      "ec2:DescribeImages",
-      "rds:DescribeDBInstances",
-      "rds:DescribeDBSnapshots",
-      "lambda:ListFunctions",
-      "elasticloadbalancing:DescribeLoadBalancers",
-      "elasticache:DescribeCacheClusters",
-      "elasticache:DescribeReplicationGroups",
-      "es:ListDomainNames",
-      "es:DescribeDomain",
-      "redshift:DescribeClusters",
-      "sagemaker:ListEndpoints",
-      "dynamodb:ListTables",
-      "dynamodb:DescribeTable",
-      "eks:ListClusters",
-      "eks:DescribeCluster",
-      "ecs:ListClusters",
-      "ecs:ListServices",
-      "docdb:DescribeDBClusters",
-      "kafka:ListClustersV2",
-      "route53:ListHostedZones",
-      "bedrock:ListProvisionedModelThroughputs",
-      "kendra:ListIndices",
-      "logs:DescribeLogGroups",
-      "ecr:DescribeRepositories",
-      "ecr:DescribeImages",
-      "secretsmanager:ListSecrets",
-      "s3:ListBucketMultipartUploads",
-    ]
-    resources = ["*"]
-  }
+  # No ReadCloudCosts-style statement here on purpose: this role's own
+  # identity never directly calls Cost Explorer/CloudWatch/Describe APIs.
+  # Every scan path goes through aws.go's two credential providers --
+  # NewStaticCredentialsProvider (the customer's own decrypted access key,
+  # legacy mode) or stscreds.NewAssumeRoleProvider (assumes into the
+  # customer's AxiaOpsIntegrationRole, which carries these actions -- see
+  # services/api/internal/api/scan_permissions.go, the single source of
+  # truth for what a *connected account* grants). This role only ever needs
+  # sts:AssumeRole to reach that point (AssumeCustomerRoles below); granting
+  # the same Describe/List actions directly on this identity too was unused
+  # duplication that had already drifted from scan_permissions.go once
+  # (missing route53:ListHostedZones and s3:ListBucketMultipartUploads,
+  # while separately being the only copy with cloudwatch:ListMetrics,
+  # elasticache:DescribeReplicationGroups, es:DescribeDomain,
+  # dynamodb:DescribeTable, and eks:DescribeCluster -- none of which
+  # scan_permissions.go grants either, since nothing in ingestion calls
+  # them). Removed rather than reconciled a second time.
 
   statement {
     sid    = "AssumeCustomerRoles"
