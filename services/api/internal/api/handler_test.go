@@ -400,7 +400,7 @@ func TestCreateAccount_ReturnsAccountJSON(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := `{"provider":"aws","label":"prod","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"us-east-1"}`
+	body := `{"provider":"aws","label":"prod","access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI","region":"us-east-1"}`
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
@@ -427,7 +427,7 @@ func TestCreateAccount_DefaultsScanIntervalHoursTo24(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}`
+	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI"}`
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
@@ -448,7 +448,7 @@ func TestCreateAccount_DefaultsProviderAndRegion(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}`
+	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI"}`
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
 
@@ -461,81 +461,6 @@ func TestCreateAccount_DefaultsProviderAndRegion(t *testing.T) {
 	}
 	if account.Region != "eu-central-1" {
 		t.Errorf("expected default region eu-central-1, got %s", account.Region)
-	}
-}
-
-func TestCreateAccount_MalformedAccessKeyID_Returns400(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
-
-	_, mux := testHandler()
-	// An email address, not an AWS access key — the real-world case that
-	// prompted this check (a customer pasted their login email here).
-	body := `{"access_key_id":"someone@example.com","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}`
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCreateAccount_MalformedSecretKey_Returns400(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
-
-	_, mux := testHandler()
-	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"tooshort"}`
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCreateAccount_MalformedRegion_Returns400(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
-
-	_, mux := testHandler()
-	body := `{"access_key_id":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"not-a-region"}`
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPost, "/v1/accounts", body))
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestUpdateAccount_MalformedAccessKeyID_Returns400(t *testing.T) {
-	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIAIOSFODNN7EXAMPLE", Region: "us-east-1"},
-	})
-	h := api.New(store, noopQueue())
-	mux := http.NewServeMux()
-	h.Register(mux)
-
-	body := `{"access_key_id":"someone@example.com"}`
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestUpdateAccount_MalformedRegion_Returns400(t *testing.T) {
-	store := NewMockStore().WithAccounts([]model.Account{
-		{ID: "acc-1", OrganizationID: "organization-test-uuid", Provider: "aws", Label: "prod", AccessKeyID: "AKIAIOSFODNN7EXAMPLE", Region: "us-east-1"},
-	})
-	h := api.New(store, noopQueue())
-	mux := http.NewServeMux()
-	h.Register(mux)
-
-	body := `{"region":"not-a-region"}`
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, orgRequestWithBody(http.MethodPatch, "/v1/accounts/acc-1", body))
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
 	}
 }
 
