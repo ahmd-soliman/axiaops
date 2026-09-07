@@ -64,7 +64,9 @@ or delete action, ever:
       "eks:ListClusters",
       "s3:ListAllMyBuckets", "s3:GetBucketLocation", "s3:ListBucketMultipartUploads",
       "route53:ListHostedZones",
-      "ecs:ListClusters", "ecs:ListServices"
+      "ecs:ListClusters", "ecs:ListServices",
+      "docdb:DescribeDBClusters", "kafka:ListClustersV2",
+      "bedrock:ListProvisionedModelThroughputs", "kendra:ListIndices"
     ],
     "Resource": "*"
   }]
