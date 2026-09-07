@@ -300,10 +300,23 @@ export default function CloudSpendScreen({ accounts: passedAccounts, selectedAcc
   }, [selectedService, panelServiceRecords]);
 
   // Per-resource_id breakdown for the side panel — also scoped to the clamped window.
+  // A general row's amount is the day-level total for the whole service --
+  // CUR line items that also carry a resource_id are already included in it
+  // (see costTotals.js / cur/fetch.go's FetchCosts vs FetchResourceCosts).
+  // So once resource-level rows exist, drop the general "no resource_id" row
+  // entirely rather than bucketing it as its own "No resource ID" entry --
+  // showing it alongside the resources it already contains double-counts the
+  // same dollars the panel total was fixed to stop double-counting. Only
+  // fall back to the general row when a service has no resource-level data
+  // at all, where it's the only real attribution available.
   const selectedServiceBreakdown = useMemo(() => {
     if (!selectedService) return null;
+    const hasResourceRows = panelServiceRecords.some(r => r.resource_id);
+    const breakdownRecords = hasResourceRows
+      ? panelServiceRecords.filter(r => r.resource_id)
+      : panelServiceRecords;
     const byResource = new Map();
-    for (const r of panelServiceRecords) {
+    for (const r of breakdownRecords) {
       const key = r.resource_id || '__none__';
       const e = byResource.get(key);
       if (e) {
