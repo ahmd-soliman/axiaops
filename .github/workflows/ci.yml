@@ -58,6 +58,8 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      grafana: ${{ steps.filter.outputs.grafana }}
+      helm: ${{ steps.filter.outputs.helm }}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -74,6 +76,11 @@ jobs:
               - '!CHANGELOG.md'
               - '!CLAUDE.md'
               - '!services/*/CLAUDE.md'
+              - '!deploy/observability/**'
+            grafana:
+              - 'deploy/observability/grafana-dashboard.json'
+            helm:
+              - 'deploy/helm/axiaops/**'
 
   test-unit:
     needs: changes
@@ -198,6 +205,35 @@ jobs:
             exit 1
           fi
       - run: ./scripts/check-migration-search-path.sh
+
+  # Excluded from the `code` filter above (nothing in test-unit/lint/
+  # integration/e2e touches this file), so a dashboard-only change would
+  # otherwise merge with zero validation. jq empty parses the file and
+  # discards the output -- exits non-zero with a pointer at the bad byte
+  # on malformed JSON, silent success otherwise.
+  validate-grafana-dashboard:
+    needs: changes
+    if: failure() || needs.changes.outputs.grafana == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: jq empty deploy/observability/grafana-dashboard.json
+
+  # deploy/helm/axiaops is the customer-facing install path (docs/
+  # deployment guides), but it's Go-template YAML -- nothing in
+  # test-unit/lint/integration/e2e renders it, and deploy-pages.yml only
+  # `helm package`s it on push to main (no pull_request trigger, and
+  # package doesn't render templates). This is the only check that
+  # actually renders the chart before merge.
+  helm-lint:
+    needs: changes
+    if: failure() || needs.changes.outputs.helm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      - run: helm lint deploy/helm/axiaops
+      - run: helm template deploy/helm/axiaops > /dev/null
 
   test-integration-api:
     runs-on: ubuntu-latest
